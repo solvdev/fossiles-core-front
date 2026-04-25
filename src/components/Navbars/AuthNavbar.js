@@ -50,7 +50,7 @@ function AuthNavbar(props) {
       <Container>
         <div className="navbar-wrapper">
           <NavbarBrand href="#pablo" onClick={(e) => e.preventDefault()}>
-            Paper Dashboard PRO React
+            Fossiles Corp
           </NavbarBrand>
         </div>
         <button
@@ -69,7 +69,7 @@ function AuthNavbar(props) {
         <Collapse isOpen={collapseOpen} className="justify-content-end" navbar>
           <Nav navbar>
             <NavItem>
-              <NavLink to="/admin/dashboard" className="nav-link">
+              <NavLink to="/admin/dashboard-production" className="nav-link">
                 <i className="nc-icon nc-layout-11" />
                 Dashboard
               </NavLink>

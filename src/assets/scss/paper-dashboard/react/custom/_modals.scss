@@ -6,3 +6,13 @@
     width: unset;
     padding: 5px;
 }
+
+/* Online sales form: ~30% wider than modal-lg on desktop */
+.modal-dialog.online-sale-form-modal {
+    max-width: 1040px;
+}
+
+/* Day-sale selection modal: wider for product list readability */
+.modal-dialog.day-sale-products-modal {
+    max-width: 1180px;
+}

@@ -18,11 +18,14 @@ import React from "react";
 // javascript plugin used to create scrollbars on windows
 import PerfectScrollbar from "perfect-scrollbar";
 import { Route, Routes, useLocation } from "react-router-dom";
+import NotificationAlert from "react-notification-alert";
 
 import AdminNavbar from "components/Navbars/AdminNavbar.js";
 import Footer from "components/Footer/Footer.js";
 import Sidebar from "components/Sidebar/Sidebar.js";
 import FixedPlugin from "components/FixedPlugin/FixedPlugin.js";
+import ProtectedRoute from "components/ProtectedRoute.js";
+import { setNotificationRef } from "utils/notificationHelper";
 
 import routes from "routes.js";
 
@@ -35,18 +38,36 @@ function Admin(props) {
   const [activeColor, setActiveColor] = React.useState("info");
   const [sidebarMini, setSidebarMini] = React.useState(false);
   const mainPanel = React.useRef();
+  const notificationAlert = React.useRef();
+  
+  React.useEffect(() => {
+    setNotificationRef(notificationAlert);
+  }, []);
   React.useEffect(() => {
     if (navigator.platform.indexOf("Win") > -1) {
       document.documentElement.className += " perfect-scrollbar-on";
       document.documentElement.classList.remove("perfect-scrollbar-off");
       ps = new PerfectScrollbar(mainPanel.current);
     }
+    // Estilo para cambiar el color de fondo del sidebar
+    const style = document.createElement('style');
+    style.textContent = `
+      .sidebar:after {
+        background: #283240 !important;
+        background-image: none !important;
+      }
+      .sidebar {
+        background-color: #283240 !important;
+      }
+    `;
+    document.head.appendChild(style);
     return function cleanup() {
       if (navigator.platform.indexOf("Win") > -1) {
         ps.destroy();
         document.documentElement.className += " perfect-scrollbar-off";
         document.documentElement.classList.remove("perfect-scrollbar-on");
       }
+      document.head.removeChild(style);
     };
   });
   React.useEffect(() => {
@@ -60,8 +81,20 @@ function Admin(props) {
         return getRoutes(prop.views);
       }
       if (prop.layout === "/admin") {
+        // Obtener permiso desde el objeto permissions de la ruta
+        const requiredPermission = prop.permissions?.view || null;
+        
         return (
-          <Route path={prop.path} element={prop.component} key={key} exact />
+          <Route 
+            path={prop.path} 
+            element={
+              <ProtectedRoute permission={requiredPermission}>
+                {prop.component}
+              </ProtectedRoute>
+            }
+            key={key} 
+            exact 
+          />
         );
       } else {
         return null;
@@ -84,6 +117,7 @@ function Admin(props) {
   };
   return (
     <div className="wrapper">
+      <NotificationAlert ref={notificationAlert} />
       <Sidebar
         {...props}
         routes={routes}
@@ -100,14 +134,14 @@ function Admin(props) {
           )
         }
       </div>
-      <FixedPlugin
+      {/* <FixedPlugin
         bgColor={backgroundColor}
         activeColor={activeColor}
         sidebarMini={sidebarMini}
         handleActiveClick={handleActiveClick}
         handleBgClick={handleBgClick}
         handleMiniClick={handleMiniClick}
-      />
+      /> */}
     </div>
   );
 }

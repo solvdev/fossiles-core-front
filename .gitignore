@@ -1,3 +1,10 @@
 /build
 /node_modules
 package-lock.json
+
+# Environment variables (do not commit secrets)
+.env
+.env.*
+!.env.example
+
+AWS_S3_CREDENTIALS.txt

@@ -16,7 +16,7 @@
 */
 import React from "react";
 import classnames from "classnames";
-import { useLocation } from "react-router-dom";
+import { useLocation, useNavigate, Link } from "react-router-dom";
 import {
   Button,
   Collapse,
@@ -36,12 +36,28 @@ import {
   Nav,
   Container,
 } from "reactstrap";
+import { logout, getUserData } from "services/authService";
 
 function AdminNavbar(props) {
   const [collapseOpen, setCollapseOpen] = React.useState(false);
   const [sidebarOpen, setSidebarOpen] = React.useState(false);
   const [color, setColor] = React.useState("navbar-transparent");
   const location = useLocation();
+  const navigate = useNavigate();
+  
+  // Obtener datos del usuario
+  const userData = getUserData();
+  
+  // Función para manejar el logout
+  const handleLogout = async () => {
+    try {
+      await logout();
+      navigate('/auth/login');
+    } catch (error) {
+      console.error('Error al cerrar sesión:', error);
+      navigate('/auth/login');
+    }
+  };
   React.useEffect(() => {
     window.addEventListener("resize", updateColor);
   });
@@ -113,7 +129,7 @@ function AdminNavbar(props) {
             </div>
             <NavbarBrand href="#pablo" onClick={(e) => e.preventDefault()}>
               <span className="d-none d-md-block">
-                Paper Dashboard PRO React
+                Fossiles Guatemala
               </span>
               <span className="d-block d-md-none">PD PRO React</span>
             </NavbarBrand>
@@ -171,7 +187,7 @@ function AdminNavbar(props) {
                 >
                   <i className="nc-icon nc-bell-55" />
                   <p>
-                    <span className="d-lg-none d-md-block">Some Actions</span>
+                    <span className="d-lg-none d-md-block">Notificaciones</span>
                   </p>
                 </DropdownToggle>
                 <DropdownMenu
@@ -183,34 +199,51 @@ function AdminNavbar(props) {
                     href="#pablo"
                     onClick={(e) => e.preventDefault()}
                   >
-                    Action
-                  </DropdownItem>
-                  <DropdownItem
-                    href="#pablo"
-                    onClick={(e) => e.preventDefault()}
-                  >
-                    Another action
-                  </DropdownItem>
-                  <DropdownItem
-                    href="#pablo"
-                    onClick={(e) => e.preventDefault()}
-                  >
-                    Something else here
+                    Sin notificaciones
                   </DropdownItem>
                 </DropdownMenu>
               </UncontrolledDropdown>
-              <NavItem>
-                <NavLink
-                  className="btn-rotate"
-                  href="#pablo"
-                  onClick={(e) => e.preventDefault()}
+              <UncontrolledDropdown className="btn-rotate" nav>
+                <DropdownToggle
+                  aria-haspopup={true}
+                  caret
+                  color="default"
+                  data-toggle="dropdown"
+                  id="navbarUserMenuLink"
+                  nav
                 >
-                  <i className="nc-icon nc-settings-gear-65" />
+                  <i className="nc-icon nc-circle-10" />
                   <p>
-                    <span className="d-lg-none d-md-block">Account</span>
+                    <span className="d-lg-none d-md-block">
+                      {userData?.username || 'Usuario'}
+                    </span>
                   </p>
-                </NavLink>
-              </NavItem>
+                </DropdownToggle>
+                <DropdownMenu
+                  persist
+                  aria-labelledby="navbarUserMenuLink"
+                  right
+                >
+                  <DropdownItem
+                    tag={Link}
+                    to="/admin/user-profile"
+                  >
+                    <i className="nc-icon nc-single-02 mr-2" />
+                    Mi Perfil
+                  </DropdownItem>
+                  <DropdownItem divider />
+                  <DropdownItem
+                    href="#pablo"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      handleLogout();
+                    }}
+                  >
+                    <i className="nc-icon nc-button-power mr-2" />
+                    Cerrar Sesión
+                  </DropdownItem>
+                </DropdownMenu>
+              </UncontrolledDropdown>
             </Nav>
           </Collapse>
         </Container>

@@ -14,25 +14,132 @@
 * The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
 
 */
-import React from "react";
+import React, { useState, useEffect } from "react";
 import ReactDOM from "react-dom/client";
-import { BrowserRouter, Route, Routes, Navigate } from "react-router-dom";
+import { BrowserRouter, Route, Routes, Navigate, useLocation } from "react-router-dom";
 
 import AuthLayout from "layouts/Auth.js";
 import AdminLayout from "layouts/Admin.js";
+import ProtectedRoute from "components/ProtectedRoute";
+import { AuthProvider } from "contexts/AuthContext";
+import { isAuthenticated, validateToken } from "services/authService";
+import PublicMaterialKardexMobile from "views/public/PublicMaterialKardexMobile";
 
 import "bootstrap/dist/css/bootstrap.css";
 import "assets/scss/paper-dashboard.scss?v=1.3.1";
 import "assets/demo/demo.css";
 import "perfect-scrollbar/css/perfect-scrollbar.css";
 
+// Importar el interceptor de fetch para detectar tokens expirados
+import "utils/fetchInterceptor";
+
+/**
+ * Componente que valida el token al inicio y maneja las redirecciones
+ */
+function AppRoutes() {
+  const [isValidating, setIsValidating] = useState(true);
+  const [isValid, setIsValid] = useState(false);
+  const location = useLocation();
+
+  useEffect(() => {
+    const checkAuth = async () => {
+      // Si no hay token en localStorage, no está autenticado
+      if (!isAuthenticated()) {
+        setIsValid(false);
+        setIsValidating(false);
+        return;
+      }
+
+      // Si hay token, validarlo con el backend
+      try {
+        const tokenValid = await validateToken();
+        setIsValid(tokenValid);
+      } catch (error) {
+        console.error('Error al validar token:', error);
+        setIsValid(false);
+      } finally {
+        setIsValidating(false);
+      }
+    };
+
+    checkAuth();
+  }, [location.pathname]);
+
+  // Mostrar loading mientras se valida el token
+  if (isValidating) {
+    return (
+      <div style={{ 
+        display: 'flex', 
+        justifyContent: 'center', 
+        alignItems: 'center', 
+        height: '100vh',
+        flexDirection: 'column'
+      }}>
+        <div className="spinner-border text-primary" role="status">
+          <span className="sr-only">Cargando...</span>
+        </div>
+        <p className="mt-3">Verificando autenticación...</p>
+      </div>
+    );
+  }
+
+  return (
+    <Routes>
+      <Route path="/admin/materials-kardex/:materialId" element={<PublicMaterialKardexMobile />} />
+      <Route path="/public/materials-kardex/:materialId" element={<PublicMaterialKardexMobile />} />
+
+      {/* Rutas públicas de autenticación - redirigir si el token es válido */}
+      <Route 
+        path="/auth/*" 
+        element={
+          isValid 
+            ? <Navigate to="/admin/dashboard-production" replace />
+            : <AuthLayout />
+        } 
+      />
+      
+      {/* Rutas protegidas del admin */}
+      <Route 
+        path="/admin/*" 
+        element={
+          isValid ? (
+            <ProtectedRoute>
+              <AdminLayout />
+            </ProtectedRoute>
+          ) : (
+            <Navigate to="/auth/login" replace />
+          )
+        }
+      />
+      
+      {/* Redirigir según autenticación */}
+      <Route 
+        path="/" 
+        element={
+          isValid 
+            ? <Navigate to="/admin/dashboard-production" replace />
+            : <Navigate to="/auth/login" replace />
+        }
+      />
+      
+      {/* Cualquier otra ruta */}
+      <Route 
+        path="*" 
+        element={
+          isValid 
+            ? <Navigate to="/admin/dashboard-production" replace />
+            : <Navigate to="/auth/login" replace />
+        }
+      />
+    </Routes>
+  );
+}
+
 const root = ReactDOM.createRoot(document.getElementById("root"));
 root.render(
   <BrowserRouter>
-    <Routes>
-      <Route path="/auth/*" element={<AuthLayout />} />
-      <Route path="/admin/*" element={<AdminLayout />} />
-      <Route path="*" element={<Navigate to="/admin/dashboard" replace />} />
-    </Routes>
+    <AuthProvider>
+      <AppRoutes />
+    </AuthProvider>
   </BrowserRouter>
 );

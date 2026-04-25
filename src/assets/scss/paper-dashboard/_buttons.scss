@@ -265,7 +265,8 @@
   }
 }
 
-button[type="button"] {
-  background: transparent;
-  border: 0;
-}
+// Comentado para evitar que los botones con clases btn-* pierdan su background
+// button[type="button"] {
+//   background: transparent;
+//   border: 0;
+// }

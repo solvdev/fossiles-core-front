@@ -15,13 +15,15 @@
 
 */
 import React from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate, useLocation } from "react-router-dom";
 import { Nav, Collapse } from "reactstrap";
 // javascript plugin used to create scrollbars on windows
 import PerfectScrollbar from "perfect-scrollbar";
 
 import avatar from "assets/img/faces/ayo-ogunseinde-2.jpg";
 import logo from "assets/img/react-logo.png";
+import { logout, getUserData } from "services/authService";
+import { useAuth } from "contexts/AuthContext";
 
 var ps;
 
@@ -29,6 +31,46 @@ function Sidebar(props) {
   const [openAvatar, setOpenAvatar] = React.useState(false);
   const [collapseStates, setCollapseStates] = React.useState({});
   const sidebar = React.useRef();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const { hasPermission, loading: permissionsLoading, user: authUser } = useAuth();
+  
+  // Obtener datos del usuario
+  const userData = getUserData();
+  const userName =
+    authUser?.firstName && authUser?.lastName
+      ? `${authUser.firstName} ${authUser.lastName}`
+      : authUser?.username || authUser?.email || userData?.username || userData?.email || "Usuario";
+  const profileImageRaw = String(authUser?.profileImageUrl || "").trim();
+  const userAvatar = (() => {
+    if (!profileImageRaw) return avatar;
+    if (
+      profileImageRaw.startsWith("http://") ||
+      profileImageRaw.startsWith("https://") ||
+      profileImageRaw.startsWith("data:") ||
+      profileImageRaw.startsWith("blob:")
+    ) {
+      return profileImageRaw;
+    }
+    try {
+      const apiUrl = process.env.REACT_APP_API_URL || "http://localhost:8080/api";
+      const origin = new URL(apiUrl).origin;
+      return `${origin}${profileImageRaw.startsWith("/") ? profileImageRaw : `/${profileImageRaw}`}`;
+    } catch {
+      return profileImageRaw;
+    }
+  })();
+  // Función para manejar el logout
+  const handleLogout = async () => {
+    try {
+      await logout();
+      navigate('/auth/login');
+    } catch (error) {
+      console.error('Error al cerrar sesión:', error);
+      // Aún así, limpiar y redirigir
+      navigate('/auth/login');
+    }
+  };
   // this creates the intial state of this component based on the collapse routes
   // that it gets through props.routes
   const getCollapseStates = (routes) => {
@@ -58,18 +100,84 @@ function Sidebar(props) {
     }
     return false;
   };
+  // Filtrar rutas según permisos
+  const filterRoutesByPermissions = (routes) => {
+    // Si aún se están cargando los permisos, mostrar todas las rutas temporalmente
+    if (permissionsLoading) {
+      return routes.filter((prop) => {
+        return !prop.redirect && prop.showInSidebar !== false;
+      });
+    }
+    
+    return routes.filter((prop) => {
+      if (prop.redirect || prop.showInSidebar === false) {
+        return false;
+      }
+      
+      if (prop.collapse) {
+        // Para secciones colapsables, verificar si tiene al menos una ruta accesible
+        const accessibleViews = prop.views.filter(view => {
+          if (view.showInSidebar === false) return false;
+          // Si la ruta tiene objeto permissions, usar el permiso de view
+          if (view.permissions && view.permissions.view) {
+            return hasPermission(view.permissions.view);
+          }
+          // Si no tiene permissions definido, NO mostrar (requiere permiso explícito)
+          return false;
+        });
+        return accessibleViews.length > 0;
+      }
+      
+      // Para rutas individuales, verificar permiso
+      if (prop.permissions && prop.permissions.view) {
+        return hasPermission(prop.permissions.view);
+      }
+      // Si no tiene permissions definido, NO mostrar (requiere permiso explícito)
+      return false;
+    });
+  };
+
   // this function creates the links and collapses that appear in the sidebar (left menu)
   const createLinks = (routes) => {
-    return routes.map((prop, key) => {
+    // Filtrar rutas según permisos
+    const filteredRoutes = filterRoutesByPermissions(routes);
+    
+    return filteredRoutes.map((prop, key) => {
       if (prop.redirect) {
         return null;
       }
+      // Ocultar rutas que tienen showInSidebar: false
+      if (prop.showInSidebar === false) {
+        return null;
+      }
       if (prop.collapse) {
+        // Filtrar las vistas dentro del collapse también
+        let accessibleViews;
+        if (permissionsLoading) {
+          // Mientras se cargan permisos, mostrar todas las vistas
+          accessibleViews = prop.views.filter(view => view.showInSidebar !== false);
+        } else {
+          accessibleViews = prop.views.filter(view => {
+            if (view.showInSidebar === false) return false;
+            // Si la ruta tiene objeto permissions, usar el permiso de view
+            if (view.permissions && view.permissions.view) {
+              return hasPermission(view.permissions.view);
+            }
+            // Fallback al sistema anterior si no tiene permissions definido
+            return true; // Por ahora permitir si no tiene permissions definido
+          });
+        }
+        
+        // Si no hay vistas accesibles, no mostrar el collapse
+        if (!permissionsLoading && accessibleViews.length === 0) {
+          return null;
+        }
+        
         var st = {};
         st[prop["state"]] = !collapseStates[prop.state];
         return (
           <li
-            className={getCollapseInitialState(prop.views) ? "active" : ""}
+            className={getCollapseInitialState(accessibleViews) ? "active" : ""}
             key={key}
           >
             <a
@@ -100,7 +208,7 @@ function Sidebar(props) {
               )}
             </a>
             <Collapse isOpen={collapseStates[prop.state]}>
-              <ul className="nav">{createLinks(prop.views)}</ul>
+              <ul className="nav">{createLinks(accessibleViews)}</ul>
             </Collapse>
           </li>
         );
@@ -152,10 +260,11 @@ function Sidebar(props) {
       className="sidebar"
       data-color={props.bgColor}
       data-active-color={props.activeColor}
+      style={{ backgroundColor: "#283240" }}
     >
       <div className="logo">
         <a
-          href="https://www.creative-tim.com"
+          href="#pablo"
           className="simple-text logo-mini"
         >
           <div className="logo-img">
@@ -163,17 +272,17 @@ function Sidebar(props) {
           </div>
         </a>
         <a
-          href="https://www.creative-tim.com"
+          href="#pablo"
           className="simple-text logo-normal"
         >
-          Creative Tim
+          Fossiles Corp
         </a>
       </div>
 
       <div className="sidebar-wrapper" ref={sidebar}>
         <div className="user">
           <div className="photo">
-            <img src={avatar} alt="Avatar" />
+            <img src={userAvatar} alt="Avatar" />
           </div>
           <div className="info">
             <a
@@ -183,35 +292,38 @@ function Sidebar(props) {
               onClick={() => setOpenAvatar(!openAvatar)}
             >
               <span>
-                Chet Faker
+                {userName}
                 <b className="caret" />
               </span>
             </a>
             <Collapse isOpen={openAvatar}>
               <ul className="nav">
                 <li>
-                  <Link to="/admin/user-profile">
-                    <span className="sidebar-mini-icon">MP</span>
-                    <span className="sidebar-normal">My Profile</span>
-                  </Link>
-                </li>
-                <li>
-                  <Link to="/admin/user-profile">
-                    <span className="sidebar-mini-icon">EP</span>
-                    <span className="sidebar-normal">Edit Profile</span>
-                  </Link>
-                </li>
-                <li>
-                  <Link to="/admin/user-profile">
-                    <span className="sidebar-mini-icon">S</span>
-                    <span className="sidebar-normal">Settings</span>
-                  </Link>
+                  <a
+                    href="#pablo"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      handleLogout();
+                    }}
+                    style={{ cursor: 'pointer' }}
+                  >
+                    <span className="sidebar-mini-icon">L</span>
+                    <span className="sidebar-normal">Cerrar Sesión</span>
+                  </a>
                 </li>
               </ul>
             </Collapse>
           </div>
         </div>
-        <Nav>{createLinks(props.routes)}</Nav>
+        {permissionsLoading ? (
+          <Nav>
+            <li className="text-center p-3">
+              <span className="sidebar-normal text-muted">Cargando permisos...</span>
+            </li>
+          </Nav>
+        ) : (
+          <Nav>{createLinks(props.routes)}</Nav>
+        )}
       </div>
     </div>
   );

@@ -17,10 +17,10 @@
 import React from "react";
 // javascript plugin used to create scrollbars on windows
 import PerfectScrollbar from "perfect-scrollbar";
-import { Route, Routes } from "react-router-dom";
+import { Route, Routes, Navigate } from "react-router-dom";
 
-import AuthNavbar from "components/Navbars/AuthNavbar.js";
 import Footer from "components/Footer/Footer.js";
+import { isAuthenticated } from "services/authService";
 
 import routes from "routes.js";
 
@@ -54,10 +54,13 @@ function Pages() {
   };
   return (
     <>
-      <AuthNavbar />
       <div className="wrapper wrapper-full-page" ref={fullPages}>
         <div className="full-page section-image">
-          <Routes>{getRoutes(routes)}</Routes>
+          <Routes>
+            {getRoutes(routes)}
+            {/* Ruta por defecto: redirigir a login si no hay coincidencia */}
+            <Route path="*" element={<Navigate to="/auth/login" replace />} />
+          </Routes>
           <Footer fluid />
         </div>
       </div>

@@ -1,0 +1,32 @@
+# Configuración de nginx para Single Page Application (SPA)
+# Basado en tu configuración actual
+# Archivo: /etc/nginx/sites-available/default (o el que estés usando)
+
+server {
+    listen 80 default_server;
+    listen [::]:80 default_server;
+
+    server_name _;
+
+    root /var/www/front/build/;
+    index index.html;
+
+    # Configuración principal para SPA
+    # CAMBIO IMPORTANTE: Cambiar =404 por /index.html
+    # Esto permite que React Router maneje las rutas del lado del cliente
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    # Configuración para archivos estáticos con cache
+    location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$ {
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+    }
+
+    # Headers de seguridad (opcional pero recomendado)
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-XSS-Protection "1; mode=block" always;
+}
+
