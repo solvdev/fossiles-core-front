@@ -113,7 +113,7 @@ function Sidebar(props) {
       if (prop.redirect || prop.showInSidebar === false) {
         return false;
       }
-      
+
       if (prop.collapse) {
         // Para secciones colapsables, verificar si tiene al menos una ruta accesible
         const accessibleViews = prop.views.filter(view => {

@@ -22,8 +22,10 @@ import AuthLayout from "layouts/Auth.js";
 import AdminLayout from "layouts/Admin.js";
 import ProtectedRoute from "components/ProtectedRoute";
 import { AuthProvider } from "contexts/AuthContext";
+import { useAuth } from "contexts/AuthContext";
 import { isAuthenticated, validateToken } from "services/authService";
 import PublicMaterialKardexMobile from "views/public/PublicMaterialKardexMobile";
+import SolvDeskButton from "components/solvdesk/SolvDeskButton";
 
 import "bootstrap/dist/css/bootstrap.css";
 import "assets/scss/paper-dashboard.scss?v=1.3.1";
@@ -40,6 +42,7 @@ function AppRoutes() {
   const [isValidating, setIsValidating] = useState(true);
   const [isValid, setIsValid] = useState(false);
   const location = useLocation();
+  const { user: authUser } = useAuth();
 
   useEffect(() => {
     const checkAuth = async () => {
@@ -84,54 +87,69 @@ function AppRoutes() {
   }
 
   return (
-    <Routes>
-      <Route path="/admin/materials-kardex/:materialId" element={<PublicMaterialKardexMobile />} />
-      <Route path="/public/materials-kardex/:materialId" element={<PublicMaterialKardexMobile />} />
+    <>
+      <Routes>
+        <Route path="/admin/materials-kardex/:materialId" element={<PublicMaterialKardexMobile />} />
+        <Route path="/public/materials-kardex/:materialId" element={<PublicMaterialKardexMobile />} />
 
-      {/* Rutas públicas de autenticación - redirigir si el token es válido */}
-      <Route 
-        path="/auth/*" 
-        element={
-          isValid 
-            ? <Navigate to="/admin/dashboard-production" replace />
-            : <AuthLayout />
-        } 
-      />
-      
-      {/* Rutas protegidas del admin */}
-      <Route 
-        path="/admin/*" 
-        element={
-          isValid ? (
-            <ProtectedRoute>
-              <AdminLayout />
-            </ProtectedRoute>
-          ) : (
-            <Navigate to="/auth/login" replace />
-          )
+        {/* Rutas públicas de autenticación - redirigir si el token es válido */}
+        <Route
+          path="/auth/*"
+          element={
+            isValid ? <Navigate to="/admin/dashboard-production" replace /> : <AuthLayout />
+          }
+        />
+
+        {/* Rutas protegidas del admin */}
+        <Route
+          path="/admin/*"
+          element={
+            isValid ? (
+              <ProtectedRoute>
+                <AdminLayout />
+              </ProtectedRoute>
+            ) : (
+              <Navigate to="/auth/login" replace />
+            )
+          }
+        />
+
+        {/* Redirigir según autenticación */}
+        <Route
+          path="/"
+          element={
+            isValid ? (
+              <Navigate to="/admin/dashboard-production" replace />
+            ) : (
+              <Navigate to="/auth/login" replace />
+            )
+          }
+        />
+
+        {/* Cualquier otra ruta */}
+        <Route
+          path="*"
+          element={
+            isValid ? (
+              <Navigate to="/admin/dashboard-production" replace />
+            ) : (
+              <Navigate to="/auth/login" replace />
+            )
+          }
+        />
+      </Routes>
+
+      <SolvDeskButton
+        systemId={process.env.REACT_APP_SOLVDESK_SYSTEM_ID}
+        apiKey={process.env.REACT_APP_SOLVDESK_API_KEY}
+        userEmail={authUser?.email || ""}
+        userName={
+          authUser?.firstName && authUser?.lastName
+            ? `${authUser.firstName} ${authUser.lastName}`
+            : authUser?.username || authUser?.email || ""
         }
       />
-      
-      {/* Redirigir según autenticación */}
-      <Route 
-        path="/" 
-        element={
-          isValid 
-            ? <Navigate to="/admin/dashboard-production" replace />
-            : <Navigate to="/auth/login" replace />
-        }
-      />
-      
-      {/* Cualquier otra ruta */}
-      <Route 
-        path="*" 
-        element={
-          isValid 
-            ? <Navigate to="/admin/dashboard-production" replace />
-            : <Navigate to="/auth/login" replace />
-        }
-      />
-    </Routes>
+    </>
   );
 }
 
