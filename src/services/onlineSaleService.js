@@ -156,6 +156,20 @@ export const processFulfillment = async (saleIds) => {
   return response.json();
 };
 
+/** Preview: revisa si cada venta se puede cumplir desde inventario de BODEGA_PT */
+export const previewFulfillment = async (saleIds) => {
+  const response = await fetch(`${API_URL}/online-sales/fulfillment-preview`, {
+    method: 'POST',
+    headers: headers(),
+    body: JSON.stringify({ saleIds })
+  });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ message: 'Error al previsualizar inventario' }));
+    throw new Error(err.message || 'Error al previsualizar inventario');
+  }
+  return response.json();
+};
+
 /** Flujo legado: crea orden de producción directamente sin revisar inventario */
 export const createProductionOrderFromSales = async (saleIds) => {
   const response = await fetch(`${API_URL}/online-sales/create-production-order`, {

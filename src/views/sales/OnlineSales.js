@@ -11,6 +11,7 @@ import {
   createOnlineSale, updateOnlineSale, deleteOnlineSale,
   getOnlineSalesByDate, getOnlineSalesByDateRange, getDailySummary,
   getEligibleForProduction, createProductionOrderFromSales, processFulfillment,
+  previewFulfillment,
   importOnlineSales, returnOnlineSale, voidOnlineSale, registerOnlineSaleShipment,
   PAYMENT_METHODS, SALESPERSONS, SOCIAL_NETWORKS, SHIPPING_CARRIERS, SALE_STATUSES
 } from "../../services/onlineSaleService";
@@ -478,6 +479,7 @@ function OnlineSales() {
   // Producción
   const [eligibleSales, setEligibleSales] = useState([]);
   const [selectedForPO, setSelectedForPO] = useState(new Set());
+  const [fulfillmentPreview, setFulfillmentPreview] = useState({ bodegaPtFound: true, map: {} });
   const [loadingPO, setLoadingPO] = useState(false);
   const [fulfillmentResult, setFulfillmentResult] = useState(null);
   const [showFulfillmentModal, setShowFulfillmentModal] = useState(false);
@@ -564,6 +566,23 @@ function OnlineSales() {
       const data = await getEligibleForProduction(productionDateFrom || undefined, productionDateTo || undefined);
       setEligibleSales(data || []);
       setSelectedForPO(new Set());
+
+      // Preview de inventario BODEGA_PT (sin procesar): muestra si se puede despachar directo
+      try {
+        const ids = (data || []).map((s) => s.id).filter(Boolean);
+        if (ids.length === 0) {
+          setFulfillmentPreview({ bodegaPtFound: true, map: {} });
+        } else {
+          const preview = await previewFulfillment(ids);
+          const map = {};
+          (preview?.rows || []).forEach((r) => {
+            map[String(r.saleId)] = Boolean(r.canFulfillFromInventory);
+          });
+          setFulfillmentPreview({ bodegaPtFound: preview?.bodegaPtFound !== false, map });
+        }
+      } catch (e) {
+        setFulfillmentPreview({ bodegaPtFound: true, map: {} });
+      }
     } catch (e) {
       setError(e.message);
     }
@@ -2989,6 +3008,7 @@ function OnlineSales() {
                         <th>No.</th>
                         <th>Fecha</th>
                         <th>Cliente</th>
+                        <th>Stock PT</th>
                         <th>Productos</th>
                         <th>Total</th>
                         <th>Forma de Pago</th>
@@ -3013,6 +3033,17 @@ function OnlineSales() {
                           <td><strong>{sale.saleNumber}</strong></td>
                           <td>{sale.saleDate}</td>
                           <td>{sale.customerName}</td>
+                          <td>
+                            {fulfillmentPreview?.bodegaPtFound === false ? (
+                              <Badge color="warning">Sin BODEGA_PT</Badge>
+                            ) : (fulfillmentPreview?.map || {})[String(sale.id)] === true ? (
+                              <Badge color="success">Sí</Badge>
+                            ) : (fulfillmentPreview?.map || {})[String(sale.id)] === false ? (
+                              <Badge color="danger">No</Badge>
+                            ) : (
+                              <Badge color="secondary">—</Badge>
+                            )}
+                          </td>
                           <td style={{ fontSize: 11 }}>
                             {(sale.items && sale.items.length > 0) ? sale.items.map((it, i) => (
                               <div key={i}>
@@ -3505,6 +3536,7 @@ function OnlineSales() {
                       <tr>
                         <th># Venta</th>
                         <th>Cliente</th>
+                        <th>N° envío</th>
                         <th>Estado</th>
                       </tr>
                     </thead>
@@ -3513,6 +3545,13 @@ function OnlineSales() {
                         <tr key={i}>
                           <td><Badge color="success">{f.saleNumber}</Badge></td>
                           <td>{f.customerName}</td>
+                          <td>
+                            {f.shipmentNumber ? (
+                              <Badge color="primary">{f.shipmentNumber}</Badge>
+                            ) : (
+                              <span className="text-muted">—</span>
+                            )}
+                          </td>
                           <td><small className="text-muted">{f.message}</small></td>
                         </tr>
                       ))}
