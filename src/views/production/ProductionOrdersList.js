@@ -23,9 +23,36 @@ import {
 } from "services/productionOrderService";
 import { getTasks } from "services/taskService";
 import { formatDateGt, formatDateDdMmYyGt } from "utils/dateTimeHelper";
+import { exportRowsToCsv } from "utils/reportExportHelper";
 import ProductionOrderForm from "./ProductionOrderForm";
 import ConfirmModal from "components/ConfirmModal/ConfirmModal";
 import { showSuccess, showError } from "utils/notificationHelper";
+
+const OP_EXPORT_HEADERS = [
+  { label: "OP", value: "opCode" },
+  { label: "Tipo", value: "type" },
+  { label: "Proceso", value: "process" },
+  { label: "Estado", value: "status" },
+  { label: "Cliente/Dist.", value: "customer" },
+  { label: "Vendedor", value: "seller" },
+  { label: "Inicio", value: "startDate" },
+  { label: "Entrega", value: "deliveryDate" },
+  { label: "Cod. Producto", value: "productCode" },
+  { label: "Producto", value: "productName" },
+  { label: "Color", value: "colorName" },
+  { label: "Talla", value: "size" },
+  { label: "Planificado", value: "plannedQty" },
+  { label: "Observaciones", value: "observations" },
+  { label: "Avance OP", value: "orderProgress" },
+];
+
+const escapeHtml = (value) =>
+  String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
 
 function ProductionOrdersList() {
   const navigate = useNavigate();
@@ -131,6 +158,17 @@ function ProductionOrdersList() {
     return <Badge color={statusInfo.color}>{statusInfo.text}</Badge>;
   };
 
+  const getStatusLabel = (status) => {
+    const statusMap = {
+      PENDING: "Pendiente",
+      IN_PROGRESS: "En Progreso",
+      IN_QA: "En Progreso",
+      COMPLETED: "Completada",
+      CANCELLED: "Cancelada",
+    };
+    return statusMap[status] || status || "-";
+  };
+
   const getTypeBadge = (type) => {
     const typeMap = {
       CINCHOS: { color: "primary", text: "CINCHOS" },
@@ -141,6 +179,19 @@ function ProductionOrdersList() {
     };
     const typeInfo = typeMap[type] || { color: "secondary", text: type };
     return <Badge color={typeInfo.color}>{typeInfo.text}</Badge>;
+  };
+
+  const getTypeLabel = (type) => {
+    const typeMap = {
+      CINCHOS: "CINCHOS",
+      MARCAS: "MARCAS",
+      OPV: "OPV",
+      NORMAL: "NORMAL",
+      DISTRIBUTION: "DISTRIBUCIÓN",
+      VENTA_EN_LINEA: "VENTA EN LÍNEA",
+      INTERNA: "INTERNA",
+    };
+    return typeMap[type] || type || "-";
   };
 
   const getTotalQuantity = (items) => {
@@ -228,6 +279,265 @@ function ProductionOrdersList() {
       startValue: startCandidates.length ? new Date(Math.min(...startCandidates)).toISOString() : fallbackStart,
       deliveryValue: deliveryCandidates.length ? new Date(Math.max(...deliveryCandidates)).toISOString() : fallbackDelivery,
     };
+  };
+
+  const getItemExportLines = (item) => {
+    const sizes = item?.sizes && typeof item.sizes === "object" ? item.sizes : null;
+    const sizeEntries = sizes
+      ? Object.entries(sizes).filter(([, qty]) => Number(qty || 0) > 0)
+      : [];
+
+    if (sizeEntries.length > 0) {
+      return sizeEntries.map(([size, qty]) => ({
+        size,
+        plannedQty: Number(qty || 0),
+      }));
+    }
+
+    const plannedQty = Number(item?.quantity || 0);
+    return [{ size: item?.size || "", plannedQty }];
+  };
+
+  const buildExportRows = (sourceOrders = filteredOrders) => {
+    const rows = [];
+
+    sourceOrders.forEach((order) => {
+      const processDates = getOrderProcessDates(order.id, order.startDate, order.deliveryDate);
+      const qtyProgress = getOrderQtyProgress(order.items);
+      const stage = getProcessStage(order);
+      const customer =
+        order.orderType === "DISTRIBUTION" && order.distributionNumber
+          ? order.distributionNumber
+          : order.customerName || "-";
+      const baseRow = {
+        opCode: order.code || "-",
+        type: getTypeLabel(order.orderType),
+        process: stage.label,
+        status: getStatusLabel(order.status),
+        customer,
+        seller: order.orderType === "DISTRIBUTION" ? "-" : order.sellerName || "-",
+        startDate: processDates.startValue ? formatDateGt(processDates.startValue) : "-",
+        deliveryDate: processDates.deliveryValue ? formatDateGt(processDates.deliveryValue) : "-",
+        orderTotalQty: qtyProgress.total,
+        orderProgress: `${qtyProgress.pct}%`,
+      };
+
+      const items = Array.isArray(order.items) ? order.items : [];
+      if (items.length === 0) {
+        rows.push({
+          ...baseRow,
+          productCode: "-",
+          productName: "-",
+          colorName: "-",
+          size: "-",
+          plannedQty: 0,
+          observations: "-",
+        });
+        return;
+      }
+
+      items.forEach((item) => {
+        getItemExportLines(item).forEach((line) => {
+          rows.push({
+            ...baseRow,
+            productCode: item.productCode || "-",
+            productName: item.productName || "-",
+            colorName: item.colorName || "-",
+            size: line.size || "-",
+            plannedQty: line.plannedQty,
+            observations: item.observations || "-",
+          });
+        });
+      });
+    });
+
+    return rows;
+  };
+
+  const buildOrderLineRows = (order) => {
+    const items = Array.isArray(order.items) ? order.items : [];
+    if (items.length === 0) {
+      return [{
+        productCode: "-",
+        productName: "-",
+        colorName: "-",
+        size: "-",
+        plannedQty: 0,
+        observations: "-",
+      }];
+    }
+
+    return items.flatMap((item) =>
+      getItemExportLines(item).map((line) => ({
+        productCode: item.productCode || "-",
+        productName: item.productName || "-",
+        colorName: item.colorName || "-",
+        size: line.size || "-",
+        plannedQty: line.plannedQty,
+        observations: item.observations || "-",
+      }))
+    );
+  };
+
+  const exportProductionOrderExcel = (order) => {
+    const rows = buildExportRows([order]);
+    if (rows.length === 0) {
+      showError("No hay órdenes para exportar");
+      return;
+    }
+    exportRowsToCsv(`orden_produccion_${order.code || order.id}`, OP_EXPORT_HEADERS, rows);
+  };
+
+  const exportProductionOrderPdf = (order) => {
+    if (!order) {
+      showError("No hay órdenes para exportar");
+      return;
+    }
+
+    const generatedAt = new Date().toLocaleString("es-GT");
+    const processDates = getOrderProcessDates(order.id, order.startDate, order.deliveryDate);
+    const qtyProgress = getOrderQtyProgress(order.items);
+    const stage = getProcessStage(order);
+    const customer =
+      order.orderType === "DISTRIBUTION" && order.distributionNumber
+        ? order.distributionNumber
+        : order.customerName || "-";
+    const lineRows = buildOrderLineRows(order);
+    const bodyRows = lineRows.map((line, idx) => {
+      const hasObservations = line.observations && line.observations !== "-";
+      return `
+        <tr>
+          <td class="numeric">${idx + 1}</td>
+          <td>${escapeHtml(line.productCode)}</td>
+          <td>${escapeHtml(line.productName)}</td>
+          <td>${escapeHtml(line.colorName)}</td>
+          <td>${escapeHtml(line.size)}</td>
+          <td class="numeric">${escapeHtml(line.plannedQty)}</td>
+        </tr>
+        ${
+          hasObservations
+            ? `<tr class="observation-row">
+                <td></td>
+                <td colspan="5"><strong>Observación:</strong> ${escapeHtml(line.observations)}</td>
+              </tr>`
+            : ""
+        }
+      `;
+    }).join("");
+
+    const section = `
+        <section class="op-doc">
+          <div class="op-title">
+            <div>
+              <div class="brand">FOSSILES</div>
+              <h1>Orden de Producción</h1>
+            </div>
+            <div class="op-code">${escapeHtml(order.code || "-")}</div>
+          </div>
+
+          <table class="meta">
+            <tbody>
+              <tr>
+                <th>Tipo</th>
+                <td>${escapeHtml(getTypeLabel(order.orderType))}</td>
+                <th>Estado</th>
+                <td>${escapeHtml(getStatusLabel(order.status))}</td>
+              </tr>
+              <tr>
+                <th>Proceso</th>
+                <td>${escapeHtml(stage.label)}</td>
+                <th>Avance</th>
+                <td>${escapeHtml(`${qtyProgress.pct}%`)}</td>
+              </tr>
+              <tr>
+                <th>Cliente/Distribución</th>
+                <td>${escapeHtml(customer)}</td>
+                <th>Vendedor</th>
+                <td>${escapeHtml(order.orderType === "DISTRIBUTION" ? "-" : order.sellerName || "-")}</td>
+              </tr>
+              <tr>
+                <th>Inicio</th>
+                <td>${escapeHtml(processDates.startValue ? formatDateGt(processDates.startValue) : "-")}</td>
+                <th>Entrega</th>
+                <td>${escapeHtml(processDates.deliveryValue ? formatDateGt(processDates.deliveryValue) : "-")}</td>
+              </tr>
+              <tr>
+                <th>Total planificado</th>
+                <td>${escapeHtml(qtyProgress.total)}</td>
+                <th>Generado</th>
+                <td>${escapeHtml(generatedAt)}</td>
+              </tr>
+            </tbody>
+          </table>
+
+          <table class="lines">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Código</th>
+                <th>Producto</th>
+                <th>Color</th>
+                <th>Talla</th>
+                <th>Planificado</th>
+              </tr>
+            </thead>
+            <tbody>${bodyRows}</tbody>
+          </table>
+        </section>
+      `;
+
+    const win = window.open("", "_blank");
+    if (!win) return;
+
+    win.document.write(`
+      <!doctype html>
+      <html>
+        <head>
+          <title>Orden de Producción ${escapeHtml(order.code || "")}</title>
+          <style>
+            @page { size: letter; margin: 9mm; }
+            body { font-family: Arial, sans-serif; color: #111; margin: 0; font-size: 10.5px; }
+            .print-meta { margin: 0 0 8px; color: #555; font-size: 10px; }
+            .op-doc { border: 1px solid #111; padding: 10px; margin-bottom: 12px; }
+            .op-title { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px; }
+            .brand { font-size: 12px; font-weight: 700; letter-spacing: 1px; }
+            h1 { margin: 2px 0 0; font-size: 18px; }
+            .op-code { font-size: 20px; font-weight: 700; border: 1px solid #111; padding: 6px 10px; }
+            table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+            th, td { border: 1px solid #777; padding: 5px 6px; vertical-align: top; overflow-wrap: anywhere; }
+            th { background: #f3f4f6; font-weight: 700; text-align: left; }
+            .meta { margin-bottom: 10px; }
+            .meta th { width: 18%; }
+            .meta td { width: 32%; }
+            .lines th { text-align: center; }
+            .lines th:nth-child(1), .lines td:nth-child(1) { width: 5%; text-align: center; }
+            .lines th:nth-child(2), .lines td:nth-child(2) { width: 14%; }
+            .lines th:nth-child(3), .lines td:nth-child(3) { width: 36%; }
+            .lines th:nth-child(4), .lines td:nth-child(4) { width: 15%; }
+            .lines th:nth-child(5), .lines td:nth-child(5) { width: 12%; }
+            .lines th:nth-child(6), .lines td:nth-child(6) { width: 18%; }
+            .observation-row td {
+              background: #fafafa;
+              font-size: 10px;
+              line-height: 1.25;
+              padding: 4px 6px 6px;
+            }
+            .numeric { text-align: right; white-space: nowrap; }
+            @media print { .no-print { display: none; } }
+          </style>
+        </head>
+        <body>
+          <div class="print-meta no-print">Generado: ${escapeHtml(generatedAt)} · OP: ${escapeHtml(order.code || "-")}</div>
+          ${section}
+          <script>
+            window.onload = function () {
+              window.print();
+            };
+          </script>
+        </body>
+      </html>
+    `);
+    win.document.close();
   };
 
   return (
@@ -417,32 +727,59 @@ function ProductionOrdersList() {
                             </div>
                           </td>
                           <td>{getStatusBadge(order.status)}</td>
-                          <td className="text-right">
-                            <Button
-                              color="secondary"
-                              size="sm"
-                              onClick={() => goToProductionCenter(order.id)}
-                              className="btn-round mr-1"
-                              title="Ir al centro de producción con esta orden"
-                            >
-                              <i className="nc-icon nc-layout-11" /> Tareas
-                            </Button>
-                            <Button
-                              color="info"
-                              size="sm"
-                              onClick={() => handleEdit(order.id)}
-                              className="btn-round mr-1"
-                            >
-                              <i className="nc-icon nc-ruler-pencil" /> Editar
-                            </Button>
-                            <Button
-                              color="danger"
-                              size="sm"
-                              onClick={() => handleDeleteClick(order.id)}
-                              className="btn-round"
-                            >
-                              <i className="nc-icon nc-simple-remove" /> Eliminar
-                            </Button>
+                          <td className="text-right" style={{ minWidth: 190 }}>
+                            <div className="d-flex flex-wrap justify-content-end" style={{ gap: 4 }}>
+                              <Button
+                                color="success"
+                                outline
+                                size="sm"
+                                onClick={() => exportProductionOrderExcel(order)}
+                                className="px-2 py-1 mb-1"
+                                title="Descargar esta OP en Excel"
+                              >
+                                Excel
+                              </Button>
+                              <Button
+                                color="secondary"
+                                outline
+                                size="sm"
+                                onClick={() => exportProductionOrderPdf(order)}
+                                className="px-2 py-1 mb-1"
+                                title="Imprimir esta OP en PDF"
+                              >
+                                PDF
+                              </Button>
+                              <Button
+                                color="secondary"
+                                outline
+                                size="sm"
+                                onClick={() => goToProductionCenter(order.id)}
+                                className="px-2 py-1 mb-1"
+                                title="Ir al centro de producción con esta orden"
+                              >
+                                Tareas
+                              </Button>
+                              <Button
+                                color="info"
+                                outline
+                                size="sm"
+                                onClick={() => handleEdit(order.id)}
+                                className="px-2 py-1 mb-1"
+                                title="Editar orden"
+                              >
+                                Editar
+                              </Button>
+                              <Button
+                                color="danger"
+                                outline
+                                size="sm"
+                                onClick={() => handleDeleteClick(order.id)}
+                                className="px-2 py-1 mb-1"
+                                title="Eliminar orden"
+                              >
+                                Eliminar
+                              </Button>
+                            </div>
                           </td>
                         </tr>
                       );

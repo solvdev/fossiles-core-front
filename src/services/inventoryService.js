@@ -750,3 +750,23 @@ export const getInventoryAdjustmentById = async (adjustmentId) => {
   }
 };
 
+/**
+ * Boleta de salida desde kiosko (sin destino de inventario).
+ * body: { fromLocationId, materialId, quantity, reason?, referenceType?, referenceId?, referenceNumber? }
+ */
+export const registerKioskInventoryOutflow = async (body) => {
+  const response = await fetch(`${API_URL}/inventory/outflows`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...getAuthHeader()
+    },
+    body: JSON.stringify(body)
+  });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ message: 'Error al registrar salida' }));
+    throw new Error(err.message || 'Error al registrar salida');
+  }
+  return response.json();
+};
+

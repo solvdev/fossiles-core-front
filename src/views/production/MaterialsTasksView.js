@@ -54,6 +54,7 @@ const ORDER_TYPE_LABELS = {
   VENTA_EN_LINEA: "Venta en Línea",
   CINCHOS: "Cinchos",
   MARCAS: "Marcas",
+  INTERNA: "Interna (OPI)",
 };
 
 const ORDER_TYPE_STYLES = {
@@ -62,6 +63,7 @@ const ORDER_TYPE_STYLES = {
   VENTA_EN_LINEA: { backgroundColor: "#17a2b8", color: "#fff", padding: "4px 8px", borderRadius: "4px", fontSize: "0.8em", fontWeight: 600, display: "inline-block" },
   CINCHOS: { backgroundColor: "#007bff", color: "#fff", padding: "4px 8px", borderRadius: "4px", fontSize: "0.8em", fontWeight: 600, display: "inline-block" },
   MARCAS: { backgroundColor: "#343a40", color: "#fff", padding: "4px 8px", borderRadius: "4px", fontSize: "0.8em", fontWeight: 600, display: "inline-block" },
+  INTERNA: { backgroundColor: "#6f42c1", color: "#fff", padding: "4px 8px", borderRadius: "4px", fontSize: "0.8em", fontWeight: 600, display: "inline-block" },
 };
 
 const MaterialsTasksView = () => {
@@ -94,13 +96,23 @@ const MaterialsTasksView = () => {
     setError(null);
     try {
       const all = await getProductionOrders();
-      // Exclude only cancelled; keep completed so users can consult produced orders when needed
-      const visible = (all || []).filter(
-        (o) => o.status !== "CANCELLED"
+      const activeOrders = (all || []).filter(
+        (o) => o.status !== "CANCELLED" && o.status !== "COMPLETED"
       );
+      const ordersWithPendingMaterials = await Promise.all(
+        activeOrders.map(async (order) => {
+          try {
+            const tasks = await getMaterialsViewByOrder(order.id);
+            return (tasks || []).length > 0 ? order : null;
+          } catch {
+            return null;
+          }
+        })
+      );
+      const visible = ordersWithPendingMaterials.filter(Boolean);
       // Sort: active first, completed at the end
       visible.sort((a, b) => {
-        const statusOrder = { IN_PROGRESS: 0, PENDING: 1, COMPLETED: 2 };
+        const statusOrder = { IN_PROGRESS: 0, PENDING: 1 };
         const sa = statusOrder[a.status] ?? 2;
         const sb = statusOrder[b.status] ?? 2;
         if (sa !== sb) return sa - sb;
@@ -128,6 +140,12 @@ const MaterialsTasksView = () => {
     setError(null);
     try {
       const data = await getMaterialsViewByOrder(orderId);
+      if ((data || []).length === 0) {
+        setOrders((prev) => prev.filter((order) => order.id !== orderId));
+        setSelectedOrderId(null);
+        setOrderTasks([]);
+        return;
+      }
       setOrderTasks(data || []);
       // Auto-expand all tasks
       const expanded = {};
@@ -200,9 +218,16 @@ const MaterialsTasksView = () => {
         canDeliverMaterials: updated.canDeliverMaterials,
       };
       if (isHistory) {
-        setHistoryTasks((prev) => prev.map((t) => (t.taskId === taskId ? { ...t, ...normalized } : t)));
+        setHistoryTasks((prev) => prev.filter((t) => t.taskId !== taskId));
       } else {
-        setOrderTasks((prev) => prev.map((t) => (t.taskId === taskId ? { ...t, ...normalized } : t)));
+        setOrderTasks((prev) => {
+          const next = prev.filter((t) => t.taskId !== taskId);
+          if (next.length === 0) {
+            setOrders((current) => current.filter((order) => order.id !== selectedOrderId));
+            setSelectedOrderId(null);
+          }
+          return next;
+        });
       }
       if (sourceTask) {
         printMaterialsDeliveryReceipt({ ...sourceTask, ...normalized });

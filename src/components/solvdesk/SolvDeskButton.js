@@ -8,6 +8,8 @@ export default function SolvDeskButton({
   label = "Soporte",
 }) {
   const [open, setOpen] = useState(false);
+  const [hasOpened, setHasOpened] = useState(false);
+  const [loaded, setLoaded] = useState(false);
 
   const src = useMemo(() => {
     const cleanSystemId = String(systemId || "").trim();
@@ -26,8 +28,20 @@ export default function SolvDeskButton({
 
   return (
     <>
+      <style>
+        {`
+          @keyframes solvdesk-spin {
+            to { transform: rotate(360deg); }
+          }
+        `}
+      </style>
+
       <button
-        onClick={() => setOpen(true)}
+        onClick={() => {
+          setHasOpened(true);
+          setLoaded(false);
+          setOpen(true);
+        }}
         style={{
           position: "fixed",
           bottom: "24px",
@@ -45,6 +59,8 @@ export default function SolvDeskButton({
           display: "flex",
           alignItems: "center",
           gap: "8px",
+          opacity: open ? 0 : 1,
+          pointerEvents: open ? "none" : "auto",
         }}
         aria-label="Abrir soporte"
       >
@@ -74,16 +90,58 @@ export default function SolvDeskButton({
               overflow: "hidden",
               background: "#fff",
               boxShadow: "0 20px 60px rgba(0,0,0,0.4)",
+              position: "relative",
             }}
             onClick={(e) => e.stopPropagation()}
             role="dialog"
             aria-label="Soporte"
           >
-            <iframe
-              src={src}
-              style={{ width: "100%", height: "100%", border: "none" }}
-              title="Soporte"
-            />
+            {!loaded && (
+              <div
+                style={{
+                  position: "absolute",
+                  inset: 0,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  background: "#fff",
+                  color: "#111827",
+                  fontSize: "14px",
+                  fontWeight: 600,
+                  zIndex: 1,
+                  gap: "10px",
+                }}
+              >
+                <span
+                  aria-hidden="true"
+                  style={{
+                    width: "18px",
+                    height: "18px",
+                    borderRadius: "999px",
+                    border: "2px solid rgba(17, 24, 39, 0.2)",
+                    borderTopColor: "rgba(59, 130, 246, 0.9)",
+                    animation: "solvdesk-spin 700ms linear infinite",
+                    flex: "0 0 auto",
+                  }}
+                />
+                Cargando soporte…
+              </div>
+            )}
+
+            {hasOpened && (
+              <iframe
+                src={src}
+                style={{
+                  width: "100%",
+                  height: "100%",
+                  border: "none",
+                  visibility: open ? "visible" : "hidden",
+                }}
+                title="Soporte"
+                loading="eager"
+                onLoad={() => setLoaded(true)}
+              />
+            )}
           </div>
         </div>
       )}

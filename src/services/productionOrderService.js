@@ -290,6 +290,21 @@ export const getDashboardStats = async (from, to) => {
   return response.json();
 };
 
+export const getProductionDashboardV2 = async (from, to) => {
+  const params = new URLSearchParams();
+  if (from) params.append('from', from);
+  if (to) params.append('to', to);
+  const query = params.toString();
+  const response = await fetch(`${API_URL}/production-orders/dashboard-v2${query ? `?${query}` : ''}`, {
+    headers: { 'Content-Type': 'application/json', ...getAuthHeader() }
+  });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ message: 'Error al obtener dashboard de producción' }));
+    throw new Error(err.message || 'Error al obtener dashboard de producción');
+  }
+  return response.json();
+};
+
 export const getProductionReports = async (type = 'daily', from, to) => {
   const params = new URLSearchParams();
   if (type) params.append('type', type);

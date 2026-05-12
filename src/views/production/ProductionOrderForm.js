@@ -476,7 +476,7 @@ function ProductionOrderForm({ orderId, isOpen, toggle, onSuccess }) {
                 {errors.code && <div className="text-danger small">{errors.code}</div>}
                 <small className="text-muted">
                   {!orderId 
-                    ? "Se genera automáticamente por correlativo según tipo/origen (OPK/OPV/OPC/OPD/OPL)."
+                    ? "Se genera automáticamente por correlativo según tipo/origen (OPK/OPV/OPI/OPC/OPD/OPL)."
                     : "El código no puede modificarse después de crear la orden"}
                 </small>
               </FormGroup>
@@ -493,6 +493,7 @@ function ProductionOrderForm({ orderId, isOpen, toggle, onSuccess }) {
                 >
                   <option value="NORMAL">NORMAL (Productos normales)</option>
                   <option value="MARCAS">MARCAS (Productos con marcas conocidas)</option>
+                  <option value="INTERNA">INTERNA (OPI — producción interna)</option>
                   <option value="CINCHOS">CINCHOS (Con tallas)</option>
                   {formData.orderType === "DISTRIBUTION" && (
                     <option value="DISTRIBUTION">DISTRIBUCIÓN (Generada automáticamente)</option>

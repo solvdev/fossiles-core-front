@@ -256,3 +256,35 @@ export const deleteEnvio = async (id) => {
   }
 };
 
+/** Salida de inventario en Bodega PT (post finalizar distribución, flujo legacy /api/distribuciones). */
+export const enviarEnvioDistribucion = async (envioId) => {
+  if (!envioId || envioId === 'undefined' || envioId === 'null') {
+    throw new Error('ID de envío inválido');
+  }
+  const response = await fetch(`${API_URL}/distribuciones/envios/${envioId}/enviar`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
+  });
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({ message: 'Error al registrar envío desde Bodega PT' }));
+    throw new Error(errorData.message || 'Error al registrar envío desde Bodega PT');
+  }
+  return await response.json();
+};
+
+/** Ingreso de inventario al kiosko (recepción del envío en tránsito). */
+export const confirmarRecepcionEnvioDistribucion = async (envioId) => {
+  if (!envioId || envioId === 'undefined' || envioId === 'null') {
+    throw new Error('ID de envío inválido');
+  }
+  const response = await fetch(`${API_URL}/distribuciones/envios/${envioId}/confirmar-recepcion`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
+  });
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({ message: 'Error al confirmar recepción en kiosko' }));
+    throw new Error(errorData.message || 'Error al confirmar recepción en kiosko');
+  }
+  return await response.json();
+};
+

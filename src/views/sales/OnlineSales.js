@@ -11,8 +11,10 @@ import {
   createOnlineSale, updateOnlineSale, deleteOnlineSale,
   getOnlineSalesByDate, getOnlineSalesByDateRange, getDailySummary,
   getEligibleForProduction, createProductionOrderFromSales, processFulfillment,
-  previewFulfillment,
+  previewFulfillment, getSaleItemsPreview, resolveMixedSale,
   importOnlineSales, returnOnlineSale, voidOnlineSale, registerOnlineSaleShipment,
+  getReturnInventory, getReturnEvents, getReturnForPrint,
+  createOnlineSaleExchange,
   PAYMENT_METHODS, SALESPERSONS, SOCIAL_NETWORKS, SHIPPING_CARRIERS, SALE_STATUSES
 } from "../../services/onlineSaleService";
 import { getWarehouseView } from "../../services/productionOrderService";
@@ -20,10 +22,16 @@ import * as XLSX from "xlsx";
 import { formatNowGt } from "utils/dateTimeHelper";
 import html2canvas from "html2canvas";
 import { jsPDF } from "jspdf";
+import { buildShipmentDocumentHtml, getSimplePaymentLabel } from "utils/shipmentPrintDocumentHtml";
 
 // ─── Helpers ─────────────────────────────────────────────────────
 
 const today = () => new Date().toISOString().split("T")[0];
+const dateDaysAgo = (days) => {
+  const d = new Date();
+  d.setDate(d.getDate() - Math.max(0, Number(days) || 0));
+  return d.toISOString().split("T")[0];
+};
 
 const formatQ = (v) => {
   if (v == null) return "Q 0.00";
@@ -46,87 +54,6 @@ const getSocialIcon = (sn) => {
   const found = SOCIAL_NETWORKS.find(s => s.value === sn);
   if (!found) return sn;
   return <span style={{ color: found.color, fontWeight: 600 }}>{found.icon} {found.label}</span>;
-};
-
-const getSimplePaymentLabel = (paymentMethod) => {
-  const method = String(paymentMethod || "").toUpperCase();
-  if (method.includes("CONTRA_ENTREGA") || method.includes("EFECTIVO")) return "EFECTIVO";
-  if (method.includes("DEPOSITO") || method.includes("TRANSFERENCIA")) return "DEPOSITO";
-  if (method.includes("VISA") || method.includes("TARJETA")) return "TARJETA";
-  if (!method) return "—";
-  return method.split("_")[0];
-};
-
-const escapeHtml = (value) => String(value || "")
-  .replaceAll("&", "&amp;")
-  .replaceAll("<", "&lt;")
-  .replaceAll(">", "&gt;")
-  .replaceAll('"', "&quot;")
-  .replaceAll("'", "&#039;");
-
-const formatDateDisplay = (isoDate) => {
-  if (!isoDate) return "";
-  const [year, month, day] = String(isoDate).split("-");
-  if (!year || !month || !day) return String(isoDate);
-  return `${day}/${month}/${year}`;
-};
-
-const UNITS_WORDS = ["", "UNO", "DOS", "TRES", "CUATRO", "CINCO", "SEIS", "SIETE", "OCHO", "NUEVE"];
-const TENS_WORDS = ["", "DIEZ", "VEINTE", "TREINTA", "CUARENTA", "CINCUENTA", "SESENTA", "SETENTA", "OCHENTA", "NOVENTA"];
-const HUNDREDS_WORDS = ["", "CIENTO", "DOSCIENTOS", "TRESCIENTOS", "CUATROCIENTOS", "QUINIENTOS", "SEISCIENTOS", "SETECIENTOS", "OCHOCIENTOS", "NOVECIENTOS"];
-
-const toWordsBelowHundred = (n) => {
-  if (n < 10) return UNITS_WORDS[n];
-  if (n >= 10 && n < 16) {
-    const teens = ["DIEZ", "ONCE", "DOCE", "TRECE", "CATORCE", "QUINCE"];
-    return teens[n - 10];
-  }
-  if (n < 20) return `DIECI${UNITS_WORDS[n - 10].toLowerCase()}`.toUpperCase();
-  if (n === 20) return "VEINTE";
-  if (n < 30) return `VEINTI${UNITS_WORDS[n - 20].toLowerCase()}`.toUpperCase();
-  const ten = Math.floor(n / 10);
-  const unit = n % 10;
-  return unit ? `${TENS_WORDS[ten]} Y ${UNITS_WORDS[unit]}` : TENS_WORDS[ten];
-};
-
-const toWordsBelowThousand = (n) => {
-  if (n === 0) return "";
-  if (n === 100) return "CIEN";
-  const hundred = Math.floor(n / 100);
-  const rest = n % 100;
-  const hundredText = HUNDREDS_WORDS[hundred];
-  const restText = toWordsBelowHundred(rest);
-  if (hundredText && restText) return `${hundredText} ${restText}`;
-  return hundredText || restText;
-};
-
-const numberToWordsEs = (rawNumber) => {
-  const number = Math.floor(Math.max(0, Number(rawNumber) || 0));
-  if (number === 0) return "CERO";
-  if (number >= 1000000000) return String(number);
-
-  const millions = Math.floor(number / 1000000);
-  const thousands = Math.floor((number % 1000000) / 1000);
-  const hundreds = number % 1000;
-  const parts = [];
-
-  if (millions > 0) {
-    if (millions === 1) parts.push("UN MILLON");
-    else parts.push(`${toWordsBelowThousand(millions)} MILLONES`);
-  }
-  if (thousands > 0) {
-    if (thousands === 1) parts.push("MIL");
-    else parts.push(`${toWordsBelowThousand(thousands)} MIL`);
-  }
-  if (hundreds > 0) parts.push(toWordsBelowThousand(hundreds));
-  return parts.join(" ").replaceAll("  ", " ").trim();
-};
-
-const amountToWordsQ = (amount) => {
-  const numericAmount = Math.max(0, Number(amount) || 0);
-  const whole = Math.floor(numericAmount);
-  const cents = Math.round((numericAmount - whole) * 100);
-  return `${numberToWordsEs(whole)} QUETZALES CON ${String(cents).padStart(2, "0")}/100`;
 };
 
 // ─── CSV Import Parser ───────────────────────────────────────────
@@ -479,7 +406,17 @@ function OnlineSales() {
   // Producción
   const [eligibleSales, setEligibleSales] = useState([]);
   const [selectedForPO, setSelectedForPO] = useState(new Set());
-  const [fulfillmentPreview, setFulfillmentPreview] = useState({ bodegaPtFound: true, map: {} });
+  const [fulfillmentPreview, setFulfillmentPreview] = useState({
+    bodegaPtFound: true, map: {}, sourceMap: {}, leatherOkMap: {}, leatherSummaryMap: {}
+  });
+
+  // Resolver venta mixta (split: despachar lo disponible + crear OP solo de lo faltante)
+  const [resolveSale, setResolveSale] = useState(null);
+  const [resolveItems, setResolveItems] = useState([]);
+  const [resolveActions, setResolveActions] = useState({});
+  const [resolveLoading, setResolveLoading] = useState(false);
+  const [resolveError, setResolveError] = useState("");
+  const [resolveSubmitting, setResolveSubmitting] = useState(false);
   const [loadingPO, setLoadingPO] = useState(false);
   const [fulfillmentResult, setFulfillmentResult] = useState(null);
   const [showFulfillmentModal, setShowFulfillmentModal] = useState(false);
@@ -515,6 +452,27 @@ function OnlineSales() {
     guideNumber: "",
     observations: ""
   });
+
+  // CAMBIO (nuevo envío Q0)
+  const [showExchangeModal, setShowExchangeModal] = useState(false);
+  const [exchangeOriginalSale, setExchangeOriginalSale] = useState(null);
+  const [exchangeItems, setExchangeItems] = useState([]);
+  const [exchangeForm, setExchangeForm] = useState({
+    shippingCarrier: "FORZA_DELIVERY",
+    guideNumber: "",
+    observations: "",
+  });
+  const [creatingExchange, setCreatingExchange] = useState(false);
+  const [exchangeCreatedSale, setExchangeCreatedSale] = useState(null);
+
+  // Inventario de devoluciones (historial)
+  const [returnsStartDate, setReturnsStartDate] = useState(() => dateDaysAgo(30));
+  const [returnsEndDate, setReturnsEndDate] = useState(() => today());
+  const [returnsCondition, setReturnsCondition] = useState("");
+  const [returnsRows, setReturnsRows] = useState([]);
+  const [returnEvents, setReturnEvents] = useState([]);
+  const [loadingReturns, setLoadingReturns] = useState(false);
+  const [returnsError, setReturnsError] = useState("");
 
   // ─── Load inicial ───────────────────────────────────────────────
 
@@ -567,21 +525,34 @@ function OnlineSales() {
       setEligibleSales(data || []);
       setSelectedForPO(new Set());
 
-      // Preview de inventario BODEGA_PT (sin procesar): muestra si se puede despachar directo
+      // Preview de inventario (Bodega PT / Devoluciones): muestra si se puede despachar directo y de dónde.
       try {
         const ids = (data || []).map((s) => s.id).filter(Boolean);
         if (ids.length === 0) {
-          setFulfillmentPreview({ bodegaPtFound: true, map: {} });
+          setFulfillmentPreview({
+            bodegaPtFound: true, map: {}, sourceMap: {}, leatherOkMap: {}, leatherSummaryMap: {}
+          });
         } else {
           const preview = await previewFulfillment(ids);
           const map = {};
+          const sourceMap = {};
+          const leatherOkMap = {};
+          const leatherSummaryMap = {};
           (preview?.rows || []).forEach((r) => {
-            map[String(r.saleId)] = Boolean(r.canFulfillFromInventory);
+            const sid = String(r.saleId);
+            map[sid] = Boolean(r.canFulfillFromInventory);
+            sourceMap[sid] = r.inventorySource || "";
+            leatherOkMap[sid] = r.leatherOkForOpl !== false;
+            leatherSummaryMap[sid] = Array.isArray(r.leatherSummary) ? r.leatherSummary : [];
           });
-          setFulfillmentPreview({ bodegaPtFound: preview?.bodegaPtFound !== false, map });
+          setFulfillmentPreview({
+            bodegaPtFound: preview?.bodegaPtFound !== false, map, sourceMap, leatherOkMap, leatherSummaryMap
+          });
         }
       } catch (e) {
-        setFulfillmentPreview({ bodegaPtFound: true, map: {} });
+        setFulfillmentPreview({
+          bodegaPtFound: true, map: {}, sourceMap: {}, leatherOkMap: {}, leatherSummaryMap: {}
+        });
       }
     } catch (e) {
       setError(e.message);
@@ -591,10 +562,57 @@ function OnlineSales() {
   useEffect(() => {
     if (activeTab === "produccion") loadEligibleSales();
     if (activeTab === "mensual") loadMonthlySales();
+    if (activeTab === "devoluciones") loadReturns();
   }, [activeTab]); // eslint-disable-line
 
+  const loadReturns = async () => {
+    try {
+      setLoadingReturns(true);
+      setReturnsError("");
+      const [data, events] = await Promise.all([
+        getReturnInventory(returnsStartDate, returnsEndDate),
+        getReturnEvents(returnsStartDate, returnsEndDate),
+      ]);
+      const rows = Array.isArray(data) ? data : [];
+      setReturnsRows(rows);
+      setReturnEvents(Array.isArray(events) ? events : []);
+    } catch (e) {
+      setReturnsError(e.message || "No se pudieron cargar las devoluciones.");
+      setReturnsRows([]);
+      setReturnEvents([]);
+    } finally {
+      setLoadingReturns(false);
+    }
+  };
+
+  const filteredReturns = useMemo(() => {
+    let rows = Array.isArray(returnsRows) ? returnsRows : [];
+    if (returnsCondition) {
+      const cond = String(returnsCondition).toUpperCase();
+      rows = rows.filter((r) => String(r?.itemCondition || "").toUpperCase() === cond);
+    }
+    return rows;
+  }, [returnsRows, returnsCondition]);
+
+  const returnsTotals = useMemo(() => {
+    const rows = filteredReturns || [];
+    const units = rows.reduce((sum, r) => sum + (parseInt(r?.quantity, 10) || 0), 0);
+    const amount = rows.reduce((sum, r) => sum + (parseFloat(r?.subtotal) || 0), 0);
+    return { units, amount };
+  }, [filteredReturns]);
+
   const filteredEligibleSales = useMemo(() => {
+    const excludedStatuses = new Set([
+      "EN_PRODUCCION",
+      "PRODUCIDO",
+      "ENVIADO",
+      "ENTREGADO",
+      "ANULADA",
+      "CANCELADO",
+      "DEVOLUCION",
+    ]);
     return (eligibleSales || []).filter(sale => {
+      if (excludedStatuses.has(String(sale.status || "").toUpperCase())) return false;
       if (productionDateFrom && sale.saleDate < productionDateFrom) return false;
       if (productionDateTo && sale.saleDate > productionDateTo) return false;
       return true;
@@ -646,10 +664,6 @@ function OnlineSales() {
     }
   };
 
-  const selectAllEligibleSales = () => {
-    setSelectedForPO(new Set((eligibleSales || []).map(s => s.id)));
-  };
-
   const selectAllForDay = () => {
     if (!productionBulkDate) return;
     const dayIds = (eligibleSales || [])
@@ -667,6 +681,113 @@ function OnlineSales() {
 
   const selectedInFiltered = filteredEligibleSales.filter(s => selectedForPO.has(s.id)).length;
 
+  const saleInventorySource = (sale) => (fulfillmentPreview?.sourceMap || {})[String(sale.id)] || "";
+
+  const saleIsPartial = (sale) => saleInventorySource(sale) === "PARCIAL";
+
+  const saleHasBodegaStock = (sale) =>
+    !saleIsPartial(sale)
+    && fulfillmentPreview?.bodegaPtFound !== false
+    && (fulfillmentPreview?.map || {})[String(sale.id)] === true;
+
+  const saleNeedsProduction = (sale) =>
+    !saleIsPartial(sale)
+    && (
+      fulfillmentPreview?.bodegaPtFound === false
+      || (fulfillmentPreview?.map || {})[String(sale.id)] !== true
+    );
+
+  const saleLeatherOkForOpl = (sale) => {
+    if (!saleNeedsProduction(sale)) return true;
+    const v = (fulfillmentPreview?.leatherOkMap || {})[String(sale.id)];
+    return v !== false;
+  };
+
+  const saleLeatherSummaryLines = (sale) =>
+    (fulfillmentPreview?.leatherSummaryMap || {})[String(sale.id)] || [];
+
+  const openResolveMixedModal = async (sale) => {
+    setResolveSale(sale);
+    setResolveItems([]);
+    setResolveActions({});
+    setResolveError("");
+    setResolveLoading(true);
+    try {
+      const preview = await getSaleItemsPreview(sale.id);
+      const items = Array.isArray(preview?.items) ? preview.items : [];
+      setResolveItems(items);
+      const initial = {};
+      items.forEach((it, idx) => {
+        const key = it.saleItemId != null ? String(it.saleItemId) : `idx-${idx}`;
+        initial[key] = it.suggestedAction || "PRODUCE";
+      });
+      setResolveActions(initial);
+    } catch (e) {
+      setResolveError(e.message || "No se pudo cargar el detalle de la venta");
+    } finally {
+      setResolveLoading(false);
+    }
+  };
+
+  const closeResolveMixedModal = () => {
+    if (resolveSubmitting) return;
+    setResolveSale(null);
+    setResolveItems([]);
+    setResolveActions({});
+    setResolveError("");
+  };
+
+  const setResolveAction = (key, action) => {
+    setResolveActions((prev) => ({ ...prev, [key]: action }));
+  };
+
+  const submitResolveMixed = async () => {
+    if (!resolveSale) return;
+    const payload = resolveItems
+      .filter((it) => it.saleItemId != null)
+      .map((it) => ({
+        saleItemId: it.saleItemId,
+        action: resolveActions[String(it.saleItemId)] || "PRODUCE",
+      }));
+    if (payload.length === 0) {
+      setResolveError("La venta no tiene items detallados para resolver.");
+      return;
+    }
+    const dispatchOverflow = resolveItems.find((it) => {
+      const action = resolveActions[String(it.saleItemId)];
+      return action === "DISPATCH" && Number(it.stockTotal || 0) < Number(it.quantity || 0);
+    });
+    if (dispatchOverflow) {
+      setResolveError(`Stock insuficiente para ${dispatchOverflow.productCode}. Cambia su accion a Producir.`);
+      return;
+    }
+    setResolveSubmitting(true);
+    setResolveError("");
+    try {
+      const result = await resolveMixedSale(resolveSale.id, payload);
+      const msg = result?.message || "Venta resuelta";
+      const childMsg = result?.childSaleNumber ? ` Sub-pedido: #${result.childSaleNumber}.` : "";
+      const opMsg = result?.productionOrderCode ? ` OP: ${result.productionOrderCode}.` : "";
+      const ko = Array.isArray(result?.kioskOutflows) ? result.kioskOutflows : [];
+      const koMsg = ko.length ? ` Boletas kiosko: ${ko.map((k) => k.ticketNumber).join(", ")}.` : "";
+      showNotification(msg + childMsg + opMsg + koMsg);
+      setResolveSale(null);
+      setResolveItems([]);
+      setResolveActions({});
+      await loadEligibleSales();
+      await loadSales();
+    } catch (e) {
+      setResolveError(e.message || "No se pudo resolver la venta");
+    } finally {
+      setResolveSubmitting(false);
+    }
+  };
+
+  const visibleWithStock = filteredEligibleSales.filter(saleHasBodegaStock);
+  const visibleWithoutStock = filteredEligibleSales.filter(saleNeedsProduction);
+  const selectedWithStock = filteredEligibleSales.filter(sale => selectedForPO.has(sale.id) && saleHasBodegaStock(sale));
+  const selectedWithoutStock = filteredEligibleSales.filter(sale => selectedForPO.has(sale.id) && saleNeedsProduction(sale));
+
   const applyProductionDateFilter = async () => {
     await loadEligibleSales();
   };
@@ -683,16 +804,27 @@ function OnlineSales() {
     }
   };
 
+  const selectSalesWithBodegaStock = () => {
+    setSelectedForPO(new Set(visibleWithStock.map(sale => sale.id)));
+  };
+
+  const selectSalesWithoutBodegaStock = () => {
+    setSelectedForPO(new Set(visibleWithoutStock.map(sale => sale.id)));
+  };
+
   /**
-   * Nuevo flujo: Bodega PT revisa inventario primero.
-   * - Ventas con stock en BODEGA_PT → despacho directo (status PRODUCIDO)
-   * - Ventas sin stock → se crean órdenes de producción
+   * Bodega PT: descuenta inventario y deja la venta en PRODUCIDO,
+   * que para ventas online significa "lista para preparar/despachar".
    */
-  const handleProcessFulfillment = async () => {
-    if (selectedForPO.size === 0) return;
+  const handleMarkReadyFromBodega = async () => {
+    const ids = selectedWithStock.map(sale => sale.id);
+    if (ids.length === 0) {
+      showNotification("Selecciona ventas marcadas con stock en Bodega PT / Devoluciones.");
+      return;
+    }
     setLoadingPO(true);
     try {
-      const result = await processFulfillment([...selectedForPO]);
+      const result = await processFulfillment(ids);
       setFulfillmentResult(result);
       setShowFulfillmentModal(true);
       setSelectedForPO(new Set());
@@ -705,15 +837,23 @@ function OnlineSales() {
     }
   };
 
-  /** Flujo legado: crear orden de producción directamente (sin revisar inventario) */
   const handleCreatePO = async () => {
-    if (selectedForPO.size === 0) return;
+    const ids = selectedWithoutStock.map(sale => sale.id);
+    if (ids.length === 0) {
+      showNotification("Selecciona ventas sin stock en Bodega PT / Devoluciones para enviarlas a producción.");
+      return;
+    }
     setLoadingPO(true);
     try {
-      const result = await createProductionOrderFromSales([...selectedForPO]);
+      const result = await createProductionOrderFromSales(ids);
       let msg = result.message || "Órdenes creadas";
       if (result.ordersCreated > 1 && result.productionOrderCodes) {
         msg = `${result.ordersCreated} OPs creadas: ${result.productionOrderCodes.join(", ")}`;
+      }
+      const ko = Array.isArray(result.kioskOutflows) ? result.kioskOutflows : [];
+      if (ko.length) {
+        msg += ` Salida cuero desde kiosko: ${ko.map((k) =>
+          `${k.ticketNumber || ""}${k.kioskName ? ` (${k.kioskName})` : ""}`).join(", ")}.`;
       }
       if (result.tasksError) {
         msg += ` — Atención (tareas): ${result.tasksError}`;
@@ -774,6 +914,7 @@ function OnlineSales() {
     if (!sale) return { label: "Sin datos", color: "secondary" };
     if (isDispatchedStatus(sale.status)) return { label: "Enviado", color: "success" };
     const sn = sale.shipmentNumber ? ` · ${sale.shipmentNumber}` : "";
+    if (sale.status === "PRODUCIDO") return { label: `Listo para despachar${sn}`, color: "primary" };
     const progress = saleProductionProgress[String(sale.id)];
     if (!progress || progress.total <= 0 || progress.produced <= 0) {
       return { label: `Pendiente en producción${sn}`, color: "warning" };
@@ -797,6 +938,7 @@ function OnlineSales() {
       customerName: "", address: "", phone: "", phone2: "", packaging: false,
       paymentMethod: "CONTRA_ENTREGA", invoiceTaxId: "CF",
       items: [emptyItem()],
+      shippingCost: String(getShippingCost("CONTRA_ENTREGA") || 0),
       shippingCarrier: "FORZA_DELIVERY",
       saleDate: today(), socialNetwork: "WHATSAPP", email: "",
       guideNumber: "", paymentAuthorization: "",
@@ -833,6 +975,7 @@ function OnlineSales() {
       paymentMethod: sale.paymentMethod || "CONTRA_ENTREGA",
       invoiceTaxId: sale.invoiceTaxId || "CF",
       items: saleItems,
+      shippingCost: String((sale.shippingCost != null ? sale.shippingCost : getShippingCost(sale.paymentMethod)) ?? 0),
       shippingCarrier: sale.shippingCarrier || "FORZA_DELIVERY",
       saleDate: sale.saleDate || today(),
       socialNetwork: sale.socialNetwork || "WHATSAPP",
@@ -849,6 +992,11 @@ function OnlineSales() {
   // Neto = suma de subtotales de productos (precio sin envío)
   // Total = Neto + Envío
   const computedShipping = getShippingCost(formData.paymentMethod);
+  const effectiveShipping = (() => {
+    const v = parseFloat(formData.shippingCost);
+    if (Number.isFinite(v) && v >= 0) return v;
+    return parseFloat(computedShipping) || 0;
+  })();
   const computedNet = useMemo(() => {
     return (formData.items || []).reduce((sum, it) => {
       const price = parseFloat(it.unitPrice) || 0;
@@ -856,7 +1004,7 @@ function OnlineSales() {
       return sum + (price * qty);
     }, 0);
   }, [formData.items]);
-  const computedTotal = computedNet > 0 ? computedNet + computedShipping : 0;
+  const computedTotal = computedNet > 0 ? computedNet + effectiveShipping : 0;
 
   // Item handlers
   const updateItem = (index, field, value) => {
@@ -907,6 +1055,7 @@ function OnlineSales() {
         packaging: formData.packaging,
         paymentMethod: formData.paymentMethod,
         invoiceTaxId: formData.invoiceTaxId,
+        shippingCost: effectiveShipping,
         shippingCarrier: formData.shippingCarrier,
         saleDate: formData.saleDate,
         socialNetwork: formData.socialNetwork,
@@ -994,163 +1143,133 @@ function OnlineSales() {
 
   const openShipmentModal = (sale) => {
     setShipmentSale(sale);
-    setShipmentForm({
+    const nextForm = {
       shippingCarrier: sale.shippingCarrier || "FORZA_DELIVERY",
       guideNumber: sale.guideNumber || "",
       observations: ""
-    });
+    };
+    setShipmentForm(nextForm);
     setShowShipmentModal(true);
+
+    // Guardar de una vez (asigna ENVL si aplica) al abrir “Preparar envío”
+    // El usuario luego puede ajustar campos; se auto-guardan en onBlur.
+    (async () => {
+      try {
+        const updated = await registerOnlineSaleShipment(sale.id, {
+          shippingCarrier: nextForm.shippingCarrier,
+          guideNumber: nextForm.guideNumber || "",
+          observations: nextForm.observations || "",
+        });
+        setSales(prev => prev.map(s => (s.id === updated.id ? updated : s)));
+        setShipmentSale(updated);
+      } catch (e) {
+        // No bloquea el modal; solo muestra error si falla
+        setError(e?.message || "No se pudo guardar la preparación del envío.");
+      }
+    })();
   };
 
-  const buildShipmentDocumentHtml = (sale) => {
-    const docNo = sale.shipmentNumber || String(sale.saleNumber || sale.id || "");
-    const saleDateStr = sale.saleDate || today();
-    const items = (sale.items && sale.items.length > 0) ? sale.items : [{
-      productCode: sale.productCode,
-      productName: sale.productName,
-      colorName: sale.colorName,
-      size: sale.size,
-      quantity: sale.quantity || 1,
-      unitPrice: sale.unitPrice || 0,
-      subtotal: sale.netAmount || sale.totalAmount || 0
-    }];
-    const totalItems = items.reduce((sum, it) => sum + (parseInt(it.quantity, 10) || 0), 0);
-    const netAmount = parseFloat(sale.netAmount) || 0;
-    const totalAmount = parseFloat(sale.totalAmount) || 0;
-    const carrierLabel = SHIPPING_CARRIERS.find(c => c.value === sale.shippingCarrier)?.label || sale.shippingCarrier || "—";
-    const paymentLabel = getSimplePaymentLabel(sale.paymentMethod);
-    const shippingAmount = parseFloat(sale.shippingCost) || 0;
-    const rowsHtml = items.map((it) => {
-      const qty = parseInt(it.quantity, 10) || 1;
-      const unitPrice = parseFloat(it.unitPrice) || 0;
-      const lineTotal = parseFloat(it.subtotal) || (unitPrice * qty);
-      const description = [it.productName || "", it.colorName || "", it.size ? `Talla ${it.size}` : ""]
-        .filter(Boolean)
-        .join(" - ");
-      return `
-        <tr>
-          <td>${escapeHtml(it.productCode || "")}</td>
-          <td style="text-align:center">${qty}</td>
-          <td>${escapeHtml(description)}</td>
-          <td style="text-align:right">Q. ${unitPrice.toFixed(2)}</td>
-          <td style="text-align:right">Q. ${lineTotal.toFixed(2)}</td>
-        </tr>
-      `;
-    }).join("");
-
-    return `
-      <html>
-        <head>
-          <meta charset="UTF-8" />
-          <title>Envio ${escapeHtml(docNo)}</title>
-          <style>
-            @page { size: letter; margin: 10mm; }
-            body { font-family: Arial, sans-serif; color: #111; font-size: 12px; margin: 0; }
-            .doc { border: 1px solid #777; min-height: 252mm; width: 100%; max-width: 100%; box-sizing: border-box; display: flex; flex-direction: column; overflow: hidden; }
-            .section { border-bottom: 1px solid #777; padding: 8px 10px; }
-            .top { display: flex; justify-content: space-between; align-items: flex-start; }
-            .title { text-align: right; }
-            .title h2 { margin: 0; letter-spacing: 1px; font-size: 22px; }
-            .title .num { font-size: 24px; font-weight: bold; margin-top: 2px; }
-            .line { display: flex; gap: 8px; margin: 2px 0; }
-            .label { min-width: 70px; color: #333; font-weight: bold; }
-            table { width: 100%; border-collapse: collapse; table-layout: fixed; }
-            th, td { border: 1px dashed #777; padding: 4px 6px; vertical-align: top; word-wrap: break-word; overflow-wrap: anywhere; }
-            th { text-align: center; background: #f7f7f7; }
-            .totals { width: 280px; margin-left: auto; margin-top: 8px; }
-            .totals td { border: 1px solid #777; }
-            .content-main { flex: 1; }
-            .bottom-block { margin-top: auto; }
-            .footer { padding: 8px 10px; font-size: 11px; }
-            .signature { margin-top: 18px; width: 220px; border-top: 1px solid #777; text-align: center; padding-top: 2px; }
-          </style>
-        </head>
-        <body>
-          <div class="doc">
-            <div class="section top">
-              <div>
-                <div style="font-size:14px;font-weight:bold;letter-spacing:1px">FOSSILES</div>
-                <div style="font-size:20px;font-weight:bold">VENTA EN LINEA FOSSILES</div>
-                <div>Km. 17 Carretera San Juan Sacatepequez</div>
-                <div>17-05, Zona 6 de Mixco Guatemala C.A.</div>
-                <div>Telefono PBX: 2462-5700</div>
-              </div>
-              <div class="title">
-                <h2>ENVIO</h2>
-                <div style="font-size:11px;color:#555;margin-top:2px">Preparación</div>
-                <div>No. <span class="num">${escapeHtml(docNo)}</span></div>
-              </div>
-            </div>
-
-            <div class="section">
-              <div style="display:flex;justify-content:space-between;gap:16px">
-                <div style="flex:1">
-                  <div class="line"><span class="label">Cliente:</span><span>${escapeHtml(sale.customerName || "—")}</span></div>
-                  <div class="line"><span class="label">Direccion:</span><span>${escapeHtml(sale.address || "—")}</span></div>
-                  <div class="line"><span class="label">Telefono:</span><span>${escapeHtml(sale.phone || "—")}</span></div>
-                  <div class="line"><span class="label">Enviar:</span><span>${escapeHtml(sale.phone2 || "—")}</span></div>
-                </div>
-                <div style="flex:1">
-                  <div class="line"><span class="label">Pedido:</span><span>#${escapeHtml(String(sale.saleNumber || sale.id || ""))}</span></div>
-                  <div class="line"><span class="label">N° envío:</span><span>${escapeHtml(sale.shipmentNumber || "—")}</span></div>
-                  <div class="line"><span class="label">Fecha:</span><span>${escapeHtml(formatDateDisplay(saleDateStr))}</span></div>
-                  <div class="line"><span class="label">Transporte:</span><span>${escapeHtml(carrierLabel)}</span></div>
-                  <div class="line"><span class="label">No. Guía:</span><span>${escapeHtml(sale.guideNumber || "—")}</span></div>
-                  <div class="line"><span class="label">Nit:</span><span>${escapeHtml(sale.invoiceTaxId || "CF")}</span></div>
-                  <div class="line"><span class="label">Vendedor:</span><span>${escapeHtml(sale.salesperson || "—")}</span></div>
-                </div>
-              </div>
-            </div>
-
-            <div class="section content-main">
-              <table>
-                <thead>
-                  <tr>
-                    <th style="width:16%">Codigo</th>
-                    <th style="width:10%">Cantidad</th>
-                    <th>Descripcion</th>
-                    <th style="width:15%">P.Unitario</th>
-                    <th style="width:15%">Total</th>
-                  </tr>
-                </thead>
-                <tbody>${rowsHtml}</tbody>
-              </table>
-              <div style="display:flex;justify-content:space-between;margin-top:8px;font-size:11px">
-                <div>El total de articulos es: <strong>${totalItems.toFixed(2)}</strong></div>
-                <div>Forma de pago: <strong>${escapeHtml(paymentLabel)}</strong></div>
-              </div>
-              <table class="totals">
-                <tr><td>SUBTOTAL: Q.</td><td style="text-align:right">${netAmount.toFixed(2)}</td></tr>
-                <tr><td>ENVIO: Q.</td><td style="text-align:right">${shippingAmount.toFixed(2)}</td></tr>
-                <tr><td>DESCUENTO: Q.</td><td style="text-align:right">0.00</td></tr>
-                <tr><td><strong>TOTAL: Q.</strong></td><td style="text-align:right"><strong>${totalAmount.toFixed(2)}</strong></td></tr>
-              </table>
-            </div>
-
-            <div class="bottom-block">
-              <div class="section" style="font-size:11px">
-                <strong>TOTAL EN LETRAS:</strong> ${escapeHtml(amountToWordsQ(totalAmount))}
-              </div>
-
-              <div class="footer">
-                <div class="signature">Vo.Bo.</div>
-                <div style="margin-top:8px">DOCUMENTO DE PREPARACIÓN DE ENVÍO (referencia interna y paquetería).</div>
-                <div>No indica que el pedido haya salido de bodega; el despacho se confirma en bodega PT.</div>
-              </div>
-            </div>
-          </div>
-        </body>
-      </html>
-    `;
+  const openExchangeModal = (sale) => {
+    setExchangeOriginalSale(sale);
+    const items = (sale?.items && sale.items.length > 0)
+      ? sale.items.map((it, idx) => ({
+          key: it.id || `${sale.id}-it-${idx}`,
+          productId: it.productId,
+          productCode: it.productCode,
+          productName: it.productName,
+          colorId: it.colorId ?? null,
+          colorName: it.colorName,
+          size: it.size || "",
+          quantity: parseInt(it.quantity, 10) || 1,
+          selected: true,
+        }))
+      : [{
+          key: `${sale?.id}-legacy`,
+          productId: sale.productId,
+          productCode: sale.productCode,
+          productName: sale.productName,
+          colorId: sale.colorId ?? null,
+          colorName: sale.colorName,
+          size: sale.size || "",
+          quantity: parseInt(sale.quantity, 10) || 1,
+          selected: true,
+        }];
+    setExchangeItems(items.filter(i => i.productId));
+    setExchangeForm({
+      shippingCarrier: sale?.shippingCarrier || "FORZA_DELIVERY",
+      guideNumber: "",
+      observations: "CAMBIO por producto dañado / parcial",
+    });
+    setExchangeCreatedSale(null);
+    setShowExchangeModal(true);
   };
 
-  const printShipmentDocument = (sale) => {
+  const handleCreateExchange = async () => {
+    if (!exchangeOriginalSale) return;
+    const selected = (exchangeItems || []).filter((it) => it.selected && it.productId && (it.quantity || 0) > 0);
+    if (selected.length === 0) {
+      setError("Seleccione al menos un item con cantidad para el CAMBIO.");
+      return;
+    }
+    try {
+      setCreatingExchange(true);
+      const created = await createOnlineSaleExchange(exchangeOriginalSale.id, {
+        shippingCarrier: exchangeForm.shippingCarrier,
+        guideNumber: exchangeForm.guideNumber || "",
+        observations: exchangeForm.observations || "",
+        items: selected.map((it) => ({
+          productId: it.productId,
+          colorId: it.colorId ?? null,
+          size: it.size || "",
+          quantity: parseInt(it.quantity, 10) || 1,
+        })),
+      });
+      setExchangeCreatedSale(created);
+      showNotification(`CAMBIO creado · ${created.shipmentNumber || created.id}`);
+    } catch (e) {
+      setError(e.message || "No se pudo crear el CAMBIO.");
+    } finally {
+      setCreatingExchange(false);
+    }
+  };
+
+  const printExchangeDocument = (exchangeSale) => {
+    if (!exchangeSale) return;
+    const related = exchangeOriginalSale?.shipmentNumber
+      ? `Envío ${exchangeOriginalSale.shipmentNumber}`
+      : (exchangeOriginalSale?.saleNumber ? `Pedido #${exchangeOriginalSale.saleNumber}` : "");
+    printShipmentDocument(exchangeSale, {
+      docType: "CAMBIO",
+      docNo: String(exchangeSale.shipmentNumber || exchangeSale.saleNumber || exchangeSale.id || ""),
+      relatedShipmentNumber: related,
+      shippingCost: 0,
+      netAmount: 0,
+      totalAmount: 0,
+    });
+  };
+
+  const downloadExchangePdf = async (exchangeSale) => {
+    if (!exchangeSale) return;
+    const related = exchangeOriginalSale?.shipmentNumber
+      ? `Envío ${exchangeOriginalSale.shipmentNumber}`
+      : (exchangeOriginalSale?.saleNumber ? `Pedido #${exchangeOriginalSale.saleNumber}` : "");
+    await downloadShipmentPdf(exchangeSale, {
+      docType: "CAMBIO",
+      docNo: String(exchangeSale.shipmentNumber || exchangeSale.saleNumber || exchangeSale.id || ""),
+      relatedShipmentNumber: related,
+      shippingCost: 0,
+      netAmount: 0,
+      totalAmount: 0,
+    });
+  };
+
+  const printShipmentDocument = (sale, opts) => {
     const printWindow = window.open("", "_blank", "width=1000,height=800");
     if (!printWindow) {
       setError("No se pudo abrir la ventana de impresión. Verifique bloqueador de ventanas.");
       return;
     }
-    printWindow.document.write(buildShipmentDocumentHtml(sale));
+    printWindow.document.write(buildShipmentDocumentHtml(sale, opts));
     printWindow.document.close();
     printWindow.focus();
     setTimeout(() => {
@@ -1158,9 +1277,9 @@ function OnlineSales() {
     }, 300);
   };
 
-  const downloadShipmentPdf = async (sale) => {
+  const downloadShipmentPdf = async (sale, opts) => {
     if (!sale) return;
-    const html = buildShipmentDocumentHtml(sale);
+    const html = buildShipmentDocumentHtml(sale, opts);
     const host = document.createElement("div");
     host.style.cssText = "position:fixed;left:-10000px;top:0;width:816px;background:#fff;";
     host.innerHTML = html;
@@ -1184,11 +1303,104 @@ function OnlineSales() {
         pdf.addImage(imgData, "PNG", 0, position, imgW, imgH);
         heightLeft -= pageH;
       }
-      pdf.save(`Envio-${sale.shipmentNumber || sale.saleNumber || sale.id}.pdf`);
+      const docType = String(opts?.docType || "ENVIO").toUpperCase();
+      const prefix = docType === "DEVOLUCION" ? "Devolucion" : (docType === "CAMBIO" ? "Cambio" : "Envio");
+      const docNo = String(opts?.docNo || sale.shipmentNumber || sale.saleNumber || sale.id || "");
+      pdf.save(`${prefix}-${docNo}.pdf`);
     } catch (e) {
       setError(e?.message || "No se pudo generar el PDF del envío.");
     } finally {
       document.body.removeChild(host);
+    }
+  };
+
+  const printReturnDocument = async (returnId) => {
+    try {
+      const dto = await getReturnForPrint(returnId);
+      const saleLike = {
+        id: dto.onlineSaleId,
+        saleNumber: dto.saleNumber,
+        shipmentNumber: dto.relatedShipmentNumber || "",
+        customerName: dto.customerName,
+        address: dto.address,
+        phone: dto.phone,
+        phone2: dto.phone2,
+        saleDate: dto.returnDate,
+        shippingCarrier: "",
+        guideNumber: "",
+        invoiceTaxId: "CF",
+        salesperson: "",
+        paymentMethod: "",
+        netAmount: dto.totalAmount || 0,
+        shippingCost: 0,
+        totalAmount: dto.totalAmount || 0,
+        items: (dto.items || []).map((it) => ({
+          productId: it.productId,
+          productCode: it.productCode,
+          productName: it.productName,
+          colorId: it.colorId,
+          colorName: it.colorName,
+          size: it.size,
+          quantity: it.quantity,
+          unitPrice: it.unitPrice || 0,
+          subtotal: it.subtotal || 0,
+        })),
+      };
+      printShipmentDocument(saleLike, {
+        docType: "DEVOLUCION",
+        docNo: String(dto.returnId),
+        relatedShipmentNumber: dto.relatedShipmentNumber ? `Envío ${dto.relatedShipmentNumber}` : "",
+        shippingCost: 0,
+        netAmount: dto.totalAmount || 0,
+        totalAmount: dto.totalAmount || 0,
+      });
+    } catch (e) {
+      setError(e.message || "No se pudo imprimir la devolución.");
+    }
+  };
+
+  const downloadReturnPdf = async (returnId) => {
+    try {
+      const dto = await getReturnForPrint(returnId);
+      const saleLike = {
+        id: dto.onlineSaleId,
+        saleNumber: dto.saleNumber,
+        shipmentNumber: dto.relatedShipmentNumber || "",
+        customerName: dto.customerName,
+        address: dto.address,
+        phone: dto.phone,
+        phone2: dto.phone2,
+        saleDate: dto.returnDate,
+        shippingCarrier: "",
+        guideNumber: "",
+        invoiceTaxId: "CF",
+        salesperson: "",
+        paymentMethod: "",
+        netAmount: dto.totalAmount || 0,
+        shippingCost: 0,
+        totalAmount: dto.totalAmount || 0,
+        items: (dto.items || []).map((it) => ({
+          productId: it.productId,
+          productCode: it.productCode,
+          productName: it.productName,
+          colorId: it.colorId,
+          colorName: it.colorName,
+          size: it.size,
+          quantity: it.quantity,
+          unitPrice: it.unitPrice || 0,
+          subtotal: it.subtotal || 0,
+        })),
+      };
+      await downloadShipmentPdf(saleLike, {
+        docType: "DEVOLUCION",
+        docNo: String(dto.returnId),
+        relatedShipmentNumber: dto.relatedShipmentNumber ? `Envío ${dto.relatedShipmentNumber}` : "",
+        shippingCost: 0,
+        netAmount: dto.totalAmount || 0,
+        totalAmount: dto.totalAmount || 0,
+      });
+    } catch (e) {
+      setError(e.message || "No se pudo descargar el PDF de la devolución.");
     }
   };
 
@@ -1205,15 +1417,29 @@ function OnlineSales() {
         observations: shipmentForm.observations || ""
       });
       setSales(prev => prev.map(s => (s.id === updated.id ? updated : s)));
+      setShipmentSale(updated);
       const envLabel = updated.shipmentNumber
         ? `Preparación guardada · ${updated.shipmentNumber}`
         : "Datos de envío guardados";
       showNotification(`${envLabel} — pedido #${updated.saleNumber || updated.id}`);
-      setShowShipmentModal(false);
-      await downloadShipmentPdf(updated);
-      printShipmentDocument(updated);
     } catch (e) {
       setError(e.message);
+    }
+  };
+
+  const autoSaveShipmentPrep = async () => {
+    if (!shipmentSale) return;
+    if (!shipmentForm.shippingCarrier) return;
+    try {
+      const updated = await registerOnlineSaleShipment(shipmentSale.id, {
+        shippingCarrier: shipmentForm.shippingCarrier,
+        guideNumber: shipmentForm.guideNumber || "",
+        observations: shipmentForm.observations || ""
+      });
+      setSales(prev => prev.map(s => (s.id === updated.id ? updated : s)));
+      setShipmentSale(updated);
+    } catch (e) {
+      setError(e?.message || "No se pudo actualizar la preparación del envío.");
     }
   };
 
@@ -1966,6 +2192,12 @@ function OnlineSales() {
           </NavLink>
         </NavItem>
         <NavItem>
+          <NavLink className={activeTab === "devoluciones" ? "active" : ""} onClick={() => setActiveTab("devoluciones")}
+            style={{ cursor: "pointer" }}>
+            ↩ Devoluciones
+          </NavLink>
+        </NavItem>
+        <NavItem>
           <NavLink className={activeTab === "mensual" ? "active" : ""} onClick={() => setActiveTab("mensual")}
             style={{ cursor: "pointer" }}>
             📅 Resumen Mensual
@@ -1974,7 +2206,7 @@ function OnlineSales() {
         <NavItem>
           <NavLink className={activeTab === "produccion" ? "active" : ""} onClick={() => setActiveTab("produccion")}
             style={{ cursor: "pointer" }}>
-            🏭 Enviar a Producción
+            📦 Despacho / Producción
             {eligibleSales.length > 0 && (
               <Badge color="danger" pill className="ml-1">{eligibleSales.length}</Badge>
             )}
@@ -2134,6 +2366,12 @@ function OnlineSales() {
                                 <i className="nc-icon nc-refresh-69" />
                               </Button>{" "}</>
                             )}
+                            {sale.status === "DEVOLUCION" && (
+                              <><Button color="primary" size="sm" className="btn-icon btn-round" title="Registrar CAMBIO (Q0)"
+                                onClick={() => openExchangeModal(sale)} style={{ padding: "3px 7px" }}>
+                                <i className="nc-icon nc-send" />
+                              </Button>{" "}</>
+                            )}
                             {sale.status !== "DEVOLUCION" && sale.status !== "ANULADA"
                               && sale.status !== "ENVIADO" && sale.status !== "ENTREGADO" && (
                               <><Button color="warning" size="sm" className="btn-icon btn-round" title="Anular"
@@ -2284,6 +2522,170 @@ function OnlineSales() {
                     </tbody>
                   </Table>
                 </div>
+              )}
+            </CardBody>
+          </Card>
+        </TabPane>
+
+        {/* ═══ TAB DEVOLUCIONES ═══ */}
+        <TabPane tabId="devoluciones">
+          <Card>
+            <CardHeader>
+              <Row className="align-items-center">
+                <Col md="4">
+                  <CardTitle tag="h4" className="mb-0">Devoluciones (Ventas en línea)</CardTitle>
+                  <small className="text-muted d-block">Historial + acceso al inventario de DEVOLUCIÓN</small>
+                </Col>
+                <Col md="2">
+                  <Label className="mb-0" style={{ fontSize: 12 }}>Desde</Label>
+                  <Input type="date" bsSize="sm" value={returnsStartDate}
+                    onChange={(e) => setReturnsStartDate(e.target.value)} />
+                </Col>
+                <Col md="2">
+                  <Label className="mb-0" style={{ fontSize: 12 }}>Hasta</Label>
+                  <Input type="date" bsSize="sm" value={returnsEndDate}
+                    onChange={(e) => setReturnsEndDate(e.target.value)} />
+                </Col>
+                <Col md="2">
+                  <Label className="mb-0" style={{ fontSize: 12 }}>Condición</Label>
+                  <Input type="select" bsSize="sm" value={returnsCondition}
+                    onChange={(e) => setReturnsCondition(e.target.value)}>
+                    <option value="">Todas</option>
+                    <option value="BUENO">BUENO</option>
+                    <option value="USADO">USADO</option>
+                    <option value="DAÑADO">DAÑADO</option>
+                  </Input>
+                </Col>
+                <Col md="2" className="text-right">
+                  <Button
+                    color="primary"
+                    size="sm"
+                    className="mr-2"
+                    onClick={() => loadReturns()}
+                    disabled={loadingReturns}
+                  >
+                    {loadingReturns ? <><Spinner size="sm" /> Cargando...</> : "Actualizar"}
+                  </Button>
+                  <Button
+                    color="default"
+                    size="sm"
+                    onClick={() => { window.location.href = "/admin/product-inventory-by-location?category=DEVOLUCION"; }}
+                    title="Ver inventario de productos en categoría DEVOLUCIÓN"
+                  >
+                    Ver inventario
+                  </Button>
+                </Col>
+              </Row>
+            </CardHeader>
+            <CardBody>
+              {returnsError && <Alert color="danger" toggle={() => setReturnsError("")}>{returnsError}</Alert>}
+
+              <Row className="mb-3">
+                <Col md="6">
+                  <Alert color="light" className="mb-0">
+                    <strong>Total unidades:</strong> {returnsTotals.units} &nbsp;|&nbsp;
+                    <strong>Total Q:</strong> {formatQ(returnsTotals.amount)}
+                  </Alert>
+                </Col>
+                <Col md="6" className="text-right">
+                  <small className="text-muted d-block">
+                    Tip: registra la devolución desde “Ventas del día” y aquí queda el historial. El stock se consulta en Inventarios → Productos → DEVOLUCIÓN.
+                  </small>
+                </Col>
+              </Row>
+
+              {loadingReturns ? (
+                <div className="text-center py-4"><Spinner /> <div className="mt-2">Cargando devoluciones...</div></div>
+              ) : (
+                <>
+                  {returnEvents.length === 0 ? (
+                    <Alert color="info">No hay eventos de devolución en el rango seleccionado.</Alert>
+                  ) : (
+                    <div className="mb-4" style={{ overflowX: "auto" }}>
+                      <h6 className="mb-2">Documentos de devolución</h6>
+                      <Table bordered responsive size="sm">
+                        <thead className="text-primary">
+                          <tr>
+                            <th style={{ width: 90 }}>No.</th>
+                            <th style={{ width: 110 }}>Pedido</th>
+                            <th style={{ width: 140 }}>Envío relacionado</th>
+                            <th style={{ width: 120 }}>Condición</th>
+                            <th>Motivo</th>
+                            <th style={{ width: 180 }}>Acciones</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {returnEvents.map((e) => (
+                            <tr key={e.id}>
+                              <td><strong>{e.id}</strong></td>
+                              <td>#{e.onlineSaleId || "—"}</td>
+                              <td>{e.relatedShipmentNumber || "—"}</td>
+                              <td>
+                                <Badge color={String(e.itemCondition || "").toUpperCase() === "DAÑADO" ? "danger" : "secondary"}>
+                                  {e.itemCondition || "—"}
+                                </Badge>
+                              </td>
+                              <td style={{ whiteSpace: "pre-wrap" }}>{e.returnReason || "—"}</td>
+                              <td style={{ whiteSpace: "nowrap" }}>
+                                <Button color="default" size="sm" onClick={() => printReturnDocument(e.id)} style={{ padding: "3px 8px" }}>
+                                  Imprimir
+                                </Button>{" "}
+                                <Button color="info" size="sm" onClick={() => void downloadReturnPdf(e.id)} style={{ padding: "3px 8px" }}>
+                                  Descargar PDF
+                                </Button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </Table>
+                    </div>
+                  )}
+
+                  {filteredReturns.length === 0 ? (
+                    <Alert color="light" className="mb-0">Sin líneas de inventario de devolución para el filtro actual.</Alert>
+                  ) : (
+                    <div style={{ overflowX: "auto" }}>
+                      <h6 className="mb-2">Líneas ingresadas a inventario de devoluciones</h6>
+                      <Table bordered responsive size="sm">
+                        <thead className="text-primary">
+                          <tr>
+                            <th style={{ width: 90 }}>Fecha</th>
+                            <th style={{ width: 90 }}>Pedido</th>
+                            <th style={{ width: 90 }}>Código</th>
+                            <th>Producto</th>
+                            <th style={{ width: 120 }}>Color / Talla</th>
+                            <th style={{ width: 70 }} className="text-center">Qty</th>
+                            <th style={{ width: 110 }} className="text-right">Subtotal</th>
+                            <th style={{ width: 110 }}>Condición</th>
+                            <th>Motivo</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {filteredReturns.map((r) => {
+                            const colorSize = [r?.colorName, r?.size].filter(Boolean).join(" / ");
+                            return (
+                              <tr key={r.id}>
+                                <td>{r.returnDate || "—"}</td>
+                                <td>#{r.onlineSaleId || "—"}</td>
+                                <td>{r.productCode || "—"}</td>
+                                <td>{r.productName || "—"}</td>
+                                <td>{colorSize || "—"}</td>
+                                <td className="text-center">{r.quantity || 0}</td>
+                                <td className="text-right">{formatQ(r.subtotal)}</td>
+                                <td>
+                                  <Badge color={String(r.itemCondition || "").toUpperCase() === "DAÑADO" ? "danger" : "secondary"}>
+                                    {r.itemCondition || "—"}
+                                  </Badge>
+                                </td>
+                                <td style={{ whiteSpace: "pre-wrap" }}>{r.returnReason || "—"}</td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </Table>
+                    </div>
+                  )}
+                </>
               )}
             </CardBody>
           </Card>
@@ -2906,35 +3308,79 @@ function OnlineSales() {
         <TabPane tabId="produccion">
           <Card>
             <CardHeader>
-              <Row className="align-items-center">
-                <Col>
+              <Row className="align-items-start">
+                <Col md="7">
                   <CardTitle tag="h4" className="mb-0">
-                    🏭 Ventas Listas para Despacho / Producción
+                    Ventas para despacho o producción
                   </CardTitle>
-                  <p className="text-muted mb-0" style={{ fontSize: 13 }}>
-                    Solo se muestran ventas con pago confirmado que aún no están en proceso.
-                    Bodega PT revisa inventario: lo que hay se despacha directo, lo que no hay genera OP de producción.
+                  <p className="text-muted mb-0" style={{ fontSize: 12 }}>
+                    Decide rápido: lo que ya está en Bodega PT o Devoluciones queda listo para despacho; lo demás genera OP.
                   </p>
                 </Col>
-                <Col md="auto" className="d-flex align-items-center" style={{ gap: 8 }}>
-                  <Button color="warning" size="sm" onClick={loadEligibleSales}>
-                    <i className="nc-icon nc-refresh-69" /> Actualizar
+                <Col md="5" className="text-right">
+                  <Button color="default" size="sm" className="mr-2" onClick={loadEligibleSales}>
+                    Actualizar
                   </Button>
                   <Button
                     color="success"
-                    disabled={selectedForPO.size === 0 || loadingPO}
-                    onClick={handleProcessFulfillment}
-                    title="Revisa inventario BODEGA_PT: despacha lo que hay, crea OP para lo que no hay"
+                    size="sm"
+                    className="mr-2"
+                    disabled={selectedWithStock.length === 0 || loadingPO}
+                    onClick={handleMarkReadyFromBodega}
+                    title="Descuenta inventario (Bodega PT / Devoluciones) y deja la venta PRODUCIDO/lista para despacho"
                   >
-                    {loadingPO ? <Spinner size="sm" /> : (
-                      <>📦 Procesar desde Bodega PT ({selectedForPO.size})</>
-                    )}
+                    {loadingPO ? <Spinner size="sm" /> : `Listo para despacho (${selectedWithStock.length})`}
+                  </Button>
+                  <Button
+                    color="primary"
+                    size="sm"
+                    disabled={selectedWithoutStock.length === 0 || loadingPO}
+                    onClick={handleCreatePO}
+                    title="Crea OP solo para ventas sin stock en Bodega PT / Devoluciones"
+                  >
+                    {loadingPO ? <Spinner size="sm" /> : `Crear OP (${selectedWithoutStock.length})`}
                   </Button>
                 </Col>
               </Row>
             </CardHeader>
             <CardBody>
               <Row className="mb-3">
+                <Col md="4">
+                  <div style={{ border: "1px solid #e9ecef", borderRadius: 8, padding: 12, background: "#f8f9fa" }}>
+                    <div className="text-muted" style={{ fontSize: 11, textTransform: "uppercase", fontWeight: 700 }}>
+                      Total pendiente
+                    </div>
+                    <div style={{ fontSize: 24, fontWeight: 700 }}>{filteredEligibleSales.length}</div>
+                    <small className="text-muted">{selectedForPO.size} seleccionada(s)</small>
+                  </div>
+                </Col>
+                <Col md="4">
+                  <div
+                    onClick={selectSalesWithBodegaStock}
+                    style={{ border: "1px solid #d4edda", borderRadius: 8, padding: 12, background: "#f3fbf5", cursor: "pointer" }}
+                  >
+                    <div className="text-success" style={{ fontSize: 11, textTransform: "uppercase", fontWeight: 700 }}>
+                      En Bodega PT / Devoluciones
+                    </div>
+                    <div className="text-success" style={{ fontSize: 24, fontWeight: 700 }}>{visibleWithStock.length}</div>
+                    <small className="text-muted">Click para seleccionar y dejar listo</small>
+                  </div>
+                </Col>
+                <Col md="4">
+                  <div
+                    onClick={selectSalesWithoutBodegaStock}
+                    style={{ border: "1px solid #cce5ff", borderRadius: 8, padding: 12, background: "#f4f9ff", cursor: "pointer" }}
+                  >
+                    <div className="text-primary" style={{ fontSize: 11, textTransform: "uppercase", fontWeight: 700 }}>
+                      Requiere producción
+                    </div>
+                    <div className="text-primary" style={{ fontSize: 24, fontWeight: 700 }}>{visibleWithoutStock.length}</div>
+                    <small className="text-muted">Click para seleccionar y crear OP</small>
+                  </div>
+                </Col>
+              </Row>
+
+              <Row className="mb-3 align-items-end">
                 <Col md="2">
                   <Label className="mb-1">Desde</Label>
                   <Input type="date" bsSize="sm" value={productionDateFrom}
@@ -2946,8 +3392,8 @@ function OnlineSales() {
                     onChange={e => setProductionDateTo(e.target.value)} />
                 </Col>
                 <Col md="3" className="d-flex align-items-end">
-                  <Button color="primary" size="sm" onClick={applyProductionDateFilter} style={{ marginRight: 6 }}>
-                    Filtrar por fechas
+                  <Button color="primary" size="sm" onClick={applyProductionDateFilter} className="mr-2">
+                    Filtrar
                   </Button>
                   <Button color="default" size="sm" onClick={clearProductionDateFilter}>
                     Ver todas
@@ -2958,15 +3404,9 @@ function OnlineSales() {
                   <Input type="date" bsSize="sm" value={productionBulkDate}
                     onChange={e => setProductionBulkDate(e.target.value)} />
                 </Col>
-                <Col md="3" className="d-flex align-items-end justify-content-end">
-                  <Button color="info" size="sm" onClick={toggleSelectAll} style={{ marginRight: 6 }}>
-                    Todas del filtro
-                  </Button>
-                  <Button color="secondary" size="sm" onClick={selectAllForDay} style={{ marginRight: 6 }}>
-                    Todas del día
-                  </Button>
-                  <Button color="default" size="sm" onClick={selectAllEligibleSales} style={{ marginRight: 6 }}>
-                    Todas generales
+                <Col md="3" className="text-right">
+                  <Button color="secondary" size="sm" onClick={selectAllForDay} className="mr-2">
+                    Seleccionar día
                   </Button>
                   <Button color="danger" size="sm" outline onClick={clearProductionSelection}>
                     Limpiar
@@ -2974,46 +3414,33 @@ function OnlineSales() {
                 </Col>
               </Row>
 
-              <div className="mb-2 text-muted" style={{ fontSize: 12 }}>
-                Mostrando <strong>{filteredEligibleSales.length}</strong> venta(s) elegible(s),
-                seleccionadas en filtro: <strong>{selectedInFiltered}</strong>,
-                seleccionadas totales: <strong>{selectedForPO.size}</strong>.
-              </div>
-
               {filteredEligibleSales.length === 0 ? (
                 <Alert color="info">
                   <strong>Sin ventas elegibles para el filtro aplicado.</strong> Ajusta fechas o usa "Ver todas".
                 </Alert>
               ) : (
                 <>
-                  <Alert color="warning" className="mb-3">
-                    <strong>⚡ PRIORIDAD:</strong> Las órdenes de producción de venta en línea son prioritarias.
-                    Deben producirse el mismo día o al día siguiente.
-                  </Alert>
-                  <Table responsive hover size="sm" style={{ fontSize: 13 }}>
-                    <thead style={{ background: "#fff3e0" }}>
+                  <div className="mb-2 text-muted" style={{ fontSize: 12 }}>
+                    Mostrando <strong>{filteredEligibleSales.length}</strong> venta(s). En esta vista hay <strong>{selectedInFiltered}</strong> seleccionada(s).
+                  </div>
+                  <Table responsive hover size="sm" style={{ fontSize: 12 }}>
+                    <thead style={{ background: "#f8f9fa" }}>
                       <tr>
-                        <th style={{ width: 56, textAlign: "center" }}>
-                          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
-                            <small style={{ fontSize: 10, color: "#666" }}>Sel.</small>
-                            <input
-                              type="checkbox"
-                              checked={allFilteredSelected}
-                              onChange={toggleSelectAll}
-                              title="Seleccionar todas las ventas visibles"
-                              style={{ width: 16, height: 16, cursor: "pointer", accentColor: "#2e7d32" }}
-                            />
-                          </div>
+                        <th style={{ width: 40, textAlign: "center" }}>
+                          <input
+                            type="checkbox"
+                            checked={allFilteredSelected}
+                            onChange={toggleSelectAll}
+                            title="Seleccionar todas las ventas visibles"
+                            style={{ width: 16, height: 16, cursor: "pointer", accentColor: "#2e7d32" }}
+                          />
                         </th>
-                        <th>No.</th>
-                        <th>Fecha</th>
+                        <th>Venta</th>
                         <th>Cliente</th>
-                        <th>Stock PT</th>
                         <th>Productos</th>
-                        <th>Total</th>
-                        <th>Forma de Pago</th>
-                        <th>Red Social</th>
-                        <th>Vendedor</th>
+                        <th>Acción</th>
+                        <th style={{ minWidth: 160 }}>Cuero (OPL)</th>
+                        <th className="text-right">Total</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -3030,43 +3457,96 @@ function OnlineSales() {
                               style={{ width: 16, height: 16, cursor: "pointer", accentColor: "#2e7d32" }}
                             />
                           </td>
-                          <td><strong>{sale.saleNumber}</strong></td>
-                          <td>{sale.saleDate}</td>
-                          <td>{sale.customerName}</td>
                           <td>
-                            {fulfillmentPreview?.bodegaPtFound === false ? (
-                              <Badge color="warning">Sin BODEGA_PT</Badge>
-                            ) : (fulfillmentPreview?.map || {})[String(sale.id)] === true ? (
-                              <Badge color="success">Sí</Badge>
-                            ) : (fulfillmentPreview?.map || {})[String(sale.id)] === false ? (
-                              <Badge color="danger">No</Badge>
-                            ) : (
-                              <Badge color="secondary">—</Badge>
-                            )}
+                            <strong>#{sale.saleNumber}</strong>
+                            <div className="text-muted">{sale.saleDate}</div>
                           </td>
+                          <td>{sale.customerName}</td>
                           <td style={{ fontSize: 11 }}>
-                            {(sale.items && sale.items.length > 0) ? sale.items.map((it, i) => (
+                            {(sale.items && sale.items.length > 0) ? sale.items.slice(0, 2).map((it, i) => (
                               <div key={i}>
                                 <strong>{it.productCode}</strong> {it.productName}
-                                {it.colorName && <span style={{ color: "#666" }}> · {it.colorName}</span>}
-                                {(it.quantity && it.quantity > 1) && <span style={{ color: "#1565c0", fontWeight: 600 }}> ×{it.quantity}</span>}
+                                {it.colorName && <span className="text-muted"> · {it.colorName}</span>}
+                                {(it.quantity && it.quantity > 1) && <span className="text-primary font-weight-bold"> x{it.quantity}</span>}
                               </div>
                             )) : (
                               <div>
                                 <strong>{sale.productCode}</strong> {sale.productName}
-                                {sale.colorName && <span style={{ color: "#666" }}> · {sale.colorName}</span>}
-                                {(sale.quantity && sale.quantity > 1) && <span style={{ color: "#1565c0", fontWeight: 600 }}> ×{sale.quantity}</span>}
+                                {sale.colorName && <span className="text-muted"> · {sale.colorName}</span>}
+                                {(sale.quantity && sale.quantity > 1) && <span className="text-primary font-weight-bold"> x{sale.quantity}</span>}
                               </div>
                             )}
+                            {sale.items && sale.items.length > 2 && (
+                              <small className="text-muted">+{sale.items.length - 2} producto(s) más</small>
+                            )}
                           </td>
-                          <td>{formatQ(sale.totalAmount)}</td>
                           <td>
-                            <Badge color={sale.paymentMethod === "CONTRA_ENTREGA" ? "warning" : "success"}>
-                              {sale.paymentMethodDisplay || sale.paymentMethod}
-                            </Badge>
+                            {saleIsPartial(sale) ? (
+                              <div>
+                                <Badge color="warning">Mixto</Badge>
+                                <div className="text-muted" style={{ fontSize: 11, marginBottom: 4 }}>
+                                  Algunos items en stock, otros a OP
+                                </div>
+                                <Button
+                                  color="warning"
+                                  size="sm"
+                                  outline
+                                  onClick={(e) => { e.stopPropagation(); openResolveMixedModal(sale); }}
+                                  disabled={resolveLoading}
+                                >
+                                  Resolver
+                                </Button>
+                              </div>
+                            ) : saleHasBodegaStock(sale) ? (
+                              <div>
+                                <Badge color="success">Listo para despacho</Badge>
+                                <div className="text-muted" style={{ fontSize: 11 }}>
+                                  {(() => {
+                                    const src = saleInventorySource(sale);
+                                    if (src === "DEVOLUCIONES") return "Stock en Devoluciones";
+                                    if (src === "BODEGA_PT") return "Stock en Bodega PT";
+                                    if (src === "MIXTO") return "Stock mixto (Devoluciones + PT)";
+                                    return "Stock disponible";
+                                  })()}
+                                </div>
+                              </div>
+                            ) : saleNeedsProduction(sale) ? (
+                              <div>
+                                <Badge color="primary">Crear OP</Badge>
+                                <div className="text-muted" style={{ fontSize: 11 }}>Sin stock PT / Devoluciones</div>
+                              </div>
+                            ) : (
+                              <Badge color="secondary">Revisar</Badge>
+                            )}
                           </td>
-                          <td>{getSocialIcon(sale.socialNetwork)}</td>
-                          <td style={{ fontSize: 11 }}>{sale.salesperson}</td>
+                          <td style={{ fontSize: 11, verticalAlign: "top" }}>
+                            {saleIsPartial(sale) || saleHasBodegaStock(sale) ? (
+                              <span className="text-muted">—</span>
+                            ) : saleNeedsProduction(sale) ? (
+                              <div>
+                                {saleLeatherOkForOpl(sale) ? (
+                                  <Badge color="success">Cuero OK</Badge>
+                                ) : (
+                                  <Badge color="danger">Cuero / config</Badge>
+                                )}
+                                {saleLeatherSummaryLines(sale).length > 0 && (
+                                  <ul className="pl-3 mb-0 mt-1 text-muted" style={{ fontSize: 10 }}>
+                                    {saleLeatherSummaryLines(sale).map((ln, i) => (
+                                      <li key={i}>{ln}</li>
+                                    ))}
+                                  </ul>
+                                )}
+                              </div>
+                            ) : (
+                              <span className="text-muted">—</span>
+                            )}
+                          </td>
+                          <td className="text-right">
+                            <strong>{formatQ(sale.totalAmount)}</strong>
+                            <div className="text-muted" style={{ fontSize: 11 }}>
+                              {getSimplePaymentLabel(sale.paymentMethodDisplay || sale.paymentMethod)}
+                            </div>
+                          </td>
                         </tr>
                       ))}
                     </tbody>
@@ -3273,8 +3753,17 @@ function OnlineSales() {
             <Col md="2">
               <FormGroup>
                 <Label>Costo Envío</Label>
-                <Input type="text" readOnly value={`Q ${computedShipping}.00`}
-                  style={{ background: "#f5f5f5" }} />
+                <Input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={formData.shippingCost ?? ""}
+                  onChange={e => setFormData(prev => ({ ...prev, shippingCost: e.target.value }))}
+                  placeholder={`Sugerido: Q ${computedShipping}.00`}
+                />
+                <div className="text-muted" style={{ fontSize: 11, marginTop: 4 }}>
+                  Sugerido segun pago: Q {computedShipping}.00
+                </div>
               </FormGroup>
             </Col>
             <Col md="3">
@@ -3431,7 +3920,8 @@ function OnlineSales() {
           <FormGroup>
             <Label>Transporte *</Label>
             <Input type="select" value={shipmentForm.shippingCarrier}
-              onChange={e => setShipmentForm(prev => ({ ...prev, shippingCarrier: e.target.value }))}>
+              onChange={e => setShipmentForm(prev => ({ ...prev, shippingCarrier: e.target.value }))}
+              onBlur={autoSaveShipmentPrep}>
               {SHIPPING_CARRIERS.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
             </Input>
           </FormGroup>
@@ -3439,18 +3929,141 @@ function OnlineSales() {
             <Label>No. Guía (paquetería)</Label>
             <Input value={shipmentForm.guideNumber}
               onChange={e => setShipmentForm(prev => ({ ...prev, guideNumber: e.target.value }))}
+              onBlur={autoSaveShipmentPrep}
               placeholder="Opcional si aún no la tienen; con transporte igual se asigna ENVL" />
           </FormGroup>
           <FormGroup className="mb-0">
             <Label>Observaciones</Label>
             <Input type="textarea" rows={3} value={shipmentForm.observations}
               onChange={e => setShipmentForm(prev => ({ ...prev, observations: e.target.value }))}
+              onBlur={autoSaveShipmentPrep}
               placeholder="Notas del envío..." />
           </FormGroup>
         </ModalBody>
         <ModalFooter>
-          <Button color="secondary" onClick={() => setShowShipmentModal(false)}>Cancelar</Button>
-          <Button color="success" onClick={handleRegisterShipment}>Guardar preparación · PDF / imprimir</Button>
+          <Button color="secondary" onClick={() => setShowShipmentModal(false)}>Cerrar</Button>
+          <Button
+            color="info"
+            onClick={() => shipmentSale && downloadShipmentPdf(shipmentSale)}
+            disabled={!shipmentSale}
+          >
+            Descargar PDF
+          </Button>
+          <Button
+            color="default"
+            onClick={() => shipmentSale && printShipmentDocument(shipmentSale)}
+            disabled={!shipmentSale}
+          >
+            Imprimir
+          </Button>
+        </ModalFooter>
+      </Modal>
+
+      {/* ═══ MODAL CAMBIO ═══ */}
+      <Modal isOpen={showExchangeModal} toggle={() => setShowExchangeModal(false)} size="lg">
+        <ModalHeader toggle={() => setShowExchangeModal(false)}>
+          🔁 Registrar CAMBIO (nuevo envío Q0)
+        </ModalHeader>
+        <ModalBody>
+          {exchangeOriginalSale && (
+            <Alert color="light">
+              <div><strong>Pedido:</strong> #{exchangeOriginalSale.saleNumber || exchangeOriginalSale.id}</div>
+              <div><strong>Cliente:</strong> {exchangeOriginalSale.customerName || "—"}</div>
+              <div><strong>Envío relacionado:</strong> {exchangeOriginalSale.shipmentNumber || "—"}</div>
+              <div className="mt-2 text-muted" style={{ fontSize: 12 }}>
+                El cambio se crea como un nuevo envío con monto <strong>Q0</strong> y con un <strong>ENVL nuevo</strong>.
+              </div>
+            </Alert>
+          )}
+
+          <Row className="mb-3">
+            <Col md="4">
+              <Label>Transporte</Label>
+              <Input type="select" value={exchangeForm.shippingCarrier}
+                onChange={(e) => setExchangeForm(prev => ({ ...prev, shippingCarrier: e.target.value }))}>
+                {SHIPPING_CARRIERS.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
+              </Input>
+            </Col>
+            <Col md="4">
+              <Label>No. Guía (opcional)</Label>
+              <Input value={exchangeForm.guideNumber}
+                onChange={(e) => setExchangeForm(prev => ({ ...prev, guideNumber: e.target.value }))}
+                placeholder="Guía del cambio (si aplica)" />
+            </Col>
+            <Col md="4">
+              <Label>Observaciones</Label>
+              <Input value={exchangeForm.observations}
+                onChange={(e) => setExchangeForm(prev => ({ ...prev, observations: e.target.value }))}
+                placeholder="Notas del cambio..." />
+            </Col>
+          </Row>
+
+          <h6 className="mb-2">Items a reenviar</h6>
+          {exchangeItems.length === 0 ? (
+            <Alert color="warning">No se encontraron items para el cambio.</Alert>
+          ) : (
+            <Table bordered responsive size="sm">
+              <thead className="text-primary">
+                <tr>
+                  <th style={{ width: 50 }}>OK</th>
+                  <th style={{ width: 90 }}>Código</th>
+                  <th>Producto</th>
+                  <th style={{ width: 140 }}>Color / Talla</th>
+                  <th style={{ width: 110 }}>Cantidad</th>
+                </tr>
+              </thead>
+              <tbody>
+                {exchangeItems.map((it) => (
+                  <tr key={it.key}>
+                    <td className="text-center">
+                      <Input
+                        type="checkbox"
+                        checked={Boolean(it.selected)}
+                        onChange={(e) => {
+                          const checked = e.target.checked;
+                          setExchangeItems(prev => prev.map(p => p.key === it.key ? { ...p, selected: checked } : p));
+                        }}
+                      />
+                    </td>
+                    <td><strong>{it.productCode || "—"}</strong></td>
+                    <td>{it.productName || "—"}</td>
+                    <td>{[it.colorName, it.size].filter(Boolean).join(" / ") || "—"}</td>
+                    <td>
+                      <Input
+                        type="number"
+                        min={1}
+                        value={it.quantity}
+                        onChange={(e) => {
+                          const next = parseInt(e.target.value, 10);
+                          setExchangeItems(prev => prev.map(p => p.key === it.key ? { ...p, quantity: Number.isFinite(next) ? next : 1 } : p));
+                        }}
+                      />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </Table>
+          )}
+
+          {exchangeCreatedSale && (
+            <Alert color="success" className="mt-3">
+              CAMBIO creado. ENVL: <strong>{exchangeCreatedSale.shipmentNumber || "—"}</strong>
+              <div className="mt-2">
+                <Button color="info" size="sm" onClick={() => void downloadExchangePdf(exchangeCreatedSale)}>
+                  Descargar PDF
+                </Button>{" "}
+                <Button color="default" size="sm" onClick={() => printExchangeDocument(exchangeCreatedSale)}>
+                  Imprimir
+                </Button>
+              </div>
+            </Alert>
+          )}
+        </ModalBody>
+        <ModalFooter>
+          <Button color="secondary" onClick={() => setShowExchangeModal(false)}>Cerrar</Button>
+          <Button color="primary" onClick={handleCreateExchange} disabled={creatingExchange}>
+            {creatingExchange ? <><Spinner size="sm" /> Creando...</> : "Crear CAMBIO"}
+          </Button>
         </ModalFooter>
       </Modal>
 
@@ -3509,14 +4122,14 @@ function OnlineSales() {
       {/* ═══ MODAL RESULTADO FULFILLMENT ═══ */}
       <Modal isOpen={showFulfillmentModal} toggle={() => setShowFulfillmentModal(false)} size="lg">
         <ModalHeader toggle={() => setShowFulfillmentModal(false)}>
-          📦 Resultado del Procesamiento — Bodega PT
+          📦 Resultado del Procesamiento — Bodega PT / Devoluciones
         </ModalHeader>
         <ModalBody>
           {fulfillmentResult && (
             <>
               {!fulfillmentResult.bodegaPtFound && (
                 <Alert color="warning" className="mb-3">
-                  ⚠ No se encontró la ubicación <strong>BODEGA_PT</strong> configurada en el sistema.
+                  ⚠ No se encontró la ubicación <strong>BODEGA_PT</strong> o <strong>Bodega Devoluciones</strong> configurada en el sistema.
                   Todas las ventas fueron enviadas a producción.
                 </Alert>
               )}
@@ -3528,7 +4141,7 @@ function OnlineSales() {
                     ✅ Despachadas desde Inventario ({fulfillmentResult.fulfilledCount})
                   </h6>
                   <p className="text-muted mb-2" style={{ fontSize: 12 }}>
-                    Estas ventas tenían stock disponible en BODEGA PT. El inventario fue descontado y las ventas
+                    Estas ventas tenían stock disponible en Bodega PT / Devoluciones. El inventario fue descontado y las ventas
                     pasaron a estado <strong>PRODUCIDO</strong> — listas para enviar.
                   </p>
                   <Table size="sm" bordered responsive>
@@ -3567,7 +4180,7 @@ function OnlineSales() {
                     🏭 Órdenes de Producción Creadas ({fulfillmentResult.productionCount})
                   </h6>
                   <p className="text-muted mb-2" style={{ fontSize: 12 }}>
-                    Estas ventas no tenían stock suficiente en BODEGA PT.
+                    Estas ventas no tenían stock suficiente en Bodega PT / Devoluciones.
                     Se generaron órdenes de producción y tareas para su fabricación.
                   </p>
                   <Table size="sm" bordered responsive>
@@ -3596,6 +4209,39 @@ function OnlineSales() {
                 </div>
               )}
 
+              {(fulfillmentResult.kioskOutflows || []).length > 0 && (
+                <div className="mb-3">
+                  <h6 className="text-dark font-weight-bold mb-2">
+                    Boleta salida kiosko (cuero → oficina / OPL)
+                  </h6>
+                  <p className="text-muted mb-2" style={{ fontSize: 12 }}>
+                    Se descontó material en kiosko según faltante frente a taller; no suma inventario en destino.
+                  </p>
+                  <Table size="sm" bordered responsive>
+                    <thead style={{ backgroundColor: "#fff3cd" }}>
+                      <tr>
+                        <th>Boleta</th>
+                        <th>Material</th>
+                        <th>Kiosko</th>
+                        <th className="text-right">Cant.</th>
+                        <th>Venta</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(fulfillmentResult.kioskOutflows || []).map((k, i) => (
+                        <tr key={i}>
+                          <td><Badge color="warning">{k.ticketNumber}</Badge></td>
+                          <td style={{ fontSize: 11 }}>{k.materialName || k.materialId}</td>
+                          <td style={{ fontSize: 11 }}>{k.kioskName || k.kioskLocationId}</td>
+                          <td className="text-right">{k.quantity}</td>
+                          <td><Badge color="secondary">{k.saleNumber}</Badge></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </Table>
+                </div>
+              )}
+
               {/* Sin resultados */}
               {fulfillmentResult.fulfilledCount === 0 && fulfillmentResult.productionCount === 0 && (
                 <Alert color="info">No se procesó ninguna venta.</Alert>
@@ -3605,6 +4251,137 @@ function OnlineSales() {
         </ModalBody>
         <ModalFooter>
           <Button color="primary" onClick={() => setShowFulfillmentModal(false)}>Entendido</Button>
+        </ModalFooter>
+      </Modal>
+
+      {/* ═══ MODAL RESOLVER VENTA MIXTA ═══ */}
+      <Modal isOpen={!!resolveSale} toggle={closeResolveMixedModal} size="lg">
+        <ModalHeader toggle={closeResolveMixedModal}>
+          Resolver venta {resolveSale ? `#${resolveSale.saleNumber}` : ""}
+        </ModalHeader>
+        <ModalBody>
+          {resolveLoading ? (
+            <div className="text-center py-3">
+              <Spinner size="sm" /> <span className="ml-2">Cargando detalle de items...</span>
+            </div>
+          ) : (
+            <>
+              <Alert color="info" className="mb-3" style={{ fontSize: 12 }}>
+                Selecciona por item: <strong>Producir</strong> mueve el item a un sub-pedido y crea la OP correspondiente.
+                Lo que dejes en <strong>Despachar</strong> se queda en la venta original como <strong>pendiente</strong>
+                para que luego lo marques “Listo para despacho” cuando realmente lo vas a despachar.
+              </Alert>
+
+              {resolveError && <Alert color="danger" className="mb-3">{resolveError}</Alert>}
+
+              {resolveItems.length === 0 ? (
+                <Alert color="warning">La venta no tiene items detallados para resolver.</Alert>
+              ) : (
+                <Table size="sm" bordered responsive>
+                  <thead className="thead-light">
+                    <tr>
+                      <th>Producto</th>
+                      <th className="text-right">Pide</th>
+                      <th className="text-right">Devoluciones</th>
+                      <th className="text-right">Bodega PT</th>
+                      <th className="text-right">Total</th>
+                      <th>Cuero (si OP)</th>
+                      <th>Accion</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {resolveItems.map((it, idx) => {
+                      const key = it.saleItemId != null ? String(it.saleItemId) : `idx-${idx}`;
+                      const action = resolveActions[key] || "PRODUCE";
+                      const stockDev = Number(it.stockDevoluciones || 0);
+                      const stockPt = Number(it.stockBodegaPt || 0);
+                      const stockTotal = Number(it.stockTotal || (stockDev + stockPt));
+                      const needed = Number(it.quantity || 0);
+                      const dispatchOk = stockTotal >= needed;
+                      return (
+                        <tr key={key}>
+                          <td>
+                            <strong>{it.productCode}</strong> {it.productName}
+                            {it.colorName && <span className="text-muted"> · {it.colorName}</span>}
+                            {it.size && <span className="text-muted"> · Talla {it.size}</span>}
+                          </td>
+                          <td className="text-right"><strong>{needed}</strong></td>
+                          <td className="text-right">
+                            {stockDev > 0 ? <Badge color="success">{stockDev}</Badge> : <span className="text-muted">0</span>}
+                          </td>
+                          <td className="text-right">
+                            {stockPt > 0 ? <Badge color="info">{stockPt}</Badge> : <span className="text-muted">0</span>}
+                          </td>
+                          <td className="text-right">
+                            <strong style={{ color: dispatchOk ? "#28a745" : "#dc3545" }}>{stockTotal}</strong>
+                          </td>
+                          <td style={{ fontSize: 10, maxWidth: 220 }}>
+                            {action === "PRODUCE" && Array.isArray(it.leatherExplanation) && it.leatherExplanation.length > 0 ? (
+                              <ul className="pl-3 mb-0 text-muted">
+                                {it.leatherExplanation.map((ln, li) => (
+                                  <li key={li}>{ln}</li>
+                                ))}
+                              </ul>
+                            ) : action === "PRODUCE" && it.leatherStatus && it.leatherStatus !== "N/A" ? (
+                              <span className="text-muted">
+                                {it.leatherStatus === "TALLER" && "Cuero en taller suficiente"}
+                                {it.leatherStatus === "KIOSKO" && "Cubrible desde kiosko al procesar"}
+                                {it.leatherStatus === "BLOQUEADO" && "Sin cuero suficiente"}
+                                {it.leatherStatus === "SIN_CONFIG" && "Sin mapeo producto/color → cuero"}
+                              </span>
+                            ) : (
+                              <span className="text-muted">—</span>
+                            )}
+                          </td>
+                          <td>
+                            <div style={{ display: "flex", gap: 6 }}>
+                              <Button
+                                color={action === "DISPATCH" ? "success" : "secondary"}
+                                outline={action !== "DISPATCH"}
+                                size="sm"
+                                disabled={!dispatchOk}
+                                title={dispatchOk ? "Despachar desde inventario" : "Sin stock suficiente"}
+                                onClick={() => setResolveAction(key, "DISPATCH")}
+                              >
+                                Despachar
+                              </Button>
+                              <Button
+                                color={action === "PRODUCE" ? "primary" : "secondary"}
+                                outline={action !== "PRODUCE"}
+                                size="sm"
+                                onClick={() => setResolveAction(key, "PRODUCE")}
+                              >
+                                Producir
+                              </Button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </Table>
+              )}
+
+              {resolveItems.length > 0 && (
+                <div className="text-muted" style={{ fontSize: 11 }}>
+                  Resumen: {resolveItems.filter((it) => (resolveActions[String(it.saleItemId)] || "PRODUCE") === "DISPATCH").length} para despacho ·
+                  {" "}{resolveItems.filter((it) => (resolveActions[String(it.saleItemId)] || "PRODUCE") === "PRODUCE").length} a OP
+                </div>
+              )}
+            </>
+          )}
+        </ModalBody>
+        <ModalFooter>
+          <Button color="secondary" outline onClick={closeResolveMixedModal} disabled={resolveSubmitting}>
+            Cancelar
+          </Button>
+          <Button
+            color="primary"
+            onClick={submitResolveMixed}
+            disabled={resolveSubmitting || resolveLoading || resolveItems.length === 0}
+          >
+            {resolveSubmitting ? (<><Spinner size="sm" /> Ejecutando...</>) : "Ejecutar"}
+          </Button>
         </ModalFooter>
       </Modal>
     </div>

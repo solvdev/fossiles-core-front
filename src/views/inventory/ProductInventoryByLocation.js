@@ -37,6 +37,7 @@ import {
   getAggregatedProductInventoryByCategory 
 } from "services/productInventoryService";
 import { getLocations } from "services/locationService";
+import { getProductCategories } from "services/productCategoryService";
 import { showError, showSuccess } from "utils/notificationHelper";
 import * as XLSX from "xlsx";
 import InventoryKardex from "views/inventory/InventoryKardex";
@@ -86,19 +87,37 @@ function ProductInventoryByLocation() {
   const [variants, setVariants] = useState([]);
   const [productKardexContext, setProductKardexContext] = useState(null);
   const [productTransferContext, setProductTransferContext] = useState(null);
+  const [showExcelExportModal, setShowExcelExportModal] = useState(false);
+  const [excelCategoryList, setExcelCategoryList] = useState([]);
+  const [excelExportCategoryId, setExcelExportCategoryId] = useState("");
+
+  useEffect(() => {
+    // Permite abrir esta vista prefiltrada desde otras pantallas
+    // Ej: /admin/product-inventory-by-location?category=DEVOLUCION
+    try {
+      const params = new URLSearchParams(window.location.search || "");
+      const category = String(params.get("category") || "").trim().toUpperCase();
+      if (category && !selectedCategory) {
+        setSelectedCategory(category);
+      }
+    } catch (_err) {
+      // ignore
+    }
+  }, []);
 
   useEffect(() => {
     loadLocations();
   }, []);
 
   useEffect(() => {
-    // Cuando cambia la categoría, separar ubicaciones
-    // Para KIOSKO: mostrar TODAS las ubicaciones de la entidad Location
-    // El backend manejará la lógica de qué es kiosko o no
+    // Cuando cambia la categoría, separar ubicaciones.
+    // KIOSKO es una categoría/tipo de ubicación, no cualquier ubicación del sistema.
     if (locations.length > 0) {
-      // Mostrar TODAS las ubicaciones como kioskos disponibles
-      // El usuario puede seleccionar cualquier ubicación para ver su inventario
-      setKiosks(locations);
+      const kioskList = locations.filter(loc => {
+        const categoriaUpper = String(loc.categoria || "").toUpperCase().trim();
+        return categoriaUpper === "KIOSKO";
+      });
+      setKiosks(kioskList);
       
       // Separar otras ubicaciones (para otras categorías si es necesario)
       const othersList = locations.filter(loc => {
@@ -613,9 +632,32 @@ function ProductInventoryByLocation() {
     return true;
   };
 
-  const handleDownloadExcel = () => {
+  const openExcelExportModal = async () => {
     if (inventory.length === 0) {
       showError("No hay datos para exportar");
+      return;
+    }
+    try {
+      if (!excelCategoryList.length) {
+        const list = await getProductCategories();
+        setExcelCategoryList(Array.isArray(list) ? list : []);
+      }
+    } catch (e) {
+      showError(e.message || "No se pudieron cargar las categorías");
+      return;
+    }
+    setExcelExportCategoryId("");
+    setShowExcelExportModal(true);
+  };
+
+  const executeExcelExport = () => {
+    let sourceRows = [...inventory];
+    if (excelExportCategoryId !== "") {
+      const cid = Number(excelExportCategoryId);
+      sourceRows = inventory.filter((it) => Number(it.productCategoryId) === cid);
+    }
+    if (sourceRows.length === 0) {
+      showError("No hay datos para exportar con la categoría elegida");
       return;
     }
 
@@ -623,7 +665,7 @@ function ProductInventoryByLocation() {
       const workbook = XLSX.utils.book_new();
 
       // Agrupar inventario por ubicación
-      const inventoryByLocation = inventory.reduce((acc, item) => {
+      const inventoryByLocation = sourceRows.reduce((acc, item) => {
         const locationKey = item.locationId || "SIN_UBICACION";
         const locationName = item.locationName || "Sin Ubicación";
         
@@ -638,8 +680,9 @@ function ProductInventoryByLocation() {
         acc[locationKey].items.push({
           "Código": item.productCode || "N/A",
           "Producto": item.productName || "N/A",
+          "Categoría": item.productCategoryName || "—",
           "Stock Actual": parseFloat(item.quantity || 0).toFixed(3),
-          "Stock Mínimo": item.min || "N/A",
+          "Stock Mínimo": item.min ?? "N/A",
           "Estado": getStockStatus(parseFloat(item.quantity || 0), item.min).text,
         });
         
@@ -657,6 +700,7 @@ function ProductInventoryByLocation() {
           { v: "", t: "s" },
           { v: "", t: "s" },
           { v: "", t: "s" },
+          { v: "", t: "s" },
         ];
         XLSX.utils.sheet_add_aoa(worksheet, [headerRow], { origin: "A1" });
         
@@ -667,6 +711,7 @@ function ProductInventoryByLocation() {
         );
         const totalRow = [
           { v: "TOTAL", t: "s" },
+          { v: "", t: "s" },
           { v: "", t: "s" },
           { v: totalStock.toFixed(3), t: "n" },
           { v: "", t: "s" },
@@ -679,7 +724,8 @@ function ProductInventoryByLocation() {
         // Ajustar ancho de columnas
         worksheet["!cols"] = [
           { wch: 15 }, // Código
-          { wch: 40 }, // Producto
+          { wch: 36 }, // Producto
+          { wch: 22 }, // Categoría
           { wch: 15 }, // Stock Actual
           { wch: 15 }, // Stock Mínimo
           { wch: 12 }, // Estado
@@ -715,7 +761,7 @@ function ProductInventoryByLocation() {
       summaryData.push({
         "Ubicación": "TOTAL GENERAL",
         "Código Ubicación": "",
-        "Total Productos": inventory.length,
+        "Total Productos": sourceRows.length,
         "Stock Total": grandTotal.toFixed(3),
       });
 
@@ -728,13 +774,15 @@ function ProductInventoryByLocation() {
       ];
       XLSX.utils.book_append_sheet(workbook, summaryWorksheet, "Resumen");
 
-      // Generar archivo y descargar
-      const fileName = `inventario_productos_${selectedCategory || "general"}_${new Date().toISOString().slice(0, 10)}.xlsx`;
+      const iso = new Date().toISOString().slice(0, 10);
+      const catSlug = excelExportCategoryId ? `cat-${excelExportCategoryId}` : "cat-todas";
+      const fileName = `inventario_productos_${selectedCategory || "general"}_${catSlug}_${iso}.xlsx`;
       XLSX.writeFile(workbook, fileName);
 
       showSuccess(
         `Archivo Excel descargado correctamente con ${Object.keys(inventoryByLocation).length} ubicaciones`
       );
+      setShowExcelExportModal(false);
     } catch (err) {
       showError("Error al generar el archivo Excel");
       console.error(err);
@@ -758,7 +806,7 @@ function ProductInventoryByLocation() {
                   <Button
                     color="success"
                     size="sm"
-                    onClick={handleDownloadExcel}
+                    onClick={openExcelExportModal}
                     disabled={loading || inventory.length === 0}
                     className="mt-2 mr-2"
                   >
@@ -1026,6 +1074,47 @@ function ProductInventoryByLocation() {
           </Card>
         </Col>
       </Row>
+
+      <Modal isOpen={showExcelExportModal} toggle={() => setShowExcelExportModal(false)}>
+        <ModalHeader toggle={() => setShowExcelExportModal(false)}>Exportar Excel</ModalHeader>
+        <ModalBody>
+          <p className="text-muted small mb-3">
+            Se exportan las líneas cargadas para el tipo de ubicación actual (Kiosko / Bodega PT, etc.).
+            Puedes acotar por categoría de catálogo de producto.
+          </p>
+          <FormGroup>
+            <Label>Categoría de producto</Label>
+            <Input
+              type="select"
+              bsSize="sm"
+              value={excelExportCategoryId}
+              onChange={(e) => setExcelExportCategoryId(e.target.value)}
+            >
+              <option value="">Todas las categorías</option>
+              {(excelCategoryList || [])
+                .slice()
+                .sort((a, b) =>
+                  String(a.name || "").localeCompare(String(b.name || ""), "es", {
+                    sensitivity: "base",
+                  })
+                )
+                .map((c) => (
+                  <option key={c.id} value={String(c.id)}>
+                    {c.name || c.code || `#${c.id}`}
+                  </option>
+                ))}
+            </Input>
+          </FormGroup>
+        </ModalBody>
+        <ModalFooter>
+          <Button color="secondary" outline size="sm" onClick={() => setShowExcelExportModal(false)}>
+            Cancelar
+          </Button>
+          <Button color="success" size="sm" onClick={executeExcelExport}>
+            Descargar
+          </Button>
+        </ModalFooter>
+      </Modal>
 
       {/* Modal: Variantes por Color */}
       <Modal

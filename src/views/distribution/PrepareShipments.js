@@ -30,6 +30,10 @@ import { getProductionOrderById, getProductionOrders } from "services/production
 import { showError, showSuccess } from "utils/notificationHelper";
 import { exportRowsToCsv, exportRowsToPdf } from "utils/reportExportHelper";
 import { formatDateGt, formatNowGt } from "utils/dateTimeHelper";
+import {
+  buildShipmentDocumentInnerHtml,
+  getShipmentDocumentStyles,
+} from "utils/shipmentPrintDocumentHtml";
 
 const STATUS_ES = {
   DRAFT: "Borrador",
@@ -158,27 +162,183 @@ const buildOpvShipmentFromOrder = (order) => {
   const items = Array.isArray(order?.items) ? order.items : [];
   return {
     id: `opv-${order?.id}`,
-    shipmentNumber: order?.code || `OPV-${order?.id}`,
+    shipmentNumber: order?.vendorShipmentNumber || order?.code || `OPV-${order?.id}`,
     locationId: null,
     locationCode: "",
     locationName: order?.customerName || "Cliente OPV",
     status: order?.status || "CONFIRMED",
     notes: order?.observations || "",
-    products: items.map((item, idx) => ({
-      id: item?.id || `opi-${idx}`,
-      productId: item?.productId,
-      productCode: item?.productCode,
-      productName: item?.productName,
-      colorId: item?.colorId,
-      colorName: item?.colorName,
-      size: item?.size || "",
-      quantity: Number(item?.quantity || 0),
-      unitPrice: item?.unitPrice || 0,
-      uomName: "Unidad",
-      unitName: "Unidad",
-    })),
+    products: (() => {
+      const rows = [];
+      items.forEach((item, idx) => {
+        const sizesMap = item?.sizes && typeof item.sizes === "object" ? item.sizes : null;
+        const entries = sizesMap ? Object.entries(sizesMap).filter(([, q]) => Number(q) > 0) : [];
+        const base = {
+          productId: item?.productId,
+          productCode: item?.productCode,
+          productName: item?.productName,
+          colorId: item?.colorId,
+          colorName: item?.colorName,
+          unitPrice: item?.unitPrice || 0,
+          uomName: "Unidad",
+          unitName: "Unidad",
+        };
+        if (entries.length > 0) {
+          entries.forEach(([sizeKey, qty]) => {
+            rows.push({
+              ...base,
+              id: item?.id != null ? `${item.id}-${sizeKey}` : `opi-${idx}-${sizeKey}`,
+              size: String(sizeKey),
+              quantity: Number(qty) || 0,
+            });
+          });
+        } else {
+          rows.push({
+            ...base,
+            id: item?.id || `opi-${idx}`,
+            size: item?.size || "",
+            quantity: Number(item?.quantity || 0),
+          });
+        }
+      });
+      return rows;
+    })(),
     packingItems: Array.isArray(order?.packingItems) ? order.packingItems : [],
     shippingCost: Number(order?.shippingCost || 0),
+  };
+};
+
+/**
+ * Ítems alineados al documento de venta en línea (descripción = producto + color + talla).
+ */
+const buildOnlineSaleItemsFromShipmentDoc = (
+  shipment,
+  { resolveProductUnitPrice, resolveMaterialUnitPrice, packingMaterials, getShipmentPackingItems }
+) => {
+  const shipmentProducts = shipment._printProducts || shipment.products || [];
+  const notesPayload = parseShipmentMetaNotes(shipment.notes);
+  const beltSizeLines = shipmentProducts
+    .filter((item) => String(item.size || "").trim() !== "")
+    .map((item) => ({
+      productId: Number(item.productId),
+      colorId: item.colorId === null || item.colorId === undefined ? null : Number(item.colorId),
+      size: String(item.size || "").trim().toUpperCase(),
+      quantity: Number(item.quantity || 0),
+    }));
+  const hasApiSizes = beltSizeLines.length > 0;
+  const beltSizesSource = hasApiSizes ? beltSizeLines : notesPayload.beltSizes || [];
+  const beltSizesByProductColor = {};
+  beltSizesSource.forEach((line) => {
+    const mapKey = `${line.productId}:${line.colorId === null ? "null" : line.colorId}`;
+    if (!beltSizesByProductColor[mapKey]) beltSizesByProductColor[mapKey] = [];
+    beltSizesByProductColor[mapKey].push(line);
+  });
+
+  const productRows = shipmentProducts
+    .flatMap((item) => {
+      const qty = Number(item.quantity || 0);
+      const unitPrice = resolveProductUnitPrice(item);
+      const rowPrice = unitPrice > 0 ? unitPrice : 0;
+      const detailKey = `${item.productId}:${
+        item.colorId === null || item.colorId === undefined ? "null" : item.colorId
+      }`;
+      const isCincho = isCinchoProduct(item.productCode, item.productName);
+
+      if (String(item.size || "").trim()) {
+        const lineTotal = qty * rowPrice;
+        return [
+          {
+            productCode: item.productCode || "-",
+            productName: item.productName || "-",
+            colorName: item.colorName || "",
+            size: String(item.size || "").trim().toUpperCase(),
+            quantity: qty,
+            unitPrice: rowPrice,
+            subtotal: rowPrice > 0 ? lineTotal : 0,
+          },
+        ];
+      }
+      const beltLines = !hasApiSizes && isCincho ? beltSizesByProductColor[detailKey] || [] : [];
+      if (beltLines.length > 0) {
+        return beltLines.map((belt) => {
+          const beltQty = Number(belt.quantity || 0);
+          return {
+            productCode: item.productCode || "-",
+            productName: item.productName || "-",
+            colorName: item.colorName || "",
+            size: belt.size,
+            quantity: beltQty,
+            unitPrice: rowPrice,
+            subtotal: rowPrice > 0 ? beltQty * rowPrice : 0,
+          };
+        });
+      }
+      const lineTotal = qty * rowPrice;
+      return [
+        {
+          productCode: item.productCode || "-",
+          productName: item.productName || "-",
+          colorName: item.colorName || "",
+          size: "",
+          quantity: qty,
+          unitPrice: rowPrice,
+          subtotal: rowPrice > 0 ? lineTotal : 0,
+        },
+      ];
+    })
+    .filter((row) => row.quantity > 0);
+
+  const packingItems = shipment._printPackingItems || getShipmentPackingItems(shipment);
+  const packingRows = packingItems
+    .map((item) => {
+      const material = packingMaterials.find((m) => Number(m.id) === Number(item.materialId));
+      const qty = Number(item.quantity || 0);
+      const unitPrice = resolveMaterialUnitPrice(item, material);
+      const safeUnit = Number.isFinite(unitPrice) ? unitPrice : 0;
+      const lineTotal = qty * safeUnit;
+      return {
+        productCode: material?.sku || `SUM-${item.materialId}`,
+        productName: material?.name || "Empaque",
+        colorName: "",
+        size: "",
+        quantity: qty,
+        unitPrice: safeUnit,
+        subtotal: lineTotal,
+      };
+    })
+    .filter((row) => row.quantity > 0);
+
+  return [...productRows, ...packingRows];
+};
+
+const buildOpvOnlineSalePayload = (printDoc, productionOrder, deps) => {
+  const items = buildOnlineSaleItemsFromShipmentDoc(printDoc, deps);
+  const netAmount = items.reduce((s, it) => s + Number(it.subtotal || 0), 0);
+  const shippingCost = Number(printDoc.shippingCost || 0);
+  const totalAmount = netAmount + shippingCost;
+  const order = productionOrder || {};
+  const dateStr =
+    (order.startDate && String(order.startDate).slice(0, 10)) ||
+    (order.deliveryDate && String(order.deliveryDate).slice(0, 10)) ||
+    new Date().toISOString().slice(0, 10);
+
+  return {
+    customerName: printDoc.locationName || order.customerName || "—",
+    address: order.customerAddress || "—",
+    phone: order.customerPhone || "—",
+    phone2: order.customerPhone || "—",
+    saleNumber: order.code || String(order.id || ""),
+    shipmentNumber: printDoc.shipmentNumber || order.vendorShipmentNumber || order.code || String(order.id || ""),
+    saleDate: dateStr,
+    shippingCarrier: null,
+    guideNumber: "",
+    invoiceTaxId: order.customerTaxId || order.invoiceTaxId || "CF",
+    salesperson: order.sellerName || "—",
+    paymentMethod: "",
+    items,
+    netAmount,
+    totalAmount,
+    shippingCost,
   };
 };
 
@@ -234,6 +394,13 @@ function PrepareShipments() {
         setError("");
         const order = await getProductionOrderById(selectedOpvOrderId);
         setSelectedProductionOrder(order);
+        setOpvOrders((prev) =>
+          (prev || []).map((o) =>
+            String(o.id) === String(order.id)
+              ? { ...o, vendorShipmentNumber: order.vendorShipmentNumber, customerAddress: order.customerAddress, customerPhone: order.customerPhone, customerTaxId: order.customerTaxId }
+              : o
+          )
+        );
         const synthetic = buildOpvShipmentFromOrder(order);
         setShipments([synthetic]);
         setCopiesByShipment({ [synthetic.id]: 1 });
@@ -269,7 +436,9 @@ function PrepareShipments() {
       const orders = await getProductionOrders();
       const rows = (orders || []).filter((order) => {
         const seller = String(order?.sellerName || "").trim().toUpperCase();
-        return seller.includes("LUIS FELIPE");
+        const type = String(order?.orderType || "").trim().toUpperCase();
+        if (!seller.includes("LUIS FELIPE")) return false;
+        return type === "MARCAS" || type === "OPV";
       });
       setOpvOrders(rows);
     } catch (_err) {
@@ -535,6 +704,52 @@ function PrepareShipments() {
     const docs = buildPrintableDocs();
     if (docs.length === 0) {
       showError("Selecciona al menos un envio para imprimir");
+      return;
+    }
+
+    if (specialSellerFlow) {
+      const printWindowOpv = window.open("", "_blank");
+      if (!printWindowOpv) {
+        showError("No se pudo abrir la ventana de impresion");
+        return;
+      }
+      const opvDeps = {
+        packingMaterials,
+        resolveProductUnitPrice,
+        resolveMaterialUnitPrice,
+        getShipmentPackingItems,
+      };
+      const bodyInner = docs
+        .map((shipmentDoc) => {
+          const sale = buildOpvOnlineSalePayload(shipmentDoc, selectedProductionOrder, opvDeps);
+          const docNo = String(sale.shipmentNumber || sale.saleNumber || "");
+          return buildShipmentDocumentInnerHtml(sale, {
+            docType: "ENVIO",
+            docNo,
+            netAmount: sale.netAmount,
+            totalAmount: sale.totalAmount,
+            shippingCost: sale.shippingCost,
+            copyLabel: shipmentDoc.copyLabel || "",
+            businessTitle: "VENTA CLIENTES FOSSILES",
+          });
+        })
+        .join("");
+      printWindowOpv.document.write(`<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <title>ENVIO OPV</title>
+    <style>${getShipmentDocumentStyles()}</style>
+  </head>
+  <body>${bodyInner}</body>
+  <script>
+    window.onload = function() {
+      window.print();
+      window.close();
+    }
+  </script>
+</html>`);
+      printWindowOpv.document.close();
       return;
     }
 
@@ -1331,7 +1546,9 @@ function PrepareShipments() {
                     <option value="">-- Seleccione OPV de Luis Felipe --</option>
                     {opvOrders.map((order) => (
                       <option key={order.id} value={order.id}>
-                        {order.code} - {order.customerName || "Cliente"} ({order.status})
+                        {order.code}
+                        {order.vendorShipmentNumber ? ` · ${order.vendorShipmentNumber}` : ""} —{" "}
+                        {order.customerName || "Cliente"} ({order.status})
                       </option>
                     ))}
                   </Input>

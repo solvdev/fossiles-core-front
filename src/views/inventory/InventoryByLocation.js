@@ -29,6 +29,7 @@ import {
 import { matchSorter } from "match-sorter";
 import { getAggregatedMaterialInventory, initializeMissingInventory } from "services/inventoryService";
 import { createMaterial } from "services/materialService";
+import { getSuppliers } from "services/supplierService";
 import { getUoms } from "services/uomService";
 import { showError, showSuccess } from "utils/notificationHelper";
 import * as XLSX from "xlsx";
@@ -93,6 +94,9 @@ function InventoryByLocation() {
   });
   const [materialKardexContext, setMaterialKardexContext] = useState(null);
   const [materialTransferContext, setMaterialTransferContext] = useState(null);
+  const [showExcelExportModal, setShowExcelExportModal] = useState(false);
+  const [excelSupplierList, setExcelSupplierList] = useState([]);
+  const [excelExportSupplierId, setExcelExportSupplierId] = useState("");
 
   useEffect(() => {
     // Cargar inventario global de materiales (sin ubicación)
@@ -114,6 +118,8 @@ function InventoryByLocation() {
         materialName: item.materialName,
         quantity: item.totalQuantity || 0,
         materialMin: item.materialMin,
+        supplierId: item.supplierId != null ? item.supplierId : null,
+        supplierName: item.supplierName || "",
       }));
       
       setInventory(mappedInventory);
@@ -820,38 +826,65 @@ function InventoryByLocation() {
     showSuccess("Archivo ZPL con todos los stickers descargado");
   };
 
-  const handleDownloadExcel = () => {
+  const openExcelExportModal = async () => {
     if (inventory.length === 0) {
       showError("No hay datos para exportar");
       return;
     }
+    try {
+      if (!excelSupplierList.length) {
+        const list = await getSuppliers();
+        setExcelSupplierList(Array.isArray(list) ? list : []);
+      }
+    } catch (e) {
+      showError(e.message || "No se pudieron cargar los proveedores");
+      return;
+    }
+    setExcelExportSupplierId("");
+    setShowExcelExportModal(true);
+  };
+
+  const executeExcelExport = () => {
+    let rows = [...inventory];
+    if (excelExportSupplierId !== "" && excelExportSupplierId !== "ALL") {
+      const sid = Number(excelExportSupplierId);
+      rows = inventory.filter(it => Number(it.supplierId) === sid);
+    }
+    if (rows.length === 0) {
+      showError("No hay datos para exportar con el filtro elegido");
+      return;
+    }
 
     try {
-      // Preparar datos para Excel
-      const excelData = inventory.map(item => ({
+      const excelData = rows.map(item => ({
         "SKU": item.materialSku || "N/A",
         "Material": item.materialName || "N/A",
-        "Stock Total": parseInt(item.quantity || 0)
+        "Proveedor": item.supplierName || "—",
+        "Stock Total": parseFloat(item.quantity || 0),
       }));
 
-      // Crear libro de trabajo
       const worksheet = XLSX.utils.json_to_sheet(excelData);
       const workbook = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(workbook, worksheet, "Inventario");
 
-      // Ajustar ancho de columnas
       const columnWidths = [
-        { wch: 15 }, // SKU
-        { wch: 40 }, // Material
-        { wch: 12 }  // Stock Total
+        { wch: 15 },
+        { wch: 40 },
+        { wch: 28 },
+        { wch: 14 },
       ];
-      worksheet['!cols'] = columnWidths;
+      worksheet["!cols"] = columnWidths;
 
-      // Generar archivo y descargar
-      const fileName = `inventario_materiales_${new Date().toISOString().slice(0, 10)}.xlsx`;
+      const iso = new Date().toISOString().slice(0, 10);
+      const suffix =
+        excelExportSupplierId && excelExportSupplierId !== "ALL"
+          ? `prov-${excelExportSupplierId}`
+          : "todos";
+      const fileName = `inventario_materiales_${suffix}_${iso}.xlsx`;
       XLSX.writeFile(workbook, fileName);
 
       showSuccess("Archivo Excel descargado correctamente");
+      setShowExcelExportModal(false);
     } catch (err) {
       showError("Error al generar el archivo Excel");
       console.error(err);
@@ -903,7 +936,7 @@ function InventoryByLocation() {
                   <Button
                     color="success"
                     size="sm"
-                    onClick={handleDownloadExcel}
+                    onClick={openExcelExportModal}
                     disabled={loading || inventory.length === 0}
                     className="mt-2 mr-2"
                   >
@@ -1182,6 +1215,39 @@ function InventoryByLocation() {
         }
         onCreated={() => loadAllInventory()}
       />
+
+      <Modal isOpen={showExcelExportModal} toggle={() => setShowExcelExportModal(false)}>
+        <ModalHeader toggle={() => setShowExcelExportModal(false)}>Exportar Excel</ModalHeader>
+        <ModalBody>
+          <p className="text-muted small mb-3">
+            Solo se incluyen materiales cargados actualmente en esta pantalla. Elige proveedor para acotar el archivo.
+          </p>
+          <FormGroup>
+            <Label>Proveedor</Label>
+            <Input
+              type="select"
+              bsSize="sm"
+              value={excelExportSupplierId}
+              onChange={(e) => setExcelExportSupplierId(e.target.value)}
+            >
+              <option value="">Todos los proveedores</option>
+              {(excelSupplierList || []).map((s) => (
+                <option key={s.id} value={String(s.id)}>
+                  {s.name || `#${s.id}`}
+                </option>
+              ))}
+            </Input>
+          </FormGroup>
+        </ModalBody>
+        <ModalFooter>
+          <Button color="secondary" outline size="sm" onClick={() => setShowExcelExportModal(false)}>
+            Cancelar
+          </Button>
+          <Button color="success" size="sm" onClick={executeExcelExport}>
+            Descargar
+          </Button>
+        </ModalFooter>
+      </Modal>
 
       {/* Modal para impresión masiva */}
       <Modal isOpen={showBulkPrintModal} toggle={() => setShowBulkPrintModal(false)}>

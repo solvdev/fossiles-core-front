@@ -170,6 +170,38 @@ export const previewFulfillment = async (saleIds) => {
   return response.json();
 };
 
+/**
+ * Preview por item: stock por bodega (Devoluciones / BODEGA_PT) y accion sugerida.
+ * Retorna: { saleId, saleNumber, customerName, overallStatus, items: [{...}] }
+ */
+export const getSaleItemsPreview = async (saleId) => {
+  const response = await fetch(`${API_URL}/online-sales/${saleId}/items-preview`, {
+    headers: headers()
+  });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ message: 'Error al obtener preview de items' }));
+    throw new Error(err.message || 'Error al obtener preview de items');
+  }
+  return response.json();
+};
+
+/**
+ * Resuelve venta mixta: items DISPATCH se despachan, items PRODUCE se mueven a sub-pedido y crean OP.
+ * items: [{ saleItemId, action: 'DISPATCH' | 'PRODUCE' }]
+ */
+export const resolveMixedSale = async (saleId, items) => {
+  const response = await fetch(`${API_URL}/online-sales/${saleId}/resolve-mixed`, {
+    method: 'POST',
+    headers: headers(),
+    body: JSON.stringify({ items })
+  });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ message: 'Error al resolver venta mixta' }));
+    throw new Error(err.message || 'Error al resolver venta mixta');
+  }
+  return response.json();
+};
+
 /** Flujo legado: crea orden de producción directamente sin revisar inventario */
 export const createProductionOrderFromSales = async (saleIds) => {
   const response = await fetch(`${API_URL}/online-sales/create-production-order`, {
@@ -290,6 +322,39 @@ export const getReturnInventory = async (startDate, endDate) => {
   if (!response.ok) {
     const err = await response.json().catch(() => ({ message: 'Error al obtener devoluciones' }));
     throw new Error(err.message || 'Error al obtener devoluciones');
+  }
+  return response.json();
+};
+
+export const getReturnEvents = async (startDate, endDate) => {
+  let url = `${API_URL}/online-sales/return-events`;
+  if (startDate && endDate) url += `?startDate=${startDate}&endDate=${endDate}`;
+  const response = await fetch(url, { headers: headers() });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ message: 'Error al obtener eventos de devolución' }));
+    throw new Error(err.message || 'Error al obtener eventos de devolución');
+  }
+  return response.json();
+};
+
+export const getReturnForPrint = async (returnId) => {
+  const response = await fetch(`${API_URL}/online-sales/returns/${returnId}`, { headers: headers() });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ message: 'Error al obtener devolución para impresión' }));
+    throw new Error(err.message || 'Error al obtener devolución para impresión');
+  }
+  return response.json();
+};
+
+export const createOnlineSaleExchange = async (onlineSaleId, data) => {
+  const response = await fetch(`${API_URL}/online-sales/${onlineSaleId}/exchange`, {
+    method: "POST",
+    headers: headers(),
+    body: JSON.stringify(data || {})
+  });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ message: 'Error al registrar cambio' }));
+    throw new Error(err.message || 'Error al registrar cambio');
   }
   return response.json();
 };

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
+import { DndContext, DragOverlay, useDraggable, useDroppable, PointerSensor, useSensor, useSensors } from "@dnd-kit/core";
 import {
   Card,
   CardHeader,
@@ -18,6 +19,7 @@ import {
   Modal,
   ModalBody,
   ModalHeader,
+  ModalFooter,
 } from "reactstrap";
 import {
   getTasks,
@@ -29,19 +31,358 @@ import {
   getDesksCount,
   optimizePendingTasks,
   planTasksWindow,
+  getDistributionQueueProductionOrders,
   generateTasksForOrder,
   getDaySaleCandidates,
   addDaySaleItemsToTask,
   generateForPendingOnlineSales,
+  moveTaskItem,
+  updateTaskStartedAt,
 } from "services/taskService";
 import { getProductionOrders } from "services/productionOrderService";
 import { showSuccess, showError } from "utils/notificationHelper";
 import TaskTicketPrint from "./TaskTicketPrint";
 import { taskMaterialsReady, taskSkipsMaterials } from "utils/materialRequirementHelper";
-import { formatDateGt } from "utils/dateTimeHelper";
+import { formatDateGt, formatDateTimeGt } from "utils/dateTimeHelper";
 import { formatProductionOrderSelectLabel } from "utils/productionOrderDisplayHelper";
 
 const MAX_HOURS_PER_DESK = 4;
+
+/** Badges familia distribución — colores explícitos (evita texto blanco sobre fondo blanco con temas Badge). */
+/** Reordenar array por índice (para lista prioridad distribución). */
+function reorderByIndex(prev, fromIndex, toIndex) {
+  if (fromIndex === toIndex) return prev;
+  if (fromIndex < 0 || toIndex < 0 || fromIndex >= prev.length || toIndex >= prev.length) return prev;
+  const next = [...prev];
+  const [removed] = next.splice(fromIndex, 1);
+  next.splice(toIndex, 0, removed);
+  return next;
+}
+
+/** Para mostrar fecha de alta de OP en modal FIFO (acepta ISO string o array Jackson). */
+function formatDistributionOpCreatedAt(createdAt) {
+  if (createdAt == null) return "";
+  if (typeof createdAt === "string") return formatDateTimeGt(createdAt);
+  if (Array.isArray(createdAt) && createdAt.length >= 3) {
+    const d = new Date(
+      createdAt[0],
+      (createdAt[1] || 1) - 1,
+      createdAt[2] || 1,
+      createdAt[3] || 0,
+      createdAt[4] || 0,
+      createdAt[5] || 0,
+      createdAt[6] ? Math.floor(createdAt[6] / 1e6) : 0
+    );
+    return Number.isFinite(d.getTime()) ? formatDateTimeGt(d.toISOString()) : "";
+  }
+  return "";
+}
+
+function DistribFamilyBadge({ family }) {
+  const cfg = {
+    OPV: { label: "OPV", short: "V", bg: "#0d47a1", fg: "#ffffff", subtle: "#e3f2fd" },
+    OPK: { label: "OPK", short: "K", bg: "#37474f", fg: "#ffffff", subtle: "#eceff1" },
+    OPI: { label: "OPI", short: "I", bg: "#6a1b9a", fg: "#ffffff", subtle: "#f3e5f5" },
+  }[(family || "").toUpperCase()] || {
+    label: family || "?",
+    short: "?",
+    bg: "#757575",
+    fg: "#ffffff",
+    subtle: "#f5f5f5",
+  };
+  return (
+    <div
+      className="d-flex align-items-center"
+      title={cfg.label}
+      style={{
+        width: 40,
+        height: 40,
+        borderRadius: 10,
+        background: cfg.bg,
+        color: cfg.fg,
+        fontWeight: 800,
+        fontSize: 16,
+        letterSpacing: -0.5,
+        justifyContent: "center",
+        flexShrink: 0,
+        boxShadow: "inset 0 -2px 0 rgba(0,0,0,0.15)",
+      }}
+      aria-hidden
+    >
+      {cfg.short}
+    </div>
+  );
+}
+
+const DroppableColumn = React.memo(function DroppableColumn({ id, header, count, children }) {
+  const { setNodeRef, isOver } = useDroppable({ id });
+  return (
+    <div
+      ref={setNodeRef}
+      style={{
+        width: 260,
+        minWidth: 260,
+        border: `1px solid ${isOver ? "#ffc107" : "#e0e0e0"}`,
+        borderRadius: 8,
+        background: isOver ? "#fff8e1" : "#fafafa",
+      }}
+    >
+      <div style={{ padding: 10, borderBottom: "1px solid #eee", fontWeight: 700 }}>
+        {header}
+        <Badge color="light" className="ml-2">{count}</Badge>
+      </div>
+      <div style={{ padding: 10, display: "flex", flexDirection: "column", gap: 8 }}>
+        {children}
+      </div>
+    </div>
+  );
+});
+
+const DraggableCard = React.memo(function DraggableCard({ id, title, children }) {
+  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id });
+  const style = {
+    background: "#fff",
+    border: "1px solid #ddd",
+    borderRadius: 8,
+    padding: 10,
+    cursor: isDragging ? "grabbing" : "grab",
+    transform: transform ? `translate3d(${transform.x}px, ${transform.y}px, 0)` : undefined,
+    boxShadow: isDragging ? "0 10px 20px rgba(0,0,0,0.15)" : undefined,
+  };
+  return (
+    <div ref={setNodeRef} style={style} title={title} {...listeners} {...attributes}>
+      {children}
+    </div>
+  );
+});
+
+const DraggablePriorityRow = React.memo(function DraggablePriorityRow({ rowId, disabled, children }) {
+  const droppableId = `prio-drop-${rowId}`;
+  const draggableId = `prio-drag-${rowId}`;
+  const { setNodeRef: setDropRef, isOver } = useDroppable({ id: droppableId });
+  const { attributes, listeners, setNodeRef: setDragRef, transform, isDragging } = useDraggable({ id: draggableId });
+
+  return (
+    <div
+      ref={setDropRef}
+      style={{
+        outline: isOver ? "2px solid #f59e0b" : "none",
+        outlineOffset: 2,
+        borderRadius: 10,
+        transition: "outline-color 120ms ease",
+      }}
+    >
+      <div
+        style={{
+          transform: transform ? `translate3d(${transform.x}px, ${transform.y}px, 0)` : undefined,
+          transition: isDragging ? "none" : "transform 140ms ease",
+          opacity: isDragging ? 0.4 : 1,
+        }}
+      >
+        <div
+          ref={setDragRef}
+          {...listeners}
+          {...attributes}
+          role="presentation"
+          aria-label="Arrastrar para reordenar"
+          style={{
+            cursor: disabled ? "not-allowed" : (isDragging ? "grabbing" : "grab"),
+            touchAction: "none",
+            userSelect: "none",
+          }}
+        >
+          {children}
+        </div>
+      </div>
+    </div>
+  );
+});
+
+function RedistributeBoard({
+  tasks,
+  numDesks,
+  date,
+  setDate,
+  onMove,
+}) {
+  const [activeItemId, setActiveItemId] = useState(null);
+
+  const activeTasks = useMemo(() => (tasks || []).filter((t) => t && t.status !== "CANCELLED" && t.status !== "COMPLETED"), [tasks]);
+
+  const items = useMemo(() => {
+    const out = [];
+    activeTasks.forEach((t) => {
+      (t.items || []).forEach((it) => {
+        if (!it?.id) return;
+        out.push({
+          taskId: t.id,
+          taskCode: t.code,
+          productionOrderCode: t.productionOrderCode,
+          taskStatus: t.status,
+          desk: t.desk || null,
+          scheduledDate: t.scheduledDate || null,
+          taskItemId: it.id,
+          productCode: it.productCode,
+          productName: it.productName,
+          colorName: it.colorName,
+          quantity: it.quantity,
+          estimatedHours: it.estimatedHours,
+        });
+      });
+    });
+    return out;
+  }, [activeTasks]);
+
+  const containers = useMemo(() => {
+    const list = [{ id: "unassigned", title: "Sin asignar" }];
+    for (let d = 1; d <= (numDesks || 12); d++) list.push({ id: `desk-${d}`, title: `Mesa ${d}`, desk: d });
+    return list;
+  }, [numDesks]);
+
+  const itemsByContainer = useMemo(() => {
+    const map = {};
+    containers.forEach((c) => { map[c.id] = []; });
+    items.forEach((it) => {
+      const isSameDate = !date || String(it.scheduledDate || "") === String(date || "");
+      if (!isSameDate) return;
+      const key = it.desk ? `desk-${it.desk}` : "unassigned";
+      if (!map[key]) map[key] = [];
+      map[key].push(it);
+    });
+    Object.keys(map).forEach((k) => {
+      map[k].sort((a, b) => (a.productionOrderCode || "").localeCompare(b.productionOrderCode || "") || (a.productCode || "").localeCompare(b.productCode || ""));
+    });
+    return map;
+  }, [items, containers, date]);
+
+  const findContainerForTaskItem = useCallback((taskItemId) => {
+    const it = items.find((x) => String(x.taskItemId) === String(taskItemId));
+    if (!it) return "unassigned";
+    return it.desk ? `desk-${it.desk}` : "unassigned";
+  }, [items]);
+
+  const handleDragStart = useCallback((event) => {
+    const id = event?.active?.id;
+    if (!id) return;
+    setActiveItemId(id);
+  }, []);
+
+  const handleDragEnd = useCallback(async (event) => {
+    setActiveItemId(null);
+    const activeId = event?.active?.id;
+    const overId = event?.over?.id;
+    if (!activeId || !overId) return;
+
+    const taskItemId = String(activeId).startsWith("item-") ? Number(String(activeId).slice(5)) : null;
+    if (!taskItemId) return;
+
+    const from = findContainerForTaskItem(taskItemId);
+    const to = String(overId);
+    if (from === to) return;
+
+    const targetDesk = to.startsWith("desk-") ? Number(to.slice(5)) : null;
+    // Sin mesa: igual mantener la fecha del tablero para que los ítems queden en "Sin asignar" de ese día.
+    const targetDate = date || null;
+    await onMove({ taskItemId, targetDesk, targetDate });
+  }, [date, findContainerForTaskItem, onMove]);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } })
+  );
+
+  const activeItem = useMemo(() => {
+    if (!activeItemId) return null;
+    const rawId = String(activeItemId).startsWith("item-") ? Number(String(activeItemId).slice(5)) : null;
+    if (!rawId) return null;
+    return items.find((x) => Number(x.taskItemId) === rawId) || null;
+  }, [activeItemId, items]);
+
+  return (
+    <div>
+      <Alert color="warning" className="mb-3">
+        <strong>Redistribuir (manual)</strong>: mueve productos entre mesas para la fecha seleccionada. Esto no es el cronograma automático.
+      </Alert>
+      <Row className="mb-3">
+        <Col md="3">
+          <FormGroup className="mb-0">
+            <Label><small>Fecha</small></Label>
+            <Input type="date" bsSize="sm" value={date} onChange={(e) => setDate(e.target.value)} />
+          </FormGroup>
+        </Col>
+        <Col className="d-flex align-items-end">
+          {activeItem?.taskItemId && <small className="text-muted">Moviendo item #{activeItem.taskItemId}…</small>}
+        </Col>
+      </Row>
+
+      <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
+        <div style={{ overflowX: "auto", paddingBottom: 8 }}>
+          <div style={{ display: "flex", gap: 12, minWidth: 900 }}>
+            {containers.map((c) => (
+              <DroppableColumn
+                key={c.id}
+                id={c.id}
+                header={c.title}
+                count={(itemsByContainer[c.id] || []).length}
+              >
+                {(itemsByContainer[c.id] || []).map((it) => (
+                  <DraggableCard
+                    key={it.taskItemId}
+                    id={`item-${it.taskItemId}`}
+                    title={`Task ${it.taskCode} / OP ${it.productionOrderCode}`}
+                  >
+                      <div style={{ fontSize: 12 }}>
+                        <Badge color="info" className="mr-1">{it.productionOrderCode}</Badge>
+                        <Badge color="dark">{it.taskCode}</Badge>
+                      </div>
+                      <div style={{ marginTop: 6 }}>
+                        <strong>{it.productCode}</strong> {it.productName}
+                        {it.colorName && <span className="text-muted"> · {it.colorName}</span>}
+                      </div>
+                      <div className="text-muted" style={{ fontSize: 12, marginTop: 4, display: "flex", justifyContent: "space-between" }}>
+                        <span>{it.quantity} uds</span>
+                        <span>{Math.round((it.estimatedHours || 0) * 60)} min</span>
+                      </div>
+                  </DraggableCard>
+                ))}
+                {(itemsByContainer[c.id] || []).length === 0 && (
+                  <div className="text-muted" style={{ fontSize: 12 }}>Arrastra aquí.</div>
+                )}
+              </DroppableColumn>
+            ))}
+          </div>
+        </div>
+
+        <DragOverlay>
+          {activeItem ? (
+            <div
+              style={{
+                background: "#fff",
+                border: "1px solid #ddd",
+                borderRadius: 8,
+                padding: 10,
+                width: 240,
+                boxShadow: "0 10px 24px rgba(0,0,0,0.18)",
+              }}
+            >
+              <div style={{ fontSize: 12 }}>
+                <Badge color="info" className="mr-1">{activeItem.productionOrderCode}</Badge>
+                <Badge color="dark">{activeItem.taskCode}</Badge>
+              </div>
+              <div style={{ marginTop: 6 }}>
+                <strong>{activeItem.productCode}</strong> {activeItem.productName}
+                {activeItem.colorName && <span className="text-muted"> · {activeItem.colorName}</span>}
+              </div>
+              <div className="text-muted" style={{ fontSize: 12, marginTop: 4, display: "flex", justifyContent: "space-between" }}>
+                <span>{activeItem.quantity} uds</span>
+                <span>{Math.round((activeItem.estimatedHours || 0) * 60)} min</span>
+              </div>
+            </div>
+          ) : null}
+        </DragOverlay>
+      </DndContext>
+    </div>
+  );
+}
 
 function TasksByTable() {
   const navigate = useNavigate();
@@ -50,7 +391,7 @@ function TasksByTable() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [deskConfigWarning, setDeskConfigWarning] = useState("");
-  const [viewMode, setViewMode] = useState("operation"); // "operation" | "schedule"
+  const [viewMode, setViewMode] = useState("operation"); // "operation" | "schedule" | "redistribute"
   const [filterDesk, setFilterDesk] = useState("");
   const [filterDate, setFilterDate] = useState("");
   const [filterStatus, setFilterStatus] = useState("all");
@@ -60,6 +401,11 @@ function TasksByTable() {
   const [numDesks, setNumDesks] = useState(12);
   const [workingDesksCount, setWorkingDesksCount] = useState(12);
   const [distributionDate, setDistributionDate] = useState(new Date().toISOString().split("T")[0]);
+  const [showDistributionPriorityModal, setShowDistributionPriorityModal] = useState(false);
+  const [distributionPriorityRows, setDistributionPriorityRows] = useState([]);
+  const [distributionModalLoading, setDistributionModalLoading] = useState(false);
+  const [distributionApplying, setDistributionApplying] = useState(false);
+  const [activePriorityRowId, setActivePriorityRowId] = useState(null);
   const [showQuickGuide, setShowQuickGuide] = useState(false);
   const [showGenerateModal, setShowGenerateModal] = useState(false);
   const [productionOrders, setProductionOrders] = useState([]);
@@ -78,6 +424,10 @@ function TasksByTable() {
   const [selectedLeatherItems, setSelectedLeatherItems] = useState([]);
   const [leatherSelectionCount, setLeatherSelectionCount] = useState("");
   const [savingLeatherItems, setSavingLeatherItems] = useState(false);
+
+  // Redistribuir manual (aparte del cronograma)
+  const [redistributeDate, setRedistributeDate] = useState(new Date().toISOString().split("T")[0]);
+  const [editStartModal, setEditStartModal] = useState({ open: false, task: null, value: "" });
 
   useEffect(() => {
     loadTasks();
@@ -177,11 +527,173 @@ function TasksByTable() {
     try {
       const updated = await updateTaskStatus(taskId, newStatus);
       setTasks((prev) => prev.map((t) => (t.id === taskId ? updated : t)));
+      if (newStatus === "COMPLETED") {
+        await loadTasks();
+      }
       showSuccess("Estado actualizado");
     } catch (err) {
       showError(err.message);
     }
   };
+
+  const openEditStartedAt = (task) => {
+    if (!task?.id) return;
+    const current = task.startedAt ? String(task.startedAt).slice(0, 19) : "";
+    // datetime-local espera "YYYY-MM-DDTHH:mm"
+    const normalized = current ? current.slice(0, 16) : "";
+    setEditStartModal({ open: true, task, value: normalized });
+  };
+
+  const saveEditedStartedAt = async () => {
+    const task = editStartModal.task;
+    const value = editStartModal.value;
+    if (!task?.id) return;
+    if (!value) {
+      showError("Seleccione fecha y hora.");
+      return;
+    }
+    try {
+      // Backend espera LocalDateTime ISO (segundos opcionales). Mandamos con ":00".
+      const startedAt = `${value}:00`;
+      const updated = await updateTaskStartedAt(task.id, startedAt);
+      setTasks((prev) => prev.map((t) => (t.id === task.id ? updated : t)));
+      showSuccess("Hora de inicio actualizada");
+      setEditStartModal({ open: false, task: null, value: "" });
+    } catch (err) {
+      showError(err.message || "No se pudo actualizar la hora de inicio");
+    }
+  };
+
+  // Mueve un task_item entre mesas/fechas con UI optimista (estilo Jira).
+  // No hace refetch global: aplica el cambio local inmediato y reconcilia
+  // contra el response del backend al terminar (rollback en error).
+  const handleMoveTaskItem = useCallback(async ({ taskItemId, targetDesk, targetDate }) => {
+    const targetDeskNorm = targetDesk == null ? null : Number(targetDesk);
+    const targetDateNorm = targetDate || null;
+
+    let snapshot = null;
+    setTasks((current) => {
+      snapshot = current;
+
+      let sourceIdx = -1;
+      let theItem = null;
+      for (let i = 0; i < current.length; i++) {
+        const found = (current[i].items || []).find((x) => Number(x.id) === Number(taskItemId));
+        if (found) { sourceIdx = i; theItem = found; break; }
+      }
+      if (sourceIdx === -1 || !theItem) return current;
+      const sourceTask = current[sourceIdx];
+
+      const sameContainer =
+        (sourceTask.desk || null) === targetDeskNorm &&
+        String(sourceTask.scheduledDate || "") === String(targetDateNorm || "");
+      if (sameContainer) return current;
+
+      const targetIdx = current.findIndex((t) =>
+        Number(t.productionOrderId) === Number(sourceTask.productionOrderId) &&
+        (t.desk || null) === targetDeskNorm &&
+        String(t.scheduledDate || "") === String(targetDateNorm || "") &&
+        t.status === "PENDING" &&
+        t.id !== sourceTask.id
+      );
+
+      const newSourceItems = (sourceTask.items || []).filter((x) => Number(x.id) !== Number(taskItemId));
+      const updatedSource = {
+        ...sourceTask,
+        items: newSourceItems,
+        quantity: newSourceItems.reduce((s, x) => s + (Number(x.quantity) || 0), 0),
+        estimatedHours: newSourceItems.reduce((s, x) => s + (Number(x.estimatedHours) || 0), 0),
+      };
+
+      let updatedTarget;
+      if (targetIdx >= 0) {
+        const tgt = current[targetIdx];
+        const merged = [...(tgt.items || []), { ...theItem }];
+        updatedTarget = {
+          ...tgt,
+          items: merged,
+          quantity: merged.reduce((s, x) => s + (Number(x.quantity) || 0), 0),
+          estimatedHours: merged.reduce((s, x) => s + (Number(x.estimatedHours) || 0), 0),
+        };
+      } else {
+        updatedTarget = {
+          id: `temp-${taskItemId}-${Date.now()}`,
+          code: "…",
+          productionOrderId: sourceTask.productionOrderId,
+          productionOrderCode: sourceTask.productionOrderCode,
+          desk: targetDeskNorm,
+          scheduledDate: targetDateNorm,
+          status: "PENDING",
+          deliveryDate: sourceTask.deliveryDate,
+          priority: sourceTask.priority,
+          items: [{ ...theItem }],
+          quantity: Number(theItem.quantity) || 0,
+          estimatedHours: Number(theItem.estimatedHours) || 0,
+          leatherDelivered: sourceTask.leatherDelivered,
+          leatherDeliveredAt: sourceTask.leatherDeliveredAt,
+          dieCutReady: sourceTask.dieCutReady,
+          dieCutDate: sourceTask.dieCutDate,
+          materialsDelivered: false,
+          _optimistic: true,
+        };
+      }
+
+      let next = current.map((t, i) => (i === sourceIdx ? updatedSource : t));
+      if (targetIdx >= 0) {
+        next = next.map((t, i) => (i === targetIdx ? updatedTarget : t));
+      } else {
+        next = [...next, updatedTarget];
+      }
+
+      const sourceEmpty =
+        updatedSource.items.length === 0 &&
+        updatedSource.status === "PENDING" &&
+        !updatedSource.startedAt &&
+        !updatedSource.completedAt;
+      if (sourceEmpty) {
+        next = next.filter((t) => t.id !== updatedSource.id);
+      }
+
+      return next;
+    });
+
+    try {
+      const result = await moveTaskItem(taskItemId, targetDeskNorm, targetDateNorm);
+      setTasks((current) => {
+        let next = current;
+        if (result?.sourceTaskDeletedId != null) {
+          next = next.filter((t) => Number(t.id) !== Number(result.sourceTaskDeletedId));
+        } else if (result?.sourceTask) {
+          const sId = Number(result.sourceTask.id);
+          const exists = next.some((t) => Number(t.id) === sId);
+          next = exists
+            ? next.map((t) => (Number(t.id) === sId ? result.sourceTask : t))
+            : [...next, result.sourceTask];
+        }
+        if (result?.targetTask) {
+          const tId = Number(result.targetTask.id);
+          const exists = next.some((t) => Number(t.id) === tId);
+          if (exists) {
+            next = next.map((t) => (Number(t.id) === tId ? result.targetTask : t));
+          } else {
+            const tempIdx = next.findIndex((t) =>
+              typeof t.id === "string" && t.id.startsWith("temp-") &&
+              Number(t.productionOrderId) === Number(result.targetTask.productionOrderId) &&
+              (t.desk || null) === (result.targetTask.desk || null) &&
+              String(t.scheduledDate || "") === String(result.targetTask.scheduledDate || "")
+            );
+            next = tempIdx >= 0
+              ? next.map((t, i) => (i === tempIdx ? result.targetTask : t))
+              : [...next, result.targetTask];
+          }
+        }
+        return next;
+      });
+    } catch (err) {
+      if (snapshot) setTasks(snapshot);
+      showError(err.message || "No se pudo redistribuir");
+    }
+  }, []);
 
   const handleDieCutToggle = async (taskId, currentValue) => {
     if (currentValue) return;
@@ -305,6 +817,98 @@ function TasksByTable() {
     }
   };
 
+  const openDistributionPriorityModal = async () => {
+    const start = distributionDate || filterDate || new Date().toISOString().split("T")[0];
+    setShowDistributionPriorityModal(true);
+    setDistributionModalLoading(true);
+    setDistributionPriorityRows([]);
+    try {
+      const list = await getDistributionQueueProductionOrders(start, 5);
+      const opCreatedMs = (r) => {
+        const c = r.createdAt;
+        if (c == null) return Number.MAX_SAFE_INTEGER;
+        if (typeof c === "string") {
+          const t = Date.parse(c);
+          return Number.isFinite(t) ? t : Number.MAX_SAFE_INTEGER;
+        }
+        if (Array.isArray(c) && c.length >= 3) {
+          return new Date(c[0], (c[1] || 1) - 1, c[2] || 1, c[3] || 0, c[4] || 0, c[5] || 0, c[6] ? Math.floor(c[6] / 1e6) : 0).getTime();
+        }
+        return Number.MAX_SAFE_INTEGER;
+      };
+      const sorted = [...list].sort((a, b) => {
+        const pa = a.schedulingPriority != null && a.schedulingPriority > 0 ? a.schedulingPriority : null;
+        const pb = b.schedulingPriority != null && b.schedulingPriority > 0 ? b.schedulingPriority : null;
+        if (pa != null && pb != null && pa !== pb) return pa - pb;
+        if (pa != null && pb == null) return -1;
+        if (pa == null && pb != null) return 1;
+        const ta = opCreatedMs(a);
+        const tb = opCreatedMs(b);
+        if (ta !== tb) return ta - tb;
+        return (Number(a.id) || 0) - (Number(b.id) || 0);
+      });
+      setDistributionPriorityRows(sorted.map((r) => ({ ...r })));
+    } catch (err) {
+      showError(err.message || "No se pudo cargar la cola de ordenes");
+    } finally {
+      setDistributionModalLoading(false);
+    }
+  };
+
+  const distributionDndSensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } })
+  );
+
+  const handlePriorityDragStart = useCallback((event) => {
+    const id = String(event?.active?.id || "");
+    if (!id.startsWith("prio-drag-")) return;
+    const rowId = id.slice("prio-drag-".length);
+    setActivePriorityRowId(rowId || null);
+  }, []);
+
+  const handlePriorityDragEnd = useCallback((event) => {
+    setActivePriorityRowId(null);
+    const activeId = String(event?.active?.id || "");
+    const overId = String(event?.over?.id || "");
+    if (!activeId.startsWith("prio-drag-") || !overId.startsWith("prio-drop-")) return;
+
+    const fromRowId = activeId.slice("prio-drag-".length);
+    const toRowId = overId.slice("prio-drop-".length);
+    if (!fromRowId || !toRowId || fromRowId === toRowId) return;
+
+    setDistributionPriorityRows((prev) => {
+      const fromIndex = prev.findIndex((r) => String(r?.id) === String(fromRowId));
+      const toIndex = prev.findIndex((r) => String(r?.id) === String(toRowId));
+      return reorderByIndex(prev, fromIndex, toIndex);
+    });
+  }, []);
+
+  const handleApplyDistributionPriorities = async () => {
+    const start = distributionDate || filterDate || new Date().toISOString().split("T")[0];
+    const desksToUse = Math.max(1, Math.min(numDesks, parseInt(workingDesksCount, 10) || numDesks));
+    const pri = {};
+    distributionPriorityRows.forEach((r, idx) => {
+      pri[String(r.id)] = idx + 1;
+    });
+    setDistributionApplying(true);
+    try {
+      const result = await planTasksWindow(
+        start,
+        desksToUse,
+        5,
+        undefined,
+        Object.keys(pri).length > 0 ? pri : undefined
+      );
+      showSuccess(result.message || "Distribucion completada");
+      setShowDistributionPriorityModal(false);
+      await loadTasks();
+    } catch (err) {
+      showError(err.message || "No se pudo distribuir tareas del dia");
+    } finally {
+      setDistributionApplying(false);
+    }
+  };
+
   const handleOptimizePending = async () => {
     try {
       const result = await optimizePendingTasks(filterDate || undefined, false);
@@ -312,18 +916,6 @@ function TasksByTable() {
       await loadTasks();
     } catch (err) {
       showError(err.message || "No se pudo optimizar tareas pendientes");
-    }
-  };
-
-  const handleRebalanceByDay = async () => {
-    try {
-      const targetDate = distributionDate || filterDate || new Date().toISOString().split("T")[0];
-      const desksToUse = Math.max(1, Math.min(numDesks, parseInt(workingDesksCount, 10) || numDesks));
-      const result = await planTasksWindow(targetDate, desksToUse, 5);
-      showSuccess(result.message || "Redistribucion completada");
-      await loadTasks();
-    } catch (err) {
-      showError(err.message || "No se pudo redistribuir tareas del dia");
     }
   };
 
@@ -460,8 +1052,10 @@ function TasksByTable() {
     });
   }, [tasks, filterDesk, filterDate, filterStatus, filterDieCut, searchTerm]);
 
+  // "Pendientes de asignar" deben ser solo tareas activas sin mesa (no incluir COMPLETED/CANCELLED).
+  // Cuando una tarea se completa, se limpia desk para liberar capacidad, pero queda el historial en workedDesk.
   const unassignedTasks = useMemo(
-    () => tasks.filter((t) => !t.desk && t.status !== "CANCELLED"),
+    () => tasks.filter((t) => !t.desk && t.status !== "CANCELLED" && t.status !== "COMPLETED"),
     [tasks]
   );
 
@@ -637,6 +1231,16 @@ function TasksByTable() {
       return (
         <div className="d-flex align-items-center" style={{ gap: 4, flexWrap: "wrap" }}>
           <Button
+            color="secondary"
+            outline
+            size={buttonSize}
+            style={commonStyle}
+            onClick={() => openEditStartedAt(task)}
+            title="Editar hora de inicio"
+          >
+            Hora
+          </Button>
+          <Button
             color="success"
             size={buttonSize}
             style={commonStyle}
@@ -781,6 +1385,15 @@ function TasksByTable() {
                       <i className="nc-icon nc-calendar-60 mr-1" />
                       Cronograma
                     </Button>
+                    <Button
+                      color={viewMode === "redistribute" ? "warning" : "outline-secondary"}
+                      size="sm"
+                      onClick={() => setViewMode("redistribute")}
+                      title="Aparte del cronograma: mover productos entre mesas/fechas"
+                    >
+                      <i className="nc-icon nc-send mr-1" />
+                      Redistribuir (manual)
+                    </Button>
                   </div>
                 </Col>
                 <Col md="3" className="text-right">
@@ -865,7 +1478,13 @@ function TasksByTable() {
                     </Col>
                     <Col md="3">
                       <Label><small>3) Distribuir</small></Label>
-                      <Button color="warning" size="sm" block onClick={handleRebalanceByDay} disabled={loading}>
+                      <Button
+                        color="warning"
+                        size="sm"
+                        block
+                        onClick={openDistributionPriorityModal}
+                        disabled={loading || distributionModalLoading || distributionApplying}
+                      >
                         <i className="nc-icon nc-chart-bar-32 mr-1" /> Distribuir Dia
                       </Button>
                     </Col>
@@ -1120,6 +1739,19 @@ function TasksByTable() {
                         </>
                       )}
                     </div>
+                  )}
+
+                  {/* ============================================================ */}
+                  {/* ============ REDISTRIBUTE (MANUAL) VIEW ============ */}
+                  {/* ============================================================ */}
+                  {viewMode === "redistribute" && (
+                    <RedistributeBoard
+                      tasks={tasks}
+                      numDesks={workingDesksCount}
+                      date={redistributeDate}
+                      setDate={setRedistributeDate}
+                      onMove={handleMoveTaskItem}
+                    />
                   )}
 
                   {/* ============================================================ */}
@@ -1424,6 +2056,41 @@ function TasksByTable() {
         </ModalBody>
       </Modal>
 
+      {/* Edit startedAt Modal */}
+      <Modal
+        isOpen={editStartModal.open}
+        toggle={() => setEditStartModal({ open: false, task: null, value: "" })}
+      >
+        <ModalHeader toggle={() => setEditStartModal({ open: false, task: null, value: "" })}>
+          Editar hora de inicio {editStartModal.task?.code ? `· ${editStartModal.task.code}` : ""}
+        </ModalHeader>
+        <ModalBody>
+          <FormGroup>
+            <Label>Inicio (fecha + hora)</Label>
+            <Input
+              type="datetime-local"
+              value={editStartModal.value || ""}
+              onChange={(e) => setEditStartModal((p) => ({ ...p, value: e.target.value }))}
+            />
+            <small className="text-muted">
+              Solo aplica para tareas en proceso o completadas.
+            </small>
+          </FormGroup>
+          <div className="d-flex justify-content-end" style={{ gap: 8 }}>
+            <Button
+              color="secondary"
+              outline
+              onClick={() => setEditStartModal({ open: false, task: null, value: "" })}
+            >
+              Cancelar
+            </Button>
+            <Button color="primary" onClick={saveEditedStartedAt}>
+              Guardar
+            </Button>
+          </div>
+        </ModalBody>
+      </Modal>
+
       <Modal
         isOpen={showDaySaleModal}
         toggle={() => {
@@ -1700,13 +2367,276 @@ function TasksByTable() {
           <ol className="mb-2" style={{ paddingLeft: "18px" }}>
             <li className="mb-1"><strong>Generar tareas</strong> desde la orden de produccion.</li>
             <li className="mb-1"><strong>Completar prerequisitos</strong>: cuero y troquelado (materiales se entrega en Vista Materiales).</li>
-            <li className="mb-1"><strong>Distribuir dia</strong> eligiendo fecha y mesas activas.</li>
+            <li className="mb-1"><strong>Distribuir dia</strong>: abre prioridad por OP (OPV/OPK/OPI) y luego planifica mesas.</li>
             <li className="mb-1"><strong>Monitorear cronograma</strong> y cambiar estados (iniciar, pausar, completar).</li>
           </ol>
           <Alert color="light" style={{ border: "1px solid #e2e8f0" }}>
-            Consejo: use "Distribuir dia" al iniciar jornada para balancear carga automaticamente.
+            Consejo: Distribuir mesas respeta esta prioridad por OP (podés reordenar con arrastre) y reparte tareas de la OP #1 en todas las mesas posibles antes de pasar a la siguiente. Se toman todas las tareas PENDING (aunque tengan fecha vieja o futura).
           </Alert>
         </ModalBody>
+      </Modal>
+
+      <Modal
+        isOpen={showDistributionPriorityModal}
+        toggle={() => {
+          if (!distributionApplying) setShowDistributionPriorityModal(false);
+        }}
+        size="xl"
+        contentClassName="border-0 shadow"
+        style={{ maxWidth: 980 }}
+      >
+        <div
+          style={{
+            borderBottom: "1px solid #e2e8f0",
+            background: "linear-gradient(135deg, #fafbfc 0%, #f1f5f9 100%)",
+            padding: "14px 20px 12px",
+            borderRadius: "0.3rem 0.3rem 0 0",
+          }}
+        >
+          <button
+            type="button"
+            className="close float-right mt-1"
+            aria-label="Cerrar"
+            disabled={distributionApplying}
+            onClick={() => {
+              if (!distributionApplying) setShowDistributionPriorityModal(false);
+            }}
+          >
+            <span aria-hidden>&times;</span>
+          </button>
+          <div style={{ fontSize: 11, fontWeight: 700, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>
+            Planificar día
+          </div>
+          <div style={{ fontSize: 18, fontWeight: 700, color: "#1e293b" }}>Prioridad entre órdenes (FIFO)</div>
+          <div style={{ fontSize: 13, color: "#64748b", marginTop: 4, maxWidth: 560 }}>
+            <strong style={{ color: "#334155" }}>Cola tipo FIFO:</strong> la OP creada hace más tiempo va arriba; debajo las más nuevas.
+            Arrastra solo si necesitas cambiar ese orden estándar. Arriba = primero en el reparto del día.
+          </div>
+        </div>
+        <ModalBody className="pt-3" style={{ background: "#f8fafc", maxHeight: "min(78vh, 720px)", overflowY: "auto" }}>
+          <div
+            className="mb-3 pb-3"
+            style={{
+              borderBottom: "1px solid #e2e8f0",
+              padding: "10px 12px",
+              background: "#ffffff",
+              borderRadius: 8,
+              border: "1px solid #e2e8f0",
+            }}
+          >
+            <div style={{ fontSize: 11, fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", marginBottom: 8 }}>
+              Familias
+            </div>
+            <div className="d-flex flex-column" style={{ gap: 10 }}>
+              <span className="d-flex align-items-start" style={{ gap: 10, fontSize: 13, color: "#334155", lineHeight: 1.4 }}>
+                <DistribFamilyBadge family="OPV" />
+                <span>
+                  <strong>OPV</strong> — órdenes <strong>Luis Felipe</strong> (marcas conocidas); incluye la lógica de OP marcas como en el alta de orden.
+                </span>
+              </span>
+              <span className="d-flex align-items-start" style={{ gap: 10, fontSize: 13, color: "#334155", lineHeight: 1.4 }}>
+                <DistribFamilyBadge family="OPK" />
+                <span>
+                  <strong>OPK</strong> — productos tipo normal (corr. OP estándar).
+                </span>
+              </span>
+              <span className="d-flex align-items-start" style={{ gap: 10, fontSize: 13, color: "#334155", lineHeight: 1.4 }}>
+                <DistribFamilyBadge family="OPI" />
+                <span>
+                  <strong>OPI</strong> — producción interna.
+                </span>
+              </span>
+            </div>
+          </div>
+          {distributionModalLoading ? (
+            <div className="text-center py-5 px-3">
+              <Progress striped animated color="warning" value={80} style={{ height: 6 }} className="mb-3 mx-auto rounded-pill" />
+              <div className="text-muted small font-weight-semibold">Cargando órdenes elegibles…</div>
+            </div>
+          ) : distributionPriorityRows.length === 0 ? (
+            <div
+              className="text-center py-4 px-3 rounded mb-0"
+              style={{ background: "#fff", border: "1px dashed #cbd5e1", color: "#64748b" }}
+            >
+              <div style={{ fontSize: 15, fontWeight: 600, color: "#475569", marginBottom: 6 }}>
+                Lista vacía para este criterio
+              </div>
+              <p className="small mb-0" style={{ lineHeight: 1.55 }}>
+                No aparecen OPV, OPK u OPI con tareas pendientes en la ventana y sin proceso iniciado.
+                Puede igualmente <strong>distribuir</strong> para planificar el resto de tareas (OPL u otras).
+              </p>
+            </div>
+          ) : (
+            <>
+              <p className="small mb-2" style={{ fontWeight: 600, color: "#475569" }}>
+                Orden inicial <strong>FIFO</strong> por fecha de alta de la OP. Arrastra desde <span className="text-muted font-weight-normal">(≡)</span> si quieres saltar esa cola estándar. El número refleja el lugar que se aplicará al guardar.
+              </p>
+              <DndContext
+                sensors={distributionDndSensors}
+                onDragStart={handlePriorityDragStart}
+                onDragEnd={handlePriorityDragEnd}
+              >
+                <div role="list" style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  {distributionPriorityRows.map((r, idx) => (
+                    <DraggablePriorityRow key={r.id} rowId={String(r.id)} disabled={distributionApplying}>
+                      <div
+                        role="listitem"
+                        className="d-flex align-items-stretch rounded"
+                        style={{
+                          background: "#fff",
+                          border: "1px solid #e2e8f0",
+                          overflow: "hidden",
+                          boxShadow: "0 1px 2px rgba(15,23,42,0.04)",
+                        }}
+                      >
+                        <div
+                          className="d-flex align-items-center justify-content-center flex-shrink-0"
+                          title="Arrastrar para reordenar"
+                          style={{
+                            width: 40,
+                            background: "#e2e8f0",
+                            color: "#475569",
+                            cursor: distributionApplying ? "not-allowed" : "grab",
+                            fontSize: 16,
+                            lineHeight: 1,
+                            userSelect: "none",
+                            borderRight: "1px solid #cbd5e1",
+                            fontFamily: "system-ui, sans-serif",
+                          }}
+                        >
+                          ≡
+                        </div>
+                        <div
+                          style={{
+                            width: 48,
+                            flexShrink: 0,
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            background: "#f8fafc",
+                            borderRight: "1px solid #e2e8f0",
+                            fontWeight: 800,
+                            fontSize: 18,
+                            color: "#0f172a",
+                          }}
+                        >
+                          {idx + 1}
+                        </div>
+                        <div
+                          style={{
+                            width: 4,
+                            flexShrink: 0,
+                            background:
+                              r.family === "OPV" ? "#0d47a1" : r.family === "OPK" ? "#37474f" : "#6a1b9a",
+                          }}
+                        />
+                        <div className="d-flex align-items-center flex-grow-1 flex-wrap px-3 py-2" style={{ gap: 12, minWidth: 0 }}>
+                          <DistribFamilyBadge family={r.family} />
+                          <div className="flex-grow-1" style={{ minWidth: 140 }}>
+                            <div style={{ fontWeight: 700, fontSize: 15, color: "#0f172a", letterSpacing: "-0.02em" }}>
+                              {r.code}
+                            </div>
+                            <div className="d-flex align-items-center flex-wrap" style={{ gap: 6, marginTop: 4 }}>
+                              <span
+                                className="text-uppercase"
+                                style={{
+                                  fontSize: 10,
+                                  fontWeight: 700,
+                                  color: "#64748b",
+                                  background: "#f1f5f9",
+                                  padding: "2px 6px",
+                                  borderRadius: 4,
+                                }}
+                              >
+                                {r.orderType}
+                              </span>
+                              {r.family === "OPV" && (
+                                <span
+                                  style={{
+                                    fontSize: 10,
+                                    fontWeight: 700,
+                                    color: "#0d47a1",
+                                    background: "#e3f2fd",
+                                    padding: "2px 6px",
+                                    borderRadius: 4,
+                                  }}
+                                >
+                                  Luis Felipe
+                                </span>
+                              )}
+                              {r.customerName && (
+                                <span className="text-muted small text-truncate" style={{ maxWidth: 220 }} title={r.customerName}>
+                                  {r.customerName}
+                                </span>
+                              )}
+                              {formatDistributionOpCreatedAt(r.createdAt) && (
+                                <span className="text-muted small ml-1" title="orden FIFO por creación">
+                                  Alta: {formatDistributionOpCreatedAt(r.createdAt)}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </DraggablePriorityRow>
+                  ))}
+                </div>
+
+                <DragOverlay>
+                  {activePriorityRowId ? (
+                    <div
+                      style={{
+                        background: "#fff",
+                        border: "1px solid #e2e8f0",
+                        borderRadius: 10,
+                        padding: 10,
+                        width: 520,
+                        boxShadow: "0 10px 24px rgba(0,0,0,0.18)",
+                      }}
+                    >
+                      <div className="text-muted small" style={{ fontWeight: 700 }}>
+                        Reordenando…
+                      </div>
+                    </div>
+                  ) : null}
+                </DragOverlay>
+              </DndContext>
+            </>
+          )}
+          {!distributionModalLoading && distributionPriorityRows.length > 0 && (
+            <p className="small text-muted mb-0 mt-3" style={{ lineHeight: 1.45 }}>
+              Otras órdenes (p. ej. ventas en línea OPL) se planifican después, con la lógica habitual de fechas y carga.
+            </p>
+          )}
+        </ModalBody>
+        <ModalFooter style={{ background: "#fff", borderTop: "1px solid #e2e8f0" }} className="justify-content-between">
+          <small className="text-muted mr-2 d-none d-md-block">
+            Fecha de trabajo según pantalla principal
+          </small>
+          <div>
+            <Button
+              color="link"
+              className="text-secondary mr-md-2 p-2"
+              onClick={() => setShowDistributionPriorityModal(false)}
+              disabled={distributionApplying}
+            >
+              Cerrar
+            </Button>
+            <Button
+              style={{
+                fontWeight: 700,
+                background: "#f59e0b",
+                border: "none",
+                color: "#1c1917",
+                borderRadius: 8,
+              }}
+              onClick={handleApplyDistributionPriorities}
+              disabled={distributionApplying || distributionModalLoading}
+            >
+              {distributionApplying ? "Distribuyendo…" : "Aplicar y distribuir día"}
+            </Button>
+          </div>
+        </ModalFooter>
       </Modal>
 
       <Modal isOpen={showGenerateModal} toggle={() => setShowGenerateModal(false)} size="md">

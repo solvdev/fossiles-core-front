@@ -130,6 +130,37 @@ export const scheduleTask = async (id, data) => {
   return response.json();
 };
 
+export const moveTaskItem = async (taskItemId, targetDesk, targetDate) => {
+  const response = await fetch(`${API_URL}/tasks/move-item`, {
+    method: 'PUT',
+    headers: headers(),
+    body: JSON.stringify({
+      taskItemId,
+      targetDesk: targetDesk != null ? Number(targetDesk) : null,
+      targetDate: targetDate || null,
+    }),
+  });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ message: 'Error al mover producto entre mesas' }));
+    throw new Error(err.message || 'Error al mover producto entre mesas');
+  }
+  // { taskItemId, sourceTask, sourceTaskDeletedId, targetTask }
+  return response.json();
+};
+
+export const updateTaskStartedAt = async (taskId, startedAt) => {
+  const response = await fetch(`${API_URL}/tasks/${taskId}/started-at`, {
+    method: 'PUT',
+    headers: headers(),
+    body: JSON.stringify({ startedAt }),
+  });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ message: 'Error al actualizar hora de inicio' }));
+    throw new Error(err.message || 'Error al actualizar hora de inicio');
+  }
+  return response.json();
+};
+
 export const toggleDieCut = async (id, dieCutReady) => {
   const response = await fetch(`${API_URL}/tasks/${id}/die-cut`, {
     method: 'PUT',
@@ -282,7 +313,22 @@ export const rebalanceTasksByDay = async (date, desksCount) => {
   return response.json();
 };
 
-export const planTasksWindow = async (startDate, desksCount, horizonDays = 5, productionOrderId = undefined) => {
+export const getDistributionQueueProductionOrders = async (startDate, horizonDays = 5) => {
+  const params = new URLSearchParams();
+  if (startDate) params.append('startDate', startDate);
+  params.append('horizonDays', String(horizonDays || 5));
+
+  const response = await fetch(`${API_URL}/tasks/distribution-queue/production-orders?${params.toString()}`, {
+    headers: headers(),
+  });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ message: 'Error al cargar cola de distribución' }));
+    throw new Error(err.message || 'Error al cargar cola de distribución');
+  }
+  return response.json();
+};
+
+export const planTasksWindow = async (startDate, desksCount, horizonDays = 5, productionOrderId = undefined, schedulingPriorities = undefined) => {
   const params = new URLSearchParams();
   if (startDate) params.append('startDate', startDate);
   if (desksCount) params.append('desksCount', String(desksCount));
@@ -290,9 +336,16 @@ export const planTasksWindow = async (startDate, desksCount, horizonDays = 5, pr
   if (productionOrderId) params.append('productionOrderId', String(productionOrderId));
 
   const query = params.toString() ? `?${params.toString()}` : '';
+
+  const body =
+    schedulingPriorities && typeof schedulingPriorities === 'object' && Object.keys(schedulingPriorities).length > 0
+      ? JSON.stringify({ schedulingPriorities })
+      : undefined;
+
   const response = await fetch(`${API_URL}/tasks/plan-window${query}`, {
     method: 'POST',
-    headers: headers()
+    headers: headers(),
+    body,
   });
 
   if (!response.ok) {

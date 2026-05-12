@@ -43,6 +43,7 @@ function AppRoutes() {
   const [isValid, setIsValid] = useState(false);
   const location = useLocation();
   const { user: authUser } = useAuth();
+  const showSupportWidget = isValid && location.pathname.startsWith("/admin");
 
   useEffect(() => {
     const checkAuth = async () => {
@@ -67,6 +68,21 @@ function AppRoutes() {
 
     checkAuth();
   }, [location.pathname]);
+
+  // Evita que el scroll del mouse cambie inputs numéricos (type="number")
+  useEffect(() => {
+    const onWheel = () => {
+      const el = document.activeElement;
+      if (!el) return;
+      if (el.tagName !== "INPUT") return;
+      if (el.type !== "number") return;
+      if (el.disabled || el.readOnly) return;
+      el.blur();
+    };
+
+    window.addEventListener("wheel", onWheel, true);
+    return () => window.removeEventListener("wheel", onWheel, true);
+  }, []);
 
   // Mostrar loading mientras se valida el token
   if (isValidating) {
@@ -139,16 +155,18 @@ function AppRoutes() {
         />
       </Routes>
 
-      <SolvDeskButton
-        systemId={process.env.REACT_APP_SOLVDESK_SYSTEM_ID}
-        apiKey={process.env.REACT_APP_SOLVDESK_API_KEY}
-        userEmail={authUser?.email || ""}
-        userName={
-          authUser?.firstName && authUser?.lastName
-            ? `${authUser.firstName} ${authUser.lastName}`
-            : authUser?.username || authUser?.email || ""
-        }
-      />
+      {showSupportWidget && (
+        <SolvDeskButton
+          systemId={process.env.REACT_APP_SOLVDESK_SYSTEM_ID}
+          apiKey={process.env.REACT_APP_SOLVDESK_API_KEY}
+          userEmail={authUser?.email || ""}
+          userName={
+            authUser?.firstName && authUser?.lastName
+              ? `${authUser.firstName} ${authUser.lastName}`
+              : authUser?.username || authUser?.email || ""
+          }
+        />
+      )}
     </>
   );
 }
