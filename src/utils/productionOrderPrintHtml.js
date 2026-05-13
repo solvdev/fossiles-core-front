@@ -58,11 +58,26 @@ function rowTotalFromSizes(item, columnSizes) {
   return sum;
 }
 
+/** Orden estable para impresión: mismo código junto (el API suele devolver ítems por orden de alta, no por código). */
+function sortCinchoItemsForPrint(items) {
+  return [...items].sort((a, b) => {
+    const ca = String(a?.productCode || "").trim();
+    const cb = String(b?.productCode || "").trim();
+    const codeCmp = ca.localeCompare(cb, "es", { numeric: true, sensitivity: "base" });
+    if (codeCmp !== 0) return codeCmp;
+    const cola = String(a?.colorName || "").trim();
+    const colb = String(b?.colorName || "").trim();
+    const colorCmp = cola.localeCompare(colb, "es", { sensitivity: "base" });
+    if (colorCmp !== 0) return colorCmp;
+    return Number(a?.productId || 0) - Number(b?.productId || 0);
+  });
+}
+
 /**
  * Tabla cinchos: solo tallas presentes en la orden; grupos NIÑO/NIÑA y DAMA/CABALLERO según datos.
  */
 export function buildCinchoDetailTableHtml(order) {
-  const items = Array.isArray(order?.items) ? order.items : [];
+  const items = sortCinchoItemsForPrint(Array.isArray(order?.items) ? order.items : []);
   const columnSizes = collectCinchoSizesUnion(items);
   const { youth, adult, other } = partitionSizes(columnSizes);
 
