@@ -26,9 +26,10 @@ import { getColors } from "services/colorService";
 import { getCustomers } from "services/customerService";
 import { getAuthHeader } from "services/authService";
 import { showSuccess, showError } from "utils/notificationHelper";
+import { isCinchoOrderType } from "utils/cinchoProductionHelper";
 
-// Tallas disponibles para cinchos (16-50)
-const AVAILABLE_SIZES = Array.from({ length: 35 }, (_, i) => (i + 16).toString());
+// Tallas disponibles para cinchos (16-60)
+const AVAILABLE_SIZES = Array.from({ length: 45 }, (_, i) => (i + 16).toString());
 
 const STATUS_LABELS = {
   PENDING: "Pendiente",
@@ -39,8 +40,34 @@ const STATUS_LABELS = {
 };
 
 const SELLER_OPTIONS = ["LUIS FELIPE", "MADELYN"];
+const BRAND_OPTIONS = ["LEVIS", "NAUTICA", "TOMMY HILFIGER", "LACOSTE", "ABERCROMBIE"];
 const normalizeSeller = (value) => String(value || "").trim().toUpperCase();
 const isLuisFelipeSeller = (value) => normalizeSeller(value).includes("LUIS FELIPE");
+const isClienteKioskoOrder = (orderType) => orderType === "CLIENTE_KIOSKO";
+/** OPV vendedor: cualquier orden no-cinchos con Luis Felipe (el backend normaliza tipo a MARCAS / prefijo OPV-). */
+const isOpvVendorOrder = (orderType, sellerName) =>
+  isLuisFelipeSeller(sellerName) && !isCinchoOrderType(orderType);
+
+const createEmptyItemForm = () => ({
+  productId: "",
+  colorId: "",
+  colorIds: [],
+  brandName: "",
+  quantity: "",
+  sizes: {},
+  selectedSizes: [],
+  colorSizes: {},
+  observations: "",
+});
+
+const getPositiveSizes = (sizes = {}) =>
+  Object.entries(sizes).reduce((acc, [size, qty]) => {
+    const quantity = parseInt(qty);
+    if (quantity > 0) {
+      acc[size] = quantity;
+    }
+    return acc;
+  }, {});
 
 function ProductionOrderForm({ orderId, isOpen, toggle, onSuccess }) {
   const [formData, setFormData] = useState({
@@ -69,13 +96,7 @@ function ProductionOrderForm({ orderId, isOpen, toggle, onSuccess }) {
   const [error, setError] = useState("");
 
   // Formulario para agregar items
-  const [itemForm, setItemForm] = useState({
-    productId: "",
-    colorId: "",
-    quantity: "",
-    sizes: {}, // Para cinchos: { "16": 3, "18": 5, ... }
-    observations: "",
-  });
+  const [itemForm, setItemForm] = useState(createEmptyItemForm);
   const [itemErrors, setItemErrors] = useState({});
   const [productSearch, setProductSearch] = useState("");
   const [showProductDropdown, setShowProductDropdown] = useState(false);
@@ -189,13 +210,7 @@ function ProductionOrderForm({ orderId, isOpen, toggle, onSuccess }) {
       distributionDate: null,
       distributionShipments: [],
     });
-    setItemForm({
-      productId: "",
-      colorId: "",
-      quantity: "",
-      sizes: {},
-      observations: "",
-    });
+    setItemForm(createEmptyItemForm());
     setProductSearch("");
     setShowProductDropdown(false);
     setErrors({});
@@ -232,6 +247,8 @@ function ProductionOrderForm({ orderId, isOpen, toggle, onSuccess }) {
     if (!formData.orderType) newErrors.orderType = "El tipo de orden es requerido";
     if (formData.orderType !== "DISTRIBUTION" && formData.items.length === 0) {
       newErrors.items = "Debe agregar al menos un item";
+    } else if (formData.orderType === "MARCAS" && formData.items.some((item) => !item.brandName)) {
+      newErrors.items = "Todos los productos de una orden MARCAS deben tener marca";
     }
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
@@ -240,15 +257,27 @@ function ProductionOrderForm({ orderId, isOpen, toggle, onSuccess }) {
   const validateItem = () => {
     const newErrors = {};
     if (!itemForm.productId) newErrors.productId = "El producto es requerido";
+    if (formData.orderType === "MARCAS" && !itemForm.brandName) {
+      newErrors.brandName = "La marca es requerida para este producto";
+    }
 
-    if (formData.orderType === "CINCHOS") {
-      // Para cinchos, validar que haya al menos una talla con cantidad
-      const hasSizes = Object.values(itemForm.sizes || {}).some((qty) => qty > 0);
+    if (isCinchoOrderType(formData.orderType)) {
+      const hasColors = (itemForm.colorIds || []).length > 0;
+      const hasSelectedSizes = (itemForm.selectedSizes || []).length > 0;
+      const hasSizes = (itemForm.colorIds || []).some((colorId) =>
+        Object.keys(getPositiveSizes(itemForm.colorSizes?.[colorId] || {})).length > 0
+      );
+
+      if (!hasColors) {
+        newErrors.colors = "Seleccione al menos un color";
+      }
+      if (!hasSelectedSizes) {
+        newErrors.sizes = "Seleccione al menos una talla";
+      }
       if (!hasSizes) {
-        newErrors.sizes = "Debe ingresar al menos una talla con cantidad";
+        newErrors.quantities = "Ingrese al menos una cantidad por color y talla";
       }
     } else {
-      // Para MARCAS y NORMAL, validar cantidad
       if (!itemForm.quantity || parseInt(itemForm.quantity) <= 0) {
         newErrors.quantity = "La cantidad debe ser mayor a 0";
       }
@@ -261,26 +290,41 @@ function ProductionOrderForm({ orderId, isOpen, toggle, onSuccess }) {
   const handleAddItem = () => {
     if (!validateItem()) return;
 
-    const newItem = {
-      productId: parseInt(itemForm.productId),
-      colorId: itemForm.colorId ? parseInt(itemForm.colorId) : null,
-      quantity: formData.orderType === "CINCHOS" ? null : parseInt(itemForm.quantity),
-      sizes: formData.orderType === "CINCHOS" ? { ...itemForm.sizes } : null,
-      observations: itemForm.observations || "",
-    };
+    const productId = parseInt(itemForm.productId);
+    const newItems = isCinchoOrderType(formData.orderType)
+      ? (itemForm.colorIds || [])
+          .map((colorId) => {
+            const sizes = getPositiveSizes(itemForm.colorSizes?.[colorId] || {});
+            if (Object.keys(sizes).length === 0) {
+              return null;
+            }
+            return {
+              productId,
+              colorId: parseInt(colorId),
+              brandName: null,
+              quantity: null,
+              sizes,
+              observations: itemForm.observations || "",
+            };
+          })
+          .filter(Boolean)
+      : [
+          {
+            productId,
+            colorId: itemForm.colorId ? parseInt(itemForm.colorId) : null,
+            brandName: formData.orderType === "MARCAS" ? itemForm.brandName : null,
+            quantity: parseInt(itemForm.quantity),
+            sizes: null,
+            observations: itemForm.observations || "",
+          },
+        ];
 
     setFormData({
       ...formData,
-      items: [...formData.items, newItem],
+      items: [...formData.items, ...newItems],
     });
 
-    setItemForm({
-      productId: "",
-      colorId: "",
-      quantity: "",
-      sizes: {},
-      observations: "",
-    });
+    setItemForm(createEmptyItemForm());
     setProductSearch("");
     setShowProductDropdown(false);
     setItemErrors({});
@@ -294,15 +338,85 @@ function ProductionOrderForm({ orderId, isOpen, toggle, onSuccess }) {
     });
   };
 
-  const handleSizeChange = (size, value) => {
-    const newSizes = { ...itemForm.sizes };
+  const handleCinchoSizeToggle = (size) => {
+    setItemForm((prev) => {
+      const selectedSizes = new Set(prev.selectedSizes || []);
+      const colorSizes = { ...(prev.colorSizes || {}) };
+
+      if (selectedSizes.has(size)) {
+        selectedSizes.delete(size);
+        Object.keys(colorSizes).forEach((colorId) => {
+          const sizes = { ...(colorSizes[colorId] || {}) };
+          delete sizes[size];
+          colorSizes[colorId] = sizes;
+        });
+      } else {
+        selectedSizes.add(size);
+      }
+
+      return {
+        ...prev,
+        selectedSizes: AVAILABLE_SIZES.filter((availableSize) => selectedSizes.has(availableSize)),
+        colorSizes,
+      };
+    });
+  };
+
+  const handleCinchoColorToggle = (colorId) => {
+    const colorKey = colorId.toString();
+    setItemForm((prev) => {
+      const colorIds = new Set(prev.colorIds || []);
+      const colorSizes = { ...(prev.colorSizes || {}) };
+
+      if (colorIds.has(colorKey)) {
+        colorIds.delete(colorKey);
+        delete colorSizes[colorKey];
+      } else {
+        colorIds.add(colorKey);
+        colorSizes[colorKey] = colorSizes[colorKey] || {};
+      }
+
+      return {
+        ...prev,
+        colorIds: Array.from(colorIds),
+        colorSizes,
+      };
+    });
+  };
+
+  const handleCinchoQuantityChange = (colorId, size, value) => {
+    const colorKey = colorId.toString();
     const qty = parseInt(value) || 0;
-    if (qty > 0) {
-      newSizes[size] = qty;
-    } else {
-      delete newSizes[size];
-    }
-    setItemForm({ ...itemForm, sizes: newSizes });
+    setItemForm((prev) => {
+      const colorSizes = { ...(prev.colorSizes || {}) };
+      const sizes = { ...(colorSizes[colorKey] || {}) };
+
+      if (qty > 0) {
+        sizes[size] = qty;
+      } else {
+        delete sizes[size];
+      }
+
+      colorSizes[colorKey] = sizes;
+      return { ...prev, colorSizes };
+    });
+  };
+
+  const getCinchoColorTotal = (colorId) =>
+    Object.values(itemForm.colorSizes?.[colorId] || {}).reduce((sum, qty) => sum + (parseInt(qty) || 0), 0);
+
+  const getSelectedCinchoColors = () =>
+    (itemForm.colorIds || [])
+      .map((colorId) => availableColors.find((color) => color.id === parseInt(colorId)))
+      .filter(Boolean);
+
+  const clearCinchoSelection = () => {
+    setItemForm((prev) => ({
+      ...prev,
+      colorIds: [],
+      selectedSizes: [],
+      colorSizes: {},
+    }));
   };
 
   const getProductName = (productId) => {
@@ -320,7 +434,7 @@ function ProductionOrderForm({ orderId, isOpen, toggle, onSuccess }) {
   });
 
   const handleProductSelect = (productId) => {
-    setItemForm({ ...itemForm, productId: productId.toString() });
+    setItemForm((prev) => ({ ...prev, productId: productId.toString() }));
     setProductSearch("");
     setShowProductDropdown(false);
   };
@@ -330,7 +444,7 @@ function ProductionOrderForm({ orderId, isOpen, toggle, onSuccess }) {
     setProductSearch(value);
     setShowProductDropdown(true);
     if (!value) {
-      setItemForm({ ...itemForm, productId: "" });
+      setItemForm((prev) => ({ ...prev, productId: "" }));
     }
   };
 
@@ -377,6 +491,7 @@ function ProductionOrderForm({ orderId, isOpen, toggle, onSuccess }) {
         items: formData.items.map((item) => ({
           productId: item.productId,
           colorId: item.colorId,
+          brandName: formData.orderType === "MARCAS" ? item.brandName || null : null,
           quantity: item.quantity,
           sizes: item.sizes,
           observations: item.observations,
@@ -403,20 +518,18 @@ function ProductionOrderForm({ orderId, isOpen, toggle, onSuccess }) {
   };
 
   const handleOrderTypeChange = (newType) => {
+    const nextType =
+      isLuisFelipeSeller(formData.sellerName) && !isCinchoOrderType(newType)
+        ? "MARCAS"
+        : newType;
     // Limpiar items cuando cambia el tipo
     setFormData({
       ...formData,
-      orderType: newType,
+      orderType: nextType,
       items: [],
-      packingItems: newType === "MARCAS" ? formData.packingItems : [],
+      packingItems: nextType === "MARCAS" ? formData.packingItems : [],
     });
-    setItemForm({
-      productId: "",
-      colorId: "",
-      quantity: "",
-      sizes: {},
-      observations: "",
-    });
+    setItemForm(createEmptyItemForm());
   };
 
   const handleAddPackingItem = () => {
@@ -476,7 +589,7 @@ function ProductionOrderForm({ orderId, isOpen, toggle, onSuccess }) {
                 {errors.code && <div className="text-danger small">{errors.code}</div>}
                 <small className="text-muted">
                   {!orderId 
-                    ? "Se genera automáticamente por correlativo según tipo/origen (OPK/OPV/OPI/OPC/OPD/OPL)."
+                    ? "Se genera automáticamente por correlativo según tipo/origen (OPK/OPV/OPI/OPC/OPCF/OPCM/OPD/OPL/OPCK)."
                     : "El código no puede modificarse después de crear la orden"}
                 </small>
               </FormGroup>
@@ -491,10 +604,18 @@ function ProductionOrderForm({ orderId, isOpen, toggle, onSuccess }) {
                   invalid={!!errors.orderType}
                   disabled={loading || !!orderId}
                 >
-                  <option value="NORMAL">NORMAL (Productos normales)</option>
-                  <option value="MARCAS">MARCAS (Productos con marcas conocidas)</option>
+                  <option value="NORMAL">NORMAL (Productos estándar, prefijo OPK)</option>
+                  <option value="MARCAS">MARCAS / OPV (Marcas conocidas — con Luis Felipe es flujo OPV vendedor, prefijo OPV-)</option>
+                  {(!isLuisFelipeSeller(formData.sellerName) ||
+                    (orderId && isClienteKioskoOrder(formData.orderType))) && (
+                    <option value="CLIENTE_KIOSKO">CLIENTE KIOSKO (Prioridad alta, prefijo OPCK)</option>
+                  )}
                   <option value="INTERNA">INTERNA (OPI — producción interna)</option>
-                  <option value="CINCHOS">CINCHOS (Con tallas)</option>
+                  <option value="CINCHOS_FOSSILES">CINCHOS FOSSILES (Con tallas y colores)</option>
+                  <option value="CINCHOS_MARCAS">CINCHOS MARCAS (Con tallas y colores)</option>
+                  {formData.orderType === "CINCHOS" && (
+                    <option value="CINCHOS">CINCHOS (Histórico)</option>
+                  )}
                   {formData.orderType === "DISTRIBUTION" && (
                     <option value="DISTRIBUTION">DISTRIBUCIÓN (Generada automáticamente)</option>
                   )}
@@ -504,7 +625,7 @@ function ProductionOrderForm({ orderId, isOpen, toggle, onSuccess }) {
             </Col>
           </Row>
 
-          {isLuisFelipeSeller(formData.sellerName) && (
+          {isOpvVendorOrder(formData.orderType, formData.sellerName) && (
             <>
               <hr />
               <h5 className="mb-3">Empaques y costo de envío (OPV vendedor)</h5>
@@ -658,7 +779,10 @@ function ProductionOrderForm({ orderId, isOpen, toggle, onSuccess }) {
                     setFormData((prev) => ({
                       ...prev,
                       sellerName: nextSeller,
-                      orderType: isLuisFelipeSeller(nextSeller) ? "MARCAS" : prev.orderType,
+                      orderType:
+                        isLuisFelipeSeller(nextSeller) && !isCinchoOrderType(prev.orderType)
+                          ? "MARCAS"
+                          : prev.orderType,
                     }));
                   }}
                   disabled={loading}
@@ -668,7 +792,7 @@ function ProductionOrderForm({ orderId, isOpen, toggle, onSuccess }) {
                     <option key={seller} value={seller}>{seller}</option>
                   ))}
                 </Input>
-                {isLuisFelipeSeller(formData.sellerName) && (
+                {isOpvVendorOrder(formData.orderType, formData.sellerName) && (
                   <small className="text-muted d-block mt-1">
                     Esta orden seguirá flujo OPV de vendedor (formato especial de envíos).
                   </small>
@@ -832,7 +956,7 @@ function ProductionOrderForm({ orderId, isOpen, toggle, onSuccess }) {
           <Card className="mb-3" style={{ backgroundColor: "#f8f9fa" }}>
             <CardBody>
               <Row>
-                <Col md={formData.orderType === "CINCHOS" ? "12" : "6"}>
+                <Col md={isCinchoOrderType(formData.orderType) ? "12" : "6"}>
                   <FormGroup>
                     <Label>Producto *</Label>
                     <div style={{ position: "relative" }} data-product-search>
@@ -910,10 +1034,11 @@ function ProductionOrderForm({ orderId, isOpen, toggle, onSuccess }) {
                     </div>
                     {itemForm.productId && (
                       <Button
+                        type="button"
                         color="link"
                         size="sm"
                         onClick={() => {
-                          setItemForm({ ...itemForm, productId: "" });
+                          setItemForm((prev) => ({ ...prev, productId: "" }));
                           setProductSearch("");
                           setShowProductDropdown(false);
                         }}
@@ -928,7 +1053,7 @@ function ProductionOrderForm({ orderId, isOpen, toggle, onSuccess }) {
                   </FormGroup>
                 </Col>
 
-                {formData.orderType !== "CINCHOS" && (
+                {!isCinchoOrderType(formData.orderType) && (
                   <>
                     <Col md="3">
                       <FormGroup>
@@ -948,6 +1073,30 @@ function ProductionOrderForm({ orderId, isOpen, toggle, onSuccess }) {
                         </Input>
                       </FormGroup>
                     </Col>
+                    {formData.orderType === "MARCAS" && (
+                      <Col md="3">
+                        <FormGroup>
+                          <Label>Marca *</Label>
+                          <Input
+                            type="select"
+                            value={itemForm.brandName}
+                            onChange={(e) => setItemForm({ ...itemForm, brandName: e.target.value })}
+                            invalid={!!itemErrors.brandName}
+                            disabled={loading}
+                          >
+                            <option value="">Seleccione marca</option>
+                            {BRAND_OPTIONS.map((brand) => (
+                              <option key={brand} value={brand}>
+                                {brand}
+                              </option>
+                            ))}
+                          </Input>
+                          {itemErrors.brandName && (
+                            <div className="text-danger small">{itemErrors.brandName}</div>
+                          )}
+                        </FormGroup>
+                      </Col>
+                    )}
                     <Col md="3">
                       <FormGroup>
                         <Label>Cantidad *</Label>
@@ -968,33 +1117,131 @@ function ProductionOrderForm({ orderId, isOpen, toggle, onSuccess }) {
                   </>
                 )}
 
-                {formData.orderType === "CINCHOS" && (
-                  <Col md="12">
-                    <FormGroup>
-                      <Label>Tallas y Cantidades *</Label>
-                      <div className="d-flex flex-wrap gap-2">
-                        {AVAILABLE_SIZES.map((size) => (
-                          <div key={size} style={{ minWidth: "80px" }}>
-                            <Label className="small">{size}</Label>
-                            <Input
-                              type="number"
-                              min="0"
-                              value={itemForm.sizes[size] || ""}
-                              onChange={(e) => handleSizeChange(size, e.target.value)}
-                              placeholder="0"
-                              disabled={loading}
-                            />
-                          </div>
-                        ))}
-                      </div>
-                      {itemErrors.sizes && (
-                        <div className="text-danger small mt-1">{itemErrors.sizes}</div>
-                      )}
-                      <small className="text-muted">
-                        Ingrese la cantidad para cada talla (deje en 0 o vacío si no aplica)
-                      </small>
-                    </FormGroup>
-                  </Col>
+                {isCinchoOrderType(formData.orderType) && (
+                  <>
+                    <Col md="4">
+                      <FormGroup>
+                        <div className="d-flex justify-content-between align-items-center">
+                          <Label>Colores *</Label>
+                          {(itemForm.colorIds || []).length > 0 && (
+                            <Button type="button" color="link" size="sm" className="p-0" onClick={clearCinchoSelection}>
+                              Limpiar
+                            </Button>
+                          )}
+                        </div>
+                        <div
+                          className="border rounded bg-white p-2"
+                          style={{ maxHeight: "220px", overflowY: "auto" }}
+                        >
+                          {availableColors.map((color) => {
+                            const colorId = color.id.toString();
+                            return (
+                              <FormGroup check key={color.id} className="mb-1">
+                                <Label check>
+                                  <Input
+                                    type="checkbox"
+                                    checked={(itemForm.colorIds || []).includes(colorId)}
+                                    onChange={() => handleCinchoColorToggle(color.id)}
+                                    disabled={loading}
+                                  />{" "}
+                                  {color.name}
+                                </Label>
+                              </FormGroup>
+                            );
+                          })}
+                          {availableColors.length === 0 && (
+                            <small className="text-muted">No hay colores disponibles.</small>
+                          )}
+                        </div>
+                        {itemErrors.colors && (
+                          <div className="text-danger small mt-1">{itemErrors.colors}</div>
+                        )}
+                        <small className="text-muted">
+                          Puede seleccionar varios colores para el mismo producto.
+                        </small>
+                      </FormGroup>
+                    </Col>
+
+                    <Col md="8">
+                      <FormGroup>
+                        <Label>Tallas *</Label>
+                        <div className="d-flex flex-wrap gap-2">
+                          {AVAILABLE_SIZES.map((size) => {
+                            const selected = (itemForm.selectedSizes || []).includes(size);
+                            return (
+                              <Button
+                                type="button"
+                                key={size}
+                                color={selected ? "primary" : "secondary"}
+                                outline={!selected}
+                                size="sm"
+                                onClick={() => handleCinchoSizeToggle(size)}
+                                disabled={loading}
+                                className="mb-1"
+                              >
+                                {size}
+                              </Button>
+                            );
+                          })}
+                        </div>
+                        {itemErrors.sizes && (
+                          <div className="text-danger small mt-1">{itemErrors.sizes}</div>
+                        )}
+                        <small className="text-muted">
+                          Seleccione las tallas que usará y luego capture cantidades por color.
+                        </small>
+                      </FormGroup>
+                    </Col>
+
+                    {(itemForm.colorIds || []).length > 0 && (itemForm.selectedSizes || []).length > 0 && (
+                      <Col md="12">
+                        <FormGroup>
+                          <Label>Cantidades por color y talla *</Label>
+                          <Table responsive size="sm" bordered className="bg-white mb-2">
+                            <thead>
+                              <tr>
+                                <th style={{ minWidth: "140px" }}>Color</th>
+                                {(itemForm.selectedSizes || []).map((size) => (
+                                  <th key={size} className="text-center" style={{ minWidth: "72px" }}>
+                                    {size}
+                                  </th>
+                                ))}
+                                <th className="text-center" style={{ minWidth: "70px" }}>Total</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {getSelectedCinchoColors().map((color) => {
+                                const colorId = color.id.toString();
+                                return (
+                                  <tr key={color.id}>
+                                    <td>{color.name}</td>
+                                    {(itemForm.selectedSizes || []).map((size) => (
+                                      <td key={`${color.id}-${size}`}>
+                                        <Input
+                                          type="number"
+                                          min="0"
+                                          value={itemForm.colorSizes?.[colorId]?.[size] || ""}
+                                          onChange={(e) => handleCinchoQuantityChange(color.id, size, e.target.value)}
+                                          placeholder="0"
+                                          disabled={loading}
+                                        />
+                                      </td>
+                                    ))}
+                                    <td className="text-center font-weight-bold">
+                                      {getCinchoColorTotal(colorId)}
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </Table>
+                          {itemErrors.quantities && (
+                            <div className="text-danger small">{itemErrors.quantities}</div>
+                          )}
+                        </FormGroup>
+                      </Col>
+                    )}
+                  </>
                 )}
               </Row>
 
@@ -1014,6 +1261,7 @@ function ProductionOrderForm({ orderId, isOpen, toggle, onSuccess }) {
               </Row>
 
               <Button
+                type="button"
                 color="success"
                 onClick={handleAddItem}
                 disabled={loading}
@@ -1031,8 +1279,9 @@ function ProductionOrderForm({ orderId, isOpen, toggle, onSuccess }) {
               <thead>
                 <tr>
                   <th>Producto</th>
-                  {formData.orderType !== "CINCHOS" && <th>Color</th>}
-                  {formData.orderType === "CINCHOS" ? (
+                  {formData.orderType === "MARCAS" && <th>Marca</th>}
+                  <th>Color</th>
+                  {isCinchoOrderType(formData.orderType) ? (
                     <th>Tallas</th>
                   ) : (
                     <th>Cantidad</th>
@@ -1046,10 +1295,9 @@ function ProductionOrderForm({ orderId, isOpen, toggle, onSuccess }) {
                 {formData.items.map((item, index) => (
                   <tr key={index}>
                     <td>{getProductName(item.productId)}</td>
-                    {formData.orderType !== "CINCHOS" && (
-                      <td>{getColorName(item.colorId)}</td>
-                    )}
-                    {formData.orderType === "CINCHOS" ? (
+                    {formData.orderType === "MARCAS" && <td>{item.brandName || "-"}</td>}
+                    <td>{getColorName(item.colorId)}</td>
+                    {isCinchoOrderType(formData.orderType) ? (
                       <td>
                         {item.sizes && Object.keys(item.sizes).length > 0 ? (
                           <div className="d-flex flex-wrap gap-1">

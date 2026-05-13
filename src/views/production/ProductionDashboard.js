@@ -18,6 +18,7 @@ import { formatProductionOrderCodeDate, formatProductionOrderSelectLabel } from 
 const ACTIONS = [
   { label: "OPs", path: "/admin/production-orders", color: "primary" },
   { label: "Centro", path: "/admin/tasks-by-station", color: "info" },
+  { label: "Cinchos", path: "/admin/cinchos-production", color: "dark" },
   { label: "Materiales", path: "/admin/materials-tasks", color: "warning" },
   { label: "Bodega PT", path: "/admin/warehouse-view", color: "secondary" },
 ];

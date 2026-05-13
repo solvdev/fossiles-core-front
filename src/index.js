@@ -25,6 +25,7 @@ import { AuthProvider } from "contexts/AuthContext";
 import { useAuth } from "contexts/AuthContext";
 import { isAuthenticated, validateToken } from "services/authService";
 import PublicMaterialKardexMobile from "views/public/PublicMaterialKardexMobile";
+import PublicPtDispatchLanding from "views/public/PublicPtDispatchLanding";
 import SolvDeskButton from "components/solvdesk/SolvDeskButton";
 
 import "bootstrap/dist/css/bootstrap.css";
@@ -107,6 +108,9 @@ function AppRoutes() {
       <Routes>
         <Route path="/admin/materials-kardex/:materialId" element={<PublicMaterialKardexMobile />} />
         <Route path="/public/materials-kardex/:materialId" element={<PublicMaterialKardexMobile />} />
+        <Route path="/public/pt-dispatch/online" element={<PublicPtDispatchLanding />} />
+        <Route path="/public/pt-dispatch/distribution-shipment" element={<PublicPtDispatchLanding />} />
+        <Route path="/public/pt-dispatch/distribution" element={<PublicPtDispatchLanding />} />
 
         {/* Rutas públicas de autenticación - redirigir si el token es válido */}
         <Route

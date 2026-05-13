@@ -55,6 +55,7 @@ import ProductionPhaseTrays from "views/production/ProductionPhaseTrays.js";
 import ProductionTraceability from "views/production/ProductionTraceability.js";
 import MaterialsTasksView from "views/production/MaterialsTasksView.js";
 import WarehouseView from "views/production/WarehouseView.js";
+import CinchosProductionOrdersView from "views/production/CinchosProductionOrdersView.js";
 
 // Inventarios
 import InventoryByLocation from "views/inventory/InventoryByLocation.js";
@@ -646,6 +647,17 @@ const routes = [
         name: "Centro de Producción",
         mini: "CP",
         component: <TasksByTable />,
+        layout: "/admin",
+        module: "PRODUCCION",
+        permissions: {
+          view: "PRODUCCION.TAREAS_ESTACION.VER",
+        },
+      },
+      {
+        path: "/cinchos-production",
+        name: "Cinchos en Producción",
+        mini: "CC",
+        component: <CinchosProductionOrdersView />,
         layout: "/admin",
         module: "PRODUCCION",
         permissions: {

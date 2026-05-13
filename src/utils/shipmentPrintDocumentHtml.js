@@ -111,6 +111,9 @@ export function getShipmentDocumentStyles(extra = "") {
             .bottom-block { margin-top: auto; }
             .footer { padding: 8px 10px; font-size: 11px; }
             .signature { margin-top: 18px; width: 220px; border-top: 1px solid #777; text-align: center; padding-top: 2px; }
+            .pt-qr-wrap { text-align: center; padding: 6px 4px; min-width: 110px; }
+            .pt-qr-wrap img { width: 100px; height: 100px; display: block; margin: 0 auto; }
+            .pt-qr-caption { font-size: 9px; color: #555; margin-top: 4px; line-height: 1.2; }
             ${extra}
   `.trim();
 }
@@ -183,21 +186,30 @@ export function buildShipmentDocumentInnerHtml(sale, opts = {}) {
     ? `<div class="section" style="padding:4px 10px;font-size:10px;color:#555">${escapeHtml(copyLabel)}</div>`
     : "";
 
+  const qrDataUrl = opts.qrDataUrl ? String(opts.qrDataUrl) : "";
+  const qrBlock = qrDataUrl
+    ? `<div class="pt-qr-wrap">
+        <img src="${qrDataUrl.replace(/"/g, "&quot;")}" alt="QR despacho PT" />
+        <div class="pt-qr-caption">Escanear en app Bodega PT</div>
+      </div>`
+    : "";
+
   return `
           <div class="doc">
-            <div class="section top">
-              <div>
+            <div class="section top" style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px">
+              <div style="flex:1;min-width:0">
                 <div style="font-size:14px;font-weight:bold;letter-spacing:1px">FOSSILES</div>
                 <div style="font-size:20px;font-weight:bold">${escapeHtml(businessTitle)}</div>
                 <div>Km. 17 Carretera San Juan Sacatepequez</div>
                 <div>17-05, Zona 6 de Mixco Guatemala C.A.</div>
                 <div>Telefono PBX: 2462-5700</div>
               </div>
-              <div class="title">
+              <div class="title" style="flex:1;text-align:right">
                 <h2>${escapeHtml(docTitle)}</h2>
                 <div style="font-size:11px;color:#555;margin-top:2px">${escapeHtml(docSubtitle)}</div>
                 <div>No. <span class="num">${escapeHtml(docNo)}</span></div>
               </div>
+              ${qrBlock}
             </div>
             ${copyLine}
 

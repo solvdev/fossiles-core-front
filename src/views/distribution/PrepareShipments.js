@@ -34,6 +34,8 @@ import {
   buildShipmentDocumentInnerHtml,
   getShipmentDocumentStyles,
 } from "utils/shipmentPrintDocumentHtml";
+import QRCode from "qrcode";
+import { getPublicFrontBaseUrl, buildPtDispatchDistributionUrl } from "utils/ptDispatchQr";
 
 const STATUS_ES = {
   DRAFT: "Borrador",
@@ -753,6 +755,8 @@ function PrepareShipments() {
       return;
     }
 
+    void (async () => {
+      try {
     const distributionNumber = selectedDistribution?.distributionNumber || "N/A";
     const distributionDescription = selectedDistribution?.description || "";
     const printedBy = getPrintedBy();
@@ -776,8 +780,24 @@ function PrepareShipments() {
           ? "'Arial Narrow', Arial, Helvetica, sans-serif"
           : "'Times New Roman', Times, serif";
 
+    const frontBase = getPublicFrontBaseUrl();
+    let distributionQrDataUrl = "";
+    if (frontBase && selectedDistribution?.id) {
+      try {
+        distributionQrDataUrl = await QRCode.toDataURL(
+          buildPtDispatchDistributionUrl(frontBase, selectedDistribution.id),
+          {
+            width: 120,
+            margin: 1,
+          }
+        );
+      } catch (_e) {
+        // omit QR if generation fails
+      }
+    }
+
     const docsHtml = docs
-      .map((shipment) => {
+      .map((shipment, idx) => {
         const shipmentProducts = shipment._printProducts || shipment.products || [];
         const notesPayload = parseShipmentMetaNotes(shipment.notes);
         const shipmentPackingItems = shipment._printPackingItems || getShipmentPackingItems(shipment);
@@ -908,6 +928,16 @@ function PrepareShipments() {
               <tr>
                 <td colspan="5"><strong>Generado por sistema:</strong> ${printedBy} ${shipment.copyLabel ? `- ${shipment.copyLabel}` : ""}</td>
               </tr>
+              ${
+                idx === 0 && distributionQrDataUrl
+                  ? `<tr>
+                <td colspan="5" style="text-align:center;padding:4px">
+                  <img src="${String(distributionQrDataUrl).replace(/"/g, "&quot;")}" alt="QR" style="width:88px;height:88px;display:inline-block" />
+                  <div style="font-size:8px;margin-top:2px;font-weight:700">Escanear en app Bodega PT — distribución</div>
+                </td>
+              </tr>`
+                  : ""
+              }
             </table>
 
             <table class="grid">
@@ -1067,6 +1097,10 @@ function PrepareShipments() {
       </html>
     `);
     printWindow.document.close();
+      } catch (err) {
+        showError(err?.message || "Error al preparar la impresion");
+      }
+    })();
   };
 
   const exportSelectedToExcel = () => {

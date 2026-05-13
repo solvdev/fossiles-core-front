@@ -23,6 +23,8 @@ import { formatNowGt } from "utils/dateTimeHelper";
 import html2canvas from "html2canvas";
 import { jsPDF } from "jspdf";
 import { buildShipmentDocumentHtml, getSimplePaymentLabel } from "utils/shipmentPrintDocumentHtml";
+import QRCode from "qrcode";
+import { getPublicFrontBaseUrl, buildPtDispatchOnlineUrl } from "utils/ptDispatchQr";
 
 // ─── Helpers ─────────────────────────────────────────────────────
 
@@ -410,7 +412,7 @@ function OnlineSales() {
     bodegaPtFound: true, map: {}, sourceMap: {}, leatherOkMap: {}, leatherSummaryMap: {}
   });
 
-  // Resolver venta mixta (split: despachar lo disponible + crear OP solo de lo faltante)
+  // Resolver venta mixta: una venta + rutas por linea + OP solo lineas PRODUCE
   const [resolveSale, setResolveSale] = useState(null);
   const [resolveItems, setResolveItems] = useState([]);
   const [resolveActions, setResolveActions] = useState({});
@@ -766,11 +768,10 @@ function OnlineSales() {
     try {
       const result = await resolveMixedSale(resolveSale.id, payload);
       const msg = result?.message || "Venta resuelta";
-      const childMsg = result?.childSaleNumber ? ` Sub-pedido: #${result.childSaleNumber}.` : "";
       const opMsg = result?.productionOrderCode ? ` OP: ${result.productionOrderCode}.` : "";
       const ko = Array.isArray(result?.kioskOutflows) ? result.kioskOutflows : [];
       const koMsg = ko.length ? ` Boletas kiosko: ${ko.map((k) => k.ticketNumber).join(", ")}.` : "";
-      showNotification(msg + childMsg + opMsg + koMsg);
+      showNotification(msg + opMsg + koMsg);
       setResolveSale(null);
       setResolveItems([]);
       setResolveActions({});
@@ -1263,13 +1264,26 @@ function OnlineSales() {
     });
   };
 
-  const printShipmentDocument = (sale, opts) => {
+  const printShipmentDocument = async (sale, opts = {}) => {
     const printWindow = window.open("", "_blank", "width=1000,height=800");
     if (!printWindow) {
       setError("No se pudo abrir la ventana de impresión. Verifique bloqueador de ventanas.");
       return;
     }
-    printWindow.document.write(buildShipmentDocumentHtml(sale, opts));
+    let qrDataUrl = "";
+    const docType = String(opts?.docType || "ENVIO").toUpperCase();
+    if (docType === "ENVIO" && sale?.id) {
+      try {
+        const url = buildPtDispatchOnlineUrl(getPublicFrontBaseUrl(), {
+          onlineSaleId: sale.id,
+          productionOrderId: sale.productionOrderId,
+        });
+        qrDataUrl = await QRCode.toDataURL(url, { width: 160, margin: 1 });
+      } catch (_e) {
+        qrDataUrl = "";
+      }
+    }
+    printWindow.document.write(buildShipmentDocumentHtml(sale, { ...opts, qrDataUrl }));
     printWindow.document.close();
     printWindow.focus();
     setTimeout(() => {
@@ -1279,7 +1293,20 @@ function OnlineSales() {
 
   const downloadShipmentPdf = async (sale, opts) => {
     if (!sale) return;
-    const html = buildShipmentDocumentHtml(sale, opts);
+    let qrDataUrl = "";
+    const docType = String(opts?.docType || "ENVIO").toUpperCase();
+    if (docType === "ENVIO" && sale?.id) {
+      try {
+        const url = buildPtDispatchOnlineUrl(getPublicFrontBaseUrl(), {
+          onlineSaleId: sale.id,
+          productionOrderId: sale.productionOrderId,
+        });
+        qrDataUrl = await QRCode.toDataURL(url, { width: 160, margin: 1 });
+      } catch (_e) {
+        qrDataUrl = "";
+      }
+    }
+    const html = buildShipmentDocumentHtml(sale, { ...opts, qrDataUrl });
     const host = document.createElement("div");
     host.style.cssText = "position:fixed;left:-10000px;top:0;width:816px;background:#fff;";
     host.innerHTML = html;
@@ -2504,7 +2531,7 @@ function OnlineSales() {
                           <td style={{ whiteSpace: "nowrap" }}>
                             {isDispatchedStatus(sale.status) || sale.shipmentNumber ? (
                               <>
-                                <Button color="default" size="sm" onClick={() => printShipmentDocument(sale)} style={{ padding: "3px 8px" }}>
+                                <Button color="default" size="sm" onClick={() => void printShipmentDocument(sale)} style={{ padding: "3px 8px" }}>
                                   Imprimir
                                 </Button>{" "}
                                 <Button color="info" size="sm" onClick={() => void downloadShipmentPdf(sale)} style={{ padding: "3px 8px" }}>
@@ -3951,7 +3978,7 @@ function OnlineSales() {
           </Button>
           <Button
             color="default"
-            onClick={() => shipmentSale && printShipmentDocument(shipmentSale)}
+            onClick={() => shipmentSale && void printShipmentDocument(shipmentSale)}
             disabled={!shipmentSale}
           >
             Imprimir
@@ -4267,9 +4294,10 @@ function OnlineSales() {
           ) : (
             <>
               <Alert color="info" className="mb-3" style={{ fontSize: 12 }}>
-                Selecciona por item: <strong>Producir</strong> mueve el item a un sub-pedido y crea la OP correspondiente.
-                Lo que dejes en <strong>Despachar</strong> se queda en la venta original como <strong>pendiente</strong>
-                para que luego lo marques “Listo para despacho” cuando realmente lo vas a despachar.
+                Se mantiene el <strong>mismo numero de venta y cliente</strong>. Por item,&nbsp;<strong>Producir</strong> forma
+                lineas solo en una OP (el resto de la venta no se mueve).
+                Las lineas en <strong>Despachar</strong> quedan en esta venta; “Listo para despacho” requiere <strong>cerrar todas</strong> las lineas:
+                stock PT/Devoluciones donde corresponda y recepciones completas en PT para lo producido.
               </Alert>
 
               {resolveError && <Alert color="danger" className="mb-3">{resolveError}</Alert>}

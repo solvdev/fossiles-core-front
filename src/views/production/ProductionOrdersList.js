@@ -27,6 +27,13 @@ import { exportRowsToCsv } from "utils/reportExportHelper";
 import ProductionOrderForm from "./ProductionOrderForm";
 import ConfirmModal from "components/ConfirmModal/ConfirmModal";
 import { showSuccess, showError } from "utils/notificationHelper";
+import {
+  escapeHtml,
+  buildCinchoDetailTableHtml,
+  buildNormalColorMatrixTableHtml,
+  getPrintOrientationToolbarHtml,
+} from "utils/productionOrderPrintHtml";
+import { isManagedCinchoOrderType, isCinchoOrderType } from "utils/cinchoProductionHelper";
 
 const OP_EXPORT_HEADERS = [
   { label: "OP", value: "opCode" },
@@ -35,6 +42,7 @@ const OP_EXPORT_HEADERS = [
   { label: "Estado", value: "status" },
   { label: "Cliente/Dist.", value: "customer" },
   { label: "Vendedor", value: "seller" },
+  { label: "Marca", value: "brandName" },
   { label: "Inicio", value: "startDate" },
   { label: "Entrega", value: "deliveryDate" },
   { label: "Cod. Producto", value: "productCode" },
@@ -45,14 +53,6 @@ const OP_EXPORT_HEADERS = [
   { label: "Observaciones", value: "observations" },
   { label: "Avance OP", value: "orderProgress" },
 ];
-
-const escapeHtml = (value) =>
-  String(value ?? "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#039;");
 
 function ProductionOrdersList() {
   const navigate = useNavigate();
@@ -146,6 +146,14 @@ function ProductionOrdersList() {
     navigate(`/admin/tasks-by-station${query}`);
   };
 
+  const goToTasksOrCinchosView = (order) => {
+    if (order && isManagedCinchoOrderType(order.orderType)) {
+      navigate("/admin/cinchos-production");
+      return;
+    }
+    goToProductionCenter(order?.id);
+  };
+
   const getStatusBadge = (status) => {
     const statusMap = {
       PENDING: { color: "warning", text: "Pendiente" },
@@ -172,10 +180,13 @@ function ProductionOrdersList() {
   const getTypeBadge = (type) => {
     const typeMap = {
       CINCHOS: { color: "primary", text: "CINCHOS" },
+      CINCHOS_FOSSILES: { color: "primary", text: "CINCHOS FOSSILES" },
+      CINCHOS_MARCAS: { color: "dark", text: "CINCHOS MARCAS" },
       MARCAS: { color: "info", text: "MARCAS" },
-      NORMAL: { color: "success", text: "NORMAL" },
+      NORMAL: { color: "success", text: "KIOSKO" },
       DISTRIBUTION: { color: "warning", text: "DISTRIBUCIÓN" },
       VENTA_EN_LINEA: { color: "secondary", text: "VENTA EN LÍNEA" },
+      CLIENTE_KIOSKO: { color: "danger", text: "CLIENTE KIOSKO" },
     };
     const typeInfo = typeMap[type] || { color: "secondary", text: type };
     return <Badge color={typeInfo.color}>{typeInfo.text}</Badge>;
@@ -184,11 +195,14 @@ function ProductionOrdersList() {
   const getTypeLabel = (type) => {
     const typeMap = {
       CINCHOS: "CINCHOS",
+      CINCHOS_FOSSILES: "CINCHOS FOSSILES",
+      CINCHOS_MARCAS: "CINCHOS MARCAS",
       MARCAS: "MARCAS",
       OPV: "OPV",
-      NORMAL: "NORMAL",
+      NORMAL: "KIOSKO",
       DISTRIBUTION: "DISTRIBUCIÓN",
       VENTA_EN_LINEA: "VENTA EN LÍNEA",
+      CLIENTE_KIOSKO: "CLIENTE KIOSKO",
       INTERNA: "INTERNA",
     };
     return typeMap[type] || type || "-";
@@ -298,6 +312,16 @@ function ProductionOrdersList() {
     return [{ size: item?.size || "", plannedQty }];
   };
 
+  const getOrderBrandDisplay = (order) => {
+    if (order?.orderType !== "MARCAS") return "-";
+    const brands = Array.from(new Set(
+      (order.items || [])
+        .map((item) => item.brandName)
+        .filter(Boolean)
+    ));
+    return brands.length > 0 ? brands.join(", ") : "-";
+  };
+
   const buildExportRows = (sourceOrders = filteredOrders) => {
     const rows = [];
 
@@ -316,6 +340,7 @@ function ProductionOrdersList() {
         status: getStatusLabel(order.status),
         customer,
         seller: order.orderType === "DISTRIBUTION" ? "-" : order.sellerName || "-",
+        brandName: "-",
         startDate: processDates.startValue ? formatDateGt(processDates.startValue) : "-",
         deliveryDate: processDates.deliveryValue ? formatDateGt(processDates.deliveryValue) : "-",
         orderTotalQty: qtyProgress.total,
@@ -328,6 +353,7 @@ function ProductionOrdersList() {
           ...baseRow,
           productCode: "-",
           productName: "-",
+          brandName: "-",
           colorName: "-",
           size: "-",
           plannedQty: 0,
@@ -342,6 +368,7 @@ function ProductionOrdersList() {
             ...baseRow,
             productCode: item.productCode || "-",
             productName: item.productName || "-",
+            brandName: order.orderType === "MARCAS" ? item.brandName || "-" : "-",
             colorName: item.colorName || "-",
             size: line.size || "-",
             plannedQty: line.plannedQty,
@@ -352,31 +379,6 @@ function ProductionOrdersList() {
     });
 
     return rows;
-  };
-
-  const buildOrderLineRows = (order) => {
-    const items = Array.isArray(order.items) ? order.items : [];
-    if (items.length === 0) {
-      return [{
-        productCode: "-",
-        productName: "-",
-        colorName: "-",
-        size: "-",
-        plannedQty: 0,
-        observations: "-",
-      }];
-    }
-
-    return items.flatMap((item) =>
-      getItemExportLines(item).map((line) => ({
-        productCode: item.productCode || "-",
-        productName: item.productName || "-",
-        colorName: item.colorName || "-",
-        size: line.size || "-",
-        plannedQty: line.plannedQty,
-        observations: item.observations || "-",
-      }))
-    );
   };
 
   const exportProductionOrderExcel = (order) => {
@@ -402,28 +404,33 @@ function ProductionOrdersList() {
       order.orderType === "DISTRIBUTION" && order.distributionNumber
         ? order.distributionNumber
         : order.customerName || "-";
-    const lineRows = buildOrderLineRows(order);
-    const bodyRows = lineRows.map((line, idx) => {
-      const hasObservations = line.observations && line.observations !== "-";
-      return `
-        <tr>
-          <td class="numeric">${idx + 1}</td>
-          <td>${escapeHtml(line.productCode)}</td>
-          <td>${escapeHtml(line.productName)}</td>
-          <td>${escapeHtml(line.colorName)}</td>
-          <td>${escapeHtml(line.size)}</td>
-          <td class="numeric">${escapeHtml(line.plannedQty)}</td>
-        </tr>
-        ${
-          hasObservations
-            ? `<tr class="observation-row">
-                <td></td>
-                <td colspan="5"><strong>Observación:</strong> ${escapeHtml(line.observations)}</td>
+    const showBrandColumn = order.orderType === "MARCAS";
+    const brandMetaRow = showBrandColumn
+      ? `
+              <tr>
+                <th>Marcas</th>
+                <td>${escapeHtml(getOrderBrandDisplay(order))}</td>
+                <th>Total planificado</th>
+                <td>${escapeHtml(qtyProgress.total)}</td>
               </tr>`
-            : ""
-        }
-      `;
-    }).join("");
+      : `
+              <tr>
+                <th>Total planificado</th>
+                <td>${escapeHtml(qtyProgress.total)}</td>
+                <th></th>
+                <td></td>
+              </tr>`;
+    const detailTableHtml = isCinchoOrderType(order.orderType)
+      ? buildCinchoDetailTableHtml(order)
+      : buildNormalColorMatrixTableHtml(order);
+    const orderObservation = String(order.observations || "").trim();
+    const orderObservationBlock = orderObservation
+      ? `
+          <div class="order-observation">
+            <strong>Observación:</strong>
+            <div>${escapeHtml(orderObservation)}</div>
+          </div>`
+      : "";
 
     const section = `
         <section class="op-doc">
@@ -446,8 +453,8 @@ function ProductionOrdersList() {
               <tr>
                 <th>Proceso</th>
                 <td>${escapeHtml(stage.label)}</td>
-                <th>Avance</th>
-                <td>${escapeHtml(`${qtyProgress.pct}%`)}</td>
+                <th></th>
+                <td></td>
               </tr>
               <tr>
                 <th>Cliente/Distribución</th>
@@ -455,6 +462,7 @@ function ProductionOrdersList() {
                 <th>Vendedor</th>
                 <td>${escapeHtml(order.orderType === "DISTRIBUTION" ? "-" : order.sellerName || "-")}</td>
               </tr>
+              ${brandMetaRow}
               <tr>
                 <th>Inicio</th>
                 <td>${escapeHtml(processDates.startValue ? formatDateGt(processDates.startValue) : "-")}</td>
@@ -462,27 +470,17 @@ function ProductionOrdersList() {
                 <td>${escapeHtml(processDates.deliveryValue ? formatDateGt(processDates.deliveryValue) : "-")}</td>
               </tr>
               <tr>
-                <th>Total planificado</th>
-                <td>${escapeHtml(qtyProgress.total)}</td>
                 <th>Generado</th>
                 <td>${escapeHtml(generatedAt)}</td>
+                <th></th>
+                <td></td>
               </tr>
             </tbody>
           </table>
 
-          <table class="lines">
-            <thead>
-              <tr>
-                <th>#</th>
-                <th>Código</th>
-                <th>Producto</th>
-                <th>Color</th>
-                <th>Talla</th>
-                <th>Planificado</th>
-              </tr>
-            </thead>
-            <tbody>${bodyRows}</tbody>
-          </table>
+          ${orderObservationBlock}
+
+          ${detailTableHtml}
         </section>
       `;
 
@@ -494,46 +492,104 @@ function ProductionOrdersList() {
       <html>
         <head>
           <title>Orden de Producción ${escapeHtml(order.code || "")}</title>
+          <style id="print-page-size"></style>
           <style>
-            @page { size: letter; margin: 9mm; }
             body { font-family: Arial, sans-serif; color: #111; margin: 0; font-size: 10.5px; }
             .print-meta { margin: 0 0 8px; color: #555; font-size: 10px; }
+            .print-toolbar {
+              padding: 10px 12px;
+              background: #eef1f4;
+              margin: 0 0 10px;
+              border: 1px solid #ccc;
+              display: flex;
+              align-items: center;
+              gap: 8px;
+              flex-wrap: wrap;
+            }
+            .print-toolbar-label { font-weight: 600; margin-right: 4px; }
+            .print-toolbar-btn {
+              padding: 6px 12px;
+              cursor: pointer;
+              border: 1px solid #888;
+              background: #fff;
+              border-radius: 4px;
+              font-size: 12px;
+            }
+            .print-toolbar-primary {
+              background: #2563eb;
+              color: #fff;
+              border-color: #1d4ed8;
+            }
             .op-doc { border: 1px solid #111; padding: 10px; margin-bottom: 12px; }
             .op-title { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px; }
             .brand { font-size: 12px; font-weight: 700; letter-spacing: 1px; }
             h1 { margin: 2px 0 0; font-size: 18px; }
             .op-code { font-size: 20px; font-weight: 700; border: 1px solid #111; padding: 6px 10px; }
-            table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+            table { width: 100%; border-collapse: collapse; }
             th, td { border: 1px solid #777; padding: 5px 6px; vertical-align: top; overflow-wrap: anywhere; }
             th { background: #f3f4f6; font-weight: 700; text-align: left; }
-            .meta { margin-bottom: 10px; }
+            .meta { margin-bottom: 10px; table-layout: fixed; }
             .meta th { width: 18%; }
             .meta td { width: 32%; }
-            .lines th { text-align: center; }
-            .lines th:nth-child(1), .lines td:nth-child(1) { width: 5%; text-align: center; }
-            .lines th:nth-child(2), .lines td:nth-child(2) { width: 14%; }
-            .lines th:nth-child(3), .lines td:nth-child(3) { width: 36%; }
-            .lines th:nth-child(4), .lines td:nth-child(4) { width: 15%; }
-            .lines th:nth-child(5), .lines td:nth-child(5) { width: 12%; }
-            .lines th:nth-child(6), .lines td:nth-child(6) { width: 18%; }
-            .observation-row td {
+            .order-observation {
+              border: 1px solid #777;
               background: #fafafa;
-              font-size: 10px;
-              line-height: 1.25;
-              padding: 4px 6px 6px;
+              margin: 0 0 10px;
+              padding: 6px 8px;
+              line-height: 1.3;
+            }
+            .order-observation strong { display: block; margin-bottom: 3px; }
+            .lines-cincho,
+            .lines-color-matrix {
+              table-layout: auto;
+              font-size: 9px;
+            }
+            .lines-cincho thead { display: table-header-group; }
+            .lines-cincho th,
+            .lines-cincho td {
+              padding: 3px 4px;
+              text-align: center;
+            }
+            .lines-cincho .col-code,
+            .lines-cincho .col-comments,
+            .lines-cincho .col-comments-h,
+            .lines-color-matrix .col-comments {
+              text-align: left;
+            }
+            .lines-cincho .group-h { font-size: 9px; }
+            .lines-color-matrix th,
+            .lines-color-matrix td {
+              padding: 4px 5px;
+              text-align: center;
+              font-size: 9px;
+            }
+            .lines-color-matrix td:nth-child(1),
+            .lines-color-matrix td:nth-child(2) {
+              text-align: left;
+            }
+            body:not(.layout-landscape) .lines-cincho,
+            body:not(.layout-landscape) .lines-color-matrix {
+              font-size: 8px;
+            }
+            body:not(.layout-landscape) .lines-cincho th,
+            body:not(.layout-landscape) .lines-cincho td {
+              padding: 2px 3px;
+            }
+            .total-row td,
+            .total-row th {
+              background: #f9fafb;
             }
             .numeric { text-align: right; white-space: nowrap; }
-            @media print { .no-print { display: none; } }
+            @media print {
+              .no-print { display: none !important; }
+              .print-toolbar { display: none !important; }
+            }
           </style>
         </head>
         <body>
+          ${getPrintOrientationToolbarHtml()}
           <div class="print-meta no-print">Generado: ${escapeHtml(generatedAt)} · OP: ${escapeHtml(order.code || "-")}</div>
           ${section}
-          <script>
-            window.onload = function () {
-              window.print();
-            };
-          </script>
         </body>
       </html>
     `);
@@ -585,10 +641,13 @@ function ProductionOrdersList() {
                     >
                       <option value="all">Todos los tipos</option>
                       <option value="CINCHOS">CINCHOS</option>
+                      <option value="CINCHOS_FOSSILES">CINCHOS FOSSILES</option>
+                      <option value="CINCHOS_MARCAS">CINCHOS MARCAS</option>
                       <option value="MARCAS">MARCAS</option>
-                      <option value="NORMAL">NORMAL</option>
+                      <option value="NORMAL">KIOSKO</option>
                       <option value="DISTRIBUTION">DISTRIBUCIÓN</option>
                       <option value="VENTA_EN_LINEA">VENTA EN LÍNEA</option>
+                      <option value="CLIENTE_KIOSKO">CLIENTE KIOSKO</option>
                     </Input>
                   </FormGroup>
                 </Col>
@@ -658,6 +717,7 @@ function ProductionOrdersList() {
                       <th>Código</th>
                       <th>Proceso</th>
                       <th>Tipo</th>
+                      <th>Marcas</th>
                       <th>Cliente</th>
                       <th>Vendedor</th>
                       <th>Inicio</th>
@@ -684,6 +744,7 @@ function ProductionOrdersList() {
                           </td>
                           <td><Badge color={stage.color}>{stage.label}</Badge></td>
                           <td>{getTypeBadge(order.orderType)}</td>
+                          <td>{getOrderBrandDisplay(order)}</td>
                           <td>
                             {order.orderType === "DISTRIBUTION" && order.distributionNumber
                               ? <><Badge color="warning" className="mr-1">Dist.</Badge>{order.distributionNumber}</>
@@ -753,9 +814,13 @@ function ProductionOrdersList() {
                                 color="secondary"
                                 outline
                                 size="sm"
-                                onClick={() => goToProductionCenter(order.id)}
+                                onClick={() => goToTasksOrCinchosView(order)}
                                 className="px-2 py-1 mb-1"
-                                title="Ir al centro de producción con esta orden"
+                                title={
+                                  isManagedCinchoOrderType(order.orderType)
+                                    ? "Ir a vista de cinchos en producción"
+                                    : "Ir al centro de producción con esta orden"
+                                }
                               >
                                 Tareas
                               </Button>

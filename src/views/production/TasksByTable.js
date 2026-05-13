@@ -40,6 +40,7 @@ import {
   updateTaskStartedAt,
 } from "services/taskService";
 import { getProductionOrders } from "services/productionOrderService";
+import { isManagedCinchoOrderType } from "utils/cinchoProductionHelper";
 import { showSuccess, showError } from "utils/notificationHelper";
 import TaskTicketPrint from "./TaskTicketPrint";
 import { taskMaterialsReady, taskSkipsMaterials } from "utils/materialRequirementHelper";
@@ -492,6 +493,8 @@ function TasksByTable() {
       const activeStatuses = new Set(["PENDING", "IN_PROGRESS", "DRAFT"]);
       const closedStatuses = new Set(["COMPLETED", "CANCELLED", "PRODUCED", "FINISHED", "TERMINATED", "DONE"]);
       const active = (data || []).filter((o) => {
+        const orderType = String(o?.orderType || "").trim().toUpperCase();
+        if (isManagedCinchoOrderType(orderType)) return false;
         const status = String(o?.status || "").toUpperCase();
         if (closedStatuses.has(status)) return false;
         if (activeStatuses.size > 0 && status && !activeStatuses.has(status)) return false;

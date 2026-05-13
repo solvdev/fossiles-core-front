@@ -37,6 +37,8 @@ import { getColors } from "services/colorService";
 import { getAuthHeader } from "services/authService";
 import { showError, showSuccess } from "utils/notificationHelper";
 import { formatDateGt } from "utils/dateTimeHelper";
+import QRCode from "qrcode";
+import { getPublicFrontBaseUrl, buildPtDispatchDistributionUrl } from "utils/ptDispatchQr";
 
 function KioskTypeahead({ locations, value, onChange, disabled }) {
   const [open, setOpen] = useState(false);
@@ -202,7 +204,8 @@ function ProductDistributionDetail() {
   const [packingQuantityInput, setPackingQuantityInput] = useState("");
   const [packingUnitPriceInput, setPackingUnitPriceInput] = useState("");
   const pageSize = 12;
-  
+  const [distributionQrDataUrl, setDistributionQrDataUrl] = useState("");
+
   // Estado para el formulario de nueva distribución
   const [distributionForm, setDistributionForm] = useState({
     distributionDate: new Date().toISOString().split('T')[0],
@@ -350,6 +353,32 @@ function ProductDistributionDetail() {
       loadShipments();
     }
   }, [distribution?.id, isNew]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (isNew || !distribution?.id) {
+      setDistributionQrDataUrl("");
+      return undefined;
+    }
+    const base = getPublicFrontBaseUrl();
+    if (!base) {
+      setDistributionQrDataUrl("");
+      return undefined;
+    }
+    void QRCode.toDataURL(buildPtDispatchDistributionUrl(base, distribution.id), {
+      width: 160,
+      margin: 1,
+    })
+      .then((url) => {
+        if (!cancelled) setDistributionQrDataUrl(url);
+      })
+      .catch(() => {
+        if (!cancelled) setDistributionQrDataUrl("");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isNew, distribution?.id]);
 
   const handleCreateDistribution = async () => {
     if (!distributionForm.distributionDate) {
@@ -1089,6 +1118,24 @@ function ProductDistributionDetail() {
                       <p><small className="text-muted">{distribution.description || "Sin descripción"}</small></p>
                     </Col>
                   </Row>
+                  {distributionQrDataUrl && (
+                    <Row className="mb-3">
+                      <Col md="12">
+                        <div
+                          className="d-flex flex-wrap align-items-center p-3 border rounded"
+                          style={{ background: "#f8fafc", gap: "16px" }}
+                        >
+                          <img src={distributionQrDataUrl} alt="QR distribución" style={{ width: 120, height: 120 }} />
+                          <div>
+                            <strong>Bodega PT</strong>
+                            <p className="mb-0 text-muted small">
+                              Escanear en app Bodega PT — envíos de esta distribución
+                            </p>
+                          </div>
+                        </div>
+                      </Col>
+                    </Row>
+                  )}
                   {distribution.productionOrderCode && (
                     <Alert color="success" className="mb-3">
                       <i className="nc-icon nc-settings-gear-65 mr-1" />

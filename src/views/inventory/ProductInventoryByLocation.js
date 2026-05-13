@@ -63,6 +63,21 @@ function DefaultColumnFilter({
   );
 }
 
+function isFossCinchoProductCode(code) {
+  return code != null && String(code).toUpperCase().startsWith("FOSS");
+}
+
+/** Texto compacto para tooltip / fila secundaria: talla → cantidad */
+function formatInventorySizesLine(sizes) {
+  if (!sizes || typeof sizes !== "object") return null;
+  const keys = Object.keys(sizes).filter((k) => sizes[k] != null && String(sizes[k]).trim() !== "");
+  if (!keys.length) return null;
+  return keys
+    .sort()
+    .map((k) => `${k}: ${parseFloat(sizes[k] || 0).toFixed(3)}`)
+    .join(" · ");
+}
+
 function ProductInventoryByLocation() {
   const { hasPermission } = useAuth();
   const canProductKardex = hasPermission("INVENTARIOS.KARDEX_PRODUCTOS.VER");
@@ -348,11 +363,21 @@ function ProductInventoryByLocation() {
         Header: "Stock Actual",
         accessor: "quantity",
         Cell: ({ row }) => {
-          const numValue = parseFloat(row.original.quantity || 0);
-          const isTotal = row.original.isTotalRow;
+          const item = row.original;
+          const numValue = parseFloat(item.quantity || 0);
+          const isTotal = item.isTotalRow;
+          const sizesLine =
+            !isTotal && isFossCinchoProductCode(item.productCode)
+              ? formatInventorySizesLine(item.sizes)
+              : null;
           return (
             <strong className={numValue === 0 ? "text-muted" : isTotal ? "text-primary" : ""}>
               {numValue.toFixed(3)}
+              {sizesLine && (
+                <span className="d-block small font-weight-normal text-muted" title="Por talla">
+                  {sizesLine}
+                </span>
+              )}
               {numValue === 0 && !isTotal && (
                 <small className="text-muted d-block">Sin stock</small>
               )}
@@ -1154,14 +1179,22 @@ function ProductInventoryByLocation() {
                       const isNoColor = !v.colorId && !v.colorName;
                       return !(isNoColor && qty === 0);
                     })
-                    .map((v) => (
+                    .map((v) => {
+                      const sizesLine = formatInventorySizesLine(v.sizes);
+                      return (
                     <tr key={v.id || `${v.productId}-${v.locationId}-${v.colorId || "null"}`}>
                       <td>{v.colorName || <span className="text-muted">Sin color</span>}</td>
                       <td>
                         <strong>{parseFloat(v.quantity || 0).toFixed(3)}</strong>
+                        {sizesLine && (
+                          <div className="small text-muted mt-1" title="Por talla">
+                            {sizesLine}
+                          </div>
+                        )}
                       </td>
                     </tr>
-                  ))}
+                  );
+                  })}
                 </tbody>
               <tfoot>
                 <tr style={{ backgroundColor: "#f8f9fa", fontWeight: "700" }}>

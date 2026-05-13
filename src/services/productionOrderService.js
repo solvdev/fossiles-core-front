@@ -145,6 +145,33 @@ export const updateProductionOrder = async (id, orderData) => {
   }
 };
 
+/** Estado solo para OP CINCHOS_FOSSILES / CINCHOS_MARCAS (PENDING, IN_PROGRESS, COMPLETED, CANCELLED). */
+export const updateManagedCinchoOrderStatus = async (id, status) => {
+  if (!id || id === 'undefined' || id === 'null') {
+    throw new Error('ID de orden de producción inválido');
+  }
+  try {
+    const response = await fetch(`${API_URL}/production-orders/${id}/status`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        ...getAuthHeader()
+      },
+      body: JSON.stringify({ status })
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({ message: 'Error al actualizar estado de cinchos' }));
+      throw new Error(errorData.message || 'Error al actualizar estado de cinchos');
+    }
+
+    return await response.json();
+  } catch (error) {
+    console.error('Update managed cincho order status error:', error);
+    throw error;
+  }
+};
+
 // ==================== WAREHOUSE VIEW ====================
 
 export const getWarehouseView = async (status) => {

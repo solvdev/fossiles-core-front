@@ -30,7 +30,6 @@ import {
 import { matchSorter } from "match-sorter";
 import {
   getInventoryAdjustments,
-  getInventoryAdjustmentById,
   createInventoryAdjustment,
   getMaterialInventory,
 } from "services/inventoryService";
@@ -111,9 +110,81 @@ function InventoryAdjustments() {
     systemStock: "",
     physicalStock: "",
     reason: "",
+    fossSizeLines: [],
   });
   const [productBatchRows, setProductBatchRows] = useState([createProductBatchRow()]);
   const [batchStockLoadingRows, setBatchStockLoadingRows] = useState({});
+
+  const getProductById = (productId) =>
+    (products || []).find((p) => String(p.id) === String(productId)) || null;
+
+  const isFossCinchoCode = (code) =>
+    code != null && String(code).toUpperCase().startsWith("FOSS");
+
+  const isFossCinchoRow = (row) => {
+    const p = getProductById(row.productId);
+    return p && isFossCinchoCode(p.code);
+  };
+
+  const updateFossSizeLine = (rowId, lineId, patch) => {
+    setProductBatchRows((prev) =>
+      prev.map((row) => {
+        if (row.rowId !== rowId) return row;
+        const fossSizeLines = (row.fossSizeLines || []).map((l) =>
+          l.lineId === lineId ? { ...l, ...patch } : l
+        );
+        const sysSum = fossSizeLines.reduce((a, l) => a + (parseFloat(l.systemStock) || 0), 0);
+        const phySum = fossSizeLines.reduce((a, l) => a + (parseFloat(l.physicalStock) || 0), 0);
+        return {
+          ...row,
+          fossSizeLines,
+          systemStock: sysSum.toFixed(3),
+          physicalStock: phySum.toFixed(3),
+        };
+      })
+    );
+  };
+
+  const addFossSizeLine = (rowId) => {
+    setProductBatchRows((prev) =>
+      prev.map((row) => {
+        if (row.rowId !== rowId) return row;
+        const lineId = `${rowId}-fs-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`;
+        const fossSizeLines = [
+          ...(row.fossSizeLines || []),
+          { lineId, size: "", systemStock: "0", physicalStock: "0" },
+        ];
+        const sysSum = fossSizeLines.reduce((a, l) => a + (parseFloat(l.systemStock) || 0), 0);
+        const phySum = fossSizeLines.reduce((a, l) => a + (parseFloat(l.physicalStock) || 0), 0);
+        return {
+          ...row,
+          fossSizeLines,
+          systemStock: sysSum.toFixed(3),
+          physicalStock: phySum.toFixed(3),
+        };
+      })
+    );
+  };
+
+  const removeFossSizeLine = (rowId, lineId) => {
+    setProductBatchRows((prev) =>
+      prev.map((row) => {
+        if (row.rowId !== rowId) return row;
+        let fossSizeLines = (row.fossSizeLines || []).filter((l) => l.lineId !== lineId);
+        if (fossSizeLines.length === 0) {
+          fossSizeLines = [{ lineId: `${rowId}-fs-${Date.now()}`, size: "", systemStock: "0", physicalStock: "0" }];
+        }
+        const sysSum = fossSizeLines.reduce((a, l) => a + (parseFloat(l.systemStock) || 0), 0);
+        const phySum = fossSizeLines.reduce((a, l) => a + (parseFloat(l.physicalStock) || 0), 0);
+        return {
+          ...row,
+          fossSizeLines,
+          systemStock: sysSum.toFixed(3),
+          physicalStock: phySum.toFixed(3),
+        };
+      })
+    );
+  };
 
   const materialOptions = useMemo(() => {
     return (materials || []).map((m) => ({
@@ -454,7 +525,7 @@ function InventoryAdjustments() {
 
   const loadBatchRowStock = async (rowId, productId, colorId, locationId) => {
     if (!locationId || !productId) {
-      updateBatchRow(rowId, { systemStock: "" });
+      updateBatchRow(rowId, { systemStock: "", fossSizeLines: [] });
       return;
     }
 
@@ -465,11 +536,44 @@ function InventoryAdjustments() {
         parseInt(locationId, 10),
         colorId ? parseInt(colorId, 10) : null
       );
-      const stock = Number(inventory?.quantity || 0);
-      updateBatchRow(rowId, { systemStock: stock.toFixed(3) });
+      const prod = getProductById(productId);
+      const foss = prod && isFossCinchoCode(prod.code);
+      const sizesObj = inventory?.sizes && typeof inventory.sizes === "object" ? inventory.sizes : null;
+      if (foss && sizesObj && Object.keys(sizesObj).length > 0) {
+        const fossSizeLines = Object.entries(sizesObj).map(([size, qty]) => ({
+          lineId: `${rowId}-sz-${size}-${Math.random().toString(36).slice(2, 5)}`,
+          size: String(size),
+          systemStock: String(qty != null ? qty : 0),
+          physicalStock: String(qty != null ? qty : 0),
+        }));
+        const sysSum = fossSizeLines.reduce((a, l) => a + (parseFloat(l.systemStock) || 0), 0);
+        const phySum = fossSizeLines.reduce((a, l) => a + (parseFloat(l.physicalStock) || 0), 0);
+        updateBatchRow(rowId, {
+          systemStock: sysSum.toFixed(3),
+          physicalStock: phySum.toFixed(3),
+          fossSizeLines,
+        });
+      } else if (foss) {
+        const stock = Number(inventory?.quantity || 0);
+        updateBatchRow(rowId, {
+          systemStock: stock.toFixed(3),
+          physicalStock: stock.toFixed(3),
+          fossSizeLines: [
+            {
+              lineId: `${rowId}-fs-${Date.now()}`,
+              size: "",
+              systemStock: stock.toFixed(3),
+              physicalStock: stock.toFixed(3),
+            },
+          ],
+        });
+      } else {
+        const stock = Number(inventory?.quantity || 0);
+        updateBatchRow(rowId, { systemStock: stock.toFixed(3), fossSizeLines: [] });
+      }
     } catch (err) {
       console.error("Error loading batch row stock:", err);
-      updateBatchRow(rowId, { systemStock: "0.000" });
+      updateBatchRow(rowId, { systemStock: "0.000", physicalStock: "0.000", fossSizeLines: [] });
     } finally {
       setBatchStockLoadingRows((prev) => ({ ...prev, [rowId]: false }));
     }
@@ -501,21 +605,47 @@ function InventoryAdjustments() {
         showError(`Debe seleccionar producto en la ${rowLabel}`);
         return;
       }
-      if (row.systemStock === "" || Number.isNaN(parseFloat(row.systemStock)) || parseFloat(row.systemStock) < 0) {
-        showError(`Debe ingresar stock del sistema valido en la ${rowLabel}`);
-        return;
-      }
-      if (row.physicalStock === "" || Number.isNaN(parseFloat(row.physicalStock)) || parseFloat(row.physicalStock) < 0) {
-        showError(`Debe ingresar stock fisico valido en la ${rowLabel}`);
-        return;
+
+      const prod = getProductById(row.productId);
+      const foss = prod && isFossCinchoCode(prod.code);
+      if (foss) {
+        const lines = (row.fossSizeLines || []).filter((l) => l.size && String(l.size).trim());
+        if (lines.length === 0) {
+          showError(`Cincho FOSS (${rowLabel}): agregue al menos una talla con cantidades.`);
+          return;
+        }
+        for (let j = 0; j < lines.length; j += 1) {
+          const l = lines[j];
+          if (l.systemStock === "" || Number.isNaN(parseFloat(l.systemStock)) || parseFloat(l.systemStock) < 0) {
+            showError(`Stock sistema invalido talla "${l.size}" (${rowLabel})`);
+            return;
+          }
+          if (l.physicalStock === "" || Number.isNaN(parseFloat(l.physicalStock)) || parseFloat(l.physicalStock) < 0) {
+            showError(`Stock fisico invalido talla "${l.size}" (${rowLabel})`);
+            return;
+          }
+        }
+      } else {
+        if (row.systemStock === "" || Number.isNaN(parseFloat(row.systemStock)) || parseFloat(row.systemStock) < 0) {
+          showError(`Debe ingresar stock del sistema valido en la ${rowLabel}`);
+          return;
+        }
+        if (row.physicalStock === "" || Number.isNaN(parseFloat(row.physicalStock)) || parseFloat(row.physicalStock) < 0) {
+          showError(`Debe ingresar stock fisico valido en la ${rowLabel}`);
+          return;
+        }
       }
       if (!row.reason || !row.reason.trim()) {
         showError(`Debe ingresar motivo del ajuste en la ${rowLabel}`);
         return;
       }
 
-      const systemStock = parseFloat(row.systemStock);
-      const physicalStock = parseFloat(row.physicalStock);
+      const systemStock = foss
+        ? (row.fossSizeLines || []).reduce((a, l) => a + (parseFloat(l.systemStock) || 0), 0)
+        : parseFloat(row.systemStock);
+      const physicalStock = foss
+        ? (row.fossSizeLines || []).reduce((a, l) => a + (parseFloat(l.physicalStock) || 0), 0)
+        : parseFloat(row.physicalStock);
       const difference = Math.abs(physicalStock - systemStock);
       const percentage = systemStock > 0 ? (difference / systemStock) * 100 : 0;
 
@@ -552,14 +682,35 @@ function InventoryAdjustments() {
       for (let i = 0; i < rowsToSubmit.length; i += 1) {
         const row = rowsToSubmit[i];
         try {
-          await createInventoryAdjustment({
+          const prod = getProductById(row.productId);
+          const foss = prod && isFossCinchoCode(prod.code);
+          let systemStockTotal = parseFloat(row.systemStock);
+          let physicalStockTotal = parseFloat(row.physicalStock);
+          const base = {
             productId: parseInt(row.productId, 10),
             locationId: parseInt(formData.locationId, 10),
             colorId: row.colorId ? parseInt(row.colorId, 10) : null,
-            systemStock: parseFloat(row.systemStock),
-            physicalStock: parseFloat(row.physicalStock),
+            systemStock: systemStockTotal,
+            physicalStock: physicalStockTotal,
             reason: row.reason.trim(),
-          });
+          };
+          if (foss) {
+            const systemSizes = {};
+            const physicalSizes = {};
+            (row.fossSizeLines || []).forEach((l) => {
+              const sk = String(l.size || "").trim();
+              if (!sk) return;
+              systemSizes[sk] = parseFloat(l.systemStock || 0);
+              physicalSizes[sk] = parseFloat(l.physicalStock || 0);
+            });
+            base.systemSizes = systemSizes;
+            base.physicalSizes = physicalSizes;
+            systemStockTotal = Object.values(systemSizes).reduce((a, v) => a + v, 0);
+            physicalStockTotal = Object.values(physicalSizes).reduce((a, v) => a + v, 0);
+            base.systemStock = systemStockTotal;
+            base.physicalStock = physicalStockTotal;
+          }
+          await createInventoryAdjustment(base);
           createdCount += 1;
         } catch (rowError) {
           failedRows.push(`Fila ${i + 1}: ${rowError.message || "error desconocido"}`);
@@ -693,10 +844,26 @@ function InventoryAdjustments() {
         Cell: ({ row }) => {
           const itemName = row.original.productName || row.original.materialName || "N/A";
           const colorName = row.original.colorName;
+          const sysSz = row.original.systemSizes;
+          const phySz = row.original.physicalSizes;
+          const sizeKeys =
+            sysSz || phySz
+              ? Array.from(new Set([...Object.keys(sysSz || {}), ...Object.keys(phySz || {})])).sort()
+              : [];
           return (
             <span>
               {itemName}
               {colorName && <Badge color="info" className="ml-2">{colorName}</Badge>}
+              {sizeKeys.length > 0 && (
+                <div className="small text-muted mt-1">
+                  {sizeKeys.map((k) => (
+                    <div key={k}>
+                      Talla {k}: sis {parseFloat(sysSz?.[k] ?? 0).toFixed(3)} / fis{" "}
+                      {parseFloat(phySz?.[k] ?? 0).toFixed(3)}
+                    </div>
+                  ))}
+                </div>
+              )}
             </span>
           );
         },
@@ -1551,6 +1718,7 @@ function InventoryAdjustments() {
                     </thead>
                     <tbody>
                       {productBatchRows.map((row, index) => {
+                        const rowFoss = isFossCinchoRow(row);
                         const system = parseFloat(row.systemStock || 0);
                         const physical = parseFloat(row.physicalStock || 0);
                         const difference = Number.isNaN(system) || Number.isNaN(physical) ? null : physical - system;
@@ -1574,6 +1742,7 @@ function InventoryAdjustments() {
                                   updateBatchRow(row.rowId, {
                                     productId: nextProductId,
                                     colorId: "",
+                                    fossSizeLines: [],
                                   });
                                   loadBatchRowStock(row.rowId, nextProductId, "", formData.locationId);
                                 }}
@@ -1600,30 +1769,112 @@ function InventoryAdjustments() {
                                 options={colorOptions}
                               />
                             </td>
-                            <td>
-                              <Input
-                                type="number"
-                                step="0.001"
-                                min="0"
-                                value={row.systemStock}
-                                onChange={(e) => updateBatchRow(row.rowId, { systemStock: e.target.value })}
-                                placeholder="0.000"
-                                disabled={Boolean(batchStockLoadingRows[row.rowId])}
-                              />
-                              {batchStockLoadingRows[row.rowId] && (
-                                <small className="text-muted">Cargando...</small>
-                              )}
-                            </td>
-                            <td>
-                              <Input
-                                type="number"
-                                step="0.001"
-                                min="0"
-                                value={row.physicalStock}
-                                onChange={(e) => updateBatchRow(row.rowId, { physicalStock: e.target.value })}
-                                placeholder="0.000"
-                              />
-                            </td>
+                            {rowFoss ? (
+                              <td colSpan={2}>
+                                <div className="mb-1">
+                                  <small className="text-muted">Cincho FOSS: stock por talla</small>
+                                </div>
+                                {(row.fossSizeLines || []).map((line) => (
+                                  <div
+                                    key={line.lineId}
+                                    className="d-flex flex-wrap align-items-center mb-1"
+                                    style={{ gap: "6px" }}
+                                  >
+                                    <Input
+                                      style={{ width: "72px", minWidth: "72px" }}
+                                      type="text"
+                                      bsSize="sm"
+                                      value={line.size}
+                                      onChange={(e) =>
+                                        updateFossSizeLine(row.rowId, line.lineId, { size: e.target.value })
+                                      }
+                                      placeholder="Talla"
+                                      disabled={Boolean(batchStockLoadingRows[row.rowId])}
+                                    />
+                                    <Input
+                                      style={{ width: "96px", minWidth: "96px" }}
+                                      type="number"
+                                      step="0.001"
+                                      min="0"
+                                      bsSize="sm"
+                                      value={line.systemStock}
+                                      onChange={(e) =>
+                                        updateFossSizeLine(row.rowId, line.lineId, { systemStock: e.target.value })
+                                      }
+                                      placeholder="Sis."
+                                      title="Stock sistema"
+                                      disabled={Boolean(batchStockLoadingRows[row.rowId])}
+                                    />
+                                    <Input
+                                      style={{ width: "96px", minWidth: "96px" }}
+                                      type="number"
+                                      step="0.001"
+                                      min="0"
+                                      bsSize="sm"
+                                      value={line.physicalStock}
+                                      onChange={(e) =>
+                                        updateFossSizeLine(row.rowId, line.lineId, { physicalStock: e.target.value })
+                                      }
+                                      placeholder="Fis."
+                                      title="Stock físico"
+                                    />
+                                    <Button
+                                      color="link"
+                                      className="p-0 text-danger"
+                                      size="sm"
+                                      onClick={() => removeFossSizeLine(row.rowId, line.lineId)}
+                                      title="Quitar talla"
+                                      disabled={(row.fossSizeLines || []).length <= 1}
+                                    >
+                                      <i className="nc-icon nc-simple-remove" />
+                                    </Button>
+                                  </div>
+                                ))}
+                                {batchStockLoadingRows[row.rowId] && (
+                                  <small className="text-muted d-block">Cargando...</small>
+                                )}
+                                <Button
+                                  color="info"
+                                  size="sm"
+                                  outline
+                                  className="mt-1"
+                                  onClick={() => addFossSizeLine(row.rowId)}
+                                >
+                                  <i className="nc-icon nc-simple-add mr-1" />
+                                  Agregar talla
+                                </Button>
+                                <div className="small text-muted mt-1">
+                                  Total fila: sis {system.toFixed(3)} / fis {physical.toFixed(3)}
+                                </div>
+                              </td>
+                            ) : (
+                              <>
+                                <td>
+                                  <Input
+                                    type="number"
+                                    step="0.001"
+                                    min="0"
+                                    value={row.systemStock}
+                                    onChange={(e) => updateBatchRow(row.rowId, { systemStock: e.target.value })}
+                                    placeholder="0.000"
+                                    disabled={Boolean(batchStockLoadingRows[row.rowId])}
+                                  />
+                                  {batchStockLoadingRows[row.rowId] && (
+                                    <small className="text-muted">Cargando...</small>
+                                  )}
+                                </td>
+                                <td>
+                                  <Input
+                                    type="number"
+                                    step="0.001"
+                                    min="0"
+                                    value={row.physicalStock}
+                                    onChange={(e) => updateBatchRow(row.rowId, { physicalStock: e.target.value })}
+                                    placeholder="0.000"
+                                  />
+                                </td>
+                              </>
+                            )}
                             <td>
                               <Input
                                 type="text"

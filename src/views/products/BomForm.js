@@ -176,6 +176,8 @@ function BomForm({ bomId, isOpen, toggle, onSuccess }) {
     productId: "",
     colorId: "",
     status: "A",
+    leatherMaterialId: "",
+    leatherQtyPerUnit: "",
     items: [],
   });
   const [availableProducts, setAvailableProducts] = useState([]);
@@ -253,6 +255,8 @@ function BomForm({ bomId, isOpen, toggle, onSuccess }) {
         productId: bom.productId || "",
         colorId: bom.colorId || "",
         status: bom.status || "A",
+        leatherMaterialId: bom.leatherMaterialId || "",
+        leatherQtyPerUnit: bom.leatherQtyPerUnit || "",
         items: bom.items || [],
       });
     } catch (err) {
@@ -268,6 +272,8 @@ function BomForm({ bomId, isOpen, toggle, onSuccess }) {
       productId: "",
       colorId: "",
       status: "A",
+      leatherMaterialId: "",
+      leatherQtyPerUnit: "",
       items: [],
     });
     setItemForm({
@@ -287,6 +293,12 @@ function BomForm({ bomId, isOpen, toggle, onSuccess }) {
     if (!formData.bomName.trim()) newErrors.bomName = "El nombre de BOM es requerido";
     if (!formData.productId) newErrors.productId = "El producto es requerido";
     if (formData.items.length === 0) newErrors.items = "Debe agregar al menos un item";
+    if (formData.leatherMaterialId && (!formData.leatherQtyPerUnit || parseFloat(formData.leatherQtyPerUnit) <= 0)) {
+      newErrors.leatherQtyPerUnit = "La cantidad de cuero debe ser mayor a 0";
+    }
+    if (!formData.leatherMaterialId && formData.leatherQtyPerUnit) {
+      newErrors.leatherMaterialId = "Seleccione el material de cuero";
+    }
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
@@ -457,6 +469,8 @@ function BomForm({ bomId, isOpen, toggle, onSuccess }) {
         productId: parseInt(formData.productId),
         colorId: formData.colorId ? parseInt(formData.colorId) : null,
         status: formData.status,
+        leatherMaterialId: formData.leatherMaterialId ? parseInt(formData.leatherMaterialId) : null,
+        leatherQtyPerUnit: formData.leatherQtyPerUnit ? parseFloat(formData.leatherQtyPerUnit) : null,
         items: formData.items.map((item) => ({
           materialId: item.materialId,
           quantity: item.quantity,
@@ -584,6 +598,51 @@ function BomForm({ bomId, isOpen, toggle, onSuccess }) {
                   <option value="A">Activo</option>
                   <option value="I">Inactivo</option>
                 </Input>
+              </FormGroup>
+            </Col>
+          </Row>
+
+          <hr />
+
+          <h5>Configuración de cuero</h5>
+          <div className="text-muted small mb-3">
+            Define el cuero y la cantidad que consume cada unidad de este producto
+            {formData.colorId ? " para el color seleccionado." : ". Sin color, aplica a todos los colores."}
+          </div>
+          <Row>
+            <Col md="8">
+              <FormGroup>
+                <Label for="leatherMaterialId">Material de cuero</Label>
+                <SearchableSelect
+                  value={formData.leatherMaterialId}
+                  onChange={(id) => setFormData({ ...formData, leatherMaterialId: id })}
+                  options={availableMaterials}
+                  placeholder="Buscar cuero..."
+                  invalid={!!errors.leatherMaterialId}
+                  disabled={loading}
+                  getOptionLabel={(opt) => `${opt.sku || opt.code || ""} - ${opt.name || ""}`}
+                />
+                {errors.leatherMaterialId && (
+                  <div className="text-danger small mt-1">{errors.leatherMaterialId}</div>
+                )}
+              </FormGroup>
+            </Col>
+            <Col md="4">
+              <FormGroup>
+                <Label>Cantidad por unidad</Label>
+                <Input
+                  type="number"
+                  step="0.0001"
+                  min="0.0001"
+                  value={formData.leatherQtyPerUnit}
+                  onChange={(e) => setFormData({ ...formData, leatherQtyPerUnit: e.target.value })}
+                  placeholder="Ej: 1"
+                  invalid={!!errors.leatherQtyPerUnit}
+                  disabled={loading}
+                />
+                {errors.leatherQtyPerUnit && (
+                  <div className="text-danger small">{errors.leatherQtyPerUnit}</div>
+                )}
               </FormGroup>
             </Col>
           </Row>

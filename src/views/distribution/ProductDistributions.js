@@ -26,6 +26,8 @@ import {
 import { getAuthHeader } from "services/authService";
 import { showError, showSuccess } from "utils/notificationHelper";
 import { formatNowGt } from "utils/dateTimeHelper";
+import QRCode from "qrcode";
+import { getPublicFrontBaseUrl, buildPtDispatchDistributionUrl } from "utils/ptDispatchQr";
 
 function ProductDistributions() {
   const navigate = useNavigate();
@@ -251,6 +253,18 @@ function ProductDistributions() {
       const shipments = await getShipmentsByDistribution(distribution.id);
       const shipmentList = Array.isArray(shipments) ? shipments : [];
       const packingCatalog = await loadPackingCatalog();
+      const frontBase = getPublicFrontBaseUrl();
+      let distributionQrDataUrl = "";
+      if (frontBase) {
+        try {
+          distributionQrDataUrl = await QRCode.toDataURL(
+            buildPtDispatchDistributionUrl(frontBase, distribution.id),
+            { width: 120, margin: 1 }
+          );
+        } catch (_e) {
+          // skip
+        }
+      }
       const totalProductsInDistribution = shipmentList.reduce(
         (acc, shipment) =>
           acc +
@@ -480,6 +494,9 @@ function ProductDistributions() {
               .summary { border: 1px solid #cbd5e1; border-radius: 8px; padding: 8px; margin-bottom: 10px; }
               .shipment-box { border: 1px solid #94a3b8; border-radius: 8px; padding: 8px; margin-bottom: 10px; break-inside: avoid; }
               .shipment-header { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; margin-bottom: 6px; }
+              .summary-qr { text-align: center; margin: 10px 0 4px; padding: 8px 0; border-top: 1px solid #e2e8f0; }
+              .summary-qr img { width: 112px; height: 112px; display: inline-block; }
+              .summary-qr-caption { font-size: 11px; color: #475569; margin-top: 6px; font-weight: 600; }
               .packing-title { margin-top: 8px; margin-bottom: 4px; font-size: 12px; font-weight: bold; color: #0f766e; }
               table { width: 100%; border-collapse: collapse; font-size: 12px; margin-bottom: 6px; }
               th, td { border: 1px solid #cbd5e1; padding: 5px 6px; text-align: left; vertical-align: top; }
@@ -496,6 +513,14 @@ function ProductDistributions() {
               <div><strong>Descripción:</strong> ${escapeHtml(distribution.description || "Sin descripción")}</div>
               <div><strong>Envíos:</strong> ${shipmentList.length} | <strong>Total de productos en distribución:</strong> ${escapeHtml(formatQty(totalProductsInDistribution))}</div>
               <div><strong>Regla:</strong> un envío por kiosko. La impresión separa en páginas de 10 productos.</div>
+              ${
+                distributionQrDataUrl
+                  ? `<div class="summary-qr">
+                <img src="${String(distributionQrDataUrl).replace(/"/g, "&quot;")}" alt="QR distribución" />
+                <div class="summary-qr-caption">Escanear en app Bodega PT — envíos de esta distribución</div>
+              </div>`
+                  : ""
+              }
             </div>
             <section class="shipment-box">
               <div class="packing-title">Resumen general de productos (acumulado por producto y color)</div>

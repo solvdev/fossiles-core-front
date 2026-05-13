@@ -49,10 +49,13 @@ const WORKFLOW_STYLES = {
 };
 
 const ORDER_TYPE_LABELS = {
-  NORMAL: "Normal",
+  NORMAL: "Kiosko",
   DISTRIBUTION: "Distribución",
   VENTA_EN_LINEA: "Venta en Línea",
+  CLIENTE_KIOSKO: "Cliente Kiosko",
   CINCHOS: "Cinchos",
+  CINCHOS_FOSSILES: "Cinchos Fossiles",
+  CINCHOS_MARCAS: "Cinchos Marcas",
   MARCAS: "Marcas",
   INTERNA: "Interna (OPI)",
 };
@@ -61,7 +64,10 @@ const ORDER_TYPE_STYLES = {
   NORMAL: { backgroundColor: "#e9ecef", color: "#333", padding: "4px 8px", borderRadius: "4px", fontSize: "0.8em", fontWeight: 600, display: "inline-block" },
   DISTRIBUTION: { backgroundColor: "#28a745", color: "#fff", padding: "4px 8px", borderRadius: "4px", fontSize: "0.8em", fontWeight: 600, display: "inline-block" },
   VENTA_EN_LINEA: { backgroundColor: "#17a2b8", color: "#fff", padding: "4px 8px", borderRadius: "4px", fontSize: "0.8em", fontWeight: 600, display: "inline-block" },
+  CLIENTE_KIOSKO: { backgroundColor: "#dc3545", color: "#fff", padding: "4px 8px", borderRadius: "4px", fontSize: "0.8em", fontWeight: 600, display: "inline-block" },
   CINCHOS: { backgroundColor: "#007bff", color: "#fff", padding: "4px 8px", borderRadius: "4px", fontSize: "0.8em", fontWeight: 600, display: "inline-block" },
+  CINCHOS_FOSSILES: { backgroundColor: "#007bff", color: "#fff", padding: "4px 8px", borderRadius: "4px", fontSize: "0.8em", fontWeight: 600, display: "inline-block" },
+  CINCHOS_MARCAS: { backgroundColor: "#343a40", color: "#fff", padding: "4px 8px", borderRadius: "4px", fontSize: "0.8em", fontWeight: 600, display: "inline-block" },
   MARCAS: { backgroundColor: "#343a40", color: "#fff", padding: "4px 8px", borderRadius: "4px", fontSize: "0.8em", fontWeight: 600, display: "inline-block" },
   INTERNA: { backgroundColor: "#6f42c1", color: "#fff", padding: "4px 8px", borderRadius: "4px", fontSize: "0.8em", fontWeight: 600, display: "inline-block" },
 };
@@ -577,10 +583,13 @@ const MaterialsTasksView = () => {
                         bsSize="sm"
                       >
                         <option value="">Todos los tipos</option>
-                        <option value="NORMAL">Normal</option>
+                        <option value="NORMAL">Kiosko</option>
                         <option value="DISTRIBUTION">Distribución</option>
                         <option value="VENTA_EN_LINEA">Venta en Línea</option>
+                        <option value="CLIENTE_KIOSKO">Cliente Kiosko</option>
                         <option value="CINCHOS">Cinchos</option>
+                        <option value="CINCHOS_FOSSILES">Cinchos Fossiles</option>
+                        <option value="CINCHOS_MARCAS">Cinchos Marcas</option>
                         <option value="MARCAS">Marcas</option>
                       </Input>
                     </Col>

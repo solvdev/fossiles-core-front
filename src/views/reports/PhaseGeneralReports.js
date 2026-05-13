@@ -44,10 +44,13 @@ const WORKFLOW_ES = {
 };
 
 const ORDER_TYPE_ES = {
-  NORMAL: "Normal",
+  NORMAL: "Kiosko",
   DISTRIBUTION: "Distribucion",
   VENTA_EN_LINEA: "Venta en Linea",
+  CLIENTE_KIOSKO: "Cliente Kiosko",
   CINCHOS: "Cinchos",
+  CINCHOS_FOSSILES: "Cinchos Fossiles",
+  CINCHOS_MARCAS: "Cinchos Marcas",
   MARCAS: "Marcas",
 };
 
