@@ -52,6 +52,31 @@ export const getBomById = async (id) => {
   }
 };
 
+export const copyBomItemsFrom = async (targetId, sourceId) => {
+  if (!targetId || !sourceId) {
+    throw new Error('IDs de BOM inválidos');
+  }
+  try {
+    const response = await fetch(`${API_URL}/boms/${targetId}/copy-items-from/${sourceId}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...getAuthHeader()
+      }
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({ message: 'Error al copiar líneas de BOM' }));
+      throw new Error(errorData.message || 'Error al copiar líneas de BOM');
+    }
+
+    return await response.json();
+  } catch (error) {
+    console.error('Copy BOM items error:', error);
+    throw error;
+  }
+};
+
 export const getBomsByProductId = async (productId) => {
   if (!productId || productId === 'undefined' || productId === 'null') {
     throw new Error('ID de producto inválido');

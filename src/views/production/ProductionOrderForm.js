@@ -44,7 +44,7 @@ const BRAND_OPTIONS = ["LEVIS", "NAUTICA", "TOMMY HILFIGER", "LACOSTE", "ABERCRO
 const normalizeSeller = (value) => String(value || "").trim().toUpperCase();
 const isLuisFelipeSeller = (value) => normalizeSeller(value).includes("LUIS FELIPE");
 const isClienteKioskoOrder = (orderType) => orderType === "CLIENTE_KIOSKO";
-/** OPV vendedor: cualquier orden no-cinchos con Luis Felipe (el backend normaliza tipo a MARCAS / prefijo OPV-). */
+/** OPV vendedor: empaques / ENVP — cualquier orden no-cinchos con vendedor Luis Felipe (correlativo OPV- lo define el backend). */
 const isOpvVendorOrder = (orderType, sellerName) =>
   isLuisFelipeSeller(sellerName) && !isCinchoOrderType(orderType);
 
@@ -518,16 +518,12 @@ function ProductionOrderForm({ orderId, isOpen, toggle, onSuccess }) {
   };
 
   const handleOrderTypeChange = (newType) => {
-    const nextType =
-      isLuisFelipeSeller(formData.sellerName) && !isCinchoOrderType(newType)
-        ? "MARCAS"
-        : newType;
     // Limpiar items cuando cambia el tipo
     setFormData({
       ...formData,
-      orderType: nextType,
+      orderType: newType,
       items: [],
-      packingItems: nextType === "MARCAS" ? formData.packingItems : [],
+      packingItems: isOpvVendorOrder(newType, formData.sellerName) ? formData.packingItems : [],
     });
     setItemForm(createEmptyItemForm());
   };
@@ -588,8 +584,8 @@ function ProductionOrderForm({ orderId, isOpen, toggle, onSuccess }) {
                 />
                 {errors.code && <div className="text-danger small">{errors.code}</div>}
                 <small className="text-muted">
-                  {!orderId 
-                    ? "Se genera automáticamente por correlativo según tipo/origen (OPK/OPV/OPI/OPC/OPCF/OPCM/OPD/OPL/OPCK)."
+                  {!orderId
+                    ? "Se genera automáticamente por correlativo según tipo/origen (OPK/OPV/OPI/OPC cinchos unificado, OPD/OPL/OPCK). Códigos antiguos OPCF/OPCM siguen en la serie OPC."
                     : "El código no puede modificarse después de crear la orden"}
                 </small>
               </FormGroup>
@@ -604,15 +600,19 @@ function ProductionOrderForm({ orderId, isOpen, toggle, onSuccess }) {
                   invalid={!!errors.orderType}
                   disabled={loading || !!orderId}
                 >
-                  <option value="NORMAL">NORMAL (Productos estándar, prefijo OPK)</option>
-                  <option value="MARCAS">MARCAS / OPV (Marcas conocidas — con Luis Felipe es flujo OPV vendedor, prefijo OPV-)</option>
+                  <option value="NORMAL">
+                    NORMAL (Productos estándar, prefijo OPK; con vendedor Luis Felipe correlativo OPV-)
+                  </option>
+                  <option value="MARCAS">MARCAS / OPV (Marcas conocidas, prefijo OPV-)</option>
                   {(!isLuisFelipeSeller(formData.sellerName) ||
                     (orderId && isClienteKioskoOrder(formData.orderType))) && (
                     <option value="CLIENTE_KIOSKO">CLIENTE KIOSKO (Prioridad alta, prefijo OPCK)</option>
                   )}
                   <option value="INTERNA">INTERNA (OPI — producción interna)</option>
-                  <option value="CINCHOS_FOSSILES">CINCHOS FOSSILES (Con tallas y colores)</option>
-                  <option value="CINCHOS_MARCAS">CINCHOS MARCAS (Con tallas y colores)</option>
+                  <option value="CINCHOS_FOSSILES">CINCHOS (prefijo OPC, tallas y colores)</option>
+                  {formData.orderType === "CINCHOS_MARCAS" && (
+                    <option value="CINCHOS_MARCAS">CINCHOS MARCAS (solo edición — histórico)</option>
+                  )}
                   {formData.orderType === "CINCHOS" && (
                     <option value="CINCHOS">CINCHOS (Histórico)</option>
                   )}
@@ -779,10 +779,9 @@ function ProductionOrderForm({ orderId, isOpen, toggle, onSuccess }) {
                     setFormData((prev) => ({
                       ...prev,
                       sellerName: nextSeller,
-                      orderType:
-                        isLuisFelipeSeller(nextSeller) && !isCinchoOrderType(prev.orderType)
-                          ? "MARCAS"
-                          : prev.orderType,
+                      packingItems: isOpvVendorOrder(prev.orderType, nextSeller)
+                        ? prev.packingItems
+                        : [],
                     }));
                   }}
                   disabled={loading}

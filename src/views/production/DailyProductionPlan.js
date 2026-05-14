@@ -19,7 +19,6 @@ import {
 import { getTasksByDate, getTasks, updateTaskStatus, toggleDieCut } from "services/taskService";
 import { showSuccess, showError } from "utils/notificationHelper";
 import TaskTicketPrint from "./TaskTicketPrint";
-import { taskMaterialsReady } from "utils/materialRequirementHelper";
 import { formatDateGt } from "utils/dateTimeHelper";
 
 const MAX_HOURS = 4;
@@ -117,9 +116,8 @@ function DailyProductionPlan() {
             color="info"
             size="sm"
             style={{ fontSize: "10px", padding: "1px 4px", height: "22px" }}
-            disabled={!taskMaterialsReady(task)}
             onClick={() => handleStatusChange(task.id, "IN_PROGRESS")}
-            title={!taskMaterialsReady(task) ? "Primero debe tener materiales entregados (si aplica)" : "Iniciar tarea"}
+            title="Iniciar tarea"
           >
             Iniciar
           </Button>

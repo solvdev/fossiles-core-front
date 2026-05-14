@@ -28,6 +28,7 @@ import { getProducts } from "services/productService";
 import { getAuthHeader } from "services/authService";
 import { getProductionOrderById, getProductionOrders } from "services/productionOrderService";
 import { showError, showSuccess } from "utils/notificationHelper";
+import { isCinchoOrderType } from "utils/cinchoProductionHelper";
 import { exportRowsToCsv, exportRowsToPdf } from "utils/reportExportHelper";
 import { formatDateGt, formatNowGt } from "utils/dateTimeHelper";
 import {
@@ -440,7 +441,7 @@ function PrepareShipments() {
         const seller = String(order?.sellerName || "").trim().toUpperCase();
         const type = String(order?.orderType || "").trim().toUpperCase();
         if (!seller.includes("LUIS FELIPE")) return false;
-        return type === "MARCAS" || type === "OPV";
+        return !isCinchoOrderType(type);
       });
       setOpvOrders(rows);
     } catch (_err) {
@@ -910,9 +911,7 @@ function PrepareShipments() {
         const shippingCost = Number(shipment.shippingCost || 0);
         const grandTotal = totalAmount + (shippingCost > 0 ? shippingCost : 0);
 
-        return `
-          <section class="doc">
-            <table class="meta">
+        const metaRowsHtml = `
               <tr>
                 <td colspan="3"><strong>Direccion Envio:</strong> ${sourceAddress}</td>
                 <td colspan="2"><strong>Fecha:</strong> ${printedAt}</td>
@@ -928,17 +927,24 @@ function PrepareShipments() {
               <tr>
                 <td colspan="5"><strong>Generado por sistema:</strong> ${printedBy} ${shipment.copyLabel ? `- ${shipment.copyLabel}` : ""}</td>
               </tr>
-              ${
-                idx === 0 && distributionQrDataUrl
-                  ? `<tr>
-                <td colspan="5" style="text-align:center;padding:4px">
-                  <img src="${String(distributionQrDataUrl).replace(/"/g, "&quot;")}" alt="QR" style="width:88px;height:88px;display:inline-block" />
-                  <div style="font-size:8px;margin-top:2px;font-weight:700">Escanear en app Bodega PT — distribución</div>
-                </td>
-              </tr>`
-                  : ""
-              }
-            </table>
+            `;
+
+        const metaHeaderHtml =
+          idx === 0 && distributionQrDataUrl
+            ? `<div class="doc-header">
+                <div class="doc-header-main">
+                  <table class="meta">${metaRowsHtml}</table>
+                </div>
+                <div class="doc-header-qr">
+                  <img src="${String(distributionQrDataUrl).replace(/"/g, "&quot;")}" alt="QR" />
+                  <div class="doc-header-qr-caption">Escanear en app Bodega PT — distribución</div>
+                </div>
+              </div>`
+            : `<table class="meta">${metaRowsHtml}</table>`;
+
+        return `
+          <section class="doc">
+            ${metaHeaderHtml}
 
             <table class="grid">
               <thead>
@@ -1029,6 +1035,38 @@ function PrepareShipments() {
               margin: 0 auto 2mm auto;
               break-inside: avoid-page;
               page-break-inside: avoid;
+            }
+            .doc-header {
+              display: flex;
+              flex-direction: row;
+              align-items: flex-start;
+              justify-content: space-between;
+              gap: 3mm;
+              width: 100%;
+              margin-bottom: 1mm;
+            }
+            .doc-header-main {
+              flex: 1 1 auto;
+              min-width: 0;
+            }
+            .doc-header-qr {
+              flex: 0 0 22mm;
+              text-align: center;
+              align-self: flex-start;
+              padding-top: 1px;
+            }
+            .doc-header-qr img {
+              width: 18mm;
+              height: 18mm;
+              display: block;
+              margin: 0 auto;
+            }
+            .doc-header-qr-caption {
+              font-size: 6.5px;
+              margin-top: 1px;
+              font-weight: 700;
+              line-height: 1.05;
+              max-width: 22mm;
             }
             .doc + .doc {
               break-before: page;

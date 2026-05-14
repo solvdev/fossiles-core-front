@@ -38,6 +38,13 @@ import MaterialInventoryKardex from "views/inventory/MaterialInventoryKardex";
 import EmbeddedInventoryTransferModal from "components/inventory/EmbeddedInventoryTransferModal";
 import { useAuth } from "contexts/AuthContext";
 
+function formatUomCell(code, name) {
+  const c = String(code || "").trim();
+  const n = String(name || "").trim();
+  if (c && n) return `${c} — ${n}`;
+  return c || n || "—";
+}
+
 // Componente de filtro por defecto
 function DefaultColumnFilter({
   column: { filterValue, preFilteredRows, setFilter },
@@ -112,7 +119,7 @@ function InventoryByLocation() {
       
       // El backend ya devuelve el inventario agregado
       // Solo necesitamos mapear los campos para mantener compatibilidad
-      const mappedInventory = data.map(item => ({
+      const mappedInventory = data.map((item) => ({
         materialId: item.materialId,
         materialSku: item.materialSku,
         materialName: item.materialName,
@@ -120,6 +127,10 @@ function InventoryByLocation() {
         materialMin: item.materialMin,
         supplierId: item.supplierId != null ? item.supplierId : null,
         supplierName: item.supplierName || "",
+        purchaseUomCode: item.purchaseUomCode || "",
+        purchaseUomName: item.purchaseUomName || "",
+        manufacturingUomCode: item.manufacturingUomCode || "",
+        manufacturingUomName: item.manufacturingUomName || "",
       }));
       
       setInventory(mappedInventory);
@@ -368,6 +379,22 @@ function InventoryByLocation() {
         filter: "fuzzyText",
       },
       {
+        Header: "Ud. compra",
+        id: "purchaseUom",
+        accessor: (row) => formatUomCell(row.purchaseUomCode, row.purchaseUomName),
+        Cell: ({ value }) => <span className="text-nowrap">{value}</span>,
+        Filter: DefaultColumnFilter,
+        filter: "fuzzyText",
+      },
+      {
+        Header: "Ud. manufactura",
+        id: "manufacturingUom",
+        accessor: (row) => formatUomCell(row.manufacturingUomCode, row.manufacturingUomName),
+        Cell: ({ value }) => <span className="text-nowrap">{value}</span>,
+        Filter: DefaultColumnFilter,
+        filter: "fuzzyText",
+      },
+      {
         Header: "Stock Total",
         accessor: "quantity",
         Cell: ({ value }) => {
@@ -549,10 +576,14 @@ function InventoryByLocation() {
       const idText = String(item.materialId || "");
       const skuText = String(item.materialSku || "").toLowerCase();
       const nameText = String(item.materialName || "").toLowerCase();
+      const pu = formatUomCell(item.purchaseUomCode, item.purchaseUomName).toLowerCase();
+      const mu = formatUomCell(item.manufacturingUomCode, item.manufacturingUomName).toLowerCase();
       return (
         idText.includes(selectorSearch) ||
         skuText.includes(selectorSearch) ||
-        nameText.includes(selectorSearch)
+        nameText.includes(selectorSearch) ||
+        pu.includes(selectorSearch) ||
+        mu.includes(selectorSearch)
       );
     });
   }, [inventory, selectorSearch]);
@@ -856,10 +887,12 @@ function InventoryByLocation() {
     }
 
     try {
-      const excelData = rows.map(item => ({
-        "SKU": item.materialSku || "N/A",
-        "Material": item.materialName || "N/A",
-        "Proveedor": item.supplierName || "—",
+      const excelData = rows.map((item) => ({
+        SKU: item.materialSku || "N/A",
+        Material: item.materialName || "N/A",
+        "Ud. compra": formatUomCell(item.purchaseUomCode, item.purchaseUomName),
+        "Ud. manufactura": formatUomCell(item.manufacturingUomCode, item.manufacturingUomName),
+        Proveedor: item.supplierName || "—",
         "Stock Total": parseFloat(item.quantity || 0),
       }));
 
@@ -870,6 +903,8 @@ function InventoryByLocation() {
       const columnWidths = [
         { wch: 15 },
         { wch: 40 },
+        { wch: 22 },
+        { wch: 22 },
         { wch: 28 },
         { wch: 14 },
       ];

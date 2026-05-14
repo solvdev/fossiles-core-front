@@ -2,13 +2,22 @@ import React, { useState, useEffect, useCallback, useMemo } from "react";
 import {
   Card, CardHeader, CardBody, CardTitle, Row, Col, Table, Badge,
   Button, Input, Collapse, Spinner, Alert, Nav, NavItem, NavLink,
-  TabContent, TabPane
+  TabContent, TabPane, Modal, ModalHeader, ModalBody, ModalFooter,
 } from "reactstrap";
-import { getMaterialsView, getMaterialsViewByOrder, setMaterialsDelivery, setTaskItemMaterialsDelivery } from "../../services/taskService";
-import { getProductionOrders } from "../../services/productionOrderService";
+import { getMaterialsView, getMaterialsViewByOrder, setMaterialsDelivery, setTaskItemMaterialsDelivery, setTaskItemMaterialPick } from "../../services/taskService";
+import { getProductionOrders, getProductionOrderById } from "../../services/productionOrderService";
+import { getBomsByProductId } from "../../services/bomService";
+import { getMaterials } from "../../services/materialService";
 import { taskMaterialsReady, taskSkipsMaterials } from "utils/materialRequirementHelper";
+import { isCinchoOrderType } from "utils/cinchoProductionHelper";
+import {
+  buildCinchoReadOnlyRecipeBlocks,
+  CINCHO_MATERIALS_READONLY_SUB,
+  CINCHO_MATERIALS_READONLY_TITLE,
+} from "utils/cinchoMaterialsRecipeHelper";
 import { formatDateTimeGt } from "utils/dateTimeHelper";
 import { formatProductionOrderCodeDate } from "utils/productionOrderDisplayHelper";
+import { openMaterialsDayRecipesPrintWindow } from "utils/materialsDayRecipesPrintHtml";
 
 const STATUS_LABELS = {
   PENDING: "Pendiente",
@@ -72,6 +81,11 @@ const ORDER_TYPE_STYLES = {
   INTERNA: { backgroundColor: "#6f42c1", color: "#fff", padding: "4px 8px", borderRadius: "4px", fontSize: "0.8em", fontWeight: 600, display: "inline-block" },
 };
 
+const taskRecipeHasStockWarning = (task) => {
+  if (!task?.products) return false;
+  return task.products.some((p) => (p.recipe || []).some((m) => m.sufficientStock === false));
+};
+
 const MaterialsTasksView = () => {
   // Tab state: "orders" (primary) or "history" (by date)
   const [activeTab, setActiveTab] = useState("orders");
@@ -82,6 +96,8 @@ const MaterialsTasksView = () => {
   const [selectedOrderId, setSelectedOrderId] = useState(null);
   const [orderTasks, setOrderTasks] = useState([]);
   const [loadingTasks, setLoadingTasks] = useState(false);
+  const [cinchoRecipeBlocks, setCinchoRecipeBlocks] = useState([]);
+  const [loadingCinchoRecipes, setLoadingCinchoRecipes] = useState(false);
   const [expandedTasks, setExpandedTasks] = useState({});
   const [orderTypeFilter, setOrderTypeFilter] = useState("");
   const [workflowFilter, setWorkflowFilter] = useState("NOT_PRODUCED");
@@ -93,8 +109,11 @@ const MaterialsTasksView = () => {
     new Date().toISOString().split("T")[0]
   );
   const [expandedHistoryTasks, setExpandedHistoryTasks] = useState({});
+  const [printingDayRecipes, setPrintingDayRecipes] = useState(false);
 
   const [error, setError] = useState(null);
+  /** @type {null | { kind: 'task' | 'item', taskId: number, taskItemId?: number, isHistory: boolean }} */
+  const [forceModal, setForceModal] = useState(null);
 
   // ─── Fetch active production orders ───
   const fetchOrders = useCallback(async () => {
@@ -107,6 +126,9 @@ const MaterialsTasksView = () => {
       );
       const ordersWithPendingMaterials = await Promise.all(
         activeOrders.map(async (order) => {
+          if (isCinchoOrderType(order.orderType)) {
+            return order;
+          }
           try {
             const tasks = await getMaterialsViewByOrder(order.id);
             return (tasks || []).length > 0 ? order : null;
@@ -140,37 +162,64 @@ const MaterialsTasksView = () => {
   }, [fetchOrders]);
 
   // ─── Fetch tasks for selected order ───
-  const fetchOrderTasks = useCallback(async (orderId) => {
+  const fetchOrderTasks = useCallback(async (orderId, orderRow) => {
     if (!orderId) return;
     setLoadingTasks(true);
+    setLoadingCinchoRecipes(false);
+    setCinchoRecipeBlocks([]);
     setError(null);
+    const resolved = orderRow || orders.find((o) => o.id === orderId);
+    const cincho = resolved && isCinchoOrderType(resolved.orderType);
     try {
       const data = await getMaterialsViewByOrder(orderId);
-      if ((data || []).length === 0) {
+      const list = data || [];
+      if (list.length === 0 && cincho) {
+        setOrderTasks([]);
+        setExpandedTasks({});
+        setLoadingCinchoRecipes(true);
+        try {
+          const po = await getProductionOrderById(orderId);
+          const materials = await getMaterials();
+          const blocks = await buildCinchoReadOnlyRecipeBlocks(
+            po.items,
+            (pid) => getBomsByProductId(pid),
+            materials
+          );
+          setCinchoRecipeBlocks(blocks);
+        } catch (err) {
+          setError(err.message);
+          setCinchoRecipeBlocks([]);
+        } finally {
+          setLoadingCinchoRecipes(false);
+        }
+        return;
+      }
+      if (list.length === 0) {
         setOrders((prev) => prev.filter((order) => order.id !== orderId));
         setSelectedOrderId(null);
         setOrderTasks([]);
         return;
       }
-      setOrderTasks(data || []);
+      setOrderTasks(list);
       // Auto-expand all tasks
       const expanded = {};
-      (data || []).forEach((t) => (expanded[t.taskId] = true));
+      list.forEach((t) => (expanded[t.taskId] = true));
       setExpandedTasks(expanded);
     } catch (err) {
       setError(err.message);
     } finally {
       setLoadingTasks(false);
     }
-  }, []);
+  }, [orders]);
 
-  const handleSelectOrder = (orderId) => {
+  const handleSelectOrder = (orderId, orderRow) => {
     if (selectedOrderId === orderId) {
       setSelectedOrderId(null);
       setOrderTasks([]);
+      setCinchoRecipeBlocks([]);
     } else {
       setSelectedOrderId(orderId);
-      fetchOrderTasks(orderId);
+      fetchOrderTasks(orderId, orderRow);
     }
   };
 
@@ -179,7 +228,7 @@ const MaterialsTasksView = () => {
     setLoadingHistory(true);
     setError(null);
     try {
-      const data = await getMaterialsView(selectedDate);
+      const data = await getMaterialsView(selectedDate, { scheduleDay: true });
       setHistoryTasks(data || []);
     } catch (err) {
       setError(err.message);
@@ -203,14 +252,18 @@ const MaterialsTasksView = () => {
     }
   };
 
-  const handleDeliverMaterials = async (taskId, isHistory = false) => {
+  const handleDeliverMaterials = async (taskId, isHistory = false, force = false) => {
     const sourceList = isHistory ? historyTasks : orderTasks;
     const sourceTask = (sourceList || []).find((t) => t.taskId === taskId);
     if (taskSkipsMaterials(sourceTask)) {
       return;
     }
+    if (!force && taskRecipeHasStockWarning(sourceTask)) {
+      setForceModal({ kind: "task", taskId, isHistory });
+      return;
+    }
     try {
-      const updated = await setMaterialsDelivery(taskId, true);
+      const updated = await setMaterialsDelivery(taskId, true, force);
       const normalized = {
         taskId: updated.id,
         status: updated.status,
@@ -224,7 +277,7 @@ const MaterialsTasksView = () => {
         canDeliverMaterials: updated.canDeliverMaterials,
       };
       if (isHistory) {
-        setHistoryTasks((prev) => prev.filter((t) => t.taskId !== taskId));
+        await fetchHistory();
       } else {
         setOrderTasks((prev) => {
           const next = prev.filter((t) => t.taskId !== taskId);
@@ -243,17 +296,94 @@ const MaterialsTasksView = () => {
     }
   };
 
-  const handleDeliverMaterialsForProduct = async (taskId, taskItemId, isHistory = false) => {
+  const handleDeliverMaterialsForProduct = async (taskId, taskItemId, isHistory = false, force = false) => {
+    const sourceList = isHistory ? historyTasks : orderTasks;
+    const sourceTask = (sourceList || []).find((t) => t.taskId === taskId);
+    const product = (sourceTask?.products || []).find((p) => p.taskItemId === taskItemId);
+    if (!force && product && (product.recipe || []).some((m) => m.sufficientStock === false)) {
+      setForceModal({ kind: "item", taskId, taskItemId, isHistory });
+      return;
+    }
     try {
-      await setTaskItemMaterialsDelivery(taskId, taskItemId, true);
+      await setTaskItemMaterialsDelivery(taskId, taskItemId, true, force);
       if (isHistory) {
         await fetchHistory();
       } else if (selectedOrderId) {
-        await fetchOrderTasks(selectedOrderId);
+        const row = orders.find((o) => o.id === selectedOrderId);
+        await fetchOrderTasks(selectedOrderId, row);
       }
     } catch (err) {
       setError(err.message || "No se pudo entregar materiales para el producto");
     }
+  };
+
+  const handleMaterialLinePick = async (taskId, taskItemId, materialId, picked, isHistory) => {
+    try {
+      await setTaskItemMaterialPick(taskId, taskItemId, materialId, picked);
+      if (isHistory) {
+        await fetchHistory();
+      } else if (selectedOrderId) {
+        const row = orders.find((o) => o.id === selectedOrderId);
+        await fetchOrderTasks(selectedOrderId, row);
+      }
+    } catch (err) {
+      setError(err.message || "No se pudo actualizar la línea de receta");
+    }
+  };
+
+  const confirmForceDelivery = async () => {
+    if (!forceModal) return;
+    const { kind, taskId, taskItemId, isHistory } = forceModal;
+    setForceModal(null);
+    if (kind === "task") {
+      await handleDeliverMaterials(taskId, isHistory, true);
+    } else {
+      await handleDeliverMaterialsForProduct(taskId, taskItemId, isHistory, true);
+    }
+  };
+
+  const handlePrintDayRecipes = async () => {
+    setPrintingDayRecipes(true);
+    setError(null);
+    try {
+      const data = await getMaterialsView(selectedDate, { scheduleDay: true });
+      openMaterialsDayRecipesPrintWindow(data || [], selectedDate);
+    } catch (err) {
+      setError(err.message || "No se pudieron cargar las recetas del día");
+    } finally {
+      setPrintingDayRecipes(false);
+    }
+  };
+
+  const printDayDeliveriesReport = () => {
+    const tasks = historyTasks || [];
+    if (!tasks.length) return;
+    const fmtDateTime = (value) => {
+      if (!value) return "—";
+      try { return formatDateTimeGt(value); } catch { return String(value); }
+    };
+    const fmtN = (n) => {
+      const v = Number(n || 0);
+      return Number.isFinite(v)
+        ? v.toLocaleString("es-GT", { minimumFractionDigits: 0, maximumFractionDigits: 3 })
+        : String(n);
+    };
+    const blocks = tasks.map((task) => {
+      const lines = [];
+      (task.products || []).forEach((p) => {
+        (p.recipe || []).forEach((m) => {
+          if (!m.picked) return;
+          lines.push(`<tr><td>${task.taskCode || "—"}</td><td>${task.productionOrderCode || "—"}</td><td>${p.productCode || ""}</td><td>${m.materialSku || "—"}</td><td>${m.materialName || "—"}</td><td style="text-align:right">${fmtN(m.totalQuantity)}</td><td>${m.measurementUnit || "-"}</td><td>${fmtDateTime(m.pickedAt)}</td></tr>`);
+        });
+      });
+      if (!lines.length) return "";
+      return `<h3 style="margin:16px 0 6px">${task.taskCode} — ${task.productionOrderCode}</h3><table class="t"><thead><tr><th>Tarea</th><th>OP</th><th>Producto</th><th>SKU</th><th>Material</th><th>Cant.</th><th>U.</th><th>Marcado</th></tr></thead><tbody>${lines.join("")}</tbody></table>`;
+    }).filter(Boolean).join("");
+    const html = `<!DOCTYPE html><html><head><title>Entregas ${selectedDate}</title><style>body{font-family:Arial;padding:16px} .t{width:100%;border-collapse:collapse;font-size:12px} .t th,.t td{border:1px solid #ccc;padding:6px}</style></head><body><h1>Resumen líneas marcadas — ${selectedDate}</h1>${blocks || "<p>Sin líneas marcadas como despachadas en las tareas listadas.</p>"}<script>window.onload=function(){window.print();}</script></body></html>`;
+    const w = window.open("", "_blank", "width=1000,height=760");
+    if (!w) return;
+    w.document.write(html);
+    w.document.close();
   };
 
   const printMaterialsDeliveryReceipt = (task) => {
@@ -374,6 +504,18 @@ const MaterialsTasksView = () => {
     return tasks.filter((t) => t.status !== "CANCELLED");
   }, [orderTasks, workflowFilter]);
 
+  const selectedOrder = useMemo(
+    () => (orders || []).find((o) => o.id === selectedOrderId) ?? null,
+    [orders, selectedOrderId]
+  );
+
+  const showCinchoReadonlyRecipes = Boolean(
+    selectedOrderId &&
+    selectedOrder &&
+    isCinchoOrderType(selectedOrder.orderType) &&
+    (orderTasks || []).length === 0
+  );
+
   // ─── Render task card (reusable for both tabs) ───
   const renderTaskCard = (task, expanded, isHistory) => (
     <Card key={task.taskId} className="mb-2 border">
@@ -427,17 +569,26 @@ const MaterialsTasksView = () => {
                 </Badge>
               ))}
             <div className="mt-1">
+              {taskRecipeHasStockWarning(task) && !task.materialsDelivered && (
+                <Alert color="warning" className="py-1 px-2 mb-2" style={{ fontSize: "12px" }}>
+                  <strong>Stock:</strong> hay materiales bajo el requerido. Puede entregar igual; se pedirá confirmación forzada.
+                </Alert>
+              )}
               {taskSkipsMaterials(task) ? (
                 <Badge color="info">No requiere materiales</Badge>
               ) : (
                 <Button
                   size="md"
                   color={taskMaterialsReady(task) ? "success" : "warning"}
-                  disabled={task.materialsDelivered || !task.canDeliverMaterials}
+                  disabled={
+                    task.materialsDelivered
+                    || task.status === "CANCELLED"
+                    || task.status === "COMPLETED"
+                  }
                   style={{ fontWeight: 700, minWidth: 220 }}
                   onClick={(e) => {
                     e.stopPropagation();
-                    handleDeliverMaterials(task.taskId, isHistory);
+                    handleDeliverMaterials(task.taskId, isHistory, false);
                   }}
                 >
                   {task.materialsDelivered ? "✓ Materiales entregados" : "Entregar materiales de la tarea"}
@@ -466,6 +617,7 @@ const MaterialsTasksView = () => {
                   <Table size="sm" bordered striped responsive>
                     <thead>
                       <tr>
+                        <th className="text-center" style={{ width: 42 }}>✓</th>
                         <th>SKU</th>
                         <th>Material</th>
                         <th className="text-right">Qty/Unidad</th>
@@ -477,7 +629,33 @@ const MaterialsTasksView = () => {
                     </thead>
                     <tbody>
                       {product.recipe.map((mat, mIdx) => (
-                        <tr key={mIdx}>
+                        <tr
+                          key={mIdx}
+                          className={mat.picked ? "table-success" : undefined}
+                        >
+                          <td className="text-center align-middle">
+                            <Input
+                              type="checkbox"
+                              checked={Boolean(mat.picked)}
+                              disabled={
+                                product.materialsDelivered
+                                || !product.taskItemId
+                                || task.status === "CANCELLED"
+                                || task.status === "COMPLETED"
+                              }
+                              onChange={(e) => {
+                                e.stopPropagation();
+                                handleMaterialLinePick(
+                                  task.taskId,
+                                  product.taskItemId,
+                                  mat.materialId,
+                                  e.target.checked,
+                                  isHistory
+                                );
+                              }}
+                              title="Marcar material como despachado / preparado"
+                            />
+                          </td>
                           <td><code>{mat.materialSku}</code></td>
                           <td>{mat.materialName}</td>
                           <td className="text-right">{mat.quantityPerUnit}</td>
@@ -503,18 +681,30 @@ const MaterialsTasksView = () => {
                   {product.requiresMaterials === false ? (
                     <Badge color="info">Producto sin materiales (solo cuero)</Badge>
                   ) : (
-                    <Button
-                      size="md"
-                      color={product.materialsDelivered ? "success" : "warning"}
-                      disabled={product.materialsDelivered || !product.canDeliverMaterials || !product.taskItemId}
-                      style={{ fontWeight: 700, minWidth: 280 }}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleDeliverMaterialsForProduct(task.taskId, product.taskItemId, isHistory);
-                      }}
-                    >
-                      {product.materialsDelivered ? "✓ Materiales del producto entregados" : "Entregar materiales de este producto"}
-                    </Button>
+                    <>
+                      {(product.recipe || []).some((m) => m.sufficientStock === false) && !product.materialsDelivered && (
+                        <Alert color="warning" className="py-1 px-2 mb-2" style={{ fontSize: "12px" }}>
+                          Stock insuficiente en receta; la entrega puede forzarse.
+                        </Alert>
+                      )}
+                      <Button
+                        size="md"
+                        color={product.materialsDelivered ? "success" : "warning"}
+                        disabled={
+                          product.materialsDelivered
+                          || !product.taskItemId
+                          || task.status === "CANCELLED"
+                          || task.status === "COMPLETED"
+                        }
+                        style={{ fontWeight: 700, minWidth: 280 }}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDeliverMaterialsForProduct(task.taskId, product.taskItemId, isHistory, false);
+                        }}
+                      >
+                        {product.materialsDelivered ? "✓ Materiales del producto entregados" : "Entregar materiales de este producto"}
+                      </Button>
+                    </>
                   )}
                 </div>
               </div>
@@ -593,6 +783,7 @@ const MaterialsTasksView = () => {
                         <option value="MARCAS">Marcas</option>
                       </Input>
                     </Col>
+                    {!showCinchoReadonlyRecipes ? (
                     <Col md="4">
                       <Input
                         type="select"
@@ -607,7 +798,8 @@ const MaterialsTasksView = () => {
                         <option value="ALL">Todas</option>
                       </Input>
                     </Col>
-                    <Col md="5" className="text-right">
+                    ) : null}
+                    <Col md={showCinchoReadonlyRecipes ? "9" : "5"} className="text-right">
                       <Badge color="primary" className="mr-2 p-2">
                         {filteredOrders.length} órdenes visibles
                       </Badge>
@@ -633,7 +825,7 @@ const MaterialsTasksView = () => {
                           return (
                             <Col md="6" lg="4" key={order.id} className="mb-3">
                               <Card
-                                onClick={() => handleSelectOrder(order.id)}
+                                onClick={() => handleSelectOrder(order.id, order)}
                                 style={{
                                   cursor: "pointer",
                                   border: isSelected ? "2px solid #007bff" : "1px solid #e9ecef",
@@ -667,10 +859,14 @@ const MaterialsTasksView = () => {
                                     style={{ fontSize: 16, fontWeight: 700, padding: "10px 12px" }}
                                     onClick={(e) => {
                                       e.stopPropagation();
-                                      handleSelectOrder(order.id);
+                                      handleSelectOrder(order.id, order);
                                     }}
                                   >
-                                    {isSelected ? "Ocultar orden" : "Abrir orden y entregar materiales"}
+                                    {isSelected
+                                      ? "Ocultar orden"
+                                      : isCinchoOrderType(order.orderType)
+                                        ? "Abrir orden (recetas cincho)"
+                                        : "Abrir orden y entregar materiales"}
                                   </Button>
                                 </CardBody>
                               </Card>
@@ -687,7 +883,10 @@ const MaterialsTasksView = () => {
                               <Col md="6">
                                 <h5 className="mb-0">
                                   <i className="nc-icon nc-ruler-pencil mr-2" />
-                                  Tareas y Recetas — {formatProductionOrderCodeDate(orders.find(o => o.id === selectedOrderId)) || "—"}
+                                  {showCinchoReadonlyRecipes
+                                    ? "Recetas (cincho)"
+                                    : "Tareas y Recetas"}{" "}
+                                  — {formatProductionOrderCodeDate(orders.find(o => o.id === selectedOrderId)) || "—"}
                                 </h5>
                               </Col>
                               <Col md="6" className="text-right">
@@ -708,11 +907,73 @@ const MaterialsTasksView = () => {
                             </Row>
                           </CardHeader>
                           <CardBody>
-                            {loadingTasks ? (
+                            {loadingTasks || loadingCinchoRecipes ? (
                               <div className="text-center py-3">
                                 <Spinner color="primary" size="sm" />
-                                <span className="ml-2">Cargando tareas...</span>
+                                <span className="ml-2">
+                                  {loadingCinchoRecipes ? "Cargando recetas cincho…" : "Cargando tareas..."}
+                                </span>
                               </div>
+                            ) : showCinchoReadonlyRecipes ? (
+                              <>
+                                <h6 className="text-primary font-weight-bold">{CINCHO_MATERIALS_READONLY_TITLE}</h6>
+                                <p className="text-muted small mb-3">{CINCHO_MATERIALS_READONLY_SUB}</p>
+                                {cinchoRecipeBlocks.map((block) => (
+                                  <div key={block.key} className="mb-4 pb-3 border-bottom">
+                                    <div className="d-flex justify-content-between align-items-start flex-wrap mb-2">
+                                      <div>
+                                        <strong>{(block.productCode || "").trim() || "—"}</strong>
+                                        <span className="ml-2">{block.productName || "Producto"}</span>
+                                        {block.colorName ? (
+                                          <span className="text-muted ml-1">— {block.colorName}</span>
+                                        ) : null}
+                                      </div>
+                                      <Badge color="info">Piezas {block.pieceQty}</Badge>
+                                    </div>
+                                    {block.recipe.length === 0 ? (
+                                      <Alert color="light" className="py-2 mb-0">
+                                        <small>Sin receta (BOM) configurada para este producto/color.</small>
+                                      </Alert>
+                                    ) : (
+                                      <Table size="sm" bordered striped responsive className="mb-0">
+                                        <thead>
+                                          <tr>
+                                            <th>SKU</th>
+                                            <th>Material</th>
+                                            <th className="text-right">Qty / unidad</th>
+                                            <th className="text-right">Total req.</th>
+                                            <th className="text-right">Stock</th>
+                                            <th className="text-center">Estado</th>
+                                            <th>Unidad</th>
+                                          </tr>
+                                        </thead>
+                                        <tbody>
+                                          {block.recipe.map((m) => (
+                                            <tr key={m.materialId}>
+                                              <td><code>{m.materialSku || "—"}</code></td>
+                                              <td>{m.materialName || "—"}</td>
+                                              <td className="text-right">{m.quantityPerUnit}</td>
+                                              <td className="text-right font-weight-bold">{m.totalQuantity}</td>
+                                              <td className="text-right">{m.availableStock}</td>
+                                              <td className="text-center">
+                                                {m.sufficientStock ? (
+                                                  <Badge color="success">OK</Badge>
+                                                ) : (
+                                                  <Badge color="danger">Sin stock</Badge>
+                                                )}
+                                              </td>
+                                              <td>{m.measurementUnit || "—"}</td>
+                                            </tr>
+                                          ))}
+                                        </tbody>
+                                      </Table>
+                                    )}
+                                    <p className="text-muted small mb-0 mt-2">
+                                      Referencia de materiales; sin entrega por tarea en órdenes cincho.
+                                    </p>
+                                  </div>
+                                ))}
+                              </>
                             ) : filteredOrderTasks.length === 0 ? (
                               <Alert color="warning" className="mb-0">
                                 <i className="nc-icon nc-alert-circle-i mr-1" />
@@ -757,8 +1018,36 @@ const MaterialsTasksView = () => {
                       <Button size="sm" color="secondary" onClick={() => collapseAll(true)}>
                         Colapsar
                       </Button>
+                      <Button size="sm" color="success" className="ml-1" onClick={printDayDeliveriesReport}>
+                        Imprimir líneas marcadas
+                      </Button>
+                      <Button
+                        size="sm"
+                        color="dark"
+                        className="ml-1"
+                        disabled={printingDayRecipes}
+                        onClick={() => void handlePrintDayRecipes()}
+                      >
+                        {printingDayRecipes ? (
+                          <>
+                            <Spinner size="sm" className="mr-1" />
+                            Cargando…
+                          </>
+                        ) : (
+                          <>
+                            <i className="nc-icon nc-paper mr-1" />
+                            Imprimir recetas del día
+                          </>
+                        )}
+                      </Button>
                     </Col>
                   </Row>
+                  <Alert color="light" className="py-2 mb-3" style={{ fontSize: "13px" }}>
+                    Lista las tareas con <strong>fecha de programación</strong> en el día elegido (incluye ya entregadas
+                    o en otro estado). Si el día es <strong>hoy</strong>, también aparecen tareas sin fecha o atrasadas
+                    que sigan activas. <strong>Imprimir recetas del día</strong> usa la misma base:{" "}
+                    <strong>todas</strong> las tareas del día con su receta (las ya entregadas van marcadas).
+                  </Alert>
 
                   {loadingHistory ? (
                     <div className="text-center py-4">
@@ -767,7 +1056,7 @@ const MaterialsTasksView = () => {
                     </div>
                   ) : historyTasks.length === 0 ? (
                     <Alert color="info">
-                      No hay tareas para esta fecha.
+                      No hay tareas programadas para esta fecha (ni cola activa sin fecha si es hoy).
                     </Alert>
                   ) : (
                     historyTasks.map((task) =>
@@ -780,6 +1069,18 @@ const MaterialsTasksView = () => {
           </Card>
         </Col>
       </Row>
+
+      <Modal isOpen={Boolean(forceModal)} toggle={() => setForceModal(null)}>
+        <ModalHeader toggle={() => setForceModal(null)}>Confirmar entrega forzada</ModalHeader>
+        <ModalBody>
+          Hay materiales con stock por debajo del requerido. Si continúa, el inventario puede quedar negativo y quedará
+          registrado en el consumo. ¿Desea continuar?
+        </ModalBody>
+        <ModalFooter>
+          <Button color="secondary" onClick={() => setForceModal(null)}>Cancelar</Button>
+          <Button color="warning" onClick={() => void confirmForceDelivery()}>Sí, forzar entrega</Button>
+        </ModalFooter>
+      </Modal>
     </div>
   );
 };

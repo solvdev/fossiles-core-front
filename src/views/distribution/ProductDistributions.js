@@ -490,35 +490,77 @@ function ProductDistributions() {
             <style>
               body { font-family: Arial, sans-serif; margin: 14px; color: #0f172a; }
               h1 { font-size: 18px; margin: 0 0 4px; }
-              .meta { font-size: 12px; color: #475569; margin-bottom: 12px; }
-              .summary { border: 1px solid #cbd5e1; border-radius: 8px; padding: 8px; margin-bottom: 10px; }
-              .shipment-box { border: 1px solid #94a3b8; border-radius: 8px; padding: 8px; margin-bottom: 10px; break-inside: avoid; }
+              .meta { font-size: 12px; color: #475569; margin-bottom: 8px; }
+              .report-top {
+                display: flex;
+                flex-direction: row;
+                align-items: flex-start;
+                justify-content: space-between;
+                gap: 12px;
+                margin-bottom: 10px;
+              }
+              .report-top-main { flex: 1; min-width: 0; }
+              .report-top-qr {
+                flex-shrink: 0;
+                text-align: center;
+                max-width: 112px;
+              }
+              .report-top-qr img {
+                width: 100px;
+                height: 100px;
+                display: inline-block;
+              }
+              .report-top-qr-caption {
+                font-size: 10px;
+                color: #475569;
+                margin-top: 4px;
+                font-weight: 600;
+                line-height: 1.2;
+              }
+              .summary { border: 1px solid #cbd5e1; border-radius: 8px; padding: 8px; margin-bottom: 0; }
+              /* Sin break-inside: avoid aquí: tablas grandes (resumen) superan una página y el preview
+                 puede dejar la primera hoja en blanco debajo del encabezado. */
+              .shipment-box {
+                border: 1px solid #94a3b8;
+                border-radius: 8px;
+                padding: 8px;
+                margin-bottom: 10px;
+                break-inside: auto;
+                page-break-inside: auto;
+              }
               .shipment-header { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; margin-bottom: 6px; }
-              .summary-qr { text-align: center; margin: 10px 0 4px; padding: 8px 0; border-top: 1px solid #e2e8f0; }
-              .summary-qr img { width: 112px; height: 112px; display: inline-block; }
-              .summary-qr-caption { font-size: 11px; color: #475569; margin-top: 6px; font-weight: 600; }
               .packing-title { margin-top: 8px; margin-bottom: 4px; font-size: 12px; font-weight: bold; color: #0f766e; }
               table { width: 100%; border-collapse: collapse; font-size: 12px; margin-bottom: 6px; }
               th, td { border: 1px solid #cbd5e1; padding: 5px 6px; text-align: left; vertical-align: top; }
               th { background: #f1f5f9; font-weight: 700; }
-              @media print { body { margin: 8mm; } }
+              thead { display: table-header-group; }
+              tbody { display: table-row-group; }
+              @media print {
+                body { margin: 8mm; }
+                html, body { height: auto !important; overflow: visible !important; }
+                .shipment-box { break-inside: auto !important; page-break-inside: auto !important; }
+              }
             </style>
           </head>
           <body>
-            <h1>Reporte de Distribución ${escapeHtml(distribution.distributionNumber || distribution.id)}</h1>
-            <div class="meta">Generado: ${escapeHtml(generatedAt)}</div>
-            <div class="summary">
-              <div><strong>Fecha:</strong> ${escapeHtml(formatDate(distribution.distributionDate))}</div>
-              <div><strong>Estado:</strong> ${escapeHtml(statusToSpanish(distribution.status))}</div>
-              <div><strong>Descripción:</strong> ${escapeHtml(distribution.description || "Sin descripción")}</div>
-              <div><strong>Envíos:</strong> ${shipmentList.length} | <strong>Total de productos en distribución:</strong> ${escapeHtml(formatQty(totalProductsInDistribution))}</div>
-              <div><strong>Regla:</strong> un envío por kiosko. La impresión separa en páginas de 10 productos.</div>
+            <div class="report-top">
+              <div class="report-top-main">
+                <h1>Reporte de Distribución ${escapeHtml(distribution.distributionNumber || distribution.id)}</h1>
+                <div class="meta">Generado: ${escapeHtml(generatedAt)}</div>
+                <div class="summary">
+                  <div><strong>Fecha:</strong> ${escapeHtml(formatDate(distribution.distributionDate))}</div>
+                  <div><strong>Estado:</strong> ${escapeHtml(statusToSpanish(distribution.status))}</div>
+                  <div><strong>Descripción:</strong> ${escapeHtml(distribution.description || "Sin descripción")}</div>
+                  <div><strong>Envíos:</strong> ${shipmentList.length} | <strong>Total de productos en distribución:</strong> ${escapeHtml(formatQty(totalProductsInDistribution))}</div>
+                  <div><strong>Regla:</strong> un envío por kiosko. La impresión separa en páginas de 10 productos.</div>
+                </div>
+              </div>
               ${
                 distributionQrDataUrl
-                  ? `<div class="summary-qr">
+                  ? `<aside class="report-top-qr">
                 <img src="${String(distributionQrDataUrl).replace(/"/g, "&quot;")}" alt="QR distribución" />
-                <div class="summary-qr-caption">Escanear en app Bodega PT — envíos de esta distribución</div>
-              </div>`
+                <div class="report-top-qr-caption">Escanear en app Bodega PT — envíos de esta distribución</div>
+              </aside>`
                   : ""
               }
             </div>
@@ -572,7 +614,18 @@ function ProductDistributions() {
             ${shipmentTables || `<div class="summary">No hay envíos registrados para esta distribución.</div>`}
             ${
               triggerPrint
-                ? `<script>window.onload = function(){ window.print(); };</script>`
+                ? `<script>
+  window.onload = function () {
+    function doPrint() {
+      try { window.print(); } catch (_e) {}
+    }
+    if (document.fonts && document.fonts.ready) {
+      document.fonts.ready.then(function () { setTimeout(doPrint, 100); });
+    } else {
+      setTimeout(doPrint, 150);
+    }
+  };
+</script>`
                 : ""
             }
           </body>

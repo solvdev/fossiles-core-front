@@ -43,13 +43,21 @@ import { getProductionOrders } from "services/productionOrderService";
 import { isManagedCinchoOrderType } from "utils/cinchoProductionHelper";
 import { showSuccess, showError } from "utils/notificationHelper";
 import TaskTicketPrint from "./TaskTicketPrint";
-import { taskMaterialsReady, taskSkipsMaterials } from "utils/materialRequirementHelper";
+import { taskSkipsMaterials } from "utils/materialRequirementHelper";
 import { formatDateGt, formatDateTimeGt } from "utils/dateTimeHelper";
 import { formatProductionOrderSelectLabel } from "utils/productionOrderDisplayHelper";
+import { openProductionTasksSheetPrintWindow } from "utils/productionTasksSheetPrintHtml";
 
 const MAX_HOURS_PER_DESK = 4;
 
-/** Badges familia distribución — colores explícitos (evita texto blanco sobre fondo blanco con temas Badge). */
+/** En tarjetas con fondo claro: Paper fuerza texto blanco en `.badge`, lo que deja cantidades ilegibles. */
+const BADGE_READABLE_ON_LIGHT = {
+  color: "#111827",
+  backgroundColor: "#fff",
+  border: "1px solid rgba(0,0,0,0.2)",
+  fontWeight: 600,
+};
+
 /** Reordenar array por índice (para lista prioridad distribución). */
 function reorderByIndex(prev, fromIndex, toIndex) {
   if (fromIndex === toIndex) return prev;
@@ -79,6 +87,7 @@ function formatDistributionOpCreatedAt(createdAt) {
   return "";
 }
 
+/** Badges familia distribución — colores explícitos (evita texto blanco sobre fondo blanco con temas Badge). */
 function DistribFamilyBadge({ family }) {
   const cfg = {
     OPV: { label: "OPV", short: "V", bg: "#0d47a1", fg: "#ffffff", subtle: "#e3f2fd" },
@@ -130,7 +139,7 @@ const DroppableColumn = React.memo(function DroppableColumn({ id, header, count,
     >
       <div style={{ padding: 10, borderBottom: "1px solid #eee", fontWeight: 700 }}>
         {header}
-        <Badge color="light" className="ml-2">{count}</Badge>
+        <Badge color="light" className="ml-2 text-dark">{count}</Badge>
       </div>
       <div style={{ padding: 10, display: "flex", flexDirection: "column", gap: 8 }}>
         {children}
@@ -522,11 +531,6 @@ function TasksByTable() {
   // ==================== HANDLERS ====================
 
   const handleStatusChange = async (taskId, newStatus) => {
-    const task = tasks.find((t) => t.id === taskId);
-    if (newStatus === "IN_PROGRESS" && !taskMaterialsReady(task)) {
-      showError("No puedes iniciar: primero entrega cuero, troquela, entra a mesa y entrega materiales (si aplica).");
-      return;
-    }
     try {
       const updated = await updateTaskStatus(taskId, newStatus);
       setTasks((prev) => prev.map((t) => (t.id === taskId ? updated : t)));
@@ -1055,6 +1059,15 @@ function TasksByTable() {
     });
   }, [tasks, filterDesk, filterDate, filterStatus, filterDieCut, searchTerm]);
 
+  const tasksForPrintSheet = useMemo(
+    () => filteredTasks.filter((t) => t && t.status !== "CANCELLED"),
+    [filteredTasks]
+  );
+
+  const handlePrintTasksSheet = useCallback(() => {
+    openProductionTasksSheetPrintWindow(tasksForPrintSheet, "Hoja de tareas (centro de producción)");
+  }, [tasksForPrintSheet]);
+
   // "Pendientes de asignar" deben ser solo tareas activas sin mesa (no incluir COMPLETED/CANCELLED).
   // Cuando una tarea se completa, se limpia desk para liberar capacidad, pero queda el historial en workedDesk.
   const unassignedTasks = useMemo(
@@ -1161,7 +1174,11 @@ function TasksByTable() {
             {compact ? "Cuero" : actionLabel}
           </Button>
           {totalItems > 0 && (
-            <Badge color={deliveredItems > 0 ? "info" : "secondary"}>
+            <Badge
+              color="light"
+              className="text-dark border"
+              style={{ ...BADGE_READABLE_ON_LIGHT, fontSize: compact ? "10px" : "11px", padding: compact ? "1px 6px" : undefined }}
+            >
               {deliveredItems}/{totalItems}
             </Badge>
           )}
@@ -1178,9 +1195,8 @@ function TasksByTable() {
           color="outline-secondary"
           size={small}
           style={style}
-          disabled={!leatherDone}
           onClick={() => handleDieCutToggle(task.id, false)}
-          title={!leatherDone ? "Primero debe completarse cuero" : "Registrar troquelado"}
+          title={!leatherDone ? "Aviso: cuero aún no registrado; puede marcar troquel si ya aplica" : "Registrar troquelado"}
         >
           Marcar troquel
         </Button>
@@ -1210,9 +1226,8 @@ function TasksByTable() {
             color="info"
             size={buttonSize}
             style={commonStyle}
-            disabled={!taskMaterialsReady(task)}
             onClick={() => handleStatusChange(task.id, "IN_PROGRESS")}
-            title={!taskMaterialsReady(task) ? "Primero debe tener materiales entregados (si aplica)" : "Iniciar tarea"}
+            title="Iniciar tarea (puede iniciar sin esperar otros estados)"
           >
             Iniciar
           </Button>
@@ -1290,7 +1305,7 @@ function TasksByTable() {
       <div key={i} style={{ fontSize: "11px", lineHeight: "1.3" }}>
         <strong>{item.productCode}</strong>
         {showName && item.productName && <span className="text-muted"> {item.productName}</span>}
-        {item.colorName && <Badge color="secondary" className="ml-1" style={{ fontSize: "9px" }}>{item.colorName}</Badge>}
+        {item.colorName && <Badge color="dark" className="ml-1" style={{ fontSize: "9px" }}>{item.colorName}</Badge>}
         {item.daySaleExtra && <Badge color="warning" className="ml-1" style={{ fontSize: "9px" }}>DIA</Badge>}
         {items.length > 1 && <span className="text-muted"> ×{item.quantity}</span>}
       </div>
@@ -1301,12 +1316,19 @@ function TasksByTable() {
     const totalMin = Math.round((task.estimatedHours || 0) * 60);
     const extraMin = Math.round(getTaskExtraHours(task) * 60);
     const baseMin = Math.max(totalMin - extraMin, 0);
+    const tone =
+      baseMin >= 210 ? "danger" :
+      baseMin >= 120 ? "warning" : "success";
     return (
       <Badge
-        color={
-          baseMin >= 210 ? "danger" :
-          baseMin >= 120 ? "warning" : "success"
-        }
+        color={tone}
+        className="font-weight-bold"
+        style={{
+          fontSize: "10px",
+          color: "#111827",
+          border: "1px solid rgba(0,0,0,0.12)",
+          backgroundColor: tone === "danger" ? "#fecaca" : tone === "warning" ? "#fef3c7" : "#bbf7d0",
+        }}
         title="Base 4h + extra venta del dia"
       >
         {extraMin > 0 ? `${baseMin}+${extraMin}min` : `${baseMin}min`}
@@ -1378,7 +1400,7 @@ function TasksByTable() {
                       onClick={() => setViewMode("operation")}
                     >
                       <i className="nc-icon nc-settings-gear-65 mr-1" />
-                      Operacion del Dia {stats.unassigned > 0 && <Badge color="light" className="ml-1">{stats.unassigned}</Badge>}
+                      Operacion del Dia {stats.unassigned > 0 && <Badge color="light" className="ml-1 text-dark">{stats.unassigned}</Badge>}
                     </Button>
                     <Button
                       color={viewMode === "schedule" ? "primary" : "outline-secondary"}
@@ -1428,6 +1450,17 @@ function TasksByTable() {
                     title="Guia paso a paso para nuevos usuarios"
                   >
                     <i className="nc-icon nc-bulb-63" /> Guia Rapida
+                  </Button>
+                  <Button
+                    color="info"
+                    outline
+                    size="sm"
+                    className="mr-2"
+                    onClick={handlePrintTasksSheet}
+                    disabled={loading}
+                    title="PDF con el subconjunto actual de filtros (excluye canceladas). Use Imprimir en la ventana emergente."
+                  >
+                    <i className="nc-icon nc-paper" /> Hoja de tareas (PDF)
                   </Button>
                   <Button color="info" size="sm" onClick={loadTasks} disabled={loading}>
                     <i className="nc-icon nc-refresh-69" /> Actualizar
@@ -1651,10 +1684,22 @@ function TasksByTable() {
                                     <div className="d-flex justify-content-between align-items-start mb-2">
                                       <div>
                                         <Badge color="dark" className="mr-1">{task.code}</Badge>
-                                        <Badge color="info">{task.productionOrderCode}</Badge>
+                                        <Badge
+                                          color="light"
+                                          className="text-dark border"
+                                          style={{ ...BADGE_READABLE_ON_LIGHT, fontSize: "11px" }}
+                                        >
+                                          {task.productionOrderCode}
+                                        </Badge>
                                       </div>
                                       <div className="text-right">
-                                        <Badge color="secondary">{task.quantity} uds</Badge>
+                                        <Badge
+                                          color="light"
+                                          className="text-dark border"
+                                          style={{ ...BADGE_READABLE_ON_LIGHT, fontSize: "10px" }}
+                                        >
+                                          {task.quantity} uds
+                                        </Badge>
                                       </div>
                                     </div>
 
@@ -1678,7 +1723,6 @@ function TasksByTable() {
                                           type="select"
                                           bsSize="sm"
                                           value={task.desk || ""}
-                                          disabled={!task.dieCutReady}
                                           onChange={(e) => handleScheduleField(task.id, "desk", e.target.value ? parseInt(e.target.value) : null)}
                                         >
                                           <option value="">—</option>
@@ -1693,7 +1737,6 @@ function TasksByTable() {
                                           type="date"
                                           bsSize="sm"
                                           value={task.scheduledDate || ""}
-                                          disabled={!task.dieCutReady}
                                           onChange={(e) => handleScheduleField(task.id, "scheduledDate", e.target.value)}
                                         />
                                       </Col>
@@ -1850,12 +1893,16 @@ function TasksByTable() {
                                                           <span key={i}>
                                                             {i > 0 && ", "}
                                                             <strong>{item.productCode}</strong>
-                                                            {item.colorName && <small className="text-muted">({item.colorName})</small>}
+                                                            {item.colorName && <small className="text-dark">({item.colorName})</small>}
                                                           </span>
                                                         ))}
                                                       </div>
                                                       <div className="d-flex align-items-center" style={{ gap: 4 }}>
-                                                        <Badge color="dark" style={{ fontSize: "10px" }}>
+                                                        <Badge
+                                                          color="light"
+                                                          className="text-dark border"
+                                                          style={{ ...BADGE_READABLE_ON_LIGHT, fontSize: "10px" }}
+                                                        >
                                                           {task.quantity} uds
                                                         </Badge>
                                                         <Button
@@ -1873,7 +1920,7 @@ function TasksByTable() {
 
                                                     {/* Row 2: Time + PO */}
                                                     <div className="d-flex justify-content-between mt-1">
-                                                      <small className="text-muted">
+                                                      <small className="text-dark">
                                                         {(() => {
                                                           const totalMin = Math.round((task.estimatedHours || 0) * 60);
                                                           const extraMin = Math.round(getTaskExtraHours(task) * 60);
@@ -1884,14 +1931,18 @@ function TasksByTable() {
                                                           <span className="ml-1">🕐 {task.startTime}</span>
                                                         )}
                                                       </small>
-                                                      <Badge color="light" style={{ fontSize: "10px", color: "#666" }}>
+                                                      <Badge
+                                                        color="light"
+                                                        className="text-dark border"
+                                                        style={{ ...BADGE_READABLE_ON_LIGHT, fontSize: "10px" }}
+                                                      >
                                                         {task.productionOrderCode}
                                                       </Badge>
                                                     </div>
 
                                                     {/* Row 3: Actions */}
                                                     <div className="d-flex align-items-center mt-1" style={{ gap: "4px" }}>
-                                                      <small className="text-muted" title="Hora de inicio automática">
+                                                      <small className="text-dark" title="Hora de inicio automática">
                                                         {task.startTime || "Auto al iniciar"}
                                                       </small>
                                                       <div style={{ flex: 1, minWidth: 120 }}>
@@ -1987,7 +2038,6 @@ function TasksByTable() {
                                         bsSize="sm"
                                         value={task.desk || ""}
                                         style={{ fontSize: "12px" }}
-                                        disabled={!task.dieCutReady}
                                         onChange={(e) => handleScheduleField(task.id, "desk", e.target.value ? parseInt(e.target.value) : null)}
                                       >
                                         <option value="">—</option>
@@ -2002,7 +2052,6 @@ function TasksByTable() {
                                         bsSize="sm"
                                         value={task.scheduledDate || ""}
                                         style={{ fontSize: "11px" }}
-                                        disabled={!task.dieCutReady}
                                         onChange={(e) => handleScheduleField(task.id, "scheduledDate", e.target.value)}
                                       />
                                     </td>

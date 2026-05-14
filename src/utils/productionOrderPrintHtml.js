@@ -14,6 +14,15 @@ function parseNumericSize(key) {
   return Number.isFinite(n) ? n : null;
 }
 
+/** Unifica guiones Unicode y espacios para que "L-28" y "L‐28" agrupen igual. */
+function normalizeProductCodeKey(code) {
+  return String(code || "")
+    .normalize("NFKC")
+    .replace(/[\u2010\u2011\u2012\u2013\u2014\u2015\u2212\uFE58\uFE63\uFF0D]/g, "-")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 /** Niño/niña vs dama/caballero según plan; fuera de rango va a "otras". */
 function sizeBand(n) {
   if (n >= 16 && n <= 26) return "youth";
@@ -24,8 +33,7 @@ function sizeBand(n) {
 function collectCinchoSizesUnion(items) {
   const set = new Set();
   (items || []).forEach((item) => {
-    const sizes = item?.sizes && typeof item.sizes === "object" ? item.sizes : null;
-    if (!sizes) return;
+    const sizes = coerceSizesMap(item?.sizes);
     Object.entries(sizes).forEach(([k, qty]) => {
       if (Number(qty || 0) <= 0) return;
       const n = parseNumericSize(k);
@@ -49,7 +57,7 @@ function partitionSizes(sizes) {
 }
 
 function rowTotalFromSizes(item, columnSizes) {
-  const sizes = item?.sizes && typeof item.sizes === "object" ? item.sizes : {};
+  const sizes = coerceSizesMap(item?.sizes);
   let sum = 0;
   columnSizes.forEach((n) => {
     const q = sizes[String(n)] ?? sizes[n];
@@ -58,26 +66,102 @@ function rowTotalFromSizes(item, columnSizes) {
   return sum;
 }
 
-/** Orden estable para impresión: mismo código junto (el API suele devolver ítems por orden de alta, no por código). */
-function sortCinchoItemsForPrint(items) {
-  return [...items].sort((a, b) => {
-    const ca = String(a?.productCode || "").trim();
-    const cb = String(b?.productCode || "").trim();
-    const codeCmp = ca.localeCompare(cb, "es", { numeric: true, sensitivity: "base" });
-    if (codeCmp !== 0) return codeCmp;
-    const cola = String(a?.colorName || "").trim();
-    const colb = String(b?.colorName || "").trim();
-    const colorCmp = cola.localeCompare(colb, "es", { sensitivity: "base" });
-    if (colorCmp !== 0) return colorCmp;
-    return Number(a?.productId || 0) - Number(b?.productId || 0);
+/** Unifica nombre de color para agrupar (misma fila si el nombre es el mismo salvo mayúsculas/espacios). */
+function normalizeColorKey(name) {
+  return String(name ?? "")
+    .normalize("NFKC")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLocaleLowerCase("es");
+}
+
+/** Clave de agrupación: mismo código + mismo color (por id si viene, si no por nombre normalizado). */
+function cinchoLineGroupKey(item) {
+  const codeKey = normalizeProductCodeKey(item?.productCode) || "-";
+  const cid = item?.colorId;
+  if (cid != null && cid !== "") {
+    const n = Number(cid);
+    if (Number.isFinite(n)) return `${codeKey}|||id:${n}`;
+    const s = String(cid).trim();
+    if (s) return `${codeKey}|||id:${s}`;
+  }
+  const colorPart = String(item?.colorName || "").trim();
+  return `${codeKey}|||name:${normalizeColorKey(colorPart)}`;
+}
+
+/**
+ * Una fila por (código + color): suma tallas solo dentro de esa pareja.
+ * Líneas duplicadas del mismo código y color (p. ej. API/BD) siguen consolidándose en una sola fila.
+ */
+function mergeCinchoItemsByProductCodeAndColor(items) {
+  const map = new Map();
+  (items || []).forEach((item) => {
+    const key = cinchoLineGroupKey(item);
+    const sizes = coerceSizesMap(item?.sizes);
+    const displayCode = String(item?.productCode || "").trim() || "-";
+    const colorPart = String(item?.colorName || "").trim();
+
+    if (!map.has(key)) {
+      map.set(key, {
+        productCode: displayCode,
+        colorName: colorPart || "-",
+        sizes: {},
+        observationParts: [],
+      });
+    }
+    const g = map.get(key);
+    if (displayCode !== "-" && g.productCode === "-") g.productCode = displayCode;
+    if (colorPart && (g.colorName === "-" || !String(g.colorName || "").trim())) g.colorName = colorPart;
+
+    Object.entries(sizes).forEach(([k, qty]) => {
+      const n = parseNumericSize(k);
+      if (n == null) return;
+      const add = Number(qty || 0);
+      if (add <= 0) return;
+      const sk = String(n);
+      g.sizes[sk] = (g.sizes[sk] || 0) + add;
+    });
+    const obs = String(item?.observations || "").trim();
+    if (obs) g.observationParts.push(obs);
   });
+
+  return Array.from(map.values())
+    .map((g) => ({
+      productCode: g.productCode,
+      colorName: String(g.colorName || "").trim() || "-",
+      sizes: g.sizes,
+      observations: Array.from(new Set(g.observationParts)).join("; "),
+    }))
+    .filter((g) => Object.keys(g.sizes).length > 0 || g.observations)
+    .sort((a, b) => {
+      const ca = normalizeProductCodeKey(a.productCode) || a.productCode;
+      const cb = normalizeProductCodeKey(b.productCode) || b.productCode;
+      const c0 = ca.localeCompare(cb, "es", { numeric: true, sensitivity: "base" });
+      if (c0 !== 0) return c0;
+      return String(a.colorName || "").localeCompare(String(b.colorName || ""), "es", { sensitivity: "base" });
+    });
+}
+
+function coerceSizesMap(sizes) {
+  if (sizes == null) return {};
+  if (typeof sizes === "string") {
+    try {
+      const p = JSON.parse(sizes);
+      return p && typeof p === "object" && !Array.isArray(p) ? p : {};
+    } catch {
+      return {};
+    }
+  }
+  if (typeof sizes === "object" && !Array.isArray(sizes)) return sizes;
+  return {};
 }
 
 /**
  * Tabla cinchos: solo tallas presentes en la orden; grupos NIÑO/NIÑA y DAMA/CABALLERO según datos.
  */
 export function buildCinchoDetailTableHtml(order) {
-  const items = sortCinchoItemsForPrint(Array.isArray(order?.items) ? order.items : []);
+  const raw = Array.isArray(order?.items) ? order.items : [];
+  const items = mergeCinchoItemsByProductCodeAndColor(raw);
   const columnSizes = collectCinchoSizesUnion(items);
   const { youth, adult, other } = partitionSizes(columnSizes);
 
@@ -121,17 +205,17 @@ export function buildCinchoDetailTableHtml(order) {
     .map((item) => {
       const code = item.productCode || "-";
       const color = item.colorName || "-";
-      const obs = String(item.observations || "").trim();
+      const obs = String(item.observations ?? "").trim();
       const rt = rowTotalFromSizes(item, sizeCols);
       sizeCols.forEach((n, i) => {
-        const sizes = item?.sizes && typeof item.sizes === "object" ? item.sizes : {};
+        const sizes = coerceSizesMap(item?.sizes);
         const raw = sizes[String(n)] ?? sizes[n];
         const q = Number(raw || 0);
         if (q > 0) sizeTotals[i] += q;
       });
       const cells = sizeCols
         .map((n) => {
-          const sizes = item?.sizes && typeof item.sizes === "object" ? item.sizes : {};
+          const sizes = coerceSizesMap(item?.sizes);
           const raw = sizes[String(n)] ?? sizes[n];
           const q = Number(raw || 0);
           const show = q > 0 ? String(q) : "";

@@ -31,7 +31,7 @@ import {
   deleteShipment,
   completeDistribution,
 } from "services/productDistributionService";
-import { getProductInventoryByLocation } from "services/productInventoryService";
+import { getProductInventoryByLocation, getProductInventoryByProductAndLocation } from "services/productInventoryService";
 import { getLocations } from "services/locationService";
 import { getColors } from "services/colorService";
 import { getAuthHeader } from "services/authService";
@@ -39,6 +39,16 @@ import { showError, showSuccess } from "utils/notificationHelper";
 import { formatDateGt } from "utils/dateTimeHelper";
 import QRCode from "qrcode";
 import { getPublicFrontBaseUrl, buildPtDispatchDistributionUrl } from "utils/ptDispatchQr";
+
+/** Códigos de ubicación de devoluciones (alineado con backend OnlineSaleProductionOrderService). */
+const RETURNS_WAREHOUSE_CODES = new Set([
+  "BODEGA_DEVOLUCIONES",
+  "BODEGA_DEV",
+  "DEVOLUCION",
+  "DEVOLUCIONES",
+  "BODEGA_RET",
+  "BODEGA_RETURN",
+]);
 
 function KioskTypeahead({ locations, value, onChange, disabled }) {
   const [open, setOpen] = useState(false);
@@ -205,6 +215,8 @@ function ProductDistributionDetail() {
   const [packingUnitPriceInput, setPackingUnitPriceInput] = useState("");
   const pageSize = 12;
   const [distributionQrDataUrl, setDistributionQrDataUrl] = useState("");
+  const hubStockFetchSeq = useRef(0);
+  const [hubStockByKey, setHubStockByKey] = useState({});
 
   // Estado para el formulario de nueva distribución
   const [distributionForm, setDistributionForm] = useState({
@@ -329,6 +341,22 @@ function ProductDistributionDetail() {
         };
       });
   }, [shipmentPacking, packingMaterials, shipmentPackingPrice]);
+
+  const hubLocationIds = useMemo(() => {
+    const list = locations || [];
+    let ptLocationId = null;
+    let returnsLocationId = null;
+    for (const loc of list) {
+      const code = String(loc.code || "").trim().toUpperCase();
+      if (code === "BODEGA_PT" && ptLocationId == null) {
+        ptLocationId = loc.id;
+      }
+      if (RETURNS_WAREHOUSE_CODES.has(code) && returnsLocationId == null) {
+        returnsLocationId = loc.id;
+      }
+    }
+    return { ptLocationId, returnsLocationId };
+  }, [locations]);
 
   useEffect(() => {
     console.log("ProductDistributionDetail useEffect - id:", id, "isNew:", isNew);
@@ -873,6 +901,122 @@ function ProductDistributionDetail() {
   }, [filteredInventory, inventoryPage, totalInventoryPages]);
 
   useEffect(() => {
+    if (!selectedLocation || !pagedInventory.length) {
+      setHubStockByKey({});
+      return undefined;
+    }
+    const { ptLocationId, returnsLocationId } = hubLocationIds;
+    if (!ptLocationId && !returnsLocationId) {
+      setHubStockByKey({});
+      return undefined;
+    }
+
+    let cancelled = false;
+    const seq = ++hubStockFetchSeq.current;
+
+    const readHubQuantity = (response, cincho, sizeNorm) => {
+      if (!response) return 0;
+      if (!cincho) {
+        const q = parseFloat(response.quantity);
+        return Number.isFinite(q) ? q : 0;
+      }
+      const sizes = response.sizes || {};
+      for (const [k, v] of Object.entries(sizes)) {
+        if (normalizeShipmentSize(k) === sizeNorm) {
+          const q = parseFloat(v);
+          return Number.isFinite(q) ? q : 0;
+        }
+      }
+      return 0;
+    };
+
+    const timer = setTimeout(async () => {
+      if (cancelled) return;
+
+      const loadingMap = {};
+      pagedInventory.forEach((item) => {
+        const pid = item.productId;
+        const colorRaw = shipmentColors[pid];
+        const colorId =
+          colorRaw === "" || colorRaw === null || colorRaw === undefined
+            ? null
+            : parseInt(colorRaw, 10);
+        const cincho = isCinchoProduct(item.productCode, item.productName);
+        const sizeNorm = cincho ? normalizeShipmentSize(shipmentSizes[pid] || "") : "";
+        const key = buildShipmentKey(pid, colorId, cincho ? sizeNorm : "");
+        loadingMap[key] = {
+          loading: true,
+          needSize: cincho && !sizeNorm,
+          dev: null,
+          pt: null,
+        };
+      });
+      setHubStockByKey(loadingMap);
+
+      let anyFetchError = false;
+      const next = { ...loadingMap };
+
+      await Promise.all(
+        pagedInventory.map(async (item) => {
+          const pid = item.productId;
+          const colorRaw = shipmentColors[pid];
+          const colorId =
+            colorRaw === "" || colorRaw === null || colorRaw === undefined
+              ? null
+              : parseInt(colorRaw, 10);
+          const cincho = isCinchoProduct(item.productCode, item.productName);
+          const sizeNorm = cincho ? normalizeShipmentSize(shipmentSizes[pid] || "") : "";
+          const key = buildShipmentKey(pid, colorId, cincho ? sizeNorm : "");
+
+          if (cincho && !sizeNorm) {
+            next[key] = { loading: false, needSize: true, dev: null, pt: null, devError: false, ptError: false };
+            return;
+          }
+
+          const fetchLoc = async (locId) => {
+            if (!locId) return { qty: null, error: false };
+            try {
+              const res = await getProductInventoryByProductAndLocation(pid, locId, colorId);
+              return { qty: readHubQuantity(res, cincho, sizeNorm), error: false };
+            } catch (_e) {
+              return { qty: null, error: true };
+            }
+          };
+
+          const [devRes, ptRes] = await Promise.all([
+            fetchLoc(returnsLocationId),
+            fetchLoc(ptLocationId),
+          ]);
+
+          if (devRes.error || ptRes.error) {
+            anyFetchError = true;
+          }
+
+          next[key] = {
+            loading: false,
+            needSize: false,
+            dev: returnsLocationId ? devRes.qty : null,
+            pt: ptLocationId ? ptRes.qty : null,
+            devError: Boolean(returnsLocationId && devRes.error),
+            ptError: Boolean(ptLocationId && ptRes.error),
+          };
+        })
+      );
+
+      if (cancelled || hubStockFetchSeq.current !== seq) return;
+      if (anyFetchError) {
+        console.warn("ProductDistributionDetail: fallo al cargar stock en bodega PT o devoluciones (revisar red o permisos).");
+      }
+      setHubStockByKey(next);
+    }, 320);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [selectedLocation, pagedInventory, shipmentColors, shipmentSizes, hubLocationIds]);
+
+  useEffect(() => {
     setInventoryPage(1);
   }, [selectedLocation, inventorySearch, onlySelectedProducts]);
 
@@ -1298,6 +1442,10 @@ function ProductDistributionDetail() {
                           <small className="text-muted ml-2">
                             (Modifica las cantidades para asignar productos al envío)
                           </small>
+                          <br />
+                          <small className="text-muted">
+                            Stock devoluciones y Stock PT muestran la variante elegida (color y talla en CINCHO).
+                          </small>
                         </Label>
                         <Row className="mb-2">
                           <Col md="5">
@@ -1332,6 +1480,8 @@ function ProductDistributionDetail() {
                               <th>Stock Actual en Kiosko</th>
                               <th>Color</th>
                               <th>Talla</th>
+                              <th>Stock devoluciones</th>
+                              <th>Stock PT</th>
                               <th>Cantidad a Enviar</th>
                             </tr>
                           </thead>
@@ -1344,6 +1494,44 @@ function ProductDistributionDetail() {
                               const displayValue = quantityInputs[item.productId] !== undefined 
                                 ? quantityInputs[item.productId] 
                                 : "";
+                              const colorRaw = shipmentColors[item.productId];
+                              const rowColorId =
+                                colorRaw === "" || colorRaw === null || colorRaw === undefined
+                                  ? null
+                                  : parseInt(colorRaw, 10);
+                              const rowSizeNorm = isCincho
+                                ? normalizeShipmentSize(shipmentSizes[item.productId] || "")
+                                : "";
+                              const hubKey = buildShipmentKey(
+                                item.productId,
+                                rowColorId,
+                                isCincho ? rowSizeNorm : ""
+                              );
+                              const hub = hubStockByKey[hubKey] || {};
+                              const { ptLocationId: ptLocId, returnsLocationId: retLocId } = hubLocationIds;
+                              const renderHubCell = (side) => {
+                                const locId = side === "dev" ? retLocId : ptLocId;
+                                if (!locId) {
+                                  return <span className="text-muted">N/D</span>;
+                                }
+                                if (hub.loading) {
+                                  return <Spinner size="sm" color="primary" />;
+                                }
+                                if (hub.needSize) {
+                                  return <small className="text-muted">Elija talla</small>;
+                                }
+                                const val = side === "dev" ? hub.dev : hub.pt;
+                                const err = side === "dev" ? hub.devError : hub.ptError;
+                                if (err || val === null) {
+                                  return <small className="text-muted">—</small>;
+                                }
+                                const n = Number(val);
+                                return (
+                                  <strong className={n === 0 ? "text-muted" : "text-primary"}>
+                                    {Number.isFinite(n) ? n.toFixed(3) : "—"}
+                                  </strong>
+                                );
+                              };
                               return (
                                 <tr key={item.productId} className={hasQuantity ? "table-info" : ""}>
                                   <td>{item.productCode || "N/A"}</td>
@@ -1393,6 +1581,8 @@ function ProductDistributionDetail() {
                                       <small className="text-muted">N/A</small>
                                     )}
                                   </td>
+                                  <td>{renderHubCell("dev")}</td>
+                                  <td>{renderHubCell("pt")}</td>
                                   <td>
                                     <div className="d-flex align-items-center">
                                       <Input

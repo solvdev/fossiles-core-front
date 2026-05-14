@@ -200,11 +200,11 @@ export const setTaskItemLeatherDelivery = async (taskId, taskItemId, delivered) 
   return response.json();
 };
 
-export const setMaterialsDelivery = async (id, delivered) => {
+export const setMaterialsDelivery = async (id, delivered, force = false) => {
   const response = await fetch(`${API_URL}/tasks/${id}/materials-delivery`, {
     method: 'PUT',
     headers: headers(),
-    body: JSON.stringify({ delivered })
+    body: JSON.stringify({ delivered, force: Boolean(force) })
   });
   if (!response.ok) {
     const err = await response.json().catch(() => ({ message: 'Error al actualizar entrega de materiales' }));
@@ -213,11 +213,11 @@ export const setMaterialsDelivery = async (id, delivered) => {
   return response.json();
 };
 
-export const setTaskItemMaterialsDelivery = async (taskId, taskItemId, delivered) => {
+export const setTaskItemMaterialsDelivery = async (taskId, taskItemId, delivered, force = false) => {
   const response = await fetch(`${API_URL}/tasks/${taskId}/materials-delivery/item/${taskItemId}`, {
     method: 'PUT',
     headers: headers(),
-    body: JSON.stringify({ delivered })
+    body: JSON.stringify({ delivered, force: Boolean(force) })
   });
   if (!response.ok) {
     const err = await response.json().catch(() => ({ message: 'Error al actualizar entrega de materiales por producto' }));
@@ -241,9 +241,13 @@ export const bulkDieCut = async (productionOrderId, dieCutReady) => {
 
 // ==================== MATERIALS VIEW ====================
 
-export const getMaterialsView = async (date) => {
-  const params = date ? `?date=${date}` : '';
-  const response = await fetch(`${API_URL}/tasks/materials-view${params}`, { headers: headers() });
+export const getMaterialsView = async (date, options = {}) => {
+  const params = new URLSearchParams();
+  if (date) params.append('date', date);
+  if (options.includeDelivered) params.append('includeDelivered', 'true');
+  if (options.scheduleDay) params.append('scheduleDay', 'true');
+  const qs = params.toString() ? `?${params.toString()}` : '';
+  const response = await fetch(`${API_URL}/tasks/materials-view${qs}`, { headers: headers() });
   if (!response.ok) {
     const err = await response.json().catch(() => ({ message: 'Error al obtener vista de materiales' }));
     throw new Error(err.message || 'Error al obtener vista de materiales');
@@ -251,11 +255,30 @@ export const getMaterialsView = async (date) => {
   return response.json();
 };
 
-export const getMaterialsViewByOrder = async (productionOrderId) => {
-  const response = await fetch(`${API_URL}/tasks/materials-view/production-order/${productionOrderId}`, { headers: headers() });
+export const getMaterialsViewByOrder = async (productionOrderId, options = {}) => {
+  const params = new URLSearchParams();
+  if (options.includeDelivered) params.append('includeDelivered', 'true');
+  const qs = params.toString() ? `?${params.toString()}` : '';
+  const response = await fetch(`${API_URL}/tasks/materials-view/production-order/${productionOrderId}${qs}`, { headers: headers() });
   if (!response.ok) {
     const err = await response.json().catch(() => ({ message: 'Error al obtener vista de materiales' }));
     throw new Error(err.message || 'Error al obtener vista de materiales');
+  }
+  return response.json();
+};
+
+export const setTaskItemMaterialPick = async (taskId, taskItemId, materialId, picked) => {
+  const response = await fetch(
+    `${API_URL}/tasks/${taskId}/materials-pick/item/${taskItemId}/material/${materialId}`,
+    {
+      method: 'PUT',
+      headers: headers(),
+      body: JSON.stringify({ picked: Boolean(picked) }),
+    }
+  );
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ message: 'Error al actualizar línea de receta' }));
+    throw new Error(err.message || 'Error al actualizar línea de receta');
   }
   return response.json();
 };
