@@ -9,6 +9,80 @@ export function escapeHtml(value) {
     .replace(/'/g, "&#039;");
 }
 
+/** Quita sufijo "(N)" previo para no duplicar al reagrupar. */
+export function normalizeObservationText(value) {
+  return String(value ?? "")
+    .trim()
+    .replace(/\s*\(\d+\)\s*$/u, "")
+    .trim();
+}
+
+/** Acumula observación ponderada por unidades (tallas o cantidad de línea). */
+export function addObservationCount(parts, observation, quantity = 1) {
+  const text = normalizeObservationText(observation);
+  if (!text) return;
+  const n = Math.max(1, Number(quantity) || 0);
+  parts.push({ text, count: n });
+}
+
+/** Agrupa textos de observación y formatea "texto (N); ..." (N = unidades con esa observación). */
+export function formatObservationsWithCounts(parts) {
+  const order = [];
+  const counts = new Map();
+  (parts || []).forEach((part) => {
+    let text;
+    let weight = 1;
+    if (part != null && typeof part === "object") {
+      text = normalizeObservationText(part.text ?? part.observation ?? "");
+      weight = Math.max(0, Number(part.count ?? part.qty ?? 1));
+    } else {
+      text = normalizeObservationText(part);
+      weight = 1;
+    }
+    if (!text || weight <= 0) return;
+    if (!counts.has(text)) {
+      order.push(text);
+      counts.set(text, 0);
+    }
+    counts.set(text, counts.get(text) + weight);
+  });
+  if (!order.length) return "";
+  return order
+    .map((text) => {
+      const n = counts.get(text) || 0;
+      return `${text} (${n})`;
+    })
+    .join("; ");
+}
+
+/** Comentarios por color: "Rojo: Urgente (2); Logo | Azul: Revisar talla". */
+export function formatObservationsByColor(observationsByColor, colorOrder = []) {
+  const byColor = observationsByColor || {};
+  const seen = new Set();
+  const colors = [];
+  (colorOrder || []).forEach((c) => {
+    const key = String(c || "").trim() || "-";
+    if (!byColor[key]?.length || seen.has(key)) return;
+    seen.add(key);
+    colors.push(key);
+  });
+  Object.keys(byColor)
+    .filter((c) => byColor[c]?.length && !seen.has(c))
+    .sort((a, b) => a.localeCompare(b, "es", { sensitivity: "base" }))
+    .forEach((c) => {
+      seen.add(c);
+      colors.push(c);
+    });
+  if (!colors.length) return "";
+  return colors
+    .map((color) => {
+      const block = formatObservationsWithCounts(byColor[color]);
+      return block ? `${color}: ${block}` : "";
+    })
+    .filter(Boolean)
+    .join(" | ");
+}
+
 function parseNumericSize(key) {
   const n = Number.parseInt(String(key).trim(), 10);
   return Number.isFinite(n) ? n : null;
@@ -30,7 +104,7 @@ function sizeBand(n) {
   return "other";
 }
 
-function collectCinchoSizesUnion(items) {
+export function collectCinchoSizesUnion(items) {
   const set = new Set();
   (items || []).forEach((item) => {
     const sizes = coerceSizesMap(item?.sizes);
@@ -43,7 +117,7 @@ function collectCinchoSizesUnion(items) {
   return Array.from(set).sort((a, b) => a - b);
 }
 
-function partitionSizes(sizes) {
+export function partitionSizes(sizes) {
   const youth = [];
   const adult = [];
   const other = [];
@@ -56,7 +130,7 @@ function partitionSizes(sizes) {
   return { youth, adult, other };
 }
 
-function rowTotalFromSizes(item, columnSizes) {
+export function rowTotalFromSizes(item, columnSizes) {
   const sizes = coerceSizesMap(item?.sizes);
   let sum = 0;
   columnSizes.forEach((n) => {
@@ -93,7 +167,7 @@ function cinchoLineGroupKey(item) {
  * Una fila por (código + color): suma tallas solo dentro de esa pareja.
  * Líneas duplicadas del mismo código y color (p. ej. API/BD) siguen consolidándose en una sola fila.
  */
-function mergeCinchoItemsByProductCodeAndColor(items) {
+export function mergeCinchoItemsByProductCodeAndColor(items) {
   const map = new Map();
   (items || []).forEach((item) => {
     const key = cinchoLineGroupKey(item);
@@ -122,7 +196,10 @@ function mergeCinchoItemsByProductCodeAndColor(items) {
       g.sizes[sk] = (g.sizes[sk] || 0) + add;
     });
     const obs = String(item?.observations || "").trim();
-    if (obs) g.observationParts.push(obs);
+    if (obs) {
+      const lineQty = Object.values(sizes).reduce((s, q) => s + Number(q || 0), 0);
+      addObservationCount(g.observationParts, obs, lineQty || 1);
+    }
   });
 
   return Array.from(map.values())
@@ -130,7 +207,7 @@ function mergeCinchoItemsByProductCodeAndColor(items) {
       productCode: g.productCode,
       colorName: String(g.colorName || "").trim() || "-",
       sizes: g.sizes,
-      observations: Array.from(new Set(g.observationParts)).join("; "),
+      observations: formatObservationsWithCounts(g.observationParts),
     }))
     .filter((g) => Object.keys(g.sizes).length > 0 || g.observations)
     .sort((a, b) => {
@@ -142,7 +219,7 @@ function mergeCinchoItemsByProductCodeAndColor(items) {
     });
 }
 
-function coerceSizesMap(sizes) {
+export function coerceSizesMap(sizes) {
   if (sizes == null) return {};
   if (typeof sizes === "string") {
     try {
@@ -255,7 +332,7 @@ export function buildCinchoDetailTableHtml(order) {
     </table>`;
 }
 
-function groupKeyForNormalItem(item, orderType) {
+export function groupKeyForNormalItem(item, orderType) {
   const code = String(item?.productCode || item?.productId || "").trim();
   if (orderType === "MARCAS") {
     return `${code}|||${String(item?.brandName || "").trim()}`;
@@ -263,7 +340,7 @@ function groupKeyForNormalItem(item, orderType) {
   return code;
 }
 
-function itemLineQty(item) {
+export function itemLineQty(item) {
   const sizes = item?.sizes && typeof item.sizes === "object" ? item.sizes : null;
   if (sizes && Object.keys(sizes).length > 0) {
     return Object.values(sizes).reduce((s, q) => s + Number(q || 0), 0);
@@ -303,7 +380,7 @@ export function buildNormalColorMatrixTableHtml(order) {
         productName: item.productName || "-",
         brandName: item.brandName || "-",
         colorQty: {},
-        observations: [],
+        observationsByColor: {},
       });
     }
     const g = groups.get(key);
@@ -311,7 +388,10 @@ export function buildNormalColorMatrixTableHtml(order) {
     const qty = itemLineQty(item);
     g.colorQty[cname] = (g.colorQty[cname] || 0) + qty;
     const obs = String(item?.observations || "").trim();
-    if (obs) g.observations.push(obs);
+    if (obs) {
+      if (!g.observationsByColor[cname]) g.observationsByColor[cname] = [];
+      addObservationCount(g.observationsByColor[cname], obs, qty);
+    }
   });
 
   const headerCols = [
@@ -334,7 +414,7 @@ export function buildNormalColorMatrixTableHtml(order) {
         const show = v > 0 ? String(v) : "";
         return `<td class="numeric">${escapeHtml(show)}</td>`;
       });
-      const obsJoined = Array.from(new Set(g.observations)).join("; ");
+      const obsJoined = formatObservationsByColor(g.observationsByColor, colorColumns);
       return `
         <tr>
           <td>${escapeHtml(g.productCode)}</td>
@@ -366,8 +446,9 @@ export function buildNormalColorMatrixTableHtml(order) {
     </table>`;
 }
 
-/** Barra de orientación + script (no imprimible). */
-export function getPrintOrientationToolbarHtml() {
+/** Barra de orientación + script (no imprimible). initialLandscape = elección del modal. */
+export function getPrintOrientationToolbarHtml(initialLandscape = false) {
+  const init = initialLandscape ? "true" : "false";
   return `
     <div class="no-print print-toolbar">
       <span class="print-toolbar-label">Orientación:</span>
@@ -378,6 +459,7 @@ export function getPrintOrientationToolbarHtml() {
     <script>
       (function () {
         var KEY = "op-print-orientation";
+        var INITIAL = ${init};
         function injectPageStyle(landscape) {
           var el = document.getElementById("print-page-size");
           if (!el) {
@@ -389,6 +471,10 @@ export function getPrintOrientationToolbarHtml() {
             ? "@page { size: letter landscape; margin: 9mm; }"
             : "@page { size: letter portrait; margin: 9mm; }";
           document.body.classList.toggle("layout-landscape", !!landscape);
+          var p = document.getElementById("op-print-portrait");
+          var l = document.getElementById("op-print-landscape");
+          if (p) p.classList.toggle("print-toolbar-active", !landscape);
+          if (l) l.classList.toggle("print-toolbar-active", !!landscape);
         }
         function setOrientation(landscape) {
           injectPageStyle(landscape);
@@ -402,12 +488,7 @@ export function getPrintOrientationToolbarHtml() {
         if (p) p.onclick = function () { setOrientation(false); };
         if (l) l.onclick = function () { setOrientation(true); };
         if (g) g.onclick = function () { window.print(); };
-        try {
-          var pref = localStorage.getItem(KEY);
-          setOrientation(pref === "landscape");
-        } catch (e) {
-          injectPageStyle(false);
-        }
+        setOrientation(INITIAL);
       })();
     </script>`;
 }

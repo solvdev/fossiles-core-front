@@ -1,107 +1,72 @@
 import { escapeHtml, getPrintOrientationToolbarHtml } from "./productionOrderPrintHtml";
+import { formatDateGt } from "./dateTimeHelper";
 
-const STATUS_LABELS = {
-  PENDING: "Pendiente",
-  IN_PROGRESS: "En proceso",
-  COMPLETED: "Completada",
-  CANCELLED: "Cancelada",
-};
-
-function taskStatusLabel(status) {
-  const s = String(status || "").toUpperCase();
-  return STATUS_LABELS[s] || status || "-";
-}
-
-function collectColorColumns(tasks) {
-  const set = new Set();
-  (tasks || []).forEach((t) => {
-    if (!t || t.status === "CANCELLED") return;
-    const cn = String(t.colorName || "").trim();
-    if (cn) set.add(cn);
-    (t.items || []).forEach((it) => {
-      const c = String(it?.colorName || "").trim();
-      if (c) set.add(c);
-    });
-  });
-  return Array.from(set).sort((a, b) => a.localeCompare(b, "es", { sensitivity: "base" }));
-}
-
-function qtyForTaskColor(task, colorCol) {
-  const items = task?.items || [];
-  if (items.length > 0) {
-    return items
-      .filter((it) => String(it?.colorName || "").trim() === colorCol)
-      .reduce((s, it) => s + Number(it?.quantity || 0), 0);
-  }
-  if (String(task?.colorName || "").trim() === colorCol) {
-    return Number(task?.quantity || 0);
-  }
-  return 0;
-}
-
-function articleSummary(task) {
-  const items = task?.items || [];
-  if (items.length > 0) {
-    const parts = items.map((it) => {
-      const c = it?.productCode || "";
-      const n = it?.productName || "";
-      const q = it?.quantity != null ? ` (${it.quantity})` : "";
-      if (c && n) return `${c} ${n}${q}`;
-      return (c || n || "?") + q;
-    });
-    return Array.from(new Set(parts)).join("; ");
-  }
-  const c = task?.productCode || "";
-  const n = task?.productName || "";
-  if (c && n) return `${c} ${n}`;
-  return c || n || "-";
-}
-
-/**
- * Tabla principal para la hoja de tareas del centro de producción.
- */
-export function buildProductionTasksSheetTableHtml(tasks) {
-  const list = (tasks || []).filter((t) => t && t.status !== "CANCELLED");
-  const colors = collectColorColumns(list);
+/** @param {{ rows: object[], colorColumns: { normKey: string, header: string }[], emptyMessage?: string|null, workDateYmd?: string, deskSupervisorLegend?: string }} model */
+export function buildProductionTasksSheetTableHtml(model) {
+  const { rows, colorColumns, emptyMessage, workDateYmd, deskSupervisorLegend } = model || {};
+  const list = rows || [];
+  const colors = colorColumns || [];
+  const legendBlock =
+    deskSupervisorLegend && String(deskSupervisorLegend).trim()
+      ? `<p class="desk-legend" style="font-size:9px;line-height:1.35;margin:0 0 8px;color:#222;">${escapeHtml(
+          deskSupervisorLegend
+        )}</p>`
+      : "";
 
   if (list.length === 0) {
-    return `<table class="tasks-sheet"><tbody><tr><td>Sin tareas para listar.</td></tr></tbody></table>`;
+    const msg = emptyMessage || "Sin tareas para listar.";
+    const sub =
+      workDateYmd != null
+        ? `<p style="margin:4px 0 0;font-size:11px;color:#444;">Fecha de trabajo: ${escapeHtml(formatDateGt(workDateYmd))}</p>`
+        : "";
+    return `${legendBlock}<table class="tasks-sheet"><tbody><tr><td>${escapeHtml(msg)}</td></tr></tbody></table>${sub}`;
   }
 
-  const headColors = colors.map((c) => `<th>${escapeHtml(c)}</th>`).join("");
-  const rows = list
-    .map((task) => {
-      const op = escapeHtml(task.productionOrderCode || "-");
-      const st = escapeHtml(taskStatusLabel(task.status));
-      const art = escapeHtml(articleSummary(task));
+  const headColors = colors
+    .map((c) => `<th class="cell-qty">${escapeHtml(c.header)}</th>`)
+    .join("");
+  const bodyRows = list
+    .map((row) => {
+      const tipo = escapeHtml(row.tipo || "-");
+      const op = escapeHtml(row.ops || "-");
+      const mesas = escapeHtml(row.mesas || "-");
+      const st = escapeHtml(row.estado || "-");
+      const art = escapeHtml(row.article || "-");
       const colorCells = colors
         .map((col) => {
-          const v = qtyForTaskColor(task, col);
+          const v = Number(row.qtyByNormKey?.[col.normKey] || 0);
           const show = v > 0 ? String(v) : "";
-          return `<td class="numeric">${escapeHtml(show)}</td>`;
+          return `<td class="cell-qty">${escapeHtml(show)}</td>`;
         })
         .join("");
-      return `<tr><td>${op}</td><td>${st}</td><td class="cell-art">${art}</td>${colorCells}<td class="cell-obs"></td></tr>`;
+      return `<tr><td class="cell-center">${tipo}</td><td class="cell-center">${op}</td><td class="cell-mesas">${mesas}</td><td class="cell-center">${st}</td><td class="cell-art">${art}</td>${colorCells}<td class="cell-obs cell-center"></td></tr>`;
     })
     .join("");
 
-  return `
+  const dateNote =
+    workDateYmd != null
+      ? `<p style="margin:4px 0 0;font-size:11px;color:#444;">Fecha de trabajo: ${escapeHtml(formatDateGt(workDateYmd))}</p>`
+      : "";
+
+  return `${legendBlock}
     <table class="tasks-sheet">
       <thead>
         <tr>
-          <th>OP</th>
-          <th>Estado</th>
-          <th>Artículo</th>
+          <th class="cell-center">Tipo</th>
+          <th class="cell-center">OP</th>
+          <th class="cell-mesas">Mesas</th>
+          <th class="cell-center">Estado</th>
+          <th class="cell-art">Artículo</th>
           ${headColors}
-          <th class="cell-obs">Observaciones</th>
+          <th class="cell-obs cell-center">Observaciones</th>
         </tr>
       </thead>
-      <tbody>${rows}</tbody>
-    </table>`;
+      <tbody>${bodyRows}</tbody>
+    </table>${dateNote}`;
 }
 
-export function openProductionTasksSheetPrintWindow(tasks, title = "Hoja de tareas") {
-  const inner = buildProductionTasksSheetTableHtml(tasks);
+export function openProductionTasksSheetPrintWindow(model, title = "Hoja de tareas") {
+  const inner = buildProductionTasksSheetTableHtml(model);
   const win = window.open("", "_blank");
   if (!win) return;
   win.document.write(`
@@ -112,12 +77,58 @@ export function openProductionTasksSheetPrintWindow(tasks, title = "Hoja de tare
         <style id="print-page-size"></style>
         <style>
           body { font-family: Arial, sans-serif; margin: 0; font-size: 10px; color: #111; }
-          .tasks-sheet { width: 100%; border-collapse: collapse; table-layout: auto; }
-          .tasks-sheet th, .tasks-sheet td { border: 1px solid #555; padding: 4px 5px; vertical-align: top; }
-          .tasks-sheet th { background: #eef1f4; text-align: center; font-size: 9px; }
-          .tasks-sheet .cell-art { text-align: left; max-width: 220px; }
-          .tasks-sheet .cell-obs { min-width: 120px; height: 2.2em; background: #fafafa; }
-          .numeric { text-align: right; white-space: nowrap; }
+          .tasks-sheet { width: 100%; border-collapse: collapse; table-layout: fixed; }
+          .tasks-sheet th, .tasks-sheet td { border: 1px solid #555; padding: 4px 5px; vertical-align: middle; }
+          .tasks-sheet thead th { text-align: center; }
+          .tasks-sheet thead th.cell-art { text-align: left; }
+          .tasks-sheet tbody td { text-align: center; }
+          .tasks-sheet tbody td.cell-art { text-align: left; }
+          .tasks-sheet th:not(.cell-art):not(.cell-obs) { background: #eef1f4; font-size: 9px; }
+          .tasks-sheet th.cell-art { background: #eef1f4; font-size: 9px; }
+          .tasks-sheet .cell-center { text-align: center; }
+          .tasks-sheet .cell-art { width: 30%; min-width: 120px; }
+          .tasks-sheet th.cell-mesas, .tasks-sheet td.cell-mesas {
+            text-align: center;
+            white-space: normal;
+            width: auto;
+            min-width: 72px;
+            max-width: 140px;
+            padding: 4px 4px;
+            box-sizing: border-box;
+          }
+          .tasks-sheet th.cell-mesas { background: #eef1f4; }
+          .tasks-sheet td.cell-mesas { background: #fff; }
+          .tasks-sheet td.cell-qty {
+            text-align: center;
+            width: 26px;
+            max-width: 30px;
+            min-width: 24px;
+            padding: 4px 2px;
+            white-space: nowrap;
+            box-sizing: border-box;
+          }
+          .tasks-sheet th.cell-qty {
+            text-align: center;
+            width: 52px;
+            max-width: 64px;
+            min-width: 44px;
+            padding: 3px 2px;
+            white-space: normal;
+            font-size: 7.5px;
+            line-height: 1.1;
+            word-break: break-word;
+            vertical-align: middle;
+            box-sizing: border-box;
+            background: #eef1f4;
+          }
+          .tasks-sheet th.cell-obs, .tasks-sheet td.cell-obs {
+            min-width: 72px;
+            width: 10%;
+            height: 2.2em;
+            background: #fff !important;
+            text-align: center;
+          }
+          .tasks-sheet th.cell-obs { font-size: 9px; }
           @media print { .no-print { display: none !important; } }
         </style>
       </head>

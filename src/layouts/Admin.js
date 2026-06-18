@@ -25,9 +25,16 @@ import Footer from "components/Footer/Footer.js";
 import Sidebar from "components/Sidebar/Sidebar.js";
 import FixedPlugin from "components/FixedPlugin/FixedPlugin.js";
 import ProtectedRoute from "components/ProtectedRoute.js";
+import DefaultLandingRedirect from "components/DefaultLandingRedirect.js";
 import { setNotificationRef } from "utils/notificationHelper";
 
 import routes from "routes.js";
+
+const routePermissionCodes = (permissions) => {
+  if (!permissions) return null;
+  const codes = Object.values(permissions).flat().filter(Boolean);
+  return codes.length > 0 ? codes : null;
+};
 
 var ps;
 
@@ -75,31 +82,49 @@ function Admin(props) {
     document.scrollingElement.scrollTop = 0;
     mainPanel.current.scrollTop = 0;
   }, [location]);
-  const getRoutes = (routes) => {
-    return routes.map((prop, key) => {
-      if (prop.collapse) {
-        return getRoutes(prop.views);
-      }
-      if (prop.layout === "/admin") {
-        // Obtener permiso desde el objeto permissions de la ruta
-        const requiredPermission = prop.permissions?.view || null;
-        
-        return (
-          <Route 
-            path={prop.path} 
-            element={
-              <ProtectedRoute permission={requiredPermission}>
-                {prop.component}
-              </ProtectedRoute>
-            }
-            key={key} 
-            exact 
-          />
-        );
-      } else {
-        return null;
-      }
-    });
+  const getRoutes = (routesList) => {
+    const routeByPath = new Map();
+
+    const collect = (items) => {
+      (items || []).forEach((prop) => {
+        if (prop.collapse) {
+          collect(prop.views);
+          return;
+        }
+        if (prop.layout !== "/admin") {
+          return;
+        }
+        const codes = routePermissionCodes(prop.permissions);
+        const existing = routeByPath.get(prop.path);
+        if (existing) {
+          const merged = [...new Set([...(existing.permission || []), ...(codes || [])])];
+          routeByPath.set(prop.path, {
+            ...existing,
+            permission: merged.length > 0 ? merged : null,
+          });
+          return;
+        }
+        routeByPath.set(prop.path, {
+          path: prop.path,
+          component: prop.component,
+          permission: codes,
+        });
+      });
+    };
+
+    collect(routesList);
+
+    return Array.from(routeByPath.values()).map((route) => (
+      <Route
+        path={route.path}
+        element={
+          <ProtectedRoute permission={route.permission}>
+            {route.component}
+          </ProtectedRoute>
+        }
+        key={route.path}
+      />
+    ));
   };
   const handleActiveClick = (color) => {
     setActiveColor(color);
@@ -126,7 +151,10 @@ function Admin(props) {
       />
       <div className="main-panel" ref={mainPanel}>
         <AdminNavbar {...location} handleMiniClick={handleMiniClick} />
-        <Routes>{getRoutes(routes)}</Routes>
+        <Routes>
+          <Route index element={<DefaultLandingRedirect />} />
+          {getRoutes(routes)}
+        </Routes>
         {
           // we don't want the Footer to be rendered on full screen maps page
           location.pathname.indexOf("full-screen-map") !== -1 ? null : (

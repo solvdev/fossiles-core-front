@@ -22,7 +22,10 @@ import {
 import { getProductionOrders, updateManagedCinchoOrderStatus } from "services/productionOrderService";
 import { formatDateDdMmYyGt } from "utils/dateTimeHelper";
 import { showError, showSuccess } from "utils/notificationHelper";
-import { isFossCinchosProductCode, isManagedCinchoOrderType } from "utils/cinchoProductionHelper";
+import OpcGenerateShipmentModal from "components/production/OpcGenerateShipmentModal";
+import ProductionOrderPartialReleasesPanel from "components/production/ProductionOrderPartialReleasesPanel";
+import { isCinchoOrderType, isFossCinchosProductCode, isManagedCinchoOrderType } from "utils/cinchoProductionHelper";
+import { isLuisFelipeVendorFlow } from "utils/luisFelipeVendorHelper";
 
 const STATUS_LABELS = {
   PENDING: "Pendiente",
@@ -59,7 +62,7 @@ function buildRows(orders) {
   const list = [];
   (orders || []).forEach((order) => {
     const type = String(order?.orderType || "").trim().toUpperCase();
-    if (isManagedCinchoOrderType(type)) {
+    if (isCinchoOrderType(type)) {
       list.push({ key: `op-${order.id}`, kind: "MANAGED_OP", order });
       return;
     }
@@ -82,6 +85,7 @@ function CinchosProductionOrdersView() {
   const [detail, setDetail] = useState(null);
   const [draftStatus, setDraftStatus] = useState("PENDING");
   const [savingStatus, setSavingStatus] = useState(false);
+  const [shipmentModalOpen, setShipmentModalOpen] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -449,6 +453,9 @@ function CinchosProductionOrdersView() {
                       ))}
                     </Input>
                   </FormGroup>
+                  {isLuisFelipeVendorFlow(detail.order?.orderType, detail.order?.sellerName) && (
+                    <ProductionOrderPartialReleasesPanel order={detail.order} />
+                  )}
                 </>
               )}
             </>
@@ -459,12 +466,26 @@ function CinchosProductionOrdersView() {
             Cerrar
           </Button>
           {detail?.kind === "MANAGED_OP" && (
-            <Button color="primary" onClick={saveManagedStatus} disabled={savingStatus}>
-              {savingStatus ? <Spinner size="sm" /> : "Guardar estado"}
-            </Button>
+            <>
+              <Button color="success" outline onClick={() => setShipmentModalOpen(true)}>
+                Generar envío
+              </Button>
+              {isManagedCinchoOrderType(detail.order?.orderType) && (
+                <Button color="primary" onClick={saveManagedStatus} disabled={savingStatus}>
+                  {savingStatus ? <Spinner size="sm" /> : "Guardar estado"}
+                </Button>
+              )}
+            </>
           )}
         </ModalFooter>
       </Modal>
+
+      <OpcGenerateShipmentModal
+        isOpen={shipmentModalOpen}
+        toggle={() => setShipmentModalOpen(false)}
+        order={detail?.kind === "MANAGED_OP" ? detail.order : null}
+        onGenerated={() => setShipmentModalOpen(false)}
+      />
     </div>
   );
 }

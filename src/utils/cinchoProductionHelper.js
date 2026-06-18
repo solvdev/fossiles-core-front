@@ -17,3 +17,127 @@ export function isFossCinchosProductCode(productCode) {
   const c = String(productCode || "").trim().toUpperCase();
   return c.startsWith("FOSS");
 }
+
+function normalizeForCinchoNameSearch(s) {
+  return String(s || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{M}/gu, "");
+}
+
+/** Nombre de producto sugiere cincho (p. ej. contiene "cincho", con o sin tilde). */
+export function productNameContainsCincho(name) {
+  if (name == null || String(name).trim() === "") return false;
+  return normalizeForCinchoNameSearch(name).includes("cincho");
+}
+
+/** Ajustes / inventario por talla: FOSS por código u otro cincho identificado por nombre. */
+export function isCinchoInventoryProduct(product) {
+  return !!(
+    product &&
+    (isFossCinchosProductCode(product.code) || productNameContainsCincho(product.name))
+  );
+}
+
+export function isCinchoInventoryProductByCodeAndName(productCode, productName) {
+  return isFossCinchosProductCode(productCode) || productNameContainsCincho(productName);
+}
+
+/** Pulsera(s) en nombre — misma mesa que cinchos. */
+export function productNameContainsPulsera(name) {
+  if (name == null || String(name).trim() === "") return false;
+  return normalizeForCinchoNameSearch(name).includes("pulsera");
+}
+
+/** Líneas del cuadro mesa cinchos: cinchos + pulseras. */
+export function isMesaCinchosLineProduct(productCode, productName) {
+  return isCinchoInventoryProductByCodeAndName(productCode, productName)
+    || productNameContainsPulsera(productName);
+}
+
+/** OP con líneas cargadas: todas son cincho (p. ej. OPL solo cinchos) — no hay trabajo para el centro estándar. */
+export function orderHasOnlyCinchoLineItems(order) {
+  const items = order?.items;
+  if (!Array.isArray(items) || items.length === 0) return false;
+  return items.every((it) =>
+    isMesaCinchosLineProduct(it?.productCode, it?.productName)
+  );
+}
+
+/** Al menos un ítem no es cincho/pulsera (OPL mixta u otras OP con líneas fuera de mesa cinchos). */
+export function orderHasNonCinchoLineItem(order) {
+  const items = order?.items;
+  if (!Array.isArray(items) || items.length === 0) return false;
+  return items.some(
+    (it) => !isMesaCinchosLineProduct(it?.productCode, it?.productName)
+  );
+}
+
+/** Correlativo unificado de cinchos: OPC, OPCF, OPCM. */
+export function isOpcFamilyProductionOrderCode(code) {
+  const c = String(code || "").trim().toUpperCase();
+  return /^OPC(F|M)?-/i.test(c);
+}
+
+export function isCinchoTaskLineItem(item) {
+  return isMesaCinchosLineProduct(item?.productCode, item?.productName);
+}
+
+export function buildProductionOrderIdMap(orders) {
+  const map = new Map();
+  (orders || []).forEach((o) => {
+    if (o?.id != null) map.set(Number(o.id), o);
+  });
+  return map;
+}
+
+function taskLineItemsForCinchoCheck(task) {
+  const items = task?.items;
+  if (Array.isArray(items) && items.length > 0) return items;
+  if (task?.productCode || task?.productName) {
+    return [{ productCode: task.productCode, productName: task.productName }];
+  }
+  return [];
+}
+
+/** Tarea que no debe mostrarse en el centro de producción (mesas). */
+export function shouldExcludeTaskFromTableCenter(task, orderById) {
+  if (!task) return true;
+  const poId = Number(task.productionOrderId);
+  const order = orderById instanceof Map ? orderById.get(poId) : orderById?.[poId];
+  if (order && isCinchoOrderType(order.orderType)) return true;
+  if (isOpcFamilyProductionOrderCode(task.productionOrderCode)) return true;
+  const lines = taskLineItemsForCinchoCheck(task);
+  if (lines.length === 0) return false;
+  return lines.every((it) => isCinchoTaskLineItem(it));
+}
+
+/** Copia de tarea para mesas: sin líneas cincho; null si no queda trabajo. */
+export function taskForTableCenterView(task, orderById) {
+  if (!task || shouldExcludeTaskFromTableCenter(task, orderById)) return null;
+
+  const items = task.items;
+  if (!Array.isArray(items) || items.length === 0) {
+    if (isCinchoTaskLineItem({ productCode: task.productCode, productName: task.productName })) {
+      return null;
+    }
+    return task;
+  }
+
+  const filtered = items.filter((it) => !isCinchoTaskLineItem(it));
+  if (filtered.length === 0) return null;
+  if (filtered.length === items.length) return task;
+
+  const quantity = filtered.reduce((s, it) => s + (Number(it.quantity) || 0), 0);
+  const estimatedHours =
+    Math.round(filtered.reduce((s, it) => s + (Number(it.estimatedHours) || 0), 0) * 100) / 100;
+  return { ...task, items: filtered, quantity, estimatedHours };
+}
+
+export function buildTableCenterTasks(tasks, productionOrders) {
+  const orderById = buildProductionOrderIdMap(productionOrders);
+  return (tasks || [])
+    .filter((t) => t && t.status !== "CANCELLED" && t.status !== "COMPLETED")
+    .map((t) => taskForTableCenterView(t, orderById))
+    .filter(Boolean);
+}

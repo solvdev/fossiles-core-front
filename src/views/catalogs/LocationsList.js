@@ -310,6 +310,19 @@ function LocationsList() {
                         >
                           Encargado {getSortIcon("encargadoNombre")}
                         </th>
+                        <th
+                          style={{ cursor: "pointer" }}
+                          onClick={() => handleSort("felEstablishmentCode")}
+                        >
+                          Est. FEL {getSortIcon("felEstablishmentCode")}
+                        </th>
+                        <th
+                          style={{ cursor: "pointer" }}
+                          onClick={() => handleSort("felEstablishmentName")}
+                        >
+                          Establecimiento {getSortIcon("felEstablishmentName")}
+                        </th>
+                        <th>Piloto POS</th>
                         <th 
                           style={{ cursor: "pointer" }}
                           onClick={() => handleSort("departamento")}
@@ -334,7 +347,7 @@ function LocationsList() {
                     <tbody>
                       {filteredAndSortedLocations.length === 0 ? (
                         <tr>
-                          <td colSpan="9" className="text-center">
+                          <td colSpan="11" className="text-center">
                             <p className="text-muted">No se encontraron kioscos con los filtros aplicados.</p>
                           </td>
                         </tr>
@@ -346,6 +359,9 @@ function LocationsList() {
                             <td>{location.name}</td>
                             <td>{location.categoria || "-"}</td>
                             <td>{location.encargadoNombre || "-"}</td>
+                            <td>{location.felEstablishmentCode || "-"}</td>
+                            <td>{location.felEstablishmentName || "-"}</td>
+                            <td>{location.posTestMode ? "Sí" : "No"}</td>
                             <td>{location.departamento}</td>
                             <td>{location.municipio}</td>
                             <td>{location.zona}</td>

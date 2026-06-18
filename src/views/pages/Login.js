@@ -71,8 +71,8 @@ function Login() {
       // Limpiar cache de permisos para forzar una nueva carga
       clearPermissionCache();
 
-      // Redirigir al dashboard de producción
-      navigate("/admin/dashboard-production");
+      // Redirigir al módulo inicial según permisos
+      navigate("/admin");
     } catch (err) {
       setError(err.message || "Error al iniciar sesión. Verifica tus credenciales.");
     } finally {

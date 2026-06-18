@@ -45,6 +45,48 @@ function formatUomCell(code, name) {
   return c || n || "—";
 }
 
+const INVENTORY_CATEGORY_LABELS = {
+  CRITICAL: "Crítico",
+  NORMAL: "Normal",
+  NO_MIN: "Sin mínimo",
+};
+
+/** Palabras frecuentes en nombres/SKU para atajos en exportación Excel. */
+function buildMaterialNameKeywords(materials) {
+  const counts = new Map();
+  (materials || []).forEach((item) => {
+    const text = `${item.materialName || ""} ${item.materialSku || ""}`.toLowerCase();
+    text.split(/[\s,./\-_|]+/).forEach((word) => {
+      const w = word.trim();
+      if (w.length < 3) return;
+      counts.set(w, (counts.get(w) || 0) + 1);
+    });
+  });
+  return [...counts.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .slice(0, 24)
+    .map(([word]) => word);
+}
+
+function materialMatchesNameQuery(item, query) {
+  const q = String(query || "").trim().toLowerCase();
+  if (!q) return true;
+  const name = String(item.materialName || "").toLowerCase();
+  const sku = String(item.materialSku || "").toLowerCase();
+  return name.includes(q) || sku.includes(q);
+}
+
+function slugifyForFilename(text, fallback = "todos") {
+  const slug = String(text || "")
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return slug || fallback;
+}
+
 // Componente de filtro por defecto
 function DefaultColumnFilter({
   column: { filterValue, preFilteredRows, setFilter },
@@ -104,6 +146,7 @@ function InventoryByLocation() {
   const [showExcelExportModal, setShowExcelExportModal] = useState(false);
   const [excelSupplierList, setExcelSupplierList] = useState([]);
   const [excelExportSupplierId, setExcelExportSupplierId] = useState("");
+  const [excelExportNameQuery, setExcelExportNameQuery] = useState("");
 
   useEffect(() => {
     // Cargar inventario global de materiales (sin ubicación)
@@ -180,6 +223,16 @@ function InventoryByLocation() {
     if (categoryMode === "ALL") return sourceMaterials.length;
     return sourceMaterials.filter((item) => getMaterialCategoryKey(item) === categoryMode).length;
   };
+
+  const getInventoryCategoryLabel = (material) => {
+    const key = getMaterialCategoryKey(material);
+    return INVENTORY_CATEGORY_LABELS[key] || key;
+  };
+
+  const excelNameKeywordSuggestions = useMemo(
+    () => buildMaterialNameKeywords(inventory),
+    [inventory]
+  );
 
   const parseIdList = (rawValue) => {
     const chunks = String(rawValue || "")
@@ -872,15 +925,24 @@ function InventoryByLocation() {
       return;
     }
     setExcelExportSupplierId("");
+    setExcelExportNameQuery("");
     setShowExcelExportModal(true);
   };
 
-  const executeExcelExport = () => {
+  const getExcelExportPreviewRows = () => {
     let rows = [...inventory];
     if (excelExportSupplierId !== "" && excelExportSupplierId !== "ALL") {
       const sid = Number(excelExportSupplierId);
-      rows = inventory.filter(it => Number(it.supplierId) === sid);
+      rows = rows.filter((it) => Number(it.supplierId) === sid);
     }
+    if (excelExportNameQuery.trim()) {
+      rows = rows.filter((it) => materialMatchesNameQuery(it, excelExportNameQuery));
+    }
+    return rows;
+  };
+
+  const executeExcelExport = () => {
+    const rows = getExcelExportPreviewRows();
     if (rows.length === 0) {
       showError("No hay datos para exportar con el filtro elegido");
       return;
@@ -890,9 +952,11 @@ function InventoryByLocation() {
       const excelData = rows.map((item) => ({
         SKU: item.materialSku || "N/A",
         Material: item.materialName || "N/A",
+        "Estado stock": getInventoryCategoryLabel(item),
         "Ud. compra": formatUomCell(item.purchaseUomCode, item.purchaseUomName),
         "Ud. manufactura": formatUomCell(item.manufacturingUomCode, item.manufacturingUomName),
         Proveedor: item.supplierName || "—",
+        "Stock mínimo": item.materialMin != null ? parseFloat(item.materialMin) : "",
         "Stock Total": parseFloat(item.quantity || 0),
       }));
 
@@ -903,19 +967,22 @@ function InventoryByLocation() {
       const columnWidths = [
         { wch: 15 },
         { wch: 40 },
+        { wch: 14 },
         { wch: 22 },
         { wch: 22 },
         { wch: 28 },
+        { wch: 12 },
         { wch: 14 },
       ];
       worksheet["!cols"] = columnWidths;
 
       const iso = new Date().toISOString().slice(0, 10);
-      const suffix =
+      const supplierPart =
         excelExportSupplierId && excelExportSupplierId !== "ALL"
           ? `prov-${excelExportSupplierId}`
-          : "todos";
-      const fileName = `inventario_materiales_${suffix}_${iso}.xlsx`;
+          : "todos-prov";
+      const namePart = slugifyForFilename(excelExportNameQuery, "todos-nombre");
+      const fileName = `inventario_materiales_${supplierPart}_${namePart}_${iso}.xlsx`;
       XLSX.writeFile(workbook, fileName);
 
       showSuccess("Archivo Excel descargado correctamente");
@@ -1255,7 +1322,7 @@ function InventoryByLocation() {
         <ModalHeader toggle={() => setShowExcelExportModal(false)}>Exportar Excel</ModalHeader>
         <ModalBody>
           <p className="text-muted small mb-3">
-            Solo se incluyen materiales cargados actualmente en esta pantalla. Elige proveedor para acotar el archivo.
+            Materiales de esta pantalla. Filtra por proveedor y escribe parte del nombre o SKU (ej. hebilla, cuero, hilo).
           </p>
           <FormGroup>
             <Label>Proveedor</Label>
@@ -1272,6 +1339,53 @@ function InventoryByLocation() {
                 </option>
               ))}
             </Input>
+          </FormGroup>
+          <FormGroup className="mb-0">
+            <Label htmlFor="excel-export-name-query">Tipo de material (nombre o SKU)</Label>
+            <Input
+              id="excel-export-name-query"
+              type="search"
+              bsSize="sm"
+              list="excel-material-name-suggestions"
+              value={excelExportNameQuery}
+              onChange={(e) => setExcelExportNameQuery(e.target.value)}
+              placeholder="Ej: hebilla, broche, cuero..."
+            />
+            <datalist id="excel-material-name-suggestions">
+              {excelNameKeywordSuggestions.map((word) => (
+                <option key={word} value={word} />
+              ))}
+              {(inventory || []).slice(0, 200).map((item) => (
+                <option
+                  key={`name-${item.materialId}`}
+                  value={item.materialName || ""}
+                />
+              ))}
+            </datalist>
+            {excelNameKeywordSuggestions.length > 0 && (
+              <div className="mt-2">
+                <small className="text-muted d-block mb-1">Atajos frecuentes:</small>
+                <div className="d-flex flex-wrap">
+                  {excelNameKeywordSuggestions.map((word) => (
+                    <Button
+                      key={word}
+                      color={excelExportNameQuery.toLowerCase() === word ? "primary" : "outline-secondary"}
+                      size="sm"
+                      className="mb-1 mr-1"
+                      onClick={() => setExcelExportNameQuery(word)}
+                    >
+                      {word}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+            )}
+            <small className="text-muted d-block mt-2">
+              {excelExportNameQuery.trim()
+                ? `Coincidencias con “${excelExportNameQuery.trim()}”: `
+                : "Sin filtro de nombre: "}
+              {getExcelExportPreviewRows().length} material(es) en el Excel.
+            </small>
           </FormGroup>
         </ModalBody>
         <ModalFooter>

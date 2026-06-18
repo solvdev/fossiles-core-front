@@ -86,6 +86,7 @@ import MaterialConsumptionHistory from "views/purchases/MaterialConsumptionHisto
 
 // Distribución
 import PrepareShipments from "views/distribution/PrepareShipments.js";
+import AuthorizeShipments from "views/distribution/AuthorizeShipments.js";
 import ShipmentsInTransit from "views/distribution/ShipmentsInTransit.js";
 import ReceiptConfirmation from "views/distribution/ReceiptConfirmation.js";
 
@@ -99,6 +100,9 @@ import TotalSales from "views/sales/TotalSales.js";
 import SalesBySeller from "views/sales/SalesBySeller.js";
 import OnlineSales from "views/sales/OnlineSales.js";
 import Invoicing from "views/sales/Invoicing.js";
+import AccountingInvoices from "views/accounting/AccountingInvoices.js";
+import AccountingInvoiceForm from "views/accounting/AccountingInvoiceForm.js";
+import AccountingInvoiceDetail from "views/accounting/AccountingInvoiceDetail.js";
 
 // Reportes
 import ProductionReports from "views/reports/ProductionReports.js";
@@ -112,6 +116,8 @@ import PhaseGeneralReports from "views/reports/PhaseGeneralReports.js";
 // Configuración General
 import CurrenciesList from "views/catalogs/CurrenciesList.js";
 import CustomersList from "views/customers/CustomersList.js";
+import CustomerAccountsList from "views/customers/CustomerAccountsList.js";
+import CustomerAccountStatement from "views/customers/CustomerAccountStatement.js";
 import SuppliersList from "views/suppliers/SuppliersList.js";
 import Taxes from "views/config/Taxes.js";
 import DocumentSeries from "views/config/DocumentSeries.js";
@@ -982,6 +988,18 @@ const routes = [
         },
       },
       {
+        path: "/authorize-shipments",
+        name: "Solicitudes envío interno",
+        mini: "AE",
+        component: <AuthorizeShipments />,
+        layout: "/admin",
+        module: "DISTRIBUCION",
+        permissions: {
+          view: "DISTRIBUCION.AUTORIZAR_ENVIOS.VER",
+          create: "DISTRIBUCION.AUTORIZAR_ENVIOS.CREAR",
+        },
+      },
+      {
         path: "/shipments-in-transit",
         name: "Envíos en Tránsito",
         mini: "ET",
@@ -1103,8 +1121,98 @@ const routes = [
         layout: "/admin",
         module: "VENTAS",
         permissions: {
-          view: "VENTAS.FACTURACION_RECIBOS.VER",
-          create: "VENTAS.FACTURACION_RECIBOS.CREAR",
+          view: "CONTABILIDAD.FACTURAS.VER",
+          create: "CONTABILIDAD.FACTURAS.CREAR",
+        },
+      },
+      {
+        path: "/customer-accounts",
+        name: "Cuentas por cobrar LF",
+        mini: "CxC",
+        component: <CustomerAccountsList />,
+        layout: "/admin",
+        module: "VENTAS",
+        permissions: {
+          view: "VENTAS.CUENTAS_COBRAR.VER",
+          create: "VENTAS.CUENTAS_COBRAR.CREAR",
+          edit: "VENTAS.CUENTAS_COBRAR.ANULAR",
+        },
+      },
+      {
+        path: "/customer-accounts/:customerId",
+        name: "Estado de cuenta",
+        mini: "EC",
+        component: <CustomerAccountStatement />,
+        layout: "/admin",
+        module: "VENTAS",
+        showInSidebar: false,
+        permissions: {
+          view: "VENTAS.CUENTAS_COBRAR.VER",
+          create: "VENTAS.CUENTAS_COBRAR.CREAR",
+          edit: "VENTAS.CUENTAS_COBRAR.ANULAR",
+        },
+      },
+    ],
+  },
+  // 12. CONTABILIDAD
+  {
+    collapse: true,
+    name: "Contabilidad",
+    icon: "nc-icon nc-money-coins",
+    state: "accountingCollapse",
+    module: "CONTABILIDAD",
+    views: [
+      {
+        path: "/accounting/invoices",
+        name: "Facturas FEL",
+        mini: "FF",
+        component: <AccountingInvoices />,
+        layout: "/admin",
+        module: "CONTABILIDAD",
+        permissions: {
+          view: "CONTABILIDAD.FACTURAS.VER",
+          create: "CONTABILIDAD.FACTURAS.CREAR",
+          edit: "CONTABILIDAD.FACTURAS.CERTIFICAR",
+          delete: "CONTABILIDAD.FACTURAS.ANULAR",
+        },
+      },
+      {
+        path: "/accounting/invoices/new",
+        name: "Nueva factura FEL",
+        mini: "NF",
+        component: <AccountingInvoiceForm />,
+        layout: "/admin",
+        module: "CONTABILIDAD",
+        showInSidebar: false,
+        permissions: {
+          view: "CONTABILIDAD.FACTURAS.CREAR",
+          create: "CONTABILIDAD.FACTURAS.CREAR",
+          edit: "CONTABILIDAD.FACTURAS.CERTIFICAR",
+        },
+      },
+      {
+        path: "/accounting/invoices/:id",
+        name: "Detalle factura FEL",
+        mini: "DF",
+        component: <AccountingInvoiceDetail />,
+        layout: "/admin",
+        module: "CONTABILIDAD",
+        showInSidebar: false,
+        permissions: {
+          view: "CONTABILIDAD.FACTURAS.VER",
+          edit: "CONTABILIDAD.FACTURAS.CERTIFICAR",
+        },
+      },
+      {
+        path: "/authorize-shipments",
+        name: "Autorizar envíos internos",
+        mini: "AE",
+        component: <AuthorizeShipments />,
+        layout: "/admin",
+        module: "CONTABILIDAD",
+        permissions: {
+          view: "CONTABILIDAD.ENVIOS.VER",
+          edit: "CONTABILIDAD.ENVIOS.APROBAR",
         },
       },
     ],

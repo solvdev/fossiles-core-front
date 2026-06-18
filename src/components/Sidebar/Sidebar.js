@@ -24,6 +24,7 @@ import avatar from "assets/img/faces/ayo-ogunseinde-2.jpg";
 import logo from "assets/img/react-logo.png";
 import { logout, getUserData } from "services/authService";
 import { useAuth } from "contexts/AuthContext";
+import { isSidebarRouteVisible, routeGrantsAnyPermission } from "utils/routePermissionAccess";
 
 var ps;
 
@@ -115,25 +116,13 @@ function Sidebar(props) {
       }
 
       if (prop.collapse) {
-        // Para secciones colapsables, verificar si tiene al menos una ruta accesible
-        const accessibleViews = prop.views.filter(view => {
-          if (view.showInSidebar === false) return false;
-          // Si la ruta tiene objeto permissions, usar el permiso de view
-          if (view.permissions && view.permissions.view) {
-            return hasPermission(view.permissions.view);
-          }
-          // Si no tiene permissions definido, NO mostrar (requiere permiso explícito)
-          return false;
-        });
+        const accessibleViews = prop.views.filter((view) =>
+          routeGrantsAnyPermission(view.permissions, hasPermission)
+        );
         return accessibleViews.length > 0;
       }
-      
-      // Para rutas individuales, verificar permiso
-      if (prop.permissions && prop.permissions.view) {
-        return hasPermission(prop.permissions.view);
-      }
-      // Si no tiene permissions definido, NO mostrar (requiere permiso explícito)
-      return false;
+
+      return routeGrantsAnyPermission(prop.permissions, hasPermission);
     });
   };
 
@@ -157,15 +146,9 @@ function Sidebar(props) {
           // Mientras se cargan permisos, mostrar todas las vistas
           accessibleViews = prop.views.filter(view => view.showInSidebar !== false);
         } else {
-          accessibleViews = prop.views.filter(view => {
-            if (view.showInSidebar === false) return false;
-            // Si la ruta tiene objeto permissions, usar el permiso de view
-            if (view.permissions && view.permissions.view) {
-              return hasPermission(view.permissions.view);
-            }
-            // Fallback al sistema anterior si no tiene permissions definido
-            return true; // Por ahora permitir si no tiene permissions definido
-          });
+          accessibleViews = prop.views.filter((view) =>
+            isSidebarRouteVisible(view, hasPermission)
+          );
         }
         
         // Si no hay vistas accesibles, no mostrar el collapse

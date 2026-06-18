@@ -26,12 +26,13 @@ import {
   createDistribution,
   updateDistribution,
   createOrUpdateShipment,
-  getInventoryForShipment,
   getShipmentsByDistribution,
   deleteShipment,
+  cancelShipment,
   completeDistribution,
 } from "services/productDistributionService";
 import { getProductInventoryByLocation, getProductInventoryByProductAndLocation } from "services/productInventoryService";
+import { getProducts } from "services/productService";
 import { getLocations } from "services/locationService";
 import { getColors } from "services/colorService";
 import { getAuthHeader } from "services/authService";
@@ -49,6 +50,31 @@ const RETURNS_WAREHOUSE_CODES = new Set([
   "BODEGA_RET",
   "BODEGA_RETURN",
 ]);
+
+/** Catálogo para envíos de distribución: no exige inventario previo en el kiosko. */
+async function loadDistributionProductCatalog(locationId) {
+  const [products, kioskInv] = await Promise.all([
+    getProducts(),
+    getProductInventoryByLocation(locationId).catch(() => []),
+  ]);
+  const kioskQtyByProductId = new Map();
+  (Array.isArray(kioskInv) ? kioskInv : []).forEach((row) => {
+    const pid = Number(row.productId);
+    if (!Number.isFinite(pid) || pid <= 0) return;
+    kioskQtyByProductId.set(pid, (kioskQtyByProductId.get(pid) || 0) + Number(row.quantity || 0));
+  });
+  return (Array.isArray(products) ? products : [])
+    .filter((p) => p?.id != null)
+    .map((p) => ({
+      productId: Number(p.id),
+      productCode: p.code || p.productCode || "",
+      productName: p.name || p.productName || "",
+      quantity: kioskQtyByProductId.get(Number(p.id)) || 0,
+    }))
+    .sort((a, b) =>
+      String(a.productCode).localeCompare(String(b.productCode), "es", { sensitivity: "base" })
+    );
+}
 
 function KioskTypeahead({ locations, value, onChange, disabled }) {
   const [open, setOpen] = useState(false);
@@ -588,12 +614,11 @@ function ProductDistributionDetail() {
       setPackingUnitPriceInput("");
       setSelectedPackingMaterialId("");
       
-      // Cargar inventario del kiosko
       try {
-        const invData = await getInventoryForShipment(existingShipment.id);
+        const invData = await loadDistributionProductCatalog(locationId);
         setInventory(invData || []);
       } catch (err) {
-        console.error("Error loading inventory:", err);
+        console.error("Error loading product catalog:", err);
         setInventory([]);
       }
     } else {
@@ -610,12 +635,11 @@ function ProductDistributionDetail() {
       setPackingUnitPriceInput("");
       setSelectedPackingMaterialId("");
       
-      // Cargar inventario del kiosko directamente
       try {
-        const invData = await getProductInventoryByLocation(locationId);
+        const invData = await loadDistributionProductCatalog(locationId);
         setInventory(invData || []);
       } catch (err) {
-        console.error("Error loading inventory:", err);
+        console.error("Error loading product catalog:", err);
         setInventory([]);
       }
     }
@@ -822,6 +846,35 @@ function ProductDistributionDetail() {
     }
   };
 
+  const handleCancelShipment = async (shipmentId) => {
+    if (!window.confirm("¿Anular este envío? Solo aplica antes de enviar.")) {
+      return;
+    }
+    try {
+      setError("");
+      await cancelShipment(shipmentId);
+      showSuccess("Envío anulado correctamente");
+      await loadShipments();
+      if (currentShipment && currentShipment.id === shipmentId) {
+        setSelectedLocation("");
+        setCurrentShipment(null);
+        setEditingShipmentId(null);
+        setInventory([]);
+        setShipmentProducts({});
+        setShipmentColors({});
+        setShipmentSizes({});
+      }
+    } catch (err) {
+      setError(err.message || "Error al anular envío");
+      showError(err.message || "Error al anular envío");
+    }
+  };
+
+  const isShipmentCancellable = (status) => {
+    const st = String(status || "").trim().toUpperCase();
+    return st === "DRAFT" || st === "CONFIRMED";
+  };
+
   const startEditingShipment = async (shipment) => {
     if (!shipment?.locationId) return;
     setEditingShipmentId(shipment.id);
@@ -877,6 +930,7 @@ function ProductDistributionDetail() {
       CONFIRMED: { color: "info", text: "Confirmada" },
       SENT: { color: "warning", text: "Enviada" },
       COMPLETED: { color: "success", text: "Completada" },
+      CANCELLED: { color: "dark", text: "Anulado" },
     };
     const config = statusMap[status] || { color: "default", text: status };
     return <Badge color={config.color}>{config.text}</Badge>;
@@ -1347,7 +1401,19 @@ function ProductDistributionDetail() {
                                   <i className="nc-icon nc-ruler-pencil mr-1" />
                                   Editar
                                 </Button>
-                                {distribution?.status === "DRAFT" && (
+                                {isShipmentCancellable(shipment.status) && (
+                                  <Button
+                                    color="warning"
+                                    size="sm"
+                                    outline
+                                    onClick={() => handleCancelShipment(shipment.id)}
+                                    className="mr-2"
+                                  >
+                                    <i className="nc-icon nc-simple-remove mr-1" />
+                                    Anular
+                                  </Button>
+                                )}
+                                {distribution?.status === "DRAFT" && shipment.status === "DRAFT" && (
                                   <Button
                                     color="danger"
                                     size="sm"
@@ -1438,9 +1504,9 @@ function ProductDistributionDetail() {
                     <Row>
                       <Col md="12">
                         <Label>
-                          <strong>Inventario del Kiosko - Asignar Cantidades a Enviar</strong>
+                          <strong>Catálogo de productos — cantidades a enviar</strong>
                           <small className="text-muted ml-2">
-                            (Modifica las cantidades para asignar productos al envío)
+                            (El kiosko puede tener stock 0; el envío sale de Bodega PT / devoluciones)
                           </small>
                           <br />
                           <small className="text-muted">
@@ -1649,8 +1715,7 @@ function ProductDistributionDetail() {
 
                   {selectedLocation && inventory.length === 0 && (
                     <Alert color="warning" className="mt-3">
-                      No hay productos registrados en el inventario de este kiosko. 
-                      Primero debes actualizar el inventario del kiosko.
+                      No se pudo cargar el catálogo de productos. Verifica tu conexión o permisos de catálogo.
                     </Alert>
                   )}
 

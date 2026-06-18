@@ -244,6 +244,67 @@ export const dispatchCustomerShipment = async (productionOrderId, onlineSaleId, 
   }
 };
 
+export const getWarehouseWorkspace = async (productionOrderId) => {
+  try {
+    const response = await fetch(`${API_URL}/production-orders/${productionOrderId}/warehouse-workspace`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        ...getAuthHeader()
+      }
+    });
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({ message: 'Error al cargar workspace de bodega' }));
+      throw new Error(errorData.message || 'Error al cargar workspace de bodega');
+    }
+    return await response.json();
+  } catch (error) {
+    console.error('Get warehouse workspace error:', error);
+    throw error;
+  }
+};
+
+export const updateWarehouseUnitsReceipt = async (productionOrderId, data) => {
+  try {
+    const response = await fetch(`${API_URL}/production-orders/${productionOrderId}/warehouse-units/receipt`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        ...getAuthHeader()
+      },
+      body: JSON.stringify(data)
+    });
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({ message: 'Error al registrar recepción por pieza' }));
+      throw new Error(errorData.message || 'Error al registrar recepción por pieza');
+    }
+    return await response.json();
+  } catch (error) {
+    console.error('Update warehouse units receipt error:', error);
+    throw error;
+  }
+};
+
+export const closeWarehouseReceipt = async (productionOrderId) => {
+  try {
+    const response = await fetch(`${API_URL}/production-orders/${productionOrderId}/warehouse-receipt/close`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...getAuthHeader()
+      }
+    });
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({ message: 'Error al cerrar recepción en bodega' }));
+      throw new Error(errorData.message || 'Error al cerrar recepción en bodega');
+    }
+    return await response.json();
+  } catch (error) {
+    console.error('Close warehouse receipt error:', error);
+    throw error;
+  }
+};
+
 export const receiveWarehouseProducts = async (productionOrderId, data) => {
   try {
     const response = await fetch(`${API_URL}/production-orders/${productionOrderId}/warehouse-receipt`, {
@@ -343,6 +404,153 @@ export const getProductionReports = async (type = 'daily', from, to) => {
   if (!response.ok) {
     const err = await response.json().catch(() => ({ message: 'Error al obtener reportes' }));
     throw new Error(err.message || 'Error al obtener reportes');
+  }
+  return response.json();
+};
+
+export const voidVendorShipmentDocument = async (orderId) => {
+  if (!orderId || orderId === 'undefined' || orderId === 'null') {
+    throw new Error('ID de orden de producción inválido');
+  }
+  const response = await fetch(`${API_URL}/production-orders/${orderId}/void-shipment-document`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
+  });
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({ message: 'Error al anular documento de envío' }));
+    throw new Error(errorData.message || 'Error al anular documento de envío');
+  }
+  return response.json();
+};
+
+export const getProductionOrderShipments = async (orderId) => {
+  if (!orderId || orderId === 'undefined' || orderId === 'null') {
+    throw new Error('ID de orden de producción inválido');
+  }
+  const response = await fetch(`${API_URL}/production-orders/${orderId}/shipments`, {
+    method: 'GET',
+    headers: { 'Content-Type': 'application/json', ...getAuthHeader() }
+  });
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({ message: 'Error al obtener envíos de la orden' }));
+    throw new Error(errorData.message || 'Error al obtener envíos de la orden');
+  }
+  return response.json();
+};
+
+export const createProductionOrderShipment = async (orderId, payload) => {
+  if (!orderId || orderId === 'undefined' || orderId === 'null') {
+    throw new Error('ID de orden de producción inválido');
+  }
+  const response = await fetch(`${API_URL}/production-orders/${orderId}/shipments`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
+    body: JSON.stringify(payload)
+  });
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({ message: 'Error al crear envío' }));
+    throw new Error(errorData.message || 'Error al crear envío');
+  }
+  return response.json();
+};
+
+export const generateProductionOrderShipment = async (orderId, payload) => {
+  if (!orderId || orderId === 'undefined' || orderId === 'null') {
+    throw new Error('ID de orden de producción inválido');
+  }
+  const response = await fetch(`${API_URL}/production-orders/${orderId}/shipments/generate-from-order`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
+    body: JSON.stringify(payload)
+  });
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({ message: 'Error al generar envío' }));
+    throw new Error(errorData.message || 'Error al generar envío');
+  }
+  return response.json();
+};
+
+export const getProductionOrderPartialReleases = async (orderId) => {
+  if (!orderId) throw new Error('ID de orden de producción inválido');
+  const response = await fetch(`${API_URL}/production-orders/${orderId}/partial-releases`, {
+    method: 'GET',
+    headers: { 'Content-Type': 'application/json', ...getAuthHeader() }
+  });
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({ message: 'Error al cargar liberaciones parciales' }));
+    throw new Error(errorData.message || 'Error al cargar liberaciones parciales');
+  }
+  return response.json();
+};
+
+export const getProductionOrderPartialRelease = async (orderId, releaseId) => {
+  if (!orderId) throw new Error('ID de orden de producción inválido');
+  if (!releaseId) throw new Error('ID de liberación inválido');
+  const response = await fetch(
+    `${API_URL}/production-orders/${orderId}/partial-releases/${releaseId}`,
+    {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
+    }
+  );
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({ message: 'Error al cargar liberación parcial' }));
+    throw new Error(errorData.message || 'Error al cargar liberación parcial');
+  }
+  return response.json();
+};
+
+export const createProductionOrderPartialRelease = async (orderId, payload) => {
+  if (!orderId) throw new Error('ID de orden de producción inválido');
+  const response = await fetch(`${API_URL}/production-orders/${orderId}/partial-releases`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
+    body: JSON.stringify(payload || {})
+  });
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({ message: 'Error al crear liberación parcial' }));
+    throw new Error(errorData.message || 'Error al crear liberación parcial');
+  }
+  return response.json();
+};
+
+export const updatePartialRelease = async (releaseId, payload) => {
+  if (!releaseId) throw new Error('ID de liberación inválido');
+  const response = await fetch(`${API_URL}/partial-releases/${releaseId}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
+    body: JSON.stringify(payload || {})
+  });
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({ message: 'Error al actualizar liberación parcial' }));
+    throw new Error(errorData.message || 'Error al actualizar liberación parcial');
+  }
+  return response.json();
+};
+
+export const deletePartialRelease = async (releaseId) => {
+  if (!releaseId) throw new Error('ID de liberación inválido');
+  const response = await fetch(`${API_URL}/partial-releases/${releaseId}`, {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json', ...getAuthHeader() }
+  });
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({ message: 'Error al eliminar liberación parcial' }));
+    throw new Error(errorData.message || 'Error al eliminar liberación parcial');
+  }
+  return true;
+};
+
+export const generatePartialReleaseShipment = async (releaseId, payload) => {
+  if (!releaseId) throw new Error('ID de liberación inválido');
+  const response = await fetch(`${API_URL}/partial-releases/${releaseId}/generate-shipment`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
+    body: JSON.stringify(payload || {})
+  });
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({ message: 'Error al generar envío del parcial' }));
+    throw new Error(errorData.message || 'Error al generar envío del parcial');
   }
   return response.json();
 };

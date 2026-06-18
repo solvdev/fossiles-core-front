@@ -56,6 +56,7 @@ export const routePermissions = {
 
   // DISTRIBUCIÓN
   '/admin/prepare-shipments': 'SHIPMENT_PREPARE',
+  '/admin/authorize-shipments': 'DISTRIBUCION.AUTORIZAR_ENVIOS.VER',
   '/admin/shipments-in-transit': 'SHIPMENT_IN_TRANSIT_VIEW',
   '/admin/receipt-confirmation': 'SHIPMENT_RECEIPT_CONFIRM',
 
@@ -68,7 +69,10 @@ export const routePermissions = {
   '/admin/total-sales': 'SALES_TOTAL_VIEW',
   '/admin/sales-by-seller': 'SALES_BY_SELLER_VIEW',
   '/admin/online-sales': 'SALES_ONLINE_VIEW',
-  '/admin/invoicing': 'SALES_INVOICE_VIEW',
+  '/admin/invoicing': 'CONTABILIDAD.FACTURAS.VER',
+  '/admin/accounting/invoices': 'CONTABILIDAD.FACTURAS.VER',
+  '/admin/accounting/invoices/new': 'CONTABILIDAD.FACTURAS.CREAR',
+  '/admin/customer-accounts': 'VENTAS.CUENTAS_COBRAR.VER',
 
   // REPORTES
   '/admin/production-reports': 'REPORT_PRODUCTION_VIEW',

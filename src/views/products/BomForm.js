@@ -14,7 +14,8 @@ import {
   Table,
 } from "reactstrap";
 import { getBomById, createBom, updateBom } from "services/bomService";
-import { getProducts } from "services/productService";
+import { getProducts, updateProduct } from "services/productService";
+import { isProductLeatherOnly } from "utils/materialRequirementHelper";
 import { getMaterials } from "services/materialService";
 import { getColors } from "services/colorService";
 import { getUoms } from "services/uomService";
@@ -195,6 +196,7 @@ function BomForm({ bomId, isOpen, toggle, onSuccess }) {
   const [itemErrors, setItemErrors] = useState({});
   const [editingIndex, setEditingIndex] = useState(null);
   const [editingItem, setEditingItem] = useState(null);
+  const [leatherOnly, setLeatherOnly] = useState(false);
 
   useEffect(() => {
     if (isOpen) {
@@ -250,6 +252,9 @@ function BomForm({ bomId, isOpen, toggle, onSuccess }) {
     try {
       setLoading(true);
       const bom = await getBomById(bomId);
+      const products = await getProducts();
+      setAvailableProducts(products || []);
+      const linkedProduct = (products || []).find((p) => String(p.id) === String(bom.productId));
       setFormData({
         bomName: bom.bomName || "",
         productId: bom.productId || "",
@@ -259,6 +264,7 @@ function BomForm({ bomId, isOpen, toggle, onSuccess }) {
         leatherQtyPerUnit: bom.leatherQtyPerUnit || "",
         items: bom.items || [],
       });
+      setLeatherOnly(isProductLeatherOnly(linkedProduct));
     } catch (err) {
       setError(err.message || "Error al cargar la BOM");
     } finally {
@@ -286,13 +292,55 @@ function BomForm({ bomId, isOpen, toggle, onSuccess }) {
     setError("");
     setEditingIndex(null);
     setEditingItem(null);
+    setLeatherOnly(false);
+  };
+
+  const syncProductLeatherOnlyFlag = async (productId, onlyLeather) => {
+    const product = availableProducts.find((p) => String(p.id) === String(productId));
+    if (!product) return;
+    const nextRequiresMaterials = !onlyLeather;
+    if ((product.requiresMaterials ?? true) === nextRequiresMaterials) return;
+    const updated = await updateProduct(product.id, {
+      code: product.code,
+      name: product.name,
+      categoryId: product.categoryId,
+      prdTime: product.prdTime,
+      salePrice: product.salePrice,
+      discountedPrice: product.discountedPrice,
+      sellerPrice: product.sellerPrice,
+      imageUrl: product.imageUrl,
+      leatherConsumption: product.leatherConsumption,
+      requiresMaterials: nextRequiresMaterials,
+      status: product.status,
+    });
+    setAvailableProducts((prev) =>
+      prev.map((p) => (String(p.id) === String(updated.id) ? updated : p))
+    );
+  };
+
+  const handleProductChange = (productId) => {
+    const product = availableProducts.find((p) => String(p.id) === String(productId));
+    setFormData({ ...formData, productId });
+    setLeatherOnly(isProductLeatherOnly(product));
+  };
+
+  const handleLeatherOnlyChange = (checked) => {
+    setLeatherOnly(checked);
+    if (checked) {
+      setFormData((prev) => ({ ...prev, items: [] }));
+      setItemForm({ materialId: "", quantity: "", measurement: "" });
+      setEditingIndex(null);
+      setEditingItem(null);
+    }
   };
 
   const validate = () => {
     const newErrors = {};
     if (!formData.bomName.trim()) newErrors.bomName = "El nombre de BOM es requerido";
     if (!formData.productId) newErrors.productId = "El producto es requerido";
-    if (formData.items.length === 0) newErrors.items = "Debe agregar al menos un item";
+    if (!leatherOnly && formData.items.length === 0) {
+      newErrors.items = "Debe agregar al menos un item (o marque solo cuero)";
+    }
     if (formData.leatherMaterialId && (!formData.leatherQtyPerUnit || parseFloat(formData.leatherQtyPerUnit) <= 0)) {
       newErrors.leatherQtyPerUnit = "La cantidad de cuero debe ser mayor a 0";
     }
@@ -464,6 +512,7 @@ function BomForm({ bomId, isOpen, toggle, onSuccess }) {
     try {
       setLoading(true);
       setError("");
+      await syncProductLeatherOnlyFlag(formData.productId, leatherOnly);
       const submitData = {
         bomName: formData.bomName.trim(),
         productId: parseInt(formData.productId),
@@ -545,7 +594,7 @@ function BomForm({ bomId, isOpen, toggle, onSuccess }) {
                 <Label for="productId">Producto *</Label>
                 <SearchableSelect
                   value={formData.productId}
-                  onChange={(id) => setFormData({ ...formData, productId: id })}
+                  onChange={handleProductChange}
                   options={availableProducts}
                   placeholder="Buscar producto..."
                   invalid={!!errors.productId}
@@ -647,8 +696,32 @@ function BomForm({ bomId, isOpen, toggle, onSuccess }) {
             </Col>
           </Row>
 
+          <FormGroup check className="mt-2 mb-3">
+            <Label check className="mb-0">
+              <Input
+                type="checkbox"
+                checked={leatherOnly}
+                onChange={(e) => handleLeatherOnlyChange(e.target.checked)}
+                disabled={loading || !formData.productId}
+              />
+              <span className="form-check-sign" />
+              <strong>Solo cuero</strong>
+              <span className="text-muted font-weight-normal">
+                {" "}
+                — no requiere entrega de materiales de bodega (sin líneas de BOM)
+              </span>
+            </Label>
+            <p className="text-muted small mb-0 mt-2" style={{ paddingLeft: 35 }}>
+              {leatherOnly
+                ? "El producto no aparecerá en entrega de materiales; solo aplica cuero en producción."
+                : "Desmarque para definir materiales (hebillas, hilos, etc.) en la receta."}
+            </p>
+          </FormGroup>
+
           <hr />
 
+          {!leatherOnly && (
+          <>
           <h5>Items de BOM</h5>
           {errors.items && <div className="text-danger small mb-2">{errors.items}</div>}
 
@@ -896,6 +969,8 @@ function BomForm({ bomId, isOpen, toggle, onSuccess }) {
                 </Row>
               </div>
             </>
+          )}
+          </>
           )}
         </ModalBody>
         <ModalFooter>

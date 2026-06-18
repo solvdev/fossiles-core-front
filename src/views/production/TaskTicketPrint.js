@@ -2,22 +2,36 @@ import React, { useState, useEffect, useRef } from "react";
 import { getTaskTicket, getTicketsByProductionOrder } from "services/taskService";
 import { showError } from "utils/notificationHelper";
 import { formatDateGt, formatDateTimeGt, formatNowGt } from "utils/dateTimeHelper";
+import { deskDisplayLabel, resolveDeskSupervisorNameForTicket } from "utils/deskSupervisorDisplay";
 
-function TaskTicketPrint({ taskId, productionOrderId, onClose }) {
+function TaskTicketPrint({ taskId, taskIds, productionOrderId, supervisorByDesk, onClose, autoPrintOnLoad }) {
   const [tickets, setTickets] = useState([]);
   const [loading, setLoading] = useState(true);
   const printRef = useRef();
+  const autoPrintedRef = useRef(false);
+  const taskIdsKey = taskIds?.length ? taskIds.join(",") : "";
 
   useEffect(() => {
+    autoPrintedRef.current = false;
     loadTickets();
-  }, [taskId, productionOrderId]);
+  }, [taskId, productionOrderId, taskIdsKey]);
 
   const loadTickets = async () => {
     try {
       setLoading(true);
+      setTickets([]);
       if (taskId) {
         const ticket = await getTaskTicket(taskId);
         setTickets([ticket]);
+      } else if (taskIds?.length) {
+        const results = await Promise.all(
+          taskIds.map((id) => getTaskTicket(id).catch(() => null))
+        );
+        const loaded = results.filter(Boolean);
+        setTickets(loaded);
+        if (loaded.length < taskIds.length) {
+          showError("Algunas boletas no pudieron cargarse.");
+        }
       } else if (productionOrderId) {
         const data = await getTicketsByProductionOrder(productionOrderId);
         setTickets(data || []);
@@ -166,6 +180,13 @@ function TaskTicketPrint({ taskId, productionOrderId, onClose }) {
     printWindow.document.close();
   };
 
+  useEffect(() => {
+    if (!autoPrintOnLoad || loading || tickets.length === 0 || autoPrintedRef.current) return;
+    autoPrintedRef.current = true;
+    const timer = setTimeout(() => handlePrint(), 400);
+    return () => clearTimeout(timer);
+  }, [autoPrintOnLoad, loading, tickets]);
+
   const formatDate = (dateStr) => {
     if (!dateStr) return "-";
     return formatDateGt(dateStr);
@@ -185,15 +206,20 @@ function TaskTicketPrint({ taskId, productionOrderId, onClose }) {
   };
 
   const calcActualDuration = (ticket) => {
-    if (!ticket.scheduledDate || !ticket.startTime || !ticket.completedAt) return null;
-    const [hh, mm] = ticket.startTime.split(":").map(Number);
-    const start = new Date(ticket.scheduledDate + "T00:00:00");
-    start.setHours(hh, mm, 0, 0);
+    if (!ticket.completedAt) return null;
+    let start = null;
+    if (ticket.startedAt) {
+      start = new Date(ticket.startedAt);
+    } else if (ticket.scheduledDate && ticket.startTime) {
+      const [hh, mm] = ticket.startTime.split(":").map(Number);
+      start = new Date(ticket.scheduledDate + "T00:00:00");
+      start.setHours(hh, mm, 0, 0);
+    }
+    if (!start || Number.isNaN(start.getTime())) return null;
     const end = new Date(ticket.completedAt);
     const diffMs = end.getTime() - start.getTime();
     if (diffMs < 0) return null;
-    const mins = Math.round(diffMs / 60000);
-    return mins;
+    return Math.round(diffMs / 60000);
   };
 
   const isLateDelivery = (ticket) => {
@@ -264,6 +290,7 @@ function TaskTicketPrint({ taskId, productionOrderId, onClose }) {
       {/* Printable content */}
       <div ref={printRef}>
         {tickets.map((ticket) => {
+          const deskSupervisorName = resolveDeskSupervisorNameForTicket(ticket, supervisorByDesk);
           const expectedEnd = calcExpectedEnd(ticket);
           const late = isLateDelivery(ticket);
           const actualDuration = calcActualDuration(ticket);
@@ -287,19 +314,25 @@ function TaskTicketPrint({ taskId, productionOrderId, onClose }) {
                 <h2>{ticket.taskCode}</h2>
               </div>
 
-              {/* Highlight: Mesa + Troquelado */}
+              {/* Highlight: Mesa, OP y tiempo */}
               <div style={{ display: "flex", gap: "10px", marginBottom: "10px" }}>
                 <div className="highlight" style={{ flex: 1 }}>
                   <div style={{ fontSize: "10px" }}>MESA</div>
-                  <div className="big">{ticket.desk || "—"}</div>
+                  <div
+                    className="big"
+                    style={{ fontSize: deskSupervisorName ? "16px" : undefined }}
+                  >
+                    {ticket.desk
+                      ? deskDisplayLabel(
+                          ticket.desk,
+                          deskSupervisorName ? { [ticket.desk]: deskSupervisorName } : null
+                        )
+                      : "—"}
+                  </div>
                 </div>
                 <div className="highlight" style={{ flex: 2 }}>
                   <div style={{ fontSize: "10px" }}>ORDEN DE PRODUCCIÓN</div>
                   <div className="big">{ticket.productionOrderCode || "—"}</div>
-                </div>
-                <div className="highlight" style={{ flex: 1 }}>
-                  <div style={{ fontSize: "10px" }}>TROQUELADO</div>
-                  <div className="big">{ticket.dieCutReady ? "✔ SÍ" : "☐ NO"}</div>
                 </div>
                 <div className="highlight" style={{ flex: 1 }}>
                   <div style={{ fontSize: "10px" }}>TIEMPO EST.</div>
@@ -328,7 +361,9 @@ function TaskTicketPrint({ taskId, productionOrderId, onClose }) {
                 </div>
                 <div className="info-item">
                   <span className="info-label">Encargado Mesa:</span>
-                  <span className="info-value" style={{ borderBottom: "1px solid #999", minWidth: "140px", display: "inline-block" }}>&nbsp;</span>
+                  <span className="info-value">
+                    <strong>{deskSupervisorName || "—"}</strong>
+                  </span>
                 </div>
                 <div className="info-item">
                   <span className="info-label">Estado:</span>

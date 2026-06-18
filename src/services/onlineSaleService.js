@@ -126,11 +126,23 @@ export const getOnlineSalesByDateRange = async (startDate, endDate) => {
 
 // ─── Resumen ─────────────────────────────────────────────────────
 
-export const getDailySummary = async (date) => {
-  const response = await fetch(`${API_URL}/online-sales/daily-summary?date=${date}`, { headers: headers() });
+/** Resumen agregado: un día (`startDate` solo) o rango inclusive (`startDate`–`endDate`). */
+export const getDailySummary = async (startDate, endDate) => {
+  const from = startDate || endDate;
+  const to = endDate || startDate;
+  const params = new URLSearchParams();
+  if (from === to) {
+    params.set("date", from);
+  } else {
+    params.set("startDate", from);
+    params.set("endDate", to);
+  }
+  const response = await fetch(`${API_URL}/online-sales/daily-summary?${params.toString()}`, {
+    headers: headers(),
+  });
   if (!response.ok) {
-    const err = await response.json().catch(() => ({ message: 'Error al obtener resumen' }));
-    throw new Error(err.message || 'Error al obtener resumen');
+    const err = await response.json().catch(() => ({ message: "Error al obtener resumen" }));
+    throw new Error(err.message || "Error al obtener resumen");
   }
   return response.json();
 };

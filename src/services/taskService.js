@@ -73,6 +73,19 @@ export const getScheduleDates = async () => {
   return response.json();
 };
 
+export const generateTasksForSelectedItems = async (productionOrderId, selectedItemIds) => {
+  const response = await fetch(`${API_URL}/tasks/generate/${productionOrderId}/selective`, {
+    method: 'POST',
+    headers: headers(),
+    body: JSON.stringify(selectedItemIds)
+  });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ message: 'Error al generar tareas' }));
+    throw new Error(err.message || 'Error al generar tareas');
+  }
+  return response.json();
+};
+
 export const generateTasksForOrder = async (productionOrderId, force = false) => {
   const query = force ? "?force=true" : "";
   const response = await fetch(`${API_URL}/tasks/generate/${productionOrderId}${query}`, {

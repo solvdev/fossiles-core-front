@@ -25,6 +25,7 @@ import { jsPDF } from "jspdf";
 import { buildShipmentDocumentHtml, getSimplePaymentLabel } from "utils/shipmentPrintDocumentHtml";
 import QRCode from "qrcode";
 import { getPublicFrontBaseUrl, buildPtDispatchOnlineUrl } from "utils/ptDispatchQr";
+import { issueTaxInvoiceFromOnlineSale, downloadTaxInvoiceCertifiedXml } from "../../services/taxInvoiceService";
 
 // ─── Helpers ─────────────────────────────────────────────────────
 
@@ -50,6 +51,100 @@ const emptyItem = () => ({ productId: null, colorId: null, size: "", quantity: 1
 const getStatusBadge = (status) => {
   const found = SALE_STATUSES.find(s => s.value === status);
   return found ? <Badge color={found.color}>{found.label}</Badge> : <Badge>{status}</Badge>;
+};
+
+const getFelInvoiceBadge = (sale) => {
+  const status = sale?.invoiceStatus;
+  if (status === "CERTIFIED") return <Badge color="success">Certificada</Badge>;
+  if (status === "FAILED") return <Badge color="danger" title={sale.invoiceFelError || ""}>Error</Badge>;
+  if (status === "SKIPPED") return <Badge color="warning">Omitida</Badge>;
+  return <Badge color="secondary">Sin factura</Badge>;
+};
+
+const canGenerateFelInvoice = (sale) => {
+  if (!sale || sale.invoiceStatus === "CERTIFIED") return false;
+  return !["ANULADA", "CANCELADO", "DEVOLUCION"].includes(sale.status);
+};
+
+const isFelInvoiceRetry = (sale) =>
+  sale?.invoiceStatus === "FAILED" || sale?.invoiceStatus === "SKIPPED";
+
+const computeSaleAmountsFromItems = (sale) => {
+  if (!sale) return { net: 0, total: 0, lineCount: 0 };
+  const preview = buildFelInvoicePreview(sale);
+  if (!preview) return { net: 0, total: 0, lineCount: 0 };
+  const productLines = (preview.lines || []).filter((l) => l.description !== "Costo de envío");
+  const net = productLines.reduce((sum, line) => sum + line.lineTotal, 0);
+  const shipping = parseFloat(sale.shippingCost || 0) || 0;
+  const total = preview.total || net + shipping;
+  return { net, total, lineCount: productLines.length };
+};
+
+const buildFelInvoicePreview = (sale) => {
+  if (!sale) return null;
+  const lines = [];
+  const items = Array.isArray(sale.items) && sale.items.length > 0 ? sale.items : [];
+
+  if (items.length > 0) {
+    items.forEach((item) => {
+      const qty = Number(item.quantity || 1);
+      const unitPrice = parseFloat(item.unitPrice || 0);
+      const lineTotal = item.subtotal != null
+        ? parseFloat(item.subtotal)
+        : unitPrice * qty;
+      if (!Number.isFinite(lineTotal) || lineTotal <= 0) return;
+      const description = [item.productCode, item.productName, item.colorName, item.size]
+        .filter(Boolean)
+        .join(" ")
+        .trim();
+      lines.push({
+        description: description || "Producto",
+        quantity: qty,
+        unitPrice,
+        lineTotal,
+      });
+    });
+  } else if (sale.productId) {
+    const qty = Number(sale.quantity || 1);
+    const unitPrice = parseFloat(sale.unitPrice || 0);
+    const lineTotal = unitPrice * qty;
+    const description = [sale.productCode, sale.productName].filter(Boolean).join(" ").trim();
+    lines.push({
+      description: description || "Producto",
+      quantity: qty,
+      unitPrice,
+      lineTotal,
+    });
+  }
+
+  const shipping = parseFloat(sale.shippingCost || 0);
+  if (Number.isFinite(shipping) && shipping > 0) {
+    lines.push({
+      description: "Costo de envío",
+      quantity: 1,
+      unitPrice: shipping,
+      lineTotal: shipping,
+    });
+  }
+
+  const rawTaxId = String(sale.invoiceTaxId || "CF").trim().toUpperCase();
+  const customerTaxId = rawTaxId === "C/F" || !rawTaxId ? "CF" : rawTaxId;
+  const customerName = sale.customerName
+    || (customerTaxId === "CF" ? "CONSUMIDOR FINAL" : "—");
+
+  const totalFromLines = lines.reduce((sum, line) => sum + line.lineTotal, 0);
+  const total = lines.length > 0 ? totalFromLines : (parseFloat(sale.totalAmount || 0) || 0);
+
+  return {
+    saleNumber: sale.saleNumber || sale.id,
+    customerTaxId,
+    customerName,
+    address: sale.address || "—",
+    phone: sale.phone || "—",
+    email: sale.email || "—",
+    lines,
+    total,
+  };
 };
 
 const getSocialIcon = (sn) => {
@@ -386,6 +481,10 @@ function OnlineSales() {
   const [products, setProducts] = useState([]);
   const [colors, setColors] = useState([]);
   const [summary, setSummary] = useState(null);
+  const [summarySales, setSummarySales] = useState([]);
+  const [summaryDateFrom, setSummaryDateFrom] = useState(() => today());
+  const [summaryDateTo, setSummaryDateTo] = useState(() => today());
+  const [loadingSummary, setLoadingSummary] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [successMsg, setSuccessMsg] = useState("");
@@ -447,6 +546,10 @@ function OnlineSales() {
   const [returnReason, setReturnReason] = useState("");
   const [returnCondition, setReturnCondition] = useState("BUENO");
   const [voidReason, setVoidReason] = useState("");
+  const [felInvoiceLoadingId, setFelInvoiceLoadingId] = useState(null);
+  const [felXmlDownloading, setFelXmlDownloading] = useState(false);
+  const [felInvoiceModal, setFelInvoiceModal] = useState(null);
+  // { phase: 'preview', sale } | { phase: 'result', sale, invoice }
   const [showShipmentModal, setShowShipmentModal] = useState(false);
   const [shipmentSale, setShipmentSale] = useState(null);
   const [shipmentForm, setShipmentForm] = useState({
@@ -504,13 +607,11 @@ function OnlineSales() {
   const loadSales = useCallback(async () => {
     setLoading(true);
     try {
-      const [data, sum, wOrders] = await Promise.all([
+      const [data, wOrders] = await Promise.all([
         getOnlineSalesByDate(filterDate),
-        getDailySummary(filterDate),
         getWarehouseView(),
       ]);
       setSales(data || []);
-      setSummary(sum);
       setWarehouseOrders(wOrders || []);
     } catch (e) {
       setError(e.message);
@@ -518,6 +619,43 @@ function OnlineSales() {
       setLoading(false);
     }
   }, [filterDate]);
+
+  const summaryRangeLabel = useMemo(() => {
+    const from = summaryDateFrom || summaryDateTo;
+    const to = summaryDateTo || summaryDateFrom;
+    if (!from) return "";
+    if (from === to) return from;
+    return `${from} al ${to}`;
+  }, [summaryDateFrom, summaryDateTo]);
+
+  const loadSummary = useCallback(async () => {
+    const from = summaryDateFrom || summaryDateTo;
+    const to = summaryDateTo || summaryDateFrom;
+    if (!from || !to) {
+      setError("Indique fecha desde y hasta para el resumen.");
+      return;
+    }
+    if (from > to) {
+      setError("La fecha inicial no puede ser posterior a la final.");
+      return;
+    }
+    setLoadingSummary(true);
+    setError("");
+    try {
+      const [sum, rangeSales] = await Promise.all([
+        getDailySummary(from, to),
+        from === to ? getOnlineSalesByDate(from) : getOnlineSalesByDateRange(from, to),
+      ]);
+      setSummary(sum);
+      setSummarySales(rangeSales || []);
+    } catch (e) {
+      setError(e.message);
+      setSummary(null);
+      setSummarySales([]);
+    } finally {
+      setLoadingSummary(false);
+    }
+  }, [summaryDateFrom, summaryDateTo]);
 
   // ─── Producción ──────────────────────────────────────────────────
 
@@ -565,6 +703,7 @@ function OnlineSales() {
     if (activeTab === "produccion") loadEligibleSales();
     if (activeTab === "mensual") loadMonthlySales();
     if (activeTab === "devoluciones") loadReturns();
+    if (activeTab === "resumen") loadSummary();
   }, [activeTab]); // eslint-disable-line
 
   const loadReturns = async () => {
@@ -880,6 +1019,14 @@ function OnlineSales() {
     return result;
   }, [sales, filterSalesperson, filterSocial, filterStatus]);
 
+  const exportSalesRows = activeTab === "resumen" ? summarySales : sales;
+  const exportSalesFiltered = useMemo(() => {
+    if (activeTab === "resumen") return exportSalesRows;
+    return filteredSales;
+  }, [activeTab, exportSalesRows, filteredSales]);
+
+  const exportDateLabel = activeTab === "resumen" ? summaryRangeLabel : filterDate;
+
   const saleProductionProgress = useMemo(() => {
     const map = {};
     (warehouseOrders || [])
@@ -1087,6 +1234,44 @@ function OnlineSales() {
       setError(e.message);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const openFelInvoiceModal = (sale) => {
+    setError("");
+    setFelInvoiceModal({ phase: "preview", sale });
+  };
+
+  const closeFelInvoiceModal = () => {
+    if (felInvoiceLoadingId) return;
+    setFelInvoiceModal(null);
+  };
+
+  const confirmGenerateFelInvoice = async () => {
+    const sale = felInvoiceModal?.sale;
+    if (!sale?.id) return;
+    try {
+      setFelInvoiceLoadingId(sale.id);
+      setError("");
+      const invoice = await issueTaxInvoiceFromOnlineSale(sale.id);
+      setSales((prev) => prev.map((s) => (s.id === sale.id ? {
+        ...s,
+        invoiceId: invoice.id,
+        invoiceStatus: invoice.status,
+        invoiceFelUuid: invoice.felUuid,
+        invoiceFelSerie: invoice.felSerie,
+        invoiceFelNumero: invoice.felNumero,
+        invoiceFelError: invoice.felError,
+      } : s)));
+      setFelInvoiceModal({ phase: "result", sale, invoice });
+      loadSales();
+      showNotification(invoice.status === "CERTIFIED"
+        ? "Factura FEL certificada correctamente."
+        : "Factura registrada; revise el estado FEL.");
+    } catch (e) {
+      setError(e.message || "No se pudo generar la factura FEL.");
+    } finally {
+      setFelInvoiceLoadingId(null);
     }
   };
 
@@ -1570,7 +1755,7 @@ function OnlineSales() {
   const exportToExcel = () => {
     // Generar filas expandiendo items — una fila por item, datos de venta solo en la primera
     const rows = [];
-    filteredSales.forEach((s, i) => {
+    exportSalesFiltered.forEach((s, i) => {
       const items = (s.items && s.items.length > 0) ? s.items : [
         { productCode: s.productCode, productName: s.productName, colorName: s.colorName,
           size: s.size, quantity: s.quantity || 1, unitPrice: s.unitPrice, subtotal: s.totalAmount }
@@ -1616,8 +1801,7 @@ function OnlineSales() {
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Ventas Online");
 
-    // Si hay resumen, agregar hoja de resumen
-    if (summary) {
+    if (activeTab === "resumen" && summary) {
       const summaryRows = [
         { "Concepto": "Total Ventas", "Valor": summary.totalSalesCount },
         { "Concepto": "Total Bruto", "Valor": parseFloat(summary.totalAmount) || 0 },
@@ -1659,7 +1843,8 @@ function OnlineSales() {
       XLSX.utils.book_append_sheet(wb, wsSummary, "Resumen Diario");
     }
 
-    XLSX.writeFile(wb, `Ventas_Online_${filterDate}.xlsx`);
+    const fileSuffix = String(exportDateLabel).replace(/\s+/g, "_").replace(/[^\w\-_.]/g, "");
+    XLSX.writeFile(wb, `Ventas_Online_${fileSuffix}.xlsx`);
     showNotification("Excel descargado correctamente");
   };
 
@@ -1671,11 +1856,11 @@ function OnlineSales() {
     const stLabel = (v) => SALE_STATUSES.find(s => s.value === v)?.label || v || "";
     const carrierLabel = (v) => SHIPPING_CARRIERS.find(c => c.value === v)?.label || v || "";
 
-    const totalBruto = filteredSales.reduce((s, r) => s + (parseFloat(r.totalAmount) || 0), 0);
-    const totalNeto = filteredSales.reduce((s, r) => s + (parseFloat(r.netAmount) || 0), 0);
+    const totalBruto = exportSalesFiltered.reduce((s, r) => s + (parseFloat(r.totalAmount) || 0), 0);
+    const totalNeto = exportSalesFiltered.reduce((s, r) => s + (parseFloat(r.netAmount) || 0), 0);
     const totalEnvios = totalBruto - totalNeto;
 
-    const salesRows = filteredSales.map((s, i) => {
+    const salesRows = exportSalesFiltered.map((s, i) => {
       const items = (s.items && s.items.length > 0) ? s.items : [
         { productCode: s.productCode, productName: s.productName, colorName: s.colorName,
           size: s.size, quantity: s.quantity || 1, unitPrice: s.unitPrice, subtotal: s.totalAmount }
@@ -1719,7 +1904,7 @@ function OnlineSales() {
       </tr>`;
     }).join("");
 
-    const html = `<!DOCTYPE html><html><head><title>Ventas Online - ${filterDate}</title>
+    const html = `<!DOCTYPE html><html><head><title>Ventas Online - ${exportDateLabel}</title>
     <style>
       body { font-family: Arial, sans-serif; font-size: 11px; margin: 15px; color: #333; }
       h2 { margin: 0 0 5px 0; font-size: 16px; }
@@ -1739,7 +1924,7 @@ function OnlineSales() {
       <div class="header">
         <div>
           <h2>Reporte de Ventas Online</h2>
-          <div>Fecha: <strong>${filterDate}</strong></div>
+          <div>Período: <strong>${exportDateLabel}</strong></div>
         </div>
         <div style="text-align:right">
           <div style="font-size:10px;color:#999">Generado: ${formatNowGt()}</div>
@@ -1747,7 +1932,7 @@ function OnlineSales() {
       </div>
 
       <div class="summary-cards">
-        <div class="summary-card"><div class="value">${filteredSales.length}</div><div class="label">Total Ventas</div></div>
+        <div class="summary-card"><div class="value">${exportSalesFiltered.length}</div><div class="label">Total Ventas</div></div>
         <div class="summary-card"><div class="value">${formatQ(totalBruto)}</div><div class="label">Total Bruto</div></div>
         <div class="summary-card"><div class="value" style="color:#2e7d32">${formatQ(totalNeto)}</div><div class="label">Total Neto</div></div>
         <div class="summary-card"><div class="value">${formatQ(totalEnvios)}</div><div class="label">Envíos</div></div>
@@ -2209,7 +2394,7 @@ function OnlineSales() {
         <NavItem>
           <NavLink className={activeTab === "resumen" ? "active" : ""} onClick={() => setActiveTab("resumen")}
             style={{ cursor: "pointer" }}>
-            📊 Resumen Diario
+            📊 Resumen por fechas
           </NavLink>
         </NavItem>
         <NavItem>
@@ -2314,7 +2499,8 @@ function OnlineSales() {
                         <th style={{ minWidth: 80 }}>Teléfono 2</th>
                         <th style={{ minWidth: 50 }}>Emp.</th>
                         <th style={{ minWidth: 130 }}>Forma Pago</th>
-                        <th style={{ minWidth: 60 }}>Factura</th>
+                        <th style={{ minWidth: 60 }}>NIT</th>
+                        <th style={{ minWidth: 90 }}>FEL</th>
                         <th style={{ minWidth: 180 }}>Productos</th>
                         <th style={{ minWidth: 70 }}>Total</th>
                         <th style={{ minWidth: 50 }}>Envío</th>
@@ -2352,6 +2538,7 @@ function OnlineSales() {
                           <td>{renderInlineCell(sale, "paymentMethod", "select",
                             PAYMENT_METHODS.map(p => ({ value: p.value, label: p.label })))}</td>
                           <td>{renderInlineCell(sale, "invoiceTaxId")}</td>
+                          <td>{getFelInvoiceBadge(sale)}</td>
                           <td style={{ fontSize: 11 }}>
                             {(sale.items && sale.items.length > 0) ? sale.items.map((it, i) => (
                               <div key={i} style={{
@@ -2371,9 +2558,38 @@ function OnlineSales() {
                               </div>
                             )}
                           </td>
-                          <td><strong>{formatQ(sale.totalAmount)}</strong></td>
+                          <td>
+                            {(() => {
+                              const amounts = computeSaleAmountsFromItems(sale);
+                              const storedTotal = parseFloat(sale.totalAmount || 0);
+                              const mismatch = amounts.lineCount > 1
+                                && amounts.total > 0
+                                && Math.abs(amounts.total - storedTotal) > 0.01;
+                              return (
+                                <>
+                                  <strong title={mismatch ? "Total recalculado desde productos" : undefined}>
+                                    {formatQ(mismatch ? amounts.total : sale.totalAmount)}
+                                  </strong>
+                                  {mismatch && (
+                                    <div className="text-warning small" title={`Guardado: ${formatQ(storedTotal)}`}>
+                                      ≠ {formatQ(storedTotal)}
+                                    </div>
+                                  )}
+                                </>
+                              );
+                            })()}
+                          </td>
                           <td>{formatQ(sale.shippingCost)}</td>
-                          <td style={{ color: "#2e7d32", fontWeight: 600 }}>{formatQ(sale.netAmount)}</td>
+                          <td style={{ color: "#2e7d32", fontWeight: 600 }}>
+                            {(() => {
+                              const amounts = computeSaleAmountsFromItems(sale);
+                              const storedNet = parseFloat(sale.netAmount || 0);
+                              const mismatch = amounts.lineCount > 1
+                                && amounts.net > 0
+                                && Math.abs(amounts.net - storedNet) > 0.01;
+                              return formatQ(mismatch ? amounts.net : sale.netAmount);
+                            })()}
+                          </td>
                           <td>{renderInlineCell(sale, "shippingCarrier", "select",
                             SHIPPING_CARRIERS.map(c => ({ value: c.value, label: c.label })))}</td>
                           <td>{getSocialIcon(sale.socialNetwork)}</td>
@@ -2383,6 +2599,22 @@ function OnlineSales() {
                           <td>{renderInlineCell(sale, "paymentAuthorization")}</td>
                           <td>{renderInlineCell(sale, "observations")}</td>
                           <td style={{ whiteSpace: "nowrap" }}>
+                            {canGenerateFelInvoice(sale) && (
+                              <Button
+                                color={isFelInvoiceRetry(sale) ? "warning" : "success"}
+                                size="sm"
+                                className="btn-icon btn-round"
+                                title={isFelInvoiceRetry(sale)
+                                  ? "Reintentar factura FEL"
+                                  : "Generar factura FEL"}
+                                onClick={() => openFelInvoiceModal(sale)}
+                                disabled={felInvoiceLoadingId === sale.id}
+                                style={{ padding: "3px 7px" }}>
+                                {felInvoiceLoadingId === sale.id
+                                  ? <Spinner size="sm" />
+                                  : <i className={isFelInvoiceRetry(sale) ? "nc-icon nc-refresh-69" : "nc-icon nc-paper"} />}
+                              </Button>
+                            )}{" "}
                             <Button color="info" size="sm" className="btn-icon btn-round" title="Editar"
                               onClick={() => openEditForm(sale)} style={{ padding: "3px 7px" }}>
                               <i className="nc-icon nc-ruler-pencil" />
@@ -2720,28 +2952,52 @@ function OnlineSales() {
 
         {/* ═══ TAB RESUMEN ═══ */}
         <TabPane tabId="resumen">
-          <Row className="mb-3">
+          <Row className="mb-3 align-items-end">
             <Col md="3">
-              <FormGroup>
-                <Label className="font-weight-bold">Fecha</Label>
-                <Input type="date" value={filterDate} onChange={e => setFilterDate(e.target.value)} />
+              <FormGroup className="mb-md-0">
+                <Label className="font-weight-bold">Desde</Label>
+                <Input
+                  type="date"
+                  value={summaryDateFrom}
+                  onChange={(e) => setSummaryDateFrom(e.target.value)}
+                />
+              </FormGroup>
+            </Col>
+            <Col md="3">
+              <FormGroup className="mb-md-0">
+                <Label className="font-weight-bold">Hasta</Label>
+                <Input
+                  type="date"
+                  value={summaryDateTo}
+                  onChange={(e) => setSummaryDateTo(e.target.value)}
+                />
               </FormGroup>
             </Col>
             <Col md="2" className="d-flex align-items-end">
-              <Button color="primary" size="sm" onClick={loadSales} style={{ marginRight: 4 }}>Actualizar</Button>
+              <Button color="primary" size="sm" onClick={loadSummary} disabled={loadingSummary}>
+                {loadingSummary ? "Cargando…" : "Actualizar"}
+              </Button>
             </Col>
             <Col md="auto" className="d-flex align-items-end">
-              <Button color="default" size="sm" onClick={exportToExcel} style={{ marginRight: 4 }}>
+              <Button color="default" size="sm" onClick={exportToExcel} style={{ marginRight: 4 }} disabled={!summary}>
                 <i className="nc-icon nc-cloud-download-93" /> Excel
               </Button>
-              <Button color="default" size="sm" onClick={exportToPDF}>
+              <Button color="default" size="sm" onClick={exportToPDF} disabled={!summary}>
                 <i className="nc-icon nc-paper" /> PDF
               </Button>
             </Col>
           </Row>
 
-          {summary ? (
+          {loadingSummary ? (
+            <div className="text-center p-4"><Spinner color="primary" /></div>
+          ) : summary ? (
             <>
+              <p className="text-muted mb-3">
+                Período: <strong>{summaryRangeLabel}</strong>
+                {summary.totalSalesCount != null ? (
+                  <span> · {summary.totalSalesCount} venta(s) en el rango</span>
+                ) : null}
+              </p>
               {/* Tarjetas de resumen */}
               <Row>
                 <Col md="3">
@@ -2933,7 +3189,10 @@ function OnlineSales() {
           ) : (
             <Card>
               <CardBody className="text-center p-4">
-                <p className="text-muted">Seleccione una fecha para ver el resumen.</p>
+                <p className="text-muted">
+                  Elija fecha desde y hasta, luego pulse Actualizar para ver el resumen
+                  {summaryRangeLabel ? ` (${summaryRangeLabel})` : ""}.
+                </p>
               </CardBody>
             </Card>
           )}
@@ -4411,6 +4670,159 @@ function OnlineSales() {
             {resolveSubmitting ? (<><Spinner size="sm" /> Ejecutando...</>) : "Ejecutar"}
           </Button>
         </ModalFooter>
+      </Modal>
+
+      <Modal
+        isOpen={Boolean(felInvoiceModal)}
+        toggle={closeFelInvoiceModal}
+        centered
+        size="lg"
+      >
+        {felInvoiceModal?.phase === "preview" && (() => {
+          const preview = buildFelInvoicePreview(felInvoiceModal.sale);
+          const sale = felInvoiceModal.sale;
+          const confirming = felInvoiceLoadingId === sale?.id;
+          const retry = isFelInvoiceRetry(sale);
+          const storedTotal = parseFloat(sale?.totalAmount || 0);
+          const totalMismatch = preview?.total > 0
+            && Math.abs(preview.total - storedTotal) > 0.01;
+          return (
+            <>
+              <ModalHeader toggle={closeFelInvoiceModal}>
+                {retry ? "Reintentar" : "Generar"} factura FEL — venta {preview?.saleNumber || sale?.id}
+              </ModalHeader>
+              <ModalBody>
+                {retry && (
+                  <Alert color="info" className="py-2">
+                    Esta venta ya tiene un intento fallido. Al confirmar se reenvía la certificación FEL
+                    (mismo ID de transacción si aplica).
+                  </Alert>
+                )}
+                {totalMismatch && (
+                  <Alert color="warning" className="py-2">
+                    El total guardado en la venta ({formatQ(storedTotal)}) no coincide con la suma de
+                    productos ({formatQ(preview.total)}). La factura usará la suma de líneas.
+                  </Alert>
+                )}
+                <p className="text-muted small mb-3">
+                  Revise los datos que se enviarán a certificación FEL antes de confirmar.
+                </p>
+                {preview && (
+                  <>
+                    <Row className="mb-3">
+                      <Col md="6">
+                        <p className="mb-1"><strong>Cliente:</strong> {preview.customerName}</p>
+                        <p className="mb-1"><strong>NIT / CF:</strong> {preview.customerTaxId}</p>
+                        <p className="mb-1"><strong>Dirección:</strong> {preview.address}</p>
+                      </Col>
+                      <Col md="6">
+                        <p className="mb-1"><strong>Teléfono:</strong> {preview.phone}</p>
+                        <p className="mb-1"><strong>Correo:</strong> {preview.email}</p>
+                        <p className="mb-0"><strong>Total venta:</strong> {formatQ(preview.total)}</p>
+                      </Col>
+                    </Row>
+                    <Table responsive size="sm" className="mb-0">
+                      <thead>
+                        <tr>
+                          <th>Descripción</th>
+                          <th style={{ width: 70 }}>Cant.</th>
+                          <th style={{ width: 90 }}>P. unit.</th>
+                          <th style={{ width: 90 }}>Total</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {preview.lines.map((line, idx) => (
+                          <tr key={idx}>
+                            <td>{line.description}</td>
+                            <td>{line.quantity}</td>
+                            <td>{formatQ(line.unitPrice)}</td>
+                            <td>{formatQ(line.lineTotal)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                      <tfoot>
+                        <tr>
+                          <td colSpan="3" className="text-right"><strong>Total factura</strong></td>
+                          <td><strong>{formatQ(preview.total)}</strong></td>
+                        </tr>
+                      </tfoot>
+                    </Table>
+                  </>
+                )}
+              </ModalBody>
+              <ModalFooter>
+                <Button color="secondary" outline onClick={closeFelInvoiceModal} disabled={confirming}>
+                  Cancelar
+                </Button>
+                <Button color="success" onClick={confirmGenerateFelInvoice} disabled={confirming || !preview?.lines?.length}>
+                  {confirming
+                    ? (<><Spinner size="sm" /> Certificando...</>)
+                    : (retry ? "Reintentar certificación FEL" : "Generar factura FEL")}
+                </Button>
+              </ModalFooter>
+            </>
+          );
+        })()}
+
+        {felInvoiceModal?.phase === "result" && (() => {
+          const invoice = felInvoiceModal.invoice;
+          const isTest = String(invoice?.felSerie || "").toUpperCase().includes("PRUEBAS");
+          const canDownloadXml = invoice?.status === "CERTIFIED" && invoice?.hasCertifiedXml;
+          const handleDownloadFelXml = async () => {
+            if (!invoice?.id) return;
+            try {
+              setFelXmlDownloading(true);
+              setError("");
+              await downloadTaxInvoiceCertifiedXml(invoice.id);
+            } catch (e) {
+              setError(e.message || "No se pudo descargar el XML certificado.");
+            } finally {
+              setFelXmlDownloading(false);
+            }
+          };
+          return (
+            <>
+              <ModalHeader toggle={closeFelInvoiceModal}>Factura FEL generada</ModalHeader>
+              <ModalBody>
+                <p className="mb-2">
+                  <strong>Estado:</strong>{" "}
+                  <Badge color={invoice?.status === "CERTIFIED" ? "success" : invoice?.status === "FAILED" ? "danger" : "warning"}>
+                    {invoice?.status || "—"}
+                  </Badge>
+                </p>
+                {isTest && (
+                  <Alert color="warning" className="py-2">
+                    Ambiente de <strong>pruebas</strong> INFILE — documento sin validez fiscal.
+                  </Alert>
+                )}
+                {invoice?.felUuid && (
+                  <p className="mb-1 small"><strong>Autorización (UUID):</strong> {invoice.felUuid}</p>
+                )}
+                {(invoice?.felSerie || invoice?.felNumero) && (
+                  <p className="mb-1 small">
+                    <strong>Serie / Número:</strong> {invoice.felSerie || "—"} / {invoice.felNumero || "—"}
+                  </p>
+                )}
+                {invoice?.status === "CERTIFIED" && !invoice?.hasCertifiedXml && (
+                  <p className="text-muted small mb-0">
+                    El XML certificado no quedó almacenado en esta emisión.
+                  </p>
+                )}
+                {invoice?.felError && (
+                  <Alert color="danger" className="mb-0 mt-2">{invoice.felError}</Alert>
+                )}
+              </ModalBody>
+              <ModalFooter>
+                {canDownloadXml && (
+                  <Button color="success" outline onClick={handleDownloadFelXml} disabled={felXmlDownloading}>
+                    {felXmlDownloading ? (<><Spinner size="sm" /> Descargando...</>) : "Descargar XML certificado"}
+                  </Button>
+                )}
+                <Button color="primary" onClick={closeFelInvoiceModal}>Cerrar</Button>
+              </ModalFooter>
+            </>
+          );
+        })()}
       </Modal>
     </div>
   );

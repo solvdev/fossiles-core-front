@@ -408,6 +408,49 @@ export const getAggregatedProductInventoryByCategory = async (category) => {
  * @param {string} category - Categoría de ubicación (KIOSKO, BODEGA_PT, VENDEDOR, ONLINE)
  * @param {number} locationId - ID de ubicación específica (opcional, para kiosko específico)
  */
+/**
+ * Reporte de salidas de inventario de productos (kardex negativo) con filtros.
+ * @param {Object} params - startDate, endDate (yyyy-MM-dd), locationId, productId, sourceCategories[], orderTypes[]
+ */
+export const getProductInventoryOutflowsReport = async (params = {}) => {
+  const qs = new URLSearchParams();
+  if (params.startDate) qs.append('startDate', params.startDate);
+  if (params.endDate) qs.append('endDate', params.endDate);
+  if (params.locationId) qs.append('locationId', String(params.locationId));
+  if (params.productId) qs.append('productId', String(params.productId));
+  (params.sourceCategories || []).forEach((c) => {
+    if (c) qs.append('sourceCategories', c);
+  });
+  (params.orderTypes || []).forEach((t) => {
+    if (t) qs.append('orderTypes', t);
+  });
+
+  try {
+    const response = await fetch(
+      `${API_URL}/product-inventory/kardex/outflows-report?${qs.toString()}`,
+      {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          ...getAuthHeader(),
+        },
+      }
+    );
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({
+        message: 'Error al obtener reporte de salidas',
+      }));
+      throw new Error(errorData.message || 'Error al obtener reporte de salidas');
+    }
+
+    return await response.json();
+  } catch (error) {
+    console.error('Get product inventory outflows report error:', error);
+    throw error;
+  }
+};
+
 export const initializeMissingProductInventory = async (category = null, locationId = null) => {
   try {
     const params = new URLSearchParams();

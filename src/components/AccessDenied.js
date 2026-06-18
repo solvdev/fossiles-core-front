@@ -1,12 +1,18 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Card, CardBody, Button, Row, Col } from 'reactstrap';
+import { useAuth } from 'contexts/AuthContext';
+import { resolveDefaultLandingRoute } from 'utils/defaultLandingRoute';
 
 /**
  * Componente que se muestra cuando un usuario no tiene permisos para acceder a una sección
  */
-const AccessDenied = ({ requiredPermission, message }) => {
+const AccessDenied = ({ requiredPermission, message, landingRoute: landingRouteProp }) => {
   const navigate = useNavigate();
+  const { permissions, hasRole } = useAuth();
+  const landingRoute =
+    landingRouteProp ||
+    resolveDefaultLandingRoute(permissions, { isEncargada: hasRole('ENCARGADA') });
 
   return (
     <div className="content">
@@ -44,11 +50,11 @@ const AccessDenied = ({ requiredPermission, message }) => {
               <Button
                 color="primary"
                 size="lg"
-                onClick={() => navigate('/admin/dashboard-production')}
+                onClick={() => navigate(landingRoute)}
                 className="mt-3"
               >
                 <i className="nc-icon nc-chart-bar-32 mr-2" />
-                Volver al Dashboard
+                Ir al inicio
               </Button>
             </CardBody>
           </Card>

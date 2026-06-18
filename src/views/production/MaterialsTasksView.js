@@ -9,6 +9,7 @@ import { getProductionOrders, getProductionOrderById } from "../../services/prod
 import { getBomsByProductId } from "../../services/bomService";
 import { getMaterials } from "../../services/materialService";
 import { taskMaterialsReady, taskSkipsMaterials } from "utils/materialRequirementHelper";
+import { orderHasPendingMaterialsTasks } from "utils/materialsPendingHelper";
 import { isCinchoOrderType } from "utils/cinchoProductionHelper";
 import {
   buildCinchoReadOnlyRecipeBlocks,
@@ -22,6 +23,7 @@ import { openMaterialsDayRecipesPrintWindow } from "utils/materialsDayRecipesPri
 const STATUS_LABELS = {
   PENDING: "Pendiente",
   IN_PROGRESS: "En Progreso",
+  AWAITING_WAREHOUSE: "Pendiente bodega PT",
   COMPLETED: "Completada",
   CANCELLED: "Cancelada",
 };
@@ -29,6 +31,7 @@ const STATUS_LABELS = {
 const STATUS_STYLES = {
   PENDING: { backgroundColor: "#ffc107", color: "#333", padding: "4px 8px", borderRadius: "4px", fontSize: "0.8em", fontWeight: 600, display: "inline-block" },
   IN_PROGRESS: { backgroundColor: "#17a2b8", color: "#fff", padding: "4px 8px", borderRadius: "4px", fontSize: "0.8em", fontWeight: 600, display: "inline-block" },
+  AWAITING_WAREHOUSE: { backgroundColor: "#6f42c1", color: "#fff", padding: "4px 8px", borderRadius: "4px", fontSize: "0.8em", fontWeight: 600, display: "inline-block" },
   COMPLETED: { backgroundColor: "#28a745", color: "#fff", padding: "4px 8px", borderRadius: "4px", fontSize: "0.8em", fontWeight: 600, display: "inline-block" },
   CANCELLED: { backgroundColor: "#dc3545", color: "#fff", padding: "4px 8px", borderRadius: "4px", fontSize: "0.8em", fontWeight: 600, display: "inline-block" },
 };
@@ -126,12 +129,9 @@ const MaterialsTasksView = () => {
       );
       const ordersWithPendingMaterials = await Promise.all(
         activeOrders.map(async (order) => {
-          if (isCinchoOrderType(order.orderType)) {
-            return order;
-          }
           try {
             const tasks = await getMaterialsViewByOrder(order.id);
-            return (tasks || []).length > 0 ? order : null;
+            return orderHasPendingMaterialsTasks(tasks) ? order : null;
           } catch {
             return null;
           }
@@ -305,12 +305,37 @@ const MaterialsTasksView = () => {
       return;
     }
     try {
-      await setTaskItemMaterialsDelivery(taskId, taskItemId, true, force);
+      const updated = await setTaskItemMaterialsDelivery(taskId, taskItemId, true, force);
+      const consumed = Number(updated?.lastItemMaterialsConsumed ?? 0);
+      if (product?.requiresMaterials !== false && consumed === 0) {
+        setError(
+          "Entrega registrada, pero no se descontó inventario. Revise BOM del producto o consumo previo de la OP."
+        );
+      }
       if (isHistory) {
         await fetchHistory();
-      } else if (selectedOrderId) {
-        const row = orders.find((o) => o.id === selectedOrderId);
-        await fetchOrderTasks(selectedOrderId, row);
+      } else {
+        setOrderTasks((prev) => {
+          const next = prev
+            .map((t) => {
+              if (t.taskId !== taskId) return t;
+              const products = (t.products || []).map((p) =>
+                p.taskItemId === taskItemId ? { ...p, materialsDelivered: true } : p
+              );
+              const allDelivered = products.every(
+                (p) => p.requiresMaterials === false || p.materialsDelivered
+              );
+              return { ...t, products, materialsDelivered: allDelivered };
+            })
+            .filter((t) =>
+              (t.products || []).some((p) => p.requiresMaterials !== false && !p.materialsDelivered)
+            );
+          if (next.length === 0) {
+            setOrders((current) => current.filter((order) => order.id !== selectedOrderId));
+            setSelectedOrderId(null);
+          }
+          return next;
+        });
       }
     } catch (err) {
       setError(err.message || "No se pudo entregar materiales para el producto");

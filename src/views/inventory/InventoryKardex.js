@@ -244,6 +244,20 @@ function InventoryKardex({
         filter: "fuzzyText",
       },
       {
+        Header: "Color",
+        accessor: "colorName",
+        Filter: DefaultColumnFilter,
+        filter: "fuzzyText",
+        Cell: ({ value }) =>
+          value ? (
+            <span>{value}</span>
+          ) : (
+            <span className="text-muted" style={{ fontStyle: "italic" }}>
+              —
+            </span>
+          ),
+      },
+      {
         Header: "Tipo",
         accessor: "movementType",
         Cell: ({ value }) => getMovementTypeBadge(value),

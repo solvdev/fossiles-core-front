@@ -2,6 +2,7 @@ import React from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from 'contexts/AuthContext';
 import AccessDenied from './AccessDenied';
+import { resolveDefaultLandingRoute } from 'utils/defaultLandingRoute';
 
 /**
  * Higher Order Component para proteger rutas basándose en permisos
@@ -20,7 +21,7 @@ const ProtectedRoute = ({
   redirectTo = '/auth/login',
   showAccessDenied = true,
 }) => {
-  const { hasPermission, hasAnyPermission, hasAllPermissions, loading, initialized, user, permissions, refreshUserData } = useAuth();
+  const { hasPermission, hasAnyPermission, hasAllPermissions, loading, initialized, user, permissions, refreshUserData, hasRole } = useAuth();
   const location = useLocation();
   const [retryCount, setRetryCount] = React.useState(0);
   const [isRetrying, setIsRetrying] = React.useState(false);
@@ -88,11 +89,17 @@ const ProtectedRoute = ({
     hasAccess = hasPermission(permission);
   }
 
-  // Si no tiene acceso, mostrar AccessDenied o redirigir
+  // Si no tiene acceso, redirigir al inicio permitido o mostrar AccessDenied
   if (!hasAccess) {
+    const landingRoute = resolveDefaultLandingRoute(permissions, {
+      isEncargada: hasRole('ENCARGADA'),
+    });
+    if (location.pathname !== landingRoute) {
+      return <Navigate to={landingRoute} replace />;
+    }
     if (showAccessDenied) {
       const deniedLabel = Array.isArray(permission) ? permission.join(', ') : permission;
-      return <AccessDenied requiredPermission={deniedLabel} />;
+      return <AccessDenied requiredPermission={deniedLabel} landingRoute={landingRoute} />;
     }
     return <Navigate to={redirectTo} state={{ from: location }} replace />;
   }

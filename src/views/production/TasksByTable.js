@@ -28,11 +28,11 @@ import {
   setLeatherDelivery,
   setTaskItemLeatherDelivery,
   scheduleTask,
-  getDesksCount,
   optimizePendingTasks,
   planTasksWindow,
   getDistributionQueueProductionOrders,
   generateTasksForOrder,
+  generateTasksForSelectedItems,
   getDaySaleCandidates,
   addDaySaleItemsToTask,
   generateForPendingOnlineSales,
@@ -40,13 +40,39 @@ import {
   updateTaskStartedAt,
 } from "services/taskService";
 import { getProductionOrders } from "services/productionOrderService";
-import { isManagedCinchoOrderType } from "utils/cinchoProductionHelper";
+import {
+  isCinchoOrderType,
+  orderHasOnlyCinchoLineItems,
+  buildTableCenterTasks,
+} from "utils/cinchoProductionHelper";
+import {
+  collectPlannedOrderItemIds,
+  countPlannedItemsForOrder,
+  orderHasPendingItemsForTasks,
+} from "utils/taskPlanningHelper";
 import { showSuccess, showError } from "utils/notificationHelper";
 import TaskTicketPrint from "./TaskTicketPrint";
+import DownloadOpsModal, { mergeOrdersForDownload } from "components/production/DownloadOpsModal";
 import { taskSkipsMaterials } from "utils/materialRequirementHelper";
-import { formatDateGt, formatDateTimeGt } from "utils/dateTimeHelper";
+import { formatDateGt, formatDateTimeGt, getTodayYmdGuatemala } from "utils/dateTimeHelper";
 import { formatProductionOrderSelectLabel } from "utils/productionOrderDisplayHelper";
 import { openProductionTasksSheetPrintWindow } from "utils/productionTasksSheetPrintHtml";
+import { buildProductionTasksSheetPrintModel } from "utils/productionTasksSheetPrintData";
+import { getDeskSupervisorsForDate, replaceDeskSupervisorsForDate } from "services/deskSupervisorService";
+import { getDeskCountForDate, replaceDeskCountForDate } from "services/deskCountService";
+import { deskDisplayLabel } from "utils/deskSupervisorDisplay";
+import {
+  buildCinchoDayBoardRows,
+  deliveredStatusMapFromApi,
+  orderWorkAnchorYmd,
+  workStatusMapFromApi,
+} from "utils/cinchoDayBoardHelper";
+import {
+  getCinchoDayStatuses,
+  setCinchoDayDelivered,
+  setCinchoDayWorkStatus,
+} from "services/cinchoDayStatusService";
+import CinchosDayBoard from "./CinchosDayBoard";
 
 const MAX_HOURS_PER_DESK = 4;
 
@@ -214,6 +240,7 @@ function RedistributeBoard({
   date,
   setDate,
   onMove,
+  deskTitleFor,
 }) {
   const [activeItemId, setActiveItemId] = useState(null);
 
@@ -245,9 +272,12 @@ function RedistributeBoard({
 
   const containers = useMemo(() => {
     const list = [{ id: "unassigned", title: "Sin asignar" }];
-    for (let d = 1; d <= (numDesks || 12); d++) list.push({ id: `desk-${d}`, title: `Mesa ${d}`, desk: d });
+    for (let d = 1; d <= (numDesks || 12); d++) {
+      const title = typeof deskTitleFor === "function" ? deskTitleFor(d) : `Mesa ${d}`;
+      list.push({ id: `desk-${d}`, title, desk: d });
+    }
     return list;
-  }, [numDesks]);
+  }, [numDesks, deskTitleFor]);
 
   const itemsByContainer = useMemo(() => {
     const map = {};
@@ -408,6 +438,8 @@ function TasksByTable() {
   const [searchTerm, setSearchTerm] = useState("");
   const [filterDieCut, setFilterDieCut] = useState("all");
   const [printTaskId, setPrintTaskId] = useState(null);
+  const [printBatchTaskIds, setPrintBatchTaskIds] = useState(null);
+  const [printSupervisorByDesk, setPrintSupervisorByDesk] = useState(null);
   const [numDesks, setNumDesks] = useState(12);
   const [workingDesksCount, setWorkingDesksCount] = useState(12);
   const [distributionDate, setDistributionDate] = useState(new Date().toISOString().split("T")[0]);
@@ -417,8 +449,21 @@ function TasksByTable() {
   const [distributionApplying, setDistributionApplying] = useState(false);
   const [activePriorityRowId, setActivePriorityRowId] = useState(null);
   const [showQuickGuide, setShowQuickGuide] = useState(false);
+  const [showDownloadOpsModal, setShowDownloadOpsModal] = useState(false);
+  const [deskSupervisorsByDate, setDeskSupervisorsByDate] = useState({});
+  const [showDeskSupervisorsModal, setShowDeskSupervisorsModal] = useState(false);
+  const [deskSupervisorModalDate, setDeskSupervisorModalDate] = useState("");
+  const [deskSupervisorDraft, setDeskSupervisorDraft] = useState([]);
+  const [deskCountDraft, setDeskCountDraft] = useState(12);
+  const [savingDeskSupervisors, setSavingDeskSupervisors] = useState(false);
   const [showGenerateModal, setShowGenerateModal] = useState(false);
   const [productionOrders, setProductionOrders] = useState([]);
+  /** Órdenes activas OPL/OPCK/OPC (para cuadro cinchos del día). */
+  const [productionOrdersForCinchos, setProductionOrdersForCinchos] = useState([]);
+  const [cinchoDeliveredByDate, setCinchoDeliveredByDate] = useState({});
+  const [cinchoWorkStatusByDate, setCinchoWorkStatusByDate] = useState({});
+  const [cinchoStatusLoadingByDate, setCinchoStatusLoadingByDate] = useState({});
+  const [cinchoSavingKey, setCinchoSavingKey] = useState(null);
   const [selectedOrderId, setSelectedOrderId] = useState("");
   const [generatingOrderTasks, setGeneratingOrderTasks] = useState(false);
   const [showDetailedList, setShowDetailedList] = useState(false);
@@ -431,6 +476,9 @@ function TasksByTable() {
   const [showLeatherModal, setShowLeatherModal] = useState(false);
   const [leatherTask, setLeatherTask] = useState(null);
   const [generatingOnlineSalesTasks, setGeneratingOnlineSalesTasks] = useState(false);
+  const [showOnlineSalesModal, setShowOnlineSalesModal] = useState(false);
+  const [selectedModalItemIds, setSelectedModalItemIds] = useState(new Set());
+  const [orderPickerSearch, setOrderPickerSearch] = useState("");
   const [selectedLeatherItems, setSelectedLeatherItems] = useState([]);
   const [leatherSelectionCount, setLeatherSelectionCount] = useState("");
   const [savingLeatherItems, setSavingLeatherItems] = useState(false);
@@ -439,11 +487,34 @@ function TasksByTable() {
   const [redistributeDate, setRedistributeDate] = useState(new Date().toISOString().split("T")[0]);
   const [editStartModal, setEditStartModal] = useState({ open: false, task: null, value: "" });
 
+  const loadDesksCount = useCallback(async () => {
+    try {
+      const d = filterDate || getTodayYmdGuatemala();
+      const res = await getDeskCountForDate(d);
+      const count = res.numDesks ?? 12;
+      setNumDesks(count);
+      setWorkingDesksCount(count);
+      if (res.isDefault) {
+        setDeskConfigWarning(
+          `No se pudo leer la configuración de mesas activas; se está usando ${count}. ` +
+            `Revisa la configuración general (llaves: MANUFACTURING_NUMBER_OF_TABLES / PRODUCTION_TABLES_COUNT).`
+        );
+      } else {
+        setDeskConfigWarning("");
+      }
+    } catch {
+      /* use default */
+    }
+  }, [filterDate]);
+
   useEffect(() => {
     loadTasks();
-    loadDesksCount();
     loadProductionOrders();
   }, []);
+
+  useEffect(() => {
+    loadDesksCount();
+  }, [filterDate, loadDesksCount]);
 
   useEffect(() => {
     const orderIdFromUrl = searchParams.get("orderId");
@@ -479,41 +550,84 @@ function TasksByTable() {
     }
   }, []);
 
-  const loadDesksCount = async () => {
-    try {
-      const res = await getDesksCount();
-      const count = res.count ?? 12;
-      setNumDesks(count);
-      setWorkingDesksCount(count);
-      if (res.isDefault) {
-        setDeskConfigWarning(
-          `No se pudo leer la configuración de mesas activas; se está usando ${count}. ` +
-            `Revisa la configuración general (llaves: MANUFACTURING_NUMBER_OF_TABLES / PRODUCTION_TABLES_COUNT).`
-        );
-      } else {
-        setDeskConfigWarning("");
-      }
-    } catch { /* use default */ }
-  };
-
   const loadProductionOrders = async () => {
     try {
       const data = await getProductionOrders();
       const activeStatuses = new Set(["PENDING", "IN_PROGRESS", "DRAFT"]);
       const closedStatuses = new Set(["COMPLETED", "CANCELLED", "PRODUCED", "FINISHED", "TERMINATED", "DONE"]);
       const active = (data || []).filter((o) => {
-        const orderType = String(o?.orderType || "").trim().toUpperCase();
-        if (isManagedCinchoOrderType(orderType)) return false;
         const status = String(o?.status || "").toUpperCase();
         if (closedStatuses.has(status)) return false;
         if (activeStatuses.size > 0 && status && !activeStatuses.has(status)) return false;
         return true;
       });
-      setProductionOrders(active);
+      setProductionOrdersForCinchos(
+        active.filter((o) => {
+          const orderType = String(o?.orderType || "").trim().toUpperCase();
+          return (
+            orderType === "VENTA_EN_LINEA"
+            || orderType === "CLIENTE_KIOSKO"
+            || isCinchoOrderType(orderType)
+          );
+        })
+      );
+      setProductionOrders(
+        active.filter((o) => {
+          const orderType = String(o?.orderType || "").trim().toUpperCase();
+          if (isCinchoOrderType(orderType)) return false;
+          if (orderHasOnlyCinchoLineItems(o)) return false;
+          return true;
+        })
+      );
     } catch (err) {
       console.error("Error loading production orders:", err);
     }
   };
+
+  const mapFromSupervisorResponse = useCallback((res) => {
+    const m = {};
+    (res?.assignments || []).forEach((a) => {
+      if (a.desk != null) m[a.desk] = a.supervisorName || "";
+    });
+    return m;
+  }, []);
+
+  const normalizeSupervisorRowsForCount = useCallback((rows, num) => {
+    const n = Math.max(1, Math.min(32, Number(num) || 1));
+    const byDesk = new Map();
+    (rows || []).forEach((r) => {
+      const d = Number(r?.desk);
+      if (!Number.isFinite(d) || d < 1) return;
+      byDesk.set(d, { desk: d, supervisorName: r?.supervisorName || "" });
+    });
+    const next = [];
+    for (let d = 1; d <= n; d++) {
+      next.push(byDesk.get(d) || { desk: d, supervisorName: "" });
+    }
+    return next;
+  }, []);
+
+  const refreshDeskSupervisorsForDates = useCallback(
+    async (dateStrList) => {
+      const unique = [...new Set(dateStrList)].filter(Boolean);
+      if (unique.length === 0) return;
+      const next = {};
+      await Promise.all(
+        unique.map(async (d) => {
+          try {
+            const res = await getDeskSupervisorsForDate(d);
+            next[d] = mapFromSupervisorResponse(res);
+          } catch {
+            // ignore per-date errors
+          }
+        })
+      );
+      if (Object.keys(next).length > 0) {
+        setDeskSupervisorsByDate((prev) => ({ ...prev, ...next }));
+      }
+    },
+    [mapFromSupervisorResponse]
+  );
 
   const getTaskExtraHours = (task) => {
     const items = task?.items || [];
@@ -534,10 +648,14 @@ function TasksByTable() {
     try {
       const updated = await updateTaskStatus(taskId, newStatus);
       setTasks((prev) => prev.map((t) => (t.id === taskId ? updated : t)));
-      if (newStatus === "COMPLETED") {
+      if (newStatus === "COMPLETED" || updated?.status === "AWAITING_WAREHOUSE") {
         await loadTasks();
       }
-      showSuccess("Estado actualizado");
+      if (updated?.status === "AWAITING_WAREHOUSE") {
+        showSuccess("Trabajo terminado en mesa. Pendiente recepción en bodega PT.");
+      } else {
+        showSuccess("Estado actualizado");
+      }
     } catch (err) {
       showError(err.message);
     }
@@ -794,16 +912,16 @@ function TasksByTable() {
   };
 
   const handleAutoAssignDesk = async (taskId) => {
-    // Find the desk with least load for today or the task's scheduled date
-    const task = tasks.find((t) => t.id === taskId);
+    const centerTasks = buildTableCenterTasks(tasks, productionOrders);
+    const task = centerTasks.find((t) => t.id === taskId);
     const targetDate = task?.scheduledDate || new Date().toISOString().split("T")[0];
 
     let bestDesk = 1;
     let bestLoad = Infinity;
 
     for (let d = 1; d <= numDesks; d++) {
-      const load = tasks
-        .filter((t) => t.desk === d && t.scheduledDate === targetDate && t.status !== "CANCELLED")
+      const load = centerTasks
+        .filter((t) => t.desk === d && t.scheduledDate === targetDate && t.status !== "CANCELLED" && t.status !== "COMPLETED")
         .reduce((sum, t) => sum + getTaskBaseHours(t), 0);
       if (load < bestLoad) {
         bestLoad = load;
@@ -926,9 +1044,20 @@ function TasksByTable() {
     }
   };
 
+  const closeGenerateModal = () => {
+    setShowGenerateModal(false);
+    setSelectedOrderId("");
+    setSelectedModalItemIds(new Set());
+    setOrderPickerSearch("");
+  };
+
   const handleGenerateTasksFromOrder = async () => {
     if (!selectedOrderId) {
       showError("Seleccione una orden de produccion");
+      return;
+    }
+    if (selectedModalItemIds.size === 0) {
+      showError("Seleccione al menos un producto para enviar a mesas");
       return;
     }
     try {
@@ -937,14 +1066,18 @@ function TasksByTable() {
       const desksToUse = Math.max(1, Math.min(numDesks, parseInt(workingDesksCount, 10) || numDesks));
       const startDate = distributionDate || filterDate || new Date().toISOString().split("T")[0];
 
-      const result = await generateTasksForOrder(productionOrderId);
-      showSuccess(`Se generaron ${result.length || 0} tarea(s) para la orden seleccionada`);
+      const planned = collectPlannedOrderItemIds(tasks, productionOrderId);
+      const itemIds = Array.from(selectedModalItemIds).filter((id) => !planned.has(Number(id)));
+      if (itemIds.length === 0) {
+        showError("Los productos seleccionados ya tienen tareas en mesas");
+        return;
+      }
+      const result = await generateTasksForSelectedItems(productionOrderId, itemIds);
+      showSuccess(`Se generaron ${result.length || 0} tarea(s) para ${itemIds.length} producto(s)`);
 
-      // Replanificar multi-día desde la fecha de trabajo seleccionada.
       await planTasksWindow(startDate, desksToUse, 5, productionOrderId);
 
-      setShowGenerateModal(false);
-      setSelectedOrderId("");
+      closeGenerateModal();
       await loadTasks();
     } catch (err) {
       showError(err.message || "No se pudieron generar tareas");
@@ -969,6 +1102,7 @@ function TasksByTable() {
       if (result.ordersProcessed > 0) {
         await loadTasks();
       }
+      setShowOnlineSalesModal(false);
     } catch (err) {
       showError(err.message || "No se pudieron generar tareas de ventas online");
     } finally {
@@ -1032,18 +1166,48 @@ function TasksByTable() {
 
   // ==================== COMPUTED ====================
 
+  /** Tareas visibles en centro de producción (mesas): sin OPC/cinchos ni líneas cincho. */
+  const tableCenterTasks = useMemo(
+    () => buildTableCenterTasks(tasks, productionOrders),
+    [tasks, productionOrders]
+  );
+
+  const ordersForDownload = useMemo(
+    () => mergeOrdersForDownload(productionOrders, productionOrdersForCinchos),
+    [productionOrders, productionOrdersForCinchos]
+  );
+
+  /** Órdenes que aún tienen al menos un producto sin tarea en mesas. */
+  const ordersWithPendingItems = useMemo(() => {
+    return (productionOrders || []).filter((o) => {
+      if (!o?.id) return false;
+      if (isCinchoOrderType(o.orderType)) return false;
+      return orderHasPendingItemsForTasks(tasks, o);
+    });
+  }, [productionOrders, tasks]);
+
+  /** OPs con al menos una tarea activa (p. ej. ventas online generadas por orden completa). */
+  const ordersWithActiveTasks = useMemo(() => {
+    const ids = new Set();
+    (tasks || []).forEach((t) => {
+      if (!t || t.status === "CANCELLED") return;
+      if (t.productionOrderId != null) ids.add(Number(t.productionOrderId));
+    });
+    return ids;
+  }, [tasks]);
+
   const uniqueDesks = useMemo(
-    () => [...new Set(tasks.map((t) => t.desk).filter(Boolean))].sort((a, b) => a - b),
-    [tasks]
+    () => [...new Set(tableCenterTasks.map((t) => t.desk).filter(Boolean))].sort((a, b) => a - b),
+    [tableCenterTasks]
   );
 
   const uniqueDates = useMemo(
-    () => [...new Set(tasks.map((t) => t.scheduledDate).filter(Boolean))].sort(),
-    [tasks]
+    () => [...new Set(tableCenterTasks.map((t) => t.scheduledDate).filter(Boolean))].sort(),
+    [tableCenterTasks]
   );
 
   const filteredTasks = useMemo(() => {
-    return tasks.filter((task) => {
+    return tableCenterTasks.filter((task) => {
       if (filterDesk && task.desk !== parseInt(filterDesk)) return false;
       if (filterDate && task.scheduledDate !== filterDate) return false;
       if (filterStatus !== "all" && task.status !== filterStatus) return false;
@@ -1057,22 +1221,23 @@ function TasksByTable() {
       }
       return true;
     });
-  }, [tasks, filterDesk, filterDate, filterStatus, filterDieCut, searchTerm]);
-
-  const tasksForPrintSheet = useMemo(
-    () => filteredTasks.filter((t) => t && t.status !== "CANCELLED"),
-    [filteredTasks]
-  );
-
-  const handlePrintTasksSheet = useCallback(() => {
-    openProductionTasksSheetPrintWindow(tasksForPrintSheet, "Hoja de tareas (centro de producción)");
-  }, [tasksForPrintSheet]);
+  }, [tableCenterTasks, filterDesk, filterDate, filterStatus, filterDieCut, searchTerm]);
 
   // "Pendientes de asignar" deben ser solo tareas activas sin mesa (no incluir COMPLETED/CANCELLED).
   // Cuando una tarea se completa, se limpia desk para liberar capacidad, pero queda el historial en workedDesk.
   const unassignedTasks = useMemo(
-    () => tasks.filter((t) => !t.desk && t.status !== "CANCELLED" && t.status !== "COMPLETED"),
-    [tasks]
+    () => tableCenterTasks.filter(
+      (t) => !t.desk
+        && t.status !== "CANCELLED"
+        && t.status !== "COMPLETED"
+        && t.status !== "AWAITING_WAREHOUSE"
+    ),
+    [tableCenterTasks]
+  );
+
+  const awaitingWarehouseTasks = useMemo(
+    () => tableCenterTasks.filter((t) => t.status === "AWAITING_WAREHOUSE"),
+    [tableCenterTasks]
   );
 
   const scheduleByDate = useMemo(() => {
@@ -1089,16 +1254,254 @@ function TasksByTable() {
     return map;
   }, [filteredTasks]);
 
+  const supervisorMapForDate = useCallback(
+    (dateYmd) => (dateYmd ? deskSupervisorsByDate[dateYmd] : null) || {},
+    [deskSupervisorsByDate]
+  );
+
+  const openPrintForTask = (task) => {
+    const dateKey = task.scheduledDate || getTodayYmdGuatemala();
+    setPrintSupervisorByDesk(supervisorMapForDate(dateKey));
+    setPrintBatchTaskIds(null);
+    setPrintTaskId(task.id);
+  };
+
+  const openPrintBoletasForDate = (date) => {
+    setPrintTaskId(null);
+    setPrintSupervisorByDesk(supervisorMapForDate(date));
+    const desks = scheduleByDate[date] || {};
+    const ids = Object.values(desks)
+      .flat()
+      .filter((t) => t.status !== "CANCELLED" && t.status !== "COMPLETED")
+      .map((t) => t.id)
+      .filter(Boolean);
+    if (!ids.length) {
+      showError("No hay tareas para imprimir en esta fecha.");
+      return;
+    }
+    setPrintBatchTaskIds(ids);
+  };
+
+  const closePrintModal = () => {
+    setPrintTaskId(null);
+    setPrintBatchTaskIds(null);
+    setPrintSupervisorByDesk(null);
+  };
+
+  const scheduleDateKeysStr = useMemo(
+    () => Object.keys(scheduleByDate || {}).sort().join(","),
+    [scheduleByDate]
+  );
+
+  const cinchoRowsByDate = useMemo(() => {
+    const orders = productionOrdersForCinchos || [];
+    const map = {};
+    const addForDate = (dateYmd) => {
+      if (!dateYmd) return;
+      const rows = buildCinchoDayBoardRows(orders, dateYmd);
+      if (rows.length) map[dateYmd] = rows;
+    };
+    if (filterDate) {
+      addForDate(filterDate);
+      return map;
+    }
+    const dates = new Set(Object.keys(scheduleByDate || {}));
+    dates.add(getTodayYmdGuatemala());
+    orders.forEach((order) => {
+      const anchor = orderWorkAnchorYmd(order);
+      if (anchor) dates.add(anchor);
+    });
+    [...dates].forEach(addForDate);
+    return map;
+  }, [productionOrdersForCinchos, scheduleByDate, filterDate]);
+
+  const scheduleViewDates = useMemo(() => {
+    if (filterDate) return [filterDate];
+    const dates = new Set(Object.keys(scheduleByDate || {}));
+    Object.keys(cinchoRowsByDate).forEach((d) => dates.add(d));
+    return [...dates].sort();
+  }, [scheduleByDate, cinchoRowsByDate, filterDate]);
+
+  const refreshCinchoDayStatusesForDates = useCallback(async (dateStrList) => {
+    const unique = [...new Set(dateStrList)].filter(Boolean);
+    if (!unique.length) return;
+    setCinchoStatusLoadingByDate((prev) => {
+      const next = { ...prev };
+      unique.forEach((d) => {
+        next[d] = true;
+      });
+      return next;
+    });
+    await Promise.all(
+      unique.map(async (d) => {
+        try {
+          const res = await getCinchoDayStatuses(d);
+          setCinchoDeliveredByDate((prev) => ({
+            ...prev,
+            [d]: deliveredStatusMapFromApi(res),
+          }));
+          setCinchoWorkStatusByDate((prev) => ({
+            ...prev,
+            [d]: workStatusMapFromApi(res),
+          }));
+        } catch {
+          // ignore per-date errors
+        } finally {
+          setCinchoStatusLoadingByDate((prev) => ({ ...prev, [d]: false }));
+        }
+      })
+    );
+  }, []);
+
+  const handleCinchoWorkStatusChange = async (row, workStatus, workDateYmd) => {
+    const workDate =
+      workDateYmd || filterDate || orderWorkAnchorYmd(row.order);
+    if (!workDate) return;
+    setCinchoSavingKey(row.key);
+    try {
+      await setCinchoDayWorkStatus({
+        workDate,
+        productionOrderId: row.productionOrderId,
+        productionOrderItemId: row.productionOrderItemId,
+        workStatus,
+      });
+      setCinchoWorkStatusByDate((prev) => {
+        const map = { ...(prev[workDate] || {}) };
+        map[row.productionOrderItemId] = workStatus;
+        map[String(row.productionOrderItemId)] = workStatus;
+        return { ...prev, [workDate]: map };
+      });
+    } catch (e) {
+      showError(e.message || "No se pudo guardar el estado de la línea");
+    } finally {
+      setCinchoSavingKey(null);
+    }
+  };
+
+  const handleToggleCinchoDelivered = async (row, delivered, workDateYmd) => {
+    const workDate =
+      workDateYmd || filterDate || orderWorkAnchorYmd(row.order);
+    if (!workDate) return;
+    setCinchoSavingKey(row.key);
+    try {
+      await setCinchoDayDelivered({
+        workDate,
+        productionOrderId: row.productionOrderId,
+        productionOrderItemId: row.productionOrderItemId,
+        delivered,
+      });
+      setCinchoDeliveredByDate((prev) => {
+        const map = { ...(prev[workDate] || {}) };
+        map[row.productionOrderItemId] = delivered;
+        map[String(row.productionOrderItemId)] = delivered;
+        return { ...prev, [workDate]: map };
+      });
+    } catch (e) {
+      showError(e.message || "No se pudo guardar el estado de entregado");
+    } finally {
+      setCinchoSavingKey(null);
+    }
+  };
+
+  useEffect(() => {
+    const dates = new Set();
+    dates.add(getTodayYmdGuatemala());
+    if (filterDate) dates.add(filterDate);
+    if (viewMode === "redistribute" && redistributeDate) dates.add(redistributeDate);
+    if (viewMode === "schedule" && scheduleDateKeysStr) {
+      scheduleDateKeysStr.split(",").filter(Boolean).forEach((d) => dates.add(d));
+    }
+    if (viewMode === "schedule") {
+      Object.keys(cinchoRowsByDate).forEach((d) => dates.add(d));
+    }
+    const dateList = [...dates];
+    refreshDeskSupervisorsForDates(dateList);
+    refreshCinchoDayStatusesForDates(dateList);
+  }, [
+    filterDate,
+    viewMode,
+    redistributeDate,
+    scheduleDateKeysStr,
+    cinchoRowsByDate,
+    refreshDeskSupervisorsForDates,
+    refreshCinchoDayStatusesForDates,
+  ]);
+
+  const tasksSheetPrintModel = useMemo(() => {
+    const todayGt = getTodayYmdGuatemala();
+    return buildProductionTasksSheetPrintModel(tableCenterTasks, productionOrders, {
+      deskSupervisorByDesk: supervisorMapForDate(todayGt),
+      numDesksForLegend: workingDesksCount,
+    });
+  }, [tableCenterTasks, productionOrders, supervisorMapForDate, workingDesksCount]);
+
+  const handlePrintTasksSheet = useCallback(() => {
+    openProductionTasksSheetPrintWindow(tasksSheetPrintModel, "Hoja de tareas (centro de producción)");
+  }, [tasksSheetPrintModel]);
+
+  const supervisorMapForUi = useMemo(
+    () => supervisorMapForDate(filterDate || getTodayYmdGuatemala()),
+    [supervisorMapForDate, filterDate]
+  );
+
+  const openDeskSupervisorsModal = async () => {
+    const d = filterDate || getTodayYmdGuatemala();
+    setDeskSupervisorModalDate(d);
+    try {
+      const [countRes, supRes] = await Promise.all([getDeskCountForDate(d), getDeskSupervisorsForDate(d)]);
+      const count = Number(countRes?.numDesks ?? 12);
+      setDeskCountDraft(count);
+      setDeskSupervisorDraft(
+        normalizeSupervisorRowsForCount(
+          (supRes.assignments || []).map((a) => ({ desk: a.desk, supervisorName: a.supervisorName || "" })),
+          count
+        )
+      );
+      setShowDeskSupervisorsModal(true);
+    } catch (e) {
+      showError(e.message || "No se pudieron cargar encargados");
+    }
+  };
+
+  const saveDeskSupervisorsModal = async () => {
+    try {
+      setSavingDeskSupervisors(true);
+      const nextCount = Math.max(1, Math.min(32, Number(deskCountDraft) || 1));
+      await replaceDeskCountForDate(deskSupervisorModalDate, nextCount);
+      // Ajustar draft a 1..N (evitar enviar mesas fuera de rango)
+      const normalizedDraft = normalizeSupervisorRowsForCount(deskSupervisorDraft, nextCount);
+      const body = normalizedDraft.map((r) => ({
+        desk: Number(r.desk),
+        supervisorName: (r.supervisorName || "").trim(),
+      }));
+      await replaceDeskSupervisorsForDate(deskSupervisorModalDate, body);
+      const toRefresh = new Set([
+        deskSupervisorModalDate,
+        getTodayYmdGuatemala(),
+        filterDate,
+        ...scheduleViewDates,
+        ...Object.keys(deskSupervisorsByDate),
+      ].filter(Boolean));
+      await refreshDeskSupervisorsForDates([...toRefresh]);
+      await loadDesksCount();
+      showSuccess("Configuración de mesas guardada. Aplica desde esta fecha en adelante hasta un nuevo cambio.");
+      setShowDeskSupervisorsModal(false);
+    } catch (e) {
+      showError(e.message || "No se pudieron guardar");
+    } finally {
+      setSavingDeskSupervisors(false);
+    }
+  };
+
   const stats = useMemo(() => {
-    const active = tasks.filter((t) => t.status !== "CANCELLED");
+    const active = tableCenterTasks.filter((t) => t.status !== "CANCELLED" && t.status !== "COMPLETED");
     const pending = active.filter((t) => t.status === "PENDING").length;
     const inProgress = active.filter((t) => t.status === "IN_PROGRESS").length;
-    const completed = active.filter((t) => t.status === "COMPLETED").length;
     const dieCut = active.filter((t) => t.dieCutReady).length;
     const unassigned = active.filter((t) => !t.desk).length;
     const totalMin = active.reduce((sum, t) => sum + Math.round((t.estimatedHours || 0) * 60), 0);
-    return { pending, inProgress, completed, dieCut, unassigned, totalMin, total: active.length };
-  }, [tasks]);
+    return { pending, inProgress, completed: 0, dieCut, unassigned, totalMin, total: active.length };
+  }, [tableCenterTasks]);
 
   const daySaleModalOrderCodes = useMemo(() => {
     const unique = [...new Set((daySaleCandidates || []).map((c) => c.productionOrderCode).filter(Boolean))];
@@ -1111,6 +1514,7 @@ function TasksByTable() {
     const map = {
       PENDING: { color: "warning", text: "Pendiente" },
       IN_PROGRESS: { color: "info", text: "En Proceso" },
+      AWAITING_WAREHOUSE: { color: "primary", text: "Pendiente bodega PT" },
       COMPLETED: { color: "success", text: "Completada" },
       CANCELLED: { color: "danger", text: "Cancelada" },
     };
@@ -1210,6 +1614,13 @@ function TasksByTable() {
   };
 
   const renderStatusActions = (task, compact = false) => {
+    if (task.status === "AWAITING_WAREHOUSE") {
+      return (
+        <Badge color="primary" style={{ fontSize: compact ? "10px" : "11px", whiteSpace: "normal" }}>
+          Pendiente bodega PT
+        </Badge>
+      );
+    }
     if (task.status === "COMPLETED" || task.status === "CANCELLED") {
       return getStatusBadge(task.status);
     }
@@ -1384,23 +1795,23 @@ function TasksByTable() {
       <Row>
         <Col>
           <Card>
-            <CardHeader>
-              <Row className="align-items-center">
-                <Col md="3">
-                  <CardTitle tag="h4" className="mb-0">
-                    <i className="nc-icon nc-layout-11 mr-1" />
-                    Estación de Tareas
-                  </CardTitle>
-                </Col>
-                <Col md="6" className="text-center">
-                  <div className="btn-group">
+            <CardHeader className="pb-3">
+              <div className="d-flex flex-wrap align-items-center justify-content-between mb-3" style={{ gap: 12 }}>
+                <CardTitle tag="h4" className="mb-0">
+                  <i className="nc-icon nc-layout-11 mr-1" />
+                  Estación de Tareas
+                </CardTitle>
+                <div className="btn-group mb-0 flex-shrink-0" role="group" aria-label="Vista del tablero">
                     <Button
                       color={viewMode === "operation" ? "danger" : "outline-secondary"}
                       size="sm"
                       onClick={() => setViewMode("operation")}
                     >
                       <i className="nc-icon nc-settings-gear-65 mr-1" />
-                      Operacion del Dia {stats.unassigned > 0 && <Badge color="light" className="ml-1 text-dark">{stats.unassigned}</Badge>}
+                      Operación del día
+                      {stats.unassigned > 0 && (
+                        <Badge color="light" className="ml-1 text-dark">{stats.unassigned}</Badge>
+                      )}
                     </Button>
                     <Button
                       color={viewMode === "schedule" ? "primary" : "outline-secondary"}
@@ -1414,59 +1825,120 @@ function TasksByTable() {
                       color={viewMode === "redistribute" ? "warning" : "outline-secondary"}
                       size="sm"
                       onClick={() => setViewMode("redistribute")}
-                      title="Aparte del cronograma: mover productos entre mesas/fechas"
+                      title="Mover productos entre mesas y fechas"
                     >
                       <i className="nc-icon nc-send mr-1" />
-                      Redistribuir (manual)
+                      Redistribuir
                     </Button>
-                  </div>
-                </Col>
-                <Col md="3" className="text-right">
+                </div>
+              </div>
+
+              <div
+                className="d-flex flex-wrap align-items-center"
+                style={{ gap: 10 }}
+                role="toolbar"
+                aria-label="Acciones de estación"
+              >
+                <div
+                  className="d-flex flex-wrap align-items-center px-2 py-1"
+                  style={{ gap: 6, background: "#f8f9fa", borderRadius: 6, border: "1px solid #e9ecef" }}
+                >
+                  <span className="text-muted text-uppercase font-weight-bold" style={{ fontSize: 10, letterSpacing: "0.05em" }}>
+                    Ir a
+                  </span>
                   <Button
-                    color="dark"
-                    size="sm"
-                    className="mr-2"
-                    onClick={() => navigate("/admin/leather-inventory?openDelivery=1")}
-                    title="Abrir entrega de cuero"
-                  >
-                    <i className="nc-icon nc-ruler-pencil" /> Entrega de Cuero
-                  </Button>
-                  <Button
-                    color="primary"
+                    color="secondary"
                     outline
                     size="sm"
-                    className="mr-2"
-                    onClick={() => navigate("/admin/materials-tasks")}
-                    title="Ir a Entrega de Materiales"
+                    className="mb-0"
+                    onClick={() => navigate("/admin/leather-inventory?openDelivery=1")}
+                    title="Entrega de cuero"
                   >
-                    <i className="nc-icon nc-box-2" /> Vista Materiales
+                    <i className="nc-icon nc-ruler-pencil mr-1" />
+                    Cuero
                   </Button>
                   <Button
                     color="secondary"
                     outline
                     size="sm"
-                    className="mr-2"
-                    onClick={() => setShowQuickGuide(true)}
-                    title="Guia paso a paso para nuevos usuarios"
+                    className="mb-0"
+                    onClick={() => navigate("/admin/materials-tasks")}
+                    title="Entrega de materiales"
                   >
-                    <i className="nc-icon nc-bulb-63" /> Guia Rapida
+                    <i className="nc-icon nc-box-2 mr-1" />
+                    Materiales
                   </Button>
+                </div>
+
+                <div
+                  className="d-flex flex-wrap align-items-center px-2 py-1"
+                  style={{ gap: 6, background: "#f8f9fa", borderRadius: 6, border: "1px solid #e9ecef" }}
+                >
+                  <span className="text-muted text-uppercase font-weight-bold" style={{ fontSize: 10, letterSpacing: "0.05em" }}>
+                    Ayuda
+                  </span>
                   <Button
-                    color="info"
+                    color="secondary"
                     outline
                     size="sm"
-                    className="mr-2"
+                    className="mb-0"
+                    onClick={() => setShowQuickGuide(true)}
+                    title="Guía paso a paso"
+                  >
+                    <i className="nc-icon nc-bulb-63 mr-1" />
+                    Guía rápida
+                  </Button>
+                  <Button
+                    color="secondary"
+                    outline
+                    size="sm"
+                    className="mb-0"
                     onClick={handlePrintTasksSheet}
                     disabled={loading}
-                    title="PDF con el subconjunto actual de filtros (excluye canceladas). Use Imprimir en la ventana emergente."
+                    title="PDF del subconjunto actual (filtros aplicados)"
                   >
-                    <i className="nc-icon nc-paper" /> Hoja de tareas (PDF)
+                    <i className="nc-icon nc-paper mr-1" />
+                    Hoja PDF
                   </Button>
-                  <Button color="info" size="sm" onClick={loadTasks} disabled={loading}>
-                    <i className="nc-icon nc-refresh-69" /> Actualizar
+                  <Button
+                    color="secondary"
+                    outline
+                    size="sm"
+                    className="mb-0"
+                    onClick={() => setShowDownloadOpsModal(true)}
+                    disabled={loading || ordersForDownload.length === 0}
+                    title="Imprimir o descargar OPs seleccionadas (mismo formato que orden individual)"
+                  >
+                    <i className="nc-icon nc-cloud-download-93 mr-1" />
+                    Descargar OPs
                   </Button>
-                </Col>
-              </Row>
+                </div>
+
+                <div
+                  className="d-flex flex-wrap align-items-center px-2 py-1"
+                  style={{ gap: 6, background: "#f8f9fa", borderRadius: 6, border: "1px solid #e9ecef" }}
+                >
+                  <span className="text-muted text-uppercase font-weight-bold" style={{ fontSize: 10, letterSpacing: "0.05em" }}>
+                    Mesa
+                  </span>
+                  <Button
+                    color="primary"
+                    outline
+                    size="sm"
+                    className="mb-0"
+                    onClick={openDeskSupervisorsModal}
+                    disabled={loading}
+                    title="Encargados por mesa (vigentes desde la fecha elegida)"
+                  >
+                    <i className="nc-icon nc-badge mr-1" />
+                    Encargados
+                  </Button>
+                  <Button color="info" size="sm" className="mb-0" onClick={loadTasks} disabled={loading}>
+                    <i className="nc-icon nc-refresh-69 mr-1" />
+                    Actualizar
+                  </Button>
+                </div>
+              </div>
             </CardHeader>
             <CardBody>
               {error && <Alert color="danger">{error}</Alert>}
@@ -1484,9 +1956,9 @@ function TasksByTable() {
                           color="info"
                           size="sm"
                           style={{ flex: 1, fontSize: 11 }}
-                          onClick={handleGenerateOnlineSalesTasks}
+                          onClick={() => setShowOnlineSalesModal(true)}
                           disabled={generatingOnlineSalesTasks}
-                          title="Genera tareas para todas las órdenes de venta online pendientes (sin requerir otra tarea existente)"
+                          title="Ver órdenes de venta online pendientes y generar sus tareas"
                         >
                           {generatingOnlineSalesTasks ? "..." : "🛒 Ventas Online"}
                         </Button>
@@ -1554,7 +2026,11 @@ function TasksByTable() {
                       <Label><small>Mesa</small></Label>
                       <Input type="select" bsSize="sm" value={filterDesk} onChange={(e) => setFilterDesk(e.target.value)}>
                         <option value="">Todas</option>
-                        {uniqueDesks.map((d) => <option key={d} value={d}>Mesa {d}</option>)}
+                        {uniqueDesks.map((d) => (
+                          <option key={d} value={d}>
+                            {deskDisplayLabel(d, supervisorMapForUi)}
+                          </option>
+                        ))}
                       </Input>
                     </FormGroup>
                   </Col>
@@ -1605,11 +2081,11 @@ function TasksByTable() {
 
               {loading ? (
                 <div className="text-center py-4"><p>Cargando tareas...</p></div>
-              ) : tasks.length === 0 ? (
+              ) : tableCenterTasks.length === 0 ? (
                 <div className="text-center py-5">
                   <i className="nc-icon nc-box-2" style={{ fontSize: "48px", color: "#ccc" }} />
                   <p className="mt-2 text-muted">
-                    No hay tareas generadas. Genere tareas desde una Orden de Producción.
+                    No hay tareas para el centro de producción (mesas). Las líneas de cinchos (OPL, OPCK y OPC) aparecen en la mesa cinchos del cronograma.
                   </p>
                 </div>
               ) : (
@@ -1619,7 +2095,42 @@ function TasksByTable() {
                   {/* ============================================================ */}
                   {viewMode === "operation" && (
                     <div>
-                      {unassignedTasks.length === 0 ? (
+                      {awaitingWarehouseTasks.length > 0 && (
+                        <>
+                          <Alert color="info" className="py-2">
+                            <strong>Pendiente bodega PT ({awaitingWarehouseTasks.length}):</strong>{" "}
+                            trabajo terminado en mesa; el ciclo se cierra cuando Michelle recibe la pieza en bodega.
+                          </Alert>
+                          <Row className="mb-3">
+                            {awaitingWarehouseTasks.map((task) => (
+                              <Col key={task.id} md="6" xl="4" className="mb-3">
+                                <Card style={{ border: "1px solid #b8daff", backgroundColor: "#f0f7ff" }}>
+                                  <CardBody className="py-3">
+                                    <div className="d-flex justify-content-between align-items-start mb-2">
+                                      <div>
+                                        <Badge color="dark" className="mr-1">{task.code}</Badge>
+                                        <Badge color="primary">Pendiente bodega PT</Badge>
+                                      </div>
+                                      {getStatusBadge(task.status)}
+                                    </div>
+                                    <div style={{ fontSize: 13, fontWeight: 600 }}>{task.productionOrderCode}</div>
+                                    <div className="text-muted" style={{ fontSize: 12 }}>
+                                      {task.productName || (task.items || []).map((i) => i.productName).filter(Boolean).join(", ")}
+                                    </div>
+                                    {task.workedDesk != null && (
+                                      <small className="text-muted d-block mt-1">
+                                        Mesa {task.workedDesk}
+                                        {task.startedAt && ` · inició ${formatDateTimeGt(task.startedAt)}`}
+                                      </small>
+                                    )}
+                                  </CardBody>
+                                </Card>
+                              </Col>
+                            ))}
+                          </Row>
+                        </>
+                      )}
+                      {unassignedTasks.length === 0 && awaitingWarehouseTasks.length === 0 ? (
                         <div className="text-center py-4">
                           <i className="nc-icon nc-check-2" style={{ fontSize: "48px", color: "#28a745" }} />
                           <p className="mt-2 text-success">
@@ -1629,7 +2140,7 @@ function TasksByTable() {
                             Ver Cronograma →
                           </Button>
                         </div>
-                      ) : (
+                      ) : unassignedTasks.length > 0 ? (
                         <>
                           {/* Capacity overview */}
                           <Card className="mb-3" style={{ backgroundColor: "#f8f9fa" }}>
@@ -1640,11 +2151,11 @@ function TasksByTable() {
                               <Row>
                                 {deskOptions.slice(0, numDesks).map((d) => {
                                   const todayStr = distributionDate || filterDate || new Date().toISOString().split("T")[0];
-                                  const load = tasks
+                                  const load = tableCenterTasks
                                     .filter((t) => t.desk === d && t.scheduledDate === todayStr && t.status !== "CANCELLED")
                                     .reduce((sum, t) => sum + getTaskBaseHours(t), 0);
                                   const pct = Math.min((load / MAX_HOURS_PER_DESK) * 100, 100);
-                                  const totalLoad = tasks
+                                  const totalLoad = tableCenterTasks
                                     .filter((t) => t.desk === d && t.status !== "CANCELLED" && t.status !== "COMPLETED")
                                     .reduce((sum, t) => sum + getTaskBaseHours(t), 0);
 
@@ -1727,7 +2238,9 @@ function TasksByTable() {
                                         >
                                           <option value="">—</option>
                                           {deskOptions.map((d) => (
-                                            <option key={d} value={d}>Mesa {d}</option>
+                                            <option key={d} value={d}>
+                                              {deskDisplayLabel(d, supervisorMapForDate(task.scheduledDate || getTodayYmdGuatemala()))}
+                                            </option>
                                           ))}
                                         </Input>
                                       </Col>
@@ -1783,7 +2296,7 @@ function TasksByTable() {
                             </Button>
                           </div>
                         </>
-                      )}
+                      ) : null}
                     </div>
                   )}
 
@@ -1792,11 +2305,12 @@ function TasksByTable() {
                   {/* ============================================================ */}
                   {viewMode === "redistribute" && (
                     <RedistributeBoard
-                      tasks={tasks}
+                      tasks={tableCenterTasks}
                       numDesks={workingDesksCount}
                       date={redistributeDate}
                       setDate={setRedistributeDate}
                       onMove={handleMoveTaskItem}
+                      deskTitleFor={(d) => deskDisplayLabel(d, supervisorMapForDate(redistributeDate))}
                     />
                   )}
 
@@ -1805,7 +2319,7 @@ function TasksByTable() {
                   {/* ============================================================ */}
                   {viewMode === "schedule" && (
                     <div>
-                      {Object.keys(scheduleByDate).length === 0 ? (
+                      {scheduleViewDates.length === 0 ? (
                         <div className="text-center py-4">
                           <p className="text-muted">No hay tareas programadas con los filtros actuales.</p>
                           {unassignedTasks.length > 0 && (
@@ -1815,34 +2329,65 @@ function TasksByTable() {
                           )}
                         </div>
                       ) : (
-                        Object.keys(scheduleByDate)
-                          .sort()
-                          .map((date) => (
+                        scheduleViewDates.map((date) => {
+                          const cinchoRows = cinchoRowsByDate[date] || [];
+                          const deskMap = scheduleByDate[date] || {};
+                          const deskKeys = Object.keys(deskMap);
+                          const taskCount = Object.values(deskMap).flat().length;
+                          return (
                             <Card key={date} className="mb-3" style={{ border: "1px solid #e0e0e0" }}>
                               <CardHeader style={{ backgroundColor: "#f8f9fa", padding: "8px 16px" }}>
                                 <div className="d-flex justify-content-between align-items-center">
                                   <div>
                                     <strong style={{ fontSize: "14px" }}>{formatDate(date)}</strong>
-                                    <Badge color="info" className="ml-2">
-                                      {Object.keys(scheduleByDate[date]).length} mesa(s)
-                                    </Badge>
+                                    {date === getTodayYmdGuatemala() && (
+                                      <Button
+                                        color="default"
+                                        size="sm"
+                                        className="ml-2"
+                                        outline
+                                        onClick={() => openPrintBoletasForDate(date)}
+                                        title="Imprimir todas las boletas de tarea del día"
+                                      >
+                                        <i className="nc-icon nc-paper" /> Boletas del día
+                                      </Button>
+                                    )}
+                                    {deskKeys.length > 0 && (
+                                      <Badge color="info" className="ml-2">
+                                        {deskKeys.length} mesa(s)
+                                      </Badge>
+                                    )}
+                                    {cinchoRows.length > 0 && (
+                                      <Badge color="warning" className="ml-2">
+                                        {cinchoRows.length} cincho(s) en mesa
+                                      </Badge>
+                                    )}
                                   </div>
-                                  <small className="text-muted">
-                                    {Object.values(scheduleByDate[date]).flat().length} tarea(s)
-                                  </small>
+                                  {taskCount > 0 && (
+                                    <small className="text-muted">{taskCount} tarea(s)</small>
+                                  )}
                                 </div>
                               </CardHeader>
                               <CardBody className="p-2">
-                                <Row>
-                                  {Object.keys(scheduleByDate[date])
+                                {deskKeys.length > 0 && (
+                                  <>
+                                    <div
+                                      className="small font-weight-bold text-muted mb-2 text-uppercase"
+                                      style={{ letterSpacing: "0.04em" }}
+                                    >
+                                      Tareas (mesas)
+                                    </div>
+                                    <Row>
+                                  {deskKeys
                                     .sort((a, b) => parseInt(a) - parseInt(b))
                                     .map((desk) => {
-                                      const deskTasks = scheduleByDate[date][desk];
+                                      const deskTasks = deskMap[desk];
                                       const totalHours = deskTasks
                                         .filter((t) => t.status !== "CANCELLED")
                                         .reduce((sum, t) => sum + getTaskBaseHours(t), 0);
                                       const capacityPct = Math.min((totalHours / MAX_HOURS_PER_DESK) * 100, 100);
 
+                                      const supMap = supervisorMapForDate(date);
                                       return (
                                         <Col key={desk} md="4" lg="3" className="mb-2">
                                           <Card
@@ -1857,7 +2402,7 @@ function TasksByTable() {
                                           >
                                             <CardBody className="p-2">
                                               <div className="d-flex justify-content-between align-items-center mb-1">
-                                                <strong>Mesa {desk}</strong>
+                                                <strong>{deskDisplayLabel(Number(desk), supMap)}</strong>
                                                 <small className="text-muted">
                                                   {Math.round(totalHours * 60)}min / {MAX_HOURS_PER_DESK * 60}min
                                                 </small>
@@ -1953,7 +2498,7 @@ function TasksByTable() {
                                                         size="sm"
                                                         className="p-0"
                                                         title="Imprimir boleta"
-                                                        onClick={() => setPrintTaskId(task.id)}
+                                                        onClick={() => openPrintForTask(task)}
                                                         style={{ fontSize: "14px", lineHeight: 1 }}
                                                       >
                                                         <i className="nc-icon nc-single-copy-04" />
@@ -1967,10 +2512,45 @@ function TasksByTable() {
                                         </Col>
                                       );
                                     })}
-                                </Row>
+                                    </Row>
+                                  </>
+                                )}
+                                {deskKeys.length === 0 &&
+                                  cinchoRows.length === 0 &&
+                                  !cinchoStatusLoadingByDate[date] && (
+                                    <p className="text-muted small mb-0 text-center py-2">
+                                      Sin actividad en mesas para este día.
+                                    </p>
+                                  )}
+                                {(cinchoRows.length > 0 || cinchoStatusLoadingByDate[date]) && (
+                                  <div
+                                    className={deskKeys.length > 0 ? "mt-4 pt-3" : ""}
+                                    style={
+                                      deskKeys.length > 0
+                                        ? { borderTop: "2px solid #adb5bd" }
+                                        : undefined
+                                    }
+                                  >
+                                    <CinchosDayBoard
+                                      rows={cinchoRows}
+                                      workDateYmd={date}
+                                      deliveredMap={cinchoDeliveredByDate[date] || {}}
+                                      workStatusMap={cinchoWorkStatusByDate[date] || {}}
+                                      loading={!!cinchoStatusLoadingByDate[date]}
+                                      savingKey={cinchoSavingKey}
+                                      onToggleDelivered={(row, delivered) =>
+                                        handleToggleCinchoDelivered(row, delivered, date)
+                                      }
+                                      onWorkStatusChange={(row, workStatus) =>
+                                        handleCinchoWorkStatusChange(row, workStatus, date)
+                                      }
+                                    />
+                                  </div>
+                                )}
                               </CardBody>
                             </Card>
-                          ))
+                          );
+                        })
                       )}
                     </div>
                   )}
@@ -2042,7 +2622,19 @@ function TasksByTable() {
                                       >
                                         <option value="">—</option>
                                         {deskOptions.map((d) => (
-                                          <option key={d} value={d}>M{d}</option>
+                                          <option
+                                            key={d}
+                                            value={d}
+                                            title={deskDisplayLabel(
+                                              d,
+                                              supervisorMapForDate(task.scheduledDate || getTodayYmdGuatemala())
+                                            )}
+                                          >
+                                            {deskDisplayLabel(
+                                              d,
+                                              supervisorMapForDate(task.scheduledDate || getTodayYmdGuatemala())
+                                            )}
+                                          </option>
                                         ))}
                                       </Input>
                                     </td>
@@ -2074,7 +2666,7 @@ function TasksByTable() {
                                           color="info"
                                           size="sm"
                                           title="Imprimir boleta"
-                                          onClick={() => setPrintTaskId(task.id)}
+                                          onClick={() => openPrintForTask(task)}
                                           style={{ padding: "2px 6px" }}
                                         >
                                           <i className="nc-icon nc-single-copy-04" />
@@ -2096,14 +2688,35 @@ function TasksByTable() {
         </Col>
       </Row>
 
+      <DownloadOpsModal
+        isOpen={showDownloadOpsModal}
+        toggle={() => setShowDownloadOpsModal(false)}
+        orders={ordersForDownload}
+        tasks={tasks}
+      />
+
       {/* Print Ticket Modal */}
-      <Modal isOpen={!!printTaskId} toggle={() => setPrintTaskId(null)} size="lg">
+      <Modal
+        isOpen={!!printTaskId || (printBatchTaskIds?.length > 0)}
+        toggle={closePrintModal}
+        size="lg"
+      >
         <ModalBody className="p-0">
-          {printTaskId && (
+          {printBatchTaskIds?.length > 0 ? (
             <TaskTicketPrint
-              taskId={printTaskId}
-              onClose={() => setPrintTaskId(null)}
+              taskIds={printBatchTaskIds}
+              supervisorByDesk={printSupervisorByDesk}
+              autoPrintOnLoad
+              onClose={closePrintModal}
             />
+          ) : (
+            printTaskId && (
+              <TaskTicketPrint
+                taskId={printTaskId}
+                supervisorByDesk={printSupervisorByDesk}
+                onClose={closePrintModal}
+              />
+            )
           )}
         </ModalBody>
       </Modal>
@@ -2220,7 +2833,12 @@ function TasksByTable() {
                           {assigned ? (
                             <small className="text-muted">
                               En {item.assignedTaskCode || "tarea"}
-                              {item.assignedDesk ? ` · Mesa ${item.assignedDesk}` : " · Sin mesa"}
+                              {item.assignedDesk
+                                ? ` · ${deskDisplayLabel(
+                                    item.assignedDesk,
+                                    supervisorMapForDate(daySaleTask?.scheduledDate || getTodayYmdGuatemala())
+                                  )}`
+                                : " · Sin mesa"}
                             </small>
                           ) : (
                             <small className="text-success">Disponible</small>
@@ -2406,6 +3024,77 @@ function TasksByTable() {
             </Button>
           </div>
         </ModalBody>
+      </Modal>
+
+      <Modal isOpen={showDeskSupervisorsModal} toggle={() => !savingDeskSupervisors && setShowDeskSupervisorsModal(false)}>
+        <ModalHeader toggle={() => !savingDeskSupervisors && setShowDeskSupervisorsModal(false)}>
+          Encargados por mesa
+        </ModalHeader>
+        <ModalBody>
+          <p className="text-muted small mb-2">
+            Vigencia desde: <strong>{formatDateGt(deskSupervisorModalDate)}</strong>
+            {" "}(filtro del tablero o hoy). Los nombres se mantienen en todos los días siguientes hasta que
+            guardes un cambio con otra fecha efectiva.
+          </p>
+          <Row className="mb-2">
+            <Col md="6">
+              <FormGroup className="mb-0">
+                <Label className="mb-1">Cantidad de mesas activas</Label>
+                <Input
+                  bsSize="sm"
+                  type="number"
+                  min="1"
+                  max="32"
+                  value={deskCountDraft}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setDeskCountDraft(v);
+                    setDeskSupervisorDraft((prev) => normalizeSupervisorRowsForCount(prev, v));
+                  }}
+                />
+                <div className="text-muted small mt-1">
+                  Si reduces la cantidad, las tareas en mesas fuera de rango se moverán a <strong>Sin asignar</strong>.
+                </div>
+              </FormGroup>
+            </Col>
+          </Row>
+          <Table size="sm" bordered responsive>
+            <thead>
+              <tr>
+                <th>Mesa</th>
+                <th>Encargado</th>
+              </tr>
+            </thead>
+            <tbody>
+              {deskSupervisorDraft.map((row) => (
+                <tr key={row.desk}>
+                  <td className="align-middle">{row.desk}</td>
+                  <td>
+                    <Input
+                      bsSize="sm"
+                      value={row.supervisorName}
+                      placeholder="Nombre"
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        setDeskSupervisorDraft((prev) =>
+                          prev.map((r) => (r.desk === row.desk ? { ...r, supervisorName: v } : r))
+                        );
+                      }}
+                    />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </Table>
+        </ModalBody>
+        <ModalFooter>
+          <Button color="secondary" disabled={savingDeskSupervisors} onClick={() => setShowDeskSupervisorsModal(false)}>
+            Cancelar
+          </Button>
+          <Button color="primary" disabled={savingDeskSupervisors} onClick={saveDeskSupervisorsModal}>
+            {savingDeskSupervisors ? "Guardando..." : "Guardar"}
+          </Button>
+        </ModalFooter>
       </Modal>
 
       <Modal isOpen={showQuickGuide} toggle={() => setShowQuickGuide(false)} size="lg">
@@ -2691,39 +3380,603 @@ function TasksByTable() {
         </ModalFooter>
       </Modal>
 
-      <Modal isOpen={showGenerateModal} toggle={() => setShowGenerateModal(false)} size="md">
-        <ModalHeader toggle={() => setShowGenerateModal(false)}>
-          Generar Tareas desde Orden
-        </ModalHeader>
-        <ModalBody>
-          <FormGroup>
-            <Label>Orden de Produccion</Label>
-            <Input
-              type="select"
-              value={selectedOrderId}
-              onChange={(e) => setSelectedOrderId(e.target.value)}
-              disabled={generatingOrderTasks}
+      <Modal isOpen={showGenerateModal} toggle={() => { if (!generatingOrderTasks) closeGenerateModal(); }} size="lg">
+        {/* Header limpio sin bordes */}
+        <div style={{ padding: "24px 28px 0" }}>
+          <div className="d-flex align-items-start justify-content-between">
+            <div>
+              <h4 style={{ fontWeight: 700, margin: 0, color: "#1e293b" }}>Enviar a mesas</h4>
+              <p style={{ color: "#64748b", fontSize: 13, margin: "4px 0 0" }}>
+                Seleccioná los productos de la orden que irán a producción
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => { if (!generatingOrderTasks) closeGenerateModal(); }}
+              style={{
+                background: "none", border: "none", cursor: "pointer",
+                color: "#94a3b8", fontSize: 20, lineHeight: 1, padding: 4,
+              }}
+              aria-label="Cerrar"
             >
-              <option value="">Seleccione una orden</option>
-              {productionOrders.map((order) => (
-                <option key={order.id} value={order.id}>
-                  {formatProductionOrderSelectLabel(order)}
-                </option>
-              ))}
-            </Input>
-            <small className="text-muted">
-              Al generar, la planificacion de mesas se realiza aqui en Tareas por Estacion.
-            </small>
-          </FormGroup>
-          <div className="d-flex justify-content-end">
-            <Button color="secondary" className="mr-2" onClick={() => setShowGenerateModal(false)} disabled={generatingOrderTasks}>
+              ×
+            </button>
+          </div>
+
+          {/* Order picker con búsqueda */}
+          {(() => {
+            const availableOrders = ordersWithPendingItems;
+            const q = orderPickerSearch.trim().toLowerCase();
+            const filteredOrders = q
+              ? availableOrders.filter(
+                  (o) =>
+                    (o.code || "").toLowerCase().includes(q) ||
+                    (o.customerName || "").toLowerCase().includes(q) ||
+                    (o.sellerName || "").toLowerCase().includes(q)
+                )
+              : availableOrders;
+
+            const getBadge = (order) => {
+              const code = (order.code || "").toUpperCase();
+              if (code.startsWith("OPCK")) return { label: "KIOSC", color: "#92400e", bg: "#fef3c7", border: "#fcd34d" };
+              if (order.orderType === "VENTA_EN_LINEA") return { label: "WEB", color: "#065f46", bg: "#d1fae5", border: "#6ee7b7" };
+              if (order.orderType === "DISTRIBUTION") return { label: "DIST", color: "#1e40af", bg: "#dbeafe", border: "#93c5fd" };
+              if (code.startsWith("OPV")) return { label: "VENTA", color: "#1d4ed8", bg: "#eff6ff", border: "#bfdbfe" };
+              if (code.startsWith("OPI")) return { label: "INTER", color: "#6d28d9", bg: "#ede9fe", border: "#c4b5fd" };
+              return { label: "OP", color: "#374151", bg: "#f3f4f6", border: "#d1d5db" };
+            };
+
+            const selectedOrder = availableOrders.find((o) => String(o.id) === String(selectedOrderId));
+
+            return (
+              <div style={{ marginTop: 20 }}>
+                <label style={{ fontSize: 12, fontWeight: 600, color: "#475569", textTransform: "uppercase", letterSpacing: "0.05em", display: "block", marginBottom: 8 }}>
+                  Orden de Producción
+                </label>
+
+                {/* Si hay una seleccionada, mostrar resumen compacto con opción de cambiar */}
+                {selectedOrder ? (
+                  <div style={{
+                    border: "2px solid #6366f1", borderRadius: 12, padding: "12px 16px",
+                    background: "#f5f3ff", display: "flex", alignItems: "center", gap: 12,
+                  }}>
+                    {(() => { const b = getBadge(selectedOrder); return (
+                      <span style={{ padding: "3px 10px", borderRadius: 20, fontSize: 11, fontWeight: 700, background: b.bg, color: b.color, border: `1px solid ${b.border}`, flexShrink: 0 }}>
+                        {b.label}
+                      </span>
+                    ); })()}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontWeight: 700, fontSize: 14, color: "#1e293b", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                        {selectedOrder.customerName || selectedOrder.code}
+                      </div>
+                      <div style={{ fontSize: 11, color: "#6366f1", fontWeight: 600 }}>
+                        {selectedOrder.code}
+                        {selectedOrder.deliveryDate && (
+                          <span style={{ color: "#94a3b8", fontWeight: 400, marginLeft: 8 }}>
+                            Entrega: {formatDateGt ? formatDateGt(selectedOrder.deliveryDate) : selectedOrder.deliveryDate}
+                          </span>
+                        )}
+                        {(() => {
+                          const { onTable, total } = countPlannedItemsForOrder(tasks, selectedOrder);
+                          if (onTable <= 0) return null;
+                          return (
+                            <span style={{ color: "#059669", fontWeight: 600, marginLeft: 8 }}>
+                              · {onTable}/{total} en mesa
+                            </span>
+                          );
+                        })()}
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => { setSelectedOrderId(""); setSelectedModalItemIds(new Set()); setOrderPickerSearch(""); }}
+                      disabled={generatingOrderTasks}
+                      style={{ background: "none", border: "1.5px solid #a5b4fc", borderRadius: 8, padding: "4px 12px", fontSize: 12, fontWeight: 600, color: "#4f46e5", cursor: "pointer" }}
+                    >
+                      Cambiar
+                    </button>
+                  </div>
+                ) : (
+                  /* Buscador + lista */
+                  <div>
+                    <div style={{ position: "relative", marginBottom: 8 }}>
+                      <span style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", color: "#94a3b8", fontSize: 16, pointerEvents: "none" }}>
+                        🔍
+                      </span>
+                      <input
+                        type="text"
+                        placeholder="Buscar por código, cliente o vendedor..."
+                        value={orderPickerSearch}
+                        onChange={(e) => setOrderPickerSearch(e.target.value)}
+                        disabled={generatingOrderTasks}
+                        style={{
+                          width: "100%", padding: "10px 14px 10px 38px",
+                          borderRadius: 10, border: "1.5px solid #e2e8f0",
+                          fontSize: 13, color: "#1e293b", outline: "none",
+                          background: "#f8fafc",
+                        }}
+                      />
+                      {orderPickerSearch && (
+                        <button type="button" onClick={() => setOrderPickerSearch("")}
+                          style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", color: "#94a3b8", fontSize: 18, lineHeight: 1 }}>
+                          ×
+                        </button>
+                      )}
+                    </div>
+
+                    <div style={{ maxHeight: 220, overflowY: "auto", display: "flex", flexDirection: "column", gap: 6, paddingRight: 2 }}>
+                      {filteredOrders.length === 0 ? (
+                        <div style={{ textAlign: "center", padding: "24px 0", color: "#94a3b8", fontSize: 13 }}>
+                          {q ? `Sin resultados para "${orderPickerSearch}"` : "No hay órdenes disponibles"}
+                        </div>
+                      ) : filteredOrders.map((order) => {
+                        const badge = getBadge(order);
+                        const itemCount = (order.items || []).length;
+                        const { onTable, total } = countPlannedItemsForOrder(tasks, order);
+                        return (
+                          <div
+                            key={order.id}
+                            onClick={() => !generatingOrderTasks && (setSelectedOrderId(String(order.id)), setSelectedModalItemIds(new Set()), setOrderPickerSearch(""))}
+                            style={{
+                              border: "1.5px solid #e2e8f0", borderRadius: 10, padding: "10px 14px",
+                              cursor: generatingOrderTasks ? "default" : "pointer",
+                              background: "#fff", display: "flex", alignItems: "center", gap: 12,
+                              transition: "border-color 0.12s, background 0.12s",
+                            }}
+                            onMouseEnter={(e) => { if (!generatingOrderTasks) { e.currentTarget.style.borderColor = "#6366f1"; e.currentTarget.style.background = "#fafafe"; } }}
+                            onMouseLeave={(e) => { e.currentTarget.style.borderColor = "#e2e8f0"; e.currentTarget.style.background = "#fff"; }}
+                          >
+                            {/* Badge tipo */}
+                            <span style={{ padding: "4px 10px", borderRadius: 20, fontSize: 10, fontWeight: 700, background: badge.bg, color: badge.color, border: `1px solid ${badge.border}`, flexShrink: 0, letterSpacing: "0.04em" }}>
+                              {badge.label}
+                            </span>
+
+                            {/* Info principal */}
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ fontWeight: 700, fontSize: 13, color: "#1e293b", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                                {order.customerName || order.code}
+                              </div>
+                              <div style={{ fontSize: 11, color: "#64748b", marginTop: 1 }}>
+                                <span style={{ fontWeight: 600, color: "#475569" }}>{order.code}</span>
+                                {order.sellerName && <span style={{ marginLeft: 6 }}>· {order.sellerName}</span>}
+                              </div>
+                            </div>
+
+                            {/* Fecha + items */}
+                            <div style={{ textAlign: "right", flexShrink: 0 }}>
+                              {order.deliveryDate && (
+                                <div style={{ fontSize: 11, fontWeight: 600, color: "#374151" }}>
+                                  {formatDateGt ? formatDateGt(order.deliveryDate) : order.deliveryDate}
+                                </div>
+                              )}
+                              {itemCount > 0 && (
+                                <div style={{ fontSize: 10, color: "#94a3b8", marginTop: 2 }}>
+                                  {onTable > 0 ? `${onTable}/${total} en mesa · ` : ""}{itemCount} prod.
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {availableOrders.length > 0 && filteredOrders.length > 0 && (
+                      <p style={{ fontSize: 11, color: "#94a3b8", margin: "6px 0 0", textAlign: "right" }}>
+                        {filteredOrders.length} de {availableOrders.length} órdenes
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+        </div>
+
+        {/* Divider */}
+        <div style={{ height: 1, background: "#f1f5f9", margin: "4px 0 0" }} />
+
+        <ModalBody style={{ padding: "20px 28px", maxHeight: "44vh", overflowY: "auto" }}>
+          {!selectedOrderId ? (
+            <div style={{ textAlign: "center", padding: "32px 0", color: "#94a3b8" }}>
+              <div style={{ fontSize: 40, marginBottom: 10 }}>📦</div>
+              <p style={{ fontWeight: 500, color: "#64748b", marginBottom: 4 }}>Ninguna orden seleccionada</p>
+              <p style={{ fontSize: 13, margin: 0 }}>Elige una orden arriba para ver sus productos</p>
+            </div>
+          ) : (() => {
+            const order = productionOrders.find((o) => Number(o.id) === Number(selectedOrderId));
+            if (!order) return null;
+            const items = order.items || [];
+            const plannedMap = collectPlannedOrderItemIds(tasks, order.id);
+            const pendingItems = items.filter((it) => !plannedMap.has(Number(it.id)));
+            const onTableItems = items.filter((it) => plannedMap.has(Number(it.id)));
+            const allSelected = pendingItems.length > 0 && pendingItems.every((it) => selectedModalItemIds.has(it.id));
+
+            const renderItemChips = (item, variant) => {
+              const isPending = variant === "pending";
+              const checked = isPending && selectedModalItemIds.has(item.id);
+              return (
+                <>
+                  <div style={{
+                    fontWeight: 700, fontSize: 14, paddingRight: isPending ? 32 : 0,
+                    color: checked ? "#15803d" : "#1e293b",
+                    marginBottom: 8, lineHeight: 1.3,
+                  }}>
+                    {item.productName || `Producto #${item.productId}`}
+                  </div>
+                  <div className="d-flex align-items-center" style={{ gap: 6, flexWrap: "wrap" }}>
+                    {item.colorName && (
+                      <span style={{
+                        display: "inline-flex", alignItems: "center",
+                        padding: "3px 10px",
+                        background: checked ? "#dcfce7" : "#f1f5f9",
+                        borderRadius: 20, fontSize: 11,
+                        color: checked ? "#15803d" : "#475569",
+                        fontWeight: 500,
+                      }}>
+                        {item.colorName}
+                      </span>
+                    )}
+                    <span style={{
+                      display: "inline-flex", alignItems: "center",
+                      padding: "3px 10px",
+                      background: checked ? "#dcfce7" : "#f8fafc",
+                      border: `1px solid ${checked ? "#86efac" : "#e2e8f0"}`,
+                      borderRadius: 20, fontSize: 11,
+                      color: checked ? "#15803d" : "#64748b",
+                      fontWeight: 600,
+                    }}>
+                      × {item.quantity} uds.
+                    </span>
+                  </div>
+                </>
+              );
+            };
+
+            const toggleItem = (itemId) => {
+              setSelectedModalItemIds((prev) => {
+                const next = new Set(prev);
+                if (next.has(itemId)) next.delete(itemId);
+                else next.add(itemId);
+                return next;
+              });
+            };
+
+            const toggleAll = () => {
+              if (allSelected) {
+                setSelectedModalItemIds(new Set());
+              } else {
+                setSelectedModalItemIds(new Set(pendingItems.map((it) => it.id)));
+              }
+            };
+
+            if (items.length === 0) {
+              return (
+                <div style={{ textAlign: "center", padding: "32px 0", color: "#94a3b8" }}>
+                  <div style={{ fontSize: 36, marginBottom: 8 }}>⚠️</div>
+                  <p style={{ color: "#64748b", fontWeight: 500 }}>Esta orden no tiene productos registrados</p>
+                </div>
+              );
+            }
+
+            return (
+              <div>
+                {onTableItems.length > 0 && (
+                  <div style={{ marginBottom: pendingItems.length > 0 ? 22 : 0 }}>
+                    <div style={{
+                      fontSize: 12, fontWeight: 700, color: "#64748b",
+                      textTransform: "uppercase", letterSpacing: "0.04em",
+                      marginBottom: 10, display: "flex", alignItems: "center", gap: 8,
+                    }}>
+                      <span style={{ width: 8, height: 8, borderRadius: "50%", background: "#94a3b8" }} />
+                      Ya en mesas ({onTableItems.length})
+                    </div>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: 10 }}>
+                      {onTableItems.map((item) => {
+                        const info = plannedMap.get(Number(item.id)) || {};
+                        const statusLabels = {
+                          PENDING: "Pendiente",
+                          IN_PROGRESS: "En proceso",
+                          COMPLETED: "Completada",
+                        };
+                        return (
+                          <div
+                            key={item.id}
+                            style={{
+                              border: "1.5px solid #cbd5e1",
+                              borderRadius: 12,
+                              padding: "14px 16px",
+                              background: "#f8fafc",
+                              opacity: 0.92,
+                            }}
+                          >
+                            {renderItemChips(item, "onTable")}
+                            <div style={{
+                              marginTop: 10, paddingTop: 10,
+                              borderTop: "1px dashed #cbd5e1",
+                              fontSize: 11, color: "#64748b", lineHeight: 1.5,
+                            }}>
+                              {info.taskCode && <div><strong style={{ color: "#475569" }}>{info.taskCode}</strong></div>}
+                              <div>
+                                {info.desk != null && <span>Mesa {info.desk}</span>}
+                                {info.scheduledDate && (
+                                  <span>{info.desk != null ? " · " : ""}{formatDateGt ? formatDateGt(info.scheduledDate) : info.scheduledDate}</span>
+                                )}
+                              </div>
+                              {info.status && (
+                                <div style={{ marginTop: 2, color: "#059669", fontWeight: 600 }}>
+                                  {statusLabels[info.status] || info.status}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {pendingItems.length > 0 ? (
+                  <div>
+                    <div className="d-flex align-items-center justify-content-between" style={{ marginBottom: 14 }}>
+                      <div style={{
+                        fontSize: 12, fontWeight: 700, color: "#15803d",
+                        textTransform: "uppercase", letterSpacing: "0.04em",
+                        display: "flex", alignItems: "center", gap: 8,
+                      }}>
+                        <span style={{ width: 8, height: 8, borderRadius: "50%", background: "#16a34a" }} />
+                        Pendientes ({pendingItems.length})
+                      </div>
+                      <button
+                        type="button"
+                        onClick={toggleAll}
+                        disabled={generatingOrderTasks}
+                        style={{
+                          background: allSelected ? "#f1f5f9" : "#eff6ff",
+                          border: `1.5px solid ${allSelected ? "#cbd5e1" : "#bfdbfe"}`,
+                          borderRadius: 20,
+                          padding: "4px 14px",
+                          fontSize: 12,
+                          fontWeight: 600,
+                          color: allSelected ? "#475569" : "#2563eb",
+                          cursor: "pointer",
+                          transition: "all 0.15s",
+                        }}
+                      >
+                        {allSelected ? "✕ Quitar todos" : "✓ Seleccionar todos"}
+                      </button>
+                    </div>
+
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: 10 }}>
+                      {pendingItems.map((item) => {
+                        const checked = selectedModalItemIds.has(item.id);
+                        return (
+                          <div
+                            key={item.id}
+                            onClick={() => !generatingOrderTasks && toggleItem(item.id)}
+                            style={{
+                              border: `2px solid ${checked ? "#16a34a" : "#e2e8f0"}`,
+                              borderRadius: 12,
+                              padding: "14px 16px",
+                              cursor: generatingOrderTasks ? "default" : "pointer",
+                              background: checked ? "#f0fdf4" : "#ffffff",
+                              transition: "border-color 0.15s, background 0.15s, box-shadow 0.15s",
+                              boxShadow: checked ? "0 0 0 3px rgba(22,163,74,0.12)" : "0 1px 3px rgba(0,0,0,0.06)",
+                              position: "relative",
+                              userSelect: "none",
+                            }}
+                          >
+                            <div style={{
+                              position: "absolute", top: 12, right: 12,
+                              width: 22, height: 22, borderRadius: "50%",
+                              background: checked ? "#16a34a" : "#e2e8f0",
+                              display: "flex", alignItems: "center", justifyContent: "center",
+                              transition: "background 0.15s",
+                              flexShrink: 0,
+                            }}>
+                              {checked && (
+                                <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                                  <path d="M2 6l3 3 5-5" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                                </svg>
+                              )}
+                            </div>
+                            {renderItemChips(item, "pending")}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ) : (
+                  <Alert color="success" className="mb-0" style={{ fontSize: 13 }}>
+                    Todos los productos de esta orden ya tienen tareas en mesas.
+                  </Alert>
+                )}
+              </div>
+            );
+          })()}
+        </ModalBody>
+
+        {/* Footer con resumen */}
+        <div style={{ borderTop: "1px solid #f1f5f9", padding: "16px 28px" }}>
+          {selectedModalItemIds.size > 0 && (
+            <div style={{
+              background: "#f0fdf4", border: "1px solid #bbf7d0",
+              borderRadius: 10, padding: "10px 16px",
+              fontSize: 13, color: "#15803d", fontWeight: 500,
+              marginBottom: 14,
+              display: "flex", alignItems: "center", gap: 8,
+            }}>
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                <circle cx="8" cy="8" r="7" stroke="#16a34a" strokeWidth="1.5"/>
+                <path d="M5 8l2 2 4-4" stroke="#16a34a" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+              {selectedModalItemIds.size} producto{selectedModalItemIds.size !== 1 ? "s" : ""} seleccionado{selectedModalItemIds.size !== 1 ? "s" : ""} — se generarán tareas para estos productos
+            </div>
+          )}
+          <div className="d-flex justify-content-end" style={{ gap: 10 }}>
+            <Button
+              color="secondary"
+              outline
+              onClick={closeGenerateModal}
+              disabled={generatingOrderTasks}
+              style={{ borderRadius: 8, padding: "8px 20px", fontWeight: 600 }}
+            >
               Cancelar
             </Button>
-            <Button color="success" onClick={handleGenerateTasksFromOrder} disabled={generatingOrderTasks}>
-              {generatingOrderTasks ? "Generando..." : "Generar"}
+            <Button
+              color="success"
+              onClick={handleGenerateTasksFromOrder}
+              disabled={generatingOrderTasks || !selectedOrderId || selectedModalItemIds.size === 0}
+              style={{
+                borderRadius: 8, padding: "8px 24px", fontWeight: 700,
+                minWidth: 180, fontSize: 14,
+                background: selectedModalItemIds.size > 0 ? "#16a34a" : undefined,
+                borderColor: selectedModalItemIds.size > 0 ? "#16a34a" : undefined,
+              }}
+            >
+              {generatingOrderTasks ? (
+                <span>⏳ Generando...</span>
+              ) : selectedModalItemIds.size > 0 ? (
+                <span>Enviar a mesas ({selectedModalItemIds.size})</span>
+              ) : (
+                <span style={{ opacity: 0.7 }}>Seleccioná productos</span>
+              )}
             </Button>
           </div>
+        </div>
+      </Modal>
+
+      <Modal
+        isOpen={showOnlineSalesModal}
+        toggle={() => { if (!generatingOnlineSalesTasks) setShowOnlineSalesModal(false); }}
+        size="lg"
+      >
+        <ModalHeader toggle={() => { if (!generatingOnlineSalesTasks) setShowOnlineSalesModal(false); }}>
+          Generar Tareas — Ventas Online
+        </ModalHeader>
+        <ModalBody>
+          {(() => {
+            const onlineOrders = productionOrders.filter(
+              (o) => String(o.orderType || "").toUpperCase() === "VENTA_EN_LINEA"
+            );
+            const pendingOrders = onlineOrders.filter((o) => !ordersWithActiveTasks.has(Number(o.id)));
+            const doneOrders = onlineOrders.filter((o) => ordersWithActiveTasks.has(Number(o.id)));
+
+            if (onlineOrders.length === 0) {
+              return (
+                <Alert color="info">
+                  No hay órdenes de venta online activas sin completar.
+                </Alert>
+              );
+            }
+
+            return (
+              <>
+                {pendingOrders.length > 0 && (
+                  <>
+                    <h6 className="text-success mb-2">
+                      <i className="nc-icon nc-check-2 mr-1" />
+                      Se generarán tareas para ({pendingOrders.length}):
+                    </h6>
+                    {pendingOrders.map((order) => {
+                      const items = order.items || [];
+                      return (
+                        <div
+                          key={order.id}
+                          className="border rounded p-2 mb-2"
+                          style={{ borderColor: "#28a745" }}
+                        >
+                          <div className="d-flex justify-content-between align-items-center mb-1">
+                            <strong>{order.code}</strong>
+                            <span className="text-muted" style={{ fontSize: 12 }}>
+                              {order.customerName}
+                            </span>
+                          </div>
+                          {items.length > 0 && (
+                            <Table size="sm" bordered className="mb-0">
+                              <thead>
+                                <tr>
+                                  <th>Producto</th>
+                                  <th>Color</th>
+                                  <th style={{ textAlign: "right" }}>Cant.</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {items.map((item) => (
+                                  <tr key={item.id}>
+                                    <td>{item.productName || `#${item.productId}`}</td>
+                                    <td>{item.colorName || "—"}</td>
+                                    <td style={{ textAlign: "right" }}>{item.quantity}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </Table>
+                          )}
+                          {items.length === 0 && (
+                            <small className="text-muted">Sin productos registrados.</small>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </>
+                )}
+
+                {doneOrders.length > 0 && (
+                  <>
+                    <h6 className="text-muted mt-3 mb-2">
+                      Ya tienen tareas — se omitirán ({doneOrders.length}):
+                    </h6>
+                    {doneOrders.map((order) => (
+                      <div
+                        key={order.id}
+                        className="border rounded p-2 mb-2"
+                        style={{ opacity: 0.55, background: "#f8f8f8" }}
+                      >
+                        <div className="d-flex justify-content-between align-items-center">
+                          <strong>{order.code}</strong>
+                          <span className="text-muted" style={{ fontSize: 12 }}>
+                            {order.customerName}
+                          </span>
+                          <Badge color="secondary" style={{ fontSize: 10 }}>
+                            Ya en producción
+                          </Badge>
+                        </div>
+                      </div>
+                    ))}
+                  </>
+                )}
+
+                {pendingOrders.length === 0 && (
+                  <Alert color="warning" className="mt-2">
+                    Todas las órdenes de venta online ya tienen tareas generadas.
+                  </Alert>
+                )}
+              </>
+            );
+          })()}
         </ModalBody>
+        <ModalFooter>
+          <Button
+            color="secondary"
+            onClick={() => setShowOnlineSalesModal(false)}
+            disabled={generatingOnlineSalesTasks}
+          >
+            Cancelar
+          </Button>
+          <Button
+            color="info"
+            onClick={handleGenerateOnlineSalesTasks}
+            disabled={
+              generatingOnlineSalesTasks ||
+              productionOrders.filter(
+                (o) =>
+                  String(o.orderType || "").toUpperCase() === "VENTA_EN_LINEA" &&
+                  !ordersWithActiveTasks.has(Number(o.id))
+              ).length === 0
+            }
+          >
+            {generatingOnlineSalesTasks ? "Generando..." : "Generar Tareas"}
+          </Button>
+        </ModalFooter>
       </Modal>
     </div>
   );

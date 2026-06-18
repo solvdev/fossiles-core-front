@@ -17,6 +17,8 @@ import {
   FormGroup,
   Label,
   Input,
+  Table,
+  UncontrolledTooltip,
 } from "reactstrap";
 import { useAuth } from "../../contexts/AuthContext";
 import Select from "react-select";
@@ -40,6 +42,54 @@ import { getMaterials } from "services/materialService";
 import { getColors } from "services/colorService";
 import { showError, showSuccess } from "utils/notificationHelper";
 import { formatDateTimeGt } from "utils/dateTimeHelper";
+import { isCinchoInventoryProduct } from "utils/cinchoProductionHelper";
+
+const QTY_EPS = 1e-6;
+
+function qtyNumsDiffer(a, b) {
+  if (Number.isNaN(a) || Number.isNaN(b)) return false;
+  return Math.abs(a - b) > QTY_EPS;
+}
+
+function physicalInputHighlightStyle(sys, phy) {
+  if (Number.isNaN(sys) || Number.isNaN(phy)) return {};
+  if (!qtyNumsDiffer(sys, phy)) return {};
+  return {
+    borderColor: "#dc3545",
+    backgroundColor: "#fff5f5",
+    boxShadow: "0 0 0 1px rgba(220, 53, 69, 0.15)",
+  };
+}
+
+/** IDs válidos para querySelector (UncontrolledTooltip); rowId puede empezar con dígito. */
+function batchAdjTooltipId(rowId, suffix) {
+  return `adj-tip-${suffix}-r${String(rowId).replace(/[^a-zA-Z0-9_-]/g, "_")}`;
+}
+
+function LabelWithHelp({ id, label, tooltip }) {
+  return (
+    <span className="d-inline-flex align-items-center flex-wrap" style={{ gap: "4px" }}>
+      <span>{label}</span>
+      <span
+        id={id}
+        className="text-muted d-inline-flex align-items-center justify-content-center rounded-circle border"
+        style={{
+          width: "18px",
+          height: "18px",
+          fontSize: "11px",
+          lineHeight: 1,
+          cursor: "help",
+          userSelect: "none",
+        }}
+      >
+        ?
+      </span>
+      <UncontrolledTooltip placement="top" target={id} innerClassName="text-left" style={{ maxWidth: "280px" }}>
+        {tooltip}
+      </UncontrolledTooltip>
+    </span>
+  );
+}
 
 // Componente de filtro por defecto
 function DefaultColumnFilter({
@@ -54,11 +104,14 @@ function DefaultColumnFilter({
           setFilter(e.target.value || undefined);
         }}
         placeholder={`Buscar...`}
-        size="sm"
+        bsSize="sm"
       />
     </FormGroup>
   );
 }
+
+const isBatchRowPending = (row) =>
+  Boolean(row.productId || row.systemStock || row.physicalStock || row.reason || row.colorId);
 
 function InventoryAdjustments() {
   const { hasPermission } = useAuth();
@@ -118,12 +171,56 @@ function InventoryAdjustments() {
   const getProductById = (productId) =>
     (products || []).find((p) => String(p.id) === String(productId)) || null;
 
-  const isFossCinchoCode = (code) =>
-    code != null && String(code).toUpperCase().startsWith("FOSS");
-
   const isFossCinchoRow = (row) => {
     const p = getProductById(row.productId);
-    return p && isFossCinchoCode(p.code);
+    return p && isCinchoInventoryProduct(p);
+  };
+
+  const rowUsesSizeLayout = (row) =>
+    isFossCinchoRow(row) || ((row.fossSizeLines || []).length > 0);
+
+  const fossAllowsEditableSystemOnSingleAggregateLine = (row) =>
+    isFossCinchoRow(row) &&
+    (row.fossSizeLines || []).length === 1 &&
+    !(String((row.fossSizeLines[0] || {}).size || "").trim());
+
+  const renderRowDiffBadge = (system, physical) => {
+    if (Number.isNaN(system) || Number.isNaN(physical)) {
+      return <span className="text-muted small">—</span>;
+    }
+    const d = physical - system;
+    if (!qtyNumsDiffer(d, 0)) {
+      return (
+        <Badge color="success" pill className="font-weight-normal">
+          Sin diferencia
+        </Badge>
+      );
+    }
+    if (physical + QTY_EPS < system) {
+      return (
+        <Badge color="warning" pill className="font-weight-normal text-dark">
+          Diferencia: {d.toFixed(3)}
+        </Badge>
+      );
+    }
+    return (
+      <Badge color="info" pill className="font-weight-normal">
+        Sobrante: +{d.toFixed(3)}
+      </Badge>
+    );
+  };
+
+  /** Líneas de talla FOSS a partir del mapa `sizes` del inventario (misma forma que el lote). */
+  const buildFossSizeLinesFromSizesMap = (rowId, sizesObj) => {
+    if (!sizesObj || typeof sizesObj !== "object") return [];
+    const entries = Object.entries(sizesObj);
+    if (entries.length === 0) return [];
+    return entries.map(([size, qty]) => ({
+      lineId: `${rowId}-sz-${size}-${Math.random().toString(36).slice(2, 5)}`,
+      size: String(size),
+      systemStock: String(qty != null ? qty : 0),
+      physicalStock: String(qty != null ? qty : 0),
+    }));
   };
 
   const updateFossSizeLine = (rowId, lineId, patch) => {
@@ -217,6 +314,40 @@ function InventoryAdjustments() {
       raw: c,
     }));
   }, [colors]);
+
+  const batchLocationSubtitle = useMemo(() => {
+    if (!formData.locationId) return "";
+    const o = locationOptions.find((x) => x.value === String(formData.locationId));
+    return o ? o.label : "";
+  }, [formData.locationId, locationOptions]);
+
+  const productBatchGlobalSummary = useMemo(() => {
+    const rows = productBatchRows.filter(isBatchRowPending);
+    let sumSys = 0;
+    let sumPhy = 0;
+    let rowsWithDiff = 0;
+    let countWithProduct = 0;
+    rows.forEach((row) => {
+      if (!row.productId) return;
+      countWithProduct += 1;
+      const prod = getProductById(row.productId);
+      const cincho = prod && isCinchoInventoryProduct(prod);
+      const sizeLayout = cincho || (row.fossSizeLines || []).length > 0;
+      let sys;
+      let phy;
+      if (sizeLayout) {
+        sys = (row.fossSizeLines || []).reduce((a, l) => a + (parseFloat(l.systemStock) || 0), 0);
+        phy = (row.fossSizeLines || []).reduce((a, l) => a + (parseFloat(l.physicalStock) || 0), 0);
+      } else {
+        sys = parseFloat(row.systemStock || 0);
+        phy = parseFloat(row.physicalStock || 0);
+      }
+      if (!Number.isNaN(sys)) sumSys += sys;
+      if (!Number.isNaN(phy)) sumPhy += phy;
+      if (qtyNumsDiffer(phy, sys)) rowsWithDiff += 1;
+    });
+    return { countWithProduct, sumSys, sumPhy, rowsWithDiff, pendingRowCount: rows.length };
+  }, [productBatchRows, products]);
 
   const selectedMaterialMeta = useMemo(() => {
     if (!formData.materialId) return null;
@@ -341,10 +472,19 @@ function InventoryAdjustments() {
           parseInt(formData.locationId),
           colorId
         );
-        const stock = inventory?.quantity || 0;
-        setCurrentStock(stock);
-        // Prellenar el campo "Stock del Sistema" con el valor obtenido
-        setFormData((prev) => ({ ...prev, systemStock: stock.toString() }));
+        const prod = getProductById(formData.productId);
+        const cincho = prod && isCinchoInventoryProduct(prod);
+        const sizesObj = inventory?.sizes && typeof inventory.sizes === "object" ? inventory.sizes : null;
+        if (cincho && sizesObj && Object.keys(sizesObj).length > 0) {
+          const fossSizeLines = buildFossSizeLinesFromSizesMap("single", sizesObj);
+          const sysSum = fossSizeLines.reduce((a, l) => a + (parseFloat(l.systemStock) || 0), 0);
+          setCurrentStock(sysSum);
+          setFormData((prev) => ({ ...prev, systemStock: sysSum.toString() }));
+        } else {
+          const stock = inventory?.quantity || 0;
+          setCurrentStock(stock);
+          setFormData((prev) => ({ ...prev, systemStock: stock.toString() }));
+        }
       } catch (err) {
         console.error("Error loading current stock:", err);
         // Si no existe inventario, establecer en 0
@@ -395,6 +535,14 @@ function InventoryAdjustments() {
       return;
     }
 
+    if (adjustmentMode === "product") {
+      const p = getProductById(formData.productId);
+      if (p && isCinchoInventoryProduct(p)) {
+        showError('Para productos cincho (código FOSS o nombre con "cincho") use el ajuste por lote (desglose por talla).');
+        return;
+      }
+    }
+
     if (adjustmentMode === "material" && !formData.materialId) {
       showError("Debe seleccionar un material");
       return;
@@ -421,6 +569,7 @@ function InventoryAdjustments() {
 
     const systemStock = parseFloat(formData.systemStock);
     const physicalStock = parseFloat(formData.physicalStock);
+    let allowZeroDifference = false;
 
     if (systemStock === physicalStock) {
       const confirmProceed = window.confirm(
@@ -431,6 +580,7 @@ function InventoryAdjustments() {
       if (!confirmProceed) {
         return;
       }
+      allowZeroDifference = true;
     }
 
     // Validación adicional para diferencias muy grandes
@@ -458,6 +608,7 @@ function InventoryAdjustments() {
         systemStock: systemStock,
         physicalStock: physicalStock,
         reason: formData.reason.trim(),
+        ...(allowZeroDifference ? { allowZeroDifference: true } : {}),
         ...(adjustmentMode === "product"
           ? { 
               productId: parseInt(formData.productId),
@@ -537,15 +688,10 @@ function InventoryAdjustments() {
         colorId ? parseInt(colorId, 10) : null
       );
       const prod = getProductById(productId);
-      const foss = prod && isFossCinchoCode(prod.code);
+      const cincho = prod && isCinchoInventoryProduct(prod);
       const sizesObj = inventory?.sizes && typeof inventory.sizes === "object" ? inventory.sizes : null;
-      if (foss && sizesObj && Object.keys(sizesObj).length > 0) {
-        const fossSizeLines = Object.entries(sizesObj).map(([size, qty]) => ({
-          lineId: `${rowId}-sz-${size}-${Math.random().toString(36).slice(2, 5)}`,
-          size: String(size),
-          systemStock: String(qty != null ? qty : 0),
-          physicalStock: String(qty != null ? qty : 0),
-        }));
+      if (cincho && sizesObj && Object.keys(sizesObj).length > 0) {
+        const fossSizeLines = buildFossSizeLinesFromSizesMap(rowId, sizesObj);
         const sysSum = fossSizeLines.reduce((a, l) => a + (parseFloat(l.systemStock) || 0), 0);
         const phySum = fossSizeLines.reduce((a, l) => a + (parseFloat(l.physicalStock) || 0), 0);
         updateBatchRow(rowId, {
@@ -553,7 +699,16 @@ function InventoryAdjustments() {
           physicalStock: phySum.toFixed(3),
           fossSizeLines,
         });
-      } else if (foss) {
+      } else if (!cincho && sizesObj && Object.keys(sizesObj).length > 0) {
+        const fossSizeLines = buildFossSizeLinesFromSizesMap(rowId, sizesObj);
+        const sysSum = fossSizeLines.reduce((a, l) => a + (parseFloat(l.systemStock) || 0), 0);
+        const phySum = fossSizeLines.reduce((a, l) => a + (parseFloat(l.physicalStock) || 0), 0);
+        updateBatchRow(rowId, {
+          systemStock: sysSum.toFixed(3),
+          physicalStock: phySum.toFixed(3),
+          fossSizeLines,
+        });
+      } else if (cincho) {
         const stock = Number(inventory?.quantity || 0);
         updateBatchRow(rowId, {
           systemStock: stock.toFixed(3),
@@ -585,9 +740,7 @@ function InventoryAdjustments() {
       return;
     }
 
-    const rowsToSubmit = productBatchRows.filter(
-      (row) => row.productId || row.systemStock || row.physicalStock || row.reason || row.colorId
-    );
+    const rowsToSubmit = productBatchRows.filter(isBatchRowPending);
 
     if (!rowsToSubmit.length) {
       showError("Debe agregar al menos un ajuste en el listado");
@@ -607,17 +760,23 @@ function InventoryAdjustments() {
       }
 
       const prod = getProductById(row.productId);
-      const foss = prod && isFossCinchoCode(prod.code);
-      if (foss) {
+      const cincho = prod && isCinchoInventoryProduct(prod);
+      const sizeLayout = rowUsesSizeLayout(row);
+
+      if (sizeLayout) {
         const lines = (row.fossSizeLines || []).filter((l) => l.size && String(l.size).trim());
         if (lines.length === 0) {
-          showError(`Cincho FOSS (${rowLabel}): agregue al menos una talla con cantidades.`);
+          showError(
+            cincho
+              ? `Producto cincho (${rowLabel}): agregue al menos una talla con cantidades.`
+              : `Producto con inventario por talla (${rowLabel}): indique al menos una talla.`
+          );
           return;
         }
         for (let j = 0; j < lines.length; j += 1) {
           const l = lines[j];
           if (l.systemStock === "" || Number.isNaN(parseFloat(l.systemStock)) || parseFloat(l.systemStock) < 0) {
-            showError(`Stock sistema invalido talla "${l.size}" (${rowLabel})`);
+            showError(`Stock en sistema invalido talla "${l.size}" (${rowLabel})`);
             return;
           }
           if (l.physicalStock === "" || Number.isNaN(parseFloat(l.physicalStock)) || parseFloat(l.physicalStock) < 0) {
@@ -640,16 +799,16 @@ function InventoryAdjustments() {
         return;
       }
 
-      const systemStock = foss
+      const systemStock = sizeLayout
         ? (row.fossSizeLines || []).reduce((a, l) => a + (parseFloat(l.systemStock) || 0), 0)
         : parseFloat(row.systemStock);
-      const physicalStock = foss
+      const physicalStock = sizeLayout
         ? (row.fossSizeLines || []).reduce((a, l) => a + (parseFloat(l.physicalStock) || 0), 0)
         : parseFloat(row.physicalStock);
       const difference = Math.abs(physicalStock - systemStock);
       const percentage = systemStock > 0 ? (difference / systemStock) * 100 : 0;
 
-      if (systemStock === physicalStock) {
+      if (Math.abs(physicalStock - systemStock) < QTY_EPS) {
         zeroDifferenceRows.push(i + 1);
       }
       if (difference > 50 || (systemStock > 0 && percentage > 20)) {
@@ -668,7 +827,7 @@ function InventoryAdjustments() {
     if (largeDifferenceRows.length) {
       const confirmLargeDiff = window.confirm(
         `Hay ${largeDifferenceRows.length} ajuste(s) con diferencia significativa (filas: ${largeDifferenceRows.join(", ")}).\n\n` +
-          "Desea continuar?"
+          "Ej.: bajar de 3 a 0 unidades en una talla. Pulse Aceptar para registrar el ajuste o Cancelar para revisar."
       );
       if (!confirmLargeDiff) return;
     }
@@ -683,7 +842,8 @@ function InventoryAdjustments() {
         const row = rowsToSubmit[i];
         try {
           const prod = getProductById(row.productId);
-          const foss = prod && isFossCinchoCode(prod.code);
+          const cincho = prod && isCinchoInventoryProduct(prod);
+          const sizeLayout = rowUsesSizeLayout(row);
           let systemStockTotal = parseFloat(row.systemStock);
           let physicalStockTotal = parseFloat(row.physicalStock);
           const base = {
@@ -694,7 +854,7 @@ function InventoryAdjustments() {
             physicalStock: physicalStockTotal,
             reason: row.reason.trim(),
           };
-          if (foss) {
+          if (cincho) {
             const systemSizes = {};
             const physicalSizes = {};
             (row.fossSizeLines || []).forEach((l) => {
@@ -709,6 +869,14 @@ function InventoryAdjustments() {
             physicalStockTotal = Object.values(physicalSizes).reduce((a, v) => a + v, 0);
             base.systemStock = systemStockTotal;
             base.physicalStock = physicalStockTotal;
+          } else if (sizeLayout) {
+            systemStockTotal = parseFloat(row.systemStock);
+            physicalStockTotal = parseFloat(row.physicalStock);
+            base.systemStock = systemStockTotal;
+            base.physicalStock = physicalStockTotal;
+          }
+          if (Math.abs(physicalStockTotal - systemStockTotal) < 1e-9) {
+            base.allowZeroDifference = true;
           }
           await createInventoryAdjustment(base);
           createdCount += 1;
@@ -814,7 +982,7 @@ function InventoryAdjustments() {
                 onChange={(e) => {
                   setFilter(e.target.value || undefined);
                 }}
-                size="sm"
+                bsSize="sm"
               >
                 <option value="">Todos</option>
                 <option value="PRODUCT">Producto</option>
@@ -1653,171 +1821,237 @@ function InventoryAdjustments() {
             setShowProductModal(false);
             resetProductBatch();
           }}
-          size="lg"
+          size="xl"
+          centered
         >
-          <ModalHeader toggle={() => {
-            setShowProductModal(false);
-            resetProductBatch();
-          }}>
-            Ajuste de Inventario - Productos por Lote
+          <ModalHeader
+            toggle={() => {
+              setShowProductModal(false);
+              resetProductBatch();
+            }}
+            className="border-bottom"
+          >
+            <div>
+              <div className="h5 mb-0">Ajuste de inventario — productos por lote</div>
+              {batchLocationSubtitle ? (
+                <div className="text-muted small font-weight-normal mt-1">
+                  Ubicación: <strong className="text-body">{batchLocationSubtitle}</strong>
+                </div>
+              ) : (
+                <div className="text-muted small font-weight-normal mt-1">
+                  Seleccione la bodega o ubicación donde realizó el conteo.
+                </div>
+              )}
+            </div>
           </ModalHeader>
-          <ModalBody>
-            <Row>
-              <Col md="8">
-                <FormGroup>
-                  <Label>Ubicación *</Label>
-                  <Select
-                    className="react-select"
-                    classNamePrefix="react-select"
-                    placeholder="Buscar ubicación..."
-                    isClearable
-                    filterOption={filterSelectOption}
-                    value={
-                      formData.locationId
-                        ? locationOptions.find((o) => o.value === String(formData.locationId)) || null
-                        : null
-                    }
-                    onChange={(selected) => {
-                      const nextLocationId = selected ? selected.value : "";
-                      setFormData((prev) => ({
-                        ...prev,
-                        locationId: nextLocationId,
-                      }));
-                      productBatchRows.forEach((row) => {
-                        loadBatchRowStock(row.rowId, row.productId, row.colorId, nextLocationId);
-                      });
-                    }}
-                    options={locationOptions}
-                  />
-                </FormGroup>
-              </Col>
-              <Col md="4" className="d-flex align-items-end">
-                <Button
-                  color="info"
-                  size="sm"
-                  className="mb-3"
-                  onClick={addBatchRow}
-                >
-                  <i className="nc-icon nc-simple-add mr-1" />
-                  Agregar fila
-                </Button>
-              </Col>
-              <Col md="12">
-                <div className="table-responsive">
-                  <table className="table table-sm table-bordered">
-                    <thead>
-                      <tr>
-                        <th style={{ minWidth: "230px" }}>Producto *</th>
-                        <th style={{ minWidth: "190px" }}>Color</th>
-                        <th style={{ minWidth: "130px" }}>Stock Sistema *</th>
-                        <th style={{ minWidth: "130px" }}>Stock Fisico *</th>
-                        <th style={{ minWidth: "220px" }}>Motivo *</th>
-                        <th style={{ minWidth: "90px" }}>Dif.</th>
-                        <th style={{ width: "70px" }} />
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {productBatchRows.map((row, index) => {
-                        const rowFoss = isFossCinchoRow(row);
-                        const system = parseFloat(row.systemStock || 0);
-                        const physical = parseFloat(row.physicalStock || 0);
-                        const difference = Number.isNaN(system) || Number.isNaN(physical) ? null : physical - system;
+          <ModalBody className="d-flex flex-column p-0" style={{ minWidth: 0, maxHeight: "calc(100vh - 12rem)" }}>
+            <div className="px-3 pt-3 pb-2 border-bottom bg-light">
+              <Row className="align-items-end">
+                <Col xs="12" md="8">
+                  <FormGroup className="mb-0">
+                    <Label className="mb-1">Ubicación *</Label>
+                    <Select
+                      className="react-select"
+                      classNamePrefix="react-select"
+                      placeholder="Buscar ubicación..."
+                      isClearable
+                      filterOption={filterSelectOption}
+                      value={
+                        formData.locationId
+                          ? locationOptions.find((o) => o.value === String(formData.locationId)) || null
+                          : null
+                      }
+                      onChange={(selected) => {
+                        const nextLocationId = selected ? selected.value : "";
+                        setFormData((prev) => ({
+                          ...prev,
+                          locationId: nextLocationId,
+                        }));
+                        productBatchRows.forEach((row) => {
+                          loadBatchRowStock(row.rowId, row.productId, row.colorId, nextLocationId);
+                        });
+                      }}
+                      options={locationOptions}
+                    />
+                  </FormGroup>
+                </Col>
+                <Col xs="12" md="4" className="text-md-right mt-2 mt-md-0">
+                  <Button color="info" size="sm" onClick={addBatchRow} className="mb-0">
+                    <i className="nc-icon nc-simple-add mr-1" />
+                    Agregar producto
+                  </Button>
+                </Col>
+              </Row>
+              {!formData.locationId && (
+                <Alert color="warning" className="mt-2 mb-0 py-2">
+                  Seleccione una ubicación para cargar el stock del sistema de cada producto.
+                </Alert>
+              )}
+            </div>
 
-                        return (
-                          <tr key={row.rowId}>
-                            <td>
-                              <Select
-                                className="react-select"
-                                classNamePrefix="react-select"
-                                placeholder={`Producto fila ${index + 1}`}
-                                isClearable
-                                filterOption={filterSelectOption}
-                                value={
-                                  row.productId
-                                    ? productOptions.find((o) => o.value === String(row.productId)) || null
-                                    : null
-                                }
-                                onChange={(selected) => {
-                                  const nextProductId = selected ? selected.value : "";
-                                  updateBatchRow(row.rowId, {
-                                    productId: nextProductId,
-                                    colorId: "",
-                                    fossSizeLines: [],
-                                  });
-                                  loadBatchRowStock(row.rowId, nextProductId, "", formData.locationId);
-                                }}
-                                options={productOptions}
-                              />
-                            </td>
-                            <td>
-                              <Select
-                                className="react-select"
-                                classNamePrefix="react-select"
-                                placeholder="Color opcional"
-                                isClearable
-                                filterOption={filterSelectOption}
-                                value={
-                                  row.colorId
-                                    ? colorOptions.find((o) => o.value === String(row.colorId)) || null
-                                    : null
-                                }
-                                onChange={(selected) => {
-                                  const nextColorId = selected ? selected.value : "";
-                                  updateBatchRow(row.rowId, { colorId: nextColorId });
-                                  loadBatchRowStock(row.rowId, row.productId, nextColorId, formData.locationId);
-                                }}
-                                options={colorOptions}
-                              />
-                            </td>
-                            {rowFoss ? (
-                              <td colSpan={2}>
-                                <div className="mb-1">
-                                  <small className="text-muted">Cincho FOSS: stock por talla</small>
-                                </div>
-                                {(row.fossSizeLines || []).map((line) => (
-                                  <div
-                                    key={line.lineId}
-                                    className="d-flex flex-wrap align-items-center mb-1"
-                                    style={{ gap: "6px" }}
-                                  >
+            <div className="flex-grow-1 overflow-auto px-3 py-3" style={{ minHeight: "12rem" }}>
+              {productBatchRows.map((row, index) => {
+                const cinchoProduct = isFossCinchoRow(row);
+                const sizeLayout = rowUsesSizeLayout(row);
+                const system = parseFloat(row.systemStock || 0);
+                const physical = parseFloat(row.physicalStock || 0);
+                const allowSysAgg = fossAllowsEditableSystemOnSingleAggregateLine(row);
+                const sysRoStyle = { backgroundColor: "#e9ecef", cursor: "not-allowed" };
+                const phyBaseStyle = { backgroundColor: "#fff" };
+
+                if (sizeLayout) {
+                  return (
+                    <Card key={row.rowId} className="mb-3 shadow-sm border">
+                      <CardHeader className="py-2 d-flex flex-wrap align-items-center justify-content-between bg-white">
+                        <div className="d-flex flex-wrap flex-grow-1 align-items-end">
+                          <div className="mr-2 mb-2" style={{ minWidth: "200px", flex: "2 1 220px" }}>
+                            <Label className="mb-1 small text-muted">Producto *</Label>
+                            <Select
+                              className="react-select"
+                              classNamePrefix="react-select"
+                              placeholder={`Producto ${index + 1}`}
+                              isClearable
+                              filterOption={filterSelectOption}
+                              value={
+                                row.productId
+                                  ? productOptions.find((o) => o.value === String(row.productId)) || null
+                                  : null
+                              }
+                              onChange={(selected) => {
+                                const nextProductId = selected ? selected.value : "";
+                                updateBatchRow(row.rowId, {
+                                  productId: nextProductId,
+                                  colorId: "",
+                                  fossSizeLines: [],
+                                });
+                                loadBatchRowStock(row.rowId, nextProductId, "", formData.locationId);
+                              }}
+                              options={productOptions}
+                            />
+                          </div>
+                          <div className="mb-2" style={{ minWidth: "160px", flex: "1 1 160px" }}>
+                            <Label className="mb-1 small text-muted">Color (opcional)</Label>
+                            <Select
+                              className="react-select"
+                              classNamePrefix="react-select"
+                              placeholder="—"
+                              isClearable
+                              filterOption={filterSelectOption}
+                              value={
+                                row.colorId
+                                  ? colorOptions.find((o) => o.value === String(row.colorId)) || null
+                                  : null
+                              }
+                              onChange={(selected) => {
+                                const nextColorId = selected ? selected.value : "";
+                                updateBatchRow(row.rowId, { colorId: nextColorId });
+                                loadBatchRowStock(row.rowId, row.productId, nextColorId, formData.locationId);
+                              }}
+                              options={colorOptions}
+                            />
+                          </div>
+                        </div>
+                        <Button
+                          color="link"
+                          className="text-danger p-0 mb-1"
+                          onClick={() => removeBatchRow(row.rowId)}
+                          disabled={productBatchRows.length === 1}
+                          title="Quitar este producto del lote"
+                        >
+                          <i className="nc-icon nc-simple-remove mr-1" />
+                          Quitar fila
+                        </Button>
+                      </CardHeader>
+                      <CardBody className="pt-2">
+                        {cinchoProduct && (
+                          <div className="small text-muted mb-2">
+                            Producto cincho: ajuste por talla (requerido por el sistema).
+                          </div>
+                        )}
+                        {!cinchoProduct && (row.fossSizeLines || []).length > 0 && (
+                          <div className="small text-muted mb-2">
+                            Inventario desglosado por talla en esta ubicación. Ajuste cada talla; el sistema guarda el total.
+                          </div>
+                        )}
+                        <Table responsive size="sm" bordered className="mb-2 bg-white">
+                          <thead className="thead-light">
+                            <tr>
+                              <th style={{ minWidth: "88px" }}>Talla</th>
+                              <th style={{ minWidth: "120px" }}>
+                                <LabelWithHelp
+                                  id={batchAdjTooltipId(row.rowId, "th-sys")}
+                                  label="Stock en sistema"
+                                  tooltip="Cantidad que el sistema tiene registrada para esta talla y ubicación. Viene del inventario; no es su conteo físico."
+                                />
+                              </th>
+                              <th style={{ minWidth: "140px" }}>
+                                <LabelWithHelp
+                                  id={batchAdjTooltipId(row.rowId, "th-phy")}
+                                  label="Stock físico contado"
+                                  tooltip="Cantidad que contó físicamente en bodega para esta talla. Si difiere del sistema, se registrará la diferencia al guardar."
+                                />
+                              </th>
+                              <th style={{ width: "52px" }} />
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {(row.fossSizeLines || []).map((line) => {
+                              const ls = parseFloat(line.systemStock);
+                              const lp = parseFloat(line.physicalStock);
+                              return (
+                                <tr key={line.lineId}>
+                                  <td>
                                     <Input
-                                      style={{ width: "72px", minWidth: "72px" }}
                                       type="text"
                                       bsSize="sm"
                                       value={line.size}
                                       onChange={(e) =>
                                         updateFossSizeLine(row.rowId, line.lineId, { size: e.target.value })
                                       }
-                                      placeholder="Talla"
+                                      placeholder="Ej. 32"
                                       disabled={Boolean(batchStockLoadingRows[row.rowId])}
                                     />
+                                  </td>
+                                  <td>
                                     <Input
-                                      style={{ width: "96px", minWidth: "96px" }}
                                       type="number"
                                       step="0.001"
                                       min="0"
                                       bsSize="sm"
                                       value={line.systemStock}
-                                      onChange={(e) =>
-                                        updateFossSizeLine(row.rowId, line.lineId, { systemStock: e.target.value })
-                                      }
-                                      placeholder="Sis."
-                                      title="Stock sistema"
+                                      readOnly={!allowSysAgg}
                                       disabled={Boolean(batchStockLoadingRows[row.rowId])}
+                                      onChange={
+                                        allowSysAgg
+                                          ? (e) =>
+                                              updateFossSizeLine(row.rowId, line.lineId, {
+                                                systemStock: e.target.value,
+                                              })
+                                          : undefined
+                                      }
+                                      className="border-secondary"
+                                      style={sysRoStyle}
                                     />
+                                  </td>
+                                  <td>
                                     <Input
-                                      style={{ width: "96px", minWidth: "96px" }}
                                       type="number"
                                       step="0.001"
                                       min="0"
                                       bsSize="sm"
                                       value={line.physicalStock}
                                       onChange={(e) =>
-                                        updateFossSizeLine(row.rowId, line.lineId, { physicalStock: e.target.value })
+                                        updateFossSizeLine(row.rowId, line.lineId, {
+                                          physicalStock: e.target.value,
+                                        })
                                       }
-                                      placeholder="Fis."
-                                      title="Stock físico"
+                                      style={{
+                                        ...phyBaseStyle,
+                                        ...physicalInputHighlightStyle(ls, lp),
+                                      }}
                                     />
+                                  </td>
+                                  <td className="text-center align-middle p-1">
                                     <Button
                                       color="link"
                                       className="p-0 text-danger"
@@ -1828,120 +2062,224 @@ function InventoryAdjustments() {
                                     >
                                       <i className="nc-icon nc-simple-remove" />
                                     </Button>
-                                  </div>
-                                ))}
-                                {batchStockLoadingRows[row.rowId] && (
-                                  <small className="text-muted d-block">Cargando...</small>
-                                )}
-                                <Button
-                                  color="info"
-                                  size="sm"
-                                  outline
-                                  className="mt-1"
-                                  onClick={() => addFossSizeLine(row.rowId)}
-                                >
-                                  <i className="nc-icon nc-simple-add mr-1" />
-                                  Agregar talla
-                                </Button>
-                                <div className="small text-muted mt-1">
-                                  Total fila: sis {system.toFixed(3)} / fis {physical.toFixed(3)}
-                                </div>
-                              </td>
-                            ) : (
-                              <>
-                                <td>
-                                  <Input
-                                    type="number"
-                                    step="0.001"
-                                    min="0"
-                                    value={row.systemStock}
-                                    onChange={(e) => updateBatchRow(row.rowId, { systemStock: e.target.value })}
-                                    placeholder="0.000"
-                                    disabled={Boolean(batchStockLoadingRows[row.rowId])}
-                                  />
-                                  {batchStockLoadingRows[row.rowId] && (
-                                    <small className="text-muted">Cargando...</small>
-                                  )}
-                                </td>
-                                <td>
-                                  <Input
-                                    type="number"
-                                    step="0.001"
-                                    min="0"
-                                    value={row.physicalStock}
-                                    onChange={(e) => updateBatchRow(row.rowId, { physicalStock: e.target.value })}
-                                    placeholder="0.000"
-                                  />
-                                </td>
-                              </>
-                            )}
-                            <td>
-                              <Input
-                                type="text"
-                                value={row.reason}
-                                onChange={(e) => updateBatchRow(row.rowId, { reason: e.target.value })}
-                                placeholder="Conteo, dano, correccion..."
-                              />
-                            </td>
-                            <td className="text-center align-middle">
-                              {difference === null ? "-" : (
-                                <strong className={difference >= 0 ? "text-success" : "text-danger"}>
-                                  {difference >= 0 ? "+" : ""}
-                                  {difference.toFixed(3)}
-                                </strong>
-                              )}
-                            </td>
-                            <td className="text-center align-middle">
-                              <Button
-                                color="link"
-                                className="p-0 text-danger"
-                                onClick={() => removeBatchRow(row.rowId)}
-                                disabled={productBatchRows.length === 1}
-                                title="Eliminar fila"
-                              >
-                                <i className="nc-icon nc-simple-remove" />
-                              </Button>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-                <small className="text-muted">
-                  Puede cargar varias filas y guardar todos los ajustes de una sola vez.
-                </small>
-              </Col>
-              {!formData.locationId && (
-                <Col md="12">
-                  <Alert color="warning" className="mt-2 mb-0">
-                    Seleccione una ubicacion para autocompletar el stock del sistema por cada producto.
-                  </Alert>
-                </Col>
-              )}
-            </Row>
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </Table>
+                        {batchStockLoadingRows[row.rowId] && (
+                          <div className="small text-muted mb-2">
+                            <Spinner size="sm" className="mr-1" />
+                            Cargando inventario…
+                          </div>
+                        )}
+                        <Button
+                          color="secondary"
+                          size="sm"
+                          outline
+                          className="mb-3"
+                          onClick={() => addFossSizeLine(row.rowId)}
+                        >
+                          <i className="nc-icon nc-simple-add mr-1" />
+                          Agregar talla
+                        </Button>
+                        <div className="d-flex flex-wrap align-items-center mt-1">
+                          <span className="small text-muted mr-2 mb-1">
+                            Sistema: <strong>{Number.isNaN(system) ? "—" : system.toFixed(3)}</strong>
+                            {" · "}
+                            Físico: <strong>{Number.isNaN(physical) ? "—" : physical.toFixed(3)}</strong>
+                          </span>
+                          <span className="mb-1">{renderRowDiffBadge(system, physical)}</span>
+                        </div>
+                        <FormGroup className="mt-3 mb-0">
+                          <Label className="small">Motivo del ajuste *</Label>
+                          <Input
+                            type="textarea"
+                            rows="2"
+                            value={row.reason}
+                            onChange={(e) => updateBatchRow(row.rowId, { reason: e.target.value })}
+                            placeholder="Ej. conteo cíclico, corrección, merma…"
+                          />
+                        </FormGroup>
+                      </CardBody>
+                    </Card>
+                  );
+                }
+
+                return (
+                  <Card key={row.rowId} className="mb-3 shadow-sm border">
+                    <CardBody className="py-3">
+                      <Row className="align-items-end">
+                        <Col xs="12" md="5">
+                          <Label className="small text-muted mb-1">Producto *</Label>
+                          <Select
+                            className="react-select"
+                            classNamePrefix="react-select"
+                            placeholder={`Producto ${index + 1}`}
+                            isClearable
+                            filterOption={filterSelectOption}
+                            value={
+                              row.productId
+                                ? productOptions.find((o) => o.value === String(row.productId)) || null
+                                : null
+                            }
+                            onChange={(selected) => {
+                              const nextProductId = selected ? selected.value : "";
+                              updateBatchRow(row.rowId, {
+                                productId: nextProductId,
+                                colorId: "",
+                                fossSizeLines: [],
+                              });
+                              loadBatchRowStock(row.rowId, nextProductId, "", formData.locationId);
+                            }}
+                            options={productOptions}
+                          />
+                        </Col>
+                        <Col xs="12" md="3" className="mt-2 mt-md-0">
+                          <Label className="small text-muted mb-1">Color (opcional)</Label>
+                          <Select
+                            className="react-select"
+                            classNamePrefix="react-select"
+                            placeholder="—"
+                            isClearable
+                            filterOption={filterSelectOption}
+                            value={
+                              row.colorId
+                                ? colorOptions.find((o) => o.value === String(row.colorId)) || null
+                                : null
+                            }
+                            onChange={(selected) => {
+                              const nextColorId = selected ? selected.value : "";
+                              updateBatchRow(row.rowId, { colorId: nextColorId });
+                              loadBatchRowStock(row.rowId, row.productId, nextColorId, formData.locationId);
+                            }}
+                            options={colorOptions}
+                          />
+                        </Col>
+                        <Col xs="6" md="2" className="mt-2 mt-md-0">
+                          <Label className="small d-block mb-1">
+                            <LabelWithHelp
+                              id={batchAdjTooltipId(row.rowId, "simp-sys")}
+                              label="Stock en sistema"
+                              tooltip="Total que el sistema tiene registrado para este producto en la ubicación elegida."
+                            />
+                          </Label>
+                          <Input
+                            type="number"
+                            step="0.001"
+                            min="0"
+                            value={row.systemStock}
+                            readOnly
+                            className="border-secondary"
+                            style={sysRoStyle}
+                          />
+                          {batchStockLoadingRows[row.rowId] && (
+                            <small className="text-muted d-block mt-1">Cargando…</small>
+                          )}
+                        </Col>
+                        <Col xs="6" md="2" className="mt-2 mt-md-0">
+                          <Label className="small d-block mb-1">
+                            <LabelWithHelp
+                              id={batchAdjTooltipId(row.rowId, "simp-phy")}
+                              label="Stock físico contado"
+                              tooltip="Total que contó en bodega. Si es distinto al del sistema, se generará un ajuste."
+                            />
+                          </Label>
+                          <Input
+                            type="number"
+                            step="0.001"
+                            min="0"
+                            value={row.physicalStock}
+                            onChange={(e) => updateBatchRow(row.rowId, { physicalStock: e.target.value })}
+                            style={{
+                              ...phyBaseStyle,
+                              ...physicalInputHighlightStyle(system, physical),
+                            }}
+                          />
+                        </Col>
+                      </Row>
+                      <Row className="mt-2 align-items-center">
+                        <Col xs="12" md="8" className="mb-2 mb-md-0">
+                          {renderRowDiffBadge(system, physical)}
+                        </Col>
+                        <Col xs="12" md="4" className="text-md-right">
+                          <Button
+                            color="link"
+                            className="text-danger p-0"
+                            size="sm"
+                            onClick={() => removeBatchRow(row.rowId)}
+                            disabled={productBatchRows.length === 1}
+                          >
+                            <i className="nc-icon nc-simple-remove mr-1" />
+                            Quitar fila
+                          </Button>
+                        </Col>
+                      </Row>
+                      <FormGroup className="mt-2 mb-0">
+                        <Label className="small">Motivo del ajuste *</Label>
+                        <Input
+                          type="textarea"
+                          rows="2"
+                          value={row.reason}
+                          onChange={(e) => updateBatchRow(row.rowId, { reason: e.target.value })}
+                          placeholder="Ej. conteo cíclico, corrección, merma…"
+                        />
+                      </FormGroup>
+                    </CardBody>
+                  </Card>
+                );
+              })}
+              <p className="text-muted small mb-0">
+                Puede mezclar productos con y sin tallas. Revise el resumen inferior antes de guardar.
+              </p>
+            </div>
           </ModalBody>
-          <ModalFooter>
-            <Button color="secondary" onClick={() => {
-              setShowProductModal(false);
-              resetProductBatch();
-            }}>
-              Cancelar
-            </Button>
-            <Button
-              color="success"
-              onClick={handleCreateProductBatchAdjustments}
-              disabled={loading}
-            >
-              {loading ? (
-                <>
-                  <Spinner size="sm" className="mr-2" />
-                  Guardando...
-                </>
-              ) : (
-                `Crear Ajustes (${productBatchRows.length})`
-              )}
-            </Button>
+          <ModalFooter className="border-top bg-light flex-column flex-md-row align-items-stretch align-items-md-center">
+            <div className="small text-muted mb-3 mb-md-0 pr-md-3">
+              <div>
+                <strong>Resumen:</strong>{" "}
+                {productBatchGlobalSummary.pendingRowCount} fila(s) con datos ·{" "}
+                <strong>{productBatchGlobalSummary.countWithProduct}</strong> producto(s) listo(s) para guardar
+              </div>
+              <div className="mt-1">
+                Total sistema: <strong>{productBatchGlobalSummary.sumSys.toFixed(3)}</strong>
+                {" · "}Total físico: <strong>{productBatchGlobalSummary.sumPhy.toFixed(3)}</strong>
+                {" · "}
+                {productBatchGlobalSummary.rowsWithDiff > 0 ? (
+                  <span className="text-warning">
+                    {productBatchGlobalSummary.rowsWithDiff} producto(s) con diferencia pendiente
+                  </span>
+                ) : (
+                  <span className="text-success">Sin diferencias netas en el lote</span>
+                )}
+              </div>
+            </div>
+            <div className="d-flex justify-content-end" style={{ gap: "8px" }}>
+              <Button
+                color="secondary"
+                onClick={() => {
+                  setShowProductModal(false);
+                  resetProductBatch();
+                }}
+              >
+                Cancelar
+              </Button>
+              <Button
+                color="success"
+                onClick={handleCreateProductBatchAdjustments}
+                disabled={loading || productBatchGlobalSummary.countWithProduct === 0}
+              >
+                {loading ? (
+                  <>
+                    <Spinner size="sm" className="mr-2" />
+                    Guardando…
+                  </>
+                ) : (
+                  `Crear ajustes (${productBatchGlobalSummary.countWithProduct})`
+                )}
+              </Button>
+            </div>
           </ModalFooter>
         </Modal>
       )}

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import {
   Button,
   Label,
@@ -20,13 +20,20 @@ import {
   getProductionOrderById,
   createProductionOrder,
   updateProductionOrder,
+  validateMaterials,
 } from "services/productionOrderService";
 import { getProducts } from "services/productService";
 import { getColors } from "services/colorService";
 import { getCustomers } from "services/customerService";
 import { getAuthHeader } from "services/authService";
 import { showSuccess, showError } from "utils/notificationHelper";
+import OpcGenerateShipmentModal from "components/production/OpcGenerateShipmentModal";
+import ProductionOrderPartialReleasesPanel from "components/production/ProductionOrderPartialReleasesPanel";
 import { isCinchoOrderType } from "utils/cinchoProductionHelper";
+import { isLuisFelipeSeller, isLuisFelipeVendorFlow } from "utils/luisFelipeVendorHelper";
+import { orderAllowsPartialReleases } from "utils/partialReleaseHelper";
+import { resolveDefaultOpvUnitPrice } from "utils/prepareShipmentsOrderHelper";
+import OpvShipmentPriceReviewModal from "components/production/OpvShipmentPriceReviewModal";
 
 // Tallas disponibles para cinchos (16-60)
 const AVAILABLE_SIZES = Array.from({ length: 45 }, (_, i) => (i + 16).toString());
@@ -41,12 +48,20 @@ const STATUS_LABELS = {
 
 const SELLER_OPTIONS = ["LUIS FELIPE", "MADELYN"];
 const BRAND_OPTIONS = ["LEVIS", "NAUTICA", "TOMMY HILFIGER", "LACOSTE", "ABERCROMBIE"];
-const normalizeSeller = (value) => String(value || "").trim().toUpperCase();
-const isLuisFelipeSeller = (value) => normalizeSeller(value).includes("LUIS FELIPE");
 const isClienteKioskoOrder = (orderType) => orderType === "CLIENTE_KIOSKO";
-/** OPV vendedor: empaques / ENVP — cualquier orden no-cinchos con vendedor Luis Felipe (correlativo OPV- lo define el backend). */
-const isOpvVendorOrder = (orderType, sellerName) =>
-  isLuisFelipeSeller(sellerName) && !isCinchoOrderType(orderType);
+const isOnlineSaleOrKioskOrder = (orderType) =>
+  orderType === "VENTA_EN_LINEA" || isClienteKioskoOrder(orderType);
+
+const customerFieldsFromCatalog = (customer) => {
+  if (!customer) {
+    return { customerAddress: "", customerPhone: "", customerTaxId: "" };
+  }
+  return {
+    customerAddress: customer.address || customer.direccion || "",
+    customerPhone: customer.phone || customer.telefono || "",
+    customerTaxId: customer.nit || customer.taxId || customer.tax_id || "CF",
+  };
+};
 
 const createEmptyItemForm = () => ({
   productId: "",
@@ -58,6 +73,7 @@ const createEmptyItemForm = () => ({
   selectedSizes: [],
   colorSizes: {},
   observations: "",
+  unitPrice: "",
 });
 
 const getPositiveSizes = (sizes = {}) =>
@@ -75,6 +91,9 @@ function ProductionOrderForm({ orderId, isOpen, toggle, onSuccess }) {
     orderType: "NORMAL",
     customerId: "",
     customerName: "",
+    customerAddress: "",
+    customerPhone: "",
+    customerTaxId: "",
     sellerName: "",
     startDate: "",
     deliveryDate: "",
@@ -102,6 +121,22 @@ function ProductionOrderForm({ orderId, isOpen, toggle, onSuccess }) {
   const [showProductDropdown, setShowProductDropdown] = useState(false);
   const [packingMaterials, setPackingMaterials] = useState([]);
   const [packingForm, setPackingForm] = useState({ materialId: "", quantity: "", unitPrice: "" });
+  const [cinchoMaterialsInfo, setCinchoMaterialsInfo] = useState(null);
+  const [shipmentModalOpen, setShipmentModalOpen] = useState(false);
+  const [opvPriceReviewOpen, setOpvPriceReviewOpen] = useState(false);
+
+  const showItemUnitPrice =
+    formData.orderType === "MARCAS" || isLuisFelipeVendorFlow(formData.orderType, formData.sellerName);
+
+  const productCatalogById = useMemo(() => {
+    const map = {};
+    (availableProducts || []).forEach((p) => {
+      if (p?.id != null) {
+        map[p.id] = p;
+      }
+    });
+    return map;
+  }, [availableProducts]);
 
   useEffect(() => {
     if (isOpen) {
@@ -116,6 +151,29 @@ function ProductionOrderForm({ orderId, isOpen, toggle, onSuccess }) {
       }
     }
   }, [isOpen, orderId]);
+
+  useEffect(() => {
+    if (!isOpen || !orderId || !isOnlineSaleOrKioskOrder(formData.orderType)) {
+      setCinchoMaterialsInfo(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const data = await validateMaterials(orderId);
+        if (!cancelled) {
+          setCinchoMaterialsInfo(data);
+        }
+      } catch {
+        if (!cancelled) {
+          setCinchoMaterialsInfo(null);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, orderId, formData.orderType]);
 
   useEffect(() => {
     const handleClickOutside = (event) => {
@@ -166,6 +224,9 @@ function ProductionOrderForm({ orderId, isOpen, toggle, onSuccess }) {
         orderType: order.orderType || "NORMAL",
         customerId: order.customerId || "",
         customerName: order.customerName || "",
+        customerAddress: order.customerAddress || "",
+        customerPhone: order.customerPhone || "",
+        customerTaxId: order.customerTaxId || "",
         sellerName: isLuisFelipeSeller(order.sellerName) ? "LUIS FELIPE" : (order.sellerName || ""),
         startDate: order.startDate
           ? new Date(order.startDate).toISOString().split("T")[0]
@@ -174,8 +235,9 @@ function ProductionOrderForm({ orderId, isOpen, toggle, onSuccess }) {
           ? new Date(order.deliveryDate).toISOString().split("T")[0]
           : "",
         observations: order.observations || "",
-        shippingCost: order.shippingCost || "",
+        shippingCost: order.shippingCost ?? "",
         packingItems: order.packingItems || [],
+        vendorShipmentNumber: order.vendorShipmentNumber || "",
         status: order.status || "PENDING",
         items: order.items || [],
         distributionId: order.distributionId || null,
@@ -197,6 +259,9 @@ function ProductionOrderForm({ orderId, isOpen, toggle, onSuccess }) {
       orderType: "NORMAL",
       customerId: "",
       customerName: "",
+      customerAddress: "",
+      customerPhone: "",
+      customerTaxId: "",
       sellerName: "",
       startDate: "",
       deliveryDate: "",
@@ -213,6 +278,7 @@ function ProductionOrderForm({ orderId, isOpen, toggle, onSuccess }) {
     setItemForm(createEmptyItemForm());
     setProductSearch("");
     setShowProductDropdown(false);
+    setCinchoMaterialsInfo(null);
     setErrors({});
     setItemErrors({});
     setError("");
@@ -287,10 +353,18 @@ function ProductionOrderForm({ orderId, isOpen, toggle, onSuccess }) {
     return Object.keys(newErrors).length === 0;
   };
 
+  const defaultUnitPriceForProduct = (productId) => {
+    const item = { productId, unitPrice: itemForm.unitPrice };
+    return resolveDefaultOpvUnitPrice(item, productCatalogById);
+  };
+
   const handleAddItem = () => {
     if (!validateItem()) return;
 
     const productId = parseInt(itemForm.productId);
+    const lineUnitPrice = showItemUnitPrice
+      ? Number(itemForm.unitPrice) || defaultUnitPriceForProduct(productId)
+      : undefined;
     const newItems = isCinchoOrderType(formData.orderType)
       ? (itemForm.colorIds || [])
           .map((colorId) => {
@@ -305,6 +379,7 @@ function ProductionOrderForm({ orderId, isOpen, toggle, onSuccess }) {
               quantity: null,
               sizes,
               observations: itemForm.observations || "",
+              unitPrice: lineUnitPrice,
             };
           })
           .filter(Boolean)
@@ -316,6 +391,7 @@ function ProductionOrderForm({ orderId, isOpen, toggle, onSuccess }) {
             quantity: parseInt(itemForm.quantity),
             sizes: null,
             observations: itemForm.observations || "",
+            unitPrice: lineUnitPrice,
           },
         ];
 
@@ -434,7 +510,17 @@ function ProductionOrderForm({ orderId, isOpen, toggle, onSuccess }) {
   });
 
   const handleProductSelect = (productId) => {
-    setItemForm((prev) => ({ ...prev, productId: productId.toString() }));
+    setItemForm((prev) => {
+      const next = { ...prev, productId: productId.toString() };
+      if (showItemUnitPrice) {
+        const price = resolveDefaultOpvUnitPrice(
+          { productId, unitPrice: prev.unitPrice },
+          productCatalogById
+        );
+        next.unitPrice = price > 0 ? String(price) : "";
+      }
+      return next;
+    });
     setProductSearch("");
     setShowProductDropdown(false);
   };
@@ -495,12 +581,20 @@ function ProductionOrderForm({ orderId, isOpen, toggle, onSuccess }) {
           quantity: item.quantity,
           sizes: item.sizes,
           observations: item.observations,
+          unitPrice: showItemUnitPrice ? Number(item.unitPrice) || 0 : undefined,
         })),
       };
 
       if (orderId) {
         await updateProductionOrder(orderId, submitData);
         showSuccess("Orden de producción actualizada correctamente");
+        if (isOnlineSaleOrKioskOrder(formData.orderType)) {
+          try {
+            setCinchoMaterialsInfo(await validateMaterials(orderId));
+          } catch {
+            setCinchoMaterialsInfo(null);
+          }
+        }
       } else {
         await createProductionOrder(submitData);
         showSuccess("Orden de producción creada correctamente");
@@ -523,7 +617,7 @@ function ProductionOrderForm({ orderId, isOpen, toggle, onSuccess }) {
       ...formData,
       orderType: newType,
       items: [],
-      packingItems: isOpvVendorOrder(newType, formData.sellerName) ? formData.packingItems : [],
+      packingItems: isLuisFelipeVendorFlow(newType, formData.sellerName) ? formData.packingItems : [],
     });
     setItemForm(createEmptyItemForm());
   };
@@ -567,7 +661,64 @@ function ProductionOrderForm({ orderId, isOpen, toggle, onSuccess }) {
       </ModalHeader>
       <form onSubmit={handleSubmit}>
         <ModalBody>
-          {error && <Alert color="danger">{error}</Alert>}
+          {error && (
+            <Alert color="danger" style={{ whiteSpace: "pre-line" }}>
+              {error}
+            </Alert>
+          )}
+          {cinchoMaterialsInfo &&
+            cinchoMaterialsInfo.cinchoAllAvailable === false && (
+              <Alert color="warning">
+                <strong>Materiales insuficientes en líneas cincho</strong>
+                <p className="mb-2 small">
+                  La orden puede guardarse; revise stock para las piezas cincho antes de fabricarlas.
+                </p>
+                {cinchoMaterialsInfo.cinchoShortageMessage && (
+                  <div className="small mb-2" style={{ whiteSpace: "pre-line" }}>
+                    {cinchoMaterialsInfo.cinchoShortageMessage}
+                  </div>
+                )}
+                {!cinchoMaterialsInfo.cinchoShortageMessage &&
+                  cinchoMaterialsInfo.shortageMessage && (
+                    <div className="small mb-2" style={{ whiteSpace: "pre-line" }}>
+                      {cinchoMaterialsInfo.shortageMessage}
+                    </div>
+                  )}
+                {Array.isArray(cinchoMaterialsInfo.byOrderItem) &&
+                  cinchoMaterialsInfo.byOrderItem.some(
+                    (row) =>
+                      row.isCinchoLine && row.hasBom && row.allAvailable === false
+                  ) && (
+                    <ul className="small mb-0 pl-3">
+                      {cinchoMaterialsInfo.byOrderItem
+                        .filter(
+                          (row) =>
+                            row.isCinchoLine && row.hasBom && row.allAvailable === false
+                        )
+                        .map((row) => (
+                          <li key={row.productionOrderItemId || row.productId}>
+                            {row.productCode || `Producto #${row.productId}`}
+                            {Array.isArray(row.materials) &&
+                              row.materials.some((m) => m.sufficient === false) && (
+                                <span className="text-muted">
+                                  {" "}
+                                  (
+                                  {row.materials
+                                    .filter((m) => m.sufficient === false)
+                                    .map(
+                                      (m) =>
+                                        `${m.materialName}: req. ${m.required}, disp. ${m.available}`
+                                    )
+                                    .join("; ")}
+                                  )
+                                </span>
+                              )}
+                          </li>
+                        ))}
+                    </ul>
+                  )}
+              </Alert>
+            )}
 
           <Row>
             <Col md="6">
@@ -625,10 +776,10 @@ function ProductionOrderForm({ orderId, isOpen, toggle, onSuccess }) {
             </Col>
           </Row>
 
-          {isOpvVendorOrder(formData.orderType, formData.sellerName) && (
+          {isLuisFelipeVendorFlow(formData.orderType, formData.sellerName) && (
             <>
               <hr />
-              <h5 className="mb-3">Empaques y costo de envío (OPV vendedor)</h5>
+              <h5 className="mb-3">Empaques y costo de envío (Luis Felipe)</h5>
               <Row>
                 <Col md="3">
                   <FormGroup>
@@ -732,15 +883,19 @@ function ProductionOrderForm({ orderId, isOpen, toggle, onSuccess }) {
                 <Input
                   type="select"
                   value={formData.customerId}
-                  onChange={(e) =>
+                  onChange={(e) => {
+                    const rawId = e.target.value;
+                    const selected = rawId
+                      ? availableCustomers.find((c) => String(c.id) === String(rawId))
+                      : null;
+                    const catalogFields = customerFieldsFromCatalog(selected);
                     setFormData({
                       ...formData,
-                      customerId: e.target.value,
-                      customerName: e.target.value
-                        ? availableCustomers.find((c) => c.id === parseInt(e.target.value))?.name || ""
-                        : "",
-                    })
-                  }
+                      customerId: rawId,
+                      customerName: selected?.name || "",
+                      ...catalogFields,
+                    });
+                  }}
                   disabled={loading}
                 >
                   <option value="">Seleccione un cliente (opcional)</option>
@@ -767,6 +922,46 @@ function ProductionOrderForm({ orderId, isOpen, toggle, onSuccess }) {
             </Col>
           </Row>
 
+          {isLuisFelipeVendorFlow(formData.orderType, formData.sellerName) && (
+            <Row>
+              <Col md="6">
+                <FormGroup>
+                  <Label>Dirección de envío</Label>
+                  <Input
+                    type="textarea"
+                    rows={2}
+                    value={formData.customerAddress}
+                    onChange={(e) => setFormData({ ...formData, customerAddress: e.target.value })}
+                    placeholder="Dirección del cliente"
+                    disabled={loading}
+                  />
+                </FormGroup>
+              </Col>
+              <Col md="3">
+                <FormGroup>
+                  <Label>Teléfono</Label>
+                  <Input
+                    type="text"
+                    value={formData.customerPhone}
+                    onChange={(e) => setFormData({ ...formData, customerPhone: e.target.value })}
+                    disabled={loading}
+                  />
+                </FormGroup>
+              </Col>
+              <Col md="3">
+                <FormGroup>
+                  <Label>NIT</Label>
+                  <Input
+                    type="text"
+                    value={formData.customerTaxId}
+                    onChange={(e) => setFormData({ ...formData, customerTaxId: e.target.value })}
+                    disabled={loading}
+                  />
+                </FormGroup>
+              </Col>
+            </Row>
+          )}
+
           <Row>
             <Col md="6">
               <FormGroup>
@@ -779,7 +974,7 @@ function ProductionOrderForm({ orderId, isOpen, toggle, onSuccess }) {
                     setFormData((prev) => ({
                       ...prev,
                       sellerName: nextSeller,
-                      packingItems: isOpvVendorOrder(prev.orderType, nextSeller)
+                      packingItems: isLuisFelipeVendorFlow(prev.orderType, nextSeller)
                         ? prev.packingItems
                         : [],
                     }));
@@ -791,9 +986,9 @@ function ProductionOrderForm({ orderId, isOpen, toggle, onSuccess }) {
                     <option key={seller} value={seller}>{seller}</option>
                   ))}
                 </Input>
-                {isOpvVendorOrder(formData.orderType, formData.sellerName) && (
+                {isLuisFelipeVendorFlow(formData.orderType, formData.sellerName) && (
                   <small className="text-muted d-block mt-1">
-                    Esta orden seguirá flujo OPV de vendedor (formato especial de envíos).
+                    Esta orden seguirá flujo OPV de vendedor (empaques, ENVP y formato especial de envíos).
                   </small>
                 )}
               </FormGroup>
@@ -1096,6 +1291,22 @@ function ProductionOrderForm({ orderId, isOpen, toggle, onSuccess }) {
                         </FormGroup>
                       </Col>
                     )}
+                    {showItemUnitPrice && (
+                      <Col md="3">
+                        <FormGroup>
+                          <Label>Precio unitario (Q)</Label>
+                          <Input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={itemForm.unitPrice}
+                            onChange={(e) => setItemForm({ ...itemForm, unitPrice: e.target.value })}
+                            placeholder="Precio especial"
+                            disabled={loading}
+                          />
+                        </FormGroup>
+                      </Col>
+                    )}
                     <Col md="3">
                       <FormGroup>
                         <Label>Cantidad *</Label>
@@ -1279,6 +1490,7 @@ function ProductionOrderForm({ orderId, isOpen, toggle, onSuccess }) {
                 <tr>
                   <th>Producto</th>
                   {formData.orderType === "MARCAS" && <th>Marca</th>}
+                  {showItemUnitPrice && <th className="text-right">P. unit. (Q)</th>}
                   <th>Color</th>
                   {isCinchoOrderType(formData.orderType) ? (
                     <th>Tallas</th>
@@ -1295,6 +1507,28 @@ function ProductionOrderForm({ orderId, isOpen, toggle, onSuccess }) {
                   <tr key={index}>
                     <td>{getProductName(item.productId)}</td>
                     {formData.orderType === "MARCAS" && <td>{item.brandName || "-"}</td>}
+                    {showItemUnitPrice && (
+                      <td className="text-right">
+                        <Input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          bsSize="sm"
+                          style={{ maxWidth: 110, marginLeft: "auto" }}
+                          value={item.unitPrice != null ? item.unitPrice : ""}
+                          onChange={(e) => {
+                            const value = e.target.value;
+                            setFormData((prev) => ({
+                              ...prev,
+                              items: prev.items.map((row, i) =>
+                                i === index ? { ...row, unitPrice: value } : row
+                              ),
+                            }));
+                          }}
+                          disabled={loading}
+                        />
+                      </td>
+                    )}
                     <td>{getColorName(item.colorId)}</td>
                     {isCinchoOrderType(formData.orderType) ? (
                       <td>
@@ -1341,6 +1575,39 @@ function ProductionOrderForm({ orderId, isOpen, toggle, onSuccess }) {
               </tbody>
             </Table>
           )}
+          {orderId && showItemUnitPrice && (
+            <div className="mb-3">
+              <Button
+                color="warning"
+                size="sm"
+                className="btn-round"
+                onClick={() => setOpvPriceReviewOpen(true)}
+                disabled={loading || !formData.items.length}
+              >
+                <i className="fa fa-money mr-1" />
+                Revisar precios del envío
+              </Button>
+            </div>
+          )}
+          {orderId && orderAllowsPartialReleases(formData) && (
+            <ProductionOrderPartialReleasesPanel
+              order={{
+                id: orderId,
+                code: formData.code,
+                orderType: formData.orderType,
+                sellerName: formData.sellerName,
+                customerName: formData.customerName,
+                customerAddress: formData.customerAddress,
+                customerPhone: formData.customerPhone,
+                customerTaxId: formData.customerTaxId,
+                shippingCost: formData.shippingCost,
+                packingItems: formData.packingItems,
+                vendorShipmentNumber: formData.vendorShipmentNumber,
+                items: formData.items,
+              }}
+              onRefresh={loadOrder}
+            />
+          )}
           {orderId && (
             <>
               <hr />
@@ -1363,6 +1630,18 @@ function ProductionOrderForm({ orderId, isOpen, toggle, onSuccess }) {
           )}
         </ModalBody>
         <ModalFooter>
+          {orderId && isCinchoOrderType(formData.orderType) && (
+            <Button
+              color="success"
+              outline
+              type="button"
+              disabled={loading}
+              onClick={() => setShipmentModalOpen(true)}
+              className="mr-auto"
+            >
+              Generar envío
+            </Button>
+          )}
           <Button color="secondary" onClick={toggle} disabled={loading}>
             Cancelar
           </Button>
@@ -1372,6 +1651,44 @@ function ProductionOrderForm({ orderId, isOpen, toggle, onSuccess }) {
         </ModalFooter>
       </form>
 
+      <OpvShipmentPriceReviewModal
+        isOpen={opvPriceReviewOpen}
+        toggle={() => setOpvPriceReviewOpen(false)}
+        orderId={orderId}
+        productCatalogById={productCatalogById}
+        confirmLabel="Guardar precios"
+        onSaved={(updated) => {
+          setFormData((prev) => ({
+            ...prev,
+            items: updated.items || prev.items,
+            shippingCost: updated.shippingCost ?? prev.shippingCost,
+          }));
+        }}
+      />
+
+      <OpcGenerateShipmentModal
+        isOpen={shipmentModalOpen}
+        toggle={() => setShipmentModalOpen(false)}
+        order={
+          orderId
+            ? {
+                id: orderId,
+                code: formData.code,
+                orderType: formData.orderType,
+                sellerName: formData.sellerName,
+                customerName: formData.customerName,
+                customerAddress: formData.customerAddress,
+                customerPhone: formData.customerPhone,
+                customerTaxId: formData.customerTaxId,
+                shippingCost: formData.shippingCost,
+                packingItems: formData.packingItems,
+                vendorShipmentNumber: formData.vendorShipmentNumber,
+                items: formData.items,
+              }
+            : null
+        }
+        onGenerated={() => setShipmentModalOpen(false)}
+      />
     </Modal>
   );
 }

@@ -21,6 +21,7 @@ import { BrowserRouter, Route, Routes, Navigate, useLocation } from "react-route
 import AuthLayout from "layouts/Auth.js";
 import AdminLayout from "layouts/Admin.js";
 import ProtectedRoute from "components/ProtectedRoute";
+import DefaultLandingRedirect from "components/DefaultLandingRedirect";
 import { AuthProvider } from "contexts/AuthContext";
 import { useAuth } from "contexts/AuthContext";
 import { isAuthenticated, validateToken } from "services/authService";
@@ -116,7 +117,7 @@ function AppRoutes() {
         <Route
           path="/auth/*"
           element={
-            isValid ? <Navigate to="/admin/dashboard-production" replace /> : <AuthLayout />
+            isValid ? <DefaultLandingRedirect /> : <AuthLayout />
           }
         />
 
@@ -139,7 +140,7 @@ function AppRoutes() {
           path="/"
           element={
             isValid ? (
-              <Navigate to="/admin/dashboard-production" replace />
+              <DefaultLandingRedirect />
             ) : (
               <Navigate to="/auth/login" replace />
             )
@@ -151,7 +152,7 @@ function AppRoutes() {
           path="*"
           element={
             isValid ? (
-              <Navigate to="/admin/dashboard-production" replace />
+              <DefaultLandingRedirect />
             ) : (
               <Navigate to="/auth/login" replace />
             )

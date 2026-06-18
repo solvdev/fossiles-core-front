@@ -29,7 +29,6 @@ import {
 import { matchSorter } from "match-sorter";
 import {
   getInventoryTransfers,
-  getInventoryTransferById,
   createInventoryTransfer,
   createBulkInventoryTransfer,
 } from "services/inventoryService";
@@ -38,6 +37,10 @@ import { getProducts } from "services/productService";
 import { getMaterials } from "services/materialService";
 import { getColors } from "services/colorService";
 import { showError, showSuccess } from "utils/notificationHelper";
+import {
+  buildInventoryTransfersPrintHtml,
+  openInventoryTransferPrintWindow,
+} from "utils/inventoryTransferPrintHtml";
 
 // Componente de filtro por defecto
 function DefaultColumnFilter({
@@ -52,7 +55,7 @@ function DefaultColumnFilter({
           setFilter(e.target.value || undefined);
         }}
         placeholder={`Buscar...`}
-        size="sm"
+        bsSize="sm"
       />
     </FormGroup>
   );
@@ -69,7 +72,9 @@ function InventoryTransfers() {
   const [products, setProducts] = useState([]);
   const [materials, setMaterials] = useState([]);
   const [colors, setColors] = useState([]);
-  
+  /** @type {Record<number, boolean>} */
+  const [selectedIds, setSelectedIds] = useState({});
+
   // Formulario de transferencia individual
   const [formData, setFormData] = useState({
     fromLocationId: "",
@@ -311,6 +316,28 @@ function InventoryTransfers() {
     return <Badge color={statusInfo.color}>{statusInfo.text}</Badge>;
   };
 
+  const printTransferSlips = (rows) => {
+    const html = buildInventoryTransfersPrintHtml(rows);
+    if (!openInventoryTransferPrintWindow(html)) {
+      showError("Permita ventanas emergentes para imprimir.");
+    }
+  };
+
+  const toggleSelectTransfer = (id) => {
+    setSelectedIds((prev) => ({ ...prev, [id]: !prev[id] }));
+  };
+
+  const clearTransferSelection = () => setSelectedIds({});
+
+  const printSelectedTransferSlips = () => {
+    const rows = transfers.filter((t) => selectedIds[t.id]);
+    if (!rows.length) {
+      showError("Seleccione al menos una transferencia (columna Sel.).");
+      return;
+    }
+    printTransferSlips(rows);
+  };
+
   // Función de filtro global mejorada
   const fuzzyTextFilterFn = (rows, id, filterValue) => {
     return matchSorter(rows, filterValue, {
@@ -322,6 +349,21 @@ function InventoryTransfers() {
   // Definición de columnas para react-table
   const columns = useMemo(
     () => [
+      {
+        Header: "Sel.",
+        id: "_select",
+        disableFilters: true,
+        Cell: ({ row }) => (
+          <Input
+            type="checkbox"
+            bsSize="sm"
+            className="mt-0"
+            checked={!!selectedIds[row.original.id]}
+            onChange={() => toggleSelectTransfer(row.original.id)}
+            title="Incluir en impresión múltiple"
+          />
+        ),
+      },
       {
         Header: "Código",
         accessor: "code",
@@ -433,7 +475,7 @@ function InventoryTransfers() {
                 onChange={(e) => {
                   setFilter(e.target.value || undefined);
                 }}
-                size="sm"
+                bsSize="sm"
               >
                 <option value="">Todos</option>
                 <option value="PENDING">Pendiente</option>
@@ -470,8 +512,23 @@ function InventoryTransfers() {
         Filter: DefaultColumnFilter,
         filter: "fuzzyText",
       },
+      {
+        Header: "Boleta",
+        id: "_slip",
+        disableFilters: true,
+        Cell: ({ row }) => (
+          <Button
+            color="info"
+            outline
+            size="sm"
+            onClick={() => printTransferSlips([row.original])}
+          >
+            Imprimir
+          </Button>
+        ),
+      },
     ],
-    []
+    [selectedIds]
   );
 
   // Configuración de react-table
@@ -546,6 +603,26 @@ function InventoryTransfers() {
                   <CardTitle tag="h4">Transferencias de Inventario</CardTitle>
                 </Col>
                 <Col md="6" className="text-right">
+                  <Button
+                    color="dark"
+                    outline
+                    size="sm"
+                    onClick={printSelectedTransferSlips}
+                    className="mr-2"
+                    disabled={loading}
+                  >
+                    Imprimir selección
+                  </Button>
+                  <Button
+                    color="secondary"
+                    outline
+                    size="sm"
+                    onClick={clearTransferSelection}
+                    className="mr-2"
+                    disabled={loading}
+                  >
+                    Quitar selección
+                  </Button>
                   <Button
                     color="success"
                     size="sm"

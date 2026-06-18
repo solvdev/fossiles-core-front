@@ -24,6 +24,23 @@ export function escapeHtml(value) {
     .replaceAll("'", "&#039;");
 }
 
+const SHIPMENT_PREP_PREFIX = /^ENVIO_PREP:\s*/i;
+
+/** Texto ingresado al preparar/registrar el envío (venta en línea). */
+export function extractShipmentPreparationObservation(observations) {
+  const raw = String(observations ?? "").trim();
+  if (!raw) return "";
+  const parts = raw
+    .split(/\s*\|\s*/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const shipmentOnly = parts
+    .filter((s) => SHIPMENT_PREP_PREFIX.test(s))
+    .map((s) => s.replace(SHIPMENT_PREP_PREFIX, "").trim())
+    .filter(Boolean);
+  return shipmentOnly.length ? shipmentOnly.join(" | ") : "";
+}
+
 function formatDateDisplay(isoDate) {
   if (!isoDate) return "";
   const [year, month, day] = String(isoDate).split("-");
@@ -89,6 +106,23 @@ function amountToWordsQ(amount) {
   return `${numberToWordsEs(whole)} QUETZALES CON ${String(cents).padStart(2, "0")}/100`;
 }
 
+function isEnvlShipmentDocument(docNo, sale, businessTitle) {
+  const ref = String(sale?.shipmentNumber || docNo || "")
+    .trim()
+    .toUpperCase();
+  if (ref.startsWith("ENVL")) return true;
+  return String(businessTitle || "").trim() === "VENTA EN LINEA FOSSILES";
+}
+
+function buildBlankTotalsRows(count) {
+  const n = Math.max(0, Number(count) || 0);
+  return Array.from({ length: n }, () => `
+                <tr class="totals-blank">
+                  <td>&nbsp;</td>
+                  <td style="text-align:right">&nbsp;</td>
+                </tr>`).join("");
+}
+
 export function getShipmentDocumentStyles(extra = "") {
   return `
             @page { size: letter; margin: 10mm; }
@@ -107,10 +141,13 @@ export function getShipmentDocumentStyles(extra = "") {
             th { text-align: center; background: #f7f7f7; }
             .totals { width: 280px; margin-left: auto; margin-top: 8px; }
             .totals td { border: 1px solid #777; }
+            .totals-blank td { height: 26px; min-height: 26px; line-height: 26px; }
             .content-main { flex: 1; }
             .bottom-block { margin-top: auto; }
             .footer { padding: 8px 10px; font-size: 11px; }
             .signature { margin-top: 18px; width: 220px; border-top: 1px solid #777; text-align: center; padding-top: 2px; }
+            .signatures-row { display: flex; justify-content: space-around; align-items: flex-end; gap: 24px; margin-top: 12px; flex-wrap: wrap; }
+            .signatures-row .signature { flex: 1; min-width: 180px; max-width: 280px; }
             .pt-qr-wrap { text-align: center; padding: 6px 4px; min-width: 110px; }
             .pt-qr-wrap img { width: 100px; height: 100px; display: block; margin: 0 auto; }
             .pt-qr-caption { font-size: 9px; color: #555; margin-top: 4px; line-height: 1.2; }
@@ -150,17 +187,38 @@ export function buildShipmentDocumentInnerHtml(sale, opts = {}) {
   const businessTitle = opts.businessTitle || "VENTA EN LINEA FOSSILES";
 
   const docTitle = docType === "DEVOLUCION" ? "DEVOLUCIÓN" : docType === "CAMBIO" ? "CAMBIO" : "ENVIO";
-  const docSubtitle =
+  let docSubtitle =
     docType === "DEVOLUCION"
       ? "Documento de devolución"
       : docType === "CAMBIO"
         ? "Envío por cambio (Q0)"
         : "Preparación";
+  if (opts.docSubtitle != null && String(opts.docSubtitle).trim() !== "") {
+    docSubtitle = String(opts.docSubtitle).trim();
+  }
+
+  const docHeading =
+    opts.docTitleDisplay != null && String(opts.docTitleDisplay).trim() !== ""
+      ? String(opts.docTitleDisplay).trim()
+      : docTitle;
 
   const relatedLine =
     (docType === "DEVOLUCION" || docType === "CAMBIO") && relatedShipmentNumber
       ? `<div class="line"><span class="label">Relacionado:</span><span>${escapeHtml(String(relatedShipmentNumber))}</span></div>`
       : "";
+
+  const shipmentObsText = String(
+    opts.shipmentObservations ?? extractShipmentPreparationObservation(sale.observations) ?? ""
+  ).trim();
+  const shipmentObservationBlock = shipmentObsText
+    ? `<div class="section" style="font-size:11px">
+              <div class="line"><span class="label">Observación:</span><span>${escapeHtml(shipmentObsText)}</span></div>
+            </div>`
+    : "";
+
+  const showBrandColumn =
+    opts.showBrandColumn === true ||
+    items.some((it) => String(it.brandName || "").trim() !== "");
 
   const rowsHtml = items
     .map((it) => {
@@ -170,10 +228,14 @@ export function buildShipmentDocumentInnerHtml(sale, opts = {}) {
       const description = [it.productName || "", it.colorName || "", it.size ? `Talla ${it.size}` : ""]
         .filter(Boolean)
         .join(" - ");
+      const brandCell = showBrandColumn
+        ? `<td>${escapeHtml(String(it.brandName || "").trim() || "—")}</td>`
+        : "";
       return `
         <tr>
           <td>${escapeHtml(it.productCode || "")}</td>
           <td style="text-align:center">${qty}</td>
+          ${brandCell}
           <td>${escapeHtml(description)}</td>
           <td style="text-align:right">Q. ${unitPrice.toFixed(2)}</td>
           <td style="text-align:right">Q. ${lineTotal.toFixed(2)}</td>
@@ -182,17 +244,45 @@ export function buildShipmentDocumentInnerHtml(sale, opts = {}) {
     })
     .join("");
 
+  const brandHeader = showBrandColumn ? '<th style="width:12%">Marca</th>' : "";
+
+  const envlCounterBlanks = isEnvlShipmentDocument(docNo, sale, businessTitle);
+  const blankTotalsRows = envlCounterBlanks
+    ? buildBlankTotalsRows(opts.counterBlankTotalsRows ?? 3)
+    : "";
+
   const copyLine = copyLabel
     ? `<div class="section" style="padding:4px 10px;font-size:10px;color:#555">${escapeHtml(copyLabel)}</div>`
     : "";
 
-  const qrDataUrl = opts.qrDataUrl ? String(opts.qrDataUrl) : "";
+  const qrDataUrl =
+    opts.constanciaInterna
+      ? ""
+      : opts.qrDataUrl
+        ? String(opts.qrDataUrl)
+        : "";
   const qrBlock = qrDataUrl
     ? `<div class="pt-qr-wrap">
         <img src="${qrDataUrl.replace(/"/g, "&quot;")}" alt="QR despacho PT" />
         <div class="pt-qr-caption">Escanear en app Bodega PT</div>
       </div>`
     : "";
+
+  const footerDocKind = opts.constanciaInterna
+    ? "DOCUMENTO DE ENVIO INTERNO (constancia)."
+    : `DOCUMENTO DE ${escapeHtml(docTitle)} (referencia interna y paquetería).`;
+  const footerDispatchNote = opts.constanciaInterna
+    ? "Sin código QR; documento informativo para entrega interna."
+    : docType === "DEVOLUCION"
+      ? "Documento para control de devolución."
+      : "No indica que el pedido haya salido de bodega; el despacho se confirma en bodega PT.";
+
+  const footerSignaturesHtml = opts.constanciaInterna
+    ? `<div class="signatures-row">
+                <div class="signature">Vo.Bo.</div>
+                <div class="signature">Recibido</div>
+              </div>`
+    : `<div class="signature">Vo.Bo.</div>`;
 
   return `
           <div class="doc">
@@ -205,7 +295,7 @@ export function buildShipmentDocumentInnerHtml(sale, opts = {}) {
                 <div>Telefono PBX: 2462-5700</div>
               </div>
               <div class="title" style="flex:1;text-align:right">
-                <h2>${escapeHtml(docTitle)}</h2>
+                <h2>${escapeHtml(docHeading)}</h2>
                 <div style="font-size:11px;color:#555;margin-top:2px">${escapeHtml(docSubtitle)}</div>
                 <div>No. <span class="num">${escapeHtml(docNo)}</span></div>
               </div>
@@ -233,16 +323,18 @@ export function buildShipmentDocumentInnerHtml(sale, opts = {}) {
                 </div>
               </div>
             </div>
+            ${shipmentObservationBlock}
 
             <div class="section content-main">
               <table>
                 <thead>
                   <tr>
-                    <th style="width:16%">Codigo</th>
-                    <th style="width:10%">Cantidad</th>
+                    <th style="width:14%">Codigo</th>
+                    <th style="width:8%">Cantidad</th>
+                    ${brandHeader}
                     <th>Descripcion</th>
-                    <th style="width:15%">P.Unitario</th>
-                    <th style="width:15%">Total</th>
+                    <th style="width:14%">P.Unitario</th>
+                    <th style="width:14%">Total</th>
                   </tr>
                 </thead>
                 <tbody>${rowsHtml}</tbody>
@@ -256,6 +348,7 @@ export function buildShipmentDocumentInnerHtml(sale, opts = {}) {
                 <tr><td>ENVIO: Q.</td><td style="text-align:right">${shippingAmount.toFixed(2)}</td></tr>
                 <tr><td>DESCUENTO: Q.</td><td style="text-align:right">0.00</td></tr>
                 <tr><td><strong>TOTAL: Q.</strong></td><td style="text-align:right"><strong>${totalAmount.toFixed(2)}</strong></td></tr>
+                ${blankTotalsRows}
               </table>
             </div>
 
@@ -265,9 +358,17 @@ export function buildShipmentDocumentInnerHtml(sale, opts = {}) {
               </div>
 
               <div class="footer">
-                <div class="signature">Vo.Bo.</div>
-                <div style="margin-top:8px">DOCUMENTO DE ${escapeHtml(docTitle)} (referencia interna y paquetería).</div>
-                <div>${docType === "DEVOLUCION" ? "Documento para control de devolución." : "No indica que el pedido haya salido de bodega; el despacho se confirma en bodega PT."}</div>
+                ${footerSignaturesHtml}
+                ${
+                  opts.createdByName || opts.generatedByName
+                    ? `<div style="margin-top:6px;font-size:10px">
+                        ${opts.createdByName ? `<div><strong>Creado por:</strong> ${escapeHtml(opts.createdByName)}</div>` : ""}
+                        ${opts.generatedByName ? `<div><strong>Generado por:</strong> ${escapeHtml(opts.generatedByName)}</div>` : ""}
+                      </div>`
+                    : ""
+                }
+                <div style="margin-top:8px">${footerDocKind}</div>
+                <div>${footerDispatchNote}</div>
               </div>
             </div>
           </div>

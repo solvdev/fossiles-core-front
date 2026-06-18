@@ -42,7 +42,107 @@ import { showError, showSuccess } from "utils/notificationHelper";
 import * as XLSX from "xlsx";
 import InventoryKardex from "views/inventory/InventoryKardex";
 import EmbeddedInventoryTransferModal from "components/inventory/EmbeddedInventoryTransferModal";
+import ProductInventoryOutflowReportModal from "components/inventory/ProductInventoryOutflowReportModal";
 import { useAuth } from "contexts/AuthContext";
+import {
+  formatInventorySizesLine,
+  hasInventorySizeBreakdown,
+  flattenInventoryVariantsToSizeRows,
+} from "utils/inventoryVariantHelper";
+
+const PRODUCT_INVENTORY_EXCEL_COLS = 8;
+
+function stockStatusLabelForExcel(currentStock, min) {
+  if (currentStock === 0) return "Sin stock";
+  const minimum = parseFloat(min || 0);
+  if (currentStock < minimum) return "Bajo";
+  return "Normal";
+}
+
+function itemToExcelInventoryRow(item) {
+  const qty = parseFloat(item.quantity || 0);
+  return {
+    "Código": item.productCode || "N/A",
+    "Producto": item.productName || "N/A",
+    "Categoría": item.productCategoryName || "—",
+    "Color": item.colorName || (item.colorId ? `Color #${item.colorId}` : "Sin color"),
+    "Tallas": formatInventorySizesLine(item.sizes) || "—",
+    "Stock Actual": qty.toFixed(3),
+    "Stock Mínimo": item.min ?? "N/A",
+    "Estado": stockStatusLabelForExcel(qty, item.min),
+  };
+}
+
+function VariantsColorSizeTable({ variants }) {
+  const filtered = (variants || []).filter((v) => {
+    const qty = parseFloat(v.quantity || 0);
+    const isNoColor = !v.colorId && !v.colorName;
+    return !(isNoColor && qty === 0 && !hasInventorySizeBreakdown(v.sizes));
+  });
+  const sizeRows = flattenInventoryVariantsToSizeRows(filtered);
+  if (sizeRows.some((r) => r.size)) {
+    return (
+      <div className="table-responsive">
+        <Table striped size="sm" className="mb-0">
+          <thead>
+            <tr>
+              <th>Color</th>
+              <th>Talla</th>
+              <th className="text-right">Cantidad</th>
+            </tr>
+          </thead>
+          <tbody>
+            {sizeRows.map((r) => (
+              <tr key={r.key}>
+                <td>{r.colorName}</td>
+                <td>
+                  <strong>{r.size}</strong>
+                </td>
+                <td className="text-right">{r.quantity.toFixed(3)}</td>
+              </tr>
+            ))}
+          </tbody>
+          <tfoot>
+            <tr style={{ backgroundColor: "#f8f9fa", fontWeight: "700" }}>
+              <td colSpan={2} className="text-right">
+                TOTAL:
+              </td>
+              <td className="text-right">{sizeRows.reduce((s, r) => s + r.quantity, 0).toFixed(3)}</td>
+            </tr>
+          </tfoot>
+        </Table>
+      </div>
+    );
+  }
+  return (
+    <div className="table-responsive">
+      <Table striped size="sm">
+        <thead>
+          <tr>
+            <th>Color</th>
+            <th>Cantidad</th>
+          </tr>
+        </thead>
+        <tbody>
+          {filtered.map((v) => (
+            <tr key={v.id || `${v.productId}-${v.locationId}-${v.colorId || "null"}`}>
+              <td>{v.colorName || <span className="text-muted">Sin color</span>}</td>
+              <td>
+                <strong>{parseFloat(v.quantity || 0).toFixed(3)}</strong>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+        <tfoot>
+          <tr style={{ backgroundColor: "#f8f9fa", fontWeight: "700" }}>
+            <td className="text-right">TOTAL:</td>
+            <td>{filtered.reduce((sum, v) => sum + (parseFloat(v.quantity || 0) || 0), 0).toFixed(3)}</td>
+          </tr>
+        </tfoot>
+      </Table>
+    </div>
+  );
+}
 
 // Componente de filtro por defecto
 function DefaultColumnFilter({
@@ -61,21 +161,6 @@ function DefaultColumnFilter({
       />
     </FormGroup>
   );
-}
-
-function isFossCinchoProductCode(code) {
-  return code != null && String(code).toUpperCase().startsWith("FOSS");
-}
-
-/** Texto compacto para tooltip / fila secundaria: talla → cantidad */
-function formatInventorySizesLine(sizes) {
-  if (!sizes || typeof sizes !== "object") return null;
-  const keys = Object.keys(sizes).filter((k) => sizes[k] != null && String(sizes[k]).trim() !== "");
-  if (!keys.length) return null;
-  return keys
-    .sort()
-    .map((k) => `${k}: ${parseFloat(sizes[k] || 0).toFixed(3)}`)
-    .join(" · ");
 }
 
 function ProductInventoryByLocation() {
@@ -103,8 +188,12 @@ function ProductInventoryByLocation() {
   const [productKardexContext, setProductKardexContext] = useState(null);
   const [productTransferContext, setProductTransferContext] = useState(null);
   const [showExcelExportModal, setShowExcelExportModal] = useState(false);
+  const [showOutflowReportModal, setShowOutflowReportModal] = useState(false);
   const [excelCategoryList, setExcelCategoryList] = useState([]);
   const [excelExportCategoryId, setExcelExportCategoryId] = useState("");
+  const [excelExporting, setExcelExporting] = useState(false);
+  /** Kiosko/ubicación concreta: filas por color (+ tallas en sizes). */
+  const [inventoryByColorVariant, setInventoryByColorVariant] = useState(false);
 
   useEffect(() => {
     // Permite abrir esta vista prefiltrada desde otras pantallas
@@ -189,8 +278,18 @@ function ProductInventoryByLocation() {
     try {
       setLoading(true);
       setError("");
-      const data = await getProductInventoryByLocation(locationId);
-      setInventory(data || []);
+      const loc =
+        locations.find((l) => String(l.id) === String(locationId)) ||
+        kiosks.find((l) => String(l.id) === String(locationId));
+      const variantRows = await getProductInventoryByLocationVariants(locationId);
+      const enriched = (variantRows || []).map((r) => ({
+        ...r,
+        locationId: r.locationId || locationId,
+        locationName: r.locationName || loc?.name || loc?.code || "",
+        locationCode: r.locationCode || loc?.code || "",
+      }));
+      setInventoryByColorVariant(true);
+      setInventory(enriched);
     } catch (err) {
       setError(err.message || "Error al cargar el inventario de productos");
       showError(err.message || "Error al cargar el inventario de productos");
@@ -200,17 +299,20 @@ function ProductInventoryByLocation() {
     }
   };
 
-  const openVariants = async (productId, locationId, productName) => {
+  const openVariants = async (productId, locationId, productName, colorIdFilter = null) => {
     try {
       setShowVariantsModal(true);
       setVariantsLoading(true);
       setVariantsError("");
       setVariants([]);
-      setSelectedVariantsProduct({ productId, productName });
+      setSelectedVariantsProduct({ productId, productName, colorIdFilter });
       setSelectedVariantsLocation(locationId);
 
       const data = await getProductInventoryByLocationVariants(locationId);
-      const rows = (data || []).filter((r) => r.productId === productId);
+      let rows = (data || []).filter((r) => r.productId === productId);
+      if (colorIdFilter != null && String(colorIdFilter).trim() !== "") {
+        rows = rows.filter((r) => String(r.colorId || "") === String(colorIdFilter));
+      }
       // Ordenar: sin color al final, luego por nombre
       rows.sort((a, b) => {
         const aName = a.colorName || "ZZZ";
@@ -229,6 +331,7 @@ function ProductInventoryByLocation() {
     try {
       setLoading(true);
       setError("");
+      setInventoryByColorVariant(false);
       const data = await getProductInventoryByCategory(selectedCategory);
       setInventory(data || []);
     } catch (err) {
@@ -244,6 +347,7 @@ function ProductInventoryByLocation() {
     try {
       setLoading(true);
       setError("");
+      setInventoryByColorVariant(false);
       const data = await getAggregatedProductInventoryByCategory("KIOSKO");
       setInventory(data || []);
     } catch (err) {
@@ -344,6 +448,27 @@ function ProductInventoryByLocation() {
         Filter: DefaultColumnFilter,
         filter: "fuzzyText",
       },
+      ...(inventoryByColorVariant
+        ? [
+            {
+              Header: "Color",
+              accessor: "colorName",
+              Cell: ({ value, row }) => {
+                const item = row.original;
+                if (item.isTotalRow) return null;
+                return value ? (
+                  <Badge color="dark" style={{ fontSize: "11px" }}>
+                    {value}
+                  </Badge>
+                ) : (
+                  <span className="text-muted small">Sin color</span>
+                );
+              },
+              Filter: DefaultColumnFilter,
+              filter: "fuzzyText",
+            },
+          ]
+        : []),
       {
         Header: "Ubicación",
         accessor: "locationName",
@@ -366,10 +491,7 @@ function ProductInventoryByLocation() {
           const item = row.original;
           const numValue = parseFloat(item.quantity || 0);
           const isTotal = item.isTotalRow;
-          const sizesLine =
-            !isTotal && isFossCinchoProductCode(item.productCode)
-              ? formatInventorySizesLine(item.sizes)
-              : null;
+          const sizesLine = !isTotal ? formatInventorySizesLine(item.sizes) : null;
           return (
             <strong className={numValue === 0 ? "text-muted" : isTotal ? "text-primary" : ""}>
               {numValue.toFixed(3)}
@@ -420,16 +542,30 @@ function ProductInventoryByLocation() {
         Cell: ({ row }) => {
           const item = row.original;
           if (item.isTotalRow) return null;
-          // Solo aplica cuando estamos viendo una ubicación específica (ej: un kiosko)
           const locationId = item.locationId || selectedKiosk || selectedLocation;
           if (!locationId) return null;
+          const hasSizes = hasInventorySizeBreakdown(item.sizes);
+          if (inventoryByColorVariant) {
+            if (!hasSizes) return <span className="text-muted small">—</span>;
+            return (
+              <Button
+                color="link"
+                size="sm"
+                style={{ padding: 0 }}
+                onClick={() => openVariants(item.productId, locationId, item.productName, item.colorId)}
+                title="Ver desglose por talla"
+              >
+                Tallas
+              </Button>
+            );
+          }
           return (
             <Button
               color="link"
               size="sm"
               style={{ padding: 0 }}
               onClick={() => openVariants(item.productId, locationId, item.productName)}
-              title="Ver detalle por color"
+              title="Ver detalle por color y talla"
             >
               Ver
             </Button>
@@ -462,9 +598,11 @@ function ProductInventoryByLocation() {
                       productId: item.productId,
                       productCode: item.productCode,
                       productName: item.productName,
+                      colorId: item.colorId,
+                      colorName: item.colorName,
                       quantity: item.quantity,
                       locationId,
-                      label,
+                      label: [label, item.colorName].filter(Boolean).join(" · "),
                       locationName: item.locationName,
                     })
                   }
@@ -483,9 +621,11 @@ function ProductInventoryByLocation() {
                       productId: item.productId,
                       productCode: item.productCode,
                       productName: item.productName,
+                      colorId: item.colorId,
+                      colorName: item.colorName,
                       quantity: item.quantity,
                       fromLocationId: locationId,
-                      label,
+                      label: [label, item.colorName].filter(Boolean).join(" · "),
                       locationName: item.locationName,
                     })
                   }
@@ -501,7 +641,7 @@ function ProductInventoryByLocation() {
         disableFilters: true,
       },
     ],
-    [selectedKiosk, selectedLocation, canProductKardex, canTransferProduct]
+    [inventoryByColorVariant, selectedKiosk, selectedLocation, canProductKardex, canTransferProduct]
   );
 
   // Configuración de react-table
@@ -675,7 +815,53 @@ function ProductInventoryByLocation() {
     setShowExcelExportModal(true);
   };
 
-  const executeExcelExport = () => {
+  const resolveRowsForExcelExport = async (sourceRows) => {
+    const hasColorInRows = sourceRows.some(
+      (r) => r.colorId != null || (r.colorName && String(r.colorName).trim())
+    );
+    if (inventoryByColorVariant || hasColorInRows) {
+      return sourceRows;
+    }
+
+    const locationIds = [
+      ...new Set(sourceRows.map((r) => r.locationId).filter((id) => id != null && id !== "")),
+    ];
+    if (!locationIds.length) {
+      return sourceRows;
+    }
+
+    const locMeta = new Map();
+    sourceRows.forEach((r) => {
+      if (r.locationId != null) {
+        locMeta.set(String(r.locationId), {
+          locationName: r.locationName,
+          locationCode: r.locationCode,
+        });
+      }
+    });
+
+    const batches = await Promise.all(
+      locationIds.map(async (locationId) => {
+        const rows = await getProductInventoryByLocationVariants(locationId);
+        const meta = locMeta.get(String(locationId)) || {};
+        return (rows || []).map((r) => ({
+          ...r,
+          locationId: r.locationId || locationId,
+          locationName: r.locationName || meta.locationName || "",
+          locationCode: r.locationCode || meta.locationCode || "",
+        }));
+      })
+    );
+
+    let merged = batches.flat();
+    if (excelExportCategoryId !== "") {
+      const cid = Number(excelExportCategoryId);
+      merged = merged.filter((it) => Number(it.productCategoryId) === cid);
+    }
+    return merged;
+  };
+
+  const executeExcelExport = async () => {
     let sourceRows = [...inventory];
     if (excelExportCategoryId !== "") {
       const cid = Number(excelExportCategoryId);
@@ -686,11 +872,18 @@ function ProductInventoryByLocation() {
       return;
     }
 
+    setExcelExporting(true);
     try {
+      const exportRows = await resolveRowsForExcelExport(sourceRows);
+      if (!exportRows.length) {
+        showError("No hay datos para exportar con la categoría elegida");
+        return;
+      }
+
       const workbook = XLSX.utils.book_new();
 
-      // Agrupar inventario por ubicación
-      const inventoryByLocation = sourceRows.reduce((acc, item) => {
+      // Agrupar inventario por ubicación (una fila por producto + color)
+      const inventoryByLocation = exportRows.reduce((acc, item) => {
         const locationKey = item.locationId || "SIN_UBICACION";
         const locationName = item.locationName || "Sin Ubicación";
         
@@ -702,14 +895,7 @@ function ProductInventoryByLocation() {
           };
         }
         
-        acc[locationKey].items.push({
-          "Código": item.productCode || "N/A",
-          "Producto": item.productName || "N/A",
-          "Categoría": item.productCategoryName || "—",
-          "Stock Actual": parseFloat(item.quantity || 0).toFixed(3),
-          "Stock Mínimo": item.min ?? "N/A",
-          "Estado": getStockStatus(parseFloat(item.quantity || 0), item.min).text,
-        });
+        acc[locationKey].items.push(itemToExcelInventoryRow(item));
         
         return acc;
       }, {});
@@ -719,14 +905,9 @@ function ProductInventoryByLocation() {
         const worksheet = XLSX.utils.json_to_sheet(locationData.items);
         
         // Agregar encabezado con información de la ubicación
-        const headerRow = [
-          { v: `Inventario - ${locationData.locationName}`, t: "s" },
-          { v: "", t: "s" },
-          { v: "", t: "s" },
-          { v: "", t: "s" },
-          { v: "", t: "s" },
-          { v: "", t: "s" },
-        ];
+        const headerRow = Array.from({ length: PRODUCT_INVENTORY_EXCEL_COLS }, (_, i) =>
+          i === 0 ? { v: `Inventario - ${locationData.locationName}`, t: "s" } : { v: "", t: "s" }
+        );
         XLSX.utils.sheet_add_aoa(worksheet, [headerRow], { origin: "A1" });
         
         // Agregar fila de totales
@@ -736,6 +917,8 @@ function ProductInventoryByLocation() {
         );
         const totalRow = [
           { v: "TOTAL", t: "s" },
+          { v: "", t: "s" },
+          { v: "", t: "s" },
           { v: "", t: "s" },
           { v: "", t: "s" },
           { v: totalStock.toFixed(3), t: "n" },
@@ -751,6 +934,8 @@ function ProductInventoryByLocation() {
           { wch: 15 }, // Código
           { wch: 36 }, // Producto
           { wch: 22 }, // Categoría
+          { wch: 18 }, // Color
+          { wch: 28 }, // Tallas
           { wch: 15 }, // Stock Actual
           { wch: 15 }, // Stock Mínimo
           { wch: 12 }, // Estado
@@ -786,7 +971,7 @@ function ProductInventoryByLocation() {
       summaryData.push({
         "Ubicación": "TOTAL GENERAL",
         "Código Ubicación": "",
-        "Total Productos": sourceRows.length,
+        "Total Productos": exportRows.length,
         "Stock Total": grandTotal.toFixed(3),
       });
 
@@ -811,6 +996,8 @@ function ProductInventoryByLocation() {
     } catch (err) {
       showError("Error al generar el archivo Excel");
       console.error(err);
+    } finally {
+      setExcelExporting(false);
     }
   };
 
@@ -828,6 +1015,15 @@ function ProductInventoryByLocation() {
                   </small>
                 </Col>
                 <Col md="6" className="text-right">
+                  <Button
+                    color="info"
+                    size="sm"
+                    onClick={() => setShowOutflowReportModal(true)}
+                    className="mt-2 mr-2"
+                  >
+                    <i className="nc-icon nc-paper mr-1" />
+                    Reporte de salidas
+                  </Button>
                   <Button
                     color="success"
                     size="sm"
@@ -1104,7 +1300,8 @@ function ProductInventoryByLocation() {
         <ModalHeader toggle={() => setShowExcelExportModal(false)}>Exportar Excel</ModalHeader>
         <ModalBody>
           <p className="text-muted small mb-3">
-            Se exportan las líneas cargadas para el tipo de ubicación actual (Kiosko / Bodega PT, etc.).
+            Se exportan las líneas del inventario actual, desglosadas por color y tallas cuando aplica
+            (Kiosko, Bodega PT, etc.).
             Puedes acotar por categoría de catálogo de producto.
           </p>
           <FormGroup>
@@ -1135,11 +1332,22 @@ function ProductInventoryByLocation() {
           <Button color="secondary" outline size="sm" onClick={() => setShowExcelExportModal(false)}>
             Cancelar
           </Button>
-          <Button color="success" size="sm" onClick={executeExcelExport}>
-            Descargar
+          <Button color="success" size="sm" onClick={() => void executeExcelExport()} disabled={excelExporting}>
+            {excelExporting ? (
+              <>
+                <Spinner size="sm" className="mr-1" /> Preparando…
+              </>
+            ) : (
+              "Descargar"
+            )}
           </Button>
         </ModalFooter>
       </Modal>
+
+      <ProductInventoryOutflowReportModal
+        isOpen={showOutflowReportModal}
+        toggle={() => setShowOutflowReportModal(false)}
+      />
 
       {/* Modal: Variantes por Color */}
       <Modal
@@ -1148,8 +1356,11 @@ function ProductInventoryByLocation() {
         size="lg"
       >
         <ModalHeader toggle={() => setShowVariantsModal(false)}>
-          Variantes por Color
-          {selectedVariantsProduct?.productName ? ` - ${selectedVariantsProduct.productName}` : ""}
+          {selectedVariantsProduct?.colorIdFilter != null &&
+          String(selectedVariantsProduct.colorIdFilter).trim() !== ""
+            ? "Desglose por talla"
+            : "Variantes por color y talla"}
+          {selectedVariantsProduct?.productName ? ` — ${selectedVariantsProduct.productName}` : ""}
         </ModalHeader>
         <ModalBody>
           {variantsError && <Alert color="danger">{variantsError}</Alert>}
@@ -1163,51 +1374,7 @@ function ProductInventoryByLocation() {
               No hay variantes registradas para este producto en esta ubicación.
             </Alert>
           ) : (
-            <div className="table-responsive">
-              <Table striped size="sm">
-                <thead>
-                  <tr>
-                    <th>Color</th>
-                    <th>Cantidad</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {variants
-                    // Ocultar fila "Sin color" cuando no aporta (cantidad 0)
-                    .filter((v) => {
-                      const qty = parseFloat(v.quantity || 0);
-                      const isNoColor = !v.colorId && !v.colorName;
-                      return !(isNoColor && qty === 0);
-                    })
-                    .map((v) => {
-                      const sizesLine = formatInventorySizesLine(v.sizes);
-                      return (
-                    <tr key={v.id || `${v.productId}-${v.locationId}-${v.colorId || "null"}`}>
-                      <td>{v.colorName || <span className="text-muted">Sin color</span>}</td>
-                      <td>
-                        <strong>{parseFloat(v.quantity || 0).toFixed(3)}</strong>
-                        {sizesLine && (
-                          <div className="small text-muted mt-1" title="Por talla">
-                            {sizesLine}
-                          </div>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                  })}
-                </tbody>
-              <tfoot>
-                <tr style={{ backgroundColor: "#f8f9fa", fontWeight: "700" }}>
-                  <td className="text-right">TOTAL:</td>
-                  <td>
-                    {variants
-                      .reduce((sum, v) => sum + (parseFloat(v.quantity || 0) || 0), 0)
-                      .toFixed(3)}
-                  </td>
-                </tr>
-              </tfoot>
-              </Table>
-            </div>
+            <VariantsColorSizeTable variants={variants} />
           )}
         </ModalBody>
         <ModalFooter>
@@ -1255,6 +1422,12 @@ function ProductInventoryByLocation() {
                       ? `ID ${productKardexContext.locationId}`
                       : "Todas las ubicaciones")}
                   <br />
+                  {productKardexContext.colorName && (
+                    <>
+                      <span className="text-muted">Color:</span> {productKardexContext.colorName}
+                      <br />
+                    </>
+                  )}
                   <span className="text-muted">Stock en esta fila:</span>{" "}
                   {productKardexContext.quantity != null
                     ? parseFloat(productKardexContext.quantity).toFixed(3)
@@ -1285,6 +1458,7 @@ function ProductInventoryByLocation() {
         transferMode="product"
         lockTransferMode
         initialProductId={productTransferContext?.productId}
+        initialColorId={productTransferContext?.colorId || undefined}
         initialFromLocationId={productTransferContext?.fromLocationId || undefined}
         title={
           productTransferContext

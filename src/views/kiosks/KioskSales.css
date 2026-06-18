@@ -1,116 +1,631 @@
-.kiosk-pos-block {
-  border: 1px solid #e9ecef;
+.kiosk-pos-page {
+  --pos-primary: #1d9e75;
+  --pos-primary-soft: #e1f5ee;
+  --pos-border: rgba(0, 0, 0, 0.08);
+  --pos-radius-sm: 8px;
+  --pos-radius-md: 12px;
+  --pos-text-secondary: #6b7280;
+  --pos-warning: #f59e0b;
+}
+
+/* Topbar */
+.kiosk-pos-topbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 16px;
+  padding-bottom: 16px;
+  margin-bottom: 16px;
+  border-bottom: 0.5px solid var(--pos-border);
+}
+
+.kiosk-pos-topbar-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+}
+
+.kiosk-pos-kiosk-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--pos-primary);
+  background: var(--pos-primary-soft);
+  border-radius: var(--pos-radius-sm);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 200px;
+}
+
+.kiosk-pos-topbar-user {
+  font-size: 0.875rem;
+  font-weight: 400;
+  color: var(--pos-text-secondary);
+  white-space: nowrap;
+}
+
+.kiosk-pos-topbar-user strong {
+  font-weight: 500;
+  color: #374151;
+}
+
+.kiosk-pos-kiosk-dropdown .dropdown-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: #374151;
+  background: #fff;
+  border: 0.5px solid var(--pos-border);
+  border-radius: var(--pos-radius-sm);
+  min-height: auto;
+}
+
+.kiosk-pos-kiosk-dropdown .dropdown-toggle::after {
+  margin-left: 4px;
+}
+
+.kiosk-pos-topbar-tabs {
+  width: 100%;
+  order: 3;
+}
+
+.kiosk-pos-tabs {
+  border-bottom: none;
+  gap: 4px;
 }
 
 .kiosk-pos-tabs .nav-link {
-  font-weight: 700;
+  font-weight: 500;
+  font-size: 0.875rem;
+  color: var(--pos-text-secondary);
+  border: 0.5px solid var(--pos-border);
+  border-radius: var(--pos-radius-sm);
+  padding: 8px 16px;
+  margin-right: 4px;
 }
 
 .kiosk-pos-tabs .nav-link.active {
-  background: #51cbce;
+  background: var(--pos-primary);
+  border-color: var(--pos-primary);
   color: #fff;
 }
 
-.kiosk-pos-label {
+/* Blocks & layout */
+.kiosk-pos-block {
+  border: 0.5px solid var(--pos-border);
+  border-radius: var(--pos-radius-md);
+  background: #fff;
+}
+
+.kiosk-pos-layout {
+  display: grid;
+  grid-template-columns: 1fr 340px;
+  gap: 16px;
+  align-items: start;
+}
+
+.kiosk-pos-layout-cart {
+  position: sticky;
+  top: 12px;
+}
+
+/* Search */
+.kiosk-pos-search-wrap {
+  position: relative;
+  margin-bottom: 12px;
+}
+
+.kiosk-pos-search-wrap .nc-icon {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--pos-text-secondary);
   font-size: 1rem;
-  font-weight: 700;
-  color: #2c2c2c;
+  pointer-events: none;
+  z-index: 1;
 }
 
-.kiosk-pos-input-lg {
-  min-height: 52px;
-  font-size: 1.08rem;
-  border-radius: 10px;
+.kiosk-pos-search-input {
+  padding-left: 38px !important;
+  min-height: 44px;
+  font-size: 0.9375rem;
+  font-weight: 400;
+  border: 0.5px solid var(--pos-border);
+  border-radius: var(--pos-radius-sm);
 }
 
+/* Filter rows */
+.kiosk-pos-filter-row {
+  margin-bottom: 10px;
+}
+
+.kiosk-pos-filter-label {
+  display: block;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--pos-text-secondary);
+  margin-bottom: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.kiosk-pos-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.kiosk-pos-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 0.5px solid var(--pos-border);
+  background: #fff;
+  border-radius: var(--pos-radius-sm);
+  padding: 6px 12px;
+  font-weight: 400;
+  font-size: 0.8125rem;
+  cursor: pointer;
+  color: #374151;
+}
+
+.kiosk-pos-chip.active {
+  background: var(--pos-primary);
+  border-color: var(--pos-primary);
+  color: #fff;
+}
+
+.kiosk-pos-chip.disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+.kiosk-pos-color-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  border: 0.5px solid rgba(0, 0, 0, 0.12);
+}
+
+.kiosk-pos-chip.active .kiosk-pos-color-dot {
+  border-color: rgba(255, 255, 255, 0.5);
+}
+
+/* Product grid */
 .kiosk-pos-inventory-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(auto-fill, minmax(155px, 1fr));
+  gap: 10px;
 }
 
 .kiosk-pos-inventory-btn {
+  position: relative;
   width: 100%;
   text-align: left;
-  border: 1px solid #dfe7ef;
+  border: 0.5px solid var(--pos-border);
   background: #ffffff;
-  border-radius: 12px;
-  padding: 14px;
+  border-radius: var(--pos-radius-md);
+  padding: 10px;
   cursor: pointer;
+}
+
+.kiosk-pos-inventory-btn:hover {
+  border-color: var(--pos-primary);
+}
+
+.kiosk-pos-product-card {
+  position: relative;
+  width: 100%;
+  text-align: left;
+  border: 0.5px solid var(--pos-border);
+  background: #ffffff;
+  border-radius: var(--pos-radius-md);
+  padding: 10px;
+}
+
+.kiosk-pos-variant-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 8px;
+}
+
+.kiosk-pos-variant-chip {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  padding: 4px 6px;
+  border: 0.5px solid var(--pos-border);
+  border-radius: var(--pos-radius-sm);
+  background: #fafafa;
+  font-size: 0.6875rem;
+  line-height: 1.2;
+  color: var(--pos-text-secondary);
+  cursor: pointer;
+  text-align: left;
+}
+
+.kiosk-pos-variant-chip:hover {
+  border-color: var(--pos-primary);
+  background: #f0fdf4;
+}
+
+.kiosk-pos-variant-chip:active {
+  border-color: var(--pos-primary);
+  background: #dcfce7;
+}
+
+.kiosk-pos-variant-chip.low-stock {
+  background: #fffbeb;
+  border-color: #fcd34d;
+}
+
+.kiosk-pos-variant-chip.disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  pointer-events: none;
+  background: #f3f4f6;
+}
+
+.kiosk-pos-variant-chip-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #374151;
+  font-weight: 500;
+}
+
+.kiosk-pos-variant-chip-stock {
+  flex-shrink: 0;
+  font-weight: 500;
+  color: var(--pos-text-secondary);
+}
+
+.kiosk-pos-variant-chip .kiosk-pos-qty-badge {
+  top: -6px;
+  right: -4px;
+  min-width: 18px;
+  height: 18px;
+  font-size: 0.625rem;
+  padding: 0 4px;
 }
 
 .kiosk-pos-product-image {
   width: 100%;
-  max-height: 150px;
+  height: 90px;
   object-fit: contain;
-  margin-bottom: 8px;
-  border-radius: 8px;
-  border: 1px solid #edf1f5;
-  background: #fff;
+  margin-bottom: 6px;
+  border-radius: var(--pos-radius-sm);
+  background: #fafafa;
 }
 
-.kiosk-pos-inventory-btn:hover {
-  background: #f7fbff;
-  border-color: #51cbce;
+.kiosk-pos-product-placeholder {
+  width: 100%;
+  height: 90px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 6px;
+  border-radius: var(--pos-radius-sm);
+  background: #f3f4f6;
+  color: #d1d5db;
+}
+
+.kiosk-pos-product-placeholder .nc-icon {
+  font-size: 1.75rem;
+}
+
+.kiosk-pos-product-code {
+  font-size: 0.6875rem;
+  font-weight: 400;
+  color: var(--pos-text-secondary);
+  line-height: 1.2;
 }
 
 .kiosk-pos-item-name {
-  font-weight: 700;
-  font-size: 1.03rem;
-  line-height: 1.2;
+  font-weight: 500;
+  font-size: 0.8125rem;
+  line-height: 1.3;
+  margin-top: 2px;
+  color: #111827;
 }
 
 .kiosk-pos-item-sub {
   margin-top: 4px;
-  color: #666;
-  font-size: 0.98rem;
+  color: var(--pos-text-secondary);
+  font-size: 0.8125rem;
+  font-weight: 400;
 }
 
 .kiosk-pos-item-price {
   margin-top: 6px;
-  color: #1f4f8f;
-  font-weight: 600;
+  color: var(--pos-primary);
+  font-weight: 500;
+  font-size: 0.875rem;
 }
 
-.kiosk-pos-btn-main {
-  min-height: 60px;
-  font-size: 1.1rem;
-  font-weight: 700;
-  border-radius: 12px;
+.kiosk-pos-stock-badge {
+  display: inline-block;
+  margin-top: 6px;
+  padding: 2px 8px;
+  font-size: 0.6875rem;
+  font-weight: 500;
+  border-radius: var(--pos-radius-sm);
 }
 
-.kiosk-pos-btn-lg {
-  min-height: 48px;
-  font-size: 1rem;
-  font-weight: 700;
-  border-radius: 10px;
+.kiosk-pos-stock-badge.neutral {
+  background: #f3f4f6;
+  color: var(--pos-text-secondary);
+}
+
+.kiosk-pos-stock-badge.warning {
+  background: #fef3c7;
+  color: #b45309;
+}
+
+.kiosk-pos-qty-badge {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  background: var(--pos-primary);
+  color: #fff;
+  font-weight: 500;
+  border-radius: 999px;
+  min-width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 5px;
+  font-size: 0.75rem;
+  z-index: 2;
+}
+
+/* Cart panel */
+.kiosk-pos-cart-panel {
+  display: flex;
+  flex-direction: column;
+}
+
+.kiosk-pos-cart-panel .card-body {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  padding: 14px;
+}
+
+.kiosk-pos-cart-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.kiosk-pos-cart-header-title {
+  font-size: 0.9375rem;
+  font-weight: 500;
+  color: #111827;
+  margin: 0;
+}
+
+.kiosk-pos-cancel-sale-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  font-size: 0.75rem;
+  font-weight: 400;
+  color: var(--pos-text-secondary);
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+.kiosk-pos-cancel-sale-btn:hover {
+  color: #ef4444;
+}
+
+.kiosk-pos-customer-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 8px 10px;
+  margin-bottom: 10px;
+  font-size: 0.8125rem;
+  font-weight: 400;
+  color: #374151;
+  background: #fafafa;
+  border: 0.5px solid var(--pos-border);
+  border-radius: var(--pos-radius-sm);
+  cursor: pointer;
+  text-align: left;
+}
+
+.kiosk-pos-customer-btn strong {
+  font-weight: 500;
 }
 
 .kiosk-pos-cart-wrap {
-  max-height: 380px;
+  flex: 1;
+  min-height: 80px;
+  max-height: 320px;
   overflow-y: auto;
-  border: 1px solid #eef2f6;
-  border-radius: 10px;
+  border: 0.5px solid var(--pos-border);
+  border-radius: var(--pos-radius-sm);
   padding: 10px;
 }
 
+.kiosk-pos-cart-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 12px;
+  color: var(--pos-text-secondary);
+  text-align: center;
+}
+
+.kiosk-pos-cart-empty .nc-icon {
+  font-size: 2rem;
+  margin-bottom: 8px;
+  color: #d1d5db;
+}
+
+.kiosk-pos-cart-empty p {
+  font-size: 0.8125rem;
+  font-weight: 400;
+  margin: 0;
+}
+
 .kiosk-pos-cart-line {
-  border: 1px solid #e9ecef;
-  border-radius: 10px;
-  padding: 10px;
-  margin-bottom: 10px;
+  border: 0.5px solid var(--pos-border);
+  border-radius: var(--pos-radius-sm);
+  padding: 8px;
+  margin-bottom: 8px;
 }
 
 .kiosk-pos-line-actions {
   display: grid;
-  grid-template-columns: 110px 130px 1fr;
-  gap: 8px;
-  margin-top: 10px;
+  grid-template-columns: 70px 1fr 60px;
+  gap: 6px;
+  margin-top: 8px;
+  align-items: center;
+}
+
+.kiosk-pos-line-actions .btn-danger {
+  font-size: 0.75rem;
+  padding: 4px 8px;
+  min-height: 36px;
 }
 
 .kiosk-pos-qty,
 .kiosk-pos-price {
   text-align: center;
+}
+
+.kiosk-pos-line-total {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 500;
+  font-size: 0.8125rem;
+  color: #374151;
+}
+
+.kiosk-pos-cart-footer {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 0.5px solid var(--pos-border);
+}
+
+.kiosk-pos-promo-link {
+  display: block;
+  margin-bottom: 10px;
+  font-size: 0.8125rem;
+  font-weight: 400;
+  color: var(--pos-primary);
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  text-align: left;
+}
+
+.kiosk-pos-promo-link:hover {
+  text-decoration: underline;
+}
+
+.kiosk-pos-totals-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 12px;
+}
+
+.kiosk-pos-totals-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.8125rem;
+  font-weight: 400;
+  color: var(--pos-text-secondary);
+}
+
+.kiosk-pos-totals-row.total {
+  font-size: 1rem;
+  font-weight: 500;
+  color: #111827;
+  padding-top: 8px;
+  margin-top: 4px;
+  border-top: 0.5px solid var(--pos-border);
+}
+
+.kiosk-pos-totals-divider {
+  height: 0;
+  border: none;
+  border-top: 0.5px solid var(--pos-border);
+  margin: 4px 0;
+}
+
+/* Buttons */
+.kiosk-pos-label {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: #374151;
+}
+
+.kiosk-pos-input-lg {
+  min-height: 44px;
+  font-size: 0.9375rem;
+  font-weight: 400;
+  border-radius: var(--pos-radius-sm);
+  border: 0.5px solid var(--pos-border);
+}
+
+.kiosk-pos-btn-main {
+  min-height: 52px;
+  font-size: 15px;
+  font-weight: 500;
+  border-radius: var(--pos-radius-sm);
+  background: var(--pos-primary) !important;
+  border-color: var(--pos-primary) !important;
+  color: #fff !important;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.kiosk-pos-btn-main:disabled {
+  opacity: 0.5;
+}
+
+.kiosk-pos-btn-lg {
+  min-height: 40px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  border-radius: var(--pos-radius-sm);
+}
+
+.kiosk-pos-collapse-btn {
+  font-size: 0.875rem;
+  text-decoration: none !important;
 }
 
 .kiosk-pos-total {
@@ -119,11 +634,865 @@
 }
 
 .kiosk-pos-total .badge {
-  font-size: 1rem;
-  padding: 10px 14px;
+  font-size: 0.875rem;
+  padding: 8px 12px;
 }
 
 .kiosk-pos-report-card {
-  border: 1px solid #e9ecef;
-  border-radius: 10px;
+  border: 0.5px solid var(--pos-border);
+  border-radius: var(--pos-radius-sm);
+}
+
+.kiosk-pos-dashboard {
+  padding: 4px 0;
+}
+
+.kiosk-pos-dashboard-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.kiosk-pos-dashboard-header h5 {
+  font-size: 1rem;
+  font-weight: 500;
+  color: #111827;
+}
+
+.kiosk-pos-kpi-card {
+  height: 100%;
+  border: 0.5px solid var(--pos-border);
+  border-radius: var(--pos-radius-md);
+  padding: 20px 18px;
+  background: #fff;
+}
+
+.kiosk-pos-kpi-title {
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: #374151;
+}
+
+.kiosk-pos-kpi-subtitle {
+  margin-top: 2px;
+  font-size: 0.6875rem;
+  font-weight: 400;
+  color: var(--pos-text-secondary);
+}
+
+.kiosk-pos-kpi-value {
+  margin-top: 12px;
+  font-size: 1.75rem;
+  font-weight: 500;
+  color: var(--pos-primary);
+  line-height: 1.2;
+}
+
+.kiosk-pos-kpi-count {
+  margin-top: 6px;
+  font-size: 0.8125rem;
+  font-weight: 400;
+  color: var(--pos-text-secondary);
+}
+
+.kiosk-pos-kpi-growth {
+  margin-top: 10px;
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+.kiosk-pos-kpi-growth.up {
+  color: var(--pos-primary);
+}
+
+.kiosk-pos-kpi-growth.down {
+  color: #ef4444;
+}
+
+.kiosk-pos-kpi-growth.neutral {
+  color: var(--pos-text-secondary);
+}
+
+.kiosk-pos-dashboard-table-card {
+  border: 0.5px solid var(--pos-border);
+  border-radius: var(--pos-radius-md);
+}
+
+.kiosk-pos-daily-sales-table thead th {
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+
+.kiosk-pos-daily-sales-table tbody td,
+.kiosk-pos-daily-sales-table tfoot th {
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+.kiosk-pos-daily-sales-table tfoot th {
+  border-top: 1px solid var(--pos-border);
+  font-weight: 600;
+}
+
+.kiosk-pos-inventory-summary-item {
+  border: 0.5px solid var(--pos-border);
+  border-radius: var(--pos-radius-sm);
+  padding: 8px 10px;
+  background: #fafafa;
+}
+
+.kiosk-pos-inventory-summary-item.warning {
+  background: #fffbeb;
+  border-color: #fcd34d;
+}
+
+.kiosk-pos-inventory-summary-item .label {
+  display: block;
+  font-size: 0.6875rem;
+  color: var(--pos-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.kiosk-pos-inventory-summary-item strong {
+  display: block;
+  margin-top: 2px;
+  font-size: 1rem;
+  color: #111827;
+}
+
+.kiosk-pos-inventory-products {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.kiosk-pos-inventory-product-card {
+  border: 0.5px solid var(--pos-border);
+  border-radius: var(--pos-radius-sm);
+}
+
+.kiosk-pos-inventory-product-card .card-header {
+  background: #fcfcfc;
+}
+
+.kiosk-pos-inventory-row-low {
+  background: #fffbeb;
+}
+
+.kiosk-pos-inventory-size-cell {
+  max-width: 360px;
+}
+
+/* Checkout modal — variables scoped here because Modal renders in a portal (outside .kiosk-pos-page) */
+.kiosk-pos-checkout-modal {
+  --pos-primary: #1d9e75;
+  --pos-primary-soft: #e1f5ee;
+  --pos-border: rgba(0, 0, 0, 0.12);
+  --pos-radius-sm: 8px;
+  --pos-radius-md: 12px;
+  --pos-text-secondary: #6b7280;
+  --pos-text: #111827;
+}
+
+.kiosk-pos-checkout-modal .modal-dialog {
+  max-width: 480px;
+  margin: 1rem auto;
+}
+
+.kiosk-pos-checkout-modal .modal-content {
+  border: 1px solid var(--pos-border);
+  border-radius: var(--pos-radius-md);
+  background: #fff;
+  color: var(--pos-text);
+  animation: kiosk-pos-modal-in 0.25s ease-out;
+  overflow: hidden;
+}
+
+@keyframes kiosk-pos-modal-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.kiosk-pos-checkout-modal .modal-body {
+  overflow-y: auto;
+  max-height: calc(100vh - 160px);
+  padding: 0 20px 16px;
+  background: #fff;
+  color: var(--pos-text);
+}
+
+.kiosk-pos-checkout-header {
+  position: relative;
+  text-align: center;
+  padding: 16px 20px 12px;
+  border-bottom: 1px solid var(--pos-border);
+  background: #fff;
+}
+
+.kiosk-pos-checkout-header .modal-title {
+  font-size: 1.125rem;
+  font-weight: 500;
+  width: 100%;
+  color: var(--pos-text);
+  margin: 0;
+}
+
+.kiosk-pos-checkout-header .close {
+  position: absolute;
+  right: 16px;
+  top: 16px;
+  padding: 0;
+  margin: 0;
+  color: #374151;
+  opacity: 0.7;
+  font-size: 1.5rem;
+  line-height: 1;
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+.kiosk-pos-checkout-header .close:hover {
+  opacity: 1;
+}
+
+.kiosk-pos-checkout-modal .kiosk-pos-label {
+  display: block;
+  margin-bottom: 6px;
+  color: #374151;
+  font-weight: 500;
+}
+
+.kiosk-pos-checkout-metrics {
+  display: flex;
+  justify-content: space-around;
+  align-items: flex-end;
+  gap: 12px;
+  padding: 12px 16px;
+  margin-bottom: 16px;
+  background: #fafafa;
+  border: 0.5px solid var(--pos-border);
+  border-radius: var(--pos-radius-sm);
+}
+
+.kiosk-pos-metric {
+  text-align: center;
+  flex: 1;
+}
+
+.kiosk-pos-metric-value {
+  font-size: 1.375rem;
+  font-weight: 500;
+  color: #111827;
+  line-height: 1.2;
+}
+
+.kiosk-pos-metric-value.strikethrough {
+  font-size: 0.9375rem;
+  text-decoration: line-through;
+  color: var(--pos-text-secondary);
+}
+
+.kiosk-pos-metric-value.primary {
+  font-size: 1.5rem;
+  color: #1d9e75;
+}
+
+.kiosk-pos-metric-label {
+  font-size: 0.6875rem;
+  font-weight: 400;
+  color: var(--pos-text-secondary);
+  margin-top: 2px;
+}
+
+.kiosk-pos-checkout-section {
+  margin-bottom: 16px;
+}
+
+.kiosk-pos-promo-select {
+  width: 100%;
+  min-height: 44px;
+  font-size: 0.875rem;
+  border: 1px solid var(--pos-border);
+  border-radius: var(--pos-radius-sm);
+  padding: 8px 12px;
+  background: #fff;
+  color: var(--pos-text);
+  appearance: auto;
+}
+
+.kiosk-pos-promo-discount {
+  margin-top: 6px;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: #1d9e75;
+}
+
+.kiosk-pos-payment-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.kiosk-pos-payment-tab {
+  flex: 1;
+  min-width: 72px;
+  padding: 10px 6px;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  text-align: center;
+  background: #fff;
+  border: 1px solid var(--pos-border);
+  border-radius: var(--pos-radius-sm);
+  cursor: pointer;
+  color: #374151;
+  line-height: 1.2;
+}
+
+.kiosk-pos-payment-tab.active {
+  background: #1d9e75;
+  border-color: #1d9e75;
+  color: #fff;
+}
+
+.kiosk-pos-payment-tab:hover:not(.active) {
+  border-color: #1d9e75;
+  color: #1d9e75;
+}
+
+.kiosk-pos-cash-input {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 56px;
+  font-size: 1.5rem;
+  font-weight: 500;
+  text-align: center;
+  border: 1px solid var(--pos-border);
+  border-radius: var(--pos-radius-sm);
+  padding: 12px;
+  background: #fff;
+  color: #111827;
+  -webkit-text-fill-color: #111827;
+}
+
+.kiosk-pos-cash-input:focus {
+  outline: none;
+  border-color: #1d9e75;
+  box-shadow: 0 0 0 2px rgba(29, 158, 117, 0.2);
+}
+
+.kiosk-pos-quick-cash {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.kiosk-pos-quick-btn {
+  flex: 1;
+  min-width: 64px;
+  min-height: 40px;
+  padding: 8px 10px;
+  font-size: 0.875rem;
+  border-radius: var(--pos-radius-sm);
+  cursor: pointer;
+  line-height: 1.2;
+}
+
+.kiosk-pos-quick-exact {
+  background: #fff;
+  border: 1.5px solid #1d9e75;
+  color: #1d9e75;
+  font-weight: 500;
+}
+
+.kiosk-pos-quick-add {
+  background: #f3f4f6;
+  border: 1px solid var(--pos-border);
+  color: #374151;
+  font-weight: 400;
+}
+
+.kiosk-pos-change-box {
+  margin-top: 12px;
+  padding: 12px 16px;
+  background: #e1f5ee;
+  border-radius: var(--pos-radius-sm);
+  text-align: center;
+  border: 1px solid rgba(29, 158, 117, 0.2);
+}
+
+.kiosk-pos-change-label {
+  font-size: 0.6875rem;
+  font-weight: 400;
+  color: var(--pos-text-secondary);
+  margin-bottom: 4px;
+}
+
+.kiosk-pos-change-value {
+  font-size: 1.375rem;
+  font-weight: 500;
+  color: #1d9e75;
+}
+
+.kiosk-pos-change-empty {
+  font-size: 0.875rem;
+  font-weight: 400;
+  color: #6b7280;
+}
+
+.kiosk-pos-notes-toggle {
+  width: 100%;
+  padding: 10px 12px;
+  font-size: 0.8125rem;
+  font-weight: 400;
+  color: #6b7280;
+  background: #fafafa;
+  border: 1px solid var(--pos-border);
+  border-radius: var(--pos-radius-sm);
+  cursor: pointer;
+  text-align: left;
+}
+
+.kiosk-pos-notes-textarea {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 72px;
+  margin-top: 8px;
+  font-size: 0.875rem;
+  border: 1px solid var(--pos-border);
+  border-radius: var(--pos-radius-sm);
+  padding: 10px 12px;
+  resize: vertical;
+  background: #fff;
+  color: #111827;
+}
+
+.kiosk-pos-checkout-modal .kiosk-pos-input-lg {
+  background: #fff;
+  color: #111827;
+  border: 1px solid var(--pos-border);
+}
+
+.kiosk-pos-checkout-footer {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 20px 20px;
+  border-top: 1px solid var(--pos-border);
+  background: #fff;
+}
+
+.kiosk-pos-btn-cancel {
+  width: 100%;
+  min-height: 44px;
+  font-size: 0.9375rem;
+  font-weight: 400;
+  color: #6b7280;
+  background: #fff;
+  border: 1px solid var(--pos-border);
+  border-radius: var(--pos-radius-sm);
+  cursor: pointer;
+}
+
+.kiosk-pos-btn-cancel:hover:not(:disabled) {
+  background: #f9fafb;
+}
+
+.kiosk-pos-btn-confirm {
+  width: 100%;
+  min-height: 52px;
+  font-size: 16px;
+  font-weight: 500;
+  color: #fff !important;
+  background: #1d9e75 !important;
+  border: none;
+  border-radius: var(--pos-radius-sm);
+  cursor: pointer;
+}
+
+.kiosk-pos-btn-confirm:hover:not(:disabled) {
+  background: #178a66 !important;
+}
+
+.kiosk-pos-btn-confirm:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  background: #1d9e75 !important;
+  color: #fff !important;
+}
+
+.kiosk-pos-confirm-hint {
+  font-size: 0.75rem;
+  font-weight: 400;
+  color: #ef4444;
+  text-align: center;
+  margin-top: -4px;
+}
+
+.kiosk-pos-checkout-summary {
+  background: #fafafa;
+  border: 0.5px solid var(--pos-border);
+  border-radius: var(--pos-radius-sm);
+  padding: 12px 16px;
+}
+
+.kiosk-pos-checkout-total {
+  font-size: 1.125rem;
+  margin-top: 6px;
+}
+
+.kiosk-pos-change {
+  font-size: 1rem;
+  font-weight: 500;
+}
+
+.kiosk-pos-success-number {
+  font-size: 2rem;
+  font-weight: 500;
+  color: var(--pos-primary);
+}
+
+.kiosk-pos-mixto-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.kiosk-pos-mixto-grid .full-width {
+  grid-column: 1 / -1;
+}
+
+@media (max-width: 991px) {
+  .kiosk-pos-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .kiosk-pos-layout-cart {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 100;
+    padding: 0 12px 12px;
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0) 0%, #fff 24%);
+  }
+
+  .kiosk-pos-layout-cart .kiosk-pos-cart-panel {
+    max-height: 42vh;
+    overflow-y: auto;
+  }
+
+  .kiosk-pos-page {
+    padding-bottom: 220px;
+  }
+
+  .kiosk-pos-topbar-tabs {
+    order: 2;
+    width: 100%;
+  }
+
+  .kiosk-pos-topbar-left {
+    width: 100%;
+  }
+}
+
+/* Sales report */
+.kiosk-pos-report-export-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.kiosk-pos-sales-table .kiosk-pos-sales-row {
+  cursor: pointer;
+}
+
+.kiosk-pos-sales-table .kiosk-pos-sales-row:hover {
+  background: #f0fdf4;
+}
+
+.kiosk-pos-sale-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 12px 16px;
+}
+
+.kiosk-pos-detail-label {
+  font-size: 0.6875rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  color: var(--pos-text-secondary);
+  margin-bottom: 2px;
+}
+
+.kiosk-pos-sale-detail-notes {
+  font-size: 0.875rem;
+  color: #374151;
+  line-height: 1.5;
+}
+
+.kiosk-pos-sale-detail-totals {
+  border-top: 1px solid var(--pos-border);
+  padding-top: 12px;
+  font-size: 0.9375rem;
+}
+
+.kiosk-pos-sale-detail-total-row {
+  font-size: 1.0625rem;
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px dashed var(--pos-border);
+}
+
+.kiosk-pos-layout-blocked {
+  opacity: 0.55;
+  pointer-events: none;
+  user-select: none;
+}
+
+.kiosk-pos-receipt-row-issue {
+  background-color: #fffbeb;
+}
+
+.shipment-receipt-panel {
+  margin-top: 0;
+}
+
+.shipment-receipt-card {
+  border: 1px solid var(--pos-border, #e5e7eb);
+}
+
+.shipment-receipt-card-selected {
+  border-color: #93c5fd;
+  box-shadow: 0 0 0 1px #dbeafe;
+}
+
+.shipment-receipt-previews {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.shipment-receipt-thumb {
+  width: 72px;
+  text-align: center;
+}
+
+.shipment-receipt-thumb img,
+.shipment-receipt-thumb-placeholder {
+  width: 72px;
+  height: 72px;
+  border-radius: 8px;
+  object-fit: cover;
+  border: 1px solid var(--pos-border, #e5e7eb);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #f9fafb;
+}
+
+.shipment-receipt-thumb-code {
+  display: block;
+  font-size: 0.6875rem;
+  color: #6b7280;
+  margin-top: 4px;
+  line-height: 1.2;
+}
+
+.shipment-receipt-color-row,
+.shipment-receipt-color-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.shipment-receipt-color-chip {
+  font-size: 0.8125rem;
+  margin-right: 8px;
+}
+
+.shipment-receipt-line-thumb {
+  width: 48px;
+  height: 48px;
+  border-radius: 6px;
+  object-fit: cover;
+  border: 1px solid var(--pos-border, #e5e7eb);
+  flex-shrink: 0;
+}
+
+.shipment-receipt-line-thumb-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #f9fafb;
+  color: #9ca3af;
+}
+
+.shipment-receipt-detail-card {
+  border: 1px solid #dbeafe;
+}
+
+.kiosk-pos-cash-summary div {
+  margin-bottom: 4px;
+}
+
+.kiosk-pos-sales-row-void {
+  opacity: 0.65;
+}
+
+.kiosk-pos-sales-row-pending-deposit {
+  background: #fffbeb;
+}
+
+.kiosk-pos-sales-row-pending-deposit:hover {
+  background: #fef3c7;
+}
+
+.kiosk-pos-pending-deposit-badge {
+  white-space: normal;
+  max-width: 220px;
+  line-height: 1.3;
+  background-color: #f59e0b !important;
+  color: #1f2937 !important;
+  border: 1px solid #d97706;
+}
+
+.kiosk-pos-sale-detail-deposit-pending {
+  border: 1px solid #f59e0b;
+  background: #fffbeb;
+}
+
+.kiosk-pos-deposit-state-badge {
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  padding: 0.4rem 0.65rem;
+  border-radius: 6px;
+  border: 1px solid transparent;
+}
+
+.kiosk-pos-deposit-state-badge.badge-warning {
+  background-color: #f59e0b !important;
+  color: #1f2937 !important;
+  border-color: #d97706;
+}
+
+.kiosk-pos-deposit-state-badge.badge-success {
+  background-color: #16a34a !important;
+  color: #ffffff !important;
+  border-color: #15803d;
+}
+
+.kiosk-pos-deposit-state-badge.badge-secondary {
+  background-color: #6b7280 !important;
+  color: #ffffff !important;
+  border-color: #4b5563;
+}
+
+/* Badges POS: fondos sólidos (evitar blanco / bajo contraste del tema) */
+.kiosk-pos-page .badge,
+.kiosk-pos-sale-detail-modal .badge,
+.kiosk-pos-checkout-modal .badge,
+.kiosk-pos-cash-close-modal .badge,
+.kiosk-pos-receipt-modal .badge,
+.kiosk-pos-void-sale-modal .badge {
+  font-weight: 600;
+  border-radius: 6px;
+  border: 1px solid transparent;
+}
+
+.kiosk-pos-page .badge.badge-warning,
+.kiosk-pos-page .badge.bg-warning,
+.kiosk-pos-sale-detail-modal .badge.badge-warning,
+.kiosk-pos-checkout-modal .badge.badge-warning,
+.kiosk-pos-cash-close-modal .badge.badge-warning,
+.kiosk-pos-receipt-modal .badge.badge-warning,
+.kiosk-pos-void-sale-modal .badge.badge-warning {
+  background-color: #f59e0b !important;
+  color: #1f2937 !important;
+  border-color: #d97706;
+}
+
+.kiosk-pos-page .badge.badge-success,
+.kiosk-pos-page .badge.bg-success,
+.kiosk-pos-sale-detail-modal .badge.badge-success,
+.kiosk-pos-checkout-modal .badge.badge-success,
+.kiosk-pos-cash-close-modal .badge.badge-success,
+.kiosk-pos-receipt-modal .badge.badge-success,
+.kiosk-pos-void-sale-modal .badge.badge-success {
+  background-color: #16a34a !important;
+  color: #ffffff !important;
+  border-color: #15803d;
+}
+
+.kiosk-pos-page .badge.badge-danger,
+.kiosk-pos-page .badge.bg-danger,
+.kiosk-pos-sale-detail-modal .badge.badge-danger,
+.kiosk-pos-checkout-modal .badge.badge-danger,
+.kiosk-pos-cash-close-modal .badge.badge-danger,
+.kiosk-pos-receipt-modal .badge.badge-danger,
+.kiosk-pos-void-sale-modal .badge.badge-danger {
+  background-color: #dc2626 !important;
+  color: #ffffff !important;
+  border-color: #b91c1c;
+}
+
+.kiosk-pos-page .badge.badge-secondary,
+.kiosk-pos-page .badge.bg-secondary,
+.kiosk-pos-sale-detail-modal .badge.badge-secondary,
+.kiosk-pos-checkout-modal .badge.badge-secondary,
+.kiosk-pos-cash-close-modal .badge.badge-secondary,
+.kiosk-pos-receipt-modal .badge.badge-secondary,
+.kiosk-pos-void-sale-modal .badge.badge-secondary {
+  background-color: #6b7280 !important;
+  color: #ffffff !important;
+  border-color: #4b5563;
+}
+
+.kiosk-pos-page .badge.badge-info,
+.kiosk-pos-page .badge.bg-info,
+.kiosk-pos-sale-detail-modal .badge.badge-info,
+.kiosk-pos-checkout-modal .badge.badge-info,
+.kiosk-pos-cash-close-modal .badge.badge-info,
+.kiosk-pos-receipt-modal .badge.badge-info,
+.kiosk-pos-void-sale-modal .badge.badge-info {
+  background-color: #0284c7 !important;
+  color: #ffffff !important;
+  border-color: #0369a1;
+}
+
+.kiosk-pos-page .badge.badge-primary,
+.kiosk-pos-page .badge.bg-primary,
+.kiosk-pos-sale-detail-modal .badge.badge-primary,
+.kiosk-pos-checkout-modal .badge.badge-primary,
+.kiosk-pos-cash-close-modal .badge.badge-primary,
+.kiosk-pos-receipt-modal .badge.badge-primary,
+.kiosk-pos-void-sale-modal .badge.badge-primary {
+  background-color: #1d9e75 !important;
+  color: #ffffff !important;
+  border-color: #178a66;
+}
+
+.kiosk-pos-sales-actions-cell {
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+.kiosk-pos-sales-void-btn {
+  min-width: 72px;
+  font-weight: 600;
 }

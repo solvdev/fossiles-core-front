@@ -60,3 +60,12 @@ export const formatDateDdMmYyGt = (value) => {
 };
 
 export const formatNowGt = () => formatDateTimeGt(new Date());
+
+/** Fecha local de trabajo en Guatemala (YYYY-MM-DD), alineada a `scheduledDate` del API. */
+export const getTodayYmdGuatemala = () =>
+  new Intl.DateTimeFormat("sv-SE", {
+    timeZone: GT_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());

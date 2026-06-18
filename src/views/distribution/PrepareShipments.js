@@ -1,4 +1,5 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   Alert,
   Button,
@@ -22,19 +23,70 @@ import {
   getDistributions,
   getShipmentsByDistribution,
   sendShipment,
+  revertSentShipment,
+  cancelShipment,
+  updateShipmentPackingItems,
+  listStandaloneInternalShipments,
+  listStandaloneKioskShipments,
+  getShipmentById,
 } from "services/productDistributionService";
 import * as XLSX from "xlsx-js-style";
 import { getProducts } from "services/productService";
 import { getAuthHeader } from "services/authService";
-import { getProductionOrderById, getProductionOrders } from "services/productionOrderService";
+import {
+  getProductionOrderById,
+  getProductionOrders,
+  getProductionOrderShipments,
+  getProductionOrderPartialReleases,
+  voidVendorShipmentDocument,
+} from "services/productionOrderService";
 import { showError, showSuccess } from "utils/notificationHelper";
-import { isCinchoOrderType } from "utils/cinchoProductionHelper";
+import { isCinchoOrderType, isOpcFamilyProductionOrderCode } from "utils/cinchoProductionHelper";
+import { isLuisFelipeVendorFlow } from "utils/luisFelipeVendorHelper";
+import { extractDestinationFromShipmentNotes } from "utils/opcShipmentHelper";
+import {
+  PRINT_FONT_FAMILY,
+  PRINT_PAPER_HEIGHT_MM,
+  PRINT_PAPER_WIDTH_MM,
+  applyOrderItemPricesToShipmentProducts,
+  buildPartialPanelOrder,
+  classifyPrepareOrder,
+  isDirectPrepareOrder,
+  isEntreCuerosCustomerOpv,
+  mapShipmentProductsForOpvPrint,
+  orderIsPendingForPrepare,
+  orderItemsHaveBrand,
+} from "utils/prepareShipmentsOrderHelper";
+import {
+  buildShipmentProductsFromPartialReleaseLines,
+  orderAllowsPartialReleases,
+} from "utils/partialReleaseHelper";
+import PrepareShipmentsCustomerBlock from "components/distribution/PrepareShipmentsCustomerBlock";
+import CreateStandaloneKioskShipmentModal from "components/distribution/CreateStandaloneKioskShipmentModal";
+import EditShipmentProductsModal from "components/distribution/EditShipmentProductsModal";
+import { FilterableSelect } from "components/distribution/FilterableSelect";
+import OpvShipmentPriceReviewModal from "components/production/OpvShipmentPriceReviewModal";
+import ProductionOrderPartialReleasesPanel from "components/production/ProductionOrderPartialReleasesPanel";
+import ProductionOrderShipmentGenerateModal, {
+  canGenerateShipmentForOrder,
+} from "components/production/ProductionOrderShipmentGenerateModal";
 import { exportRowsToCsv, exportRowsToPdf } from "utils/reportExportHelper";
-import { formatDateGt, formatNowGt } from "utils/dateTimeHelper";
+import { assertDispatchStockForProducts } from "utils/dispatchStockValidationHelper";
+import { formatDateGt, getTodayYmdGuatemala } from "utils/dateTimeHelper";
 import {
   buildShipmentDocumentInnerHtml,
   getShipmentDocumentStyles,
 } from "utils/shipmentPrintDocumentHtml";
+import {
+  buildOpShipmentPrintDocumentHtml,
+  openOpShipmentPrintWindow,
+} from "utils/productionOrderOpShipmentPrintHtml";
+import {
+  buildPseudoOrderFromStandaloneShipment,
+  getStandaloneInternalUserNotes,
+  parseStandaloneInternalMeta,
+  computeInternalEnviUnitPrice,
+} from "utils/standaloneInternalShipmentHelper";
 import QRCode from "qrcode";
 import { getPublicFrontBaseUrl, buildPtDispatchDistributionUrl } from "utils/ptDispatchQr";
 
@@ -44,17 +96,79 @@ const STATUS_ES = {
   SENT: "Enviado",
   DELIVERED: "Entregado",
   COMPLETED: "Completado",
+  CANCELLED: "Anulado",
 };
 
 const tStatus = (status) => STATUS_ES[status] || status || "N/A";
 const PACKING_TAG = "__PACKING_SUM__:";
 const BELT_SIZE_TAG = "__BELT_SIZE__:";
+const DOCUMENT_DATE_TAG = "DOCUMENT_DATE:";
+
+const sumShipmentProductUnits = (products) =>
+  (products || []).reduce((sum, p) => sum + Number(p.quantity || 0), 0);
+
+const buildPartialProductsMapExtra = (order) => (_shipment, linked) => {
+  if (!linked?.lines?.length || !_shipment?.partialReleaseId) return {};
+  const fromPartial = buildShipmentProductsFromPartialReleaseLines(linked.lines, order?.orderType);
+  if (!fromPartial.length) return {};
+  const shipmentUnits = sumShipmentProductUnits(_shipment.products);
+  const partialUnits = sumShipmentProductUnits(fromPartial);
+  if (partialUnits < shipmentUnits || fromPartial.length < (_shipment.products || []).length) {
+    return { products: applyOrderItemPricesToShipmentProducts(order, fromPartial) };
+  }
+  return {};
+};
+
+const findLinkedPartialRelease = (shipment, releases) => {
+  const rows = releases || [];
+  const byShipment = rows.find((r) => String(r.shipmentId) === String(shipment?.id));
+  if (byShipment) return byShipment;
+  if (shipment?.partialReleaseId) {
+    return rows.find((r) => String(r.id) === String(shipment.partialReleaseId)) || null;
+  }
+  return null;
+};
+
+const enrichShipmentsWithPartialMeta = (printable, partialList, mapExtra) =>
+  (printable || []).map((s) => {
+    const linked = findLinkedPartialRelease(s, partialList?.releases);
+    return {
+      ...s,
+      partialReleaseLabel: linked?.label || (s.partialReleaseId ? "Parcial" : null),
+      partialReleaseCreatedByName: linked?.createdByName || null,
+      ...(typeof mapExtra === "function" ? mapExtra(s, linked) : {}),
+    };
+  });
 const PROCESSED_SHIPMENT_STATUSES = new Set(["SENT", "DELIVERED", "COMPLETED", "RECEIVED", "CANCELLED"]);
+/** Ocultar solo entregados/cancelados; SENT sigue visible para reimprimir. */
+const HIDDEN_FROM_PREPARE_LIST_STATUSES = new Set(["DELIVERED", "COMPLETED", "RECEIVED", "CANCELLED"]);
 const MAX_PRODUCT_ROWS_PER_SHIPMENT = 10;
+/** OPV cliente Entre Cueros: más líneas por hoja sin partir en bloques de 10. */
+const MAX_ENTRECUEROS_ROWS_PER_SHIPMENT = 20;
 
 const normalizeShipmentStatus = (status) => String(status || "").trim().toUpperCase();
 const isShipmentAlreadyProcessed = (status) => PROCESSED_SHIPMENT_STATUSES.has(normalizeShipmentStatus(status));
+const isShipmentHiddenFromPrepareList = (status) =>
+  HIDDEN_FROM_PREPARE_LIST_STATUSES.has(normalizeShipmentStatus(status));
+const isShipmentRowForPrepareList = (shipment) => {
+  const st = normalizeShipmentStatus(shipment?.status);
+  return Boolean(st) && st !== "DRAFT" && st !== "CANCELLED";
+};
 const isShipmentSendable = (status) => normalizeShipmentStatus(status) === "CONFIRMED";
+const isShipmentCancellable = (status) => {
+  const st = normalizeShipmentStatus(status);
+  return st === "DRAFT" || st === "CONFIRMED";
+};
+const isShipmentProductsEditable = (status) => {
+  const st = normalizeShipmentStatus(status);
+  return st === "DRAFT" || st === "CONFIRMED" || st === "SENT";
+};
+const isShipmentRevertible = (status) => normalizeShipmentStatus(status) === "SENT";
+const isSyntheticShipmentId = (id) => /^(opv|opi)-/i.test(String(id || ""));
+const syntheticShipmentOrderId = (id) => {
+  const m = String(id || "").match(/^(?:opv|opi)-(\d+)$/i);
+  return m ? m[1] : null;
+};
 const chunkArray = (items, chunkSize) => {
   const source = Array.isArray(items) ? items : [];
   if (source.length === 0) return [[]];
@@ -70,12 +184,15 @@ const parseShipmentMetaNotes = (rawNotes) => {
   const baseLines = [];
   let packingRaw = "";
   let beltSizeRaw = "";
+  let documentDate = "";
 
   lines.forEach((line) => {
     if (line.startsWith(PACKING_TAG)) {
       packingRaw = line.slice(PACKING_TAG.length).trim();
     } else if (line.startsWith(BELT_SIZE_TAG)) {
       beltSizeRaw = line.slice(BELT_SIZE_TAG.length).trim();
+    } else if (line.startsWith(DOCUMENT_DATE_TAG)) {
+      documentDate = line.slice(DOCUMENT_DATE_TAG.length).trim();
     } else {
       baseLines.push(line);
     }
@@ -117,6 +234,7 @@ const parseShipmentMetaNotes = (rawNotes) => {
     baseNotes: baseLines.join("\n").trim(),
     packing,
     beltSizes,
+    documentDate,
   };
 };
 
@@ -124,7 +242,7 @@ const parsePackingNotes = (rawNotes) => parseShipmentMetaNotes(rawNotes).packing
 const isCinchoProduct = (productCode, productName) =>
   `${productCode || ""} ${productName || ""}`.toUpperCase().includes("CINCHO");
 
-const getShipmentPackingItems = (shipment) => {
+const getShipmentPackingItems = (shipment, localState) => {
   const apiItems = Array.isArray(shipment?.packingItems) ? shipment.packingItems : [];
   const normalizedApi = apiItems
     .map((item) => ({
@@ -136,7 +254,28 @@ const getShipmentPackingItems = (shipment) => {
   if (normalizedApi.length > 0) {
     return normalizedApi;
   }
-  return parsePackingNotes(shipment?.notes);
+  const fromNotes = parsePackingNotes(shipment?.notes);
+  if (fromNotes.length > 0) {
+    return fromNotes;
+  }
+  if (localState && shipment?.id) {
+    const { packingQtyByShipment = {}, packingMaterials = [] } = localState;
+    const fromLocal = packingMaterials
+      .map((material) => {
+        const key = `${shipment.id}:${material.id}`;
+        const qty = Number(packingQtyByShipment[key] || 0);
+        return {
+          materialId: Number(material.id),
+          quantity: qty,
+          unitPrice: Number(material.unitCost || material.purchasePrice || 0),
+        };
+      })
+      .filter((item) => item.materialId > 0 && item.quantity > 0);
+    if (fromLocal.length > 0) {
+      return fromLocal;
+    }
+  }
+  return [];
 };
 
 const resolveMaterialUnitPrice = (item, material) => {
@@ -182,6 +321,7 @@ const buildOpvShipmentFromOrder = (order) => {
           productName: item?.productName,
           colorId: item?.colorId,
           colorName: item?.colorName,
+          brandName: item?.brandName || "",
           unitPrice: item?.unitPrice || 0,
           uomName: "Unidad",
           unitName: "Unidad",
@@ -209,6 +349,59 @@ const buildOpvShipmentFromOrder = (order) => {
     packingItems: Array.isArray(order?.packingItems) ? order.packingItems : [],
     shippingCost: Number(order?.shippingCost || 0),
   };
+};
+
+/** Documento de entrega interna (OPI): mismo detalle de líneas que OPV, sin kiosko ni empaque en este flujo. */
+const buildOpiShipmentFromOrder = (order) => {
+  const base = buildOpvShipmentFromOrder(order);
+  const who = String(order?.customerName || "").trim();
+  return {
+    ...base,
+    id: `opi-${order?.id}`,
+    shipmentNumber: order?.vendorShipmentNumber || order?.code || `OPI-${order?.id}`,
+    locationId: null,
+    locationCode: "",
+    locationName: who
+      ? `Personal interno — ${who} (sin movimiento de inventario PT / kiosko)`
+      : "Personal interno / colaborador (sin movimiento de inventario PT / kiosko)",
+    packingItems: [],
+    shippingCost: 0,
+    status: "CONFIRMED",
+  };
+};
+
+const buildOpiPrintRows = (shipment, pricingMeta, saleRefById) => {
+  const meta =
+    pricingMeta && typeof pricingMeta === "object"
+      ? pricingMeta
+      : { applyHalfPrice: pricingMeta !== false, requestType: "PLANILLA", discountPercent: 50 };
+  const list = shipment._printProducts || shipment.products || [];
+  return list
+    .map((p) => {
+      const pid = Number(p.productId);
+      let refNum = null;
+      if (Number.isFinite(pid) && pid > 0) {
+        const fromCat = Number(saleRefById[pid]);
+        if (Number.isFinite(fromCat) && fromCat > 0) {
+          refNum = fromCat;
+        }
+      }
+      if (refNum == null || refNum <= 0) {
+        const fromLine = Number(p.unitPrice || 0);
+        refNum = Number.isFinite(fromLine) && fromLine > 0 ? fromLine : null;
+      }
+      const display = refNum != null ? computeInternalEnviUnitPrice(refNum, meta) : null;
+      return {
+        productCode: p.productCode || "",
+        productName: p.productName || "",
+        colorName: p.colorName || "",
+        size: p.size || "",
+        quantity: p.quantity,
+        refPrice: refNum,
+        displayPrice: display,
+      };
+    })
+    .filter((r) => Number(r.quantity) > 0);
 };
 
 /**
@@ -254,6 +447,7 @@ const buildOnlineSaleItemsFromShipmentDoc = (
             productCode: item.productCode || "-",
             productName: item.productName || "-",
             colorName: item.colorName || "",
+            brandName: item.brandName || "",
             size: String(item.size || "").trim().toUpperCase(),
             quantity: qty,
             unitPrice: rowPrice,
@@ -269,6 +463,7 @@ const buildOnlineSaleItemsFromShipmentDoc = (
             productCode: item.productCode || "-",
             productName: item.productName || "-",
             colorName: item.colorName || "",
+            brandName: item.brandName || "",
             size: belt.size,
             quantity: beltQty,
             unitPrice: rowPrice,
@@ -282,6 +477,7 @@ const buildOnlineSaleItemsFromShipmentDoc = (
           productCode: item.productCode || "-",
           productName: item.productName || "-",
           colorName: item.colorName || "",
+          brandName: item.brandName || "",
           size: "",
           quantity: qty,
           unitPrice: rowPrice,
@@ -315,23 +511,45 @@ const buildOnlineSaleItemsFromShipmentDoc = (
 };
 
 const buildOpvOnlineSalePayload = (printDoc, productionOrder, deps) => {
-  const items = buildOnlineSaleItemsFromShipmentDoc(printDoc, deps);
+  const printSource =
+    productionOrder?.items?.length
+      ? {
+          ...printDoc,
+          _printProducts: applyOrderItemPricesToShipmentProducts(
+            productionOrder,
+            printDoc._printProducts || printDoc.products || []
+          ),
+        }
+      : printDoc;
+  const items = buildOnlineSaleItemsFromShipmentDoc(printSource, deps);
   const netAmount = items.reduce((s, it) => s + Number(it.subtotal || 0), 0);
-  const shippingCost = Number(printDoc.shippingCost || 0);
-  const totalAmount = netAmount + shippingCost;
   const order = productionOrder || {};
-  const dateStr =
-    (order.startDate && String(order.startDate).slice(0, 10)) ||
-    (order.deliveryDate && String(order.deliveryDate).slice(0, 10)) ||
-    new Date().toISOString().slice(0, 10);
+  const shippingCost = Number(
+    printDoc.shippingCost ?? order.shippingCost ?? 0
+  );
+  const totalAmount = netAmount + shippingCost;
+  const destFromNotes = extractDestinationFromShipmentNotes(printDoc?.notes);
+  const address =
+    (order.customerAddress && String(order.customerAddress).trim()) ||
+    destFromNotes ||
+    "—";
+  const customerName =
+    (order.customerName && String(order.customerName).trim()) ||
+    printDoc.locationName ||
+    "—";
+  const dateStr = getTodayYmdGuatemala();
 
   return {
-    customerName: printDoc.locationName || order.customerName || "—",
-    address: order.customerAddress || "—",
+    customerName,
+    address,
     phone: order.customerPhone || "—",
     phone2: order.customerPhone || "—",
     saleNumber: order.code || String(order.id || ""),
-    shipmentNumber: printDoc.shipmentNumber || order.vendorShipmentNumber || order.code || String(order.id || ""),
+    shipmentNumber:
+      order.vendorShipmentNumber ||
+      printDoc.shipmentNumber ||
+      order.code ||
+      String(order.id || ""),
     saleDate: dateStr,
     shippingCarrier: null,
     guideNumber: "",
@@ -345,7 +563,19 @@ const buildOpvOnlineSalePayload = (printDoc, productionOrder, deps) => {
   };
 };
 
+function buildOrderSelectOptions(orders, labelFn) {
+  return (orders || []).map((order) => {
+    const label = labelFn(order);
+    return {
+      value: String(order.id),
+      label,
+      searchText: `${order.code || ""} ${order.customerName || ""} ${order.sellerName || ""} ${order.status || ""} ${label}`,
+    };
+  });
+}
+
 function PrepareShipments() {
+  const navigate = useNavigate();
   const [distributions, setDistributions] = useState([]);
   const [distributionId, setDistributionId] = useState("");
   const [shipments, setShipments] = useState([]);
@@ -355,20 +585,49 @@ function PrepareShipments() {
   const [loadingDistributions, setLoadingDistributions] = useState(false);
   const [loadingShipments, setLoadingShipments] = useState(false);
   const [sendingShipmentId, setSendingShipmentId] = useState(null);
+  const [revertingShipmentId, setRevertingShipmentId] = useState(null);
+  const [cancellingShipmentId, setCancellingShipmentId] = useState(null);
   const [error, setError] = useState("");
+  const [partialPendingCount, setPartialPendingCount] = useState(0);
   const [opvOrders, setOpvOrders] = useState([]);
+  const [opiOrders, setOpiOrders] = useState([]);
   const [selectedOpvOrderId, setSelectedOpvOrderId] = useState("");
+  const [selectedOpiOrderId, setSelectedOpiOrderId] = useState("");
+  const [selectedOpcOrderId, setSelectedOpcOrderId] = useState("");
+  const [selectedOpckOrderId, setSelectedOpckOrderId] = useState("");
+  const [selectedOpkOrderId, setSelectedOpkOrderId] = useState("");
+  const [opcOrders, setOpcOrders] = useState([]);
+  const [opckOrders, setOpckOrders] = useState([]);
+  const [opkOrders, setOpkOrders] = useState([]);
   const [loadingOpvOrders, setLoadingOpvOrders] = useState(false);
-  // Matriz: media carta en vertical (5.5 x 8.5 in)
-  const [paperWidthMm, setPaperWidthMm] = useState(216);
-  const [paperHeightMm, setPaperHeightMm] = useState(279.4);
-  const [printFontMode, setPrintFontMode] = useState("DRAFT_ROMAN");
+  const [loadingOpiOrders, setLoadingOpiOrders] = useState(false);
+  const [loadingOpcOrders, setLoadingOpcOrders] = useState(false);
+  const [loadingOpckOrders, setLoadingOpckOrders] = useState(false);
+  const [loadingOpkOrders, setLoadingOpkOrders] = useState(false);
+  const [applyOpiHalfPrice, setApplyOpiHalfPrice] = useState(true);
+  const [standaloneInternalList, setStandaloneInternalList] = useState([]);
+  const [selectedStandaloneInternalId, setSelectedStandaloneInternalId] = useState("");
+  const [loadingStandaloneInternalList, setLoadingStandaloneInternalList] = useState(false);
+  const [standaloneKioskList, setStandaloneKioskList] = useState([]);
+  const [selectedStandaloneKioskId, setSelectedStandaloneKioskId] = useState("");
+  const [loadingStandaloneKioskList, setLoadingStandaloneKioskList] = useState(false);
+  const [standaloneKioskModalOpen, setStandaloneKioskModalOpen] = useState(false);
+  const [viewMode, setViewMode] = useState("shipments");
+  const [pendingOrders, setPendingOrders] = useState([]);
+  const [loadingPending, setLoadingPending] = useState(false);
+  const [pendingKindFilter, setPendingKindFilter] = useState("ALL");
+  const [generateModalOrder, setGenerateModalOrder] = useState(null);
   const [productPriceById, setProductPriceById] = useState({});
   const [sellerPriceById, setSellerPriceById] = useState({});
+  const [salePriceRefById, setSalePriceRefById] = useState({});
   const [packingMaterials, setPackingMaterials] = useState([]);
   const [loadingPackingMaterials, setLoadingPackingMaterials] = useState(false);
   const [packingModalShipment, setPackingModalShipment] = useState(null);
+  const [editProductsShipment, setEditProductsShipment] = useState(null);
+  const [opvPriceReviewOpen, setOpvPriceReviewOpen] = useState(false);
+  const [opvPendingPrint, setOpvPendingPrint] = useState(false);
   const [packingQtyByShipment, setPackingQtyByShipment] = useState({});
+  const [savingPacking, setSavingPacking] = useState(false);
   const [selectedProductionOrder, setSelectedProductionOrder] = useState(null);
 
   useEffect(() => {
@@ -376,10 +635,102 @@ function PrepareShipments() {
     loadProductPrices();
     loadPackingMaterials();
     loadOpvOrders();
+    loadOpiOrders();
+    loadOpcOrders();
+    loadOpckOrders();
+    loadOpkOrders();
+    loadStandaloneInternalShipments();
+    loadStandaloneKioskShipments();
   }, []);
 
+  const loadPendingOrders = async () => {
+    setLoadingPending(true);
+    setError("");
+    try {
+      const orders = await getProductionOrders();
+      const candidates = (orders || []).filter(isDirectPrepareOrder);
+      const withStatus = await Promise.all(
+        candidates.map(async (order) => {
+          try {
+            const shipments = await getProductionOrderShipments(order.id);
+            return { order, shipments: shipments || [] };
+          } catch (_e) {
+            return { order, shipments: [] };
+          }
+        })
+      );
+      const pending = withStatus
+        .filter(({ order, shipments }) => orderIsPendingForPrepare(order, shipments))
+        .map(({ order }) => order);
+      setPendingOrders(pending);
+    } catch (err) {
+      setError(err.message || "No se pudieron cargar órdenes pendientes");
+      setPendingOrders([]);
+    } finally {
+      setLoadingPending(false);
+    }
+  };
+
   useEffect(() => {
-    if (selectedOpvOrderId) return;
+    if (viewMode === "pending") {
+      loadPendingOrders();
+    }
+  }, [viewMode]);
+
+  const clearOrderSelectors = () => {
+    setSelectedOpvOrderId("");
+    setSelectedOpiOrderId("");
+    setSelectedOpcOrderId("");
+    setSelectedOpckOrderId("");
+    setSelectedOpkOrderId("");
+    setSelectedStandaloneInternalId("");
+    setSelectedStandaloneKioskId("");
+    setDistributionId("");
+    setSelectedProductionOrder(null);
+    setShipments([]);
+  };
+
+  const activateOrderSource = (kind, orderId) => {
+    const id = orderId ? String(orderId) : "";
+    setViewMode("shipments");
+    setDistributionId("");
+    setSelectedStandaloneInternalId("");
+    setSelectedStandaloneKioskId("");
+    setSelectedOpvOrderId(kind === "OPV" ? id : "");
+    setSelectedOpiOrderId(kind === "OPI" ? id : "");
+    setSelectedOpcOrderId(kind === "OPC" ? id : "");
+    setSelectedOpckOrderId(kind === "OPCK" ? id : "");
+    setSelectedOpkOrderId(kind === "OPK" ? id : "");
+    if (!id) {
+      setShipments([]);
+      setSelectedProductionOrder(null);
+    }
+  };
+
+  const openOrderInShipmentsView = (order) => {
+    const kind = classifyPrepareOrder(order);
+    if (!kind) return;
+    setViewMode("shipments");
+    clearOrderSelectors();
+    if (kind === "OPC") setSelectedOpcOrderId(String(order.id));
+    else if (kind === "OPI") setSelectedOpiOrderId(String(order.id));
+    else if (kind === "OPCK") setSelectedOpckOrderId(String(order.id));
+    else if (kind === "OPK") setSelectedOpkOrderId(String(order.id));
+    else if (kind === "OPV") setSelectedOpvOrderId(String(order.id));
+  };
+
+  useEffect(() => {
+    if (
+      selectedOpvOrderId ||
+      selectedOpiOrderId ||
+      selectedOpcOrderId ||
+      selectedOpckOrderId ||
+      selectedOpkOrderId ||
+      selectedStandaloneInternalId ||
+      selectedStandaloneKioskId
+    ) {
+      return;
+    }
     if (!distributionId) {
       setShipments([]);
       setSelectedRows({});
@@ -387,36 +738,374 @@ function PrepareShipments() {
       return;
     }
     loadShipments(distributionId);
-  }, [distributionId, selectedOpvOrderId]);
+  }, [
+    distributionId,
+    selectedOpvOrderId,
+    selectedOpiOrderId,
+    selectedOpcOrderId,
+    selectedOpckOrderId,
+    selectedOpkOrderId,
+    selectedStandaloneInternalId,
+    selectedStandaloneKioskId,
+  ]);
+
+  const reloadOpvShipmentsView = useCallback(async () => {
+    if (!selectedOpvOrderId) return;
+    try {
+      setLoadingShipments(true);
+      setError("");
+      setPartialPendingCount(0);
+      const order = await getProductionOrderById(selectedOpvOrderId);
+      setSelectedProductionOrder(order);
+      setOpvOrders((prev) =>
+        (prev || []).map((o) =>
+          String(o.id) === String(order.id)
+            ? {
+                ...o,
+                vendorShipmentNumber: order.vendorShipmentNumber,
+                customerAddress: order.customerAddress,
+                customerPhone: order.customerPhone,
+                customerTaxId: order.customerTaxId,
+              }
+            : o
+        )
+      );
+      const realShipments = await getProductionOrderShipments(selectedOpvOrderId);
+      const printable = (realShipments || []).filter(isShipmentRowForPrepareList);
+      const partialList = await getProductionOrderPartialReleases(selectedOpvOrderId).catch(() => null);
+      const pendingConfirm = (partialList?.releases || []).filter(
+        (r) => r.status === "CONFIRMED" && !r.shipmentNumber
+      );
+      setPartialPendingCount(pendingConfirm.length);
+
+      if (printable.length > 0) {
+        const docs = enrichShipmentsWithPartialMeta(printable, partialList, (s) => ({
+          products: applyOrderItemPricesToShipmentProducts(
+            order,
+            mapShipmentProductsForOpvPrint(s)
+          ),
+          packingItems: order.packingItems,
+          shippingCost: order.shippingCost,
+        }));
+        setShipments(docs);
+        const copies = {};
+        const selected = {};
+        docs.forEach((d) => {
+          copies[d.id] = 1;
+          selected[d.id] = true;
+        });
+        setCopiesByShipment(copies);
+        setSelectedRows(selected);
+      } else if (pendingConfirm.length > 0) {
+        setShipments([]);
+        setCopiesByShipment({});
+        setSelectedRows({});
+      } else if (order.vendorShipmentVoidedAt) {
+        setShipments([]);
+        setCopiesByShipment({});
+        setSelectedRows({});
+      } else {
+        const synthetic = buildOpvShipmentFromOrder(order);
+        setShipments([synthetic]);
+        setCopiesByShipment({ [synthetic.id]: 1 });
+        setSelectedRows({ [synthetic.id]: true });
+      }
+    } catch (err) {
+      setError(err.message || "No se pudo cargar la orden OPV");
+      setShipments([]);
+      setPartialPendingCount(0);
+    } finally {
+      setLoadingShipments(false);
+    }
+  }, [selectedOpvOrderId]);
+
+  const reloadOpcShipmentsView = useCallback(async () => {
+    if (!selectedOpcOrderId) return;
+    try {
+      setLoadingShipments(true);
+      setError("");
+      setPartialPendingCount(0);
+      const order = await getProductionOrderById(selectedOpcOrderId);
+      setSelectedProductionOrder(order);
+      setOpcOrders((prev) =>
+        (prev || []).map((o) => (String(o.id) === String(order.id) ? { ...o, ...order } : o))
+      );
+      const realShipments = await getProductionOrderShipments(selectedOpcOrderId);
+      const printable = (realShipments || []).filter(isShipmentRowForPrepareList);
+      const partialList = orderAllowsPartialReleases(order)
+        ? await getProductionOrderPartialReleases(selectedOpcOrderId).catch(() => null)
+        : null;
+      const pendingConfirm = (partialList?.releases || []).filter(
+        (r) => r.status === "CONFIRMED" && !r.shipmentNumber
+      );
+      setPartialPendingCount(pendingConfirm.length);
+
+      if (printable.length > 0) {
+        const docs = enrichShipmentsWithPartialMeta(printable, partialList);
+        setShipments(docs);
+        const copies = {};
+        const selected = {};
+        docs.forEach((d) => {
+          copies[d.id] = 1;
+          selected[d.id] = true;
+        });
+        setCopiesByShipment(copies);
+        setSelectedRows(selected);
+      } else if (pendingConfirm.length > 0) {
+        setShipments([]);
+        setCopiesByShipment({});
+        setSelectedRows({});
+      } else {
+        setShipments(realShipments || []);
+        const initialCopies = {};
+        (realShipments || []).forEach((shipment) => {
+          initialCopies[shipment.id] = 1;
+        });
+        setCopiesByShipment(initialCopies);
+        setSelectedRows({});
+      }
+    } catch (err) {
+      setError(err.message || "No se pudieron cargar los envíos de la orden OPC");
+      setShipments([]);
+      setPartialPendingCount(0);
+    } finally {
+      setLoadingShipments(false);
+    }
+  }, [selectedOpcOrderId]);
+
+  const reloadOpckShipmentsView = useCallback(async () => {
+    if (!selectedOpckOrderId) return;
+    try {
+      setLoadingShipments(true);
+      setError("");
+      setPartialPendingCount(0);
+      const order = await getProductionOrderById(selectedOpckOrderId);
+      setSelectedProductionOrder(order);
+      const realShipments = await getProductionOrderShipments(selectedOpckOrderId);
+      const printable = (realShipments || []).filter(isShipmentRowForPrepareList);
+      const partialList = orderAllowsPartialReleases(order)
+        ? await getProductionOrderPartialReleases(selectedOpckOrderId).catch(() => null)
+        : null;
+      const pendingConfirm = (partialList?.releases || []).filter(
+        (r) => r.status === "CONFIRMED" && !r.shipmentNumber
+      );
+      setPartialPendingCount(pendingConfirm.length);
+
+      if (printable.length > 0) {
+        const docs = enrichShipmentsWithPartialMeta(
+          printable,
+          partialList,
+          buildPartialProductsMapExtra(order)
+        );
+        setShipments(docs);
+        const copies = {};
+        const selected = {};
+        docs.forEach((d) => {
+          copies[d.id] = 1;
+          selected[d.id] = true;
+        });
+        setCopiesByShipment(copies);
+        setSelectedRows(selected);
+      } else if (pendingConfirm.length > 0) {
+        setShipments([]);
+        setCopiesByShipment({});
+        setSelectedRows({});
+      } else {
+        setShipments(realShipments || []);
+        const initialCopies = {};
+        (realShipments || []).forEach((shipment) => {
+          initialCopies[shipment.id] = 1;
+        });
+        setCopiesByShipment(initialCopies);
+        setSelectedRows({});
+      }
+    } catch (err) {
+      setError(err.message || "No se pudieron cargar los envíos OPCK");
+      setShipments([]);
+      setPartialPendingCount(0);
+    } finally {
+      setLoadingShipments(false);
+    }
+  }, [selectedOpckOrderId]);
+
+  const reloadOpkShipmentsView = useCallback(async () => {
+    if (!selectedOpkOrderId) return;
+    try {
+      setLoadingShipments(true);
+      setError("");
+      setPartialPendingCount(0);
+      const order = await getProductionOrderById(selectedOpkOrderId);
+      setSelectedProductionOrder(order);
+      const realShipments = await getProductionOrderShipments(selectedOpkOrderId);
+      const printable = (realShipments || []).filter(isShipmentRowForPrepareList);
+      const partialList = orderAllowsPartialReleases(order)
+        ? await getProductionOrderPartialReleases(selectedOpkOrderId).catch(() => null)
+        : null;
+      const pendingConfirm = (partialList?.releases || []).filter(
+        (r) => r.status === "CONFIRMED" && !r.shipmentNumber
+      );
+      setPartialPendingCount(pendingConfirm.length);
+
+      if (printable.length > 0) {
+        const docs = enrichShipmentsWithPartialMeta(
+          printable,
+          partialList,
+          buildPartialProductsMapExtra(order)
+        );
+        setShipments(docs);
+        const copies = {};
+        const selected = {};
+        docs.forEach((d) => {
+          copies[d.id] = 1;
+          selected[d.id] = true;
+        });
+        setCopiesByShipment(copies);
+        setSelectedRows(selected);
+      } else if (pendingConfirm.length > 0) {
+        setShipments([]);
+        setCopiesByShipment({});
+        setSelectedRows({});
+      } else {
+        setShipments(realShipments || []);
+        const initialCopies = {};
+        (realShipments || []).forEach((shipment) => {
+          initialCopies[shipment.id] = 1;
+        });
+        setCopiesByShipment(initialCopies);
+        setSelectedRows({});
+      }
+    } catch (err) {
+      setError(err.message || "No se pudieron cargar los envíos OPK");
+      setShipments([]);
+      setPartialPendingCount(0);
+    } finally {
+      setLoadingShipments(false);
+    }
+  }, [selectedOpkOrderId]);
+
+  const reloadPartialOrderShipmentsView = useCallback(async () => {
+    if (selectedOpvOrderId) return reloadOpvShipmentsView();
+    if (selectedOpcOrderId) return reloadOpcShipmentsView();
+    if (selectedOpckOrderId) return reloadOpckShipmentsView();
+    if (selectedOpkOrderId) return reloadOpkShipmentsView();
+  }, [selectedOpvOrderId, selectedOpcOrderId, selectedOpckOrderId, selectedOpkOrderId, reloadOpvShipmentsView, reloadOpcShipmentsView, reloadOpckShipmentsView, reloadOpkShipmentsView]);
 
   useEffect(() => {
-    if (!selectedOpvOrderId) return;
+    if (!selectedOpvOrderId) {
+      if (!selectedOpcOrderId && !selectedOpckOrderId && !selectedOpkOrderId) setPartialPendingCount(0);
+      return;
+    }
+    reloadOpvShipmentsView();
+  }, [selectedOpvOrderId, reloadOpvShipmentsView]);
+
+  useEffect(() => {
+    if (!selectedOpiOrderId) return;
     const loadOrderAsShipment = async () => {
       try {
         setLoadingShipments(true);
         setError("");
-        const order = await getProductionOrderById(selectedOpvOrderId);
+        const order = await getProductionOrderById(selectedOpiOrderId);
         setSelectedProductionOrder(order);
-        setOpvOrders((prev) =>
+        setOpiOrders((prev) =>
           (prev || []).map((o) =>
             String(o.id) === String(order.id)
-              ? { ...o, vendorShipmentNumber: order.vendorShipmentNumber, customerAddress: order.customerAddress, customerPhone: order.customerPhone, customerTaxId: order.customerTaxId }
+              ? {
+                  ...o,
+                  vendorShipmentNumber: order.vendorShipmentNumber,
+                  customerAddress: order.customerAddress,
+                  customerPhone: order.customerPhone,
+                  customerTaxId: order.customerTaxId,
+                }
               : o
           )
         );
-        const synthetic = buildOpvShipmentFromOrder(order);
-        setShipments([synthetic]);
-        setCopiesByShipment({ [synthetic.id]: 1 });
-        setSelectedRows({});
+        if (order.vendorShipmentVoidedAt) {
+          setShipments([]);
+          setCopiesByShipment({});
+          setSelectedRows({});
+        } else {
+          const synthetic = buildOpiShipmentFromOrder(order);
+          setShipments([synthetic]);
+          setCopiesByShipment({ [synthetic.id]: 1 });
+          setSelectedRows({ [synthetic.id]: true });
+        }
       } catch (err) {
-        setError(err.message || "No se pudo cargar la orden OPV");
+        setError(err.message || "No se pudo cargar la orden OPI");
         setShipments([]);
       } finally {
         setLoadingShipments(false);
       }
     };
     loadOrderAsShipment();
-  }, [selectedOpvOrderId]);
+  }, [selectedOpiOrderId]);
+
+  useEffect(() => {
+    if (!selectedStandaloneInternalId) return;
+    const loadStandaloneShipment = async () => {
+      try {
+        setLoadingShipments(true);
+        setError("");
+        const shipment = await getShipmentById(selectedStandaloneInternalId);
+        const meta = parseStandaloneInternalMeta(shipment?.notes);
+        const pseudoOrder = buildPseudoOrderFromStandaloneShipment(shipment);
+        setSelectedProductionOrder(pseudoOrder);
+        setApplyStandaloneHalfPrice(meta.applyHalfPrice !== false);
+        const who = meta.recipientName || pseudoOrder.customerName || "Colaborador";
+        const doc = {
+          ...shipment,
+          locationName: who ? `Personal interno — ${who}` : shipment.locationName,
+          notes: getStandaloneInternalUserNotes(shipment?.notes),
+          packingItems: [],
+          shippingCost: 0,
+        };
+        setShipments([doc]);
+        setCopiesByShipment({ [doc.id]: 1 });
+        setSelectedRows({ [doc.id]: true });
+      } catch (err) {
+        setError(err.message || "No se pudo cargar el envío interno");
+        setShipments([]);
+      } finally {
+        setLoadingShipments(false);
+      }
+    };
+    loadStandaloneShipment();
+  }, [selectedStandaloneInternalId]);
+
+  useEffect(() => {
+    if (!selectedStandaloneKioskId) return;
+    const loadStandaloneKioskShipment = async () => {
+      try {
+        setLoadingShipments(true);
+        setError("");
+        setSelectedProductionOrder(null);
+        const shipment = await getShipmentById(selectedStandaloneKioskId);
+        setShipments([shipment]);
+        setCopiesByShipment({ [shipment.id]: 1 });
+        setSelectedRows({ [shipment.id]: true });
+      } catch (err) {
+        setError(err.message || "No se pudo cargar el envío directo a kiosko");
+        setShipments([]);
+      } finally {
+        setLoadingShipments(false);
+      }
+    };
+    loadStandaloneKioskShipment();
+  }, [selectedStandaloneKioskId]);
+
+  useEffect(() => {
+    if (!selectedOpcOrderId) return;
+    reloadOpcShipmentsView();
+  }, [selectedOpcOrderId, reloadOpcShipmentsView]);
+
+  useEffect(() => {
+    if (!selectedOpckOrderId) return;
+    reloadOpckShipmentsView();
+  }, [selectedOpckOrderId, reloadOpckShipmentsView]);
+
+  useEffect(() => {
+    if (!selectedOpkOrderId) return;
+    reloadOpkShipmentsView();
+  }, [selectedOpkOrderId, reloadOpkShipmentsView]);
 
   const loadDistributions = async () => {
     try {
@@ -437,17 +1126,143 @@ function PrepareShipments() {
     try {
       setLoadingOpvOrders(true);
       const orders = await getProductionOrders();
-      const rows = (orders || []).filter((order) => {
-        const seller = String(order?.sellerName || "").trim().toUpperCase();
-        const type = String(order?.orderType || "").trim().toUpperCase();
-        if (!seller.includes("LUIS FELIPE")) return false;
-        return !isCinchoOrderType(type);
-      });
+      const rows = (orders || []).filter((order) => classifyPrepareOrder(order) === "OPV");
       setOpvOrders(rows);
     } catch (_err) {
       setOpvOrders([]);
     } finally {
       setLoadingOpvOrders(false);
+    }
+  };
+
+  const loadOpiOrders = async () => {
+    try {
+      setLoadingOpiOrders(true);
+      const orders = await getProductionOrders();
+      const rows = (orders || []).filter((order) => {
+        const type = String(order?.orderType || "").trim().toUpperCase();
+        return type === "INTERNA";
+      });
+      setOpiOrders(rows);
+    } catch (_err) {
+      setOpiOrders([]);
+    } finally {
+      setLoadingOpiOrders(false);
+    }
+  };
+
+  const loadStandaloneInternalShipments = async () => {
+    try {
+      setLoadingStandaloneInternalList(true);
+      const rows = await listStandaloneInternalShipments();
+      setStandaloneInternalList(rows || []);
+    } catch (_err) {
+      setStandaloneInternalList([]);
+    } finally {
+      setLoadingStandaloneInternalList(false);
+    }
+  };
+
+  const loadStandaloneKioskShipments = async () => {
+    try {
+      setLoadingStandaloneKioskList(true);
+      const rows = await listStandaloneKioskShipments();
+      setStandaloneKioskList(rows || []);
+    } catch (_err) {
+      setStandaloneKioskList([]);
+    } finally {
+      setLoadingStandaloneKioskList(false);
+    }
+  };
+
+  const handleStandaloneKioskCreated = async (created) => {
+    await loadStandaloneKioskShipments();
+    setViewMode("shipments");
+    setDistributionId("");
+    setSelectedOpvOrderId("");
+    setSelectedOpiOrderId("");
+    setSelectedOpcOrderId("");
+    setSelectedOpckOrderId("");
+    setSelectedOpkOrderId("");
+    setSelectedStandaloneInternalId("");
+    setSelectedProductionOrder(null);
+    if (created?.id != null) {
+      setSelectedStandaloneKioskId(String(created.id));
+    }
+  };
+
+  const loadOpcOrders = async () => {
+    try {
+      setLoadingOpcOrders(true);
+      const orders = await getProductionOrders();
+      const rows = (orders || []).filter((order) => {
+        const type = String(order?.orderType || "").trim().toUpperCase();
+        return isCinchoOrderType(type) || isOpcFamilyProductionOrderCode(order?.code);
+      });
+      setOpcOrders(rows);
+    } catch (_err) {
+      setOpcOrders([]);
+    } finally {
+      setLoadingOpcOrders(false);
+    }
+  };
+
+  const loadOpckOrders = async () => {
+    try {
+      setLoadingOpckOrders(true);
+      const orders = await getProductionOrders();
+      const rows = (orders || []).filter((order) => {
+        const type = String(order?.orderType || "").trim().toUpperCase();
+        return type === "CLIENTE_KIOSKO";
+      });
+      setOpckOrders(rows);
+    } catch (_err) {
+      setOpckOrders([]);
+    } finally {
+      setLoadingOpckOrders(false);
+    }
+  };
+
+  const loadOpkOrders = async () => {
+    try {
+      setLoadingOpkOrders(true);
+      const orders = await getProductionOrders();
+      const rows = (orders || []).filter((order) => classifyPrepareOrder(order) === "OPK");
+      setOpkOrders(rows);
+    } catch (_err) {
+      setOpkOrders([]);
+    } finally {
+      setLoadingOpkOrders(false);
+    }
+  };
+
+  const reloadCurrentShipments = async () => {
+    if (selectedOpcOrderId) {
+      await reloadOpcShipmentsView();
+      return;
+    }
+    if (selectedOpckOrderId) {
+      await reloadOpckShipmentsView();
+      return;
+    }
+    if (selectedOpkOrderId) {
+      await reloadOpkShipmentsView();
+      return;
+    }
+    if (selectedStandaloneKioskId) {
+      try {
+        const shipment = await getShipmentById(selectedStandaloneKioskId);
+        setShipments([shipment]);
+        setCopiesByShipment({ [shipment.id]: 1 });
+        setSelectedRows({ [shipment.id]: true });
+      } catch (_err) {
+        setShipments([]);
+        setSelectedRows({});
+      }
+      return;
+    }
+    if (distributionId) {
+      await loadShipments(distributionId);
     }
   };
 
@@ -470,11 +1285,15 @@ function PrepareShipments() {
 
       setShipments(rawShipments);
       const initialCopies = {};
+      const initialSelected = {};
       rawShipments.forEach((shipment) => {
         initialCopies[shipment.id] = 1;
+        if (isShipmentRowForPrepareList(shipment)) {
+          initialSelected[shipment.id] = true;
+        }
       });
       setCopiesByShipment(initialCopies);
-      setSelectedRows({});
+      setSelectedRows(initialSelected);
     } catch (err) {
       const message = err.message || "No se pudieron cargar los envios de la distribucion";
       setError(message);
@@ -490,10 +1309,13 @@ function PrepareShipments() {
       const products = await getProducts();
       const priceMap = {};
       const sellerMap = {};
+      const saleRefMap = {};
       (products || []).forEach((product) => {
         const discounted = Number(product.discountedPrice);
         const regular = Number(product.salePrice);
         const seller = Number(product.sellerPrice);
+        const saleOnly = !Number.isNaN(regular) && regular > 0 ? regular : 0;
+        saleRefMap[product.id] = saleOnly;
         if (!Number.isNaN(discounted) && discounted > 0) {
           priceMap[product.id] = discounted;
         } else if (!Number.isNaN(regular) && regular > 0) {
@@ -507,10 +1329,12 @@ function PrepareShipments() {
       });
       setProductPriceById(priceMap);
       setSellerPriceById(sellerMap);
+      setSalePriceRefById(saleRefMap);
     } catch (err) {
       console.error("Error loading product prices:", err);
       setProductPriceById({});
       setSellerPriceById({});
+      setSalePriceRefById({});
     }
   };
 
@@ -545,6 +1369,72 @@ function PrepareShipments() {
 
   const getPackingKey = (shipmentId, materialId) => `${shipmentId}:${materialId}`;
 
+  const resolveShipmentPackingItems = useCallback(
+    (shipment) => getShipmentPackingItems(shipment, { packingQtyByShipment, packingMaterials }),
+    [packingQtyByShipment, packingMaterials]
+  );
+
+  const buildPackingItemsPayloadForShipment = useCallback(
+    (shipmentId) =>
+      packingMaterials
+        .map((material) => {
+          const key = getPackingKey(shipmentId, material.id);
+          const qty = Number(packingQtyByShipment[key] || 0);
+          if (!Number.isFinite(qty) || qty <= 0) {
+            return null;
+          }
+          return {
+            materialId: Number(material.id),
+            quantity: qty,
+            unitPrice: resolveMaterialUnitPrice({ materialId: material.id }, material),
+          };
+        })
+        .filter(Boolean),
+    [packingMaterials, packingQtyByShipment]
+  );
+
+  const openPackingModal = (shipment) => {
+    const items = getShipmentPackingItems(shipment, { packingQtyByShipment, packingMaterials });
+    if (items.length > 0) {
+      setPackingQtyByShipment((prev) => {
+        const next = { ...prev };
+        items.forEach((item) => {
+          next[getPackingKey(shipment.id, item.materialId)] = item.quantity;
+        });
+        return next;
+      });
+    }
+    setPackingModalShipment(shipment);
+  };
+
+  const handleSavePackingModal = async () => {
+    const shipment = packingModalShipment;
+    if (!shipment?.id) {
+      return;
+    }
+    try {
+      setSavingPacking(true);
+      setError("");
+      const payload = buildPackingItemsPayloadForShipment(shipment.id);
+      const updated = await updateShipmentPackingItems(shipment.id, payload);
+      setShipments((prev) =>
+        prev.map((s) =>
+          Number(s.id) === Number(shipment.id)
+            ? { ...s, ...updated, packingItems: updated.packingItems || [] }
+            : s
+        )
+      );
+      showSuccess("Empaques guardados en el envío");
+      setPackingModalShipment(null);
+    } catch (err) {
+      const message = err.message || "No se pudieron guardar los empaques";
+      setError(message);
+      showError(message);
+    } finally {
+      setSavingPacking(false);
+    }
+  };
+
   const getPackingCountForShipment = (shipmentId) => {
     return packingMaterials.reduce((count, material) => {
       const key = getPackingKey(shipmentId, material.id);
@@ -558,6 +1448,22 @@ function PrepareShipments() {
     [distributions, distributionId]
   );
 
+  const pendingFlow = viewMode === "pending";
+
+  /** Distribución: listar todos los envíos (también SENT) para reimprimir / exportar. */
+  const distributionFlow =
+    Boolean(distributionId) &&
+    !selectedOpvOrderId &&
+    !selectedOpiOrderId &&
+    !selectedOpcOrderId &&
+    !selectedOpckOrderId &&
+    !selectedOpkOrderId &&
+    !selectedStandaloneInternalId &&
+    !selectedStandaloneKioskId;
+
+  const standaloneInternalFlow = Boolean(selectedStandaloneInternalId);
+  const standaloneKioskFlow = Boolean(selectedStandaloneKioskId);
+
   const isSpecialSellerFlow = (order) => {
     const po = order || selectedProductionOrder;
     if (!po) return false;
@@ -567,23 +1473,136 @@ function PrepareShipments() {
 
   const specialSellerFlow = isSpecialSellerFlow(selectedProductionOrder);
 
+  const opckFlow = Boolean(selectedOpckOrderId);
+  const opkFlow = Boolean(selectedOpkOrderId);
+
+  const opiInternalFlow =
+    Boolean(selectedOpiOrderId) &&
+    String(selectedProductionOrder?.orderType || "").trim().toUpperCase() === "INTERNA";
+
+  /** Documento colaborador (50% opcional); OPCK usa formato distribución. */
+  const opiReferenceFlow = opiInternalFlow || standaloneInternalFlow;
+
+  const opcFlow = Boolean(selectedOpcOrderId);
+
+  const productionOrderPrintFlow = opcFlow || opckFlow || opkFlow || standaloneKioskFlow;
+
+  const showPartialReleasesPanel =
+    !pendingFlow &&
+    selectedProductionOrder &&
+    orderAllowsPartialReleases(selectedProductionOrder) &&
+    (selectedOpvOrderId || selectedOpcOrderId || selectedOpckOrderId || selectedOpkOrderId);
+
+  const selectedStandaloneKioskShipment = useMemo(() => {
+    if (!selectedStandaloneKioskId) return null;
+    return (
+      (standaloneKioskList || []).find((s) => String(s.id) === String(selectedStandaloneKioskId)) ||
+      (shipments || []).find((s) => String(s.id) === String(selectedStandaloneKioskId)) ||
+      null
+    );
+  }, [selectedStandaloneKioskId, standaloneKioskList, shipments]);
+
+  const printContextLabels = useMemo(
+    () => ({
+      distributionNumber: opcFlow
+        ? selectedProductionOrder?.code || "OPC"
+        : opckFlow
+          ? selectedProductionOrder?.code || "OPCK"
+          : opkFlow
+            ? selectedProductionOrder?.code || "OPK"
+            : standaloneKioskFlow
+              ? selectedStandaloneKioskShipment?.shipmentNumber || "Directo kiosko"
+            : isEntreCuerosCustomerOpv(selectedProductionOrder)
+              ? selectedProductionOrder?.code || "OPV"
+              : selectedDistribution?.distributionNumber || "N/A",
+      distributionDescription: opcFlow
+        ? `Orden OPC${selectedProductionOrder?.customerName ? ` — ${selectedProductionOrder.customerName}` : ""}`
+        : opckFlow
+          ? `Orden OPCK${selectedProductionOrder?.customerName ? ` — ${selectedProductionOrder.customerName}` : ""}`
+          : opkFlow
+            ? `Orden OPK${selectedProductionOrder?.customerName ? ` — ${selectedProductionOrder.customerName}` : ""}`
+            : standaloneKioskFlow
+              ? `Envío directo kiosko${selectedStandaloneKioskShipment?.locationName ? ` — ${selectedStandaloneKioskShipment.locationName}` : ""}`
+            : isEntreCuerosCustomerOpv(selectedProductionOrder)
+              ? `Orden OPV${selectedProductionOrder?.customerName ? ` — ${selectedProductionOrder.customerName}` : ""}`
+              : selectedDistribution?.description || "",
+    }),
+    [
+      opcFlow,
+      opckFlow,
+      opkFlow,
+      standaloneKioskFlow,
+      selectedProductionOrder,
+      selectedDistribution,
+      selectedStandaloneKioskShipment,
+    ]
+  );
+
   const resolveProductUnitPrice = (item) => {
+    const fromItem = Number(item?.unitPrice);
+    if (Number.isFinite(fromItem) && fromItem > 0) {
+      return fromItem;
+    }
     const productId = Number(item?.productId);
     if (!Number.isFinite(productId) || productId <= 0) {
-      return Number(item?.unitPrice || item?.price || 0);
+      return Number(item?.price || 0);
     }
     if (specialSellerFlow) {
-      return Number(sellerPriceById[productId] || productPriceById[productId] || item?.unitPrice || item?.price || 0);
+      return Number(sellerPriceById[productId] || productPriceById[productId] || item?.price || 0);
     }
-    return Number(productPriceById[productId] || item?.unitPrice || item?.price || 0);
+    return Number(productPriceById[productId] || item?.price || 0);
+  };
+
+  const productCatalogById = useMemo(() => {
+    const map = {};
+    const ids = new Set([
+      ...Object.keys(productPriceById || {}),
+      ...Object.keys(sellerPriceById || {}),
+    ]);
+    ids.forEach((id) => {
+      map[id] = {
+        salePrice: productPriceById[id],
+        sellerPrice: sellerPriceById[id],
+        price: productPriceById[id],
+      };
+    });
+    return map;
+  }, [productPriceById, sellerPriceById]);
+
+  const handleOpvPricesSaved = (order) => {
+    setSelectedProductionOrder(order);
+    setShipments((prev) =>
+      (prev || []).map((s) => ({
+        ...s,
+        products: applyOrderItemPricesToShipmentProducts(order, s._printProducts || s.products || []),
+        shippingCost: order.shippingCost ?? s.shippingCost,
+      }))
+    );
+    if (opvPendingPrint) {
+      setOpvPendingPrint(false);
+      window.setTimeout(() => executeOpvPrint(), 0);
+    }
+  };
+
+  const openOpvPriceReview = (forPrint) => {
+    if (!selectedProductionOrder?.id) {
+      showError("Seleccione una orden OPV");
+      return;
+    }
+    setOpvPendingPrint(Boolean(forPrint));
+    setOpvPriceReviewOpen(true);
   };
 
   const normalizedQuery = (search || "").toLowerCase().trim();
-  const visibleShipments = useMemo(
-    () => (specialSellerFlow ? shipments : shipments.filter((shipment) => !isShipmentAlreadyProcessed(shipment.status))),
-    [shipments, specialSellerFlow]
-  );
-  const hiddenProcessedCount = Math.max(0, (shipments || []).length - visibleShipments.length);
+  const visibleShipments = useMemo(() => {
+    if (specialSellerFlow || opiInternalFlow || standaloneInternalFlow || distributionFlow || productionOrderPrintFlow) {
+      return shipments;
+    }
+    return shipments.filter((shipment) => !isShipmentHiddenFromPrepareList(shipment.status));
+  }, [shipments, specialSellerFlow, opiInternalFlow, standaloneInternalFlow, distributionFlow, productionOrderPrintFlow]);
+  const hiddenProcessedCount = distributionFlow
+    ? 0
+    : Math.max(0, (shipments || []).length - visibleShipments.length);
   const filteredShipments = useMemo(() => {
     if (!normalizedQuery) return visibleShipments;
     return visibleShipments.filter((shipment) => {
@@ -603,6 +1622,125 @@ function PrepareShipments() {
       return headers.includes(normalizedQuery) || products.includes(normalizedQuery);
     });
   }, [visibleShipments, normalizedQuery]);
+
+  const filteredPendingOrders = useMemo(() => {
+    return pendingOrders.filter((order) => {
+      const kind = classifyPrepareOrder(order);
+      if (pendingKindFilter !== "ALL" && kind !== pendingKindFilter) return false;
+      if (!normalizedQuery) return true;
+      const hay = `${order.code || ""} ${order.customerName || ""} ${order.sellerName || ""} ${kind || ""}`.toLowerCase();
+      return hay.includes(normalizedQuery);
+    });
+  }, [pendingOrders, pendingKindFilter, normalizedQuery]);
+
+  const distributionOptions = useMemo(
+    () =>
+      (distributions || []).map((dist) => ({
+        value: String(dist.id),
+        label: `${dist.distributionNumber} - ${dist.distributionDate ? formatDateGt(dist.distributionDate) : "Sin fecha"}`,
+        searchText: `${dist.distributionNumber} ${dist.description || ""}`,
+      })),
+    [distributions]
+  );
+
+  const opvOrderOptions = useMemo(
+    () =>
+      buildOrderSelectOptions(
+        opvOrders,
+        (order) =>
+          `${order.code}${order.vendorShipmentNumber ? ` · ${order.vendorShipmentNumber}` : ""} — ${order.customerName || "Cliente"} (${order.status})`
+      ),
+    [opvOrders]
+  );
+
+  const opiOrderOptions = useMemo(
+    () =>
+      buildOrderSelectOptions(
+        opiOrders,
+        (order) => `${order.code} — ${order.customerName || "Colaborador"} (${order.status})`
+      ),
+    [opiOrders]
+  );
+
+  const opcOrderOptions = useMemo(
+    () =>
+      buildOrderSelectOptions(opcOrders, (order) => {
+        const lf = isLuisFelipeVendorFlow(order.orderType, order.sellerName) ? " · LF/OPV" : "";
+        return `${order.code} — ${order.customerName || "Cliente"} (${order.status})${lf}`;
+      }),
+    [opcOrders]
+  );
+
+  const opckOrderOptions = useMemo(
+    () =>
+      buildOrderSelectOptions(
+        opckOrders,
+        (order) => `${order.code} — ${order.customerName || "Kiosko"} (${order.status})`
+      ),
+    [opckOrders]
+  );
+
+  const opkOrderOptions = useMemo(
+    () =>
+      buildOrderSelectOptions(
+        opkOrders,
+        (order) => `${order.code} — ${order.customerName || "Kiosko"} (${order.status})`
+      ),
+    [opkOrders]
+  );
+
+  const standaloneInternalOptions = useMemo(
+    () =>
+      (standaloneInternalList || []).map((shipment) => {
+        const meta = parseStandaloneInternalMeta(shipment?.notes);
+        const who = meta.recipientName || shipment.locationName || "Colaborador";
+        const label = `${shipment.shipmentNumber} — ${who}`;
+        return {
+          value: String(shipment.id),
+          label,
+          searchText: `${shipment.shipmentNumber} ${who}`,
+        };
+      }),
+    [standaloneInternalList]
+  );
+
+  const standaloneKioskOptions = useMemo(
+    () =>
+      (standaloneKioskList || []).map((shipment) => ({
+        value: String(shipment.id),
+        label: `${shipment.shipmentNumber || `#${shipment.id}`} — ${shipment.locationName || "Kiosko"} (${tStatus(shipment.status)})`,
+        searchText: `${shipment.shipmentNumber || ""} ${shipment.locationName || ""} ${shipment.locationCode || ""} ${shipment.status || ""}`,
+      })),
+    [standaloneKioskList]
+  );
+
+  const pendingKindOptions = useMemo(
+    () => [
+      { value: "ALL", label: "Todos", searchText: "todos" },
+      { value: "OPC", label: "OPC", searchText: "opc cinchos" },
+      { value: "OPI", label: "OPI", searchText: "opi interna" },
+      { value: "OPV", label: "OPV", searchText: "opv vendedor" },
+      { value: "OPCK", label: "OPCK", searchText: "opck kiosko cliente" },
+      { value: "OPK", label: "OPK", searchText: "opk kiosko" },
+    ],
+    []
+  );
+
+  const handleShipmentGenerated = async (_shipment, order) => {
+    setGenerateModalOrder(null);
+    if (viewMode === "pending") {
+      await loadPendingOrders();
+    }
+    const target = order?.id ? order : _shipment;
+    if (target?.id) {
+      try {
+        const full = await getProductionOrderById(target.id);
+        openOrderInShipmentsView(full);
+      } catch (_e) {
+        openOrderInShipmentsView(target);
+      }
+    }
+  };
 
   const selectedShipmentIds = Object.keys(selectedRows).filter((id) => selectedRows[id]);
 
@@ -655,18 +1793,48 @@ function PrepareShipments() {
     }
   };
 
+  const resolveShipmentPrintDate = () => formatDateGt(new Date());
+
+  const resolveCreatedByName = (shipment) => {
+    if (shipment?.partialReleaseCreatedByName) return shipment.partialReleaseCreatedByName;
+    if (specialSellerFlow && selectedProductionOrder?.sellerName) {
+      return selectedProductionOrder.sellerName;
+    }
+    return "—";
+  };
+
+  const resolveGeneratedByName = (shipment) => {
+    if (shipment?.createdByName) return shipment.createdByName;
+    if (selectedDistribution?.createdByName) return selectedDistribution.createdByName;
+    return getPrintedBy();
+  };
+
+  const resolvePrintAuthorName = (shipment) => resolveCreatedByName(shipment);
+
   const buildPrintableDocs = () => {
     const docs = [];
     shipments.forEach((shipment) => {
       if (!selectedRows[shipment.id]) return;
       const copies = Math.max(1, parseInt(copiesByShipment[shipment.id], 10) || 1);
-      if (specialSellerFlow) {
+      if (specialSellerFlow || opiInternalFlow || standaloneInternalFlow) {
+        const shipmentPacking = resolveShipmentPackingItems(shipment);
+        const orderPacking = Array.isArray(selectedProductionOrder?.packingItems)
+          ? selectedProductionOrder.packingItems
+          : [];
+        const printPacking = opiInternalFlow || standaloneInternalFlow
+          ? []
+          : shipmentPacking.length > 0
+            ? shipmentPacking
+            : orderPacking;
         for (let copyIdx = 0; copyIdx < copies; copyIdx += 1) {
           const copyLabel = copies > 1 ? `Copia ${copyIdx + 1} de ${copies}` : "";
           docs.push({
             ...shipment,
+            shippingCost: Number(
+              shipment.shippingCost ?? selectedProductionOrder?.shippingCost ?? 0
+            ),
             _printProducts: shipment.products || [],
-            _printPackingItems: getShipmentPackingItems(shipment),
+            _printPackingItems: printPacking,
             _partNumber: 1,
             _partTotal: 1,
             copyLabel,
@@ -674,8 +1842,11 @@ function PrepareShipments() {
         }
         return;
       }
-      const productChunks = chunkArray(shipment.products, MAX_PRODUCT_ROWS_PER_SHIPMENT);
-      const packingItems = getShipmentPackingItems(shipment);
+      const maxRowsPerPage = isEntreCuerosCustomerOpv(selectedProductionOrder)
+        ? MAX_ENTRECUEROS_ROWS_PER_SHIPMENT
+        : MAX_PRODUCT_ROWS_PER_SHIPMENT;
+      const productChunks = chunkArray(shipment.products, maxRowsPerPage);
+      const packingItems = resolveShipmentPackingItems(shipment);
       const hasPacking = packingItems.length > 0;
       const shouldSeparatePackingPart = productChunks.length > 1 && hasPacking;
       const totalParts = shouldSeparatePackingPart ? productChunks.length + 1 : productChunks.length;
@@ -686,58 +1857,79 @@ function PrepareShipments() {
         const packingForPart = shouldSeparatePackingPart
           ? (isPackingOnlyPart ? packingItems : [])
           : packingItems;
-        const partLabel = totalParts > 1 ? `Parte ${partIdx + 1} de ${totalParts}` : "";
+        const entreCuerosPrint = isEntreCuerosCustomerOpv(selectedProductionOrder);
+        const partLabel =
+          totalParts > 1
+            ? `${entreCuerosPrint ? "Hoja" : "Parte"} ${partIdx + 1} de ${totalParts}`
+            : "";
+        const isLastPart = partIdx === totalParts - 1;
         for (let copyIdx = 0; copyIdx < copies; copyIdx += 1) {
           const copyLabel = copies > 1 ? `Copia ${copyIdx + 1} de ${copies}` : "";
-          docs.push({
+          const pageDoc = {
             ...shipment,
             _printProducts: productsForPart,
             _printPackingItems: packingForPart,
             _partNumber: partIdx + 1,
             _partTotal: totalParts,
             copyLabel: [partLabel, copyLabel].filter(Boolean).join(" - "),
-          });
+          };
+          if (entreCuerosPrint) {
+            pageDoc.shippingCost =
+              isLastPart && !isPackingOnlyPart
+                ? Number(shipment.shippingCost ?? selectedProductionOrder?.shippingCost ?? 0)
+                : 0;
+          }
+          docs.push(pageDoc);
         }
       }
     });
     return docs;
   };
 
-  const printSelected = () => {
+  const executeOpvPrint = () => {
     const docs = buildPrintableDocs();
     if (docs.length === 0) {
       showError("Selecciona al menos un envio para imprimir");
       return;
     }
-
-    if (specialSellerFlow) {
-      const printWindowOpv = window.open("", "_blank");
-      if (!printWindowOpv) {
-        showError("No se pudo abrir la ventana de impresion");
-        return;
-      }
-      const opvDeps = {
-        packingMaterials,
-        resolveProductUnitPrice,
-        resolveMaterialUnitPrice,
-        getShipmentPackingItems,
-      };
-      const bodyInner = docs
-        .map((shipmentDoc) => {
-          const sale = buildOpvOnlineSalePayload(shipmentDoc, selectedProductionOrder, opvDeps);
-          const docNo = String(sale.shipmentNumber || sale.saleNumber || "");
-          return buildShipmentDocumentInnerHtml(sale, {
-            docType: "ENVIO",
-            docNo,
-            netAmount: sale.netAmount,
-            totalAmount: sale.totalAmount,
-            shippingCost: sale.shippingCost,
-            copyLabel: shipmentDoc.copyLabel || "",
-            businessTitle: "VENTA CLIENTES FOSSILES",
-          });
-        })
-        .join("");
-      printWindowOpv.document.write(`<!DOCTYPE html>
+    const printWindowOpv = window.open("", "_blank");
+    if (!printWindowOpv) {
+      showError("No se pudo abrir la ventana de impresion");
+      return;
+    }
+    const opvDeps = {
+      packingMaterials,
+      resolveProductUnitPrice,
+      resolveMaterialUnitPrice,
+      getShipmentPackingItems: resolveShipmentPackingItems,
+    };
+    const showBrandColumn =
+      isEntreCuerosCustomerOpv(selectedProductionOrder) ||
+      orderItemsHaveBrand(selectedProductionOrder?.items);
+    const bodyInner = docs
+      .map((shipmentDoc) => {
+        const sale = buildOpvOnlineSalePayload(shipmentDoc, selectedProductionOrder, opvDeps);
+        const docNo = String(sale.shipmentNumber || sale.saleNumber || "");
+        const partialLabel = shipmentDoc.partialReleaseLabel
+          ? `Parcial: ${shipmentDoc.partialReleaseLabel}`
+          : "";
+        const copyParts = [partialLabel, shipmentDoc.copyLabel].filter(Boolean);
+        return buildShipmentDocumentInnerHtml(sale, {
+          docType: "ENVIO",
+          docNo,
+          netAmount: sale.netAmount,
+          totalAmount: sale.totalAmount,
+          shippingCost: sale.shippingCost,
+          copyLabel: copyParts.join(" — ") || "",
+          docSubtitle: partialLabel || undefined,
+          businessTitle: "VENTA CLIENTES FOSSILES",
+          showBrandColumn,
+          createdByName: resolveCreatedByName(shipmentDoc),
+          generatedByName: resolveGeneratedByName(shipmentDoc),
+        });
+      })
+      .join("");
+    printWindowOpv.document.write(`<!DOCTYPE html>
 <html>
   <head>
     <meta charset="UTF-8" />
@@ -752,19 +1944,56 @@ function PrepareShipments() {
     }
   </script>
 </html>`);
-      printWindowOpv.document.close();
+    printWindowOpv.document.close();
+  };
+
+  const printSelected = () => {
+    const docs = buildPrintableDocs();
+    if (docs.length === 0) {
+      showError("Selecciona al menos un envio para imprimir");
+      return;
+    }
+
+    if (specialSellerFlow) {
+      openOpvPriceReview(true);
+      return;
+    }
+
+    if ((opiInternalFlow || standaloneInternalFlow) && !specialSellerFlow) {
+      for (const shipmentDoc of docs) {
+        const order = standaloneInternalFlow
+          ? buildPseudoOrderFromStandaloneShipment(shipmentDoc)
+          : selectedProductionOrder;
+        const standaloneMeta = standaloneInternalFlow
+          ? parseStandaloneInternalMeta(shipmentDoc?.notes)
+          : null;
+        const rows = buildOpiPrintRows(
+          shipmentDoc,
+          standaloneMeta || { requestType: "PLANILLA", discountPercent: 50 },
+          salePriceRefById
+        );
+        const html = buildOpShipmentPrintDocumentHtml({
+          order,
+          shipment: shipmentDoc,
+          rows,
+          pricingMeta: standaloneMeta || { requestType: "PLANILLA", discountPercent: 50 },
+          requestType: standaloneMeta?.requestType,
+        });
+        if (!openOpShipmentPrintWindow(html)) {
+          showError("Permita ventanas emergentes para imprimir.");
+          return;
+        }
+      }
       return;
     }
 
     void (async () => {
       try {
-    const distributionNumber = selectedDistribution?.distributionNumber || "N/A";
-    const distributionDescription = selectedDistribution?.description || "";
-    const printedBy = getPrintedBy();
-    const printedAt = formatNowGt();
+    const distributionNumber = printContextLabels.distributionNumber;
+    const distributionDescription = printContextLabels.distributionDescription;
     const sourceAddress = "Bodega Principal";
-    const pageWidth = Math.max(120, Number(paperWidthMm) || 216);
-    const pageHeight = Math.max(80, Number(paperHeightMm) || 279.4);
+    const pageWidth = PRINT_PAPER_WIDTH_MM;
+    const pageHeight = PRINT_PAPER_HEIGHT_MM;
     const printMarginTopMm = 5;
     const printMarginRightMm = 3;
     const printMarginBottomMm = 3;
@@ -774,12 +2003,7 @@ function PrepareShipments() {
       90,
       pageWidth - printMarginLeftMm - printMarginRightMm - hardwareSafeInsetMm * 2
     );
-    const printFontFamily =
-      printFontMode === "SANS_SERIF"
-        ? "Arial, Helvetica, sans-serif"
-        : printFontMode === "HSD"
-          ? "'Arial Narrow', Arial, Helvetica, sans-serif"
-          : "'Times New Roman', Times, serif";
+    const printFontFamily = PRINT_FONT_FAMILY;
 
     const frontBase = getPublicFrontBaseUrl();
     let distributionQrDataUrl = "";
@@ -797,11 +2021,19 @@ function PrepareShipments() {
       }
     }
 
+    const entreCuerosPrint = isEntreCuerosCustomerOpv(selectedProductionOrder);
+    const showBrandColumnPrint =
+      entreCuerosPrint || orderItemsHaveBrand(selectedProductionOrder?.items);
+    const gridColCount = showBrandColumnPrint ? 8 : 7;
+
     const docsHtml = docs
       .map((shipment, idx) => {
-        const shipmentProducts = shipment._printProducts || shipment.products || [];
+        const shipmentProducts = applyOrderItemPricesToShipmentProducts(
+          selectedProductionOrder,
+          shipment._printProducts || shipment.products || []
+        );
         const notesPayload = parseShipmentMetaNotes(shipment.notes);
-        const shipmentPackingItems = shipment._printPackingItems || getShipmentPackingItems(shipment);
+        const shipmentPackingItems = shipment._printPackingItems || resolveShipmentPackingItems(shipment);
         const packingRows = shipmentPackingItems
           .map((item) => {
             const material = packingMaterials.find((m) => Number(m.id) === Number(item.materialId));
@@ -812,6 +2044,7 @@ function PrepareShipments() {
               rowType: "packing",
               productCode: material?.sku || `SUM-${item.materialId}`,
               productName: material?.name || "Empaque",
+              brandName: "—",
               colorName: "-",
               quantity: qty,
               uomName: material?.uomName || material?.unitName || "Unidad",
@@ -853,6 +2086,7 @@ function PrepareShipments() {
                 rowType: "product",
                 productCode: item.productCode || "-",
                 productName: `${item.productName || "-"} TALLA ${String(item.size || "").trim().toUpperCase()}`,
+                brandName: item.brandName || "—",
                 colorName: item.colorName || "-",
                 quantity: qty,
                 uomName: item.uomName || item.unitName || "Unidad",
@@ -868,6 +2102,7 @@ function PrepareShipments() {
                   rowType: "product",
                   productCode: item.productCode || "-",
                   productName: `${item.productName || "-"} TALLA ${belt.size}`,
+                  brandName: item.brandName || "—",
                   colorName: item.colorName || "-",
                   quantity: beltQty,
                   uomName: item.uomName || item.unitName || "Unidad",
@@ -881,6 +2116,7 @@ function PrepareShipments() {
               rowType: "product",
               productCode: item.productCode || "-",
               productName: item.productName || "-",
+              brandName: item.brandName || "—",
               colorName: item.colorName || "-",
               quantity: qty,
               uomName: item.uomName || item.unitName || "Unidad",
@@ -892,11 +2128,16 @@ function PrepareShipments() {
           .filter((row) => row.quantity > 0);
 
         const detailRows = [...productRows, ...packingRows];
+        const brandCell = (row) =>
+          showBrandColumnPrint
+            ? `<td>${String(row.brandName || "").trim() || "—"}</td>`
+            : "";
         const rows = detailRows
           .map((row) => `
             <tr>
               <td>${row.productCode}</td>
               <td>${row.productName}</td>
+              ${brandCell(row)}
               <td>${row.colorName}</td>
               <td class="numeric">${row.quantity}</td>
               <td>${row.uomName}</td>
@@ -910,6 +2151,9 @@ function PrepareShipments() {
         const totalAmount = detailRows.reduce((sum, row) => sum + Number(row.lineTotal || 0), 0);
         const shippingCost = Number(shipment.shippingCost || 0);
         const grandTotal = totalAmount + (shippingCost > 0 ? shippingCost : 0);
+        const printedAt = resolveShipmentPrintDate(shipment);
+        const createdByName = resolveCreatedByName(shipment);
+        const generatedByName = resolveGeneratedByName(shipment);
 
         const metaRowsHtml = `
               <tr>
@@ -921,12 +2165,17 @@ function PrepareShipments() {
                 <td colspan="2"><strong>${specialSellerFlow ? "Orden No" : "Envio No"}:</strong> ${shipment.shipmentNumber || shipment.id}</td>
               </tr>
               <tr>
-                <td colspan="3"><strong>Realizado por:</strong> ${specialSellerFlow ? (selectedProductionOrder?.sellerName || printedBy) : printedBy}</td>
+                <td colspan="3"><strong>Creado por:</strong> ${createdByName}</td>
                 <td colspan="2"><strong>Distribucion:</strong> ${distributionNumber}</td>
               </tr>
               <tr>
-                <td colspan="5"><strong>Generado por sistema:</strong> ${printedBy} ${shipment.copyLabel ? `- ${shipment.copyLabel}` : ""}</td>
+                <td colspan="5"><strong>Generado por:</strong> ${generatedByName} ${shipment.copyLabel ? `- ${shipment.copyLabel}` : ""}</td>
               </tr>
+              ${
+                shipment.partialReleaseLabel
+                  ? `<tr><td colspan="5"><strong>Liberación parcial:</strong> ${shipment.partialReleaseLabel}</td></tr>`
+                  : ""
+              }
             `;
 
         const metaHeaderHtml =
@@ -946,11 +2195,12 @@ function PrepareShipments() {
           <section class="doc">
             ${metaHeaderHtml}
 
-            <table class="grid">
+            <table class="grid${showBrandColumnPrint ? " grid-with-brand" : ""}">
               <thead>
                 <tr>
                   <th>Cod.</th>
                   <th>Producto</th>
+                  ${showBrandColumnPrint ? "<th>Marca</th>" : ""}
                   <th>Color</th>
                   <th>Cantidad</th>
                   <th>Medida</th>
@@ -959,9 +2209,9 @@ function PrepareShipments() {
                 </tr>
               </thead>
               <tbody>
-                ${rows || `<tr><td colspan="7" class="empty">Sin productos</td></tr>`}
+                ${rows || `<tr><td colspan="${gridColCount}" class="empty">Sin productos</td></tr>`}
                 <tr class="total-row">
-                  <td colspan="3"><strong>Total</strong></td>
+                  <td colspan="${showBrandColumnPrint ? 4 : 3}"><strong>Total</strong></td>
                   <td class="numeric"><strong>${totalQty}</strong></td>
                   <td></td>
                   <td></td>
@@ -970,11 +2220,11 @@ function PrepareShipments() {
                 ${
                   specialSellerFlow
                     ? `<tr class="total-row">
-                        <td colspan="6"><strong>Costo de envio</strong></td>
+                        <td colspan="${gridColCount - 1}"><strong>Costo de envio</strong></td>
                         <td class="numeric"><strong>${shippingCost > 0 ? formatCurrency(shippingCost) : "Q0.00"}</strong></td>
                       </tr>
                       <tr class="total-row">
-                        <td colspan="6"><strong>Total con envio</strong></td>
+                        <td colspan="${gridColCount - 1}"><strong>Total con envio</strong></td>
                         <td class="numeric"><strong>${grandTotal > 0 ? formatCurrency(grandTotal) : "Q0.00"}</strong></td>
                       </tr>`
                     : ""
@@ -1101,11 +2351,17 @@ function PrepareShipments() {
             }
             .grid th:nth-child(1), .grid td:nth-child(1) { width: 12%; } /* Cod */
             .grid th:nth-child(2), .grid td:nth-child(2) { width: 23%; } /* Producto */
-            .grid th:nth-child(3), .grid td:nth-child(3) { width: 12%; } /* Color */
-            .grid th:nth-child(4), .grid td:nth-child(4) { width: 10%; } /* Cantidad */
-            .grid th:nth-child(5), .grid td:nth-child(5) { width: 14%; } /* Medida */
-            .grid th:nth-child(6), .grid td:nth-child(6) { width: 15%; } /* Precio */
-            .grid th:nth-child(7), .grid td:nth-child(7) { width: 15%; } /* Total */
+            .grid:not(.grid-with-brand) th:nth-child(3), .grid:not(.grid-with-brand) td:nth-child(3) { width: 12%; } /* Color */
+            .grid:not(.grid-with-brand) th:nth-child(4), .grid:not(.grid-with-brand) td:nth-child(4) { width: 10%; } /* Cantidad */
+            .grid:not(.grid-with-brand) th:nth-child(5), .grid:not(.grid-with-brand) td:nth-child(5) { width: 14%; } /* Medida */
+            .grid:not(.grid-with-brand) th:nth-child(6), .grid:not(.grid-with-brand) td:nth-child(6) { width: 15%; } /* Precio */
+            .grid:not(.grid-with-brand) th:nth-child(7), .grid:not(.grid-with-brand) td:nth-child(7) { width: 15%; } /* Total */
+            .grid.grid-with-brand th:nth-child(3), .grid.grid-with-brand td:nth-child(3) { width: 11%; } /* Marca */
+            .grid.grid-with-brand th:nth-child(4), .grid.grid-with-brand td:nth-child(4) { width: 10%; } /* Color */
+            .grid.grid-with-brand th:nth-child(5), .grid.grid-with-brand td:nth-child(5) { width: 9%; } /* Cantidad */
+            .grid.grid-with-brand th:nth-child(6), .grid.grid-with-brand td:nth-child(6) { width: 12%; } /* Medida */
+            .grid.grid-with-brand th:nth-child(7), .grid.grid-with-brand td:nth-child(7) { width: 13%; } /* Precio */
+            .grid.grid-with-brand th:nth-child(8), .grid.grid-with-brand td:nth-child(8) { width: 13%; } /* Total */
             .numeric {
               text-align: right;
               white-space: nowrap;
@@ -1148,11 +2404,14 @@ function PrepareShipments() {
       return;
     }
 
+    if (opiReferenceFlow) {
+      showError("Para OPI use Imprimir seleccionados; no hay exportación Excel en este flujo.");
+      return;
+    }
+
     const wb = XLSX.utils.book_new();
-    const distributionNumber = selectedDistribution?.distributionNumber || "N/A";
-    const distributionDescription = selectedDistribution?.description || "";
-    const printedBy = getPrintedBy();
-    const printedAt = formatNowGt();
+    const distributionNumber = printContextLabels.distributionNumber;
+    const distributionDescription = printContextLabels.distributionDescription;
     const sourceAddress = "Bodega Principal";
     const compactCode = (value) =>
       String(value || "")
@@ -1170,7 +2429,7 @@ function PrepareShipments() {
     docs.forEach((shipment, idx) => {
       const notesPayload = parseShipmentMetaNotes(shipment.notes);
       const shipmentProducts = shipment._printProducts || shipment.products || [];
-      const shipmentPackingItems = shipment._printPackingItems || getShipmentPackingItems(shipment);
+      const shipmentPackingItems = shipment._printPackingItems || resolveShipmentPackingItems(shipment);
       const packingRows = shipmentPackingItems
         .map((item) => {
           const material = packingMaterials.find((m) => Number(m.id) === Number(item.materialId));
@@ -1207,12 +2466,15 @@ function PrepareShipments() {
       const totalAmount = detailRows.reduce((sum, r) => sum + Number(r.total || 0), 0);
       const shippingCost = Number(shipment.shippingCost || 0);
       const grandTotal = totalAmount + (shippingCost > 0 ? shippingCost : 0);
+      const printedAt = resolveShipmentPrintDate(shipment);
+      const createdByName = resolveCreatedByName(shipment);
+      const generatedByName = resolveGeneratedByName(shipment);
 
       const sheetData = [
         ["Direccion Envio:", sourceAddress, "", "", "Fecha:", printedAt, ""],
         ["Direccion Recibido:", `${shipment.locationName || "-"} ${shipment.locationCode ? `(${shipment.locationCode})` : ""}`, "", "", "Envio:", shipmentCorrelative(shipment.shipmentNumber || shipment.id), ""],
-        ["Realizado por:", specialSellerFlow ? (selectedProductionOrder?.sellerName || printedBy) : printedBy, "", "", "Distribucion:", compactCode(distributionNumber), ""],
-        ["Generado por:", `${printedBy}${shipment.copyLabel ? ` - ${shipment.copyLabel}` : ""}`, "", "", "", "", ""],
+        ["Creado por:", createdByName, "", "", "Distribucion:", compactCode(distributionNumber), ""],
+        ["Generado por:", `${generatedByName}${shipment.copyLabel ? ` - ${shipment.copyLabel}` : ""}`, "", "", "", "", ""],
         ["Cod.", "Producto", "Color", "Cantidad", "Medida", "Precio", "Total"],
         ...detailRows.map((row) => [
           row.code,
@@ -1350,6 +2612,10 @@ function PrepareShipments() {
   };
 
   const exportCurrentPdf = () => {
+    if (opiReferenceFlow) {
+      showError("Para OPI use Imprimir seleccionados.");
+      return;
+    }
     if (specialSellerFlow) {
       const rows = [];
       (filteredShipments || []).forEach((shipment) => {
@@ -1367,7 +2633,7 @@ function PrepareShipments() {
             rowType: "PRODUCTO",
           });
         });
-        getShipmentPackingItems(shipment).forEach((item) => {
+        resolveShipmentPackingItems(shipment).forEach((item) => {
           const material = packingMaterials.find((m) => Number(m.id) === Number(item.materialId));
           const qty = Number(item.quantity || 0);
           const unitPrice = resolveMaterialUnitPrice(item, material);
@@ -1434,58 +2700,153 @@ function PrepareShipments() {
         throw new Error("No se encontró el envío seleccionado");
       }
 
-      const notesPacking = getShipmentPackingItems(shipment);
-
-      const movementMap = new Map();
-      notesPacking.forEach((item) => {
-        movementMap.set(item.materialId, item.quantity);
-      });
-      for (const material of packingMaterials) {
-        const key = getPackingKey(shipmentId, material.id);
-        const manualQty = Number(packingQtyByShipment[key] || 0);
-        if (Number.isFinite(manualQty) && manualQty > 0) {
-          movementMap.set(Number(material.id), manualQty);
-        }
-      }
-
-      for (const [materialId, qty] of movementMap.entries()) {
-        if (!Number.isFinite(qty) || qty <= 0) continue;
-
-        const reasonParts = [
-          "Salida empaque por distribución PT",
-          shipment.shipmentNumber ? `Envío ${shipment.shipmentNumber}` : "",
-          shipment.locationName ? `Kiosko ${shipment.locationName}` : "",
-        ].filter(Boolean);
-
-        const moveResponse = await fetch(
-          `${process.env.REACT_APP_API_URL || "http://localhost:8080/api"}/public/inventory/materials/${materialId}/movements`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              movementType: "OUT",
-              quantity: Number(qty.toFixed(2)),
-              reason: reasonParts.join(" | "),
-            }),
-          }
-        );
-        if (!moveResponse.ok) {
-          const errorData = await moveResponse
-            .json()
-            .catch(() => ({ message: "No se pudo descargar empaque de inventario" }));
-          throw new Error(errorData.message || "No se pudo descargar empaque de inventario");
-        }
+      if (!opiInternalFlow && !standaloneInternalFlow) {
+        await assertDispatchStockForProducts(shipment.products || []);
       }
 
       await sendShipment(shipmentId);
       showSuccess("Envio marcado como enviado correctamente");
-      await loadShipments(distributionId);
+      await reloadCurrentShipments();
     } catch (err) {
       const message = err.message || "No se pudo marcar el envio como enviado";
       setError(message);
       showError(message);
     } finally {
       setSendingShipmentId(null);
+    }
+  };
+
+  const handleRevertSentShipment = async (shipment) => {
+    if (!shipment?.id) return;
+    if (
+      !window.confirm(
+        "¿Regresar este envío a bodega? Se revierte la salida de Bodega PT/Devoluciones y el envío quedará confirmado (sin salir)."
+      )
+    ) {
+      return;
+    }
+    try {
+      setRevertingShipmentId(shipment.id);
+      setError("");
+      await revertSentShipment(shipment.id);
+      showSuccess("Envío regresado a bodega. Quedó confirmado y puede editarse o anularse.");
+      await reloadCurrentShipments();
+    } catch (err) {
+      const message = err.message || "No se pudo regresar el envío a bodega";
+      setError(message);
+      showError(message);
+    } finally {
+      setRevertingShipmentId(null);
+    }
+  };
+
+  const handleEditShipmentFromPartial = async (release) => {
+    if (!release?.shipmentId) return;
+    let shipment = (shipments || []).find((s) => Number(s.id) === Number(release.shipmentId));
+    if (!shipment) {
+      try {
+        shipment = await getShipmentById(release.shipmentId);
+      } catch (err) {
+        showError(err.message || "No se pudo cargar el envío");
+        return;
+      }
+    }
+    setEditProductsShipment(shipment);
+  };
+
+  const handleSendShipmentFromPartial = async (release) => {
+    if (!release?.shipmentId) return;
+    await handleSendShipment(release.shipmentId);
+  };
+
+  const shipmentSendButtonLabel =
+    opkFlow || opckFlow || standaloneKioskFlow || distributionFlow ? "Enviar" : "Listo / Enviar";
+
+  const reloadAfterShipmentCancel = async () => {
+    if (selectedOpvOrderId) {
+      await reloadOpvShipmentsView();
+      if (viewMode === "pending") await loadPendingOrders();
+      return;
+    }
+    if (selectedOpcOrderId) {
+      await reloadOpcShipmentsView();
+      if (viewMode === "pending") await loadPendingOrders();
+      return;
+    }
+    if (selectedOpckOrderId) {
+      await reloadOpckShipmentsView();
+      if (viewMode === "pending") await loadPendingOrders();
+      return;
+    }
+    if (selectedOpkOrderId) {
+      await reloadOpkShipmentsView();
+      if (viewMode === "pending") await loadPendingOrders();
+      return;
+    }
+    if (selectedOpiOrderId) {
+      const order = await getProductionOrderById(selectedOpiOrderId);
+      setSelectedProductionOrder(order);
+      if (order.vendorShipmentVoidedAt) {
+        setShipments([]);
+        setCopiesByShipment({});
+        setSelectedRows({});
+      } else {
+        const synthetic = buildOpiShipmentFromOrder(order);
+        setShipments([synthetic]);
+        setCopiesByShipment({ [synthetic.id]: 1 });
+        setSelectedRows({ [synthetic.id]: true });
+      }
+      if (viewMode === "pending") await loadPendingOrders();
+      return;
+    }
+    if (selectedStandaloneKioskId) {
+      await loadStandaloneKioskShipments();
+      try {
+        const shipment = await getShipmentById(selectedStandaloneKioskId);
+        const status = String(shipment?.status || "").trim().toUpperCase();
+        if (status === "CANCELLED") {
+          setSelectedStandaloneKioskId("");
+          setShipments([]);
+          setSelectedRows({});
+        } else {
+          setShipments([shipment]);
+          setCopiesByShipment({ [shipment.id]: 1 });
+          setSelectedRows({ [shipment.id]: true });
+        }
+      } catch (_err) {
+        setSelectedStandaloneKioskId("");
+        setShipments([]);
+      }
+      return;
+    }
+    await reloadCurrentShipments();
+    if (viewMode === "pending") await loadPendingOrders();
+  };
+
+  const handleCancelShipment = async (shipment) => {
+    if (!shipment) return;
+    if (!window.confirm("¿Anular este envío? Solo aplica antes de enviar (borrador o confirmado).")) {
+      return;
+    }
+    try {
+      setCancellingShipmentId(shipment.id);
+      setError("");
+      if (isSyntheticShipmentId(shipment.id)) {
+        const orderId = syntheticShipmentOrderId(shipment.id);
+        if (!orderId) throw new Error("No se pudo identificar la orden del documento");
+        await voidVendorShipmentDocument(orderId);
+        showSuccess("Documento de envío anulado");
+      } else {
+        await cancelShipment(shipment.id);
+        showSuccess("Envío anulado correctamente");
+      }
+      await reloadAfterShipmentCancel();
+    } catch (err) {
+      const message = err.message || "No se pudo anular el envío";
+      setError(message);
+      showError(message);
+    } finally {
+      setCancellingShipmentId(null);
     }
   };
 
@@ -1507,12 +2868,43 @@ function PrepareShipments() {
                   <Button
                     color="secondary"
                     size="sm"
-                    onClick={loadDistributions}
-                    disabled={loadingDistributions}
+                    onClick={() => {
+                      loadDistributions();
+                      loadOpvOrders();
+                      loadOpiOrders();
+                      loadOpcOrders();
+                      loadOpckOrders();
+                      loadOpkOrders();
+                      loadStandaloneKioskShipments();
+                      if (viewMode === "pending") loadPendingOrders();
+                    }}
+                    disabled={loadingDistributions || loadingPending}
                     className="mr-2 mt-2"
                   >
                     {loadingDistributions ? <Spinner size="sm" /> : <i className="nc-icon nc-refresh-69 mr-1" />}
                     Actualizar
+                  </Button>
+                  {specialSellerFlow && (
+                    <Button
+                      color="warning"
+                      size="sm"
+                      onClick={() => openOpvPriceReview(false)}
+                      disabled={!selectedProductionOrder?.id}
+                      className="mt-2 mr-2"
+                    >
+                      <i className="nc-icon nc-money-coins mr-1" />
+                      Revisar precios
+                    </Button>
+                  )}
+                  <Button
+                    color="success"
+                    size="sm"
+                    onClick={() => setStandaloneKioskModalOpen(true)}
+                    disabled={pendingFlow}
+                    className="mt-2 mr-2"
+                  >
+                    <i className="nc-icon nc-shop mr-1" />
+                    Envío directo a kiosko
                   </Button>
                   <Button
                     color="primary"
@@ -1522,7 +2914,7 @@ function PrepareShipments() {
                     className="mt-2 mr-2"
                   >
                     <i className="nc-icon nc-paper mr-1" />
-                    Imprimir Seleccionados
+                    {specialSellerFlow ? "Revisar precios e imprimir" : "Imprimir Seleccionados"}
                   </Button>
                   <Button
                     color="secondary"
@@ -1559,8 +2951,15 @@ function PrepareShipments() {
             </CardHeader>
             <CardBody>
               <p className="text-muted mb-4">
-                Selecciona una distribucion, prepara envios por kiosko y luego imprime solo los que necesites con copias.
+                {pendingFlow
+                  ? "Órdenes OPC, OPI, OPV, OPCK u OPK sin envío confirmado. Genere el envío de cada una con el formato correspondiente o ábrala para imprimir (OPV)."
+                  : "Selecciona una distribución, orden OP (OPV/OPI/OPC/OPCK/OPK) o prepara envíos por kiosko e imprime con copias."}
               </p>
+              {pendingFlow && (
+                <Alert color="primary" className="mb-3">
+                  <strong>Órdenes sin envío:</strong> use <strong>Generar envío</strong> (OPC, OPI, OPCK, OPK) o <strong>Abrir para imprimir</strong> (OPV, documento desde la orden).
+                </Alert>
+              )}
               {specialSellerFlow && (
                 <Alert color="warning">
                   Flujo especial OPV vendedor activo ({selectedProductionOrder?.sellerName || "Luis Felipe"}): sin límite de productos por envío y usando precio vendedor.
@@ -1570,159 +2969,467 @@ function PrepareShipments() {
                 </Alert>
               )}
 
+              {opcFlow && (
+                <Alert color="info">
+                  <strong>OPC (cinchos):</strong> envíos generados desde la orden de producción. Impresión con el mismo formato que distribución; al marcar enviado se descuenta Bodega PT (con kiosko opcional en la generación del envío).
+                </Alert>
+              )}
+
+              {opckFlow && (
+                <Alert color="info">
+                  <strong>OPCK (kiosko):</strong> impresión con el mismo formato que distribución / OPC. Si no hay envío, genérelo desde la vista <strong>Órdenes sin envío (OP)</strong>.
+                </Alert>
+              )}
+
+              {opkFlow && (
+                <Alert color="info">
+                  <strong>OPK (kiosko, sin distribución):</strong> <strong>Generar envío</strong> (completo o parcial) solo crea el documento{" "}
+                  <strong>confirmado</strong> — sin revisar stock ni salir de bodega. Cuando esté listo, use{" "}
+                  <strong>Enviar</strong> en la tabla (ahí sí se valida stock y queda en tránsito).
+                  Recepción en <strong>POS → Recibir distribución</strong>.
+                </Alert>
+              )}
+
+              {standaloneKioskFlow && (
+                <Alert color="info">
+                  <strong>Envío directo a kiosko (sin OP):</strong> documento formato OPK. Si quedó solo confirmado, use{" "}
+                  <strong>Enviar</strong>. Los empaques <strong>SUM-</strong> se agregan con el botón <strong>Empaques</strong> en la tabla
+                  o al crear el envío. Recepción en <strong>POS → Recibir distribución</strong>.
+                </Alert>
+              )}
+
+              {standaloneInternalFlow && (
+                <Alert color="success">
+                  <strong>ENVI (sin orden de producción):</strong> envíos ya autorizados por Contabilidad.
+                  Impresión con formato <strong>ENVIO INTERNO</strong> (planilla o defectos según solicitud).
+                  Para crear una nueva solicitud use{" "}
+                  <Button color="link" className="p-0 align-baseline" onClick={() => navigate("/admin/authorize-shipments")}>
+                    Autorizar envíos
+                  </Button>.
+                </Alert>
+              )}
+
+              {opiInternalFlow && (
+                <Alert color="secondary">
+                  <strong>OPI (orden interna):</strong> documento de entrega al colaborador. No usa kiosko ni movimiento de inventario de PT desde esta pantalla; solo impresión con precio de referencia (precio de venta de catálogo y opción 50%).
+                  <div className="mt-2 d-flex align-items-center flex-wrap">
+                    <Label check className="mb-0 mr-2">
+                      <Input
+                        type="checkbox"
+                        checked={applyOpiHalfPrice}
+                        onChange={(e) => setApplyOpiHalfPrice(e.target.checked)}
+                        className="mr-2"
+                      />
+                      Mostrar precio con 50% de descuento sobre precio de venta (empleado)
+                    </Label>
+                  </div>
+                </Alert>
+              )}
+
               {error && <Alert color="danger">{error}</Alert>}
+              {distributionFlow && (shipments || []).length > 0 && (
+                <Alert color="info">
+                  Se muestran todos los envíos de esta distribución (incluidos enviados) para imprimir o exportar de nuevo.
+                  El botón <strong>Enviar</strong> solo aplica a envíos en estado <strong>Confirmado</strong>.
+                </Alert>
+              )}
               {hiddenProcessedCount > 0 && (
                 <Alert color="light">
-                  Se ocultaron {hiddenProcessedCount} envío(s) ya procesado(s) para enfocarse solo en pendientes por preparar.
+                  Se ocultaron {hiddenProcessedCount} envío(s) ya entregado(s) o anulado(s). Los envíos <strong>en tránsito (Enviado)</strong> siguen visibles para reimprimir.
                 </Alert>
               )}
 
               <Row className="mb-3">
-                <Col md="3">
-                  <Label><strong>Distribucion</strong></Label>
-                  <Input
-                    type="select"
-                    value={distributionId}
-                    onChange={(e) => {
-                      setDistributionId(e.target.value);
-                      if (e.target.value) {
-                        setSelectedOpvOrderId("");
-                      }
+                <Col md="2">
+                  <Label><strong>Vista</strong></Label>
+                  <FilterableSelect
+                    value={viewMode}
+                    onChange={(v) => {
+                      setViewMode(v || "shipments");
+                      if (v === "pending") clearOrderSelectors();
                     }}
-                    disabled={loadingDistributions}
-                  >
-                    <option value="">-- Seleccione una distribucion --</option>
-                    {distributions.map((dist) => (
-                      <option key={dist.id} value={dist.id}>
-                        {dist.distributionNumber} - {dist.distributionDate ? formatDateGt(dist.distributionDate) : "Sin fecha"}
-                      </option>
-                    ))}
-                  </Input>
-                </Col>
-                <Col md="3">
-                  <Label><strong>Orden OPV vendedor</strong></Label>
-                  <Input
-                    type="select"
-                    value={selectedOpvOrderId}
-                    onChange={(e) => {
-                      setSelectedOpvOrderId(e.target.value);
-                      if (e.target.value) {
-                        setDistributionId("");
-                      } else {
-                        setShipments([]);
-                        setSelectedProductionOrder(null);
-                      }
-                    }}
-                    disabled={loadingOpvOrders}
-                  >
-                    <option value="">-- Seleccione OPV de Luis Felipe --</option>
-                    {opvOrders.map((order) => (
-                      <option key={order.id} value={order.id}>
-                        {order.code}
-                        {order.vendorShipmentNumber ? ` · ${order.vendorShipmentNumber}` : ""} —{" "}
-                        {order.customerName || "Cliente"} ({order.status})
-                      </option>
-                    ))}
-                  </Input>
-                </Col>
-                <Col md="4">
-                  <Label><strong>Buscar envio (codigo, kiosko, SKU o nombre)</strong></Label>
-                  <Input
-                    type="search"
-                    placeholder="Ej: ENV-001, PRADERA, 009901 o billetera"
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
-                    disabled={!distributionId && !selectedOpvOrderId}
+                    allowEmpty={false}
+                    options={[
+                      { value: "shipments", label: "Envíos / imprimir", searchText: "envios imprimir" },
+                      { value: "pending", label: "Órdenes sin envío (OP)", searchText: "sin envio pendiente op" },
+                    ]}
+                    placeholder="Vista…"
                   />
                 </Col>
-                <Col md="2" className="d-flex align-items-end">
+                <Col md="2">
+                  <Label><strong>Distribucion</strong></Label>
+                  <FilterableSelect
+                    value={distributionId}
+                    onChange={(id) => {
+                      setDistributionId(id);
+                      if (id) {
+                        setViewMode("shipments");
+                        activateOrderSource(null, "");
+                      }
+                    }}
+                    options={distributionOptions}
+                    disabled={loadingDistributions || pendingFlow}
+                    placeholder="Buscar distribución…"
+                    emptyLabel="— Seleccione una distribución —"
+                  />
+                </Col>
+                <Col md="2">
+                  <Label><strong>Orden OPV vendedor</strong></Label>
+                  <FilterableSelect
+                    value={selectedOpvOrderId}
+                    onChange={(id) => activateOrderSource("OPV", id)}
+                    options={opvOrderOptions}
+                    disabled={loadingOpvOrders || pendingFlow}
+                    placeholder="Buscar OPV…"
+                    emptyLabel="— Seleccione orden OPV —"
+                  />
+                </Col>
+                <Col md="2">
+                  <Label><strong>Orden OPI (interna)</strong></Label>
+                  <FilterableSelect
+                    value={selectedOpiOrderId}
+                    onChange={(id) => activateOrderSource("OPI", id)}
+                    options={opiOrderOptions}
+                    disabled={loadingOpiOrders || pendingFlow}
+                    placeholder="Buscar OPI…"
+                    emptyLabel="— OPI (sin kiosko / PT) —"
+                  />
+                </Col>
+                <Col md="2">
+                  <Label><strong>Orden OPC (cinchos)</strong></Label>
+                  <FilterableSelect
+                    value={selectedOpcOrderId}
+                    onChange={(id) => activateOrderSource("OPC", id)}
+                    options={opcOrderOptions}
+                    disabled={loadingOpcOrders || pendingFlow}
+                    placeholder="Buscar OPC…"
+                    emptyLabel="— Orden OPC —"
+                  />
+                </Col>
+                <Col md="2">
+                  <Label><strong>Orden OPCK (kiosko)</strong></Label>
+                  <FilterableSelect
+                    value={selectedOpckOrderId}
+                    onChange={(id) => activateOrderSource("OPCK", id)}
+                    options={opckOrderOptions}
+                    disabled={loadingOpckOrders || pendingFlow}
+                    placeholder="Buscar OPCK…"
+                    emptyLabel="— OPCK —"
+                  />
+                </Col>
+              </Row>
+
+              <Row className="mb-3">
+                <Col md="3">
+                  <Label><strong>Orden OPK (kiosko)</strong></Label>
+                  <FilterableSelect
+                    value={selectedOpkOrderId}
+                    onChange={(id) => activateOrderSource("OPK", id)}
+                    options={opkOrderOptions}
+                    disabled={loadingOpkOrders || pendingFlow}
+                    placeholder="Buscar OPK…"
+                    emptyLabel="— OPK —"
+                  />
+                </Col>
+                <Col md="4">
+                  <Label><strong>Envío interno ENVI (sin OP)</strong></Label>
+                  <FilterableSelect
+                    value={selectedStandaloneInternalId}
+                    onChange={(id) => {
+                      if (id) {
+                        setViewMode("shipments");
+                        setDistributionId("");
+                        setSelectedOpvOrderId("");
+                        setSelectedOpiOrderId("");
+                        setSelectedOpcOrderId("");
+                        setSelectedOpckOrderId("");
+                        setSelectedOpkOrderId("");
+                        setSelectedStandaloneKioskId("");
+                        setSelectedStandaloneInternalId(String(id));
+                      } else {
+                        setSelectedStandaloneInternalId("");
+                        if (
+                          !distributionId &&
+                          !selectedOpvOrderId &&
+                          !selectedOpiOrderId &&
+                          !selectedOpcOrderId &&
+                          !selectedOpckOrderId &&
+                          !selectedOpkOrderId &&
+                          !selectedStandaloneKioskId
+                        ) {
+                          setShipments([]);
+                          setSelectedProductionOrder(null);
+                        }
+                      }
+                    }}
+                    options={standaloneInternalOptions}
+                    disabled={loadingStandaloneInternalList || pendingFlow}
+                    placeholder="Buscar ENVI…"
+                    emptyLabel="— ENVI creados (sin orden) —"
+                  />
+                </Col>
+                <Col md="4" className="d-flex align-items-end pb-1">
                   <Button
-                    color={allFilteredSelected ? "secondary" : "info"}
-                    outline={!allFilteredSelected}
-                    block
-                    onClick={toggleAllFiltered}
-                    disabled={!hasAnyFiltered}
+                    color="primary"
+                    size="sm"
+                    onClick={() => navigate("/admin/authorize-shipments")}
+                    disabled={pendingFlow}
                   >
-                    {allFilteredSelected ? "Quitar todos" : "Seleccionar todos"}
+                    <i className="nc-icon nc-send mr-1" />
+                    Solicitar envío interno
                   </Button>
                 </Col>
               </Row>
+
               <Row className="mb-3">
-                <Col md="3">
-                  <Label><strong>Ancho papel (mm)</strong></Label>
-                  <Input
-                    type="number"
-                    min="120"
-                    step="0.1"
-                    value={paperWidthMm}
-                    onChange={(e) => setPaperWidthMm(e.target.value)}
+                <Col md="8">
+                  <Label><strong>Envío directo a kiosko (sin OP)</strong></Label>
+                  <FilterableSelect
+                    value={selectedStandaloneKioskId}
+                    onChange={(id) => {
+                      if (id) {
+                        setViewMode("shipments");
+                        setDistributionId("");
+                        setSelectedOpvOrderId("");
+                        setSelectedOpiOrderId("");
+                        setSelectedOpcOrderId("");
+                        setSelectedOpckOrderId("");
+                        setSelectedOpkOrderId("");
+                        setSelectedStandaloneInternalId("");
+                        setSelectedStandaloneKioskId(String(id));
+                      } else {
+                        setSelectedStandaloneKioskId("");
+                        if (
+                          !distributionId &&
+                          !selectedOpvOrderId &&
+                          !selectedOpiOrderId &&
+                          !selectedOpcOrderId &&
+                          !selectedOpckOrderId &&
+                          !selectedOpkOrderId &&
+                          !selectedStandaloneInternalId
+                        ) {
+                          setShipments([]);
+                          setSelectedProductionOrder(null);
+                        }
+                      }
+                    }}
+                    options={standaloneKioskOptions}
+                    disabled={loadingStandaloneKioskList || pendingFlow}
+                    placeholder="Buscar envío directo…"
+                    emptyLabel="— Envíos directos a kiosko —"
                   />
                 </Col>
-                <Col md="3">
-                  <Label><strong>Alto hoja continua (mm)</strong></Label>
-                  <Input
-                    type="number"
-                    min="80"
-                    step="0.1"
-                    value={paperHeightMm}
-                    onChange={(e) => setPaperHeightMm(e.target.value)}
-                  />
-                </Col>
-                <Col md="3">
-                  <Label><strong>Fuente impresión</strong></Label>
-                  <Input
-                    type="select"
-                    value={printFontMode}
-                    onChange={(e) => setPrintFontMode(e.target.value)}
+                <Col md="4" className="d-flex align-items-end pb-1">
+                  <Button
+                    color="success"
+                    size="sm"
+                    outline
+                    onClick={() => setStandaloneKioskModalOpen(true)}
+                    disabled={pendingFlow}
                   >
-                    <option value="DRAFT_ROMAN">Draft Roman</option>
-                    <option value="SANS_SERIF">Sans Serif</option>
-                    <option value="HSD">HSD (aprox.)</option>
-                  </Input>
+                    <i className="nc-icon nc-simple-add mr-1" />
+                    Nuevo envío a kiosko
+                  </Button>
                 </Col>
-                <Col md="3" className="d-flex align-items-end">
-                  <Alert color="light" className="mb-0 w-100">
-                    Ajuste sugerido: <strong>Carta vertical 216 x 279.4 mm</strong> (8.5 x 11 pulgadas).
-                    <div className="mt-2">
-                      <Button
-                        color="secondary"
-                        size="sm"
-                        outline
-                        onClick={() => {
-                          setPaperWidthMm(216);
-                          setPaperHeightMm(279.4);
-                        }}
-                      >
-                        Usar Carta Vertical
-                      </Button>
-                    </div>
-                  </Alert>
+              </Row>
+
+              <Row className="mb-3">
+                <Col md="2">
+                  <Label><strong>Buscar</strong></Label>
+                  <Input
+                    type="search"
+                    placeholder="Código, cliente, ENV…"
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                  />
                 </Col>
+                {pendingFlow ? (
+                  <Col md="2">
+                    <Label><strong>Tipo OP</strong></Label>
+                    <FilterableSelect
+                      value={pendingKindFilter}
+                      onChange={(v) => setPendingKindFilter(v || "ALL")}
+                      allowEmpty={false}
+                      options={pendingKindOptions}
+                      placeholder="Filtrar tipo…"
+                    />
+                  </Col>
+                ) : (
+                  <Col md="2" className="d-flex align-items-end">
+                    <Button
+                      color={allFilteredSelected ? "secondary" : "info"}
+                      outline={!allFilteredSelected}
+                      block
+                      onClick={toggleAllFiltered}
+                      disabled={!hasAnyFiltered}
+                    >
+                      {allFilteredSelected ? "Quitar todos" : "Seleccionar todos"}
+                    </Button>
+                  </Col>
+                )}
               </Row>
               <Row className="mb-3">
                 <Col md="12">
+                  {opkFlow ? (
                   <Alert color="info" className="mb-0">
-                    Al enviar, también se descuentan empaques seleccionados (SKU <strong>SUM-</strong>) del inventario de materiales.
+                    <strong>OPK:</strong> use <strong>Generar envío</strong> en el parcial (solo crea documento confirmado).
+                    Después use <strong>Enviar</strong> en el parcial o en la tabla (valida stock y sale a tránsito).
+                    Recepción en <strong>POS → Recibir distribución</strong>.
+                  </Alert>
+                  ) : standaloneKioskFlow ? (
+                  <Alert color="info" className="mb-0">
+                    <strong>Directo kiosko:</strong> <strong>Generar envío</strong> deja el documento confirmado; use <strong>Enviar</strong> para salir de bodega.
+                    Empaques <strong>SUM-</strong>: botón <strong>Empaques</strong> en la tabla o al crear con <strong>Nuevo envío a kiosko</strong>.
+                    Recepción en <strong>POS → Recibir distribución</strong>.
+                  </Alert>
+                  ) : !opiInternalFlow && !standaloneInternalFlow && !specialSellerFlow && !opckFlow ? (
+                  <Alert color="info" className="mb-0">
+                    Al <strong>enviar</strong> solo se descuenta inventario de <strong>prendas</strong> desde Bodega PT.
+                    Los empaques <strong>SUM-</strong> se registran en el envío (botón Empaques) para impresión; la rebaja de materiales la hace el encargado al entregarlos al equipo de despacho (Vista Materiales / entrega móvil).
                     <div className="mt-2">
                       Para Epson LX-350: en el diálogo de impresión usa escala <strong>100%</strong>,
                       tamaño <strong>Carta vertical</strong> y desactiva <strong>encabezados/pies</strong>.
                     </div>
                   </Alert>
+                  ) : (
+                  <Alert color="light" className="mb-0">
+                    Flujo OPV/OPI/ENVI/OPCK: use <strong>Imprimir seleccionados</strong> para el documento. No aplica el botón &quot;Listo / Enviar&quot; de salida PT desde aquí (salvo distribución y OPC con envío confirmado).
+                  </Alert>
+                  )}
                 </Col>
               </Row>
 
-              {loadingShipments ? (
+              {selectedProductionOrder && !pendingFlow && (selectedOpvOrderId || selectedOpcOrderId || selectedOpckOrderId) && (
+                <PrepareShipmentsCustomerBlock order={selectedProductionOrder} />
+              )}
+
+              {showPartialReleasesPanel && (
+                <ProductionOrderPartialReleasesPanel
+                  context="prepare-shipments"
+                  order={buildPartialPanelOrder(selectedProductionOrder)}
+                  onRefresh={reloadPartialOrderShipmentsView}
+                  onEditShipment={handleEditShipmentFromPartial}
+                  onSendShipment={opkFlow || opckFlow ? handleSendShipmentFromPartial : undefined}
+                />
+              )}
+
+              {partialPendingCount > 0 && showPartialReleasesPanel && (
+                <Alert color="info" className="mb-3">
+                  Hay {partialPendingCount} envío(s) parcial(es) confirmado(s) sin documento generado.
+                  Use <strong>Generar envío</strong> en la tabla de liberaciones parciales de arriba.
+                </Alert>
+              )}
+
+              {pendingFlow ? (
+                loadingPending ? (
+                  <div className="text-center py-5">
+                    <Spinner color="primary" />
+                    <p className="mt-2 mb-0">Cargando órdenes sin envío…</p>
+                  </div>
+                ) : filteredPendingOrders.length === 0 ? (
+                  <Alert color="success" className="mb-0">
+                    No hay órdenes OPC, OPI, OPV, OPCK u OPK pendientes de envío con el filtro actual.
+                  </Alert>
+                ) : (
+                  <Table responsive>
+                    <thead className="text-primary">
+                      <tr>
+                        <th>Tipo</th>
+                        <th>Código</th>
+                        <th>Cliente</th>
+                        <th>Teléfono</th>
+                        <th>Entrega</th>
+                        <th>Vendedor</th>
+                        <th>Estado OP</th>
+                        <th className="text-right">Acción</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredPendingOrders.map((order) => {
+                        const kind = classifyPrepareOrder(order);
+                        const kindColors = { OPC: "primary", OPI: "secondary", OPV: "warning", OPCK: "info", OPK: "success" };
+                        const canGenerate = canGenerateShipmentForOrder(order);
+                        return (
+                          <tr key={order.id}>
+                            <td>
+                              <Badge color={kindColors[kind] || "dark"}>{kind}</Badge>
+                            </td>
+                            <td>
+                              <strong>{order.code}</strong>
+                            </td>
+                            <td>{order.customerName || "—"}</td>
+                            <td>{order.customerPhone || "—"}</td>
+                            <td>{order.deliveryDate ? formatDateGt(order.deliveryDate) : "—"}</td>
+                            <td>{order.sellerName || "—"}</td>
+                            <td>{order.status || "—"}</td>
+                            <td className="text-right">
+                              {(kind === "OPV" || kind === "OPC" || kind === "OPCK" || kind === "OPK") &&
+                                orderAllowsPartialReleases(order) && (
+                                <Button
+                                  color="warning"
+                                  size="sm"
+                                  outline
+                                  className="mr-1"
+                                  onClick={() => openOrderInShipmentsView(order)}
+                                >
+                                  Parciales
+                                </Button>
+                              )}
+                              {canGenerate ? (
+                                <Button
+                                  color="success"
+                                  size="sm"
+                                  onClick={() => setGenerateModalOrder(order)}
+                                >
+                                  Generar envío
+                                </Button>
+                              ) : (
+                                <Button
+                                  color="primary"
+                                  size="sm"
+                                  outline
+                                  onClick={() => openOrderInShipmentsView(order)}
+                                >
+                                  Abrir para imprimir
+                                </Button>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </Table>
+                )
+              ) : loadingShipments ? (
                 <div className="text-center py-5">
                   <Spinner color="primary" />
                   <p className="mt-2 mb-0">Cargando envios...</p>
                 </div>
-              ) : !distributionId && !selectedOpvOrderId ? (
+              ) : !distributionId &&
+                !selectedOpvOrderId &&
+                !selectedOpiOrderId &&
+                !selectedOpcOrderId &&
+                !selectedOpckOrderId &&
+                !selectedOpkOrderId &&
+                !selectedStandaloneInternalId &&
+                !selectedStandaloneKioskId ? (
                 <Alert color="light" className="mb-0">
-                  Primero selecciona una distribución o una orden OPV de Luis Felipe para preparar los envíos.
+                  Selecciona una distribución, orden OPV/OPI/OPC/OPCK/OPK, un <strong>ENVI sin OP</strong>, un{" "}
+                  <strong>envío directo a kiosko</strong>, o cambia a <strong>Órdenes sin envío (OP)</strong> para generar envíos.
                 </Alert>
               ) : filteredShipments.length === 0 ? (
                 <Alert color="warning" className="mb-0">
-                  No hay envios para esta distribucion con ese filtro.
+                  {opcFlow || opckFlow || opkFlow
+                    ? "Esta orden no tiene envíos generados. Use la vista «Órdenes sin envío (OP)» para generar uno."
+                    : standaloneKioskFlow
+                      ? "No hay líneas en este envío o ajuste el filtro de búsqueda."
+                    : specialSellerFlow && partialPendingCount > 0
+                      ? "Confirme y genere el envío desde liberaciones parciales (arriba), o ajuste el filtro de búsqueda."
+                      : partialPendingCount > 0
+                        ? "Confirme y genere el envío desde liberaciones parciales (arriba), o ajuste el filtro de búsqueda."
+                        : specialSellerFlow || isEntreCuerosCustomerOpv(selectedProductionOrder)
+                        ? "Cree un envío parcial arriba o use el documento de la orden cuando corresponda."
+                        : "No hay envíos con el filtro actual."}
                 </Alert>
               ) : (
                 <Table responsive>
@@ -1730,7 +3437,10 @@ function PrepareShipments() {
                     <tr>
                       <th style={{ width: 45 }} />
                       <th>Código</th>
-                      <th>Kiosko</th>
+                      {productionOrderPrintFlow && <th>Cliente</th>}
+                      {productionOrderPrintFlow && <th>Fecha envío</th>}
+                      {productionOrderPrintFlow && <th>Generado por</th>}
+                      <th>{opcFlow || opckFlow || opkFlow ? "Destino / Kiosko" : "Kiosko"}</th>
                       <th>Productos</th>
                       <th>Copias</th>
                       <th>Estado</th>
@@ -1750,9 +3460,37 @@ function PrepareShipments() {
                         </td>
                         <td>
                           <strong>{shipment.shipmentNumber || shipment.id}</strong>
+                          {shipment.partialReleaseLabel ? (
+                            <Badge color="info" className="ml-1">{shipment.partialReleaseLabel}</Badge>
+                          ) : null}
                         </td>
+                        {productionOrderPrintFlow && (
+                          <td>
+                            <div>{selectedProductionOrder?.customerName || "—"}</div>
+                            {selectedProductionOrder?.customerAddress ? (
+                              <small className="text-muted d-block">
+                                {selectedProductionOrder.customerAddress}
+                              </small>
+                            ) : null}
+                          </td>
+                        )}
+                        {productionOrderPrintFlow && (
+                          <td>
+                            {(() => {
+                              const docDate =
+                                parseShipmentMetaNotes(shipment.notes).documentDate ||
+                                selectedProductionOrder?.deliveryDate;
+                              return docDate ? formatDateGt(docDate) : "—";
+                            })()}
+                          </td>
+                        )}
+                        {productionOrderPrintFlow && (
+                          <td>{shipment.createdByName || "—"}</td>
+                        )}
                         <td>
-                          {shipment.locationName || "-"}{" "}
+                          {shipment.locationName ||
+                            extractDestinationFromShipmentNotes(shipment.notes) ||
+                            "-"}{" "}
                           {shipment.locationCode ? (
                             <Badge color="light" className="ml-1">{shipment.locationCode}</Badge>
                           ) : null}
@@ -1779,7 +3517,7 @@ function PrepareShipments() {
                         <td>
                           {(() => {
                             const shipmentMeta = parseShipmentMetaNotes(shipment.notes);
-                            const shipmentPacking = getShipmentPackingItems(shipment);
+                            const shipmentPacking = resolveShipmentPackingItems(shipment);
                             const beltFromProducts = (shipment.products || [])
                               .filter((item) => String(item.size || "").trim() !== "")
                               .map((item) => ({
@@ -1847,30 +3585,114 @@ function PrepareShipments() {
                         </td>
                         <td className="text-right">
                           <Button
+                            color="warning"
+                            size="sm"
+                            outline
+                            onClick={() => setEditProductsShipment(shipment)}
+                            className="mr-2"
+                            disabled={
+                              !isShipmentProductsEditable(shipment.status) ||
+                              isSyntheticShipmentId(shipment.id) ||
+                              specialSellerFlow ||
+                              opiInternalFlow ||
+                              standaloneInternalFlow
+                            }
+                            title={
+                              !isShipmentProductsEditable(shipment.status)
+                                ? "Solo se pueden editar envíos en borrador, confirmado o en tránsito"
+                                : "Corregir productos del envío"
+                            }
+                          >
+                            <i className="nc-icon nc-ruler-pencil mr-1" />
+                            Editar
+                          </Button>
+                          <Button
                             color="info"
                             size="sm"
                             outline
-                            onClick={() => setPackingModalShipment(shipment)}
+                            onClick={() => openPackingModal(shipment)}
                             className="mr-2"
-                            disabled={loadingPackingMaterials || specialSellerFlow}
+                            disabled={
+                              loadingPackingMaterials ||
+                              specialSellerFlow ||
+                              opiInternalFlow ||
+                              standaloneInternalFlow
+                            }
                           >
                             <i className="nc-icon nc-box mr-1" />
                             Empaques
-                            {(getPackingCountForShipment(shipment.id) > 0 || getShipmentPackingItems(shipment).length > 0) && (
+                            {(getPackingCountForShipment(shipment.id) > 0 || resolveShipmentPackingItems(shipment).length > 0) && (
                               <Badge color="primary" className="ml-1">
-                                {Math.max(getPackingCountForShipment(shipment.id), getShipmentPackingItems(shipment).length)}
+                                {Math.max(getPackingCountForShipment(shipment.id), resolveShipmentPackingItems(shipment).length)}
                               </Badge>
                             )}
                           </Button>
                           <Button
                             color="success"
                             size="sm"
-                            disabled={specialSellerFlow || !isShipmentSendable(shipment.status) || sendingShipmentId === shipment.id}
+                            disabled={
+                              specialSellerFlow ||
+                              opiInternalFlow ||
+                              standaloneInternalFlow ||
+                              !isShipmentSendable(shipment.status) ||
+                              sendingShipmentId === shipment.id
+                            }
                             onClick={() => handleSendShipment(shipment.id)}
                             className="mr-2"
                           >
-                            {sendingShipmentId === shipment.id ? <Spinner size="sm" /> : <><i className="nc-icon nc-delivery-fast mr-1" />Listo / Enviar</>}
+                            {sendingShipmentId === shipment.id ? (
+                              <Spinner size="sm" />
+                            ) : (
+                              <>
+                                <i className="nc-icon nc-delivery-fast mr-1" />
+                                {shipmentSendButtonLabel}
+                              </>
+                            )}
                           </Button>
+                          {isShipmentRevertible(shipment.status) && (
+                            <Button
+                              color="warning"
+                              size="sm"
+                              outline
+                              disabled={
+                                specialSellerFlow ||
+                                opiInternalFlow ||
+                                standaloneInternalFlow ||
+                                revertingShipmentId === shipment.id
+                              }
+                              onClick={() => handleRevertSentShipment(shipment)}
+                              className="mr-2"
+                              title="Devuelve el inventario a Bodega PT/Devoluciones y deja el envío confirmado"
+                            >
+                              {revertingShipmentId === shipment.id ? (
+                                <Spinner size="sm" />
+                              ) : (
+                                <>
+                                  <i className="nc-icon nc-refresh-69 mr-1" />
+                                  Regresar a bodega
+                                </>
+                              )}
+                            </Button>
+                          )}
+                          {(isShipmentCancellable(shipment.status) || isSyntheticShipmentId(shipment.id)) && (
+                            <Button
+                              color="danger"
+                              size="sm"
+                              outline
+                              disabled={cancellingShipmentId === shipment.id}
+                              onClick={() => handleCancelShipment(shipment)}
+                              className="mr-2"
+                            >
+                              {cancellingShipmentId === shipment.id ? (
+                                <Spinner size="sm" />
+                              ) : (
+                                <>
+                                  <i className="nc-icon nc-simple-remove mr-1" />
+                                  Anular
+                                </>
+                              )}
+                            </Button>
+                          )}
                           <Button
                             color="primary"
                             size="sm"
@@ -1944,11 +3766,55 @@ function PrepareShipments() {
           )}
         </ModalBody>
         <ModalFooter>
-          <Button color="primary" onClick={() => setPackingModalShipment(null)}>
-            Listo
+          <Button color="secondary" outline onClick={() => setPackingModalShipment(null)} disabled={savingPacking}>
+            Cancelar
+          </Button>
+          <Button color="primary" onClick={handleSavePackingModal} disabled={savingPacking}>
+            {savingPacking ? (
+              <>
+                <Spinner size="sm" className="me-1" /> Guardando...
+              </>
+            ) : (
+              "Guardar"
+            )}
           </Button>
         </ModalFooter>
       </Modal>
+
+      <ProductionOrderShipmentGenerateModal
+        isOpen={Boolean(generateModalOrder)}
+        toggle={() => setGenerateModalOrder(null)}
+        order={generateModalOrder}
+        onGenerated={handleShipmentGenerated}
+      />
+
+      <OpvShipmentPriceReviewModal
+        isOpen={opvPriceReviewOpen}
+        toggle={() => {
+          setOpvPriceReviewOpen(false);
+          setOpvPendingPrint(false);
+        }}
+        orderId={selectedProductionOrder?.id}
+        productCatalogById={productCatalogById}
+        confirmLabel={opvPendingPrint ? "Guardar e imprimir" : "Guardar precios"}
+        onSaved={handleOpvPricesSaved}
+      />
+
+      <CreateStandaloneKioskShipmentModal
+        isOpen={standaloneKioskModalOpen}
+        toggle={() => setStandaloneKioskModalOpen(false)}
+        onCreated={handleStandaloneKioskCreated}
+      />
+
+      <EditShipmentProductsModal
+        isOpen={Boolean(editProductsShipment)}
+        toggle={() => setEditProductsShipment(null)}
+        shipment={editProductsShipment}
+        onSaved={async () => {
+          setEditProductsShipment(null);
+          await reloadCurrentShipments();
+        }}
+      />
     </div>
   );
 }
