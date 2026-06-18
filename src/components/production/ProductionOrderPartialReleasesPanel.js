@@ -11,7 +11,6 @@ import {
 } from "reactstrap";
 import {
   deletePartialRelease,
-  getProductionOrderPartialRelease,
   getProductionOrderPartialReleases,
 } from "services/productionOrderService";
 import { isCinchoOrderType } from "utils/cinchoProductionHelper";
@@ -138,17 +137,6 @@ function ProductionOrderPartialReleasesPanel({
     if (cincho) {
       setShipmentRelease(release);
       setShipmentModalOpen(true);
-      return;
-    }
-    const savedLineCount = countPartialReleaseSavedLines(release, order?.orderType);
-    if (savedLineCount <= 0) {
-      showError("El parcial no tiene productos con cantidad. Edítelo antes de generar el envío.");
-      try {
-        const detail = await getProductionOrderPartialRelease(orderId, release.id);
-        openEditEditor(detail);
-      } catch (_e) {
-        openEditEditor(release);
-      }
       return;
     }
     openReviewGenerate(release);

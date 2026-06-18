@@ -25,7 +25,11 @@ import { jsPDF } from "jspdf";
 import { buildShipmentDocumentHtml, getSimplePaymentLabel } from "utils/shipmentPrintDocumentHtml";
 import QRCode from "qrcode";
 import { getPublicFrontBaseUrl, buildPtDispatchOnlineUrl } from "utils/ptDispatchQr";
-import { issueTaxInvoiceFromOnlineSale, downloadTaxInvoiceCertifiedXml } from "../../services/taxInvoiceService";
+import {
+  issueTaxInvoiceFromOnlineSale,
+  downloadTaxInvoiceCertifiedXml,
+  openFelInvoiceReport,
+} from "../../services/taxInvoiceService";
 
 // ─── Helpers ─────────────────────────────────────────────────────
 
@@ -4768,6 +4772,15 @@ function OnlineSales() {
           const invoice = felInvoiceModal.invoice;
           const isTest = String(invoice?.felSerie || "").toUpperCase().includes("PRUEBAS");
           const canDownloadXml = invoice?.status === "CERTIFIED" && invoice?.hasCertifiedXml;
+          const canDownloadFelReport = invoice?.status === "CERTIFIED" && invoice?.felUuid;
+          const handleDownloadFelReport = () => {
+            try {
+              setError("");
+              openFelInvoiceReport(invoice.felUuid);
+            } catch (e) {
+              setError(e.message || "No se pudo abrir la factura FEL.");
+            }
+          };
           const handleDownloadFelXml = async () => {
             if (!invoice?.id) return;
             try {
@@ -4813,6 +4826,11 @@ function OnlineSales() {
                 )}
               </ModalBody>
               <ModalFooter>
+                {canDownloadFelReport && (
+                  <Button color="primary" outline onClick={handleDownloadFelReport}>
+                    Descargar factura
+                  </Button>
+                )}
                 {canDownloadXml && (
                   <Button color="success" outline onClick={handleDownloadFelXml} disabled={felXmlDownloading}>
                     {felXmlDownloading ? (<><Spinner size="sm" /> Descargando...</>) : "Descargar XML certificado"}

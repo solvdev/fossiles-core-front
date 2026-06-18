@@ -27,8 +27,8 @@ import {
   draftLinesForReviewFromRelease,
   initDraftLinesFromAvailability,
   initDraftLinesFromRelease,
+  maxDraftLineQuantity,
   sumPartialReleaseLineQuantity,
-  validateDraftLines,
 } from "utils/partialReleaseHelper";
 import {
   classifyPrepareOrder,
@@ -102,12 +102,14 @@ function PartialReleaseEditorModal({
     }
     setLabel(release?.label || "");
     setNotes(release?.notes || "");
-    if (release) {
+    if (release?.id) {
       setDraftLines(initDraftLinesFromRelease(release, orderType, availabilityRows));
     } else {
       setDraftLines(initDraftLinesFromAvailability(availabilityRows, orderType));
     }
-  }, [isOpen, release, availabilityRows, orderType, readOnly]);
+    // Solo reiniciar al abrir o cambiar de parcial; no cuando availabilityRows se refresca en background.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, release?.id, orderType, readOnly]);
 
   const titleLabel = release?.label || label || "nuevo";
   const modalTitle = readOnly
@@ -118,11 +120,6 @@ function PartialReleaseEditorModal({
 
   const totalUnits = useMemo(
     () => countDraftTotalUnits(draftLines, orderType),
-    [draftLines, orderType]
-  );
-
-  const validation = useMemo(
-    () => validateDraftLines(draftLines, orderType),
     [draftLines, orderType]
   );
 
@@ -172,12 +169,11 @@ function PartialReleaseEditorModal({
 
   const persistRelease = async (confirm) => {
     if (!orderId) return;
-    const v = validateDraftLines(draftLines, orderType);
-    if (!v.ok) {
-      showError(v.message);
+    const lines = buildPartialReleaseLinesPayload(draftLines, orderType);
+    if (!lines.length) {
+      showError("Marque al menos un producto e indique cantidad mayor a cero.");
       return;
     }
-    const lines = buildPartialReleaseLinesPayload(draftLines, orderType);
     setSaving(true);
     try {
       const payload = {
@@ -241,6 +237,7 @@ function PartialReleaseEditorModal({
     return (
       <div className="d-flex flex-wrap">
         {sizeKeys.map((size) => {
+          const maxQty = maxDraftLineQuantity(row, size) ?? 0;
           const pendingForSize =
             row.pendingSizes?.[size] != null ? Number(row.pendingSizes[size]) : 0;
           const qty = Number(row.sizes?.[size] ?? 0);
@@ -263,7 +260,7 @@ function PartialReleaseEditorModal({
                   className="custom-control-input"
                   id={`size-inc-${row.productionOrderItemId}-${size}`}
                   checked={sizeIncluded}
-                  disabled={pendingForSize <= 0}
+                  disabled={maxQty <= 0}
                   onChange={(e) => toggleSizeIncluded(row, size, e.target.checked)}
                 />
                 <label
@@ -280,7 +277,7 @@ function PartialReleaseEditorModal({
                 <Input
                   type="number"
                   min={0}
-                  max={pendingForSize}
+                  max={maxQty || undefined}
                   bsSize="sm"
                   value={qty}
                   onChange={(e) =>
@@ -404,19 +401,9 @@ function PartialReleaseEditorModal({
                 </td>
               </tr>
             ) : (
-              filteredLines
-                .filter((row) => {
-                  if (readOnly) return true;
-                  const pending = Number(row.pendingTotal) || 0;
-                  const rowHasPending = cincho
-                    ? Object.keys(row.pendingSizes || {}).some(
-                        (k) => Number(row.pendingSizes[k]) > 0
-                      )
-                    : pending > 0;
-                  return rowHasPending || row.included;
-                })
-                .map((row) => {
+              filteredLines.map((row) => {
                 const pending = Number(row.pendingTotal) || 0;
+                const maxQty = maxDraftLineQuantity(row);
                 return (
                   <tr
                     key={row.productionOrderItemId}
@@ -433,7 +420,7 @@ function PartialReleaseEditorModal({
                               className="custom-control-input"
                               id={`inc-${row.productionOrderItemId}`}
                               checked={!!row.included}
-                              disabled={pending <= 0}
+                              disabled={(maxQty ?? 0) <= 0 && !cincho}
                               onChange={(e) => toggleRowIncluded(row, e.target.checked)}
                             />
                             <label
@@ -464,7 +451,7 @@ function PartialReleaseEditorModal({
                         <Input
                           type="number"
                           min={0}
-                          max={row.pendingTotal ?? undefined}
+                          max={maxQty ?? undefined}
                           bsSize="sm"
                           disabled={!row.included}
                           value={row.quantity ?? 0}
@@ -487,7 +474,7 @@ function PartialReleaseEditorModal({
 
         <small className="text-muted">
           Total en este envío: <strong>{totalUnits}</strong> unidad(es)
-          {!validation.ok && !readOnly ? ` — ${validation.message}` : null}
+          {totalUnits <= 0 && !readOnly ? " — marque productos con cantidad mayor a cero." : null}
         </small>
       </ModalBody>
       <ModalFooter>
@@ -500,10 +487,10 @@ function PartialReleaseEditorModal({
           </Button>
         ) : (
           <>
-            <Button color="primary" outline onClick={() => persistRelease(false)} disabled={saving || !validation.ok}>
+            <Button color="primary" outline onClick={() => persistRelease(false)} disabled={saving}>
               {saving ? "Guardando…" : "Guardar borrador"}
             </Button>
-            <Button color="primary" onClick={() => persistRelease(true)} disabled={saving || !validation.ok}>
+            <Button color="primary" onClick={() => persistRelease(true)} disabled={saving}>
               {saving ? "Guardando…" : "Confirmar envío parcial"}
             </Button>
           </>

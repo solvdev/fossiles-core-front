@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { Button, Card, CardBody } from "reactstrap";
-import { downloadTaxInvoiceCertifiedXml } from "services/taxInvoiceService";
+import { downloadTaxInvoiceCertifiedXml, openFelInvoiceReport } from "services/taxInvoiceService";
 import { showError } from "utils/notificationHelper";
 import { formatCurrency } from "./posUtils";
 
@@ -16,6 +16,15 @@ function PosSuccessScreen({ sale, onNewSale }) {
   const felNumero = invoice?.felNumero || sale.felNumero;
   const felError = invoice?.felError || sale.felError;
   const canDownloadXml = felStatus === "CERTIFIED" && invoice?.hasCertifiedXml && invoice?.id;
+  const canDownloadFelReport = felStatus === "CERTIFIED" && felUuid;
+
+  const handleDownloadFelReport = () => {
+    try {
+      openFelInvoiceReport(felUuid);
+    } catch (err) {
+      showError(err.message || "No se pudo abrir la factura FEL.");
+    }
+  };
 
   const handleDownloadXml = async () => {
     if (!invoice?.id) return;
@@ -66,10 +75,19 @@ function PosSuccessScreen({ sale, onNewSale }) {
                 <strong>Serie / Número:</strong> {felSerie || "—"} / {felNumero || "—"}
               </p>
             )}
-            {canDownloadXml && (
-              <Button color="success" size="sm" onClick={handleDownloadXml} disabled={downloadingXml}>
-                {downloadingXml ? "Descargando..." : "Descargar XML certificado"}
-              </Button>
+            {(canDownloadFelReport || canDownloadXml) && (
+              <div className="d-flex flex-wrap" style={{ gap: "0.5rem" }}>
+                {canDownloadFelReport && (
+                  <Button color="primary" size="sm" outline onClick={handleDownloadFelReport}>
+                    Descargar factura
+                  </Button>
+                )}
+                {canDownloadXml && (
+                  <Button color="success" size="sm" onClick={handleDownloadXml} disabled={downloadingXml}>
+                    {downloadingXml ? "Descargando..." : "Descargar XML certificado"}
+                  </Button>
+                )}
+              </div>
             )}
           </div>
         )}

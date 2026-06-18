@@ -13,7 +13,7 @@ import {
   Alert,
 } from "reactstrap";
 import { registerDepositSlip, updateKioskSalePayment, voidKioskSale } from "services/kioskPosService";
-import { downloadTaxInvoiceCertifiedXml } from "services/taxInvoiceService";
+import { downloadTaxInvoiceCertifiedXml, openFelInvoiceReport } from "services/taxInvoiceService";
 import { showError, showSuccess } from "utils/notificationHelper";
 import { formatCurrency, formatQty, isDepositApplicable, isSalePendingDeposit } from "./posUtils";
 
@@ -116,6 +116,15 @@ function PosSaleDetailModal({
   const felNumero = invoice?.felNumero || sale?.felNumero;
   const felError = invoice?.felError || sale?.felError;
   const canDownloadXml = felStatus === "CERTIFIED" && invoice?.hasCertifiedXml && invoice?.id;
+  const canDownloadFelReport = felStatus === "CERTIFIED" && felUuid;
+
+  const handleDownloadFelReport = () => {
+    try {
+      openFelInvoiceReport(felUuid);
+    } catch (err) {
+      showError(err.message || "No se pudo abrir la factura FEL.");
+    }
+  };
 
   const handleDownloadXml = async () => {
     if (!invoice?.id) return;
@@ -417,10 +426,19 @@ function PosSaleDetailModal({
                   <strong>Error:</strong> {felError}
                 </div>
               )}
-              {canDownloadXml && (
-                <Button color="success" size="sm" onClick={handleDownloadXml} disabled={downloadingXml}>
-                  {downloadingXml ? "Descargando..." : "Descargar XML certificado"}
-                </Button>
+              {(canDownloadFelReport || canDownloadXml) && (
+                <div className="d-flex flex-wrap mt-2" style={{ gap: "0.5rem" }}>
+                  {canDownloadFelReport && (
+                    <Button color="primary" size="sm" outline onClick={handleDownloadFelReport}>
+                      Descargar factura
+                    </Button>
+                  )}
+                  {canDownloadXml && (
+                    <Button color="success" size="sm" onClick={handleDownloadXml} disabled={downloadingXml}>
+                      {downloadingXml ? "Descargando..." : "Descargar XML certificado"}
+                    </Button>
+                  )}
+                </div>
               )}
             </div>
 

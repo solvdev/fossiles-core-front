@@ -14,7 +14,12 @@ import {
   Spinner,
   Table,
 } from "reactstrap";
-import { getTaxInvoiceById, retryTaxInvoice, downloadTaxInvoiceCertifiedXml } from "services/taxInvoiceService";
+import {
+  getTaxInvoiceById,
+  retryTaxInvoice,
+  downloadTaxInvoiceCertifiedXml,
+  openFelInvoiceReport,
+} from "services/taxInvoiceService";
 import { formatDateTimeGt } from "utils/dateTimeHelper";
 
 const STATUS_COLORS = {
@@ -88,6 +93,16 @@ function AccountingInvoiceDetail() {
 
   const canRetry = invoice && ["FAILED", "SKIPPED", "DRAFT"].includes(invoice.status);
   const canDownloadXml = invoice?.status === "CERTIFIED" && invoice?.hasCertifiedXml;
+  const canDownloadFelReport = invoice?.status === "CERTIFIED" && invoice?.felUuid;
+
+  const handleDownloadFelReport = () => {
+    try {
+      setError("");
+      openFelInvoiceReport(invoice.felUuid);
+    } catch (err) {
+      setError(err.message || "No se pudo abrir la factura FEL.");
+    }
+  };
   const attempts = invoice?.attempts || [];
 
   if (loading) {
@@ -118,6 +133,11 @@ function AccountingInvoiceDetail() {
               {canRetry && (
                 <Button color="warning" size="sm" className="mr-2" onClick={handleRetry} disabled={retrying}>
                   {retrying ? <Spinner size="sm" /> : "Reintentar FEL"}
+                </Button>
+              )}
+              {canDownloadFelReport && (
+                <Button color="primary" size="sm" outline className="mr-2" onClick={handleDownloadFelReport}>
+                  Descargar factura
                 </Button>
               )}
               {canDownloadXml && (

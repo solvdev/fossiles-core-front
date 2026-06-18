@@ -87,6 +87,27 @@ export const retryTaxInvoice = async (id) => {
   return parseJson(response, "No se pudo reintentar la certificación FEL.");
 };
 
+const FEL_INVOICE_REPORT_BASE_URL =
+  "https://report.feel.com.gt/ingfacereport/ingfacereport_documento";
+
+export const getFelInvoiceReportUrl = (felUuid) => {
+  const uuid = String(felUuid || "").trim();
+  if (!uuid) return null;
+  return `${FEL_INVOICE_REPORT_BASE_URL}?uuid=${encodeURIComponent(uuid)}`;
+};
+
+export const openFelInvoiceReport = (felUuid) => {
+  const url = getFelInvoiceReportUrl(felUuid);
+  if (!url) {
+    throw new Error("No hay UUID FEL para descargar la factura.");
+  }
+  const popup = window.open(url, "_blank", "noopener,noreferrer");
+  if (!popup) {
+    throw new Error("Permite ventanas emergentes para descargar la factura.");
+  }
+  return url;
+};
+
 export const downloadTaxInvoiceCertifiedXml = async (id, suggestedFilename) => {
   const response = await fetch(`${API_URL}/tax-invoices/${id}/certified-xml`, {
     headers: getAuthHeader(),

@@ -29,11 +29,30 @@ function mergePayloadLine(existing, incoming, cincho) {
   return { productionOrderItemId: existing.productionOrderItemId, quantity: q };
 }
 
+/** Cantidad capturada en el borrador (ignora el flag «included», solo mira tallas/cantidad). */
+export function draftLineHasDraftQuantity(row, orderType) {
+  if (!row) return false;
+  const cincho = isCinchoOrderType(orderType);
+  if (cincho && row.sizes && typeof row.sizes === "object" && Object.keys(row.sizes).length > 0) {
+    return Object.values(row.sizes).some((q) => Number(q) > 0);
+  }
+  return Number(row.quantity || 0) > 0;
+}
+
+export function sumDraftLineQuantity(row, orderType) {
+  if (!draftLineHasDraftQuantity(row, orderType)) return 0;
+  const cincho = isCinchoOrderType(orderType);
+  if (cincho && row.sizes && typeof row.sizes === "object") {
+    return Object.values(row.sizes).reduce((s, q) => s + Math.max(0, Number(q) || 0), 0);
+  }
+  return Math.max(0, Number(row.quantity || 0));
+}
+
 export function buildPartialReleaseLinesPayload(draftLines, orderType) {
   const cincho = isCinchoOrderType(orderType);
   const byItem = new Map();
   (draftLines || []).forEach((row) => {
-    if (row.included === false) return;
+    if (!draftLineHasDraftQuantity(row, orderType)) return;
     const itemId = row.productionOrderItemId;
     if (!itemId) return;
     let line = null;
@@ -112,6 +131,18 @@ export function partialReleaseLineHasQuantity(line, orderType) {
   return Number(line.quantity || 0) > 0;
 }
 
+function suggestedQtyForRow(row, sizeKey) {
+  if (sizeKey != null) {
+    const pending =
+      row.pendingSizes?.[sizeKey] != null ? Number(row.pendingSizes[sizeKey]) : 0;
+    if (pending > 0) return pending;
+    return row.orderedSizes?.[sizeKey] != null ? Number(row.orderedSizes[sizeKey]) : 0;
+  }
+  const pending = Number(row.pendingTotal) || 0;
+  if (pending > 0) return pending;
+  return Number(row.orderedTotal) || 0;
+}
+
 export function applyDraftLineIncluded(row, included, orderType) {
   const cincho = isCinchoOrderType(orderType);
   if (!included) {
@@ -123,71 +154,56 @@ export function applyDraftLineIncluded(row, included, orderType) {
   if (cincho && (row.orderedSizes || row.sizes)) {
     const sizes = { ...zeroCinchoSizes(row) };
     Object.keys(sizes).forEach((size) => {
-      const pending =
-        row.pendingSizes?.[size] != null ? Number(row.pendingSizes[size]) : 0;
-      sizes[size] = pending > 0 ? pending : 0;
+      const suggested = suggestedQtyForRow(row, size);
+      sizes[size] = suggested > 0 ? suggested : 0;
     });
     const hasAny = Object.values(sizes).some((q) => Number(q) > 0);
     return { ...row, included: hasAny, sizes };
   }
-  const pending = Number(row.pendingTotal) || 0;
+  const suggested = suggestedQtyForRow(row);
   return {
     ...row,
-    included: pending > 0,
-    quantity: pending > 0 ? pending : 0,
+    included: suggested > 0,
+    quantity: suggested > 0 ? suggested : 0,
   };
 }
 
 export function applyDraftSizeIncluded(row, sizeKey, included) {
-  const pending =
-    row.pendingSizes?.[sizeKey] != null ? Number(row.pendingSizes[sizeKey]) : 0;
+  const suggested = suggestedQtyForRow(row, sizeKey);
   const sizes = { ...(row.sizes || {}) };
-  sizes[sizeKey] = included && pending > 0 ? pending : 0;
+  sizes[sizeKey] = included && suggested > 0 ? suggested : 0;
   const rowIncluded = Object.values(sizes).some((q) => Number(q) > 0);
   return { ...row, sizes, included: rowIncluded };
 }
 
 export function countDraftTotalUnits(draftLines, orderType) {
   return (draftLines || []).reduce(
-    (sum, row) => sum + sumPartialReleaseLineQuantity(row, orderType),
+    (sum, row) => sum + sumDraftLineQuantity(row, orderType),
     0
   );
 }
 
-export function validateDraftLines(draftLines, orderType) {
-  const cincho = isCinchoOrderType(orderType);
-  const rows = draftLines || [];
-  let totalUnits = 0;
-
-  for (const row of rows) {
-    if (row.included === false) continue;
-    if (cincho && row.sizes && typeof row.sizes === "object") {
-      for (const [size, qty] of Object.entries(row.sizes)) {
-        const q = Number(qty) || 0;
-        if (q <= 0) continue;
-        const pending =
-          row.pendingSizes?.[size] != null ? Number(row.pendingSizes[size]) : null;
-        if (pending != null && q > pending) {
-          return {
-            ok: false,
-            message: `${row.productCode || "Producto"} talla ${size}: máximo ${pending} pendiente.`,
-          };
-        }
-        totalUnits += q;
-      }
-      continue;
-    }
-    const q = Number(row.quantity || 0);
-    if (q <= 0) continue;
-    const pending = row.pendingTotal != null ? Number(row.pendingTotal) : null;
-    if (pending != null && q > pending) {
-      return {
-        ok: false,
-        message: `${row.productCode || "Producto"}: máximo ${pending} unidades pendientes.`,
-      };
-    }
-    totalUnits += q;
+export function maxDraftLineQuantity(row, sizeKey) {
+  if (sizeKey != null) {
+    const ordered =
+      row.orderedSizes?.[sizeKey] != null ? Number(row.orderedSizes[sizeKey]) : null;
+    if (ordered != null && ordered > 0) return ordered;
+    const pending =
+      row.pendingSizes?.[sizeKey] != null ? Number(row.pendingSizes[sizeKey]) : null;
+    return pending != null && pending > 0 ? pending : undefined;
   }
+  const ordered = row.orderedTotal != null ? Number(row.orderedTotal) : null;
+  if (ordered != null && ordered > 0) return ordered;
+  const pending = row.pendingTotal != null ? Number(row.pendingTotal) : null;
+  return pending != null && pending > 0 ? pending : undefined;
+}
+
+export function validateDraftLines(draftLines, orderType) {
+  const rows = draftLines || [];
+  const totalUnits = rows.reduce(
+    (sum, row) => sum + sumDraftLineQuantity(row, orderType),
+    0
+  );
 
   if (totalUnits <= 0) {
     return {
@@ -276,10 +292,23 @@ export function sumPartialReleaseLineQuantity(line, orderType) {
 
 export function initDraftLinesFromRelease(release, orderType, availabilityRows = []) {
   const cincho = isCinchoOrderType(orderType);
-  const saved = (release?.lines || []).map((line) => {
+  const savedByItemId = new Map();
+  (release?.lines || []).forEach((line) => {
+    if (line?.productionOrderItemId != null) {
+      savedByItemId.set(String(line.productionOrderItemId), line);
+    }
+  });
+
+  const baseRows =
+    (availabilityRows || []).length > 0
+      ? availabilityRows
+      : release?.lines || [];
+
+  const merged = baseRows.map((base) => {
+    const line = savedByItemId.get(String(base.productionOrderItemId)) || base;
     let sizes = cincho ? { ...(line.sizes || {}) } : undefined;
-    if (cincho && (!sizes || !Object.keys(sizes).length) && line.orderedSizes) {
-      sizes = zeroCinchoSizes(line);
+    if (cincho && (!sizes || !Object.keys(sizes).length) && (line.orderedSizes || base.orderedSizes)) {
+      sizes = zeroCinchoSizes(line.orderedSizes ? line : base);
     }
     if (cincho && Number(line.quantity || 0) > 0 && sizes && Object.keys(sizes).length) {
       const hasSizeQty = Object.values(sizes).some((q) => Number(q) > 0);
@@ -293,21 +322,22 @@ export function initDraftLinesFromRelease(release, orderType, availabilityRows =
       orderType
     );
     return {
-      productionOrderItemId: line.productionOrderItemId,
-      productCode: line.productCode,
-      productName: line.productName,
-      colorName: line.colorName,
-      orderedTotal: line.orderedTotal,
-      pendingTotal: line.pendingTotal,
-      orderedSizes: line.orderedSizes,
-      pendingSizes: line.pendingSizes,
+      productionOrderItemId: line.productionOrderItemId ?? base.productionOrderItemId,
+      productCode: line.productCode ?? base.productCode,
+      productName: line.productName ?? base.productName,
+      colorName: line.colorName ?? base.colorName,
+      orderedTotal: line.orderedTotal ?? base.orderedTotal,
+      pendingTotal: line.pendingTotal ?? base.pendingTotal,
+      orderedSizes: line.orderedSizes ?? base.orderedSizes,
+      pendingSizes: line.pendingSizes ?? base.pendingSizes,
       included: hasQty,
       quantity: cincho ? undefined : line.quantity || 0,
       sizes,
     };
   });
-  if (saved.length > 0) {
-    return saved;
+
+  if (merged.length > 0) {
+    return merged;
   }
   return initDraftLinesFromAvailability(availabilityRows, orderType);
 }
