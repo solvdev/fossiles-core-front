@@ -58,8 +58,8 @@ import {
   orderItemsHaveBrand,
 } from "utils/prepareShipmentsOrderHelper";
 import {
-  buildShipmentProductsFromPartialReleaseLines,
   orderAllowsPartialReleases,
+  resolvePartialReleaseShipmentProducts,
 } from "utils/partialReleaseHelper";
 import PrepareShipmentsCustomerBlock from "components/distribution/PrepareShipmentsCustomerBlock";
 import CreateStandaloneKioskShipmentModal from "components/distribution/CreateStandaloneKioskShipmentModal";
@@ -104,19 +104,35 @@ const PACKING_TAG = "__PACKING_SUM__:";
 const BELT_SIZE_TAG = "__BELT_SIZE__:";
 const DOCUMENT_DATE_TAG = "DOCUMENT_DATE:";
 
-const sumShipmentProductUnits = (products) =>
-  (products || []).reduce((sum, p) => sum + Number(p.quantity || 0), 0);
-
-const buildPartialProductsMapExtra = (order) => (_shipment, linked) => {
-  if (!linked?.lines?.length || !_shipment?.partialReleaseId) return {};
-  const fromPartial = buildShipmentProductsFromPartialReleaseLines(linked.lines, order?.orderType);
-  if (!fromPartial.length) return {};
-  const shipmentUnits = sumShipmentProductUnits(_shipment.products);
-  const partialUnits = sumShipmentProductUnits(fromPartial);
-  if (partialUnits < shipmentUnits || fromPartial.length < (_shipment.products || []).length) {
-    return { products: applyOrderItemPricesToShipmentProducts(order, fromPartial) };
+const buildPrepareShipmentProductsExtra = (order) => (shipment, linked) => {
+  const partialProducts = resolvePartialReleaseShipmentProducts(
+    shipment,
+    linked,
+    order?.orderType
+  );
+  if (partialProducts) {
+    return { products: applyOrderItemPricesToShipmentProducts(order, partialProducts) };
+  }
+  if (classifyPrepareOrder(order) === "OPV") {
+    return {
+      products: applyOrderItemPricesToShipmentProducts(
+        order,
+        mapShipmentProductsForOpvPrint(shipment)
+      ),
+      packingItems: order.packingItems,
+      shippingCost: order.shippingCost,
+    };
   }
   return {};
+};
+
+const isPartialReleaseShipmentDoc = (shipment) =>
+  Boolean(shipment?.partialReleaseId || shipment?.partialReleaseLabel);
+
+const resolveBeltSizesSource = (shipment, hasApiSizes, beltSizeLines, notesPayload) => {
+  if (hasApiSizes) return beltSizeLines;
+  if (isPartialReleaseShipmentDoc(shipment)) return [];
+  return notesPayload?.beltSizes || [];
 };
 
 const findLinkedPartialRelease = (shipment, releases) => {
@@ -422,7 +438,12 @@ const buildOnlineSaleItemsFromShipmentDoc = (
       quantity: Number(item.quantity || 0),
     }));
   const hasApiSizes = beltSizeLines.length > 0;
-  const beltSizesSource = hasApiSizes ? beltSizeLines : notesPayload.beltSizes || [];
+  const beltSizesSource = resolveBeltSizesSource(
+    shipment,
+    hasApiSizes,
+    beltSizeLines,
+    notesPayload
+  );
   const beltSizesByProductColor = {};
   beltSizesSource.forEach((line) => {
     const mapKey = `${line.productId}:${line.colorId === null ? "null" : line.colorId}`;
@@ -779,14 +800,11 @@ function PrepareShipments() {
       setPartialPendingCount(pendingConfirm.length);
 
       if (printable.length > 0) {
-        const docs = enrichShipmentsWithPartialMeta(printable, partialList, (s) => ({
-          products: applyOrderItemPricesToShipmentProducts(
-            order,
-            mapShipmentProductsForOpvPrint(s)
-          ),
-          packingItems: order.packingItems,
-          shippingCost: order.shippingCost,
-        }));
+        const docs = enrichShipmentsWithPartialMeta(
+          printable,
+          partialList,
+          buildPrepareShipmentProductsExtra(order)
+        );
         setShipments(docs);
         const copies = {};
         const selected = {};
@@ -841,7 +859,11 @@ function PrepareShipments() {
       setPartialPendingCount(pendingConfirm.length);
 
       if (printable.length > 0) {
-        const docs = enrichShipmentsWithPartialMeta(printable, partialList);
+        const docs = enrichShipmentsWithPartialMeta(
+          printable,
+          partialList,
+          buildPrepareShipmentProductsExtra(order)
+        );
         setShipments(docs);
         const copies = {};
         const selected = {};
@@ -895,7 +917,7 @@ function PrepareShipments() {
         const docs = enrichShipmentsWithPartialMeta(
           printable,
           partialList,
-          buildPartialProductsMapExtra(order)
+          buildPrepareShipmentProductsExtra(order)
         );
         setShipments(docs);
         const copies = {};
@@ -950,7 +972,7 @@ function PrepareShipments() {
         const docs = enrichShipmentsWithPartialMeta(
           printable,
           partialList,
-          buildPartialProductsMapExtra(order)
+          buildPrepareShipmentProductsExtra(order)
         );
         setShipments(docs);
         const copies = {};
@@ -2063,7 +2085,12 @@ function PrepareShipments() {
             quantity: Number(item.quantity || 0),
           }));
         const hasApiSizes = beltSizeLines.length > 0;
-        const beltSizesSource = hasApiSizes ? beltSizeLines : (notesPayload.beltSizes || []);
+        const beltSizesSource = resolveBeltSizesSource(
+          shipment,
+          hasApiSizes,
+          beltSizeLines,
+          notesPayload
+        );
         const beltSizesByProductColor = {};
         beltSizesSource.forEach((line) => {
           const mapKey = `${line.productId}:${line.colorId === null ? "null" : line.colorId}`;
@@ -2700,7 +2727,7 @@ function PrepareShipments() {
         throw new Error("No se encontró el envío seleccionado");
       }
 
-      if (!opiInternalFlow && !standaloneInternalFlow) {
+      if (!opiInternalFlow && !standaloneInternalFlow && !shipment.locationId) {
         await assertDispatchStockForProducts(shipment.products || []);
       }
 
@@ -2985,7 +3012,7 @@ function PrepareShipments() {
                 <Alert color="info">
                   <strong>OPK (kiosko, sin distribución):</strong> <strong>Generar envío</strong> (completo o parcial) solo crea el documento{" "}
                   <strong>confirmado</strong> — sin revisar stock ni salir de bodega. Cuando esté listo, use{" "}
-                  <strong>Enviar</strong> en la tabla (ahí sí se valida stock y queda en tránsito).
+                  <strong>Enviar</strong> en la tabla (pasa a tránsito sin validar stock PT).
                   Recepción en <strong>POS → Recibir distribución</strong>.
                 </Alert>
               )}
@@ -3273,12 +3300,12 @@ function PrepareShipments() {
                   {opkFlow ? (
                   <Alert color="info" className="mb-0">
                     <strong>OPK:</strong> use <strong>Generar envío</strong> en el parcial (solo crea documento confirmado).
-                    Después use <strong>Enviar</strong> en el parcial o en la tabla (valida stock y sale a tránsito).
+                    Después use <strong>Enviar</strong> en el parcial o en la tabla (pasa a tránsito sin validar stock PT).
                     Recepción en <strong>POS → Recibir distribución</strong>.
                   </Alert>
                   ) : standaloneKioskFlow ? (
                   <Alert color="info" className="mb-0">
-                    <strong>Directo kiosko:</strong> <strong>Generar envío</strong> deja el documento confirmado; use <strong>Enviar</strong> para salir de bodega.
+                    <strong>Directo kiosko:</strong> <strong>Generar envío</strong> deja el documento confirmado; use <strong>Enviar</strong> para marcar tránsito (sin validar stock PT).
                     Empaques <strong>SUM-</strong>: botón <strong>Empaques</strong> en la tabla o al crear con <strong>Nuevo envío a kiosko</strong>.
                     Recepción en <strong>POS → Recibir distribución</strong>.
                   </Alert>
@@ -3526,7 +3553,11 @@ function PrepareShipments() {
                                 size: String(item.size || "").trim().toUpperCase(),
                                 quantity: Number(item.quantity || 0),
                               }));
-                            const beltPreviewSource = beltFromProducts.length > 0 ? beltFromProducts : (shipmentMeta.beltSizes || []);
+                            const beltPreviewSource = beltFromProducts.length > 0
+                              ? beltFromProducts
+                              : isPartialReleaseShipmentDoc(shipment)
+                                ? []
+                                : (shipmentMeta.beltSizes || []);
                             const beltPreview = beltPreviewSource.slice(0, 2);
                             return (
                               <>

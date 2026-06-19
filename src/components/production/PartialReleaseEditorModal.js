@@ -108,8 +108,7 @@ function PartialReleaseEditorModal({
       setDraftLines(initDraftLinesFromAvailability(availabilityRows, orderType));
     }
     // Solo reiniciar al abrir o cambiar de parcial; no cuando availabilityRows se refresca en background.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen, release?.id, orderType, readOnly]);
+  }, [isOpen, release?.id, orderType, readOnly]); // eslint-disable-line
 
   const titleLabel = release?.label || label || "nuevo";
   const modalTitle = readOnly

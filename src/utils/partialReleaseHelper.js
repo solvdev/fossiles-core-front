@@ -218,6 +218,23 @@ export function countPartialReleaseLineRows(release) {
   return (release?.lines || []).length;
 }
 
+/** Envío ligado a una liberación parcial (por id o por shipmentId en el parcial). */
+export function isPartialReleaseShipment(shipment, linkedRelease) {
+  if (!linkedRelease?.lines?.length || !shipment?.id) return false;
+  if (shipment.partialReleaseId != null && shipment.partialReleaseId !== "") return true;
+  if (linkedRelease.shipmentId != null && String(linkedRelease.shipmentId) === String(shipment.id)) {
+    return true;
+  }
+  return false;
+}
+
+/** Líneas del parcial para listado/impresión; null si no aplica reemplazo. */
+export function resolvePartialReleaseShipmentProducts(shipment, linkedRelease, orderType) {
+  if (!isPartialReleaseShipment(shipment, linkedRelease)) return null;
+  const products = buildShipmentProductsFromPartialReleaseLines(linkedRelease.lines, orderType);
+  return products.length ? products : null;
+}
+
 /** Productos de impresión / envío a partir de líneas guardadas del parcial (no la OP completa). */
 export function buildShipmentProductsFromPartialReleaseLines(lines, orderType) {
   const cincho = isCinchoOrderType(orderType);

@@ -174,7 +174,7 @@ function ProductionOrderPartialReleasesPanel({
         {isPrepare && prepareKind === "OPK" && (
           <Alert color="info" className="py-2 small mb-2">
             <strong>Generar envío</strong> solo crea el documento confirmado.
-            Después use el botón <strong>Enviar</strong> (en esta tabla o abajo) para validar stock y ponerlo en tránsito.
+            Después use el botón <strong>Enviar</strong> (en esta tabla o abajo) para ponerlo en tránsito.
           </Alert>
         )}
         {isPrepare && (
