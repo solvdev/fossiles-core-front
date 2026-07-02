@@ -1,9 +1,13 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { Card, CardBody, Col, Row, Spinner, Table } from "reactstrap";
-import { getKioskManagerDashboard, getMyKioskSales } from "services/kioskPosService";
+import {
+  getKioskManagerDashboard,
+  getMyKioskSales,
+  getPendingDepositSummary,
+} from "services/kioskPosService";
 import { showError } from "utils/notificationHelper";
 import { getMonthStartYmdGuatemala, getTodayYmdGuatemala } from "utils/dateTimeHelper";
-import { formatCurrency, formatQty, isSalePendingDeposit } from "./posUtils";
+import { formatCurrency, formatQty, normalizeSalePaymentMethod } from "./posUtils";
 
 const formatGrowth = (value) => {
   const num = Number(value || 0);
@@ -43,7 +47,7 @@ const aggregateDailyRows = (sales) => {
     }
     const row = grouped.get(dayKey);
 
-    const status = String(sale.status || "").toUpperCase();
+    const status = String(sale.status || "COMPLETED").toUpperCase();
     if (status === "VOID") {
       row.voidCount += 1;
       return;
@@ -57,17 +61,17 @@ const aggregateDailyRows = (sales) => {
       row.testCount += 1;
     }
 
-    const paymentMethod = String(sale.paymentMethod || "").toUpperCase();
+    const paymentMethod = normalizeSalePaymentMethod(sale.paymentMethod);
     if (paymentMethod === "EFECTIVO") {
-      row.cashAmount += safeNumber(sale.totalAmount);
-    } else if (paymentMethod === "TARJETA" || paymentMethod === "TRANSFERENCIA") {
-      row.cardAmount += safeNumber(sale.totalAmount);
+      row.cashAmount += safeNumber(sale.cashAmount ?? sale.amountReceived ?? sale.totalAmount);
+    } else if (paymentMethod === "TARJETA") {
+      row.cardAmount += safeNumber(sale.cardAmount ?? sale.totalAmount);
     } else if (paymentMethod === "MIXTO") {
       row.cashAmount += safeNumber(sale.cashAmount);
       row.cardAmount += safeNumber(sale.cardAmount);
     }
 
-    if (isSalePendingDeposit(sale)) {
+    if (sale.pendingDeposit === true) {
       row.pendingDeposits += 1;
     }
   });
@@ -103,6 +107,7 @@ function KpiCard({ title, subtitle, metric, growthPercent, showGrowth }) {
 function PosManagerDashboard({ kioskLocationId, kioskName, active }) {
   const [dashboard, setDashboard] = useState(null);
   const [dailyRows, setDailyRows] = useState([]);
+  const [pendingDepositSummary, setPendingDepositSummary] = useState(null);
   const [periodLabel, setPeriodLabel] = useState({ startDate: "", endDate: "" });
   const [loading, setLoading] = useState(false);
 
@@ -110,22 +115,26 @@ function PosManagerDashboard({ kioskLocationId, kioskName, active }) {
     if (!kioskLocationId) {
       setDashboard(null);
       setDailyRows([]);
+      setPendingDepositSummary(null);
       return;
     }
     try {
       setLoading(true);
       const startDate = getMonthStartYmdGuatemala();
       const endDate = getTodayYmdGuatemala();
-      const [data, sales] = await Promise.all([
+      const [data, sales, pendingSummary] = await Promise.all([
         getKioskManagerDashboard(kioskLocationId),
         getMyKioskSales(startDate, endDate, kioskLocationId),
+        getPendingDepositSummary(kioskLocationId),
       ]);
       setDashboard(data || null);
       setDailyRows(aggregateDailyRows(sales));
+      setPendingDepositSummary(pendingSummary || null);
       setPeriodLabel({ startDate, endDate });
     } catch (err) {
       setDashboard(null);
       setDailyRows([]);
+      setPendingDepositSummary(null);
       showError(err.message || "No se pudo cargar el resumen del kiosko.");
     } finally {
       setLoading(false);
@@ -188,6 +197,13 @@ function PosManagerDashboard({ kioskLocationId, kioskName, active }) {
             <h6 className="mb-1">Ventas por día</h6>
             <small className="text-muted">
               Rango: {periodLabel.startDate || "—"} a {periodLabel.endDate || "—"}
+              {Number(pendingDepositSummary?.pendingCount || 0) > 0 && (
+                <>
+                  {" · "}
+                  Depósitos pendientes (total kiosko): {pendingDepositSummary.pendingCount} ·{" "}
+                  {formatCurrency(pendingDepositSummary.pendingAmount || 0)}
+                </>
+              )}
             </small>
           </div>
           <Table responsive size="sm" className="kiosk-pos-daily-sales-table mb-0">
