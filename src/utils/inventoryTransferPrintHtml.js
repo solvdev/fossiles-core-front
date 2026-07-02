@@ -26,6 +26,7 @@ function slipSection(t) {
       <h2>Boleta de traslado</h2>
       <table class="meta">
         <tr><th>ID</th><td>${escapeHtml(String(t.id ?? ""))}</td></tr>
+        <tr><th>Boleta física</th><td>${escapeHtml(t.physicalSlipNumber || "—")}</td></tr>
         <tr><th>Código</th><td>${escapeHtml(t.code || "—")}</td></tr>
         <tr><th>Tipo</th><td>${escapeHtml(type)}</td></tr>
         <tr><th>Ítem</th><td>${escapeHtml(item)}</td></tr>

@@ -8,6 +8,12 @@ import {
   CardHeader,
   CardTitle,
   Col,
+  Input,
+  Label,
+  Modal,
+  ModalBody,
+  ModalFooter,
+  ModalHeader,
   Nav,
   NavItem,
   NavLink,
@@ -16,11 +22,15 @@ import {
   TabPane,
   Table,
 } from "reactstrap";
+import { useAuth } from "contexts/AuthContext";
 import { FilterableSelect } from "components/distribution/FilterableSelect";
 import { getLocations } from "services/locationService";
 import {
+  authorizeKioskExchange,
   listKioskExchanges,
+  listPendingAuthorizations,
   listPendingReintegros,
+  rejectKioskExchange,
   reintegrateKioskReturn,
 } from "services/kioskExchangeService";
 import {
@@ -42,20 +52,39 @@ const statusBadge = (status) => {
   const normalized = String(status || "").toUpperCase();
   if (normalized === "COMPLETED") return "success";
   if (normalized === "PENDING_REINTEGRO") return "warning";
+  if (normalized === "PENDING_AUTHORIZATION") return "warning";
+  if (normalized === "REJECTED") return "danger";
   if (normalized === "REINTEGRATED") return "info";
   return "secondary";
 };
 
+const statusLabel = (status) => {
+  const normalized = String(status || "").toUpperCase();
+  if (normalized === "PENDING_AUTHORIZATION") return "Pendiente autorización";
+  if (normalized === "PENDING_REINTEGRO") return "Pendiente reintegro";
+  if (normalized === "COMPLETED") return "Completado";
+  if (normalized === "REJECTED") return "Rechazado";
+  if (normalized === "REINTEGRATED") return "Reintegrado";
+  return status || "—";
+};
+
 function KioskReturns() {
+  const { hasPermission } = useAuth();
+  const canAuthorizeExchanges =
+    hasPermission("KIOSCOS.CAMBIOS.AUTORIZAR.APROBAR") || hasPermission("KIOSCOS.CAMBIOS.AUTORIZAR.VER");
   const [activeTab, setActiveTab] = useState("EXCHANGES");
   const [selectedKiosk, setSelectedKiosk] = useState("");
   const [locations, setLocations] = useState([]);
   const [exchanges, setExchanges] = useState([]);
   const [returns, setReturns] = useState([]);
   const [pendingReintegros, setPendingReintegros] = useState([]);
+  const [pendingAuthorizations, setPendingAuthorizations] = useState([]);
   const [loading, setLoading] = useState(false);
   const [actionId, setActionId] = useState(null);
   const [error, setError] = useState("");
+  const [rejectModalOpen, setRejectModalOpen] = useState(false);
+  const [rejectTarget, setRejectTarget] = useState(null);
+  const [rejectReason, setRejectReason] = useState("");
   const [exchangeWizardOpen, setExchangeWizardOpen] = useState(false);
   const [returnWizardOpen, setReturnWizardOpen] = useState(false);
 
@@ -82,14 +111,16 @@ function KioskReturns() {
       setLoading(true);
       setError("");
       const kioskLocationId = kioskId || undefined;
-      const [exchangeRows, pendingRows] = await Promise.all([
+      const [exchangeRows, pendingRows, authorizationRows] = await Promise.all([
         listKioskExchanges(kioskLocationId),
         listPendingReintegros(kioskLocationId),
+        canAuthorizeExchanges ? listPendingAuthorizations(kioskLocationId) : Promise.resolve([]),
       ]);
       const allRows = Array.isArray(exchangeRows) ? exchangeRows : [];
       setExchanges(allRows.filter((row) => String(row.slipType || "EXCHANGE").toUpperCase() === "EXCHANGE"));
       setReturns(allRows.filter((row) => String(row.slipType || "").toUpperCase() === "RETURN"));
       setPendingReintegros(Array.isArray(pendingRows) ? pendingRows : []);
+      setPendingAuthorizations(Array.isArray(authorizationRows) ? authorizationRows : []);
     } catch (err) {
       setError(err.message || "Error al cargar devoluciones y boletas.");
     } finally {
@@ -104,6 +135,43 @@ function KioskReturns() {
   useEffect(() => {
     void loadData();
   }, [selectedKiosk]);
+
+  const handleAuthorize = async (slip) => {
+    try {
+      setActionId(slip.id);
+      await authorizeKioskExchange(slip.id, selectedKiosk || slip.kioskLocationId);
+      await loadData();
+    } catch (err) {
+      setError(err.message || "No se pudo autorizar el cambio.");
+    } finally {
+      setActionId(null);
+    }
+  };
+
+  const openRejectModal = (slip) => {
+    setRejectTarget(slip);
+    setRejectReason("");
+    setRejectModalOpen(true);
+  };
+
+  const handleReject = async () => {
+    if (!rejectTarget) return;
+    if (!rejectReason.trim()) {
+      setError("Indica el motivo del rechazo.");
+      return;
+    }
+    try {
+      setActionId(rejectTarget.id);
+      await rejectKioskExchange(rejectTarget.id, selectedKiosk || rejectTarget.kioskLocationId, rejectReason.trim());
+      setRejectModalOpen(false);
+      setRejectTarget(null);
+      await loadData();
+    } catch (err) {
+      setError(err.message || "No se pudo rechazar el cambio.");
+    } finally {
+      setActionId(null);
+    }
+  };
 
   const handleReintegrate = async (slip) => {
     try {
@@ -203,6 +271,18 @@ function KioskReturns() {
                     Reintegros pendientes
                   </NavLink>
                 </NavItem>
+                {canAuthorizeExchanges && (
+                  <NavItem>
+                    <NavLink
+                      className={activeTab === "AUTHORIZATIONS" ? "active" : ""}
+                      onClick={() => setActiveTab("AUTHORIZATIONS")}
+                      style={{ cursor: "pointer" }}
+                    >
+                      Autorizaciones pendientes
+                      {pendingAuthorizations.length > 0 ? ` (${pendingAuthorizations.length})` : ""}
+                    </NavLink>
+                  </NavItem>
+                )}
               </Nav>
 
               <TabContent activeTab={activeTab}>
@@ -234,7 +314,7 @@ function KioskReturns() {
                             <td>{row.returnedProductName}</td>
                             <td>{row.givenProductName}</td>
                             <td>{formatCurrency(row.differenceAmount)}</td>
-                            <td><Badge color={statusBadge(row.status)}>{row.status}</Badge></td>
+                            <td><Badge color={statusBadge(row.status)}>{statusLabel(row.status)}</Badge></td>
                             <td className="text-right">
                               <Button color="default" size="sm" onClick={() => handlePrintExchange(row)}>
                                 Imprimir
@@ -275,7 +355,7 @@ function KioskReturns() {
                             <td>{formatQty(row.returnedQuantity)}</td>
                             <td>{row.reason}</td>
                             <td>{row.apto ? "Sí" : "No"}</td>
-                            <td><Badge color={statusBadge(row.status)}>{row.status}</Badge></td>
+                            <td><Badge color={statusBadge(row.status)}>{statusLabel(row.status)}</Badge></td>
                             <td className="text-right">
                               <Button color="default" size="sm" className="mr-1" onClick={() => handlePrintReturn(row)}>
                                 Imprimir
@@ -331,6 +411,66 @@ function KioskReturns() {
                     </Table>
                   )}
                 </TabPane>
+
+                {canAuthorizeExchanges && (
+                  <TabPane tabId="AUTHORIZATIONS">
+                    {loading ? (
+                      <p>Cargando...</p>
+                    ) : pendingAuthorizations.length === 0 ? (
+                      <p>No hay cambios pendientes de autorización.</p>
+                    ) : (
+                      <Table responsive>
+                        <thead className="text-primary">
+                          <tr>
+                            <th>Boleta</th>
+                            <th>Kiosko</th>
+                            <th>Solicitante</th>
+                            <th>Devuelto</th>
+                            <th>Nuevo</th>
+                            <th>Motivo</th>
+                            <th className="text-right">Acciones</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {pendingAuthorizations.map((row) => (
+                            <tr key={row.id}>
+                              <td>{row.slipNumber}</td>
+                              <td>{row.kioskName}</td>
+                              <td>{row.createdByName || "—"}</td>
+                              <td>{row.returnedProductName}</td>
+                              <td>{row.givenProductName}</td>
+                              <td>{row.reason}</td>
+                              <td className="text-right">
+                                {hasPermission("KIOSCOS.CAMBIOS.AUTORIZAR.APROBAR") && (
+                                  <>
+                                    <Button
+                                      color="success"
+                                      size="sm"
+                                      className="mr-1"
+                                      disabled={actionId === row.id}
+                                      onClick={() => void handleAuthorize(row)}
+                                    >
+                                      {actionId === row.id ? "..." : "Autorizar"}
+                                    </Button>
+                                    <Button
+                                      color="danger"
+                                      size="sm"
+                                      outline
+                                      disabled={actionId === row.id}
+                                      onClick={() => openRejectModal(row)}
+                                    >
+                                      Rechazar
+                                    </Button>
+                                  </>
+                                )}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </Table>
+                    )}
+                  </TabPane>
+                )}
               </TabContent>
             </CardBody>
           </Card>
@@ -349,6 +489,27 @@ function KioskReturns() {
         kioskLocationId={selectedKiosk ? Number(selectedKiosk) : null}
         onCompleted={() => void loadData()}
       />
+
+      <Modal isOpen={rejectModalOpen} toggle={() => setRejectModalOpen(false)}>
+        <ModalHeader toggle={() => setRejectModalOpen(false)}>Rechazar solicitud de cambio</ModalHeader>
+        <ModalBody>
+          <Label>Motivo del rechazo</Label>
+          <Input
+            type="textarea"
+            value={rejectReason}
+            onChange={(e) => setRejectReason(e.target.value)}
+            placeholder="Indica por qué se rechaza el cambio"
+          />
+        </ModalBody>
+        <ModalFooter>
+          <Button color="secondary" outline onClick={() => setRejectModalOpen(false)}>
+            Cancelar
+          </Button>
+          <Button color="danger" onClick={() => void handleReject()} disabled={actionId != null}>
+            Rechazar cambio
+          </Button>
+        </ModalFooter>
+      </Modal>
     </div>
   );
 }

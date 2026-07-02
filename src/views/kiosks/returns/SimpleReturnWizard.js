@@ -30,6 +30,7 @@ function SimpleReturnWizard({ isOpen, onClose, kioskLocationId, onCompleted }) {
   const [apto, setApto] = useState("true");
   const [reason, setReason] = useState("");
   const [observations, setObservations] = useState("");
+  const [physicalSlipNumber, setPhysicalSlipNumber] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -43,6 +44,7 @@ function SimpleReturnWizard({ isOpen, onClose, kioskLocationId, onCompleted }) {
     setApto("true");
     setReason("");
     setObservations("");
+    setPhysicalSlipNumber("");
     setError("");
   }, [isOpen]);
 
@@ -80,6 +82,10 @@ function SimpleReturnWizard({ isOpen, onClose, kioskLocationId, onCompleted }) {
       setError("Indica el motivo de la devolución.");
       return;
     }
+    if (!physicalSlipNumber.trim()) {
+      setError("Indica el número de boleta de devolución física.");
+      return;
+    }
     try {
       setLoading(true);
       const slip = await completeKioskSimpleReturn({
@@ -88,6 +94,7 @@ function SimpleReturnWizard({ isOpen, onClose, kioskLocationId, onCompleted }) {
         originalSaleItemId: selectedItem.id,
         returnedQuantity: Number(returnedQty || 1),
         apto: apto === "true",
+        physicalSlipNumber: physicalSlipNumber.trim(),
         reason: reason.trim(),
         observations: observations.trim() || null,
       });
@@ -169,6 +176,14 @@ function SimpleReturnWizard({ isOpen, onClose, kioskLocationId, onCompleted }) {
                 <option value="true">Sí — queda en kiosko (reintegro pendiente)</option>
                 <option value="false">No — merma</option>
               </Input>
+            </FormGroup>
+            <FormGroup>
+              <Label>Número de boleta de devolución (física)</Label>
+              <Input
+                value={physicalSlipNumber}
+                onChange={(e) => setPhysicalSlipNumber(e.target.value)}
+                placeholder="Ej: BD-0042"
+              />
             </FormGroup>
             <FormGroup>
               <Label>Motivo</Label>

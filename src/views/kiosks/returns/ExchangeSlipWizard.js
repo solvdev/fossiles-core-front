@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import {
   Alert,
   Button,
+  FormGroup,
   Input,
   Label,
   Modal,
@@ -42,6 +43,7 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, onCompleted }) {
   const [preview, setPreview] = useState(null);
   const [reason, setReason] = useState("");
   const [observations, setObservations] = useState("");
+  const [physicalSlipNumber, setPhysicalSlipNumber] = useState("");
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -62,6 +64,7 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, onCompleted }) {
     setPreview(null);
     setReason("");
     setObservations("");
+    setPhysicalSlipNumber("");
     setCheckoutOpen(false);
     setError("");
   }, [isOpen]);
@@ -173,8 +176,14 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, onCompleted }) {
     }
   };
 
+  const hasPriceDifference = Number(preview?.differenceAmount || 0) > 0;
+
   const handleComplete = async (payment) => {
     if (!preview) return;
+    if (!String(physicalSlipNumber || "").trim()) {
+      setError("Indica el número de boleta de cambio física.");
+      return;
+    }
     try {
       setSaving(true);
       const result = await completeKioskExchange({
@@ -186,6 +195,7 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, onCompleted }) {
         givenSize: preview.given.size,
         returnedQuantity: preview.returned.quantity,
         givenQuantity: preview.given.quantity,
+        physicalSlipNumber: physicalSlipNumber.trim(),
         reason: payment.reason || reason,
         observations: payment.observations || observations,
         ...payment,
@@ -199,6 +209,51 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, onCompleted }) {
     } finally {
       setSaving(false);
     }
+  };
+
+  const handleSubmitAuthorizationRequest = async () => {
+    if (!preview) return;
+    resetError();
+    if (!String(physicalSlipNumber || "").trim()) {
+      setError("Indica el número de boleta de cambio física.");
+      return;
+    }
+    if (!String(reason || "").trim()) {
+      setError("Indica el motivo del cambio.");
+      return;
+    }
+    try {
+      setSaving(true);
+      const result = await completeKioskExchange({
+        kioskLocationId,
+        originalSaleId: sale.id,
+        originalSaleItemId: selectedItem.id,
+        givenProductId: preview.given.productId,
+        givenColorId: preview.given.colorId,
+        givenSize: preview.given.size,
+        returnedQuantity: preview.returned.quantity,
+        givenQuantity: preview.given.quantity,
+        physicalSlipNumber: physicalSlipNumber.trim(),
+        reason: reason.trim(),
+        observations: observations.trim() || null,
+      });
+      openExchangeSlipPrintWindow(buildKioskExchangeSlipPrintHtml(result.slip, preview));
+      onCompleted?.(result);
+      onClose();
+    } catch (err) {
+      setError(err.message || "No se pudo enviar la solicitud de cambio.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleOpenCheckout = () => {
+    resetError();
+    if (!String(physicalSlipNumber || "").trim()) {
+      setError("Indica el número de boleta de cambio física.");
+      return;
+    }
+    setCheckoutOpen(true);
   };
 
   return (
@@ -360,24 +415,54 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, onCompleted }) {
           )}
 
           {step === 4 && preview && (
-            <div className="row">
-              <div className="col-md-4">
-                <h6>INGRESO</h6>
-                <p>{preview.returned.productCode} · {preview.returned.productName}</p>
-                <p>Cant. {formatQty(preview.returned.quantity)}</p>
-                <strong>{formatCurrency(preview.returnedAmount)}</strong>
+            <>
+              <div className="row">
+                <div className="col-md-4">
+                  <h6>INGRESO</h6>
+                  <p>{preview.returned.productCode} · {preview.returned.productName}</p>
+                  <p>Cant. {formatQty(preview.returned.quantity)}</p>
+                  <strong>{formatCurrency(preview.returnedAmount)}</strong>
+                </div>
+                <div className="col-md-4">
+                  <h6>EGRESO</h6>
+                  <p>{preview.given.productCode} · {preview.given.productName}</p>
+                  <p>Cant. {formatQty(preview.given.quantity)}</p>
+                  <strong>{formatCurrency(preview.givenAmount)}</strong>
+                </div>
+                <div className="col-md-4">
+                  <h6>DIFERENCIA</h6>
+                  <p className="display-4">{formatCurrency(preview.differenceAmount)}</p>
+                </div>
               </div>
-              <div className="col-md-4">
-                <h6>EGRESO</h6>
-                <p>{preview.given.productCode} · {preview.given.productName}</p>
-                <p>Cant. {formatQty(preview.given.quantity)}</p>
-                <strong>{formatCurrency(preview.givenAmount)}</strong>
-              </div>
-              <div className="col-md-4">
-                <h6>DIFERENCIA</h6>
-                <p className="display-4">{formatCurrency(preview.differenceAmount)}</p>
-              </div>
-            </div>
+              <FormGroup className="mt-3">
+                <Label>Número de boleta de cambio (física)</Label>
+                <Input
+                  value={physicalSlipNumber}
+                  onChange={(e) => setPhysicalSlipNumber(e.target.value)}
+                  placeholder="Ej: BC-0042"
+                />
+              </FormGroup>
+              {!hasPriceDifference && (
+                <>
+                  <Alert color="info" className="mt-2">
+                    Sin diferencia de precio: no hay cobro ni facturación. Logística debe autorizar el cambio
+                    antes de mover inventario.
+                  </Alert>
+                  <FormGroup>
+                    <Label>Motivo del cambio</Label>
+                    <Input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Ej: Cambio de talla" />
+                  </FormGroup>
+                  <FormGroup>
+                    <Label>Observaciones (opcional)</Label>
+                    <Input
+                      type="textarea"
+                      value={observations}
+                      onChange={(e) => setObservations(e.target.value)}
+                    />
+                  </FormGroup>
+                </>
+              )}
+            </>
           )}
         </ModalBody>
         <ModalFooter>
@@ -406,9 +491,14 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, onCompleted }) {
               Ver resumen
             </Button>
           )}
-          {step === 4 && preview && (
-            <Button color="success" onClick={() => setCheckoutOpen(true)}>
+          {step === 4 && preview && hasPriceDifference && (
+            <Button color="success" onClick={handleOpenCheckout}>
               Cobrar y confirmar
+            </Button>
+          )}
+          {step === 4 && preview && !hasPriceDifference && (
+            <Button color="success" onClick={() => void handleSubmitAuthorizationRequest()} disabled={saving}>
+              {saving ? "Enviando..." : "Enviar solicitud de cambio"}
             </Button>
           )}
         </ModalFooter>

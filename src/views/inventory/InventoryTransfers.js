@@ -84,6 +84,7 @@ function InventoryTransfers() {
     materialId: "",
     quantity: "",
     reason: "",
+    physicalSlipNumber: "",
   });
   
   // Formulario de transferencia masiva
@@ -92,6 +93,7 @@ function InventoryTransfers() {
     fromLocationId: "",
     toLocationId: "",
     reason: "",
+    physicalSlipNumber: "",
   });
 
   useEffect(() => {
@@ -180,6 +182,11 @@ function InventoryTransfers() {
       return;
     }
 
+    if (!String(formData.physicalSlipNumber || "").trim()) {
+      showError("Debe ingresar el número de boleta de traslado física");
+      return;
+    }
+
     try {
       setLoading(true);
       const transferData = {
@@ -187,6 +194,7 @@ function InventoryTransfers() {
         toLocationId: parseInt(formData.toLocationId),
         quantity: parseFloat(formData.quantity),
         reason: formData.reason || "Transferencia manual",
+        physicalSlipNumber: formData.physicalSlipNumber.trim(),
         ...(transferMode === "product" 
           ? { 
               productId: parseInt(formData.productId),
@@ -233,12 +241,18 @@ function InventoryTransfers() {
       return;
     }
 
+    if (!String(bulkFormData.physicalSlipNumber || "").trim()) {
+      showError("Debe ingresar el número de boleta de traslado física");
+      return;
+    }
+
     try {
       setLoading(true);
       const bulkTransferData = {
         fromLocationId: parseInt(bulkFormData.fromLocationId),
         toLocationId: parseInt(bulkFormData.toLocationId),
         reason: bulkFormData.reason || "Transferencia masiva",
+        physicalSlipNumber: bulkFormData.physicalSlipNumber.trim(),
         items: bulkItems.map((item) => ({
           ...(transferMode === "product"
             ? { 
@@ -272,6 +286,7 @@ function InventoryTransfers() {
       materialId: "",
       quantity: "",
       reason: "",
+      physicalSlipNumber: "",
     });
   };
 
@@ -280,6 +295,7 @@ function InventoryTransfers() {
       fromLocationId: "",
       toLocationId: "",
       reason: "",
+      physicalSlipNumber: "",
     });
     setBulkItems([]);
   };
@@ -944,6 +960,18 @@ function InventoryTransfers() {
             </Col>
             <Col md="12">
               <FormGroup>
+                <Label>Número de boleta de traslado (física) *</Label>
+                <Input
+                  value={formData.physicalSlipNumber}
+                  onChange={(e) =>
+                    setFormData({ ...formData, physicalSlipNumber: e.target.value })
+                  }
+                  placeholder="Ej: BT-2026-0042"
+                />
+              </FormGroup>
+            </Col>
+            <Col md="12">
+              <FormGroup>
                 <Label>Motivo</Label>
                 <Input
                   type="textarea"
@@ -1040,6 +1068,18 @@ function InventoryTransfers() {
                     </option>
                   ))}
                 </Input>
+              </FormGroup>
+            </Col>
+            <Col md="12">
+              <FormGroup>
+                <Label>Número de boleta de traslado (física) *</Label>
+                <Input
+                  value={bulkFormData.physicalSlipNumber}
+                  onChange={(e) =>
+                    setBulkFormData({ ...bulkFormData, physicalSlipNumber: e.target.value })
+                  }
+                  placeholder="Ej: BT-2026-0042"
+                />
               </FormGroup>
             </Col>
             <Col md="12">

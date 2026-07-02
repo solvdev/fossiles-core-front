@@ -85,6 +85,37 @@ export const completeKioskSimpleReturn = async (payload) => {
   return parseJson(response, "No se pudo registrar la devolución.");
 };
 
+export const listPendingAuthorizations = async (kioskLocationId) => {
+  const response = await fetch(
+    `${API_URL}/kiosk-pos/exchanges/pending-authorizations${toQuery({ kioskLocationId })}`,
+    { headers: headers() }
+  );
+  return parseJson(response, "No se pudieron cargar las autorizaciones pendientes.");
+};
+
+export const authorizeKioskExchange = async (slipId, kioskLocationId) => {
+  const response = await fetch(
+    `${API_URL}/kiosk-pos/exchanges/${slipId}/authorize${toQuery({ kioskLocationId })}`,
+    {
+      method: "POST",
+      headers: headers(),
+    }
+  );
+  return parseJson(response, "No se pudo autorizar el cambio.");
+};
+
+export const rejectKioskExchange = async (slipId, kioskLocationId, reason) => {
+  const response = await fetch(
+    `${API_URL}/kiosk-pos/exchanges/${slipId}/reject${toQuery({ kioskLocationId })}`,
+    {
+      method: "POST",
+      headers: headers(),
+      body: JSON.stringify({ reason }),
+    }
+  );
+  return parseJson(response, "No se pudo rechazar el cambio.");
+};
+
 export const reintegrateKioskReturn = async (slipId, kioskLocationId) => {
   const response = await fetch(
     `${API_URL}/kiosk-pos/exchanges/${slipId}/reintegrate${toQuery({ kioskLocationId })}`,

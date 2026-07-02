@@ -94,10 +94,13 @@ export function buildKioskExchangeSlipPrintHtml(slip, preview) {
   <div class="meta">
     <div><strong>Serie / No.:</strong> ${escapeHtml(slip?.slipNumber || "—")}</div>
     <div><strong>Fecha:</strong> ${fmtDate(slip?.completedAt || slip?.createdAt)}</div>
+    <div><strong>Estado:</strong> ${escapeHtml(slip?.status === "PENDING_AUTHORIZATION" ? "PENDIENTE DE AUTORIZACIÓN" : slip?.status || "—")}</div>
     <div><strong>Venta original:</strong> ${escapeHtml(slip?.originalSaleNumber || preview?.originalSaleNumber || "—")}</div>
     <div><strong>Venta nueva:</strong> ${escapeHtml(slip?.newSaleNumber || "—")}</div>
     <div><strong>Motivo:</strong> ${escapeHtml(slip?.reason || "—")}</div>
-    <div><strong>Atendió:</strong> ${escapeHtml(slip?.createdByName || "—")}</div>
+    <div><strong>Registrado por:</strong> ${escapeHtml(slip?.createdByName || "—")}</div>
+    ${slip?.authorizedByName ? `<div><strong>Autorizado por:</strong> ${escapeHtml(slip.authorizedByName)}</div>` : ""}
+    ${slip?.rejectionReason ? `<div><strong>Rechazo:</strong> ${escapeHtml(slip.rejectionReason)}</div>` : ""}
   </div>
 
   <div class="section-title">Ingreso — producto devuelto</div>
@@ -154,6 +157,7 @@ export function buildKioskReturnSlipPrintHtml(slip) {
     <div><strong>Kiosko:</strong> ${escapeHtml(slip?.kioskName || "—")}</div>
     <div><strong>Venta original:</strong> ${escapeHtml(slip?.originalSaleNumber || "—")}</div>
     <div><strong>Fecha:</strong> ${fmtDate(slip?.createdAt)}</div>
+    <div><strong>Registrado por:</strong> ${escapeHtml(slip?.createdByName || "—")}</div>
     <div><strong>Apto reventa:</strong> ${slip?.apto ? "Sí" : "No"}</div>
     <div><strong>Motivo:</strong> ${escapeHtml(slip?.reason || "—")}</div>
   </div>

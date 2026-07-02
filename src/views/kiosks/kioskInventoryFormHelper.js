@@ -28,7 +28,7 @@ export function validateCommonStockForm({ locationId, productId, quantity }) {
   return "";
 }
 
-export function validateTransferForm({ locationOriginId, locationDestinationId, productId, quantity }) {
+export function validateTransferForm({ locationOriginId, locationDestinationId, productId, quantity, physicalSlipNumber }) {
   if (!locationOriginId || !locationDestinationId) {
     return "Debes seleccionar origen y destino.";
   }
@@ -40,6 +40,9 @@ export function validateTransferForm({ locationOriginId, locationDestinationId, 
   }
   if (!isPositiveInteger(quantity)) {
     return "La cantidad debe ser un entero mayor a cero.";
+  }
+  if (!String(physicalSlipNumber || "").trim()) {
+    return "Debes indicar el número de boleta de traslado física.";
   }
   return "";
 }

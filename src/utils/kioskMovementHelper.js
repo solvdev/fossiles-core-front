@@ -25,6 +25,7 @@ export const formatKioscoMovementRoute = (movement) => {
 };
 
 export const formatKioscoMovementReference = (movement) => {
+  if (movement?.physicalSlipNumber) return movement.physicalSlipNumber;
   if (movement?.referenceNumber) return movement.referenceNumber;
   const ref = movement?.referenceId;
   if (ref == null || ref === "") return "—";

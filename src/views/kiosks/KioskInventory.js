@@ -78,6 +78,7 @@ const INITIAL_FORM = {
   realQuantity: "",
   productLeftKiosk: false,
   userId: "",
+  physicalSlipNumber: "",
 };
 
 function KioskInventory() {
@@ -263,6 +264,7 @@ function KioskInventory() {
         locationDestinationId: form.locationDestinationId,
         productId: form.productId,
         quantity: form.quantity,
+        physicalSlipNumber: form.physicalSlipNumber,
       });
     }
     if (form.operation === "ANULACION") {
@@ -362,6 +364,7 @@ function KioskInventory() {
           colorId: form.colorId ? Number(form.colorId) : null,
           quantity: Number(form.quantity),
           userId: form.userId ? Number(form.userId) : null,
+          physicalSlipNumber: String(form.physicalSlipNumber || "").trim(),
         };
       default:
         return base;
@@ -578,6 +581,14 @@ function KioskInventory() {
                               options={kioskOptions}
                               placeholder="Buscar destino…"
                               emptyLabel="Selecciona destino"
+                            />
+                          </FormGroup>
+                          <FormGroup>
+                            <Label>Número de boleta de traslado (física)</Label>
+                            <Input
+                              value={form.physicalSlipNumber}
+                              onChange={(e) => onFormChange("physicalSlipNumber", e.target.value)}
+                              placeholder="Ej: BT-2026-0042"
                             />
                           </FormGroup>
                         </>

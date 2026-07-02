@@ -51,6 +51,7 @@ function EmbeddedInventoryTransferModal({
     materialId: "",
     quantity: "",
     reason: "",
+    physicalSlipNumber: "",
   });
 
   useEffect(() => {
@@ -64,6 +65,7 @@ function EmbeddedInventoryTransferModal({
       materialId: initialMaterialId ? String(initialMaterialId) : "",
       quantity: "",
       reason: "",
+      physicalSlipNumber: "",
     });
   }, [
     isOpen,
@@ -115,6 +117,10 @@ function EmbeddedInventoryTransferModal({
       showError("Debe ingresar una cantidad válida mayor a cero");
       return;
     }
+    if (!String(formData.physicalSlipNumber || "").trim()) {
+      showError("Debe ingresar el número de boleta de traslado física");
+      return;
+    }
 
     try {
       setLoading(true);
@@ -123,6 +129,7 @@ function EmbeddedInventoryTransferModal({
         toLocationId: parseInt(formData.toLocationId, 10),
         quantity: parseFloat(formData.quantity),
         reason: formData.reason || "Transferencia desde inventario",
+        physicalSlipNumber: formData.physicalSlipNumber.trim(),
         ...(mode === "product"
           ? {
               productId: parseInt(formData.productId, 10),
@@ -282,6 +289,18 @@ function EmbeddedInventoryTransferModal({
                   setFormData({ ...formData, quantity: e.target.value })
                 }
                 placeholder="0.000"
+              />
+            </FormGroup>
+          </Col>
+          <Col md="12">
+            <FormGroup>
+              <Label>Número de boleta de traslado (física) *</Label>
+              <Input
+                value={formData.physicalSlipNumber}
+                onChange={(e) =>
+                  setFormData({ ...formData, physicalSlipNumber: e.target.value })
+                }
+                placeholder="Ej: BT-2026-0042"
               />
             </FormGroup>
           </Col>
