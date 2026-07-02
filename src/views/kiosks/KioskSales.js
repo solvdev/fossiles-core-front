@@ -45,6 +45,7 @@ import PosCashTab from "./pos/PosCashTab";
 import PosManagerDashboard from "./pos/PosManagerDashboard";
 import PosInventoryTab from "./pos/PosInventoryTab";
 import { useAuth } from "contexts/AuthContext";
+import FilterableSelect from "components/distribution/FilterableSelect";
 import {
   colorLineKeyFor,
   estimatePromotionDiscount,
@@ -523,6 +524,16 @@ function KioskSales() {
     setSelectedPromotionId("");
   };
 
+  const availabilityOptions = useMemo(
+    () =>
+      (context?.inventory || []).map((item) => ({
+        value: lineKeyFor(item.productId, item.colorId),
+        label: `${item.productCode} - ${item.productName} (${item.colorName || "Sin color"})`,
+        searchText: `${item.productCode} ${item.productName} ${item.colorName || ""}`,
+      })),
+    [context?.inventory]
+  );
+
   const selectedKioskName = useMemo(() => {
     if (!context) return "";
     if (context.admin && Array.isArray(context.kiosks)) {
@@ -697,22 +708,14 @@ function KioskSales() {
                           <Row>
                             <Col md="6">
                               <Label className="kiosk-pos-label">Producto / color</Label>
-                              <Input
-                                className="kiosk-pos-input-lg"
-                                type="select"
+                              <FilterableSelect
                                 value={availabilityKey}
-                                onChange={(e) => setAvailabilityKey(e.target.value)}
-                              >
-                                <option value="">Selecciona producto</option>
-                                {(context.inventory || []).map((item) => (
-                                  <option
-                                    key={`opt-${lineKeyFor(item.productId, item.colorId)}`}
-                                    value={lineKeyFor(item.productId, item.colorId)}
-                                  >
-                                    {item.productCode} - {item.productName} ({item.colorName || "Sin color"})
-                                  </option>
-                                ))}
-                              </Input>
+                                onChange={setAvailabilityKey}
+                                options={availabilityOptions}
+                                placeholder="Buscar producto..."
+                                emptyLabel="Selecciona producto"
+                                inputClassName="kiosk-pos-input-lg"
+                              />
                             </Col>
                             <Col md="3" className="d-flex align-items-end mt-2 mt-md-0">
                               <Button

@@ -37,6 +37,7 @@ export function FilterableSelect({
   allowEmpty = true,
   emptyLabel = "— Sin selección —",
   bsSize,
+  inputClassName,
 }) {
   const [search, setSearch] = useState("");
   const [open, setOpen] = useState(false);
@@ -69,6 +70,7 @@ export function FilterableSelect({
         value={displayValue}
         disabled={disabled}
         bsSize={bsSize}
+        className={inputClassName}
         onChange={(e) => {
           setSearch(e.target.value);
           if (!open) setOpen(true);

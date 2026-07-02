@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useMemo } from "react";
 import {
   Button,
   Card,
@@ -11,14 +11,46 @@ import {
   Row,
   Table,
 } from "reactstrap";
-import { PROMO_AUDIENCE_OPTIONS, PROMO_TIER_AUDIENCE_OPTIONS, formatPromotionTierSummary, getPromoAudienceLabel } from "utils/productAudienceHelper";
+import FilterableSelect from "components/distribution/FilterableSelect";
+import {
+  PROMO_AUDIENCE_OPTIONS,
+  PROMO_TIER_AUDIENCE_OPTIONS,
+  formatPromotionTierSummary,
+  getPromoAudienceLabel,
+} from "utils/productAudienceHelper";
 import { formatCurrency } from "./posUtils";
 
 const EMPTY_TIER_PERCENTS = { DAMA: "", CABALLERO: "", UNISEX: "" };
 
+const DISCOUNT_TYPE_OPTIONS = [
+  { value: "PERCENT", label: "Porcentaje (%)" },
+  { value: "TIERED_PERCENT", label: "Porcentaje por línea" },
+  { value: "FIXED", label: "Monto fijo (Q)" },
+  { value: "COMBO", label: "Combo (2x1)" },
+];
+
 function PosPromotionsTab({ promoForm, onPromoFormChange, promotions, onCreatePromotion, kiosks }) {
   const isCombo = promoForm.discountType === "COMBO";
   const isTiered = promoForm.discountType === "TIERED_PERCENT";
+
+  const kioskOptions = useMemo(
+    () =>
+      (kiosks || []).map((k) => ({
+        value: String(k.kioskId),
+        label: k.kioskName,
+        searchText: `${k.kioskName || ""} ${k.kioskCode || ""}`,
+      })),
+    [kiosks]
+  );
+
+  const audienceOptions = useMemo(
+    () =>
+      PROMO_AUDIENCE_OPTIONS.map((opt) => ({
+        value: opt.value,
+        label: opt.label,
+      })),
+    []
+  );
 
   return (
     <Card className="kiosk-pos-block">
@@ -37,49 +69,37 @@ function PosPromotionsTab({ promoForm, onPromoFormChange, promotions, onCreatePr
           </Col>
           <Col md="4">
             <Label className="kiosk-pos-label">Tipo</Label>
-            <Input
-              className="kiosk-pos-input-lg"
-              type="select"
+            <FilterableSelect
               value={promoForm.discountType}
-              onChange={(e) => onPromoFormChange({ discountType: e.target.value })}
-            >
-              <option value="PERCENT">Porcentaje (%)</option>
-              <option value="TIERED_PERCENT">Porcentaje por línea</option>
-              <option value="FIXED">Monto fijo (Q)</option>
-              <option value="COMBO">Combo (2x1)</option>
-            </Input>
+              onChange={(value) => onPromoFormChange({ discountType: value || "PERCENT" })}
+              options={DISCOUNT_TYPE_OPTIONS}
+              placeholder="Buscar tipo..."
+              allowEmpty={false}
+              inputClassName="kiosk-pos-input-lg"
+            />
           </Col>
           <Col md="4">
             <Label className="kiosk-pos-label">Kiosko (vacío = todos)</Label>
-            <Input
-              className="kiosk-pos-input-lg"
-              type="select"
+            <FilterableSelect
               value={promoForm.kioskLocationId}
-              onChange={(e) => onPromoFormChange({ kioskLocationId: e.target.value })}
-            >
-              <option value="">Todos</option>
-              {(kiosks || []).map((k) => (
-                <option key={`promo-k-${k.kioskId}`} value={String(k.kioskId)}>
-                  {k.kioskName}
-                </option>
-              ))}
-            </Input>
+              onChange={(value) => onPromoFormChange({ kioskLocationId: value })}
+              options={kioskOptions}
+              placeholder="Buscar kiosko..."
+              emptyLabel="Todos"
+              inputClassName="kiosk-pos-input-lg"
+            />
           </Col>
           {!isTiered && (
             <Col md="4">
               <Label className="kiosk-pos-label">Línea (vacío = todas)</Label>
-              <Input
-                className="kiosk-pos-input-lg"
-                type="select"
+              <FilterableSelect
                 value={promoForm.audienceCategory}
-                onChange={(e) => onPromoFormChange({ audienceCategory: e.target.value })}
-              >
-                {PROMO_AUDIENCE_OPTIONS.map((opt) => (
-                  <option key={`promo-aud-${opt.value || "all"}`} value={opt.value}>
-                    {opt.label}
-                  </option>
-                ))}
-              </Input>
+                onChange={(value) => onPromoFormChange({ audienceCategory: value })}
+                options={audienceOptions}
+                placeholder="Buscar línea..."
+                emptyLabel="Todas las líneas"
+                inputClassName="kiosk-pos-input-lg"
+              />
             </Col>
           )}
         </Row>

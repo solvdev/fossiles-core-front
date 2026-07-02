@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Input, Label, Modal, ModalBody } from "reactstrap";
+import FilterableSelect from "components/distribution/FilterableSelect";
 import { lookupTaxpayerByNit } from "services/kioskPosService";
 import { formatPromotionOptionLabel } from "utils/productAudienceHelper";
 import {
@@ -119,6 +120,15 @@ function PosCheckoutModal({
     paymentMethod === "TARJETA" || (paymentMethod === "MIXTO" && Number(cardAmount || 0) > 0);
   const cardDataIncomplete =
     requiresCardData && (!cardAuthNumber.trim() || !/^\d{4}$/.test(cardLast4.trim()));
+
+  const promotionOptions = useMemo(
+    () =>
+      (promotions || []).map((promo) => ({
+        value: String(promo.id),
+        label: formatPromotionOptionLabel(promo),
+      })),
+    [promotions]
+  );
 
   const nitInvalid =
     normalizeNit(customerTaxId) !== "CF" &&
@@ -287,18 +297,14 @@ function PosCheckoutModal({
               20% OFF
             </button>
           </div>
-          <select
-            className="kiosk-pos-promo-select"
+          <FilterableSelect
             value={selectedPromotionId}
-            onChange={(e) => onPromotionChange(e.target.value)}
-          >
-            <option value="">Sin promoción</option>
-            {(promotions || []).map((promo) => (
-              <option key={`checkout-promo-${promo.id}`} value={String(promo.id)}>
-                {formatPromotionOptionLabel(promo)}
-              </option>
-            ))}
-          </select>
+            onChange={onPromotionChange}
+            options={promotionOptions}
+            placeholder="Buscar promoción..."
+            emptyLabel="Sin promoción"
+            inputClassName="kiosk-pos-promo-select"
+          />
           {estimatedDiscount > 0 && (
             <div className="kiosk-pos-promo-discount">Descuento aplicado: -{formatCurrency(estimatedDiscount)}</div>
           )}
