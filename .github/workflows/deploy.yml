@@ -1,0 +1,51 @@
+name: Deploy Frontend
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-frontend
+  cancel-in-progress: false
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: yarn
+
+      - name: Habilitar Corepack (Yarn 4)
+        run: corepack enable
+
+      - name: Instalar dependencias
+        run: yarn install --immutable
+
+      - name: Build
+        run: yarn build
+
+      - name: Setup SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H ${{ secrets.FRONT_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Sincronizar build al servidor (rsync, solo deltas)
+        run: |
+          rsync -avz --delete \
+            --rsync-path="sudo rsync" \
+            -e "ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no" \
+            build/ \
+            ${{ secrets.SSH_USER }}@${{ secrets.FRONT_HOST }}:/var/www/front/build/
+
+      - name: Recargar Nginx
+        run: |
+          ssh -i ~/.ssh/deploy_key ${{ secrets.SSH_USER }}@${{ secrets.FRONT_HOST }} \
+            "sudo systemctl reload nginx && systemctl is-active nginx"
