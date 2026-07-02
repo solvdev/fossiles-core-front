@@ -1,10 +1,8 @@
 /build
 /node_modules
 
-# Environment variables (do not commit secrets)
-.env
-.env.*
-.env*
-!.env.example
+# Environment variables locales (.env se trackea a proposito: no contiene secretos)
+.env.local
+.env.*.local
 
 AWS_S3_CREDENTIALS.txt
