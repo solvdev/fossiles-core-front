@@ -12,8 +12,9 @@ import {
   Spinner,
   Table,
 } from "reactstrap";
-import { confirmReceipt } from "services/productDistributionService";
-import { showError, showSuccess } from "utils/notificationHelper";
+import { confirmReceipt, repairDeliveredShipmentReceiptInventory } from "services/productDistributionService";
+import { showError, showSuccess, showWarning } from "utils/notificationHelper";
+import { formatShipmentReceiptRepairMessage } from "utils/shipmentReceiptRepairHelper";
 import { formatDateTimeGt } from "utils/dateTimeHelper";
 import {
   buildCategoryOptions,
@@ -238,7 +239,9 @@ export function ShipmentReceiptList({
                     </div>
                   )}
                   <div className="mt-1">
-                    <Badge color="warning">En camino</Badge>
+                    <Badge color={String(shipment.status || "").toUpperCase() === "DELIVERED" ? "success" : "warning"}>
+                      {String(shipment.status || "").toUpperCase() === "DELIVERED" ? "Entregado" : "En camino"}
+                    </Badge>
                     <span className="text-muted small ml-2">
                       {shipment.sentAt ? formatDateTimeGt(shipment.sentAt) : "Sin fecha de envío"}
                     </span>
@@ -312,6 +315,7 @@ export function ShipmentReceiptList({
 export function ShipmentReceiptDetail({
   shipment,
   onConfirmed,
+  onRepaired,
   readOnly = false,
   successMessage = "Recepción confirmada. Inventario de kiosko actualizado.",
 }) {
@@ -319,6 +323,9 @@ export function ShipmentReceiptDetail({
   const [lineNotesByDetail, setLineNotesByDetail] = useState({});
   const [notes, setNotes] = useState("");
   const [saving, setSaving] = useState(false);
+  const [repairing, setRepairing] = useState(false);
+
+  const isDelivered = String(shipment?.status || "").toUpperCase() === "DELIVERED";
 
   useEffect(() => {
     if (!shipment) {
@@ -387,6 +394,36 @@ export function ShipmentReceiptDetail({
       showError(err.message || "No se pudo confirmar la recepción.");
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleRepairInventory = async () => {
+    if (!shipment?.id || !isDelivered) return;
+    if (
+      !window.confirm(
+        "¿Sincronizar inventario de kiosko con este envío entregado?\n\n"
+          + "Se cargarán al kiosko todas las líneas del documento (productos, tallas y empaques SUM-) "
+          + "según las cantidades recibidas del envío. No descarga archivos."
+      )
+    ) {
+      return;
+    }
+    try {
+      setRepairing(true);
+      const result = await repairDeliveredShipmentReceiptInventory(shipment.id);
+      const { message, warnings } = formatShipmentReceiptRepairMessage(result);
+      if (warnings.length > 0) {
+        showWarning(message);
+      } else {
+        showSuccess(message);
+      }
+      if (onRepaired) {
+        await onRepaired();
+      }
+    } catch (err) {
+      showError(err.message || "No se pudo reparar el inventario de recepción.");
+    } finally {
+      setRepairing(false);
     }
   };
 
@@ -535,6 +572,20 @@ export function ShipmentReceiptDetail({
           </div>
         </>
       )}
+
+      {isDelivered && shipment.locationId && (
+        <div className={readOnly ? "mt-0" : "mt-3 pt-3 border-top"}>
+          <Alert color="light" className="border py-2 mb-2">
+            Envío entregado. Si el stock kiosco no refleja este documento (productos, tallas o empaques SUM-),
+            sincronice con el botón de abajo. No descarga archivos.
+          </Alert>
+          <div className="text-right">
+            <Button type="button" color="warning" outline onClick={handleRepairInventory} disabled={repairing}>
+              {repairing ? <Spinner size="sm" /> : "Sincronizar inventario kiosco"}
+            </Button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -626,6 +677,7 @@ export default function ShipmentReceiptPanel({
               <CardBody>
                 <ShipmentReceiptDetail
                   shipment={selectedShipment}
+                  readOnly={String(selectedShipment.status || "").toUpperCase() === "DELIVERED"}
                   onConfirmed={async () => {
                     if (onSelectShipment) {
                       onSelectShipment(null);
@@ -634,6 +686,7 @@ export default function ShipmentReceiptPanel({
                       await onConfirmed();
                     }
                   }}
+                  onRepaired={onConfirmed}
                 />
               </CardBody>
             </Card>

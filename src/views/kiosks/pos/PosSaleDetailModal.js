@@ -13,14 +13,15 @@ import {
   Alert,
 } from "reactstrap";
 import { registerDepositSlip, updateKioskSalePayment, voidKioskSale } from "services/kioskPosService";
+import { formatDateTimeGt } from "utils/dateTimeHelper";
 import { downloadTaxInvoiceCertifiedXml, openFelInvoiceReport } from "services/taxInvoiceService";
+import EditTaxInvoiceFelModal from "components/accounting/EditTaxInvoiceFelModal";
+import { useAuth } from "contexts/AuthContext";
+import { canEditTaxInvoiceFel } from "utils/taxInvoiceEditHelper";
 import { showError, showSuccess } from "utils/notificationHelper";
 import { formatCurrency, formatQty, isDepositApplicable, isSalePendingDeposit } from "./posUtils";
 
-const formatDateTime = (value) => {
-  if (!value) return "—";
-  return String(value).replace("T", " ").slice(0, 19);
-};
+const formatDateTime = (value) => formatDateTimeGt(value);
 
 const paymentLabel = (method) => {
   const normalized = String(method || "").toUpperCase();
@@ -47,16 +48,22 @@ function PosSaleDetailModal({
   onClose,
   sale,
   loading,
+  cashSession,
   cashSessionOpen,
   kioskLocationId,
   onSaleUpdated,
 }) {
+  const { hasRole, hasAnyRole, hasPermission } = useAuth();
+  const canEditFel = canEditTaxInvoiceFel({ hasRole, hasAnyRole, hasPermission });
   const [downloadingXml, setDownloadingXml] = useState(false);
+  const [felEditOpen, setFelEditOpen] = useState(false);
   const [editingPayment, setEditingPayment] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState("EFECTIVO");
   const [amountReceived, setAmountReceived] = useState("");
   const [cashAmount, setCashAmount] = useState("");
   const [cardAmount, setCardAmount] = useState("");
+  const [cardAuthNumber, setCardAuthNumber] = useState("");
+  const [cardLast4, setCardLast4] = useState("");
   const [savingPayment, setSavingPayment] = useState(false);
   const [voidReason, setVoidReason] = useState("");
   const [voidConfirmOpen, setVoidConfirmOpen] = useState(false);
@@ -70,6 +77,8 @@ function PosSaleDetailModal({
     setAmountReceived(sale.amountReceived != null ? String(sale.amountReceived) : "");
     setCashAmount(sale.cashAmount != null ? String(sale.cashAmount) : "");
     setCardAmount(sale.cardAmount != null ? String(sale.cardAmount) : "");
+    setCardAuthNumber(sale.cardAuthNumber || "");
+    setCardLast4(sale.cardLast4 || "");
     setDepositSlipNumber(sale.depositSlipNumber || "");
     setEditingPayment(false);
   }, [sale?.id, sale?.paymentMethod, sale?.depositSlipNumber]);
@@ -84,9 +93,15 @@ function PosSaleDetailModal({
   const canVoidSale =
     Boolean(cashSessionOpen) &&
     !isVoid &&
-    String(sale?.status || "").toUpperCase() === "COMPLETED";
+    String(sale?.status || "").toUpperCase() === "COMPLETED" &&
+    (sale?.cashSessionId == null ||
+      Number(sale.cashSessionId) === Number(cashSession?.id));
   const depositApplicable = isDepositApplicable(sale);
   const pendingDeposit = isSalePendingDeposit(sale);
+  const requiresCardData =
+    paymentMethod === "TARJETA" || (paymentMethod === "MIXTO" && Number(cardAmount || 0) > 0);
+  const cardDataIncomplete =
+    requiresCardData && (!cardAuthNumber.trim() || !/^\d{4}$/.test(cardLast4.trim()));
 
   const handleRegisterDeposit = async () => {
     if (!sale?.id || !depositSlipNumber.trim()) {
@@ -116,7 +131,7 @@ function PosSaleDetailModal({
   const felNumero = invoice?.felNumero || sale?.felNumero;
   const felError = invoice?.felError || sale?.felError;
   const canDownloadXml = felStatus === "CERTIFIED" && invoice?.hasCertifiedXml && invoice?.id;
-  const canDownloadFelReport = felStatus === "CERTIFIED" && felUuid;
+  const canDownloadFelReport = Boolean(felUuid);
 
   const handleDownloadFelReport = () => {
     try {
@@ -140,6 +155,10 @@ function PosSaleDetailModal({
 
   const handleSavePayment = async () => {
     if (!sale?.id) return;
+    if (cardDataIncomplete) {
+      showError("Indica autorización y últimos 4 dígitos de la tarjeta.");
+      return;
+    }
     try {
       setSavingPayment(true);
       const updated = await updateKioskSalePayment(
@@ -149,6 +168,8 @@ function PosSaleDetailModal({
           amountReceived: amountReceived !== "" ? Number(amountReceived) : null,
           cashAmount: cashAmount !== "" ? Number(cashAmount) : null,
           cardAmount: cardAmount !== "" ? Number(cardAmount) : null,
+          cardAuthNumber: requiresCardData ? cardAuthNumber.trim() : null,
+          cardLast4: requiresCardData ? cardLast4.trim() : null,
         },
         kioskLocationId ? Number(kioskLocationId) : undefined
       );
@@ -228,7 +249,19 @@ function PosSaleDetailModal({
               </div>
               <div>
                 <div className="kiosk-pos-detail-label">Forma de pago</div>
-                <div>{paymentLabel(sale.paymentMethod)}</div>
+                <div>
+                  {paymentLabel(sale.paymentMethod)}
+                  {(sale.cardAuthNumber || sale.cardLast4) && (
+                    <>
+                      <br />
+                      <span className="text-muted">
+                        {sale.cardAuthNumber ? `Aut. ${sale.cardAuthNumber}` : ""}
+                        {sale.cardAuthNumber && sale.cardLast4 ? " · " : ""}
+                        {sale.cardLast4 ? `**** ${sale.cardLast4}` : ""}
+                      </span>
+                    </>
+                  )}
+                </div>
               </div>
               <div>
                 <div className="kiosk-pos-detail-label">Cliente / NIT</div>
@@ -323,8 +356,41 @@ function PosSaleDetailModal({
                         </div>
                       </div>
                     )}
+                    {requiresCardData && (
+                      <div className="row">
+                        <div className="col-md-6">
+                          <Label className="kiosk-pos-label">Número de autorización</Label>
+                          <Input
+                            value={cardAuthNumber}
+                            onChange={(e) => setCardAuthNumber(e.target.value)}
+                            placeholder="Ej: 123456"
+                          />
+                        </div>
+                        <div className="col-md-6">
+                          <Label className="kiosk-pos-label">Últimos 4 dígitos</Label>
+                          <Input
+                            value={cardLast4}
+                            onChange={(e) => setCardLast4(e.target.value.replace(/\D/g, "").slice(0, 4))}
+                            placeholder="0000"
+                            maxLength={4}
+                            inputMode="numeric"
+                          />
+                        </div>
+                      </div>
+                    )}
+                    {cardDataIncomplete && (
+                      <p className="text-danger small mt-1 mb-0">
+                        Indica autorización y últimos 4 dígitos de la tarjeta.
+                      </p>
+                    )}
                     <div className="mt-2">
-                      <Button color="success" size="sm" className="mr-2" onClick={handleSavePayment} disabled={savingPayment}>
+                      <Button
+                        color="success"
+                        size="sm"
+                        className="mr-2"
+                        onClick={handleSavePayment}
+                        disabled={savingPayment || cardDataIncomplete}
+                      >
                         {savingPayment ? <Spinner size="sm" /> : "Guardar pago"}
                       </Button>
                       <Button color="secondary" size="sm" outline onClick={() => setEditingPayment(false)}>
@@ -426,21 +492,46 @@ function PosSaleDetailModal({
                   <strong>Error:</strong> {felError}
                 </div>
               )}
-              {(canDownloadFelReport || canDownloadXml) && (
-                <div className="d-flex flex-wrap mt-2" style={{ gap: "0.5rem" }}>
-                  {canDownloadFelReport && (
-                    <Button color="primary" size="sm" outline onClick={handleDownloadFelReport}>
-                      Descargar factura
-                    </Button>
-                  )}
-                  {canDownloadXml && (
-                    <Button color="success" size="sm" onClick={handleDownloadXml} disabled={downloadingXml}>
-                      {downloadingXml ? "Descargando..." : "Descargar XML certificado"}
-                    </Button>
-                  )}
+              {invoice?.felCertifiedAt && (
+                <div className="small mb-1">
+                  <strong>Fecha emisión:</strong> {formatDateTime(invoice.felCertifiedAt)}
                 </div>
               )}
+              <div className="d-flex flex-wrap mt-2" style={{ gap: "0.5rem" }}>
+                {canEditFel && invoice?.id && (
+                  <Button color="warning" size="sm" outline type="button" onClick={() => setFelEditOpen(true)}>
+                    Corregir factura FEL
+                  </Button>
+                )}
+                {canDownloadFelReport && (
+                  <Button color="primary" size="sm" outline type="button" onClick={handleDownloadFelReport}>
+                    Descargar factura PDF
+                  </Button>
+                )}
+                {canDownloadXml && (
+                  <Button color="success" size="sm" type="button" onClick={handleDownloadXml} disabled={downloadingXml}>
+                    {downloadingXml ? "Descargando..." : "Descargar XML certificado"}
+                  </Button>
+                )}
+              </div>
             </div>
+
+            <EditTaxInvoiceFelModal
+              isOpen={felEditOpen}
+              toggle={() => setFelEditOpen(false)}
+              invoiceId={invoice?.id}
+              initialValues={{
+                felUuid,
+                felSerie,
+                felNumero,
+                felCertifiedAt: invoice?.felCertifiedAt || sale?.felCertifiedAt,
+              }}
+              onSaved={async () => {
+                if (onSaleUpdated) {
+                  await onSaleUpdated();
+                }
+              }}
+            />
 
             <h6 className="mb-2">Productos vendidos</h6>
             <Table responsive size="sm" className="mb-3">

@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Input, Label, Modal, ModalBody } from "reactstrap";
 import { lookupTaxpayerByNit } from "services/kioskPosService";
+import { formatPromotionOptionLabel } from "utils/productAudienceHelper";
 import {
   formatCurrency,
   formatFelCustomerName,
@@ -38,7 +39,8 @@ function PosCheckoutModal({
   const [amountReceived, setAmountReceived] = useState("");
   const [cashAmount, setCashAmount] = useState("");
   const [cardAmount, setCardAmount] = useState("");
-  const [paymentReference, setPaymentReference] = useState("");
+  const [cardAuthNumber, setCardAuthNumber] = useState("");
+  const [cardLast4, setCardLast4] = useState("");
   const [notesOpen, setNotesOpen] = useState(false);
   const [customerTaxId, setCustomerTaxId] = useState("CF");
   const [customerName, setCustomerName] = useState("CONSUMIDOR FINAL");
@@ -52,7 +54,8 @@ function PosCheckoutModal({
     setAmountReceived("");
     setCashAmount("");
     setCardAmount("");
-    setPaymentReference("");
+    setCardAuthNumber("");
+    setCardLast4("");
     setNotesOpen(Boolean(notes));
     setCustomerTaxId("CF");
     setCustomerName("CONSUMIDOR FINAL");
@@ -112,6 +115,11 @@ function PosCheckoutModal({
   const cashInsufficient =
     paymentMethod === "EFECTIVO" && Number(amountReceived || 0) < Number(estimatedTotal || 0);
 
+  const requiresCardData =
+    paymentMethod === "TARJETA" || (paymentMethod === "MIXTO" && Number(cardAmount || 0) > 0);
+  const cardDataIncomplete =
+    requiresCardData && (!cardAuthNumber.trim() || !/^\d{4}$/.test(cardLast4.trim()));
+
   const nitInvalid =
     normalizeNit(customerTaxId) !== "CF" &&
     !isValidGuatemalaNit(customerTaxId) &&
@@ -120,7 +128,8 @@ function PosCheckoutModal({
   const invoiceIncomplete =
     normalizeNit(customerTaxId) !== "CF" && !String(customerName || "").trim();
 
-  const canConfirm = !saving && !cashInsufficient && !nitInvalid && !invoiceIncomplete && !taxLookupLoading;
+  const canConfirm =
+    !saving && !cashInsufficient && !nitInvalid && !invoiceIncomplete && !taxLookupLoading && !cardDataIncomplete;
 
   const setExact = () => setAmountReceived(String(Number(estimatedTotal || 0).toFixed(2)));
 
@@ -131,20 +140,17 @@ function PosCheckoutModal({
 
   const handleConfirm = () => {
     const normalizedTaxId = normalizeNit(customerTaxId || "CF") || "CF";
-    const refValue = paymentReference.trim();
-    const saleComments =
-      paymentMethod === "TARJETA"
-        ? refValue || comments || null
-        : comments || null;
 
     onConfirm({
       paymentMethod,
       amountReceived: amountReceived ? Number(amountReceived) : null,
       cashAmount: cashAmount ? Number(cashAmount) : null,
       cardAmount: cardAmount ? Number(cardAmount) : null,
-      promotionId: selectedPromotionId ? Number(selectedPromotionId) : null,
+      cardAuthNumber: requiresCardData ? cardAuthNumber.trim() : null,
+      cardLast4: requiresCardData ? cardLast4.trim() : null,
+      promotionId: selectedPromotionId || null,
       notes: notes || null,
-      comments: saleComments,
+      comments: comments || null,
       customerTaxId: normalizedTaxId,
       customerName:
         normalizedTaxId === "CF"
@@ -258,6 +264,29 @@ function PosCheckoutModal({
 
         <div className="kiosk-pos-checkout-section">
           <Label className="kiosk-pos-label">Promoción</Label>
+          <div className="d-flex flex-wrap mb-2" style={{ gap: 8 }}>
+            <button
+              type="button"
+              className={`kiosk-pos-quick-btn ${selectedPromotionId === "__percent_10" ? "kiosk-pos-quick-exact" : ""}`}
+              onClick={() => onPromotionChange(selectedPromotionId === "__percent_10" ? "" : "__percent_10")}
+            >
+              10% OFF
+            </button>
+            <button
+              type="button"
+              className={`kiosk-pos-quick-btn ${selectedPromotionId === "__percent_15" ? "kiosk-pos-quick-exact" : ""}`}
+              onClick={() => onPromotionChange(selectedPromotionId === "__percent_15" ? "" : "__percent_15")}
+            >
+              15% OFF
+            </button>
+            <button
+              type="button"
+              className={`kiosk-pos-quick-btn ${selectedPromotionId === "__percent_20" ? "kiosk-pos-quick-exact" : ""}`}
+              onClick={() => onPromotionChange(selectedPromotionId === "__percent_20" ? "" : "__percent_20")}
+            >
+              20% OFF
+            </button>
+          </div>
           <select
             className="kiosk-pos-promo-select"
             value={selectedPromotionId}
@@ -266,7 +295,7 @@ function PosCheckoutModal({
             <option value="">Sin promoción</option>
             {(promotions || []).map((promo) => (
               <option key={`checkout-promo-${promo.id}`} value={String(promo.id)}>
-                {promo.name}
+                {formatPromotionOptionLabel(promo)}
               </option>
             ))}
           </select>
@@ -331,13 +360,28 @@ function PosCheckoutModal({
 
         {paymentMethod === "TARJETA" && (
           <div className="kiosk-pos-checkout-section">
-            <Label className="kiosk-pos-label">Referencia (opcional)</Label>
-            <Input
-              className="kiosk-pos-input-lg"
-              value={paymentReference}
-              onChange={(e) => setPaymentReference(e.target.value)}
-              placeholder="Número de autorización o referencia"
-            />
+            <div className="kiosk-pos-mixto-grid">
+              <div>
+                <Label className="kiosk-pos-label">Número de autorización</Label>
+                <Input
+                  className="kiosk-pos-input-lg"
+                  value={cardAuthNumber}
+                  onChange={(e) => setCardAuthNumber(e.target.value)}
+                  placeholder="Ej: 123456"
+                />
+              </div>
+              <div>
+                <Label className="kiosk-pos-label">Últimos 4 dígitos de la tarjeta</Label>
+                <Input
+                  className="kiosk-pos-input-lg"
+                  value={cardLast4}
+                  onChange={(e) => setCardLast4(e.target.value.replace(/\D/g, "").slice(0, 4))}
+                  placeholder="0000"
+                  maxLength={4}
+                  inputMode="numeric"
+                />
+              </div>
+            </div>
           </div>
         )}
 
@@ -377,6 +421,30 @@ function PosCheckoutModal({
                   onChange={(e) => setAmountReceived(e.target.value)}
                 />
               </div>
+              {requiresCardData && (
+                <>
+                  <div>
+                    <Label className="kiosk-pos-label">Número de autorización</Label>
+                    <Input
+                      className="kiosk-pos-input-lg"
+                      value={cardAuthNumber}
+                      onChange={(e) => setCardAuthNumber(e.target.value)}
+                      placeholder="Ej: 123456"
+                    />
+                  </div>
+                  <div>
+                    <Label className="kiosk-pos-label">Últimos 4 dígitos de la tarjeta</Label>
+                    <Input
+                      className="kiosk-pos-input-lg"
+                      value={cardLast4}
+                      onChange={(e) => setCardLast4(e.target.value.replace(/\D/g, "").slice(0, 4))}
+                      placeholder="0000"
+                      maxLength={4}
+                      inputMode="numeric"
+                    />
+                  </div>
+                </>
+              )}
             </div>
             <div className="kiosk-pos-change-box mt-3">
               <div className="kiosk-pos-change-label">Cambio efectivo</div>
@@ -422,6 +490,9 @@ function PosCheckoutModal({
         </button>
         {cashInsufficient && (
           <p className="kiosk-pos-confirm-hint">El monto recibido no cubre el total</p>
+        )}
+        {!cashInsufficient && cardDataIncomplete && (
+          <p className="kiosk-pos-confirm-hint">Indica autorización y últimos 4 dígitos de la tarjeta</p>
         )}
       </div>
     </Modal>

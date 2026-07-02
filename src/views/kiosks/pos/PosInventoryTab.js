@@ -98,7 +98,7 @@ const normalizeKioscoRows = (rows) =>
     colorName: row.colorName,
     quantity: safeNumber(row.currentStock),
     min: safeNumber(row.minimumStock),
-    sizes: null,
+    sizes: row.sizes && typeof row.sizes === "object" ? row.sizes : null,
     locationId: row.locationId,
   }));
 
@@ -117,7 +117,7 @@ const mergeInventoryRows = (kioscoRows, legacyRows) => {
     mergedByKey.add(key);
     const legacy = legacyByKey.get(key);
     if (legacy) {
-      row.sizes = legacy.sizes || null;
+      row.sizes = row.sizes || legacy.sizes || null;
       row.productCategoryName = row.productCategoryName || legacy.productCategoryName || "";
     }
   });

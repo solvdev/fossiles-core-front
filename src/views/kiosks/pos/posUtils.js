@@ -1,3 +1,15 @@
+import {
+  filterCartLinesForPromotion,
+  productMatchesAudienceFilter,
+} from "utils/productAudienceHelper";
+import { hasInventorySizeBreakdown } from "utils/inventoryVariantHelper";
+import { isPackagingProductCode } from "utils/kioskPackagingHelper";
+
+export const POS_CATALOG_VIEWS = [
+  { value: "PRODUCTS", label: "Productos" },
+  { value: "PACKAGING", label: "Empaques" },
+];
+
 export const POS_CATEGORY_ORDER = [
   "Billeteras",
   "Bolsos dama",
@@ -41,7 +53,38 @@ export const POS_COLOR_SWATCHES = {
 export const formatCurrency = (value) => `Q ${Number(value || 0).toFixed(2)}`;
 export const formatQty = (value) => Number(value || 0).toFixed(2);
 
-export const lineKeyFor = (productId, colorId) => `${productId}:${colorId || "none"}`;
+export const lineKeyFor = (productId, colorId, size) => {
+  const base = `${productId}:${colorId || "none"}`;
+  const normalizedSize = String(size || "").trim();
+  return normalizedSize ? `${base}:${normalizedSize}` : base;
+};
+
+export const colorLineKeyFor = (productId, colorId) => lineKeyFor(productId, colorId);
+
+export const sortPosSizeKeys = (keys) =>
+  [...(keys || [])].sort((a, b) => {
+    const na = parseFloat(a);
+    const nb = parseFloat(b);
+    if (!Number.isNaN(na) && !Number.isNaN(nb)) return na - nb;
+    return String(a).localeCompare(String(b), "es", { numeric: true });
+  });
+
+export const posVariantNeedsSizePick = (variant) => hasInventorySizeBreakdown(variant?.sizes);
+
+export const posVariantSizeEntries = (variant) => {
+  const sizes = variant?.sizes;
+  if (!sizes || typeof sizes !== "object") return [];
+  return sortPosSizeKeys(Object.keys(sizes))
+    .map((size) => ({ size, quantity: Number(sizes[size] || 0) }))
+    .filter((entry) => entry.quantity > 0);
+};
+
+export const posVariantStockQty = (variant) => {
+  if (posVariantNeedsSizePick(variant)) {
+    return posVariantSizeEntries(variant).reduce((sum, entry) => sum + entry.quantity, 0);
+  }
+  return Number(variant?.quantity || 0);
+};
 
 export const getColorSwatch = (colorName) => {
   const name = String(colorName || "").trim();
@@ -138,10 +181,19 @@ export const buildColorOptions = (inventory) => {
   });
 };
 
-export const filterPosInventory = (inventory, { search, categoryFilter, colorFilter }) => {
+export const filterPosInventory = (inventory, { search, categoryFilter, colorFilter, audienceFilter, catalogView }) => {
   const query = normalizePosLabel(search);
   return (inventory || []).filter((item) => {
+    const isPackaging = isPackagingProductCode(item.productCode);
+    if (catalogView === "PACKAGING" && !isPackaging) return false;
+    if (catalogView === "PRODUCTS" && isPackaging) return false;
+    if (catalogView === "PACKAGING") {
+      if (!query) return true;
+      const text = normalizePosLabel(`${item.productCode || ""} ${item.productName || ""}`);
+      return text.includes(query);
+    }
     if (!itemMatchesCategory(item, categoryFilter)) return false;
+    if (!productMatchesAudienceFilter(item, audienceFilter)) return false;
     if (!itemMatchesColor(item, colorFilter)) return false;
     if (!query) return true;
     const text = normalizePosLabel(
@@ -150,6 +202,11 @@ export const filterPosInventory = (inventory, { search, categoryFilter, colorFil
     return text.includes(query);
   });
 };
+
+export const sortPackagingInventory = (items) =>
+  [...(items || [])].sort((a, b) =>
+    String(a.productCode || "").localeCompare(String(b.productCode || ""), "es", { numeric: true })
+  );
 
 export const sortVariantsByColor = (variants) => {
   const colorIndex = (name) => {
@@ -249,8 +306,69 @@ export const isValidGuatemalaNit = (rawNit) => {
   return verifier === expected;
 };
 
+export const QUICK_PERCENT_PROMOS = [
+  { id: "__percent_10", name: "Descuento 10%", discountType: "PERCENT", discountValue: 10, isQuickPercent: true },
+  { id: "__percent_15", name: "Descuento 15%", discountType: "PERCENT", discountValue: 15, isQuickPercent: true },
+  { id: "__percent_20", name: "Descuento 20%", discountType: "PERCENT", discountValue: 20, isQuickPercent: true },
+];
+
+export const mergePosPromotions = (promotions) => [
+  ...QUICK_PERCENT_PROMOS,
+  ...(promotions || []).filter(
+    (p) => !QUICK_PERCENT_PROMOS.some((q) => String(q.name).toLowerCase() === String(p.name || "").toLowerCase())
+  ),
+];
+
+export const resolveSelectedPromotion = (promotionId, promotions) => {
+  const quick = QUICK_PERCENT_PROMOS.find((p) => String(p.id) === String(promotionId));
+  if (quick) return quick;
+  return (promotions || []).find((p) => String(p.id) === String(promotionId));
+};
+
+export const parseCheckoutPromotionPayload = (promotionId) => {
+  if (String(promotionId) === "__percent_10") {
+    return { promotionId: null, manualDiscountPercent: 10 };
+  }
+  if (String(promotionId) === "__percent_15") {
+    return { promotionId: null, manualDiscountPercent: 15 };
+  }
+  if (String(promotionId) === "__percent_20") {
+    return { promotionId: null, manualDiscountPercent: 20 };
+  }
+  return {
+    promotionId: promotionId ? Number(promotionId) : null,
+    manualDiscountPercent: null,
+  };
+};
+
+/** Correo(s) FEL: varios separados por ';' sin espacios. */
+export const normalizeFelReceptorEmail = (raw) =>
+  String(raw || "")
+    .split(/[;,]/)
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .join(";");
+
+export const saleNeedsFelCertification = (sale, requestInvoice) => {
+  const taxId = String(sale?.customerTaxId || "CF")
+    .trim()
+    .toUpperCase()
+    .replace(/\s+/g, "");
+  if (taxId && taxId !== "CF" && taxId !== "C/F") return true;
+  return requestInvoice === true;
+};
+
 export const estimatePromotionDiscount = (subtotal, promotion, cartLines) => {
   if (!promotion || subtotal <= 0) return 0;
+  const eligibleLines = promotion.isQuickPercent
+    ? cartLines || []
+    : filterCartLinesForPromotion(cartLines, promotion.audienceCategory);
+  const eligibleSubtotal = (eligibleLines || []).reduce((sum, line) => {
+    const qty = Number(line.quantity || 0);
+    const price = Number(line.unitPrice || 0);
+    return sum + qty * price;
+  }, 0);
+  if (eligibleSubtotal <= 0) return 0;
   const type = String(promotion.discountType || "").toUpperCase();
   const value = Number(promotion.discountValue || 0);
   if (type.includes("COMBO")) {
@@ -259,7 +377,7 @@ export const estimatePromotionDiscount = (subtotal, promotion, cartLines) => {
     if (buy <= 0 || pay <= 0 || pay >= buy) return 0;
     const freePerGroup = buy - pay;
     const units = [];
-    (cartLines || []).forEach((line) => {
+    eligibleLines.forEach((line) => {
       const qty = Math.floor(Number(line.quantity || 0));
       const price = Number(line.unitPrice || 0);
       for (let i = 0; i < qty; i++) units.push(price);
@@ -269,7 +387,7 @@ export const estimatePromotionDiscount = (subtotal, promotion, cartLines) => {
     return units.slice(0, freeUnits).reduce((sum, p) => sum + p, 0);
   }
   if (type.includes("PERCENT")) {
-    return Math.min(subtotal, (subtotal * value) / 100);
+    return Math.min(subtotal, (eligibleSubtotal * value) / 100);
   }
   return Math.min(subtotal, value);
 };

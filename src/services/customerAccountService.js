@@ -138,6 +138,19 @@ export const createCustomerAccountEntry = async (customerId, payload) => {
   return response.json();
 };
 
+export const createCustomerAccountDocumentSettlement = async (customerId, payload) => {
+  const response = await fetch(
+    `${API_URL}/customer-accounts/customers/${customerId}/entries/document-settlement`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...getAuthHeader() },
+      body: JSON.stringify(payload),
+    }
+  );
+  if (!response.ok) await parseError(response, "Error al registrar devolución/descuento");
+  return response.json();
+};
+
 export const voidCustomerAccountEntry = async (entryId, voidReason) => {
   const response = await fetch(`${API_URL}/customer-accounts/entries/${entryId}/void`, {
     method: "PUT",

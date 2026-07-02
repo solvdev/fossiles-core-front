@@ -15,9 +15,14 @@ import {
   Table,
 } from "reactstrap";
 import { ColorSelector, ProductSelector } from "components/catalog/FilterableCatalogSelectors";
+import { FilterableSelect } from "components/distribution/FilterableSelect";
 import { getColors } from "services/colorService";
+import { getEmployees } from "services/employeeService";
 import { getProducts } from "services/productService";
-import { createInternalShipmentRequest } from "services/internalShipmentRequestService";
+import {
+  createInternalShipmentRequest,
+  getInternalShipmentEligibility,
+} from "services/internalShipmentRequestService";
 import { previewDispatchStock } from "services/productDistributionService";
 import { isCinchoInventoryProductByCodeAndName } from "utils/cinchoProductionHelper";
 import { computeInternalEnviUnitPrice } from "utils/standaloneInternalShipmentHelper";
@@ -36,6 +41,9 @@ const emptyLine = () => ({
 
 function CreateStandaloneInternalShipmentModal({ isOpen, toggle, onCreated }) {
   const [recipientName, setRecipientName] = useState("");
+  const [employeeId, setEmployeeId] = useState("");
+  const [planillaEligibility, setPlanillaEligibility] = useState(null);
+  const [checkingEligibility, setCheckingEligibility] = useState(false);
   const [recipientPhone, setRecipientPhone] = useState("");
   const [recipientTaxId, setRecipientTaxId] = useState("");
   const [notes, setNotes] = useState("");
@@ -45,12 +53,15 @@ function CreateStandaloneInternalShipmentModal({ isOpen, toggle, onCreated }) {
   const [defectDiscountValue, setDefectDiscountValue] = useState("50");
   const [lines, setLines] = useState([emptyLine()]);
   const [products, setProducts] = useState([]);
+  const [employees, setEmployees] = useState([]);
   const [colors, setColors] = useState([]);
   const [loadingCatalog, setLoadingCatalog] = useState(false);
   const [saving, setSaving] = useState(false);
 
   const resetForm = useCallback(() => {
     setRecipientName("");
+    setEmployeeId("");
+    setPlanillaEligibility(null);
     setRecipientPhone("");
     setRecipientTaxId("");
     setNotes("");
@@ -65,14 +76,46 @@ function CreateStandaloneInternalShipmentModal({ isOpen, toggle, onCreated }) {
     if (!isOpen) return;
     resetForm();
     setLoadingCatalog(true);
-    Promise.all([getProducts(), getColors()])
-      .then(([prods, cols]) => {
+    Promise.all([getProducts(), getColors(), getEmployees()])
+      .then(([prods, cols, emps]) => {
         setProducts(prods || []);
         setColors(cols || []);
+        setEmployees(emps || []);
       })
       .catch((err) => showError(err.message || "No se pudo cargar catálogo"))
       .finally(() => setLoadingCatalog(false));
   }, [isOpen, resetForm]);
+
+  const employeeOptions = useMemo(
+    () => (employees || []).map((emp) => ({
+      value: String(emp.id),
+      label: `${emp.firstName || ""} ${emp.lastName || ""}`.trim() || `Empleado #${emp.id}`,
+    })),
+    [employees]
+  );
+
+  useEffect(() => {
+    if (requestType !== "PLANILLA" || !employeeId) {
+      setPlanillaEligibility(null);
+      return;
+    }
+    const month = documentDate ? String(documentDate).slice(0, 7) : undefined;
+    let cancelled = false;
+    setCheckingEligibility(true);
+    getInternalShipmentEligibility(Number(employeeId), month)
+      .then((data) => {
+        if (!cancelled) setPlanillaEligibility(data);
+      })
+      .catch(() => {
+        if (!cancelled) setPlanillaEligibility(null);
+      })
+      .finally(() => {
+        if (!cancelled) setCheckingEligibility(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [requestType, employeeId, documentDate]);
 
   const refreshLineStock = async (line) => {
     const pid = Number(line.productId);
@@ -170,7 +213,16 @@ function CreateStandaloneInternalShipmentModal({ isOpen, toggle, onCreated }) {
 
   const handleSubmit = async () => {
     const name = String(recipientName || "").trim();
-    if (!name) {
+    if (requestType === "PLANILLA") {
+      if (!employeeId) {
+        showError("Seleccione un empleado de planilla");
+        return;
+      }
+      if (planillaEligibility && planillaEligibility.eligible === false) {
+        showError(planillaEligibility.message || "El empleado ya tiene solicitud planilla este mes.");
+        return;
+      }
+    } else if (!name) {
       showError("Indique el nombre del colaborador");
       return;
     }
@@ -216,16 +268,21 @@ function CreateStandaloneInternalShipmentModal({ isOpen, toggle, onCreated }) {
     try {
       const created = await createInternalShipmentRequest({
         requestType,
+        employeeId: requestType === "PLANILLA" ? Number(employeeId) : null,
         discountPercent: pricingMeta.discountPercent ?? null,
         discountAmount: pricingMeta.discountAmount ?? null,
-        recipientName: name,
+        recipientName: requestType === "PLANILLA" ? name || "Colaborador" : name,
         recipientPhone: recipientPhone.trim() || null,
         recipientTaxId: recipientTaxId.trim() || null,
         notes: notes.trim() || null,
         documentDate: documentDate || null,
         products: productsPayload,
       });
-      showSuccess(`Solicitud #${created?.id || ""} enviada a Contabilidad para autorización`);
+      showSuccess(
+        created?.productionOrderCode
+          ? `Solicitud #${created?.id || ""} enviada a Contabilidad. Se generó ${created.productionOrderCode} por faltante de stock.`
+          : `Solicitud #${created?.id || ""} enviada a Contabilidad para autorización`
+      );
       toggle();
       if (onCreated) onCreated(created);
     } catch (err) {
@@ -241,7 +298,8 @@ function CreateStandaloneInternalShipmentModal({ isOpen, toggle, onCreated }) {
       <ModalBody>
         <Alert color="info" className="py-2">
           La solicitud queda <strong>pendiente</strong> hasta que Contabilidad la autorice. Al aprobarse se genera el
-          número <strong>ENVI</strong> y se descuenta de Devoluciones / Bodega PT.
+          número <strong>ENVI</strong> y se descuenta de Devoluciones / Bodega PT. Si no hay stock disponible, se crea
+          automáticamente una <strong>OPI</strong> para producir el faltante.
         </Alert>
         {loadingCatalog && (
           <div className="text-center py-3">
@@ -252,7 +310,34 @@ function CreateStandaloneInternalShipmentModal({ isOpen, toggle, onCreated }) {
           <Col md="6">
             <FormGroup>
               <Label>Colaborador *</Label>
-              <Input value={recipientName} onChange={(e) => setRecipientName(e.target.value)} />
+              {requestType === "PLANILLA" ? (
+                <>
+                  <FilterableSelect
+                    options={employeeOptions}
+                    value={employeeId}
+                    onChange={(value) => {
+                      setEmployeeId(value);
+                      const emp = employees.find((e) => String(e.id) === String(value));
+                      if (emp) {
+                        setRecipientName(`${emp.firstName || ""} ${emp.lastName || ""}`.trim());
+                        setRecipientPhone(emp.phone || "");
+                        setRecipientTaxId(emp.dpi || "");
+                      }
+                    }}
+                    placeholder="Buscar empleado..."
+                  />
+                  {checkingEligibility && (
+                    <small className="text-muted d-block mt-1">Verificando elegibilidad…</small>
+                  )}
+                  {planillaEligibility && !planillaEligibility.eligible && (
+                    <Alert color="warning" className="py-1 px-2 mt-2 mb-0" style={{ fontSize: 12 }}>
+                      {planillaEligibility.message}
+                    </Alert>
+                  )}
+                </>
+              ) : (
+                <Input value={recipientName} onChange={(e) => setRecipientName(e.target.value)} />
+              )}
             </FormGroup>
           </Col>
           <Col md="3">
@@ -277,6 +362,10 @@ function CreateStandaloneInternalShipmentModal({ isOpen, toggle, onCreated }) {
                 value={requestType}
                 onChange={(e) => {
                   setRequestType(e.target.value);
+                  if (e.target.value !== "PLANILLA") {
+                    setEmployeeId("");
+                    setPlanillaEligibility(null);
+                  }
                   if (e.target.value === "DEFECTOS" && !defectDiscountValue) {
                     setDefectDiscountValue("50");
                   }

@@ -30,6 +30,9 @@ import {
   downloadTaxInvoiceCertifiedXml,
   openFelInvoiceReport,
 } from "../../services/taxInvoiceService";
+import EditTaxInvoiceFelModal from "../../components/accounting/EditTaxInvoiceFelModal";
+import { useAuth } from "../../contexts/AuthContext";
+import { canEditTaxInvoiceFel } from "../../utils/taxInvoiceEditHelper";
 
 // ─── Helpers ─────────────────────────────────────────────────────
 
@@ -172,10 +175,11 @@ const CSV_PAYMENT_MAP = {
   "visalink": "VISALINK_PAGADO",
   "visalink pagado": "VISALINK_PAGADO",
   "visalink pendiente": "VISALINK_PENDIENTE",
-  "tarjeta": "VISALINK_PAGADO",
-  "tarjeta pend": "VISALINK_PENDIENTE",
+  "tarjeta": "TARJETA_PAGADO",
+  "tarjeta pagado": "TARJETA_PAGADO",
   "tarjeta web": "TARJETA_PAGADO",
   "tarjeta web pagado": "TARJETA_PAGADO",
+  "td/tc": "TARJETA_PAGADO",
   "contra entrega deposito": "CONTRA_ENTREGA_DEPOSITO",
 };
 
@@ -476,6 +480,9 @@ function ColorSelector({ colors, value, onChange }) {
 // ─── Componente Principal ────────────────────────────────────────
 
 function OnlineSales() {
+  const { hasRole, hasAnyRole, hasPermission } = useAuth();
+  const canEditFel = canEditTaxInvoiceFel({ hasRole, hasAnyRole, hasPermission });
+
   // Tabs
   const [activeTab, setActiveTab] = useState("ventas");
 
@@ -553,6 +560,7 @@ function OnlineSales() {
   const [felInvoiceLoadingId, setFelInvoiceLoadingId] = useState(null);
   const [felXmlDownloading, setFelXmlDownloading] = useState(false);
   const [felInvoiceModal, setFelInvoiceModal] = useState(null);
+  const [felEditTarget, setFelEditTarget] = useState(null);
   // { phase: 'preview', sale } | { phase: 'result', sale, invoice }
   const [showShipmentModal, setShowShipmentModal] = useState(false);
   const [shipmentSale, setShipmentSale] = useState(null);
@@ -1251,6 +1259,37 @@ function OnlineSales() {
     setFelInvoiceModal(null);
   };
 
+  const openFelEditModal = (sale) => {
+    if (!sale?.invoiceId) return;
+    setFelEditTarget({
+      saleId: sale.id,
+      invoiceId: sale.invoiceId,
+      felUuid: sale.invoiceFelUuid,
+      felSerie: sale.invoiceFelSerie,
+      felNumero: sale.invoiceFelNumero,
+      felCertifiedAt: sale.invoiceFelCertifiedAt,
+    });
+  };
+
+  const handleFelMetadataSaved = async (updated) => {
+    if (!updated?.id) return;
+    setSales((prev) => prev.map((s) => (s.id === felEditTarget?.saleId ? {
+      ...s,
+      invoiceStatus: updated.status,
+      invoiceFelUuid: updated.felUuid,
+      invoiceFelSerie: updated.felSerie,
+      invoiceFelNumero: updated.felNumero,
+      invoiceFelError: updated.felError,
+      invoiceFelCertifiedAt: updated.felCertifiedAt,
+    } : s)));
+    setFelInvoiceModal((prev) => (
+      prev?.sale?.id === felEditTarget?.saleId
+        ? { ...prev, invoice: updated }
+        : prev
+    ));
+    await loadSales();
+  };
+
   const confirmGenerateFelInvoice = async () => {
     const sale = felInvoiceModal?.sale;
     if (!sale?.id) return;
@@ -1266,6 +1305,7 @@ function OnlineSales() {
         invoiceFelSerie: invoice.felSerie,
         invoiceFelNumero: invoice.felNumero,
         invoiceFelError: invoice.felError,
+        invoiceFelCertifiedAt: invoice.felCertifiedAt,
       } : s)));
       setFelInvoiceModal({ phase: "result", sale, invoice });
       loadSales();
@@ -1530,6 +1570,15 @@ function OnlineSales() {
     }
   };
 
+  const buildReturnPrintObservation = (dto) => {
+    const parts = [];
+    const reason = String(dto?.returnReason ?? "").trim();
+    const condition = String(dto?.itemCondition ?? "").trim();
+    if (reason) parts.push(reason);
+    if (condition) parts.push(`Condición: ${condition}`);
+    return parts.join(" | ");
+  };
+
   const printReturnDocument = async (returnId) => {
     try {
       const dto = await getReturnForPrint(returnId);
@@ -1569,6 +1618,7 @@ function OnlineSales() {
         shippingCost: 0,
         netAmount: dto.totalAmount || 0,
         totalAmount: dto.totalAmount || 0,
+        shipmentObservations: buildReturnPrintObservation(dto),
       });
     } catch (e) {
       setError(e.message || "No se pudo imprimir la devolución.");
@@ -1614,6 +1664,7 @@ function OnlineSales() {
         shippingCost: 0,
         netAmount: dto.totalAmount || 0,
         totalAmount: dto.totalAmount || 0,
+        shipmentObservations: buildReturnPrintObservation(dto),
       });
     } catch (e) {
       setError(e.message || "No se pudo descargar el PDF de la devolución.");
@@ -1769,6 +1820,7 @@ function OnlineSales() {
           "No.": idx === 0 ? (s.saleNumber || i + 1) : "",
           "Nombre": idx === 0 ? (s.customerName || "") : "",
           "Teléfono": idx === 0 ? (s.phone || "") : "",
+          "Teléfono 2": idx === 0 ? (s.phone2 || "") : "",
           "Dirección": idx === 0 ? (s.address || "") : "",
           "Empaque": idx === 0 ? (s.packaging ? "Sí" : "No") : "",
           "Forma de Pago": idx === 0 ? (PAYMENT_METHODS.find(p => p.value === s.paymentMethod)?.label || s.paymentMethod) : "",
@@ -2103,6 +2155,7 @@ function OnlineSales() {
       "Fecha": s.saleDate || "",
       "Nombre": s.customerName || "",
       "Teléfono": s.phone || "",
+      "Teléfono 2": s.phone2 || "",
       "Producto": s.productName || "",
       "Código": s.productCode || "",
       "Color": s.colorName || "",
@@ -2617,6 +2670,17 @@ function OnlineSales() {
                                 {felInvoiceLoadingId === sale.id
                                   ? <Spinner size="sm" />
                                   : <i className={isFelInvoiceRetry(sale) ? "nc-icon nc-refresh-69" : "nc-icon nc-paper"} />}
+                              </Button>
+                            )}{" "}
+                            {canEditFel && sale.invoiceId && (
+                              <Button
+                                color="warning"
+                                size="sm"
+                                className="btn-icon btn-round"
+                                title="Corregir factura FEL real (UUID, serie, número, fecha)"
+                                onClick={() => openFelEditModal(sale)}
+                                style={{ padding: "3px 7px" }}>
+                                <i className="nc-icon nc-settings-gear-65" />
                               </Button>
                             )}{" "}
                             <Button color="info" size="sm" className="btn-icon btn-round" title="Editar"
@@ -4772,7 +4836,7 @@ function OnlineSales() {
           const invoice = felInvoiceModal.invoice;
           const isTest = String(invoice?.felSerie || "").toUpperCase().includes("PRUEBAS");
           const canDownloadXml = invoice?.status === "CERTIFIED" && invoice?.hasCertifiedXml;
-          const canDownloadFelReport = invoice?.status === "CERTIFIED" && invoice?.felUuid;
+          const canDownloadFelReport = Boolean(invoice?.felUuid);
           const handleDownloadFelReport = () => {
             try {
               setError("");
@@ -4826,9 +4890,26 @@ function OnlineSales() {
                 )}
               </ModalBody>
               <ModalFooter>
+                {canEditFel && invoice?.id && (
+                  <Button
+                    color="warning"
+                    outline
+                    type="button"
+                    onClick={() => openFelEditModal({
+                      id: felInvoiceModal.sale?.id,
+                      invoiceId: invoice.id,
+                      invoiceFelUuid: invoice.felUuid,
+                      invoiceFelSerie: invoice.felSerie,
+                      invoiceFelNumero: invoice.felNumero,
+                      invoiceFelCertifiedAt: invoice.felCertifiedAt,
+                    })}
+                  >
+                    Corregir factura FEL
+                  </Button>
+                )}
                 {canDownloadFelReport && (
-                  <Button color="primary" outline onClick={handleDownloadFelReport}>
-                    Descargar factura
+                  <Button color="primary" outline type="button" onClick={handleDownloadFelReport}>
+                    Descargar factura PDF
                   </Button>
                 )}
                 {canDownloadXml && (
@@ -4842,6 +4923,19 @@ function OnlineSales() {
           );
         })()}
       </Modal>
+
+      <EditTaxInvoiceFelModal
+        isOpen={Boolean(felEditTarget)}
+        toggle={() => setFelEditTarget(null)}
+        invoiceId={felEditTarget?.invoiceId}
+        initialValues={{
+          felUuid: felEditTarget?.felUuid,
+          felSerie: felEditTarget?.felSerie,
+          felNumero: felEditTarget?.felNumero,
+          felCertifiedAt: felEditTarget?.felCertifiedAt,
+        }}
+        onSaved={handleFelMetadataSaved}
+      />
     </div>
   );
 }

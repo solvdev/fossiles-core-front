@@ -23,6 +23,7 @@ import { searchMaterials } from "services/materialService";
 import { getProducts } from "services/productService";
 import { createStandaloneKioskShipment, previewDispatchStock } from "services/productDistributionService";
 import { isCinchoInventoryProductByCodeAndName } from "utils/cinchoProductionHelper";
+import { isPackagingProductCode } from "utils/kioskPackagingHelper";
 import { getDefaultShipmentDocumentDate } from "utils/prepareShipmentsOrderHelper";
 import { showError, showSuccess } from "utils/notificationHelper";
 
@@ -140,6 +141,10 @@ function CreateStandaloneKioskShipmentModal({ isOpen, toggle, onCreated }) {
     const pid = Number(line.productId);
     if (!Number.isFinite(pid) || pid <= 0) {
       return { ...line, stockHint: "", stockLoading: false };
+    }
+    const product = (products || []).find((p) => Number(p.id) === pid);
+    if (product && isPackagingProductCode(product.code)) {
+      return { ...line, stockHint: "Empaque kiosco — se carga al recibir el envío", stockLoading: false };
     }
     try {
       const preview = await previewDispatchStock({
@@ -314,7 +319,8 @@ function CreateStandaloneKioskShipmentModal({ isOpen, toggle, onCreated }) {
         <Alert color="info" className="py-2">
           Paso 1: <strong>Generar envío</strong> crea el documento confirmado (sin validar stock).
           Paso 2: en la tabla use <strong>Enviar</strong> cuando deba salir de Bodega PT hacia el kiosko.
-          Los empaques <strong>SUM-</strong> se incluyen en el documento impreso.
+          Los empaques <strong>SUM-</strong> se incluyen en el documento impreso y cargan inventario del kiosko al confirmar la recepción.
+          También puede registrar entradas manuales de productos SUM- en Inventario kiosco.
         </Alert>
         <Row>
           <Col md="6">

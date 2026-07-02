@@ -30,6 +30,7 @@ function LocationsForm({ locationId, isOpen, toggle, onSuccess }) {
     felMunicipio: "",
     felDepartamento: "",
     posTestMode: false,
+    internalSeriesCode: "",
   });
   const [users, setUsers] = useState([]);
   const [errors, setErrors] = useState({});
@@ -84,6 +85,7 @@ function LocationsForm({ locationId, isOpen, toggle, onSuccess }) {
         felMunicipio: location.felMunicipio || "",
         felDepartamento: location.felDepartamento || "",
         posTestMode: Boolean(location.posTestMode),
+        internalSeriesCode: location.internalSeriesCode || "",
       });
     } catch (err) {
       setError(err.message || "Error al cargar la ubicación");
@@ -106,6 +108,8 @@ function LocationsForm({ locationId, isOpen, toggle, onSuccess }) {
       felAddressLine: "",
       felMunicipio: "",
       felDepartamento: "",
+      posTestMode: false,
+      internalSeriesCode: "",
     });
     setErrors({});
     setError("");
@@ -134,6 +138,7 @@ function LocationsForm({ locationId, isOpen, toggle, onSuccess }) {
         felMunicipio: formData.felMunicipio.trim() || null,
         felDepartamento: formData.felDepartamento.trim() || null,
         posTestMode: Boolean(formData.posTestMode),
+        internalSeriesCode: formData.internalSeriesCode.trim() || null,
       };
       if (locationId) {
         await updateLocation(locationId, locationData);
@@ -275,7 +280,7 @@ function LocationsForm({ locationId, isOpen, toggle, onSuccess }) {
             </Label>
             <small className="text-muted d-block mt-1">
               Desmarca esta opción cuando el kiosko entre en producción real. Las ventas ya registradas en piloto
-              conservan su marca de prueba.
+              conservan su marca de prueba y no suman en reportes corporativos, pero sí en el resumen del kiosko.
             </small>
           </FormGroup>
           <hr />
@@ -290,6 +295,20 @@ function LocationsForm({ locationId, isOpen, toggle, onSuccess }) {
                   value={formData.felEstablishmentCode}
                   onChange={(e) => setFormData({ ...formData, felEstablishmentCode: e.target.value })}
                 />
+              </FormGroup>
+            </Col>
+            <Col md="4">
+              <FormGroup>
+                <Label>Serie control interno</Label>
+                <Input
+                  type="text"
+                  placeholder="Ej. A45, B, D1"
+                  value={formData.internalSeriesCode}
+                  onChange={(e) => setFormData({ ...formData, internalSeriesCode: e.target.value.toUpperCase() })}
+                />
+                <small className="text-muted d-block mt-1">
+                  Prefijo del número interno en factura (ej. A45-241). No es la serie FEL del certificador.
+                </small>
               </FormGroup>
             </Col>
             <Col md="8">

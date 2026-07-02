@@ -255,16 +255,17 @@ function BomForm({ bomId, isOpen, toggle, onSuccess }) {
       const products = await getProducts();
       setAvailableProducts(products || []);
       const linkedProduct = (products || []).find((p) => String(p.id) === String(bom.productId));
+      const onlyLeather = isProductLeatherOnly(linkedProduct);
       setFormData({
         bomName: bom.bomName || "",
         productId: bom.productId || "",
         colorId: bom.colorId || "",
         status: bom.status || "A",
-        leatherMaterialId: bom.leatherMaterialId || "",
-        leatherQtyPerUnit: bom.leatherQtyPerUnit || "",
-        items: bom.items || [],
+        leatherMaterialId: onlyLeather ? "" : bom.leatherMaterialId || "",
+        leatherQtyPerUnit: onlyLeather ? "" : bom.leatherQtyPerUnit || "",
+        items: onlyLeather ? [] : bom.items || [],
       });
-      setLeatherOnly(isProductLeatherOnly(linkedProduct));
+      setLeatherOnly(onlyLeather);
     } catch (err) {
       setError(err.message || "Error al cargar la BOM");
     } finally {
@@ -327,10 +328,22 @@ function BomForm({ bomId, isOpen, toggle, onSuccess }) {
   const handleLeatherOnlyChange = (checked) => {
     setLeatherOnly(checked);
     if (checked) {
-      setFormData((prev) => ({ ...prev, items: [] }));
+      setFormData((prev) => ({
+        ...prev,
+        items: [],
+        leatherMaterialId: "",
+        leatherQtyPerUnit: "",
+      }));
       setItemForm({ materialId: "", quantity: "", measurement: "" });
       setEditingIndex(null);
       setEditingItem(null);
+      setErrors((prev) => {
+        const next = { ...prev };
+        delete next.leatherMaterialId;
+        delete next.leatherQtyPerUnit;
+        delete next.items;
+        return next;
+      });
     }
   };
 
@@ -341,11 +354,13 @@ function BomForm({ bomId, isOpen, toggle, onSuccess }) {
     if (!leatherOnly && formData.items.length === 0) {
       newErrors.items = "Debe agregar al menos un item (o marque solo cuero)";
     }
-    if (formData.leatherMaterialId && (!formData.leatherQtyPerUnit || parseFloat(formData.leatherQtyPerUnit) <= 0)) {
-      newErrors.leatherQtyPerUnit = "La cantidad de cuero debe ser mayor a 0";
-    }
-    if (!formData.leatherMaterialId && formData.leatherQtyPerUnit) {
-      newErrors.leatherMaterialId = "Seleccione el material de cuero";
+    if (!leatherOnly) {
+      if (formData.leatherMaterialId && (!formData.leatherQtyPerUnit || parseFloat(formData.leatherQtyPerUnit) <= 0)) {
+        newErrors.leatherQtyPerUnit = "La cantidad de cuero debe ser mayor a 0";
+      }
+      if (!formData.leatherMaterialId && formData.leatherQtyPerUnit) {
+        newErrors.leatherMaterialId = "Seleccione el material de cuero";
+      }
     }
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
@@ -518,9 +533,19 @@ function BomForm({ bomId, isOpen, toggle, onSuccess }) {
         productId: parseInt(formData.productId),
         colorId: formData.colorId ? parseInt(formData.colorId) : null,
         status: formData.status,
-        leatherMaterialId: formData.leatherMaterialId ? parseInt(formData.leatherMaterialId) : null,
-        leatherQtyPerUnit: formData.leatherQtyPerUnit ? parseFloat(formData.leatherQtyPerUnit) : null,
-        items: formData.items.map((item) => ({
+        leatherMaterialId: leatherOnly
+          ? null
+          : formData.leatherMaterialId
+            ? parseInt(formData.leatherMaterialId)
+            : null,
+        leatherQtyPerUnit: leatherOnly
+          ? null
+          : formData.leatherQtyPerUnit
+            ? parseFloat(formData.leatherQtyPerUnit)
+            : null,
+        items: leatherOnly
+          ? []
+          : formData.items.map((item) => ({
           materialId: item.materialId,
           quantity: item.quantity,
           measurement: item.measurement || null,
@@ -654,49 +679,7 @@ function BomForm({ bomId, isOpen, toggle, onSuccess }) {
           <hr />
 
           <h5>Configuración de cuero</h5>
-          <div className="text-muted small mb-3">
-            Define el cuero y la cantidad que consume cada unidad de este producto
-            {formData.colorId ? " para el color seleccionado." : ". Sin color, aplica a todos los colores."}
-          </div>
-          <Row>
-            <Col md="8">
-              <FormGroup>
-                <Label for="leatherMaterialId">Material de cuero</Label>
-                <SearchableSelect
-                  value={formData.leatherMaterialId}
-                  onChange={(id) => setFormData({ ...formData, leatherMaterialId: id })}
-                  options={availableMaterials}
-                  placeholder="Buscar cuero..."
-                  invalid={!!errors.leatherMaterialId}
-                  disabled={loading}
-                  getOptionLabel={(opt) => `${opt.sku || opt.code || ""} - ${opt.name || ""}`}
-                />
-                {errors.leatherMaterialId && (
-                  <div className="text-danger small mt-1">{errors.leatherMaterialId}</div>
-                )}
-              </FormGroup>
-            </Col>
-            <Col md="4">
-              <FormGroup>
-                <Label>Cantidad por unidad</Label>
-                <Input
-                  type="number"
-                  step="0.0001"
-                  min="0.0001"
-                  value={formData.leatherQtyPerUnit}
-                  onChange={(e) => setFormData({ ...formData, leatherQtyPerUnit: e.target.value })}
-                  placeholder="Ej: 1"
-                  invalid={!!errors.leatherQtyPerUnit}
-                  disabled={loading}
-                />
-                {errors.leatherQtyPerUnit && (
-                  <div className="text-danger small">{errors.leatherQtyPerUnit}</div>
-                )}
-              </FormGroup>
-            </Col>
-          </Row>
-
-          <FormGroup check className="mt-2 mb-3">
+          <FormGroup check className="mb-3">
             <Label check className="mb-0">
               <Input
                 type="checkbox"
@@ -713,10 +696,56 @@ function BomForm({ bomId, isOpen, toggle, onSuccess }) {
             </Label>
             <p className="text-muted small mb-0 mt-2" style={{ paddingLeft: 35 }}>
               {leatherOnly
-                ? "El producto no aparecerá en entrega de materiales; solo aplica cuero en producción."
-                : "Desmarque para definir materiales (hebillas, hilos, etc.) en la receta."}
+                ? "El producto se marca como solo cuero. No hace falta elegir tipo de cuero ni cantidad aquí."
+                : "Desmarque para definir materiales (hebillas, hilos, etc.) y, si aplica, el cuero específico por unidad."}
             </p>
           </FormGroup>
+
+          {!leatherOnly && (
+            <>
+              <div className="text-muted small mb-3">
+                Opcional: define el cuero y la cantidad que consume cada unidad de este producto
+                {formData.colorId ? " para el color seleccionado." : ". Sin color, aplica a todos los colores."}
+              </div>
+              <Row>
+                <Col md="8">
+                  <FormGroup>
+                    <Label for="leatherMaterialId">Material de cuero</Label>
+                    <SearchableSelect
+                      value={formData.leatherMaterialId}
+                      onChange={(id) => setFormData({ ...formData, leatherMaterialId: id })}
+                      options={availableMaterials}
+                      placeholder="Buscar cuero..."
+                      invalid={!!errors.leatherMaterialId}
+                      disabled={loading}
+                      getOptionLabel={(opt) => `${opt.sku || opt.code || ""} - ${opt.name || ""}`}
+                    />
+                    {errors.leatherMaterialId && (
+                      <div className="text-danger small mt-1">{errors.leatherMaterialId}</div>
+                    )}
+                  </FormGroup>
+                </Col>
+                <Col md="4">
+                  <FormGroup>
+                    <Label>Cantidad por unidad</Label>
+                    <Input
+                      type="number"
+                      step="0.0001"
+                      min="0.0001"
+                      value={formData.leatherQtyPerUnit}
+                      onChange={(e) => setFormData({ ...formData, leatherQtyPerUnit: e.target.value })}
+                      placeholder="Ej: 1"
+                      invalid={!!errors.leatherQtyPerUnit}
+                      disabled={loading}
+                    />
+                    {errors.leatherQtyPerUnit && (
+                      <div className="text-danger small">{errors.leatherQtyPerUnit}</div>
+                    )}
+                  </FormGroup>
+                </Col>
+              </Row>
+            </>
+          )}
 
           <hr />
 

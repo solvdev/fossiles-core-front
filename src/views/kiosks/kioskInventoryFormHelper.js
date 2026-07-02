@@ -1,6 +1,7 @@
 export const OPERATION_OPTIONS = [
   { value: "ENTRADA", label: "Entrada de stock" },
   { value: "VENTA", label: "Venta" },
+  { value: "CAMBIO", label: "Cambio de producto" },
   { value: "DEVOLUCION_DEPOSITO", label: "Devolución a depósito" },
   { value: "DEVOLUCION_CLIENTE", label: "Devolución de cliente" },
   { value: "TRASLADO", label: "Traslado entre kioskos" },
@@ -71,6 +72,19 @@ export function canSell(stockRow, quantityToSell) {
   const quantity = Number(quantityToSell || 0);
   if (!Number.isInteger(quantity) || quantity <= 0) return false;
   return Number(stockRow.currentStock || 0) >= quantity;
+}
+
+export function validateKardexRangeForm({ locationId, from, to }) {
+  if (!locationId) {
+    return "Debes seleccionar un kiosko.";
+  }
+  if (!from || !to) {
+    return "Debes indicar el rango de fechas (desde y hasta).";
+  }
+  if (new Date(from) > new Date(to)) {
+    return "La fecha inicial no puede ser posterior a la fecha final.";
+  }
+  return "";
 }
 
 export function sortMovementsDesc(list) {

@@ -1,5 +1,6 @@
 import React from "react";
-import { Button, Card, CardBody, Input } from "reactstrap";
+import { Badge, Button, Card, CardBody, Input } from "reactstrap";
+import { isPackagingProductCode } from "utils/kioskPackagingHelper";
 import { formatCurrency, formatQty } from "./posUtils";
 
 function PosCartPanel({
@@ -40,9 +41,15 @@ function PosCartPanel({
             cart.map((line) => (
               <div key={line.key} className="kiosk-pos-cart-line">
                 <div>
-                  <div className="kiosk-pos-item-name">{line.productName}</div>
+                  <div className="kiosk-pos-item-name">
+                    {line.productName}
+                    {isPackagingProductCode(line.productCode) && (
+                      <Badge color="secondary" className="ml-1">Empaque</Badge>
+                    )}
+                  </div>
                   <div className="kiosk-pos-item-sub">
                     {line.productCode} · {line.colorName || "Sin color"}
+                    {line.size ? ` · Talla ${line.size}` : ""}
                   </div>
                 </div>
                 <div className="kiosk-pos-line-actions">

@@ -1810,7 +1810,9 @@ function ProductDistributionDetail() {
                       <Col md="12">
                         <Label>
                           <strong>Empaques SUM- para este kiosko</strong>
-                          <small className="text-muted ml-2">(Se guardan dentro del detalle del envío)</small>
+                          <small className="text-muted ml-2">
+                            (Referencia para impresión; no rebaja inventario de materiales al guardar o enviar)
+                          </small>
                         </Label>
                         {loadingPackingMaterials ? (
                           <div className="text-muted">Cargando empaques...</div>

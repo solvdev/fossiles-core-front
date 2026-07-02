@@ -5,14 +5,15 @@
 
 set -e
 BASE="${BASE:-https://core.fossilescorp.com}"
-JS_PATH="/static/js/main.a15b7a53.js"
+JS_PATH="/static/js/main.7cec6dab.js"
 BUILD_ROOT="${BUILD_ROOT:-/var/www/front/build}"
+EXPECTED_BYTES=5227508
 
 echo "========== 1. Archivo JS en disco (servidor) =========="
 if [ -f "${BUILD_ROOT}${JS_PATH}" ]; then
   BYTES=$(wc -c < "${BUILD_ROOT}${JS_PATH}")
   echo "Ruta: ${BUILD_ROOT}${JS_PATH}"
-  echo "Tamaño: ${BYTES} bytes (esperado ~4801037 si build reciente)"
+  echo "Tamaño: ${BYTES} bytes (esperado ~${EXPECTED_BYTES} si build reciente)"
   echo "--- Inicio ---"
   head -c 80 "${BUILD_ROOT}${JS_PATH}"; echo
   echo "--- Final (últimos 120 bytes) ---"
@@ -63,14 +64,14 @@ ss -tlnp 2>/dev/null | grep 8080 || netstat -tlnp 2>/dev/null | grep 8080 || ech
 echo ""
 echo "========== 6. Pantalla en blanco (checklist) =========="
 echo "En el navegador (F12 → Network → recargar con Ctrl+Shift+R):"
-echo "  - main.*.js debe pesar ~4801037 bytes (no ~4439040)"
+echo "  - main.*.js debe pesar ~${EXPECTED_BYTES} bytes (no ~1566720 truncado)"
 echo "  - Content-Type: application/javascript (no text/html)"
 echo "  - Si Console muestra 'SyntaxError' o 'missing )' → caché vieja o JS corrupto"
 echo "  - Si Console muestra otro error rojo → fallo en runtime (copiar mensaje)"
 echo "  - Si solo ves 'Verificando autenticación...' → no es blanco total; revisar API /auth/validate"
 echo ""
 echo "Purgar Cloudflare: Caching → Purge → Custom Purge →"
-echo "  https://${BASE#https://}/static/js/main.a15b7a53.js"
+echo "  https://${BASE#https://}/static/js/main.7cec6dab.js"
 echo ""
 echo "En consola del navegador (pestaña Console), pegar:"
 echo "  document.getElementById('root')?.innerHTML?.length"

@@ -16,11 +16,17 @@ function PosReceiptModal({ isOpen, shipment, onClose, onConfirmed }) {
         </p>
         <ShipmentReceiptDetail
           shipment={shipment}
+          readOnly={String(shipment.status || "").toUpperCase() === "DELIVERED"}
           onConfirmed={async () => {
             if (onConfirmed) {
               await onConfirmed();
             }
             onClose();
+          }}
+          onRepaired={async () => {
+            if (onConfirmed) {
+              await onConfirmed();
+            }
           }}
           successMessage="Distribución recibida. Ya puedes vender estos productos."
         />

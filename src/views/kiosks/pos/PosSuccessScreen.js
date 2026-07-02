@@ -70,6 +70,11 @@ function PosSuccessScreen({ sale, onNewSale }) {
                 <strong>Autorización:</strong> {felUuid}
               </p>
             )}
+            {sale.email && (
+              <p className="mb-1 small text-muted">
+                Factura enviada a: <strong>{sale.email}</strong>
+              </p>
+            )}
             {(felSerie || felNumero) && (
               <p className="mb-2 small">
                 <strong>Serie / Número:</strong> {felSerie || "—"} / {felNumero || "—"}

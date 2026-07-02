@@ -68,6 +68,18 @@ export const updateKioskSalePayment = async (saleId, payload, kioskLocationId) =
   return parseJson(response, "No se pudo actualizar la forma de pago.");
 };
 
+export const updateKioskSaleInvoiceContact = async (saleId, kioskLocationId, payload) => {
+  const response = await fetch(
+    `${API_URL}/kiosk-pos/sales/${saleId}/invoice-contact${toQuery({ kioskLocationId })}`,
+    {
+      method: "PATCH",
+      headers: headers(),
+      body: JSON.stringify(payload || {}),
+    }
+  );
+  return parseJson(response, "No se pudo actualizar los datos de facturación.");
+};
+
 export const voidKioskSale = async (saleId, payload, kioskLocationId) => {
   const response = await fetch(
     `${API_URL}/kiosk-pos/sales/${saleId}/void${toQuery({ kioskLocationId })}`,

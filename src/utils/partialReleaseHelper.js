@@ -218,10 +218,30 @@ export function countPartialReleaseLineRows(release) {
   return (release?.lines || []).length;
 }
 
+/** Busca la liberación parcial ligada a un envío (por shipmentId o partialReleaseId). */
+export function findLinkedPartialRelease(shipment, releases) {
+  const rows = releases || [];
+  if (!shipment?.id) return null;
+  const byShipment = rows.find(
+    (r) => r.shipmentId != null && String(r.shipmentId) === String(shipment.id)
+  );
+  if (byShipment) return byShipment;
+  if (shipment.partialReleaseId != null && shipment.partialReleaseId !== "") {
+    return rows.find((r) => String(r.id) === String(shipment.partialReleaseId)) || null;
+  }
+  return null;
+}
+
 /** Envío ligado a una liberación parcial (por id o por shipmentId en el parcial). */
 export function isPartialReleaseShipment(shipment, linkedRelease) {
   if (!linkedRelease?.lines?.length || !shipment?.id) return false;
-  if (shipment.partialReleaseId != null && shipment.partialReleaseId !== "") return true;
+  if (
+    shipment.partialReleaseId != null &&
+    shipment.partialReleaseId !== "" &&
+    String(shipment.partialReleaseId) === String(linkedRelease.id)
+  ) {
+    return true;
+  }
   if (linkedRelease.shipmentId != null && String(linkedRelease.shipmentId) === String(shipment.id)) {
     return true;
   }
@@ -230,9 +250,30 @@ export function isPartialReleaseShipment(shipment, linkedRelease) {
 
 /** Líneas del parcial para listado/impresión; null si no aplica reemplazo. */
 export function resolvePartialReleaseShipmentProducts(shipment, linkedRelease, orderType) {
-  if (!isPartialReleaseShipment(shipment, linkedRelease)) return null;
+  if (!linkedRelease?.lines?.length || !shipment?.id) return null;
   const products = buildShipmentProductsFromPartialReleaseLines(linkedRelease.lines, orderType);
-  return products.length ? products : null;
+  if (!products.length) return null;
+  if (isPartialReleaseShipment(shipment, linkedRelease)) {
+    return products;
+  }
+  return null;
+}
+
+/**
+ * Productos a mostrar en impresión / exportación (parcial si aplica, no la OP completa).
+ */
+export function resolveShipmentLinesForPrint(shipment, order, partialList) {
+  if (!shipment) return [];
+  if (Array.isArray(shipment._printProducts) && shipment._printProducts.length > 0) {
+    return shipment._printProducts;
+  }
+  const releases = partialList?.releases || partialList || [];
+  const linked = findLinkedPartialRelease(shipment, releases);
+  const partialProducts = resolvePartialReleaseShipmentProducts(shipment, linked, order?.orderType);
+  if (partialProducts?.length) {
+    return partialProducts;
+  }
+  return shipment.products || [];
 }
 
 /** Productos de impresión / envío a partir de líneas guardadas del parcial (no la OP completa). */

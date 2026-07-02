@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from "react";
 import { Card, CardBody, Col, Row, Spinner, Table } from "reactstrap";
 import { getKioskManagerDashboard, getMyKioskSales } from "services/kioskPosService";
 import { showError } from "utils/notificationHelper";
+import { getMonthStartYmdGuatemala, getTodayYmdGuatemala } from "utils/dateTimeHelper";
 import { formatCurrency, formatQty, isSalePendingDeposit } from "./posUtils";
 
 const formatGrowth = (value) => {
@@ -13,13 +14,6 @@ const formatGrowth = (value) => {
 const safeNumber = (value) => {
   const num = Number(value || 0);
   return Number.isFinite(num) ? num : 0;
-};
-
-const toIsoDate = (date) => {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
 };
 
 const resolveSaleDay = (sale) => {
@@ -54,15 +48,14 @@ const aggregateDailyRows = (sales) => {
       row.voidCount += 1;
       return;
     }
-    if (sale.testSale === true) {
-      row.testCount += 1;
-      return;
-    }
     if (status !== "COMPLETED") return;
 
     row.salesCount += 1;
     row.totalItems += safeNumber(sale.totalItems);
     row.totalAmount += safeNumber(sale.totalAmount);
+    if (sale.testSale === true) {
+      row.testCount += 1;
+    }
 
     const paymentMethod = String(sale.paymentMethod || "").toUpperCase();
     if (paymentMethod === "EFECTIVO") {
@@ -121,10 +114,8 @@ function PosManagerDashboard({ kioskLocationId, kioskName, active }) {
     }
     try {
       setLoading(true);
-      const now = new Date();
-      const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-      const startDate = toIsoDate(monthStart);
-      const endDate = toIsoDate(now);
+      const startDate = getMonthStartYmdGuatemala();
+      const endDate = getTodayYmdGuatemala();
       const [data, sales] = await Promise.all([
         getKioskManagerDashboard(kioskLocationId),
         getMyKioskSales(startDate, endDate, kioskLocationId),

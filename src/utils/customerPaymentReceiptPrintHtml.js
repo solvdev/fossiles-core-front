@@ -54,7 +54,46 @@ export function buildCustomerPaymentReceiptPrintHtml(entry, customer = {}) {
   <table class="totals">
     <tr><td>Bruto cobrado</td><td class="num">${fmtMoney(gross)}</td></tr>
     <tr><td>Descuento</td><td class="num">${discount > 0 ? fmtMoney(discount) : "—"}</td></tr>
-    <tr><td><strong>Neto aplicado</strong></td><td class="num"><strong>${fmtMoney(entry.amount)}</strong></td></tr>
+    <tr><td><strong>Efectivo cobrado</strong></td><td class="num"><strong>${fmtMoney(entry.amount)}</strong></td></tr>
+    ${discount > 0 ? `<tr><td>Total descarga al saldo</td><td class="num">${fmtMoney(gross)}</td></tr>` : ""}
+  </table>
+  <p style="margin-top:24px;font-size:11px;color:#666;">Impreso ${new Date().toLocaleString("es-GT")}</p>
+</body>
+</html>`;
+}
+
+export function buildCustomerSettlementPrintHtml(settlement, customer = {}, doc = {}) {
+  return `<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <title>Liquidación documento</title>
+  <style>
+    body { font-family: Arial, sans-serif; font-size: 12px; margin: 24px; color: #222; }
+    h1 { font-size: 18px; margin: 0 0 8px; }
+    .meta { margin-bottom: 16px; line-height: 1.5; }
+    table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+    th, td { border: 1px solid #ccc; padding: 6px 8px; text-align: left; }
+    .num { text-align: right; }
+    @media print { body { margin: 12px; } }
+  </style>
+</head>
+<body>
+  <h1>Devolución / Descuento y descarga</h1>
+  <div class="meta">
+    <div><strong>Cliente:</strong> ${escapeHtml(customer.customerName || customer.name || "—")}</div>
+    <div><strong>Clave:</strong> ${escapeHtml(customer.legacyCode || "—")}</div>
+    <div><strong>Documento:</strong> ${escapeHtml(doc.documentNumber || doc.orderCode || "—")}</div>
+    <div><strong>No. factura / ENVP:</strong> ${escapeHtml(doc.invoiceNumber || "—")}</div>
+  </div>
+  <table>
+    <tr><td>Saldo inicial</td><td class="num">${fmtMoney(settlement.initialBalance)}</td></tr>
+    <tr><td>Descuento comercial</td><td class="num">${fmtMoney(settlement.commercialDiscount)}</td></tr>
+    <tr><td>Saldo después descuento</td><td class="num">${fmtMoney(settlement.balanceAfterDiscount)}</td></tr>
+    <tr><td>Descarga bruta</td><td class="num">${fmtMoney(settlement.paymentGross)}</td></tr>
+    <tr><td>Descuento al cobrar</td><td class="num">${fmtMoney(settlement.paymentDiscountAtCollection)}</td></tr>
+    <tr><td>Efectivo cobrado</td><td class="num">${fmtMoney(settlement.paymentNet)}</td></tr>
+    <tr><td><strong>Saldo final documento</strong></td><td class="num"><strong>${fmtMoney(settlement.finalBalance)}</strong></td></tr>
   </table>
   <p style="margin-top:24px;font-size:11px;color:#666;">Impreso ${new Date().toLocaleString("es-GT")}</p>
 </body>

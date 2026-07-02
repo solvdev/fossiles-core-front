@@ -470,6 +470,25 @@ export const generateProductionOrderShipment = async (orderId, payload) => {
   return response.json();
 };
 
+export const searchPartialReleasesForPrepare = async (query = "", limit = 150) => {
+  const params = new URLSearchParams();
+  if (query) params.set("q", query);
+  if (limit) params.set("limit", String(limit));
+  const qs = params.toString();
+  const response = await fetch(
+    `${API_URL}/partial-releases/search${qs ? `?${qs}` : ""}`,
+    {
+      method: "GET",
+      headers: { "Content-Type": "application/json", ...getAuthHeader() },
+    }
+  );
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({ message: "Error al buscar liberaciones parciales" }));
+    throw new Error(errorData.message || "Error al buscar liberaciones parciales");
+  }
+  return response.json();
+};
+
 export const getProductionOrderPartialReleases = async (orderId) => {
   if (!orderId) throw new Error('ID de orden de producción inválido');
   const response = await fetch(`${API_URL}/production-orders/${orderId}/partial-releases`, {

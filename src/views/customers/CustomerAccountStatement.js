@@ -278,7 +278,7 @@ function CustomerAccountStatement() {
                     Descarga (11)
                   </Button>
                   <Button color="warning" size="sm" className="btn-round mr-1" onClick={() => setReturnModalOpen(true)}>
-                    Devolución
+                    Devolución / Descuento
                   </Button>
                   <Button color="info" size="sm" className="btn-round" onClick={handlePrint} disabled={!statement}>
                     <i className="nc-icon nc-paper" /> Imprimir
@@ -510,7 +510,7 @@ function CustomerAccountStatement() {
         customerId={Number(customerId)}
         customerInfo={customerInfo}
         onSaved={() => {
-          showSuccess("Devolución registrada.");
+          showSuccess("Liquidación registrada.");
           load();
         }}
       />

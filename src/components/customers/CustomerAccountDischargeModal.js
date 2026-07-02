@@ -24,15 +24,11 @@ import {
 } from "utils/customerPaymentReceiptPrintHtml";
 
 const EMPTY_FORM = {
-  documentNumber: "",
   receiptNumber: "",
   collectionDate: "",
   entryDate: "",
   paymentMethod: "EFECTIVO",
   grossAmount: "",
-  discountAmount: "",
-  discountPercent: "",
-  discountMode: "none",
 };
 
 function CustomerAccountDischargeModal({
@@ -85,21 +81,8 @@ function CustomerAccountDischargeModal({
     setSelectedDoc(doc);
     setForm((prev) => ({
       ...prev,
-      documentNumber: doc.documentNumber || doc.orderCode || "",
       grossAmount: String(Number(doc.balanceDue || 0).toFixed(2)),
     }));
-  };
-
-  const computeNet = () => {
-    const gross = Number(form.grossAmount) || 0;
-    if (form.discountMode === "amount") {
-      return Math.max(0, gross - (Number(form.discountAmount) || 0));
-    }
-    if (form.discountMode === "percent") {
-      const pct = Number(form.discountPercent) || 0;
-      return Math.max(0, gross - gross * (pct / 100));
-    }
-    return gross;
   };
 
   const handleSubmit = async () => {
@@ -116,16 +99,11 @@ function CustomerAccountDischargeModal({
       return;
     }
     const gross = Number(form.grossAmount);
-    const net = computeNet();
     if (!Number.isFinite(gross) || gross <= 0) {
       setError("Ingrese un monto válido.");
       return;
     }
-    if (net <= 0) {
-      setError("El monto neto debe ser mayor a cero.");
-      return;
-    }
-    if (net > Number(selectedDoc.balanceDue) + 0.001) {
+    if (gross > Number(selectedDoc.balanceDue) + 0.001) {
       setError(`El monto no puede exceder el saldo (${formatAccountMoney(selectedDoc.balanceDue)}).`);
       return;
     }
@@ -138,12 +116,8 @@ function CustomerAccountDischargeModal({
         movementConceptCode,
         entryDate: form.entryDate || getTodayYmdGuatemala(),
         collectionDate: form.collectionDate,
-        amount: net,
+        amount: gross,
         grossCollectedAmount: gross,
-        paymentDiscountAmount:
-          form.discountMode === "amount" ? Number(form.discountAmount) || null : null,
-        paymentDiscountPercent:
-          form.discountMode === "percent" ? Number(form.discountPercent) || null : null,
         receiptNumber: form.receiptNumber.trim(),
         reference: form.receiptNumber.trim(),
         paymentMethod: form.paymentMethod,
@@ -152,7 +126,7 @@ function CustomerAccountDischargeModal({
         partialReleaseId: selectedDoc.partialReleaseId,
         productShipmentId: selectedDoc.productShipmentId,
         invoiceNumber: selectedDoc.invoiceNumber,
-        documentNumber: form.documentNumber || selectedDoc.documentNumber,
+        documentNumber: form.receiptNumber.trim(),
         vendorShipmentNumber: selectedDoc.invoiceNumber,
         description: `Descarga ${selectedDoc.invoiceNumber || selectedDoc.documentNumber || ""}`.trim(),
       };
@@ -255,16 +229,7 @@ function CustomerAccountDischargeModal({
             <div className="row">
               <div className="col-md-4">
                 <FormGroup>
-                  <Label>No. documento</Label>
-                  <Input
-                    value={form.documentNumber}
-                    onChange={(e) => patch("documentNumber", e.target.value)}
-                  />
-                </FormGroup>
-              </div>
-              <div className="col-md-4">
-                <FormGroup>
-                  <Label>No. recibo caja *</Label>
+                  <Label>No. recibo caja / documento *</Label>
                   <Input
                     value={form.receiptNumber}
                     onChange={(e) => patch("receiptNumber", e.target.value)}
@@ -315,53 +280,10 @@ function CustomerAccountDischargeModal({
                   />
                 </FormGroup>
               </div>
-              <div className="col-md-4">
-                <FormGroup>
-                  <Label>Descuento al cobrar</Label>
-                  <Input
-                    type="select"
-                    value={form.discountMode}
-                    onChange={(e) => patch("discountMode", e.target.value)}
-                  >
-                    <option value="none">Sin descuento</option>
-                    <option value="amount">Monto (Q)</option>
-                    <option value="percent">Porcentaje (%)</option>
-                  </Input>
-                </FormGroup>
-              </div>
-              {form.discountMode === "amount" && (
-                <div className="col-md-4">
-                  <FormGroup>
-                    <Label>Descuento (Q)</Label>
-                    <Input
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      value={form.discountAmount}
-                      onChange={(e) => patch("discountAmount", e.target.value)}
-                    />
-                  </FormGroup>
-                </div>
-              )}
-              {form.discountMode === "percent" && (
-                <div className="col-md-4">
-                  <FormGroup>
-                    <Label>Descuento (%)</Label>
-                    <Input
-                      type="number"
-                      min="0"
-                      max="100"
-                      step="0.01"
-                      value={form.discountPercent}
-                      onChange={(e) => patch("discountPercent", e.target.value)}
-                    />
-                  </FormGroup>
-                </div>
-              )}
               <div className="col-md-4 d-flex align-items-end">
                 <div className="mb-3">
-                  <small className="text-muted d-block">Neto a aplicar</small>
-                  <strong>{formatAccountMoney(computeNet())}</strong>
+                  <small className="text-muted d-block">Efectivo a cobrar</small>
+                  <strong>{formatAccountMoney(Number(form.grossAmount) || 0)}</strong>
                 </div>
               </div>
             </div>

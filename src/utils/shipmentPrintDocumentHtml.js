@@ -41,6 +41,38 @@ export function extractShipmentPreparationObservation(observations) {
   return shipmentOnly.length ? shipmentOnly.join(" | ") : "";
 }
 
+const CAMBIO_Q0_PREFIX = /CAMBIO_Q0\([^)]*\)\s*/i;
+
+/** Comentario ingresado al crear un envío por cambio (CAMBIO_Q0). */
+export function extractExchangeObservation(observations) {
+  const raw = String(observations ?? "").trim();
+  if (!raw) return "";
+  const parts = raw
+    .split(/\s*\|\s*/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  for (const part of parts) {
+    if (!CAMBIO_Q0_PREFIX.test(part)) continue;
+    const comment = part.replace(CAMBIO_Q0_PREFIX, "").trim();
+    if (comment) return comment;
+  }
+  return "";
+}
+
+function resolveShipmentObservationText(docType, sale, opts = {}) {
+  const explicit = String(opts.shipmentObservations ?? "").trim();
+  if (explicit) return explicit;
+  if (docType === "DEVOLUCION") return "";
+  if (docType === "CAMBIO") return extractExchangeObservation(sale?.observations);
+  return extractShipmentPreparationObservation(sale?.observations);
+}
+
+function shipmentObservationLabel(docType) {
+  if (docType === "DEVOLUCION") return "Motivo:";
+  if (docType === "CAMBIO") return "Razón del cambio:";
+  return "Observación:";
+}
+
 function formatDateDisplay(isoDate) {
   if (!isoDate) return "";
   const [year, month, day] = String(isoDate).split("-");
@@ -207,12 +239,10 @@ export function buildShipmentDocumentInnerHtml(sale, opts = {}) {
       ? `<div class="line"><span class="label">Relacionado:</span><span>${escapeHtml(String(relatedShipmentNumber))}</span></div>`
       : "";
 
-  const shipmentObsText = String(
-    opts.shipmentObservations ?? extractShipmentPreparationObservation(sale.observations) ?? ""
-  ).trim();
+  const shipmentObsText = resolveShipmentObservationText(docType, sale, opts);
   const shipmentObservationBlock = shipmentObsText
     ? `<div class="section" style="font-size:11px">
-              <div class="line"><span class="label">Observación:</span><span>${escapeHtml(shipmentObsText)}</span></div>
+              <div class="line"><span class="label">${escapeHtml(shipmentObservationLabel(docType))}</span><span>${escapeHtml(shipmentObsText)}</span></div>
             </div>`
     : "";
 

@@ -11,6 +11,7 @@ import {
   Row,
   Table,
 } from "reactstrap";
+import { PROMO_AUDIENCE_OPTIONS, getPromoAudienceLabel } from "utils/productAudienceHelper";
 import { formatCurrency } from "./posUtils";
 
 function PosPromotionsTab({ promoForm, onPromoFormChange, promotions, onCreatePromotion, kiosks }) {
@@ -56,6 +57,21 @@ function PosPromotionsTab({ promoForm, onPromoFormChange, promotions, onCreatePr
               {(kiosks || []).map((k) => (
                 <option key={`promo-k-${k.kioskId}`} value={String(k.kioskId)}>
                   {k.kioskName}
+                </option>
+              ))}
+            </Input>
+          </Col>
+          <Col md="4">
+            <Label className="kiosk-pos-label">Línea (vacío = todas)</Label>
+            <Input
+              className="kiosk-pos-input-lg"
+              type="select"
+              value={promoForm.audienceCategory}
+              onChange={(e) => onPromoFormChange({ audienceCategory: e.target.value })}
+            >
+              {PROMO_AUDIENCE_OPTIONS.map((opt) => (
+                <option key={`promo-aud-${opt.value || "all"}`} value={opt.value}>
+                  {opt.label}
                 </option>
               ))}
             </Input>
@@ -127,6 +143,7 @@ function PosPromotionsTab({ promoForm, onPromoFormChange, promotions, onCreatePr
               <th>Nombre</th>
               <th>Tipo</th>
               <th>Valor</th>
+              <th>Línea</th>
               <th>Kiosko</th>
               <th>Vigencia</th>
             </tr>
@@ -149,6 +166,7 @@ function PosPromotionsTab({ promoForm, onPromoFormChange, promotions, onCreatePr
                       ? "-"
                       : formatCurrency(promo.discountValue)}
                 </td>
+                <td>{getPromoAudienceLabel(promo.audienceCategory)}</td>
                 <td>{promo.kioskLocationId ? promo.kioskLocationId : "Todos"}</td>
                 <td>
                   {(promo.startDate || "-")} - {(promo.endDate || "-")}

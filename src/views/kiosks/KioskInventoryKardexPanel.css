@@ -1,0 +1,80 @@
+.kiosk-inventory-kardex-panel .kiosk-kardex-report-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 24px;
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 10px 14px;
+  align-items: center;
+}
+
+.kiosk-inventory-kardex-panel .kiosk-kardex-report-meta-item {
+  font-size: 12px;
+  color: #374151;
+}
+
+.kiosk-inventory-kardex-panel .kiosk-kardex-report-meta-label {
+  color: #6b7280;
+  margin-right: 6px;
+}
+
+.kiosk-inventory-kardex-panel .kiosk-kardex-filter-chips .btn-light {
+  border: 1px solid #d1d5db;
+}
+
+.kiosk-inventory-kardex-panel .kiosk-kardex-filter-divider {
+  width: 1px;
+  background: #d1d5db;
+  margin: 0 4px;
+  align-self: stretch;
+}
+
+.kiosk-inventory-kardex-panel .kiosk-kardex-summary-wrap {
+  overflow-x: auto;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+}
+
+.kiosk-inventory-kardex-panel .kiosk-kardex-summary-table thead th {
+  background: #f3f4f6;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.kiosk-inventory-kardex-panel .kiosk-kardex-row-clickable {
+  cursor: pointer;
+}
+
+.kiosk-inventory-kardex-panel .kiosk-kardex-row-clickable:hover {
+  background: #f9fafb;
+}
+
+.kiosk-inventory-kardex-panel .kiosk-kardex-row-active {
+  background: #eff6ff;
+}
+
+.kiosk-inventory-kardex-panel .kiosk-kardex-totals-row td {
+  background: #1f2937;
+  color: #fff;
+  font-weight: 700;
+}
+
+.kiosk-inventory-kardex-panel .kiosk-kardex-detail {
+  border: 1px solid #dbeafe;
+  border-radius: 8px;
+  padding: 12px;
+  background: #f8fafc;
+}
+
+.kiosk-inventory-kardex-panel .kiosk-kardex-detail-table {
+  font-size: 11px;
+}
+
+.kiosk-inventory-kardex-panel .kiosk-kardex-detail-table thead th {
+  background: #e0e7ff;
+}
+
+.kiosk-inventory-kardex-panel .kiosk-kardex-transfer-row {
+  background: #f0fdf4;
+}

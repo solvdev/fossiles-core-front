@@ -40,6 +40,54 @@ export const getKioscoStockBajo = async (locationId) =>
 export const getKioscoConsolidado = async () =>
   apiRequest(`/kiosco-inventory/reporte/consolidado`);
 
+export const getKioscoKardex = async (locationId, from, to) => {
+  const params = new URLSearchParams({ from, to });
+  return apiRequest(`/kiosco-inventory/${locationId}/reporte/kardex?${params.toString()}`);
+};
+
+export const getKioscoKardexMovimientos = async (locationId, from, to, filters = {}) => {
+  const params = new URLSearchParams({ from, to });
+  if (filters.productId) params.append("productId", String(filters.productId));
+  if (filters.colorId) params.append("colorId", String(filters.colorId));
+  return apiRequest(`/kiosco-inventory/${locationId}/reporte/kardex/movimientos?${params.toString()}`);
+};
+
+export const startKioscoConteo = async (locationId, from, to) => {
+  const params = new URLSearchParams({ from, to });
+  return apiRequest(`/kiosco-inventory/${locationId}/conteo-fisico?${params.toString()}`, { method: "POST" });
+};
+
+export const getKioscoConteoReport = async (countId) =>
+  apiRequest(`/kiosco-inventory/conteo-fisico/${countId}`);
+
+export const saveKioscoConteoItems = async (countId, items) =>
+  apiRequest(`/kiosco-inventory/conteo-fisico/${countId}/items`, { method: "PUT", body: items });
+
+export const revisarKioscoConteo = async (countId, notes) =>
+  apiRequest(`/kiosco-inventory/conteo-fisico/${countId}/revisar`, { method: "POST", body: { notes } });
+
+export const getKioscoConteoHistorial = async (locationId) =>
+  apiRequest(`/kiosco-inventory/${locationId}/conteo-fisico/historial`);
+
+export const cerrarKioscoConteo = async (countId) =>
+  apiRequest(`/kiosco-inventory/conteo-fisico/${countId}/cerrar`, { method: "POST" });
+
+export const getKioscoConteoAlertas = async (locationId) => {
+  const params = new URLSearchParams();
+  if (locationId) params.append("locationId", String(locationId));
+  const suffix = params.toString() ? `?${params.toString()}` : "";
+  return apiRequest(`/kiosco-inventory/conteo-fisico/alertas${suffix}`);
+};
+
+export const getKioscoNotificationRecipients = async () =>
+  apiRequest(`/kiosco-inventory/notificacion-destinatarios`);
+
+export const addKioscoNotificationRecipient = async (payload) =>
+  apiRequest(`/kiosco-inventory/notificacion-destinatarios`, { method: "POST", body: payload });
+
+export const removeKioscoNotificationRecipient = async (recipientId) =>
+  apiRequest(`/kiosco-inventory/notificacion-destinatarios/${recipientId}`, { method: "DELETE" });
+
 export const registrarKioscoEntrada = async (locationId, payload) =>
   apiRequest(`/kiosco-inventory/${locationId}/entrada`, { method: "POST", body: payload });
 
@@ -63,6 +111,9 @@ export const registrarKioscoAjuste = async (locationId, payload) =>
 
 export const registrarKioscoAnulacion = async (locationId, payload) =>
   apiRequest(`/kiosco-inventory/${locationId}/anular-factura`, { method: "POST", body: payload });
+
+export const registrarKioscoCambio = async (locationId, payload) =>
+  apiRequest(`/kiosco-inventory/${locationId}/cambio`, { method: "POST", body: payload });
 
 export const initializeKioscoInventory = async (locationId = null, userId = null) => {
   const params = new URLSearchParams();

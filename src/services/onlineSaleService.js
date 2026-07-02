@@ -248,6 +248,7 @@ export const importOnlineSales = async (sales) => {
 export const PAYMENT_METHODS = [
   { value: 'CONTRA_ENTREGA', label: 'Contra Entrega', shipping: 30 },
   { value: 'CONTRA_ENTREGA_DEPOSITO', label: 'Contra Entrega Depósito', shipping: 30 },
+  // Pago web: siempre pagado (TARJETA_PAGADO). Visalink = transferencia/chat.
   { value: 'TARJETA_PAGADO', label: 'Tarjeta', shipping: 15 },
   { value: 'VISALINK_PAGADO', label: 'Visalink Pagado', shipping: 15 },
   { value: 'VISALINK_PENDIENTE', label: 'Visalink Pendiente', shipping: 15 },

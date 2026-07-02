@@ -26,6 +26,7 @@ import {
 } from "reactstrap";
 import classnames from "classnames";
 import CreateStandaloneInternalShipmentModal from "components/distribution/CreateStandaloneInternalShipmentModal";
+import InternalShipmentRequestDetailModal from "components/distribution/InternalShipmentRequestDetailModal";
 import { useAuth } from "contexts/AuthContext";
 import {
   approveInternalShipmentRequest,
@@ -75,6 +76,7 @@ function AuthorizeShipments() {
   const [rejectOpen, setRejectOpen] = useState(false);
   const [rejectTargetId, setRejectTargetId] = useState(null);
   const [rejectReason, setRejectReason] = useState("");
+  const [detailRequestId, setDetailRequestId] = useState(null);
 
   const loadExistingEnvi = useCallback(async () => {
     if (!isAccountingView) return;
@@ -113,23 +115,30 @@ function AuthorizeShipments() {
     loadRequests();
   }, [loadExistingEnvi, loadRequests]);
 
-  const handleApprove = async (request) => {
+  const approveRequest = async (request) => {
     if (!canApprove || !request?.id) return;
-    const ok = window.confirm(
-      `¿Autorizar la solicitud #${request.id} de ${request.recipientName}? Se generará el ENVI y se descontará inventario.`
-    );
-    if (!ok) return;
     try {
       setActionId(request.id);
       setError("");
       const updated = await approveInternalShipmentRequest(request.id);
       showSuccess(`Solicitud aprobada. ENVI: ${updated?.shipmentNumber || "—"}`);
       await Promise.all([loadRequests(), loadExistingEnvi()]);
+      setDetailRequestId(null);
     } catch (err) {
       showError(err.message || "No se pudo aprobar la solicitud.");
+      throw err;
     } finally {
       setActionId(null);
     }
+  };
+
+  const handleApprove = async (request) => {
+    if (!canApprove || !request?.id) return;
+    const ok = window.confirm(
+      `¿Autorizar la solicitud #${request.id} de ${request.recipientName}? Se generará el ENVI y se descontará inventario.`
+    );
+    if (!ok) return;
+    await approveRequest(request);
   };
 
   const openRejectModal = (requestId) => {
@@ -283,13 +292,18 @@ function AuthorizeShipments() {
                       <th>Tipo</th>
                       <th>Líneas</th>
                       <th>Estado</th>
+                      <th>OPI</th>
                       {isAccountingView && <th>ENVI</th>}
                       <th className="text-right">Acciones</th>
                     </tr>
                   </thead>
                   <tbody>
                     {requests.map((req) => (
-                      <tr key={req.id}>
+                      <tr
+                        key={req.id}
+                        style={{ cursor: "pointer" }}
+                        onClick={() => setDetailRequestId(req.id)}
+                      >
                         <td>{req.id}</td>
                         <td>{req.requestedAt ? formatDateTimeGt(req.requestedAt) : "—"}</td>
                         <td>{req.recipientName || "—"}</td>
@@ -307,8 +321,17 @@ function AuthorizeShipments() {
                             </div>
                           )}
                         </td>
+                        <td>{req.productionOrderCode || "—"}</td>
                         {isAccountingView && <td>{req.shipmentNumber || "—"}</td>}
-                        <td className="text-right text-nowrap">
+                        <td className="text-right text-nowrap" onClick={(e) => e.stopPropagation()}>
+                          <Button
+                            color="link"
+                            size="sm"
+                            className="p-0 mr-2"
+                            onClick={() => setDetailRequestId(req.id)}
+                          >
+                            Ver detalle
+                          </Button>
                           {req.status === "PENDIENTE" && canApprove && (
                             <>
                               <Button
@@ -431,6 +454,19 @@ function AuthorizeShipments() {
           setCreateOpen(false);
           loadRequests();
         }}
+      />
+
+      <InternalShipmentRequestDetailModal
+        isOpen={detailRequestId != null}
+        requestId={detailRequestId}
+        onClose={() => setDetailRequestId(null)}
+        canApprove={canApprove}
+        onApprove={approveRequest}
+        onReject={(id) => {
+          setDetailRequestId(null);
+          openRejectModal(id);
+        }}
+        actionId={actionId}
       />
 
       <Modal isOpen={rejectOpen} toggle={() => setRejectOpen(false)}>

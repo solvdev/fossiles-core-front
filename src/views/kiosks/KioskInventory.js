@@ -11,11 +11,18 @@ import {
   FormGroup,
   Input,
   Label,
+  Nav,
+  NavItem,
+  NavLink,
   Row,
   Spinner,
   Table,
 } from "reactstrap";
+import { ColorSelector, ProductSelector } from "components/catalog/FilterableCatalogSelectors";
+import { FilterableSelect } from "components/distribution/FilterableSelect";
 import { getLocations } from "services/locationService";
+import KioskInventoryCountReport from "./KioskInventoryCountReport";
+import KioskInventoryKardexPanel from "./KioskInventoryKardexPanel";
 import { getProducts } from "services/productService";
 import { getColors } from "services/colorService";
 import {
@@ -30,9 +37,18 @@ import {
   registrarKioscoDevolucionDeposito,
   registrarKioscoEntrada,
   registrarKioscoMerma,
+  registrarKioscoCambio,
   registrarKioscoTraslado,
   registrarKioscoVenta,
 } from "services/kioscoInventoryService";
+import { formatDateTimeGt } from "utils/dateTimeHelper";
+import {
+  formatKioscoMovementReference,
+  formatKioscoMovementRoute,
+  getKioscoMovementSignedQuantity,
+  getKioscoMovementTypeLabel,
+} from "utils/kioskMovementHelper";
+import { isPackagingProductCode } from "utils/kioskPackagingHelper";
 import { showError, showSuccess } from "utils/notificationHelper";
 import {
   canSell,
@@ -51,6 +67,8 @@ const INITIAL_FORM = {
   locationDestinationId: "",
   productId: "",
   colorId: "",
+  returnedProductId: "",
+  returnedColorId: "",
   quantity: "",
   referenceId: "",
   invoiceId: "",
@@ -77,6 +95,8 @@ function KioskInventory() {
   const [initializingStock, setInitializingStock] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+  const [activeTab, setActiveTab] = useState("INVENTARIO");
+  const [stockViewFilter, setStockViewFilter] = useState("ALL");
 
   const kiosks = useMemo(
     () =>
@@ -93,6 +113,59 @@ function KioskInventory() {
         return category.includes("KIOS") || name.includes("KIOS") || code.startsWith("K");
       }),
     [locations]
+  );
+
+  const packagingProducts = useMemo(
+    () => (products || []).filter((product) => isPackagingProductCode(product?.code)),
+    [products]
+  );
+
+  const renderProductOptionExtra = (product) =>
+    isPackagingProductCode(product?.code) ? (
+      <Badge color="secondary" className="ml-1">Empaque</Badge>
+    ) : null;
+
+  const filteredStockRows = useMemo(() => {
+    if (stockViewFilter === "PACKAGING") {
+      return stockRows.filter((row) => isPackagingProductCode(row.productCode));
+    }
+    if (stockViewFilter === "PRODUCTS") {
+      return stockRows.filter((row) => !isPackagingProductCode(row.productCode));
+    }
+    return stockRows;
+  }, [stockRows, stockViewFilter]);
+
+  const packagingStockCount = useMemo(
+    () => stockRows.filter((row) => isPackagingProductCode(row.productCode)).length,
+    [stockRows]
+  );
+
+  const kioskOptions = useMemo(
+    () =>
+      kiosks.map((k) => ({
+        value: String(k.id),
+        label: `${k.name || ""}${k.code ? ` (${k.code})` : ""}`.trim(),
+        searchText: `${k.code || ""} ${k.name || ""}`,
+      })),
+    [kiosks]
+  );
+
+  const operationOptions = useMemo(
+    () =>
+      OPERATION_OPTIONS.map((opt) => ({
+        value: opt.value,
+        label: opt.label,
+        searchText: opt.label,
+      })),
+    []
+  );
+
+  const productLeftKioskOptions = useMemo(
+    () => [
+      { value: "false", label: "No, sigue en kiosko", searchText: "no sigue kiosko" },
+      { value: "true", label: "Sí, ya salió", searchText: "si salio" },
+    ],
+    []
   );
 
   const selectedStockRow = useMemo(() => {
@@ -175,6 +248,15 @@ function KioskInventory() {
   };
 
   const validateForm = () => {
+    if (form.operation === "CAMBIO") {
+      if (!form.locationId) return "Debes seleccionar un kiosko.";
+      if (!form.returnedProductId) return "Debes seleccionar el producto que devuelve el cliente.";
+      if (!form.productId) return "Debes seleccionar el producto que se entrega al cliente.";
+      if (!Number.isInteger(Number(form.quantity)) || Number(form.quantity) <= 0) {
+        return "La cantidad debe ser un entero mayor a cero.";
+      }
+      return "";
+    }
     if (form.operation === "TRASLADO") {
       return validateTransferForm({
         locationOriginId: form.locationOriginId,
@@ -261,6 +343,17 @@ function KioskInventory() {
           reason: String(form.reason || "").trim(),
           productLeftKiosk: Boolean(form.productLeftKiosk),
         };
+      case "CAMBIO":
+        return {
+          returnedProductId: Number(form.returnedProductId),
+          returnedColorId: form.returnedColorId ? Number(form.returnedColorId) : null,
+          givenProductId: Number(form.productId),
+          givenColorId: form.colorId ? Number(form.colorId) : null,
+          quantity: Number(form.quantity),
+          referenceId: form.referenceId ? Number(form.referenceId) : null,
+          reason: String(form.reason || "").trim() || null,
+          userId: form.userId ? Number(form.userId) : null,
+        };
       case "TRASLADO":
         return {
           locationOriginId: Number(form.locationOriginId),
@@ -300,6 +393,8 @@ function KioskInventory() {
         await registrarKioscoAjuste(Number(form.locationId), payload);
       } else if (form.operation === "ANULACION") {
         await registrarKioscoAnulacion(Number(form.locationId), payload);
+      } else if (form.operation === "CAMBIO") {
+        await registrarKioscoCambio(Number(form.locationId), payload);
       }
       showSuccess("Movimiento registrado correctamente.");
       await loadConsolidated();
@@ -355,6 +450,44 @@ function KioskInventory() {
           <Card>
             <CardHeader>
               <CardTitle tag="h4">Inventario de Kioskos (módulo dedicado)</CardTitle>
+              <Nav tabs className="mt-2">
+                <NavItem>
+                  <NavLink
+                    href="#"
+                    className={activeTab === "INVENTARIO" ? "active" : ""}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      setActiveTab("INVENTARIO");
+                    }}
+                  >
+                    Inventario y movimientos
+                  </NavLink>
+                </NavItem>
+                <NavItem>
+                  <NavLink
+                    href="#"
+                    className={activeTab === "KARDEX" ? "active" : ""}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      setActiveTab("KARDEX");
+                    }}
+                  >
+                    Kardex (periodo)
+                  </NavLink>
+                </NavItem>
+                <NavItem>
+                  <NavLink
+                    href="#"
+                    className={activeTab === "CONTEO" ? "active" : ""}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      setActiveTab("CONTEO");
+                    }}
+                  >
+                    Conteo físico
+                  </NavLink>
+                </NavItem>
+              </Nav>
             </CardHeader>
             <CardBody>
               {error && <Alert color="danger">{error}</Alert>}
@@ -371,23 +504,17 @@ function KioskInventory() {
                 <Col md="4">
                   <FormGroup>
                     <Label>Kiosko para consulta</Label>
-                    <Input
-                      type="select"
+                    <FilterableSelect
                       value={selectedLocation}
-                      onChange={(e) => {
-                        const value = e.target.value;
+                      onChange={(value) => {
                         setSelectedLocation(value);
                         onFormChange("locationId", value);
                       }}
+                      options={kioskOptions}
+                      placeholder="Buscar kiosko…"
+                      emptyLabel="Selecciona kiosko"
                       disabled={loadingCatalogs}
-                    >
-                      <option value="">Selecciona kiosko</option>
-                      {kiosks.map((kiosk) => (
-                        <option key={kiosk.id} value={kiosk.id}>
-                          {kiosk.name} ({kiosk.code})
-                        </option>
-                      ))}
-                    </Input>
+                    />
                   </FormGroup>
                 </Col>
                 <Col md="4" className="d-flex align-items-end">
@@ -412,6 +539,7 @@ function KioskInventory() {
                 </Col>
               </Row>
 
+              {activeTab === "INVENTARIO" && (
               <Row>
                 <Col md="5">
                   <Card className="border">
@@ -421,89 +549,128 @@ function KioskInventory() {
                     <CardBody>
                       <FormGroup>
                         <Label>Operación</Label>
-                        <Input
-                          type="select"
+                        <FilterableSelect
                           value={form.operation}
-                          onChange={(e) => onFormChange("operation", e.target.value)}
-                        >
-                          {OPERATION_OPTIONS.map((option) => (
-                            <option key={option.value} value={option.value}>
-                              {option.label}
-                            </option>
-                          ))}
-                        </Input>
+                          onChange={(value) => onFormChange("operation", value)}
+                          options={operationOptions}
+                          placeholder="Buscar operación…"
+                          allowEmpty={false}
+                        />
                       </FormGroup>
 
                       {form.operation === "TRASLADO" ? (
                         <>
                           <FormGroup>
                             <Label>Origen</Label>
-                            <Input type="select" value={form.locationOriginId} onChange={(e) => onFormChange("locationOriginId", e.target.value)}>
-                              <option value="">Selecciona origen</option>
-                              {kiosks.map((kiosk) => (
-                                <option key={`origin-${kiosk.id}`} value={kiosk.id}>{kiosk.name}</option>
-                              ))}
-                            </Input>
+                            <FilterableSelect
+                              value={form.locationOriginId}
+                              onChange={(value) => onFormChange("locationOriginId", value)}
+                              options={kioskOptions}
+                              placeholder="Buscar origen…"
+                              emptyLabel="Selecciona origen"
+                            />
                           </FormGroup>
                           <FormGroup>
                             <Label>Destino</Label>
-                            <Input type="select" value={form.locationDestinationId} onChange={(e) => onFormChange("locationDestinationId", e.target.value)}>
-                              <option value="">Selecciona destino</option>
-                              {kiosks.map((kiosk) => (
-                                <option key={`destination-${kiosk.id}`} value={kiosk.id}>{kiosk.name}</option>
-                              ))}
-                            </Input>
+                            <FilterableSelect
+                              value={form.locationDestinationId}
+                              onChange={(value) => onFormChange("locationDestinationId", value)}
+                              options={kioskOptions}
+                              placeholder="Buscar destino…"
+                              emptyLabel="Selecciona destino"
+                            />
                           </FormGroup>
                         </>
                       ) : (
                         <FormGroup>
                           <Label>Kiosko</Label>
-                          <Input
-                            type="select"
+                          <FilterableSelect
                             value={form.locationId}
-                            onChange={(e) => onFormChange("locationId", e.target.value)}
-                          >
-                            <option value="">Selecciona kiosko</option>
-                            {kiosks.map((kiosk) => (
-                              <option key={`kiosk-${kiosk.id}`} value={kiosk.id}>
-                                {kiosk.name}
-                              </option>
-                            ))}
-                          </Input>
+                            onChange={(value) => onFormChange("locationId", value)}
+                            options={kioskOptions}
+                            placeholder="Buscar kiosko…"
+                            emptyLabel="Selecciona kiosko"
+                          />
                         </FormGroup>
                       )}
 
-                      <FormGroup>
-                        <Label>Producto</Label>
-                        <Input
-                          type="select"
-                          value={form.productId}
-                          onChange={(e) => onFormChange("productId", e.target.value)}
-                        >
-                          <option value="">Selecciona producto</option>
-                          {products.map((product) => (
-                            <option key={product.id} value={product.id}>
-                              {product.code} - {product.name}
-                            </option>
-                          ))}
-                        </Input>
-                      </FormGroup>
-
-                      <FormGroup>
-                        <Label>Color (opcional)</Label>
-                        <Input
-                          type="select"
-                          value={form.colorId}
-                          onChange={(e) => onFormChange("colorId", e.target.value)}
-                        >
-                          <option value="">Sin color específico</option>
-                          {colors.map((color) => (
-                            <option key={color.id} value={color.id}>
-                              {color.name}
-                            </option>
-                          ))}
-                        </Input>
-                      </FormGroup>
+                      {form.operation === "CAMBIO" ? (
+                        <>
+                          <FormGroup>
+                            <Label>Producto devuelto por el cliente</Label>
+                            <ProductSelector
+                              products={products}
+                              value={form.returnedProductId}
+                              onChange={(product) => onFormChange("returnedProductId", product ? String(product.id) : "")}
+                              placeholder="Buscar producto devuelto…"
+                              disabled={loadingCatalogs}
+                              renderOptionExtra={renderProductOptionExtra}
+                            />
+                          </FormGroup>
+                          <FormGroup>
+                            <Label>Color devuelto (opcional)</Label>
+                            <ColorSelector
+                              colors={colors}
+                              value={form.returnedColorId}
+                              onChange={(color) => onFormChange("returnedColorId", color ? String(color.id) : "")}
+                              placeholder="Buscar color…"
+                              disabled={loadingCatalogs}
+                            />
+                          </FormGroup>
+                          <FormGroup>
+                            <Label>Producto entregado al cliente</Label>
+                            <ProductSelector
+                              products={products}
+                              value={form.productId}
+                              onChange={(product) => onFormChange("productId", product ? String(product.id) : "")}
+                              placeholder="Buscar producto entregado…"
+                              disabled={loadingCatalogs}
+                              renderOptionExtra={renderProductOptionExtra}
+                            />
+                          </FormGroup>
+                          <FormGroup>
+                            <Label>Color entregado (opcional)</Label>
+                            <ColorSelector
+                              colors={colors}
+                              value={form.colorId}
+                              onChange={(color) => onFormChange("colorId", color ? String(color.id) : "")}
+                              placeholder="Buscar color…"
+                              disabled={loadingCatalogs}
+                            />
+                          </FormGroup>
+                        </>
+                      ) : (
+                        <>
+                          <FormGroup>
+                            <Label>Producto</Label>
+                            <ProductSelector
+                              products={products}
+                              value={form.productId}
+                              onChange={(product) => onFormChange("productId", product ? String(product.id) : "")}
+                              placeholder="Buscar producto o empaque SUM-…"
+                              disabled={loadingCatalogs}
+                              renderOptionExtra={renderProductOptionExtra}
+                            />
+                          </FormGroup>
+                          {form.operation === "ENTRADA" && packagingProducts.length > 0 ? (
+                            <Alert color="info" className="py-2">
+                              Los empaques <strong>SUM-</strong> son suministros (materiales). Al recibir envíos
+                              o sincronizar inventario se cargan al kiosko automáticamente; configure el precio
+                              en catálogo o use <strong>Entrada de stock</strong> para ajustes manuales.
+                            </Alert>
+                          ) : null}
+                          <FormGroup>
+                            <Label>Color (opcional)</Label>
+                            <ColorSelector
+                              colors={colors}
+                              value={form.colorId}
+                              onChange={(color) => onFormChange("colorId", color ? String(color.id) : "")}
+                              placeholder="Buscar color…"
+                              disabled={loadingCatalogs}
+                            />
+                          </FormGroup>
+                        </>
+                      )}
 
                       {form.operation === "AJUSTE" ? (
                         <FormGroup>
@@ -529,7 +696,9 @@ function KioskInventory() {
                         </FormGroup>
                       )}
 
-                      {form.operation === "ENTRADA" || form.operation === "DEVOLUCION_DEPOSITO" ? (
+                      {form.operation === "ENTRADA" ||
+                      form.operation === "DEVOLUCION_DEPOSITO" ||
+                      form.operation === "CAMBIO" ? (
                         <FormGroup>
                           <Label>Referencia (opcional)</Label>
                           <Input
@@ -582,9 +751,10 @@ function KioskInventory() {
 
                       {form.operation === "MERMA" ||
                       form.operation === "AJUSTE" ||
-                      form.operation === "ANULACION" ? (
+                      form.operation === "ANULACION" ||
+                      form.operation === "CAMBIO" ? (
                         <FormGroup>
-                          <Label>Motivo</Label>
+                          <Label>{form.operation === "CAMBIO" ? "Motivo (opcional)" : "Motivo"}</Label>
                           <Input
                             type="text"
                             value={form.reason}
@@ -596,14 +766,13 @@ function KioskInventory() {
                       {form.operation === "ANULACION" ? (
                         <FormGroup>
                           <Label>¿El producto salió del kiosko?</Label>
-                          <Input
-                            type="select"
+                          <FilterableSelect
                             value={String(form.productLeftKiosk)}
-                            onChange={(e) => onFormChange("productLeftKiosk", e.target.value === "true")}
-                          >
-                            <option value="false">No, sigue en kiosko</option>
-                            <option value="true">Sí, ya salió</option>
-                          </Input>
+                            onChange={(value) => onFormChange("productLeftKiosk", value === "true")}
+                            options={productLeftKioskOptions}
+                            placeholder="Buscar…"
+                            allowEmpty={false}
+                          />
                         </FormGroup>
                       ) : null}
 
@@ -651,16 +820,44 @@ function KioskInventory() {
 
                 <Col md="7">
                   <Card className="border mb-3">
-                    <CardHeader>
-                      <CardTitle tag="h6">
-                        Stock por kiosko {selectedLocation ? <Badge color="info">{stockRows.length}</Badge> : null}
+                    <CardHeader className="d-flex justify-content-between align-items-center flex-wrap">
+                      <CardTitle tag="h6" className="mb-0">
+                        Stock por kiosko {selectedLocation ? <Badge color="info">{filteredStockRows.length}</Badge> : null}
                       </CardTitle>
+                      {selectedLocation && stockRows.length > 0 ? (
+                        <div className="btn-group btn-group-sm mt-2 mt-md-0">
+                          <Button
+                            color={stockViewFilter === "ALL" ? "primary" : "outline-primary"}
+                            onClick={() => setStockViewFilter("ALL")}
+                          >
+                            Todo
+                          </Button>
+                          <Button
+                            color={stockViewFilter === "PRODUCTS" ? "primary" : "outline-primary"}
+                            onClick={() => setStockViewFilter("PRODUCTS")}
+                          >
+                            Productos
+                          </Button>
+                          <Button
+                            color={stockViewFilter === "PACKAGING" ? "primary" : "outline-primary"}
+                            onClick={() => setStockViewFilter("PACKAGING")}
+                          >
+                            Empaques {packagingStockCount > 0 ? `(${packagingStockCount})` : ""}
+                          </Button>
+                        </div>
+                      ) : null}
                     </CardHeader>
                     <CardBody>
                       {loadingData ? (
                         <div className="text-center py-3"><Spinner /> Cargando stock...</div>
                       ) : stockRows.length === 0 ? (
                         <Alert color="light" className="border mb-0">Selecciona un kiosko para ver stock.</Alert>
+                      ) : filteredStockRows.length === 0 ? (
+                        <Alert color="light" className="border mb-0">
+                          {stockViewFilter === "PACKAGING"
+                            ? "No hay empaques SUM- registrados en este kiosko. Use Entrada de stock para agregarlos."
+                            : "No hay filas para el filtro seleccionado."}
+                        </Alert>
                       ) : (
                         <Table responsive size="sm">
                           <thead>
@@ -673,11 +870,15 @@ function KioskInventory() {
                             </tr>
                           </thead>
                           <tbody>
-                            {stockRows.map((row) => {
+                            {filteredStockRows.map((row) => {
                               const low = Number(row.currentStock || 0) <= Number(row.minimumStock || 0);
+                              const isPackaging = isPackagingProductCode(row.productCode);
                               return (
                                 <tr key={row.id} className={low ? "table-danger" : ""}>
-                                  <td>{row.productCode} - {row.productName}</td>
+                                  <td>
+                                    {row.productCode} - {row.productName}
+                                    {isPackaging ? <Badge color="secondary" className="ml-1">Empaque</Badge> : null}
+                                  </td>
                                   <td>{row.colorName || "—"}</td>
                                   <td className="text-right">{row.currentStock}</td>
                                   <td className="text-right">{row.minimumStock}</td>
@@ -711,23 +912,25 @@ function KioskInventory() {
                             <tr>
                               <th>Fecha</th>
                               <th>Tipo</th>
+                              <th>Origen → Destino</th>
                               <th>Producto</th>
                               <th className="text-right">Cant.</th>
                               <th className="text-right">Antes</th>
                               <th className="text-right">Después</th>
-                              <th>Ref</th>
+                              <th>Ref.</th>
                             </tr>
                           </thead>
                           <tbody>
                             {movements.map((movement) => (
                               <tr key={movement.id}>
-                                <td>{movement.createdAt ? new Date(movement.createdAt).toLocaleString() : "—"}</td>
-                                <td><Badge color="secondary">{movement.movementType}</Badge></td>
+                                <td>{movement.createdAt ? formatDateTimeGt(movement.createdAt) : "—"}</td>
+                                <td><Badge color="secondary">{getKioscoMovementTypeLabel(movement.movementType)}</Badge></td>
+                                <td style={{ whiteSpace: "nowrap" }}>{formatKioscoMovementRoute(movement)}</td>
                                 <td>{movement.productCode || movement.productId}</td>
-                                <td className="text-right">{movement.quantity}</td>
+                                <td className="text-right">{getKioscoMovementSignedQuantity(movement)}</td>
                                 <td className="text-right">{movement.stockBefore}</td>
                                 <td className="text-right">{movement.stockAfter}</td>
-                                <td>{movement.referenceId || "—"}</td>
+                                <td>{formatKioscoMovementReference(movement)}</td>
                               </tr>
                             ))}
                           </tbody>
@@ -737,6 +940,15 @@ function KioskInventory() {
                   </Card>
                 </Col>
               </Row>
+              )}
+
+              {activeTab === "KARDEX" && (
+                <KioskInventoryKardexPanel locationId={selectedLocation} />
+              )}
+
+              {activeTab === "CONTEO" && (
+                <KioskInventoryCountReport locationId={selectedLocation} />
+              )}
             </CardBody>
           </Card>
         </Col>

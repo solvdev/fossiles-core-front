@@ -12,7 +12,7 @@ import {
   Spinner,
 } from "reactstrap";
 import ShipmentReceiptPanel from "components/distribution/ShipmentReceiptPanel";
-import { getShipmentsInTransit } from "services/productDistributionService";
+import { getShipmentsInTransit, getShipmentsByStatus } from "services/productDistributionService";
 import { showError } from "utils/notificationHelper";
 import { exportRowsToCsv, exportRowsToPdf } from "utils/reportExportHelper";
 import { formatDateTimeGt } from "utils/dateTimeHelper";
@@ -42,8 +42,18 @@ function ReceiptConfirmation() {
     try {
       setLoading(true);
       setError("");
-      const data = await getShipmentsInTransit();
-      setShipments(data || []);
+      const [inTransit, delivered] = await Promise.all([
+        getShipmentsInTransit(),
+        getShipmentsByStatus("DELIVERED"),
+      ]);
+      const merged = [...(inTransit || []), ...(delivered || [])];
+      const byId = new Map();
+      merged.forEach((shipment) => {
+        if (shipment?.id != null) {
+          byId.set(shipment.id, shipment);
+        }
+      });
+      setShipments(Array.from(byId.values()));
     } catch (err) {
       const message = err.message || "No se pudieron cargar envios pendientes de recepcion";
       setError(message);
@@ -101,6 +111,7 @@ function ReceiptConfirmation() {
                   <CardTitle tag="h4" className="mb-1">Confirmacion de Recepcion</CardTitle>
                   <p className="text-muted mb-0">
                     Confirma cantidades recibidas por envio y registra faltantes u observaciones.
+                    Los envíos entregados permiten sincronizar inventario kiosco (productos, tallas y empaques SUM-).
                   </p>
                 </div>
                 <Button color="info" size="sm" onClick={loadPendingReceipts} disabled={loading}>
@@ -128,7 +139,7 @@ function ReceiptConfirmation() {
                 selectedShipmentId={selectedShipmentId}
                 onSelectShipment={handleSelectShipment}
                 onConfirmed={handleConfirmed}
-                emptyMessage="No hay envios pendientes de recepcion."
+                emptyMessage="No hay envios en tránsito ni entregados recientes para este alcance."
               />
             </CardBody>
           </Card>

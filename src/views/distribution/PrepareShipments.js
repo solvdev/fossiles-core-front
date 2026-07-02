@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Alert,
@@ -29,6 +29,7 @@ import {
   listStandaloneInternalShipments,
   listStandaloneKioskShipments,
   getShipmentById,
+  repairDeliveredShipmentReceiptInventory,
 } from "services/productDistributionService";
 import * as XLSX from "xlsx-js-style";
 import { getProducts } from "services/productService";
@@ -38,9 +39,11 @@ import {
   getProductionOrders,
   getProductionOrderShipments,
   getProductionOrderPartialReleases,
+  searchPartialReleasesForPrepare,
   voidVendorShipmentDocument,
 } from "services/productionOrderService";
-import { showError, showSuccess } from "utils/notificationHelper";
+import { showError, showSuccess, showWarning } from "utils/notificationHelper";
+import { formatShipmentReceiptRepairMessage } from "utils/shipmentReceiptRepairHelper";
 import { isCinchoOrderType, isOpcFamilyProductionOrderCode } from "utils/cinchoProductionHelper";
 import { isLuisFelipeVendorFlow } from "utils/luisFelipeVendorHelper";
 import { extractDestinationFromShipmentNotes } from "utils/opcShipmentHelper";
@@ -58,8 +61,10 @@ import {
   orderItemsHaveBrand,
 } from "utils/prepareShipmentsOrderHelper";
 import {
+  findLinkedPartialRelease,
   orderAllowsPartialReleases,
   resolvePartialReleaseShipmentProducts,
+  resolveShipmentLinesForPrint,
 } from "utils/partialReleaseHelper";
 import PrepareShipmentsCustomerBlock from "components/distribution/PrepareShipmentsCustomerBlock";
 import CreateStandaloneKioskShipmentModal from "components/distribution/CreateStandaloneKioskShipmentModal";
@@ -88,7 +93,7 @@ import {
   computeInternalEnviUnitPrice,
 } from "utils/standaloneInternalShipmentHelper";
 import QRCode from "qrcode";
-import { getPublicFrontBaseUrl, buildPtDispatchDistributionUrl } from "utils/ptDispatchQr";
+import { getPublicFrontBaseUrl, buildPtDispatchDistributionUrl, buildPtDispatchOnlineUrl } from "utils/ptDispatchQr";
 
 const STATUS_ES = {
   DRAFT: "Borrador",
@@ -100,6 +105,17 @@ const STATUS_ES = {
 };
 
 const tStatus = (status) => STATUS_ES[status] || status || "N/A";
+
+const partialReleaseOptionKey = (item) =>
+  item?.productionOrderId && item?.id ? `${item.productionOrderId}:${item.id}` : "";
+
+const partialReleaseStatusLabel = (status) => {
+  const key = String(status || "").toUpperCase();
+  if (key === "SHIPPED") return "Enviado";
+  if (key === "CONFIRMED") return "Confirmado";
+  return tStatus(key);
+};
+
 const PACKING_TAG = "__PACKING_SUM__:";
 const BELT_SIZE_TAG = "__BELT_SIZE__:";
 const DOCUMENT_DATE_TAG = "DOCUMENT_DATE:";
@@ -111,7 +127,8 @@ const buildPrepareShipmentProductsExtra = (order) => (shipment, linked) => {
     order?.orderType
   );
   if (partialProducts) {
-    return { products: applyOrderItemPricesToShipmentProducts(order, partialProducts) };
+    const priced = applyOrderItemPricesToShipmentProducts(order, partialProducts);
+    return { products: priced, _printProducts: priced };
   }
   if (classifyPrepareOrder(order) === "OPV") {
     return {
@@ -133,16 +150,6 @@ const resolveBeltSizesSource = (shipment, hasApiSizes, beltSizeLines, notesPaylo
   if (hasApiSizes) return beltSizeLines;
   if (isPartialReleaseShipmentDoc(shipment)) return [];
   return notesPayload?.beltSizes || [];
-};
-
-const findLinkedPartialRelease = (shipment, releases) => {
-  const rows = releases || [];
-  const byShipment = rows.find((r) => String(r.shipmentId) === String(shipment?.id));
-  if (byShipment) return byShipment;
-  if (shipment?.partialReleaseId) {
-    return rows.find((r) => String(r.id) === String(shipment.partialReleaseId)) || null;
-  }
-  return null;
 };
 
 const enrichShipmentsWithPartialMeta = (printable, partialList, mapExtra) =>
@@ -180,6 +187,9 @@ const isShipmentProductsEditable = (status) => {
   return st === "DRAFT" || st === "CONFIRMED" || st === "SENT";
 };
 const isShipmentRevertible = (status) => normalizeShipmentStatus(status) === "SENT";
+
+const isShipmentReceiptRepairable = (status, locationId) =>
+  normalizeShipmentStatus(status) === "DELIVERED" && locationId != null;
 const isSyntheticShipmentId = (id) => /^(opv|opi)-/i.test(String(id || ""));
 const syntheticShipmentOrderId = (id) => {
   const m = String(id || "").match(/^(?:opv|opi)-(\d+)$/i);
@@ -193,6 +203,18 @@ const chunkArray = (items, chunkSize) => {
     chunks.push(source.slice(idx, idx + chunkSize));
   }
   return chunks;
+};
+
+/** Solo auto-selecciona al imprimir si hay un único envío (evita imprimir todos los parciales a la vez). */
+const initShipmentCopiesAndSelection = (docList) => {
+  const copies = {};
+  const selected = {};
+  const autoSelect = (docList || []).length === 1;
+  (docList || []).forEach((d) => {
+    copies[d.id] = 1;
+    if (autoSelect) selected[d.id] = true;
+  });
+  return { copies, selected };
 };
 
 const parseShipmentMetaNotes = (rawNotes) => {
@@ -607,9 +629,11 @@ function PrepareShipments() {
   const [loadingShipments, setLoadingShipments] = useState(false);
   const [sendingShipmentId, setSendingShipmentId] = useState(null);
   const [revertingShipmentId, setRevertingShipmentId] = useState(null);
+  const [repairingReceiptShipmentId, setRepairingReceiptShipmentId] = useState(null);
   const [cancellingShipmentId, setCancellingShipmentId] = useState(null);
   const [error, setError] = useState("");
   const [partialPendingCount, setPartialPendingCount] = useState(0);
+  const [orderPartialReleases, setOrderPartialReleases] = useState(null);
   const [opvOrders, setOpvOrders] = useState([]);
   const [opiOrders, setOpiOrders] = useState([]);
   const [selectedOpvOrderId, setSelectedOpvOrderId] = useState("");
@@ -650,6 +674,42 @@ function PrepareShipments() {
   const [packingQtyByShipment, setPackingQtyByShipment] = useState({});
   const [savingPacking, setSavingPacking] = useState(false);
   const [selectedProductionOrder, setSelectedProductionOrder] = useState(null);
+  const [partialReleaseCatalog, setPartialReleaseCatalog] = useState([]);
+  const [selectedPartialReleaseKey, setSelectedPartialReleaseKey] = useState("");
+  const [loadingPartialReleases, setLoadingPartialReleases] = useState(false);
+  const focusedPartialReleaseIdRef = useRef("");
+
+  const filterShipmentsForFocusedPartial = useCallback((docs, partialList) => {
+    const focusId = focusedPartialReleaseIdRef.current;
+    if (!focusId || !docs?.length) return docs;
+    const filtered = docs.filter((s) => {
+      if (String(s.partialReleaseId || "") === String(focusId)) return true;
+      const linked = findLinkedPartialRelease(s, partialList?.releases);
+      return linked && String(linked.id) === String(focusId);
+    });
+    return filtered.length ? filtered : docs;
+  }, []);
+
+  const commitEnrichedShipments = useCallback(
+    (printable, partialList, order) => {
+      const docs = enrichShipmentsWithPartialMeta(
+        printable,
+        partialList,
+        order ? buildPrepareShipmentProductsExtra(order) : undefined
+      );
+      const visible = filterShipmentsForFocusedPartial(docs, partialList);
+      setShipments(visible);
+      const { copies, selected } = initShipmentCopiesAndSelection(visible);
+      setCopiesByShipment(copies);
+      setSelectedRows(selected);
+    },
+    [filterShipmentsForFocusedPartial]
+  );
+
+  const clearPartialReleaseFocus = () => {
+    setSelectedPartialReleaseKey("");
+    focusedPartialReleaseIdRef.current = "";
+  };
 
   useEffect(() => {
     loadDistributions();
@@ -662,7 +722,20 @@ function PrepareShipments() {
     loadOpkOrders();
     loadStandaloneInternalShipments();
     loadStandaloneKioskShipments();
+    loadPartialReleaseCatalog();
   }, []);
+
+  const loadPartialReleaseCatalog = async () => {
+    try {
+      setLoadingPartialReleases(true);
+      const rows = await searchPartialReleasesForPrepare("", 200);
+      setPartialReleaseCatalog(Array.isArray(rows) ? rows : []);
+    } catch (_err) {
+      setPartialReleaseCatalog([]);
+    } finally {
+      setLoadingPartialReleases(false);
+    }
+  };
 
   const loadPendingOrders = async () => {
     setLoadingPending(true);
@@ -698,7 +771,7 @@ function PrepareShipments() {
     }
   }, [viewMode]);
 
-  const clearOrderSelectors = () => {
+  const clearOrderSourceSelectors = () => {
     setSelectedOpvOrderId("");
     setSelectedOpiOrderId("");
     setSelectedOpcOrderId("");
@@ -706,8 +779,14 @@ function PrepareShipments() {
     setSelectedOpkOrderId("");
     setSelectedStandaloneInternalId("");
     setSelectedStandaloneKioskId("");
-    setDistributionId("");
     setSelectedProductionOrder(null);
+    setOrderPartialReleases(null);
+    clearPartialReleaseFocus();
+  };
+
+  const clearOrderSelectors = () => {
+    setDistributionId("");
+    clearOrderSourceSelectors();
     setShipments([]);
   };
 
@@ -715,8 +794,7 @@ function PrepareShipments() {
     const id = orderId ? String(orderId) : "";
     setViewMode("shipments");
     setDistributionId("");
-    setSelectedStandaloneInternalId("");
-    setSelectedStandaloneKioskId("");
+    clearOrderSourceSelectors();
     setSelectedOpvOrderId(kind === "OPV" ? id : "");
     setSelectedOpiOrderId(kind === "OPI" ? id : "");
     setSelectedOpcOrderId(kind === "OPC" ? id : "");
@@ -724,20 +802,57 @@ function PrepareShipments() {
     setSelectedOpkOrderId(kind === "OPK" ? id : "");
     if (!id) {
       setShipments([]);
-      setSelectedProductionOrder(null);
     }
   };
 
-  const openOrderInShipmentsView = (order) => {
+  const openOrderInShipmentsView = (order, { keepPartialFocus = false } = {}) => {
     const kind = classifyPrepareOrder(order);
     if (!kind) return;
     setViewMode("shipments");
-    clearOrderSelectors();
+    if (keepPartialFocus) {
+      setDistributionId("");
+      setSelectedStandaloneInternalId("");
+      setSelectedStandaloneKioskId("");
+      setSelectedOpvOrderId("");
+      setSelectedOpiOrderId("");
+      setSelectedOpcOrderId("");
+      setSelectedOpckOrderId("");
+      setSelectedOpkOrderId("");
+      setSelectedProductionOrder(null);
+      setOrderPartialReleases(null);
+    } else {
+      clearOrderSelectors();
+    }
     if (kind === "OPC") setSelectedOpcOrderId(String(order.id));
     else if (kind === "OPI") setSelectedOpiOrderId(String(order.id));
     else if (kind === "OPCK") setSelectedOpckOrderId(String(order.id));
     else if (kind === "OPK") setSelectedOpkOrderId(String(order.id));
     else if (kind === "OPV") setSelectedOpvOrderId(String(order.id));
+  };
+
+  const activatePartialReleaseSource = async (compositeKey) => {
+    const key = compositeKey ? String(compositeKey) : "";
+    if (!key) {
+      clearPartialReleaseFocus();
+      setShipments([]);
+      setSelectedProductionOrder(null);
+      return;
+    }
+    const item = (partialReleaseCatalog || []).find((row) => partialReleaseOptionKey(row) === key);
+    if (!item?.productionOrderId) {
+      showError("No se encontró la liberación parcial seleccionada.");
+      return;
+    }
+    try {
+      focusedPartialReleaseIdRef.current = String(item.id);
+      setSelectedPartialReleaseKey(key);
+      const order = await getProductionOrderById(item.productionOrderId);
+      openOrderInShipmentsView(order, { keepPartialFocus: true });
+    } catch (err) {
+      clearPartialReleaseFocus();
+      setError(err.message || "No se pudo abrir el envío parcial");
+      showError(err.message || "No se pudo abrir el envío parcial");
+    }
   };
 
   useEffect(() => {
@@ -794,26 +909,14 @@ function PrepareShipments() {
       const realShipments = await getProductionOrderShipments(selectedOpvOrderId);
       const printable = (realShipments || []).filter(isShipmentRowForPrepareList);
       const partialList = await getProductionOrderPartialReleases(selectedOpvOrderId).catch(() => null);
+      setOrderPartialReleases(partialList);
       const pendingConfirm = (partialList?.releases || []).filter(
         (r) => r.status === "CONFIRMED" && !r.shipmentNumber
       );
       setPartialPendingCount(pendingConfirm.length);
 
       if (printable.length > 0) {
-        const docs = enrichShipmentsWithPartialMeta(
-          printable,
-          partialList,
-          buildPrepareShipmentProductsExtra(order)
-        );
-        setShipments(docs);
-        const copies = {};
-        const selected = {};
-        docs.forEach((d) => {
-          copies[d.id] = 1;
-          selected[d.id] = true;
-        });
-        setCopiesByShipment(copies);
-        setSelectedRows(selected);
+        commitEnrichedShipments(printable, partialList, order);
       } else if (pendingConfirm.length > 0) {
         setShipments([]);
         setCopiesByShipment({});
@@ -835,7 +938,7 @@ function PrepareShipments() {
     } finally {
       setLoadingShipments(false);
     }
-  }, [selectedOpvOrderId]);
+  }, [selectedOpvOrderId, commitEnrichedShipments]);
 
   const reloadOpcShipmentsView = useCallback(async () => {
     if (!selectedOpcOrderId) return;
@@ -853,26 +956,14 @@ function PrepareShipments() {
       const partialList = orderAllowsPartialReleases(order)
         ? await getProductionOrderPartialReleases(selectedOpcOrderId).catch(() => null)
         : null;
+      setOrderPartialReleases(partialList);
       const pendingConfirm = (partialList?.releases || []).filter(
         (r) => r.status === "CONFIRMED" && !r.shipmentNumber
       );
       setPartialPendingCount(pendingConfirm.length);
 
       if (printable.length > 0) {
-        const docs = enrichShipmentsWithPartialMeta(
-          printable,
-          partialList,
-          buildPrepareShipmentProductsExtra(order)
-        );
-        setShipments(docs);
-        const copies = {};
-        const selected = {};
-        docs.forEach((d) => {
-          copies[d.id] = 1;
-          selected[d.id] = true;
-        });
-        setCopiesByShipment(copies);
-        setSelectedRows(selected);
+        commitEnrichedShipments(printable, partialList, order);
       } else if (pendingConfirm.length > 0) {
         setShipments([]);
         setCopiesByShipment({});
@@ -893,7 +984,7 @@ function PrepareShipments() {
     } finally {
       setLoadingShipments(false);
     }
-  }, [selectedOpcOrderId]);
+  }, [selectedOpcOrderId, commitEnrichedShipments]);
 
   const reloadOpckShipmentsView = useCallback(async () => {
     if (!selectedOpckOrderId) return;
@@ -908,26 +999,14 @@ function PrepareShipments() {
       const partialList = orderAllowsPartialReleases(order)
         ? await getProductionOrderPartialReleases(selectedOpckOrderId).catch(() => null)
         : null;
+      setOrderPartialReleases(partialList);
       const pendingConfirm = (partialList?.releases || []).filter(
         (r) => r.status === "CONFIRMED" && !r.shipmentNumber
       );
       setPartialPendingCount(pendingConfirm.length);
 
       if (printable.length > 0) {
-        const docs = enrichShipmentsWithPartialMeta(
-          printable,
-          partialList,
-          buildPrepareShipmentProductsExtra(order)
-        );
-        setShipments(docs);
-        const copies = {};
-        const selected = {};
-        docs.forEach((d) => {
-          copies[d.id] = 1;
-          selected[d.id] = true;
-        });
-        setCopiesByShipment(copies);
-        setSelectedRows(selected);
+        commitEnrichedShipments(printable, partialList, order);
       } else if (pendingConfirm.length > 0) {
         setShipments([]);
         setCopiesByShipment({});
@@ -948,7 +1027,7 @@ function PrepareShipments() {
     } finally {
       setLoadingShipments(false);
     }
-  }, [selectedOpckOrderId]);
+  }, [selectedOpckOrderId, commitEnrichedShipments]);
 
   const reloadOpkShipmentsView = useCallback(async () => {
     if (!selectedOpkOrderId) return;
@@ -963,26 +1042,14 @@ function PrepareShipments() {
       const partialList = orderAllowsPartialReleases(order)
         ? await getProductionOrderPartialReleases(selectedOpkOrderId).catch(() => null)
         : null;
+      setOrderPartialReleases(partialList);
       const pendingConfirm = (partialList?.releases || []).filter(
         (r) => r.status === "CONFIRMED" && !r.shipmentNumber
       );
       setPartialPendingCount(pendingConfirm.length);
 
       if (printable.length > 0) {
-        const docs = enrichShipmentsWithPartialMeta(
-          printable,
-          partialList,
-          buildPrepareShipmentProductsExtra(order)
-        );
-        setShipments(docs);
-        const copies = {};
-        const selected = {};
-        docs.forEach((d) => {
-          copies[d.id] = 1;
-          selected[d.id] = true;
-        });
-        setCopiesByShipment(copies);
-        setSelectedRows(selected);
+        commitEnrichedShipments(printable, partialList, order);
       } else if (pendingConfirm.length > 0) {
         setShipments([]);
         setCopiesByShipment({});
@@ -1003,7 +1070,7 @@ function PrepareShipments() {
     } finally {
       setLoadingShipments(false);
     }
-  }, [selectedOpkOrderId]);
+  }, [selectedOpkOrderId, commitEnrichedShipments]);
 
   const reloadPartialOrderShipmentsView = useCallback(async () => {
     if (selectedOpvOrderId) return reloadOpvShipmentsView();
@@ -1302,6 +1369,7 @@ function PrepareShipments() {
         }
       }
       setSelectedProductionOrder(po);
+      setOrderPartialReleases(null);
       const data = await getShipmentsByDistribution(id);
       const rawShipments = data || [];
 
@@ -1486,14 +1554,17 @@ function PrepareShipments() {
   const standaloneInternalFlow = Boolean(selectedStandaloneInternalId);
   const standaloneKioskFlow = Boolean(selectedStandaloneKioskId);
 
-  const isSpecialSellerFlow = (order) => {
-    const po = order || selectedProductionOrder;
-    if (!po) return false;
-    const seller = String(po.sellerName || "").trim().toUpperCase();
-    return seller.includes("LUIS FELIPE");
-  };
-
-  const specialSellerFlow = isSpecialSellerFlow(selectedProductionOrder);
+  const luisFelipePrintFlow = useMemo(() => {
+    if (isLuisFelipeVendorFlow(selectedProductionOrder?.orderType, selectedProductionOrder?.sellerName)) {
+      return true;
+    }
+    const fromOpc = (opcOrders || []).find((o) => String(o.id) === String(selectedOpcOrderId));
+    if (fromOpc && isLuisFelipeVendorFlow(fromOpc.orderType, fromOpc.sellerName)) {
+      return true;
+    }
+    const fromOpv = (opvOrders || []).find((o) => String(o.id) === String(selectedOpvOrderId));
+    return Boolean(fromOpv && isLuisFelipeVendorFlow(fromOpv.orderType, fromOpv.sellerName));
+  }, [selectedProductionOrder, selectedOpcOrderId, selectedOpvOrderId, opcOrders, opvOrders]);
 
   const opckFlow = Boolean(selectedOpckOrderId);
   const opkFlow = Boolean(selectedOpkOrderId);
@@ -1569,7 +1640,7 @@ function PrepareShipments() {
     if (!Number.isFinite(productId) || productId <= 0) {
       return Number(item?.price || 0);
     }
-    if (specialSellerFlow) {
+    if (luisFelipePrintFlow) {
       return Number(sellerPriceById[productId] || productPriceById[productId] || item?.price || 0);
     }
     return Number(productPriceById[productId] || item?.price || 0);
@@ -1592,23 +1663,29 @@ function PrepareShipments() {
   }, [productPriceById, sellerPriceById]);
 
   const handleOpvPricesSaved = (order) => {
-    setSelectedProductionOrder(order);
-    setShipments((prev) =>
-      (prev || []).map((s) => ({
+    const updatedShipments = (shipments || []).map((s) => {
+      const priced = applyOrderItemPricesToShipmentProducts(
+        order,
+        resolveShipmentLinesForPrint(s, order, orderPartialReleases)
+      );
+      return {
         ...s,
-        products: applyOrderItemPricesToShipmentProducts(order, s._printProducts || s.products || []),
+        products: priced,
+        _printProducts: priced,
         shippingCost: order.shippingCost ?? s.shippingCost,
-      }))
-    );
+      };
+    });
+    setSelectedProductionOrder(order);
+    setShipments(updatedShipments);
     if (opvPendingPrint) {
       setOpvPendingPrint(false);
-      window.setTimeout(() => executeOpvPrint(), 0);
+      void executeOpvPrint(order, updatedShipments);
     }
   };
 
   const openOpvPriceReview = (forPrint) => {
     if (!selectedProductionOrder?.id) {
-      showError("Seleccione una orden OPV");
+      showError("Seleccione una orden OPV u OPC (Luis Felipe)");
       return;
     }
     setOpvPendingPrint(Boolean(forPrint));
@@ -1617,11 +1694,11 @@ function PrepareShipments() {
 
   const normalizedQuery = (search || "").toLowerCase().trim();
   const visibleShipments = useMemo(() => {
-    if (specialSellerFlow || opiInternalFlow || standaloneInternalFlow || distributionFlow || productionOrderPrintFlow) {
+    if (luisFelipePrintFlow || opiInternalFlow || standaloneInternalFlow || distributionFlow || productionOrderPrintFlow) {
       return shipments;
     }
     return shipments.filter((shipment) => !isShipmentHiddenFromPrepareList(shipment.status));
-  }, [shipments, specialSellerFlow, opiInternalFlow, standaloneInternalFlow, distributionFlow, productionOrderPrintFlow]);
+  }, [shipments, luisFelipePrintFlow, opiInternalFlow, standaloneInternalFlow, distributionFlow, productionOrderPrintFlow]);
   const hiddenProcessedCount = distributionFlow
     ? 0
     : Math.max(0, (shipments || []).length - visibleShipments.length);
@@ -1632,6 +1709,7 @@ function PrepareShipments() {
         shipment.shipmentNumber,
         shipment.locationName,
         shipment.locationCode,
+        shipment.partialReleaseLabel,
       ]
         .join(" ")
         .toLowerCase();
@@ -1736,6 +1814,33 @@ function PrepareShipments() {
     [standaloneKioskList]
   );
 
+  const partialReleaseOptions = useMemo(
+    () =>
+      (partialReleaseCatalog || []).map((item) => {
+        const partialLabel = item.label || `Parcial ${item.sequence || ""}`;
+        const shipmentPart = item.shipmentNumber
+          ? item.shipmentNumber
+          : "sin envío generado";
+        const statusPart = partialReleaseStatusLabel(item.shipmentStatus || item.status);
+        return {
+          value: partialReleaseOptionKey(item),
+          label: `${partialLabel} — ${item.orderCode || "OP"} — ${item.customerName || "Cliente"} · ${shipmentPart} (${statusPart})`,
+          searchText: [
+            partialLabel,
+            item.orderCode,
+            item.customerName,
+            item.shipmentNumber,
+            item.shipmentStatus,
+            item.status,
+            item.orderType,
+            "parcial",
+            "partial",
+          ].join(" "),
+        };
+      }),
+    [partialReleaseCatalog]
+  );
+
   const pendingKindOptions = useMemo(
     () => [
       { value: "ALL", label: "Todos", searchText: "todos" },
@@ -1819,7 +1924,7 @@ function PrepareShipments() {
 
   const resolveCreatedByName = (shipment) => {
     if (shipment?.partialReleaseCreatedByName) return shipment.partialReleaseCreatedByName;
-    if (specialSellerFlow && selectedProductionOrder?.sellerName) {
+    if (luisFelipePrintFlow && selectedProductionOrder?.sellerName) {
       return selectedProductionOrder.sellerName;
     }
     return "—";
@@ -1833,29 +1938,44 @@ function PrepareShipments() {
 
   const resolvePrintAuthorName = (shipment) => resolveCreatedByName(shipment);
 
-  const buildPrintableDocs = () => {
+  const getShipmentPrintProducts = useCallback(
+    (shipment, order = selectedProductionOrder) => {
+      const lines = resolveShipmentLinesForPrint(shipment, order, orderPartialReleases);
+      return applyOrderItemPricesToShipmentProducts(order, lines);
+    },
+    [selectedProductionOrder, orderPartialReleases]
+  );
+
+  const buildPrintableDocs = ({ shipmentsList, order } = {}) => {
+    const activeShipments = shipmentsList ?? shipments;
+    const activeOrder = order ?? selectedProductionOrder;
     const docs = [];
-    shipments.forEach((shipment) => {
+    activeShipments.forEach((shipment) => {
       if (!selectedRows[shipment.id]) return;
       const copies = Math.max(1, parseInt(copiesByShipment[shipment.id], 10) || 1);
-      if (specialSellerFlow || opiInternalFlow || standaloneInternalFlow) {
+      const printProducts = getShipmentPrintProducts(shipment, activeOrder);
+      if (luisFelipePrintFlow || opiInternalFlow || standaloneInternalFlow) {
         const shipmentPacking = resolveShipmentPackingItems(shipment);
         const orderPacking = Array.isArray(selectedProductionOrder?.packingItems)
           ? selectedProductionOrder.packingItems
           : [];
         const printPacking = opiInternalFlow || standaloneInternalFlow
           ? []
-          : shipmentPacking.length > 0
+          : isPartialReleaseShipmentDoc(shipment)
             ? shipmentPacking
-            : orderPacking;
+            : shipmentPacking.length > 0
+              ? shipmentPacking
+              : orderPacking;
         for (let copyIdx = 0; copyIdx < copies; copyIdx += 1) {
           const copyLabel = copies > 1 ? `Copia ${copyIdx + 1} de ${copies}` : "";
           docs.push({
             ...shipment,
             shippingCost: Number(
-              shipment.shippingCost ?? selectedProductionOrder?.shippingCost ?? 0
+              isPartialReleaseShipmentDoc(shipment)
+                ? (shipment.shippingCost ?? 0)
+                : (shipment.shippingCost ?? selectedProductionOrder?.shippingCost ?? 0)
             ),
-            _printProducts: shipment.products || [],
+            _printProducts: printProducts,
             _printPackingItems: printPacking,
             _partNumber: 1,
             _partTotal: 1,
@@ -1867,7 +1987,7 @@ function PrepareShipments() {
       const maxRowsPerPage = isEntreCuerosCustomerOpv(selectedProductionOrder)
         ? MAX_ENTRECUEROS_ROWS_PER_SHIPMENT
         : MAX_PRODUCT_ROWS_PER_SHIPMENT;
-      const productChunks = chunkArray(shipment.products, maxRowsPerPage);
+      const productChunks = chunkArray(printProducts, maxRowsPerPage);
       const packingItems = resolveShipmentPackingItems(shipment);
       const hasPacking = packingItems.length > 0;
       const shouldSeparatePackingPart = productChunks.length > 1 && hasPacking;
@@ -1908,8 +2028,12 @@ function PrepareShipments() {
     return docs;
   };
 
-  const executeOpvPrint = () => {
-    const docs = buildPrintableDocs();
+  const executeOpvPrint = async (orderOverride, shipmentsOverride) => {
+    const activeOrder = orderOverride || selectedProductionOrder;
+    const docs = buildPrintableDocs({
+      shipmentsList: shipmentsOverride,
+      order: activeOrder,
+    });
     if (docs.length === 0) {
       showError("Selecciona al menos un envio para imprimir");
       return;
@@ -1926,47 +2050,57 @@ function PrepareShipments() {
       getShipmentPackingItems: resolveShipmentPackingItems,
     };
     const showBrandColumn =
-      isEntreCuerosCustomerOpv(selectedProductionOrder) ||
-      orderItemsHaveBrand(selectedProductionOrder?.items);
-    const bodyInner = docs
-      .map((shipmentDoc) => {
-        const sale = buildOpvOnlineSalePayload(shipmentDoc, selectedProductionOrder, opvDeps);
+      isEntreCuerosCustomerOpv(activeOrder) || orderItemsHaveBrand(activeOrder?.items);
+    const frontBase = getPublicFrontBaseUrl();
+    const bodyParts = await Promise.all(
+      docs.map(async (shipmentDoc) => {
+        const sale = buildOpvOnlineSalePayload(shipmentDoc, activeOrder, opvDeps);
         const docNo = String(sale.shipmentNumber || sale.saleNumber || "");
         const partialLabel = shipmentDoc.partialReleaseLabel
           ? `Parcial: ${shipmentDoc.partialReleaseLabel}`
           : "";
-        const copyParts = [partialLabel, shipmentDoc.copyLabel].filter(Boolean);
+        let qrDataUrl = "";
+        if (frontBase && activeOrder?.id) {
+          try {
+            qrDataUrl = await QRCode.toDataURL(
+              buildPtDispatchOnlineUrl(frontBase, { productionOrderId: activeOrder.id }),
+              { width: 160, margin: 1 }
+            );
+          } catch (_e) {
+            qrDataUrl = "";
+          }
+        }
         return buildShipmentDocumentInnerHtml(sale, {
           docType: "ENVIO",
           docNo,
           netAmount: sale.netAmount,
           totalAmount: sale.totalAmount,
           shippingCost: sale.shippingCost,
-          copyLabel: copyParts.join(" — ") || "",
+          copyLabel: shipmentDoc.copyLabel || "",
           docSubtitle: partialLabel || undefined,
           businessTitle: "VENTA CLIENTES FOSSILES",
           showBrandColumn,
           createdByName: resolveCreatedByName(shipmentDoc),
           generatedByName: resolveGeneratedByName(shipmentDoc),
+          qrDataUrl,
         });
       })
-      .join("");
+    );
+    const bodyInner = bodyParts.join("");
     printWindowOpv.document.write(`<!DOCTYPE html>
 <html>
   <head>
     <meta charset="UTF-8" />
-    <title>ENVIO OPV</title>
+    <title>ENVIO Luis Felipe</title>
     <style>${getShipmentDocumentStyles()}</style>
   </head>
   <body>${bodyInner}</body>
-  <script>
-    window.onload = function() {
-      window.print();
-      window.close();
-    }
-  </script>
 </html>`);
     printWindowOpv.document.close();
+    printWindowOpv.focus();
+    setTimeout(() => {
+      printWindowOpv.print();
+    }, 300);
   };
 
   const printSelected = () => {
@@ -1976,12 +2110,12 @@ function PrepareShipments() {
       return;
     }
 
-    if (specialSellerFlow) {
+    if (luisFelipePrintFlow) {
       openOpvPriceReview(true);
       return;
     }
 
-    if ((opiInternalFlow || standaloneInternalFlow) && !specialSellerFlow) {
+    if ((opiInternalFlow || standaloneInternalFlow) && !luisFelipePrintFlow) {
       for (const shipmentDoc of docs) {
         const order = standaloneInternalFlow
           ? buildPseudoOrderFromStandaloneShipment(shipmentDoc)
@@ -2189,7 +2323,7 @@ function PrepareShipments() {
               </tr>
               <tr>
                 <td colspan="3"><strong>Direccion Recibido:</strong> ${shipment.locationName || "-"} ${shipment.locationCode ? `(${shipment.locationCode})` : ""}</td>
-                <td colspan="2"><strong>${specialSellerFlow ? "Orden No" : "Envio No"}:</strong> ${shipment.shipmentNumber || shipment.id}</td>
+                <td colspan="2"><strong>${luisFelipePrintFlow ? "Orden No" : "Envio No"}:</strong> ${shipment.shipmentNumber || shipment.id}</td>
               </tr>
               <tr>
                 <td colspan="3"><strong>Creado por:</strong> ${createdByName}</td>
@@ -2245,7 +2379,7 @@ function PrepareShipments() {
                   <td class="numeric"><strong>${totalAmount > 0 ? formatCurrency(totalAmount) : "-"}</strong></td>
                 </tr>
                 ${
-                  specialSellerFlow
+                  luisFelipePrintFlow
                     ? `<tr class="total-row">
                         <td colspan="${gridColCount - 1}"><strong>Costo de envio</strong></td>
                         <td class="numeric"><strong>${shippingCost > 0 ? formatCurrency(shippingCost) : "Q0.00"}</strong></td>
@@ -2283,7 +2417,7 @@ function PrepareShipments() {
       <!DOCTYPE html>
       <html>
         <head>
-          <title>${specialSellerFlow ? "Orden de Produccion" : "Preparacion de envios"}</title>
+          <title>${luisFelipePrintFlow ? "Orden de Produccion" : "Preparacion de envios"}</title>
           <style>
             @page {
               size: ${pageWidth}mm ${pageHeight}mm;
@@ -2436,6 +2570,60 @@ function PrepareShipments() {
       return;
     }
 
+    if (luisFelipePrintFlow) {
+      const opvDeps = {
+        packingMaterials,
+        resolveProductUnitPrice,
+        resolveMaterialUnitPrice,
+        getShipmentPackingItems: resolveShipmentPackingItems,
+      };
+      const showBrand = orderItemsHaveBrand(selectedProductionOrder?.items);
+      const lfWb = XLSX.utils.book_new();
+      docs.forEach((shipment, idx) => {
+        const sale = buildOpvOnlineSalePayload(shipment, selectedProductionOrder, opvDeps);
+        const headerRow = ["Cod.", "Cant."];
+        if (showBrand) headerRow.push("Marca");
+        headerRow.push("Descripcion", "P. Unit.", "Total");
+        const sheetData = [
+          ["FOSSILES - VENTA CLIENTES FOSSILES"],
+          ["Cliente", sale.customerName],
+          ["Direccion", sale.address],
+          ["Telefono", sale.phone],
+          ["Pedido", sale.saleNumber],
+          ["N° envío", sale.shipmentNumber],
+          ...(shipment.partialReleaseLabel ? [["Parcial", shipment.partialReleaseLabel]] : []),
+          ["Fecha", sale.saleDate],
+          ["Vendedor", sale.salesperson],
+          [],
+          headerRow,
+          ...sale.items.map((it) => {
+            const desc = [it.productName, it.colorName, it.size ? `Talla ${it.size}` : ""]
+              .filter(Boolean)
+              .join(" - ");
+            const row = [it.productCode, it.quantity];
+            if (showBrand) row.push(it.brandName || "—");
+            row.push(desc, it.unitPrice, it.subtotal);
+            return row;
+          }),
+          [],
+          ["Neto", sale.netAmount],
+          ["Costo envío", sale.shippingCost],
+          ["Total", sale.totalAmount],
+        ];
+        const ws = XLSX.utils.aoa_to_sheet(sheetData);
+        const sheetName = String(shipment.shipmentNumber || shipment.id || `Envio${idx + 1}`)
+          .slice(0, 31)
+          .replace(/[\\/?*[\]]/g, "-");
+        XLSX.utils.book_append_sheet(lfWb, ws, sheetName || `Envio${idx + 1}`);
+      });
+      XLSX.writeFile(
+        lfWb,
+        `envio_luis_felipe_${selectedProductionOrder?.code || "orden"}_${new Date().toISOString().slice(0, 10)}.xlsx`
+      );
+      showSuccess("Excel Luis Felipe generado (formato venta en línea).");
+      return;
+    }
+
     const wb = XLSX.utils.book_new();
     const distributionNumber = printContextLabels.distributionNumber;
     const distributionDescription = printContextLabels.distributionDescription;
@@ -2513,7 +2701,7 @@ function PrepareShipments() {
           row.total > 0 ? formatCurrency(row.total) : "",
         ]),
         ["Total", "", "", totalQty, "", "", totalAmount > 0 ? formatCurrency(totalAmount) : ""],
-        ...(specialSellerFlow
+        ...(luisFelipePrintFlow
           ? [
               ["Costo envio", "", "", "", "", "", shippingCost > 0 ? formatCurrency(shippingCost) : "Q0.00"],
               ["Total c/envio", "", "", "", "", "", grandTotal > 0 ? formatCurrency(grandTotal) : "Q0.00"],
@@ -2561,7 +2749,7 @@ function PrepareShipments() {
       const lastCol = 6;
       const headerRowIdx = 4;
       const totalRowIdx = 5 + detailRows.length;
-      const extraRows = specialSellerFlow ? 2 : 0;
+      const extraRows = luisFelipePrintFlow ? 2 : 0;
       const observationRowIdx = totalRowIdx + 1 + extraRows;
       const signaturesRowIdx = totalRowIdx + 2 + extraRows;
       ws["!rows"] = Array.from({ length: allRows }, (_, idx) => {
@@ -2628,11 +2816,19 @@ function PrepareShipments() {
       [
         { label: "Distribucion", value: () => selectedDistribution?.distributionNumber || "-" },
         { label: "Envio", value: (s) => s.shipmentNumber || s.id },
+        { label: "Parcial", value: (s) => s.partialReleaseLabel || "" },
         { label: "Kiosko", value: (s) => s.locationName || "-" },
         { label: "Codigo Kiosko", value: (s) => s.locationCode || "-" },
         { label: "Estado", value: (s) => tStatus(s.status) },
-        { label: "Productos", value: (s) => (s.products || []).length },
-        { label: "Unidades", value: (s) => (s.products || []).reduce((sum, p) => sum + Number(p.quantity || 0), 0) },
+        {
+          label: "Productos",
+          value: (s) => getShipmentPrintProducts(s).length,
+        },
+        {
+          label: "Unidades",
+          value: (s) =>
+            getShipmentPrintProducts(s).reduce((sum, p) => sum + Number(p.quantity || 0), 0),
+        },
       ],
       filteredShipments
     );
@@ -2643,14 +2839,15 @@ function PrepareShipments() {
       showError("Para OPI use Imprimir seleccionados.");
       return;
     }
-    if (specialSellerFlow) {
+    if (luisFelipePrintFlow) {
       const rows = [];
       (filteredShipments || []).forEach((shipment) => {
-        (shipment.products || []).forEach((item) => {
+        getShipmentPrintProducts(shipment).forEach((item) => {
           const qty = Number(item.quantity || 0);
           const unitPrice = resolveProductUnitPrice(item);
           rows.push({
             shipmentNumber: shipment.shipmentNumber || shipment.id,
+            partialLabel: shipment.partialReleaseLabel || "",
             locationName: shipment.locationName || "-",
             productCode: item.productCode || "-",
             productName: item.productName || "-",
@@ -2702,18 +2899,51 @@ function PrepareShipments() {
       );
       return;
     }
+    const rows = [];
+    (filteredShipments || []).forEach((shipment) => {
+      getShipmentPrintProducts(shipment).forEach((item) => {
+        const qty = Number(item.quantity || 0);
+        rows.push({
+          shipmentNumber: shipment.shipmentNumber || shipment.id,
+          partialLabel: shipment.partialReleaseLabel || "",
+          locationName: shipment.locationName || "-",
+          productCode: item.productCode || "-",
+          productName: item.size
+            ? `${item.productName || "-"} TALLA ${String(item.size).toUpperCase()}`
+            : item.productName || "-",
+          colorName: item.colorName || "-",
+          quantity: qty,
+          rowType: "PRODUCTO",
+        });
+      });
+      resolveShipmentPackingItems(shipment).forEach((item) => {
+        const material = packingMaterials.find((m) => Number(m.id) === Number(item.materialId));
+        const qty = Number(item.quantity || 0);
+        rows.push({
+          shipmentNumber: shipment.shipmentNumber || shipment.id,
+          partialLabel: shipment.partialReleaseLabel || "",
+          locationName: shipment.locationName || "-",
+          productCode: material?.sku || `SUM-${item.materialId}`,
+          productName: material?.name || "Empaque",
+          colorName: "-",
+          quantity: qty,
+          rowType: "EMPAQUE",
+        });
+      });
+    });
     exportRowsToPdf(
-      `Preparacion de Envios ${selectedDistribution?.distributionNumber || ""}`.trim(),
+      `Preparacion de Envios ${printContextLabels.distributionNumber || ""}`.trim(),
       [
-        { label: "Distribucion", value: () => selectedDistribution?.distributionNumber || "-" },
-        { label: "Envio", value: (s) => s.shipmentNumber || s.id },
-        { label: "Kiosko", value: (s) => s.locationName || "-" },
-        { label: "Codigo Kiosko", value: (s) => s.locationCode || "-" },
-        { label: "Estado", value: (s) => tStatus(s.status) },
-        { label: "Productos", value: (s) => (s.products || []).length },
-        { label: "Unidades", value: (s) => (s.products || []).reduce((sum, p) => sum + Number(p.quantity || 0), 0) },
+        { label: "Envio", value: (r) => r.shipmentNumber },
+        { label: "Parcial", value: (r) => r.partialLabel },
+        { label: "Kiosko", value: (r) => r.locationName },
+        { label: "Tipo", value: (r) => r.rowType },
+        { label: "Codigo", value: (r) => r.productCode },
+        { label: "Producto", value: (r) => r.productName },
+        { label: "Color", value: (r) => r.colorName },
+        { label: "Cantidad", value: (r) => r.quantity },
       ],
-      filteredShipments
+      rows
     );
   };
 
@@ -2764,6 +2994,37 @@ function PrepareShipments() {
       showError(message);
     } finally {
       setRevertingShipmentId(null);
+    }
+  };
+
+  const handleRepairReceiptInventory = async (shipment) => {
+    if (!shipment?.id) return;
+    if (
+      !window.confirm(
+        "¿Sincronizar inventario de kiosko con este envío entregado?\n\n"
+          + "Se cargarán al kiosko todas las líneas del documento (productos, tallas y empaques SUM-) "
+          + "según las cantidades recibidas del envío. No descarga archivos."
+      )
+    ) {
+      return;
+    }
+    try {
+      setRepairingReceiptShipmentId(shipment.id);
+      setError("");
+      const result = await repairDeliveredShipmentReceiptInventory(shipment.id);
+      const { message, warnings } = formatShipmentReceiptRepairMessage(result);
+      if (warnings.length > 0) {
+        showWarning(message);
+      } else {
+        showSuccess(message);
+      }
+      await reloadCurrentShipments();
+    } catch (err) {
+      const message = err.message || "No se pudo reparar el inventario de recepción";
+      setError(message);
+      showError(message);
+    } finally {
+      setRepairingReceiptShipmentId(null);
     }
   };
 
@@ -2911,7 +3172,7 @@ function PrepareShipments() {
                     {loadingDistributions ? <Spinner size="sm" /> : <i className="nc-icon nc-refresh-69 mr-1" />}
                     Actualizar
                   </Button>
-                  {specialSellerFlow && (
+                  {luisFelipePrintFlow && (
                     <Button
                       color="warning"
                       size="sm"
@@ -2941,7 +3202,7 @@ function PrepareShipments() {
                     className="mt-2 mr-2"
                   >
                     <i className="nc-icon nc-paper mr-1" />
-                    {specialSellerFlow ? "Revisar precios e imprimir" : "Imprimir Seleccionados"}
+                    {luisFelipePrintFlow ? "Revisar precios e imprimir" : "Imprimir Seleccionados"}
                   </Button>
                   <Button
                     color="secondary"
@@ -2987,7 +3248,7 @@ function PrepareShipments() {
                   <strong>Órdenes sin envío:</strong> use <strong>Generar envío</strong> (OPC, OPI, OPCK, OPK) o <strong>Abrir para imprimir</strong> (OPV, documento desde la orden).
                 </Alert>
               )}
-              {specialSellerFlow && (
+              {luisFelipePrintFlow && (
                 <Alert color="warning">
                   Flujo especial OPV vendedor activo ({selectedProductionOrder?.sellerName || "Luis Felipe"}): sin límite de productos por envío y usando precio vendedor.
                   <div className="mt-1">
@@ -3053,6 +3314,12 @@ function PrepareShipments() {
                 </Alert>
               )}
 
+              {selectedPartialReleaseKey && (
+                <Alert color="info">
+                  Mostrando el envío de la liberación parcial seleccionada. Use <strong>Imprimir</strong> o{" "}
+                  <strong>Marcar impresión</strong> como con cualquier otro envío.
+                </Alert>
+              )}
               {error && <Alert color="danger">{error}</Alert>}
               {distributionFlow && (shipments || []).length > 0 && (
                 <Alert color="info">
@@ -3091,7 +3358,7 @@ function PrepareShipments() {
                       setDistributionId(id);
                       if (id) {
                         setViewMode("shipments");
-                        activateOrderSource(null, "");
+                        clearOrderSourceSelectors();
                       }
                     }}
                     options={distributionOptions}
@@ -3165,6 +3432,7 @@ function PrepareShipments() {
                     onChange={(id) => {
                       if (id) {
                         setViewMode("shipments");
+                        clearPartialReleaseFocus();
                         setDistributionId("");
                         setSelectedOpvOrderId("");
                         setSelectedOpiOrderId("");
@@ -3210,12 +3478,30 @@ function PrepareShipments() {
 
               <Row className="mb-3">
                 <Col md="8">
+                  <Label><strong>Envío parcial (liberación)</strong></Label>
+                  <FilterableSelect
+                    value={selectedPartialReleaseKey}
+                    onChange={(key) => void activatePartialReleaseSource(key)}
+                    options={partialReleaseOptions}
+                    disabled={loadingPartialReleases || pendingFlow}
+                    placeholder="Buscar parcial, OP, cliente o ENV…"
+                    emptyLabel="— Liberaciones parciales confirmadas —"
+                  />
+                  <small className="text-muted d-block mt-1">
+                    Busca por etiqueta del parcial, código de orden, cliente o número de envío.
+                  </small>
+                </Col>
+              </Row>
+
+              <Row className="mb-3">
+                <Col md="8">
                   <Label><strong>Envío directo a kiosko (sin OP)</strong></Label>
                   <FilterableSelect
                     value={selectedStandaloneKioskId}
                     onChange={(id) => {
                       if (id) {
                         setViewMode("shipments");
+                        clearPartialReleaseFocus();
                         setDistributionId("");
                         setSelectedOpvOrderId("");
                         setSelectedOpiOrderId("");
@@ -3308,11 +3594,13 @@ function PrepareShipments() {
                     <strong>Directo kiosko:</strong> <strong>Generar envío</strong> deja el documento confirmado; use <strong>Enviar</strong> para marcar tránsito (sin validar stock PT).
                     Empaques <strong>SUM-</strong>: botón <strong>Empaques</strong> en la tabla o al crear con <strong>Nuevo envío a kiosko</strong>.
                     Recepción en <strong>POS → Recibir distribución</strong>.
+                    Si ya fue entregado y el inventario kiosco no cuadra con el envío, use <strong>Sincronizar inv. kiosco</strong>.
                   </Alert>
-                  ) : !opiInternalFlow && !standaloneInternalFlow && !specialSellerFlow && !opckFlow ? (
+                  ) : !opiInternalFlow && !standaloneInternalFlow && !luisFelipePrintFlow && !opckFlow ? (
                   <Alert color="info" className="mb-0">
                     Al <strong>enviar</strong> solo se descuenta inventario de <strong>prendas</strong> desde Bodega PT.
-                    Los empaques <strong>SUM-</strong> se registran en el envío (botón Empaques) para impresión; la rebaja de materiales la hace el encargado al entregarlos al equipo de despacho (Vista Materiales / entrega móvil).
+                    Los empaques <strong>SUM-</strong> se registran en el envío (botón Empaques) para impresión y cargan inventario del kiosko al confirmar recepción.
+                    La rebaja de materiales en bodega central la hace el encargado al entregarlos (Vista Materiales / entrega móvil).
                     <div className="mt-2">
                       Para Epson LX-350: en el diálogo de impresión usa escala <strong>100%</strong>,
                       tamaño <strong>Carta vertical</strong> y desactiva <strong>encabezados/pies</strong>.
@@ -3450,11 +3738,11 @@ function PrepareShipments() {
                     ? "Esta orden no tiene envíos generados. Use la vista «Órdenes sin envío (OP)» para generar uno."
                     : standaloneKioskFlow
                       ? "No hay líneas en este envío o ajuste el filtro de búsqueda."
-                    : specialSellerFlow && partialPendingCount > 0
+                    : luisFelipePrintFlow && partialPendingCount > 0
                       ? "Confirme y genere el envío desde liberaciones parciales (arriba), o ajuste el filtro de búsqueda."
                       : partialPendingCount > 0
                         ? "Confirme y genere el envío desde liberaciones parciales (arriba), o ajuste el filtro de búsqueda."
-                        : specialSellerFlow || isEntreCuerosCustomerOpv(selectedProductionOrder)
+                        : luisFelipePrintFlow || isEntreCuerosCustomerOpv(selectedProductionOrder)
                         ? "Cree un envío parcial arriba o use el documento de la orden cuando corresponda."
                         : "No hay envíos con el filtro actual."}
                 </Alert>
@@ -3523,7 +3811,7 @@ function PrepareShipments() {
                           ) : null}
                         </td>
                         <td>
-                          <Badge color="info">{(shipment.products || []).length}</Badge>
+                          <Badge color="info">{getShipmentPrintProducts(shipment).length}</Badge>
                         </td>
                         <td style={{ width: 110 }}>
                           <Input
@@ -3545,7 +3833,8 @@ function PrepareShipments() {
                           {(() => {
                             const shipmentMeta = parseShipmentMetaNotes(shipment.notes);
                             const shipmentPacking = resolveShipmentPackingItems(shipment);
-                            const beltFromProducts = (shipment.products || [])
+                            const printProducts = getShipmentPrintProducts(shipment);
+                            const beltFromProducts = printProducts
                               .filter((item) => String(item.size || "").trim() !== "")
                               .map((item) => ({
                                 productId: Number(item.productId),
@@ -3561,15 +3850,16 @@ function PrepareShipments() {
                             const beltPreview = beltPreviewSource.slice(0, 2);
                             return (
                               <>
-                          {(shipment.products || []).slice(0, 2).map((product) => (
-                            <div key={`${shipment.id}-${product.id || product.productId}`}>
+                          {printProducts.slice(0, 2).map((product) => (
+                            <div key={`${shipment.id}-${product.id || product.productId}-${product.size || ""}`}>
                               <small>
                                 <strong>{product.productCode || "-"}</strong> - {product.productName || "-"} x {product.quantity || 0}
                               </small>
                             </div>
                           ))}
-                          {beltPreview.map((line) => {
-                            const product = (shipment.products || []).find(
+                          {beltFromProducts.length === 0 &&
+                            beltPreview.map((line) => {
+                            const product = printProducts.find(
                               (p) =>
                                 Number(p.productId) === Number(line.productId) &&
                                 Number(p.colorId || 0) === Number(line.colorId || 0)
@@ -3595,12 +3885,12 @@ function PrepareShipments() {
                               </div>
                             );
                           })}
-                          {(shipment.products || []).length > 2 && (
+                          {printProducts.length > 2 && (
                             <small className="text-muted">
-                              + {(shipment.products || []).length - 2} producto(s)
+                              + {printProducts.length - 2} producto(s)
                             </small>
                           )}
-                          {beltPreviewSource.length > 2 && (
+                          {beltFromProducts.length === 0 && beltPreviewSource.length > 2 && (
                             <small className="text-muted d-block">
                               + {beltPreviewSource.length - 2} talla(s) de cincho
                             </small>
@@ -3624,7 +3914,7 @@ function PrepareShipments() {
                             disabled={
                               !isShipmentProductsEditable(shipment.status) ||
                               isSyntheticShipmentId(shipment.id) ||
-                              specialSellerFlow ||
+                              luisFelipePrintFlow ||
                               opiInternalFlow ||
                               standaloneInternalFlow
                             }
@@ -3645,7 +3935,7 @@ function PrepareShipments() {
                             className="mr-2"
                             disabled={
                               loadingPackingMaterials ||
-                              specialSellerFlow ||
+                              luisFelipePrintFlow ||
                               opiInternalFlow ||
                               standaloneInternalFlow
                             }
@@ -3662,7 +3952,7 @@ function PrepareShipments() {
                             color="success"
                             size="sm"
                             disabled={
-                              specialSellerFlow ||
+                              luisFelipePrintFlow ||
                               opiInternalFlow ||
                               standaloneInternalFlow ||
                               !isShipmentSendable(shipment.status) ||
@@ -3686,7 +3976,7 @@ function PrepareShipments() {
                               size="sm"
                               outline
                               disabled={
-                                specialSellerFlow ||
+                                luisFelipePrintFlow ||
                                 opiInternalFlow ||
                                 standaloneInternalFlow ||
                                 revertingShipmentId === shipment.id
@@ -3701,6 +3991,27 @@ function PrepareShipments() {
                                 <>
                                   <i className="nc-icon nc-refresh-69 mr-1" />
                                   Regresar a bodega
+                                </>
+                              )}
+                            </Button>
+                          )}
+                          {isShipmentReceiptRepairable(shipment.status, shipment.locationId) && (
+                            <Button
+                              type="button"
+                              color="warning"
+                              size="sm"
+                              outline
+                              disabled={repairingReceiptShipmentId === shipment.id}
+                              onClick={() => handleRepairReceiptInventory(shipment)}
+                              className="mr-2"
+                              title="Carga al kiosko productos, tallas y empaques SUM- del envío según cantidades recibidas"
+                            >
+                              {repairingReceiptShipmentId === shipment.id ? (
+                                <Spinner size="sm" />
+                              ) : (
+                                <>
+                                  <i className="nc-icon nc-refresh-69 mr-1" />
+                                  Sincronizar inv. kiosco
                                 </>
                               )}
                             </Button>

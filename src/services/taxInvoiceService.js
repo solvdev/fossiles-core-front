@@ -87,6 +87,15 @@ export const retryTaxInvoice = async (id) => {
   return parseJson(response, "No se pudo reintentar la certificación FEL.");
 };
 
+export const updateTaxInvoiceFelMetadata = async (id, payload) => {
+  const response = await fetch(`${API_URL}/tax-invoices/${id}/fel-metadata`, {
+    method: "PATCH",
+    headers: headers(),
+    body: JSON.stringify(payload),
+  });
+  return parseJson(response, "No se pudieron actualizar los datos FEL.");
+};
+
 const FEL_INVOICE_REPORT_BASE_URL =
   "https://report.feel.com.gt/ingfacereport/ingfacereport_documento";
 

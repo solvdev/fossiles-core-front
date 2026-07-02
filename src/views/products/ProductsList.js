@@ -16,6 +16,7 @@ import {
 } from "reactstrap";
 import { getProducts, deleteProduct } from "services/productService";
 import { getProductCategories } from "services/productCategoryService";
+import { getProductAudienceLabel, PRODUCT_AUDIENCE_OPTIONS } from "utils/productAudienceHelper";
 import ProductsForm from "./ProductsForm";
 import ProductRecipeModal from "./ProductRecipeModal";
 import ConfirmModal from "components/ConfirmModal/ConfirmModal";
@@ -29,6 +30,7 @@ function ProductsList() {
   const [searchTerm, setSearchTerm] = useState("");
   const [filterStatus, setFilterStatus] = useState("all");
   const [filterCategory, setFilterCategory] = useState("all");
+  const [filterAudience, setFilterAudience] = useState("all");
   const [showForm, setShowForm] = useState(false);
   const [selectedProductId, setSelectedProductId] = useState(null);
   const [showRecipeModal, setShowRecipeModal] = useState(false);
@@ -139,6 +141,11 @@ function ProductsList() {
       if (product.categoryId?.toString() !== filterCategory) return false;
     }
 
+    if (filterAudience !== "all") {
+      const audience = String(product.audienceCategory || "UNISEX").toUpperCase();
+      if (audience !== filterAudience) return false;
+    }
+
     return true;
   });
 
@@ -212,15 +219,33 @@ function ProductsList() {
                 </Col>
                 <Col md="4">
                   <FormGroup>
+                    <Label>Línea</Label>
+                    <Input
+                      type="select"
+                      value={filterAudience}
+                      onChange={(e) => setFilterAudience(e.target.value)}
+                    >
+                      <option value="all">Todas</option>
+                      {PRODUCT_AUDIENCE_OPTIONS.map((opt) => (
+                        <option key={opt.value} value={opt.value}>
+                          {opt.label}
+                        </option>
+                      ))}
+                    </Input>
+                  </FormGroup>
+                </Col>
+                <Col md="4">
+                  <FormGroup>
                     <Label>&nbsp;</Label>
                     <div>
-                      {(filterStatus !== "all" || filterCategory !== "all") && (
+                      {(filterStatus !== "all" || filterCategory !== "all" || filterAudience !== "all") && (
                         <Button
                           color="secondary"
                           size="sm"
                           onClick={() => {
                             setFilterStatus("all");
                             setFilterCategory("all");
+                            setFilterAudience("all");
                           }}
                           block
                         >
@@ -231,7 +256,7 @@ function ProductsList() {
                   </FormGroup>
                 </Col>
               </Row>
-              {(filterStatus !== "all" || filterCategory !== "all") && (
+              {(filterStatus !== "all" || filterCategory !== "all" || filterAudience !== "all") && (
                 <Row className="mb-2">
                   <Col>
                     <Badge color="info">
@@ -255,6 +280,7 @@ function ProductsList() {
                       <th>Código</th>
                       <th>Nombre</th>
                       <th>Categoría</th>
+                      <th>Línea</th>
                       <th>Tiempo Prod.</th>
                       <th>Cuero (ft²)</th>
                       <th>Estado</th>
@@ -281,6 +307,7 @@ function ProductsList() {
                         </td>
                         <td>{product.name}</td>
                         <td>{getCategoryName(product.categoryId)}</td>
+                        <td>{getProductAudienceLabel(product.audienceCategory)}</td>
                         <td>{product.prdTime ? `${product.prdTime} hrs` : "-"}</td>
                         <td>{product.leatherConsumption ? `${product.leatherConsumption}` : "-"}</td>
                         <td>{getStatusBadge(product.status)}</td>

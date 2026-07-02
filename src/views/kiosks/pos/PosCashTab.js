@@ -13,13 +13,11 @@ import {
   Spinner,
 } from "reactstrap";
 import { closeCashSession, openCashSession } from "services/kioskPosService";
+import { formatDateTimeGt } from "utils/dateTimeHelper";
 import { showError, showSuccess } from "utils/notificationHelper";
 import { formatCurrency } from "./posUtils";
 
-const formatDateTime = (value) => {
-  if (!value) return "—";
-  return String(value).replace("T", " ").slice(0, 19);
-};
+const formatDateTime = (value) => formatDateTimeGt(value);
 
 function PosCashCloseModal({ isOpen, session, onClose, onClosed, pendingDepositSummary }) {
   const [countedCash, setCountedCash] = useState("");

@@ -1,16 +1,19 @@
 import React, { useState } from "react";
 import { Button, Card, CardBody, CardHeader, CardTitle, Col, Input, Label, Row, Table } from "reactstrap";
 import { getKioskSaleById } from "services/kioskPosService";
+import { formatDateTimeGt } from "utils/dateTimeHelper";
 import { exportKioskSalesToExcel, exportKioskSalesToPdf } from "utils/kioskPosReportExport";
 import { showError, showSuccess, showWarning } from "utils/notificationHelper";
 import PosSaleDetailModal from "./PosSaleDetailModal";
 import PosVoidSaleModal from "./PosVoidSaleModal";
 import { formatCurrency, formatQty, isSalePendingDeposit } from "./posUtils";
 
-const canVoidSaleRow = (sale, cashSessionOpen) => {
-  if (!cashSessionOpen || !sale) return false;
+const canVoidSaleRow = (sale, cashSession) => {
+  if (!cashSession || String(cashSession.status || "").toUpperCase() !== "OPEN" || !sale) return false;
   if (String(sale.status || "").toUpperCase() === "VOID") return false;
-  return String(sale.status || "").toUpperCase() === "COMPLETED";
+  if (String(sale.status || "").toUpperCase() !== "COMPLETED") return false;
+  if (sale.cashSessionId != null && Number(sale.cashSessionId) !== Number(cashSession.id)) return false;
+  return true;
 };
 
 function PosReportsTab({
@@ -24,7 +27,7 @@ function PosReportsTab({
   kioskLocationId,
   kioskName,
   kioskCode,
-  cashSessionOpen,
+  cashSession,
   onSaleUpdated,
 }) {
   const [detailOpen, setDetailOpen] = useState(false);
@@ -180,6 +183,7 @@ function PosReportsTab({
               <tr>
                 <th>Fecha</th>
                 <th>No. Venta</th>
+                <th>No. interno</th>
                 <th>Cliente</th>
                 <th>Pago</th>
                 <th>Items</th>
@@ -199,7 +203,7 @@ function PosReportsTab({
                   sale.testSale || String(felSerie || "").toUpperCase().includes("PRUEBAS");
                 const isVoid = String(sale.status || "").toUpperCase() === "VOID";
                 const pendingDeposit = isSalePendingDeposit(sale);
-                const showVoidButton = canVoidSaleRow(sale, cashSessionOpen);
+                const showVoidButton = canVoidSaleRow(sale, cashSession);
                 const depositLabel = pendingDeposit
                   ? "Pendiente"
                   : sale.depositSlipNumber || "—";
@@ -220,7 +224,7 @@ function PosReportsTab({
                       }
                     }}
                   >
-                    <td>{sale.soldAt ? String(sale.soldAt).replace("T", " ").slice(0, 16) : "-"}</td>
+                    <td>{formatDateTimeGt(sale.soldAt || sale.saleDate)}</td>
                     <td>
                       {sale.saleNumber}
                       {isVoid && (
@@ -232,8 +236,21 @@ function PosReportsTab({
                         </span>
                       )}
                     </td>
+                    <td>{sale.invoice?.internalNumber ?? "—"}</td>
                     <td>{sale.customerName || sale.customerTaxId || "CF"}</td>
-                    <td>{sale.paymentMethod || "-"}</td>
+                    <td>
+                      {sale.paymentMethod || "-"}
+                      {(sale.cardAuthNumber || sale.cardLast4) && (
+                        <>
+                          <br />
+                          <span className="text-muted small">
+                            {sale.cardAuthNumber ? `Aut. ${sale.cardAuthNumber}` : ""}
+                            {sale.cardAuthNumber && sale.cardLast4 ? " · " : ""}
+                            {sale.cardLast4 ? `**** ${sale.cardLast4}` : ""}
+                          </span>
+                        </>
+                      )}
+                    </td>
                     <td>{formatQty(sale.totalItems)}</td>
                     <td>{formatCurrency(sale.totalAmount)}</td>
                     <td>{invoiceLabel}</td>
@@ -275,7 +292,7 @@ function PosReportsTab({
               })}
               {filteredSales.length === 0 && (
                 <tr>
-                  <td colSpan="9" className="text-center text-muted">
+                  <td colSpan="10" className="text-center text-muted">
                     No hay ventas para el filtro seleccionado.
                   </td>
                 </tr>
@@ -301,7 +318,8 @@ function PosReportsTab({
         onClose={closeSaleDetail}
         sale={saleDetail}
         loading={detailLoading}
-        cashSessionOpen={cashSessionOpen}
+        cashSession={cashSession}
+        cashSessionOpen={Boolean(cashSession && String(cashSession.status || "").toUpperCase() === "OPEN")}
         kioskLocationId={kioskLocationId}
         onSaleUpdated={(updated) => {
           setSaleDetail(updated);

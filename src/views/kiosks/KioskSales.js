@@ -8,9 +8,6 @@ import {
   CardHeader,
   CardTitle,
   Col,
-  DropdownItem,
-  DropdownMenu,
-  DropdownToggle,
   Input,
   Label,
   Nav,
@@ -19,7 +16,6 @@ import {
   Row,
   Spinner,
   Table,
-  UncontrolledDropdown,
 } from "reactstrap";
 import {
   createKioskPosSale,
@@ -33,10 +29,14 @@ import {
   getPendingDepositSummary,
 } from "services/kioskPosService";
 import { countShipmentsInTransit } from "services/productDistributionService";
+import { getTodayYmdGuatemala } from "utils/dateTimeHelper";
 import { showError, showSuccess } from "utils/notificationHelper";
+import PosAdminKioskPicker from "./pos/PosAdminKioskPicker";
 import PosCatalogPanel from "./pos/PosCatalogPanel";
+import PosCinchoPickModal from "./pos/PosCinchoPickModal";
 import PosCartPanel from "./pos/PosCartPanel";
 import PosCheckoutModal from "./pos/PosCheckoutModal";
+import PosInvoiceEmailModal from "./pos/PosInvoiceEmailModal";
 import PosSuccessScreen from "./pos/PosSuccessScreen";
 import PosReportsTab from "./pos/PosReportsTab";
 import PosPromotionsTab from "./pos/PosPromotionsTab";
@@ -46,10 +46,17 @@ import PosManagerDashboard from "./pos/PosManagerDashboard";
 import PosInventoryTab from "./pos/PosInventoryTab";
 import { useAuth } from "contexts/AuthContext";
 import {
+  colorLineKeyFor,
   estimatePromotionDiscount,
   formatCurrency,
   formatQty,
   lineKeyFor,
+  posVariantNeedsSizePick,
+  posVariantSizeEntries,
+  mergePosPromotions,
+  parseCheckoutPromotionPayload,
+  resolveSelectedPromotion,
+  saleNeedsFelCertification,
 } from "./pos/posUtils";
 import "./KioskSales.css";
 
@@ -60,21 +67,25 @@ function KioskSales() {
   const [context, setContext] = useState(null);
   const [selectedKioskId, setSelectedKioskId] = useState("");
   const [cart, setCart] = useState([]);
+  const [cinchoPickVariant, setCinchoPickVariant] = useState(null);
   const [sales, setSales] = useState([]);
   const [myReport, setMyReport] = useState(null);
   const [promotions, setPromotions] = useState([]);
   const [selectedPromotionId, setSelectedPromotionId] = useState("");
   const [productSearch, setProductSearch] = useState("");
+  const [catalogView, setCatalogView] = useState("PRODUCTS");
   const [categoryFilter, setCategoryFilter] = useState("");
+  const [audienceFilter, setAudienceFilter] = useState("");
   const [colorFilter, setColorFilter] = useState("");
-  const [startDate, setStartDate] = useState("");
-  const [endDate, setEndDate] = useState("");
+  const [startDate, setStartDate] = useState(() => getTodayYmdGuatemala());
+  const [endDate, setEndDate] = useState(() => getTodayYmdGuatemala());
   const [notes, setNotes] = useState("");
   const [comments, setComments] = useState("");
   const [availabilityKey, setAvailabilityKey] = useState("");
   const [availabilityRows, setAvailabilityRows] = useState([]);
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [lastSale, setLastSale] = useState(null);
+  const [pendingFelSale, setPendingFelSale] = useState(null);
   const [promoForm, setPromoForm] = useState({
     name: "",
     description: "",
@@ -83,6 +94,7 @@ function KioskSales() {
     comboBuyQty: "2",
     comboPayQty: "1",
     kioskLocationId: "",
+    audienceCategory: "",
     startDate: "",
     endDate: "",
     active: true,
@@ -95,7 +107,7 @@ function KioskSales() {
   const [pendingDepositSummary, setPendingDepositSummary] = useState(null);
   const [pendingReceiptCount, setPendingReceiptCount] = useState(0);
 
-  const today = useMemo(() => new Date().toISOString().slice(0, 10), []);
+  const today = useMemo(() => getTodayYmdGuatemala(), []);
 
   const loadPendingReceiptCount = async (kioskLocationId) => {
     if (!canConfirmReceipt) {
@@ -208,14 +220,27 @@ function KioskSales() {
     await loadInitial(nextKioskId || undefined);
   };
 
-  const addToCart = (inventoryItem) => {
-    const key = lineKeyFor(inventoryItem.productId, inventoryItem.colorId);
+  const addToCart = (inventoryItem, size = null) => {
+    if (posVariantNeedsSizePick(inventoryItem) && !size) {
+      setCinchoPickVariant(inventoryItem);
+      return;
+    }
+
+    const key = lineKeyFor(inventoryItem.productId, inventoryItem.colorId, size);
+    const sizeEntry = size
+      ? posVariantSizeEntries(inventoryItem).find((entry) => entry.size === size)
+      : null;
+    const availableQty = sizeEntry
+      ? sizeEntry.quantity
+      : Number(inventoryItem.quantity || 0);
+
     setCart((prev) => {
       const existing = prev.find((line) => line.key === key);
       const nextQty = existing ? Number(existing.quantity || 0) + 1 : 1;
-      if (nextQty > Number(inventoryItem.quantity || 0)) {
+      if (nextQty > availableQty) {
+        const sizeHint = size ? ` talla ${size}` : "";
         showError(
-          `Stock insuficiente para ${inventoryItem.productName}. Disponible: ${formatQty(inventoryItem.quantity)}.`
+          `Stock insuficiente para ${inventoryItem.productName}${sizeHint}. Disponible: ${formatQty(availableQty)}.`
         );
         return prev;
       }
@@ -233,12 +258,18 @@ function KioskSales() {
           productName: inventoryItem.productName,
           colorId: inventoryItem.colorId,
           colorName: inventoryItem.colorName,
-          availableQty: Number(inventoryItem.quantity || 0),
+          size: size || null,
+          audienceCategory: inventoryItem.audienceCategory || "UNISEX",
+          availableQty,
           quantity: 1,
           unitPrice: Number(inventoryItem.suggestedUnitPrice || 0),
         },
       ];
     });
+  };
+
+  const handlePickCinchoSize = (variant, size) => {
+    addToCart(variant, size);
   };
 
   const updateCartLine = (key, patch) => {
@@ -257,17 +288,36 @@ function KioskSales() {
 
   const removeCartLine = (key) => setCart((prev) => prev.filter((line) => line.key !== key));
 
-  const cartQtyByKey = useMemo(() => {
+
+  const cartQtyByColorKey = useMemo(() => {
     const map = {};
     cart.forEach((line) => {
-      map[line.key] = Number(line.quantity || 0);
+      const colorKey = colorLineKeyFor(line.productId, line.colorId);
+      map[colorKey] = (map[colorKey] || 0) + Number(line.quantity || 0);
     });
     return map;
   }, [cart]);
 
+  const cinchoPickCartQtyBySize = useMemo(() => {
+    if (!cinchoPickVariant) return {};
+    const map = {};
+    cart.forEach((line) => {
+      if (
+        line.productId === cinchoPickVariant.productId &&
+        (line.colorId || null) === (cinchoPickVariant.colorId || null) &&
+        line.size
+      ) {
+        map[line.size] = Number(line.quantity || 0);
+      }
+    });
+    return map;
+  }, [cart, cinchoPickVariant]);
+
+  const checkoutPromotions = useMemo(() => mergePosPromotions(promotions), [promotions]);
+
   const selectedPromotion = useMemo(
-    () => promotions.find((p) => String(p.id) === String(selectedPromotionId)),
-    [promotions, selectedPromotionId]
+    () => resolveSelectedPromotion(selectedPromotionId, checkoutPromotions),
+    [checkoutPromotions, selectedPromotionId]
   );
 
   const cartTotals = useMemo(() => {
@@ -327,6 +377,7 @@ function KioskSales() {
     }
     try {
       setSaving(true);
+      const promoPayload = parseCheckoutPromotionPayload(checkoutData.promotionId ?? selectedPromotionId);
       const sale = await createKioskPosSale({
         kioskLocationId: selectedKioskId ? Number(selectedKioskId) : null,
         customerTaxId: normalizedTaxId,
@@ -338,14 +389,18 @@ function KioskSales() {
         amountReceived: checkoutData.amountReceived,
         cashAmount: checkoutData.cashAmount,
         cardAmount: checkoutData.cardAmount,
+        cardAuthNumber: checkoutData.cardAuthNumber,
+        cardLast4: checkoutData.cardLast4,
         notes: checkoutData.notes,
         comments: checkoutData.comments,
-        promotionId: checkoutData.promotionId,
+        promotionId: promoPayload.promotionId,
+        manualDiscountPercent: promoPayload.manualDiscountPercent,
         requestInvoice: checkoutData.requestInvoice === true,
         saleDate: today,
         items: cart.map((line) => ({
           productId: line.productId,
           colorId: line.colorId || null,
+          size: line.size || null,
           quantity: Number(line.quantity || 0),
         })),
       });
@@ -355,9 +410,14 @@ function KioskSales() {
       setNotes("");
       setComments("");
       setSelectedPromotionId("");
-      setLastSale(sale);
-      showSuccess(`Venta ${sale.saleNumber || ""} registrada correctamente.`.trim());
       await loadInitial(selectedKioskId || undefined);
+
+      if (saleNeedsFelCertification(sale, checkoutData.requestInvoice) && !sale?.invoice?.felUuid && !sale?.felUuid) {
+        setPendingFelSale(sale);
+      } else {
+        setLastSale(sale);
+        showSuccess(`Venta ${sale.saleNumber || ""} registrada correctamente.`.trim());
+      }
     } catch (err) {
       showError(err.message || "No se pudo registrar la venta.");
     } finally {
@@ -401,6 +461,7 @@ function KioskSales() {
         endDate: promoForm.endDate || null,
         active: Boolean(promoForm.active),
         kioskLocationId: promoForm.kioskLocationId ? Number(promoForm.kioskLocationId) : null,
+        audienceCategory: promoForm.audienceCategory || null,
       };
       if (promoForm.discountType === "COMBO") {
         payload.comboBuyQty = Number(promoForm.comboBuyQty || 0);
@@ -418,6 +479,7 @@ function KioskSales() {
         comboBuyQty: "2",
         comboPayQty: "1",
         kioskLocationId: "",
+        audienceCategory: "",
         startDate: "",
         endDate: "",
         active: true,
@@ -432,6 +494,12 @@ function KioskSales() {
 
   const resetNewSale = () => {
     setLastSale(null);
+    setPendingFelSale(null);
+  };
+
+  const handleFelInvoiceComplete = (sale) => {
+    setPendingFelSale(null);
+    setLastSale(sale);
   };
 
   const cancelSale = () => {
@@ -490,7 +558,8 @@ function KioskSales() {
                 <>
                   {context.posTestMode && (
                     <Alert color="warning" className="mb-3">
-                      Kiosko en <strong>modo piloto</strong>: las ventas no cuentan en reportes de producción.
+                      Kiosko en <strong>modo piloto</strong>: las ventas aparecen en este resumen del kiosko,
+                      pero <strong>no cuentan</strong> en reportes corporativos de producción.
                     </Alert>
                   )}
                   <div className="kiosk-pos-topbar">
@@ -498,23 +567,12 @@ function KioskSales() {
                       {Boolean(context?.admin) &&
                       Array.isArray(context?.kiosks) &&
                       context.kiosks.length > 0 ? (
-                        <UncontrolledDropdown className="kiosk-pos-kiosk-dropdown">
-                          <DropdownToggle caret tag="button" type="button">
-                            {selectedKioskName || "Kiosko"}
-                          </DropdownToggle>
-                          <DropdownMenu>
-                            {context.kiosks.map((kiosk) => (
-                              <DropdownItem
-                                key={`admin-kiosk-${kiosk.kioskId}`}
-                                active={String(kiosk.kioskId) === String(selectedKioskId)}
-                                onClick={() => void handleKioskChange(String(kiosk.kioskId))}
-                              >
-                                {kiosk.kioskName}
-                                {kiosk.kioskCode ? ` (${kiosk.kioskCode})` : ""}
-                              </DropdownItem>
-                            ))}
-                          </DropdownMenu>
-                        </UncontrolledDropdown>
+                        <PosAdminKioskPicker
+                          kiosks={context.kiosks}
+                          selectedKioskId={selectedKioskId}
+                          selectedLabel={selectedKioskName || "Kiosko"}
+                          onSelect={handleKioskChange}
+                        />
                       ) : (
                         <span className="kiosk-pos-kiosk-badge">{selectedKioskName || context.kioskName}</span>
                       )}
@@ -586,12 +644,17 @@ function KioskSales() {
                               inventory={context.inventory}
                               productSearch={productSearch}
                               onSearchChange={setProductSearch}
+                              catalogView={catalogView}
+                              onCatalogViewChange={setCatalogView}
                               categoryFilter={categoryFilter}
                               onCategoryFilterChange={setCategoryFilter}
+                              audienceFilter={audienceFilter}
+                              onAudienceFilterChange={setAudienceFilter}
                               colorFilter={colorFilter}
                               onColorFilterChange={setColorFilter}
-                              cartQtyByKey={cartQtyByKey}
+                              cartQtyByColorKey={cartQtyByColorKey}
                               onAddProduct={cashSessionOpen ? addToCart : () => {}}
+                              onPickSizedVariant={cashSessionOpen ? setCinchoPickVariant : () => {}}
                             />
                           </div>
                           <div className="kiosk-pos-layout-cart">
@@ -669,6 +732,14 @@ function KioskSales() {
                         </CardBody>
                       </Card>
 
+                      <PosCinchoPickModal
+                        isOpen={Boolean(cinchoPickVariant)}
+                        variant={cinchoPickVariant}
+                        cartQtyBySize={cinchoPickCartQtyBySize}
+                        onPickSize={handlePickCinchoSize}
+                        onClose={() => setCinchoPickVariant(null)}
+                      />
+
                       <PosCheckoutModal
                         isOpen={checkoutOpen}
                         onClose={() => setCheckoutOpen(false)}
@@ -676,7 +747,7 @@ function KioskSales() {
                         estimatedSubtotal={cartTotals.total}
                         estimatedDiscount={cartTotals.discount}
                         estimatedTotal={cartTotals.estimated}
-                        promotions={promotions}
+                        promotions={checkoutPromotions}
                         selectedPromotionId={selectedPromotionId}
                         onPromotionChange={setSelectedPromotionId}
                         notes={notes}
@@ -685,6 +756,19 @@ function KioskSales() {
                         onCommentsChange={setComments}
                         saving={saving}
                         onConfirm={submitSale}
+                      />
+
+                      <PosInvoiceEmailModal
+                        isOpen={Boolean(pendingFelSale)}
+                        sale={pendingFelSale}
+                        kioskLocationId={selectedKioskId || context?.kioskId}
+                        onComplete={handleFelInvoiceComplete}
+                        onClose={() => {
+                          if (pendingFelSale) {
+                            setLastSale(pendingFelSale);
+                            setPendingFelSale(null);
+                          }
+                        }}
                       />
                     </>
                   )}
@@ -732,6 +816,7 @@ function KioskSales() {
                       kioskLocationId={selectedKioskId || context?.kioskId}
                       kioskName={selectedKioskName || context?.kioskName}
                       kioskCode={selectedKioskCode || context?.kioskCode}
+                      cashSession={cashSession}
                       cashSessionOpen={cashSessionOpen}
                       onSaleUpdated={async () => {
                         await loadCashSession(selectedKioskId || context?.kioskId);

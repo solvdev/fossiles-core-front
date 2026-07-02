@@ -407,6 +407,40 @@ export const confirmReceipt = async (shipmentId, data = {}) => {
   return response.json();
 };
 
+export const repairDeliveredShipmentReceiptInventory = async (shipmentId, { force = false } = {}) => {
+  const params = new URLSearchParams();
+  if (force) {
+    params.set('force', 'true');
+  }
+  const query = params.toString();
+  const response = await fetch(
+    `${API_URL}/product-distributions/shipments/${shipmentId}/repair-receipt-inventory${query ? `?${query}` : ''}`,
+    {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
+    }
+  );
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ message: 'Error al reparar inventario de recepción' }));
+    throw new Error(err.message || 'Error al reparar inventario de recepción');
+  }
+  return response.json();
+};
+
+export const auditDeliveredShipmentReceiptInventory = async (shipmentId) => {
+  const response = await fetch(
+    `${API_URL}/product-distributions/shipments/${shipmentId}/receipt-inventory-audit`,
+    {
+      headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
+    }
+  );
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ message: 'Error al auditar inventario de recepción' }));
+    throw new Error(err.message || 'Error al auditar inventario de recepción');
+  }
+  return response.json();
+};
+
 export const getShipmentsInTransit = async (kioskLocationId) => {
   const params = new URLSearchParams();
   if (kioskLocationId != null && kioskLocationId !== '') {

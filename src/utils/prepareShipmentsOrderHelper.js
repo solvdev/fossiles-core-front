@@ -12,11 +12,11 @@ export function classifyPrepareOrder(order) {
   const code = String(order.code || "").trim().toUpperCase();
   if (type === "INTERNA") return "OPI";
   if (type === "CLIENTE_KIOSKO" || code.startsWith("OPCK")) return "OPCK";
-  if (type === "NORMAL" || code.startsWith("OPK-")) return "OPK";
   if (isCinchoOrderType(type)) return "OPC";
-  // MARCAS / OPV- (cliente con marca, p. ej. Entre Cueros) y LF vendedor comparten flujo OPV.
+  // NORMAL + Luis Felipe recibe correlativo OPV- en backend; no es OPK/kiosko.
   if (type === "MARCAS" || type === "OPV" || code.startsWith("OPV-")) return "OPV";
   if (isLuisFelipeSeller(order.sellerName)) return "OPV";
+  if (type === "NORMAL" || code.startsWith("OPK-")) return "OPK";
   return null;
 }
 

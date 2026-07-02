@@ -29,6 +29,7 @@ function AccountingInvoiceForm() {
   const [form, setForm] = useState({
     customerTaxId: "CF",
     customerName: "CONSUMIDOR FINAL",
+    documentType: "FACT",
     address: "",
     phone: "",
     email: "",
@@ -99,6 +100,7 @@ function AccountingInvoiceForm() {
       const invoice = await createManualTaxInvoice({
         customerTaxId: normalizeNit(form.customerTaxId) || "CF",
         customerName: form.customerName,
+        documentType: form.documentType,
         address: form.address || null,
         phone: form.phone || null,
         email: form.email || null,
@@ -152,6 +154,25 @@ function AccountingInvoiceForm() {
               <Col md="4"><FormGroup><Label>Dirección</Label><Input value={form.address} onChange={(e) => setForm((p) => ({ ...p, address: e.target.value }))} /></FormGroup></Col>
               <Col md="4"><FormGroup><Label>Teléfono</Label><Input value={form.phone} onChange={(e) => setForm((p) => ({ ...p, phone: e.target.value }))} /></FormGroup></Col>
               <Col md="4"><FormGroup><Label>Correo</Label><Input value={form.email} onChange={(e) => setForm((p) => ({ ...p, email: e.target.value }))} /></FormGroup></Col>
+            </Row>
+
+            <Row>
+              <Col md="4">
+                <FormGroup>
+                  <Label>Tipo de documento</Label>
+                  <Input
+                    type="select"
+                    value={form.documentType}
+                    onChange={(e) => setForm((p) => ({ ...p, documentType: e.target.value }))}
+                  >
+                    <option value="FACT">Factura (FACT)</option>
+                    <option value="FCAM" disabled>Factura Cambiaria (FCAM) — próximamente</option>
+                  </Input>
+                  <small className="text-muted">
+                    FCAM requiere el complemento de Abonos exigido por SAT; aún no está disponible.
+                  </small>
+                </FormGroup>
+              </Col>
             </Row>
 
             <FormGroup>

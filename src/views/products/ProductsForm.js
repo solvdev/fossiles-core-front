@@ -14,6 +14,8 @@ import {
 } from "reactstrap";
 import { getProductById, createProduct, updateProduct } from "services/productService";
 import { getProductCategories } from "services/productCategoryService";
+import { PRODUCT_AUDIENCE_OPTIONS } from "utils/productAudienceHelper";
+import { CINCHO_TYPE_OPTIONS } from "utils/productCinchoHelper";
 import { uploadImage } from "services/uploadService";
 
 function ProductsForm({ productId, isOpen, toggle, onSuccess }) {
@@ -21,6 +23,8 @@ function ProductsForm({ productId, isOpen, toggle, onSuccess }) {
     code: "",
     name: "",
     categoryId: "",
+    audienceCategory: "UNISEX",
+    cinchoType: "",
     prdTime: "",
     salePrice: "",
     sellerPrice: "",
@@ -63,6 +67,8 @@ function ProductsForm({ productId, isOpen, toggle, onSuccess }) {
         code: product.code || "",
         name: product.name || "",
         categoryId: product.categoryId || "",
+        audienceCategory: product.audienceCategory || "UNISEX",
+        cinchoType: product.cinchoType || "",
         prdTime: product.prdTime || "",
         salePrice: product.salePrice || "",
         sellerPrice: product.sellerPrice || "",
@@ -82,6 +88,8 @@ function ProductsForm({ productId, isOpen, toggle, onSuccess }) {
       code: "",
       name: "",
       categoryId: "",
+      audienceCategory: "UNISEX",
+      cinchoType: "",
       prdTime: "",
       salePrice: "",
       sellerPrice: "",
@@ -127,6 +135,8 @@ function ProductsForm({ productId, isOpen, toggle, onSuccess }) {
         code: formData.code.trim(),
         name: formData.name.trim(),
         categoryId: parseInt(formData.categoryId),
+        audienceCategory: formData.audienceCategory || "UNISEX",
+        cinchoType: formData.cinchoType || null,
         prdTime: formData.prdTime ? parseFloat(formData.prdTime) : null,
         salePrice: formData.salePrice ? parseFloat(formData.salePrice) : null,
         sellerPrice: formData.sellerPrice ? parseFloat(formData.sellerPrice) : null,
@@ -148,6 +158,13 @@ function ProductsForm({ productId, isOpen, toggle, onSuccess }) {
       setLoading(false);
     }
   };
+
+  const selectedCategory = availableCategories.find(
+    (c) => String(c.id) === String(formData.categoryId)
+  );
+  const showCinchoType = selectedCategory?.code === "FOSS"
+    || String(formData.code || "").toUpperCase().includes("CINCHO")
+    || String(formData.name || "").toUpperCase().includes("CINCHO");
 
   return (
     <Modal isOpen={isOpen} toggle={toggle} size="lg">
@@ -204,6 +221,47 @@ function ProductsForm({ productId, isOpen, toggle, onSuccess }) {
                 {errors.categoryId && <div className="text-danger small">{errors.categoryId}</div>}
               </FormGroup>
             </Col>
+            <Col md="6">
+              <FormGroup>
+                <Label>Línea (Dama / Caballero / Unisex)</Label>
+                <Input
+                  type="select"
+                  value={formData.audienceCategory}
+                  onChange={(e) => setFormData({ ...formData, audienceCategory: e.target.value })}
+                  disabled={loading}
+                >
+                  {PRODUCT_AUDIENCE_OPTIONS.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </Input>
+                <small className="form-text text-muted">
+                  Clasificación para kiosko, promociones y reportes. Empaques SUM- suelen ser Unisex.
+                </small>
+              </FormGroup>
+            </Col>
+            {showCinchoType && (
+              <Col md="6">
+                <FormGroup>
+                  <Label>Tipo de cincho</Label>
+                  <Input
+                    type="select"
+                    value={formData.cinchoType}
+                    onChange={(e) => setFormData({ ...formData, cinchoType: e.target.value })}
+                    disabled={loading}
+                  >
+                    {CINCHO_TYPE_OPTIONS.map((opt) => (
+                      <option key={opt.value || "none"} value={opt.value}>
+                        {opt.label}
+                      </option>
+                    ))}
+                  </Input>
+                </FormGroup>
+              </Col>
+            )}
+          </Row>
+          <Row>
             <Col md="6">
               <FormGroup>
                 <Label>Tiempo de Producción (horas)</Label>

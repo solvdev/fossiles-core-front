@@ -34,9 +34,12 @@ export const exportKioskSalesToExcel = ({ sales, myReport, startDate, endDate, k
   const saleRows = (sales || []).map((sale) => ({
     Fecha: formatDateTime(sale.soldAt || sale.saleDate),
     "No. Venta": sale.saleNumber || "",
+    "No. interno": sale.invoice?.internalNumber ?? "",
     Cliente: sale.customerName || sale.customerTaxId || "CF",
     NIT: sale.customerTaxId || "CF",
     Pago: sale.paymentMethod || "",
+    "Autorización tarjeta": sale.cardAuthNumber || "",
+    "Tarjeta últimos 4": sale.cardLast4 || "",
     Items: formatQty(sale.totalItems),
     Descuento: formatMoney(sale.discountAmount),
     Subtotal: formatMoney(sale.subtotal),
@@ -88,8 +91,9 @@ export const exportKioskSalesToPdf = ({ sales, myReport, startDate, endDate, kio
       (sale) => `<tr>
         <td>${escape(formatDateTime(sale.soldAt || sale.saleDate))}</td>
         <td>${escape(sale.saleNumber)}</td>
+        <td>${escape(sale.invoice?.internalNumber ?? "")}</td>
         <td>${escape(sale.customerName || sale.customerTaxId || "CF")}</td>
-        <td>${escape(sale.paymentMethod)}</td>
+        <td>${escape(sale.paymentMethod)}${sale.cardAuthNumber || sale.cardLast4 ? ` (Aut. ${escape(sale.cardAuthNumber || "")} · **** ${escape(sale.cardLast4 || "")})` : ""}</td>
         <td>${escape(formatQty(sale.totalItems))}</td>
         <td>${escape(formatMoney(sale.totalAmount))}</td>
         <td>${escape(sale.felSerie || sale.invoice?.felSerie || "")} ${escape(sale.felNumero || sale.invoice?.felNumero || "")}</td>
@@ -134,6 +138,7 @@ export const exportKioskSalesToPdf = ({ sales, myReport, startDate, endDate, kio
             <tr>
               <th>Fecha</th>
               <th>No. Venta</th>
+              <th>No. interno</th>
               <th>Cliente</th>
               <th>Pago</th>
               <th>Items</th>
@@ -141,7 +146,7 @@ export const exportKioskSalesToPdf = ({ sales, myReport, startDate, endDate, kio
               <th>Factura</th>
             </tr>
           </thead>
-          <tbody>${saleRows || `<tr><td colspan="7">Sin ventas</td></tr>`}</tbody>
+          <tbody>${saleRows || `<tr><td colspan="8">Sin ventas</td></tr>`}</tbody>
         </table>
         <script>window.onload = function () { window.print(); };</script>
       </body>

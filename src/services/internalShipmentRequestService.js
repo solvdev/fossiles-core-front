@@ -66,6 +66,17 @@ export const rejectInternalShipmentRequest = async (id, reason) => {
   return parseJson(response, "No se pudo denegar la solicitud.");
 };
 
+export const getInternalShipmentEligibility = async (employeeId, month) => {
+  const params = new URLSearchParams();
+  if (month) params.set("month", month);
+  const suffix = params.toString() ? `?${params.toString()}` : "";
+  const response = await fetch(
+    `${API_URL}/internal-shipment-requests/employees/${employeeId}/internal-shipment-eligibility${suffix}`,
+    { headers: headers() }
+  );
+  return parseJson(response, "No se pudo verificar elegibilidad del empleado.");
+};
+
 export const listExistingEnviShipments = async () => {
   const response = await fetch(`${API_URL}/internal-shipment-requests/existing-envi`, {
     headers: headers(),

@@ -55,6 +55,8 @@ function ProductionOrderShipmentGenerateModal({ isOpen, toggle, order, onGenerat
   /** Cliente, costo envío y fecha: solo OPC/OPV Luis Felipe (no OPI ni OPCK). */
   const showLfReviewSection = luisFelipeFlow;
   const showOpcDestinationOnly = kind === "OPC" && !showLfReviewSection;
+  const requiresKioskDestination =
+    (kind === "OPCK" || kind === "OPK") && !luisFelipeFlow;
 
   const applyFormFromOrder = useCallback((o) => {
     setForm(initShipmentGenerateForm(o));
@@ -177,7 +179,7 @@ function ProductionOrderShipmentGenerateModal({ isOpen, toggle, order, onGenerat
       }
 
       if (kind === "OPCK") {
-        if (!locationId) {
+        if (requiresKioskDestination && !locationId) {
           setError("OPCK requiere seleccionar kiosko destino.");
           return;
         }
@@ -187,7 +189,7 @@ function ProductionOrderShipmentGenerateModal({ isOpen, toggle, order, onGenerat
           return;
         }
         const draft = await createProductionOrderShipment(orderForGenerate.id, {
-          locationId: Number(locationId),
+          ...(locationId ? { locationId: Number(locationId) } : {}),
           notes: notes.trim() || undefined,
           documentDate: form.documentDate || undefined,
           products,
@@ -200,7 +202,35 @@ function ProductionOrderShipmentGenerateModal({ isOpen, toggle, order, onGenerat
       }
 
       if (kind === "OPK") {
-        if (!locationId) {
+        if (luisFelipeFlow) {
+          const orderForGenerate = await persistOrderBeforeGenerate();
+          const dest = buildDestinationFromForm(form);
+          if (!dest) {
+            setError("Indique destino o dirección de entrega.");
+            return;
+          }
+          const products = buildShipmentProductsFromOrderItems(orderForGenerate);
+          if (products.length === 0) {
+            setError("La orden no tiene productos con cantidad.");
+            return;
+          }
+          const packingFromOrder = mapPackingItemsForApi(orderForGenerate.packingItems);
+          const draft = await createProductionOrderShipment(orderForGenerate.id, {
+            destinationAddress: dest,
+            notes: notes.trim() || undefined,
+            documentDate: form.documentDate || undefined,
+            products,
+            ...(packingFromOrder.length > 0 ? { packingItems: packingFromOrder } : {}),
+            ...(locationId ? { locationId: Number(locationId) } : {}),
+          });
+          const confirmed = await confirmShipmentDraft(draft.id);
+          showSuccess(
+            `Envío ${confirmed.shipmentNumber || confirmed.id} generado (confirmado). Use Listo / Enviar cuando deba salir de bodega.`
+          );
+          if (onGenerated) onGenerated(confirmed, orderForGenerate);
+          return;
+        }
+        if (requiresKioskDestination && !locationId) {
           setError("OPK requiere seleccionar kiosko destino.");
           return;
         }
@@ -396,7 +426,7 @@ function ProductionOrderShipmentGenerateModal({ isOpen, toggle, order, onGenerat
           </FormGroup>
         )}
 
-        {(kind === "OPCK" || kind === "OPK") && (
+        {(requiresKioskDestination) && (
           <FormGroup>
             <Label>
               <strong>Kiosko destino</strong>
