@@ -15,20 +15,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Habilitar Corepack (Yarn 4)
-        run: corepack enable
-
       - name: Setup Node 20
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: yarn
+          cache: npm
 
       - name: Instalar dependencias
-        run: yarn install --immutable
+        run: npm ci
 
       - name: Build
-        run: yarn build
+        run: npm run build
 
       - name: Setup SSH key
         run: |
