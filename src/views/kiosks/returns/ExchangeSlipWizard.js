@@ -125,10 +125,27 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, onCompleted }) {
     }
   };
 
+  const selectGivenVariant = (option) => {
+    resetError();
+    setSelectedVariantKey(option.key);
+    setSelectedSize("");
+  };
+
+  const selectReturnedItem = (item) => {
+    resetError();
+    setSelectedItemId(String(item.id));
+    setReturnedQty(String(item.quantity || 1));
+    setGivenQty(String(item.quantity || 1));
+  };
+
   const handlePreview = async () => {
     resetError();
-    if (!selectedItem || !selectedVariant) {
-      setError("Selecciona la línea devuelta y el producto nuevo.");
+    if (!selectedItem) {
+      setError("Selecciona la línea devuelta en el paso anterior.");
+      return;
+    }
+    if (!selectedVariant) {
+      setError("Selecciona el producto nuevo haciendo clic en una fila de la lista.");
       return;
     }
     if (posVariantNeedsSizePick(selectedVariant) && !selectedSize) {
@@ -224,18 +241,21 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, onCompleted }) {
                   </tr>
                 </thead>
                 <tbody>
-                  {(sale.items || []).map((item) => (
-                    <tr key={item.id}>
-                      <td>
+                  {(sale.items || []).map((item) => {
+                    const isSelected = String(selectedItemId) === String(item.id);
+                    return (
+                    <tr
+                      key={item.id}
+                      className={isSelected ? "table-active" : ""}
+                      style={{ cursor: "pointer" }}
+                      onClick={() => selectReturnedItem(item)}
+                    >
+                      <td onClick={(e) => e.stopPropagation()}>
                         <Input
                           type="radio"
                           name="return-line"
-                          checked={String(selectedItemId) === String(item.id)}
-                          onChange={() => {
-                            setSelectedItemId(String(item.id));
-                            setReturnedQty(String(item.quantity || 1));
-                            setGivenQty(String(item.quantity || 1));
-                          }}
+                          checked={isSelected}
+                          onChange={() => selectReturnedItem(item)}
                         />
                       </td>
                       <td>{item.productCode}</td>
@@ -243,7 +263,8 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, onCompleted }) {
                       <td>{formatQty(item.quantity)}</td>
                       <td>{formatCurrency(item.unitPrice)}</td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </Table>
               <div className="mt-2" style={{ maxWidth: 180 }}>
@@ -264,6 +285,9 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, onCompleted }) {
 
           {step === 3 && (
             <>
+              <p className="text-muted mb-2">
+                Haz clic en una fila para elegir el producto nuevo (código, color y stock).
+              </p>
               <Label>Buscar producto nuevo</Label>
               <Input
                 value={productSearch}
@@ -271,6 +295,9 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, onCompleted }) {
                 placeholder="Código o nombre"
                 className="mb-3"
               />
+              {inventoryOptions.length === 0 ? (
+                <p className="text-muted">No hay productos con stock en este kiosko para la búsqueda indicada.</p>
+              ) : (
               <div style={{ maxHeight: 260, overflowY: "auto" }}>
                 <Table responsive size="sm" hover>
                   <thead>
@@ -282,27 +309,40 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, onCompleted }) {
                     </tr>
                   </thead>
                   <tbody>
-                    {inventoryOptions.map((option) => (
-                      <tr key={option.key}>
-                        <td>
+                    {inventoryOptions.map((option) => {
+                      const isSelected = selectedVariantKey === option.key;
+                      return (
+                      <tr
+                        key={option.key}
+                        className={isSelected ? "table-active" : ""}
+                        style={{ cursor: "pointer" }}
+                        onClick={() => selectGivenVariant(option)}
+                      >
+                        <td onClick={(e) => e.stopPropagation()}>
                           <Input
                             type="radio"
                             name="given-product"
-                            checked={selectedVariantKey === option.key}
-                            onChange={() => {
-                              setSelectedVariantKey(option.key);
-                              setSelectedSize("");
-                            }}
+                            checked={isSelected}
+                            onChange={() => selectGivenVariant(option)}
                           />
                         </td>
                         <td>{option.row.productCode} · {option.row.productName}</td>
                         <td>{option.row.colorName || "—"}</td>
                         <td>{formatQty(option.row.quantity)}</td>
                       </tr>
-                    ))}
+                      );
+                    })}
                   </tbody>
                 </Table>
               </div>
+              )}
+              {selectedVariant && (
+                <Alert color="info" className="mt-3 mb-0">
+                  Seleccionado: <strong>{selectedVariant.productCode}</strong> · {selectedVariant.productName}
+                  {selectedVariant.colorName ? ` · ${selectedVariant.colorName}` : ""}
+                  {selectedSize ? ` · T.${selectedSize}` : ""}
+                </Alert>
+              )}
               {selectedVariant && posVariantNeedsSizePick(selectedVariant) && (
                 <div className="mt-3" style={{ maxWidth: 220 }}>
                   <Label>Talla</Label>
