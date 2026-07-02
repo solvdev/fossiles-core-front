@@ -49,20 +49,36 @@ export const lineMatchesPromotionAudience = (line, promoAudience) => {
 export const filterCartLinesForPromotion = (cartLines, promoAudience) =>
   (cartLines || []).filter((line) => lineMatchesPromotionAudience(line, promoAudience));
 
-export const buildPromotionTierMap = (promotion) => {
-  const map = {};
-  (promotion?.tiers || []).forEach((tier) => {
-    const audience = normalizeAudienceCategory(tier?.audienceCategory);
-    map[audience] = Number(tier?.discountValue || 0);
+export const lineMatchesPromotionTier = (line, tier) => {
+  if (!line || !tier || tier.categoryId == null) return false;
+  if (line.isPackaging || line.categoryId == null) return false;
+  if (String(line.categoryId) !== String(tier.categoryId)) return false;
+  return lineMatchesPromotionAudience(line, tier.audienceCategory);
+};
+
+export const resolveBestTierPercentForLine = (line, promotions) => {
+  let best = 0;
+  (promotions || []).forEach((promotion) => {
+    const type = String(promotion?.discountType || "").toUpperCase();
+    if (!type.includes("TIERED")) return;
+    (promotion?.tiers || []).forEach((tier) => {
+      if (!lineMatchesPromotionTier(line, tier)) return;
+      const pct = Number(tier?.discountValue || 0);
+      if (pct > best) best = pct;
+    });
   });
-  return map;
+  return best;
 };
 
 export const formatPromotionTierSummary = (promotion) => {
   const tiers = (promotion?.tiers || []).filter((tier) => Number(tier?.discountValue || 0) > 0);
   if (!tiers.length) return "";
   return tiers
-    .map((tier) => `${getProductAudienceLabel(tier.audienceCategory)} ${Number(tier.discountValue)}%`)
+    .map((tier) => {
+      const audience = getProductAudienceLabel(tier.audienceCategory);
+      const category = tier.categoryName || `Cat. ${tier.categoryId}`;
+      return `${audience} · ${category} · ${Number(tier.discountValue)}%`;
+    })
     .join(" · ");
 };
 

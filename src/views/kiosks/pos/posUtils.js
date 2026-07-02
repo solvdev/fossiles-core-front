@@ -1,8 +1,8 @@
 import {
   filterCartLinesForPromotion,
   productMatchesAudienceFilter,
-  buildPromotionTierMap,
-  normalizeAudienceCategory,
+  resolveBestTierPercentForLine,
+  lineMatchesPromotionTier,
 } from "utils/productAudienceHelper";
 import { hasInventorySizeBreakdown } from "utils/inventoryVariantHelper";
 import { isPackagingProductCode } from "utils/kioskPackagingHelper";
@@ -360,15 +360,38 @@ export const saleNeedsFelCertification = (sale, requestInvoice) => {
   return requestInvoice === true;
 };
 
+export const isDiscountEligibleCartLine = (line) =>
+  !line?.isPackaging && !isPackagingProductCode(line?.productCode);
+
+export const filterDiscountEligibleCartLines = (cartLines) =>
+  (cartLines || []).filter(isDiscountEligibleCartLine);
+
+export const estimateAutoPromotionDiscount = (cartLines, activePromotions) => {
+  const tieredPromos = (activePromotions || []).filter((promo) =>
+    String(promo?.discountType || "").toUpperCase().includes("TIERED")
+  );
+  if (!tieredPromos.length) return { discount: 0, autoApplied: false, promotionName: null };
+
+  const discount = filterDiscountEligibleCartLines(cartLines).reduce((sum, line) => {
+    const pct = resolveBestTierPercentForLine(line, tieredPromos);
+    if (pct <= 0) return sum;
+    const qty = Number(line.quantity || 0);
+    const price = Number(line.unitPrice || 0);
+    return sum + (qty * price * pct) / 100;
+  }, 0);
+
+  if (discount <= 0) return { discount: 0, autoApplied: false, promotionName: null };
+  return { discount, autoApplied: true, promotionName: "Promoción automática" };
+};
+
 export const estimatePromotionDiscount = (subtotal, promotion, cartLines) => {
   if (!promotion || subtotal <= 0) return 0;
   const type = String(promotion.discountType || "").toUpperCase();
   if (type.includes("TIERED")) {
-    const tierMap = buildPromotionTierMap(promotion);
-    if (!Object.keys(tierMap).length) return 0;
-    const discount = (cartLines || []).reduce((sum, line) => {
-      const audience = normalizeAudienceCategory(line?.audienceCategory);
-      const pct = Number(tierMap[audience] || 0);
+    const discount = filterDiscountEligibleCartLines(cartLines).reduce((sum, line) => {
+      const pct = (promotion.tiers || [])
+        .filter((tier) => lineMatchesPromotionTier(line, tier))
+        .reduce((best, tier) => Math.max(best, Number(tier?.discountValue || 0)), 0);
       if (pct <= 0) return sum;
       const qty = Number(line.quantity || 0);
       const price = Number(line.unitPrice || 0);
@@ -377,8 +400,8 @@ export const estimatePromotionDiscount = (subtotal, promotion, cartLines) => {
     return Math.min(subtotal, discount);
   }
   const eligibleLines = promotion.isQuickPercent
-    ? cartLines || []
-    : filterCartLinesForPromotion(cartLines, promotion.audienceCategory);
+    ? filterDiscountEligibleCartLines(cartLines)
+    : filterDiscountEligibleCartLines(filterCartLinesForPromotion(cartLines, promotion.audienceCategory));
   const eligibleSubtotal = (eligibleLines || []).reduce((sum, line) => {
     const qty = Number(line.quantity || 0);
     const price = Number(line.unitPrice || 0);

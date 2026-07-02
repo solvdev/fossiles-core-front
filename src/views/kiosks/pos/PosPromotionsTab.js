@@ -1,4 +1,4 @@
-import React, { useMemo } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   Button,
   Card,
@@ -12,6 +12,7 @@ import {
   Table,
 } from "reactstrap";
 import FilterableSelect from "components/distribution/FilterableSelect";
+import { getProductCategories } from "services/productCategoryService";
 import {
   PROMO_AUDIENCE_OPTIONS,
   PROMO_TIER_AUDIENCE_OPTIONS,
@@ -20,7 +21,7 @@ import {
 } from "utils/productAudienceHelper";
 import { formatCurrency } from "./posUtils";
 
-const EMPTY_TIER_PERCENTS = { DAMA: "", CABALLERO: "", UNISEX: "" };
+const EMPTY_TIER = { audienceCategory: "CABALLERO", categoryId: "", discountValue: "" };
 
 const DISCOUNT_TYPE_OPTIONS = [
   { value: "PERCENT", label: "Porcentaje (%)" },
@@ -30,8 +31,16 @@ const DISCOUNT_TYPE_OPTIONS = [
 ];
 
 function PosPromotionsTab({ promoForm, onPromoFormChange, promotions, onCreatePromotion, kiosks }) {
+  const [categories, setCategories] = useState([]);
   const isCombo = promoForm.discountType === "COMBO";
   const isTiered = promoForm.discountType === "TIERED_PERCENT";
+  const tiers = promoForm.tiers?.length ? promoForm.tiers : [EMPTY_TIER];
+
+  useEffect(() => {
+    getProductCategories()
+      .then((rows) => setCategories(Array.isArray(rows) ? rows : []))
+      .catch(() => setCategories([]));
+  }, []);
 
   const kioskOptions = useMemo(
     () =>
@@ -52,6 +61,40 @@ function PosPromotionsTab({ promoForm, onPromoFormChange, promotions, onCreatePr
     []
   );
 
+  const tierAudienceOptions = useMemo(
+    () =>
+      PROMO_TIER_AUDIENCE_OPTIONS.map((opt) => ({
+        value: opt.value,
+        label: opt.label,
+      })),
+    []
+  );
+
+  const categoryOptions = useMemo(
+    () =>
+      (categories || []).map((cat) => ({
+        value: String(cat.id),
+        label: cat.name,
+        searchText: `${cat.name || ""} ${cat.code || ""}`,
+      })),
+    [categories]
+  );
+
+  const updateTier = (index, patch) => {
+    onPromoFormChange({
+      tiers: tiers.map((tier, i) => (i === index ? { ...tier, ...patch } : tier)),
+    });
+  };
+
+  const addTier = () => {
+    onPromoFormChange({ tiers: [...tiers, { ...EMPTY_TIER }] });
+  };
+
+  const removeTier = (index) => {
+    if (tiers.length <= 1) return;
+    onPromoFormChange({ tiers: tiers.filter((_, i) => i !== index) });
+  };
+
   return (
     <Card className="kiosk-pos-block">
       <CardHeader>
@@ -71,7 +114,12 @@ function PosPromotionsTab({ promoForm, onPromoFormChange, promotions, onCreatePr
             <Label className="kiosk-pos-label">Tipo</Label>
             <FilterableSelect
               value={promoForm.discountType}
-              onChange={(value) => onPromoFormChange({ discountType: value || "PERCENT" })}
+              onChange={(value) =>
+                onPromoFormChange({
+                  discountType: value || "PERCENT",
+                  tiers: value === "TIERED_PERCENT" ? [{ ...EMPTY_TIER }] : promoForm.tiers,
+                })
+              }
               options={DISCOUNT_TYPE_OPTIONS}
               placeholder="Buscar tipo..."
               allowEmpty={false}
@@ -105,27 +153,61 @@ function PosPromotionsTab({ promoForm, onPromoFormChange, promotions, onCreatePr
         </Row>
         <Row className="mt-2">
           {isTiered ? (
-            PROMO_TIER_AUDIENCE_OPTIONS.map((opt) => (
-              <Col md="4" key={`promo-tier-${opt.value}`}>
-                <Label className="kiosk-pos-label">% {opt.label}</Label>
-                <Input
-                  className="kiosk-pos-input-lg"
-                  type="number"
-                  min="0"
-                  max="100"
-                  step="0.01"
-                  value={(promoForm.tierPercents || EMPTY_TIER_PERCENTS)[opt.value] || ""}
-                  onChange={(e) =>
-                    onPromoFormChange({
-                      tierPercents: {
-                        ...(promoForm.tierPercents || EMPTY_TIER_PERCENTS),
-                        [opt.value]: e.target.value,
-                      },
-                    })
-                  }
-                />
-              </Col>
-            ))
+            <Col md="12">
+              <Label className="kiosk-pos-label">Tiers (audiencia + categoría + %)</Label>
+              {tiers.map((tier, index) => (
+                <Row key={`promo-tier-row-${index}`} className="mb-2 align-items-end">
+                  <Col md="3">
+                    <Label className="kiosk-pos-label small mb-1">Audiencia</Label>
+                    <FilterableSelect
+                      value={tier.audienceCategory || "CABALLERO"}
+                      onChange={(value) => updateTier(index, { audienceCategory: value || "CABALLERO" })}
+                      options={tierAudienceOptions}
+                      placeholder="Audiencia..."
+                      allowEmpty={false}
+                      inputClassName="kiosk-pos-input-lg"
+                    />
+                  </Col>
+                  <Col md="4">
+                    <Label className="kiosk-pos-label small mb-1">Categoría</Label>
+                    <FilterableSelect
+                      value={tier.categoryId ? String(tier.categoryId) : ""}
+                      onChange={(value) => updateTier(index, { categoryId: value || "" })}
+                      options={categoryOptions}
+                      placeholder="Buscar categoría..."
+                      emptyLabel="Seleccione categoría"
+                      inputClassName="kiosk-pos-input-lg"
+                    />
+                  </Col>
+                  <Col md="3">
+                    <Label className="kiosk-pos-label small mb-1">Descuento %</Label>
+                    <Input
+                      className="kiosk-pos-input-lg"
+                      type="number"
+                      min="0"
+                      max="100"
+                      step="0.01"
+                      value={tier.discountValue || ""}
+                      onChange={(e) => updateTier(index, { discountValue: e.target.value })}
+                    />
+                  </Col>
+                  <Col md="2">
+                    <Button
+                      color="danger"
+                      outline
+                      className="kiosk-pos-btn-lg"
+                      onClick={() => removeTier(index)}
+                      disabled={tiers.length <= 1}
+                    >
+                      Quitar
+                    </Button>
+                  </Col>
+                </Row>
+              ))}
+              <Button color="secondary" outline className="kiosk-pos-btn-main" onClick={addTier}>
+                Agregar tier
+              </Button>
+            </Col>
           ) : isCombo ? (
             <>
               <Col md="3">
@@ -220,7 +302,7 @@ function PosPromotionsTab({ promoForm, onPromoFormChange, promotions, onCreatePr
                 </td>
                 <td>
                   {String(promo.discountType || "").toUpperCase().includes("TIERED")
-                    ? "Por línea"
+                    ? "Audiencia + categoría"
                     : getPromoAudienceLabel(promo.audienceCategory)}
                 </td>
                 <td>{promo.kioskLocationId ? promo.kioskLocationId : "Todos"}</td>

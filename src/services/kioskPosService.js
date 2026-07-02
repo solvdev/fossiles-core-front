@@ -197,6 +197,15 @@ export const createKioskPromotion = async (payload) => {
   return parseJson(response, "No se pudo crear la promoción.");
 };
 
+export const estimateKioskPromotionDiscount = async (payload) => {
+  const response = await fetch(`${API_URL}/kiosk-pos/promotions/estimate`, {
+    method: "POST",
+    headers: headers(),
+    body: JSON.stringify(payload),
+  });
+  return parseJson(response, "No se pudo estimar el descuento.");
+};
+
 export const updateKioskPromotion = async (id, payload) => {
   const response = await fetch(`${API_URL}/kiosk-pos/promotions/${id}`, {
     method: "PUT",

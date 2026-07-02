@@ -30,6 +30,7 @@ import {
 } from "services/kioskPosService";
 import { countShipmentsInTransit } from "services/productDistributionService";
 import { getTodayYmdGuatemala } from "utils/dateTimeHelper";
+import { isPackagingProductCode } from "utils/kioskPackagingHelper";
 import { showError, showSuccess } from "utils/notificationHelper";
 import PosAdminKioskPicker from "./pos/PosAdminKioskPicker";
 import PosCatalogPanel from "./pos/PosCatalogPanel";
@@ -48,6 +49,7 @@ import { useAuth } from "contexts/AuthContext";
 import FilterableSelect from "components/distribution/FilterableSelect";
 import {
   colorLineKeyFor,
+  estimateAutoPromotionDiscount,
   estimatePromotionDiscount,
   formatCurrency,
   formatQty,
@@ -96,7 +98,7 @@ function KioskSales() {
     comboPayQty: "1",
     kioskLocationId: "",
     audienceCategory: "",
-    tierPercents: { DAMA: "", CABALLERO: "", UNISEX: "" },
+    tiers: [{ audienceCategory: "CABALLERO", categoryId: "", discountValue: "" }],
     startDate: "",
     endDate: "",
     active: true,
@@ -262,6 +264,9 @@ function KioskSales() {
           colorName: inventoryItem.colorName,
           size: size || null,
           audienceCategory: inventoryItem.audienceCategory || "UNISEX",
+          categoryId: inventoryItem.categoryId ?? null,
+          categoryName: inventoryItem.categoryName || "",
+          isPackaging: isPackagingProductCode(inventoryItem.productCode),
           availableQty,
           quantity: 1,
           unitPrice: Number(inventoryItem.suggestedUnitPrice || 0),
@@ -330,14 +335,29 @@ function KioskSales() {
       acc.total += qty * price;
       return acc;
     }, { items: 0, total: 0 });
-    const discount = estimatePromotionDiscount(subtotal.total, selectedPromotion, cart);
+
+    if (selectedPromotion) {
+      const discount = estimatePromotionDiscount(subtotal.total, selectedPromotion, cart);
+      return {
+        items: subtotal.items,
+        total: subtotal.total,
+        discount,
+        estimated: Math.max(0, subtotal.total - discount),
+        autoApplied: false,
+        promotionName: selectedPromotion.name || null,
+      };
+    }
+
+    const auto = estimateAutoPromotionDiscount(cart, promotions);
     return {
       items: subtotal.items,
       total: subtotal.total,
-      discount,
-      estimated: Math.max(0, subtotal.total - discount),
+      discount: auto.discount,
+      estimated: Math.max(0, subtotal.total - auto.discount),
+      autoApplied: auto.autoApplied,
+      promotionName: auto.promotionName,
     };
-  }, [cart, selectedPromotion]);
+  }, [cart, selectedPromotion, promotions]);
 
   const applyReportFilters = async () => {
     try {
@@ -470,15 +490,15 @@ function KioskSales() {
         payload.comboPayQty = Number(promoForm.comboPayQty || 0);
         payload.discountValue = 0;
       } else if (promoForm.discountType === "TIERED_PERCENT") {
-        const tierPercents = promoForm.tierPercents || {};
-        payload.tiers = ["DAMA", "CABALLERO", "UNISEX"]
-          .map((audienceCategory) => ({
-            audienceCategory,
-            discountValue: Number(tierPercents[audienceCategory] || 0),
+        payload.tiers = (promoForm.tiers || [])
+          .map((tier) => ({
+            audienceCategory: tier.audienceCategory,
+            categoryId: tier.categoryId ? Number(tier.categoryId) : null,
+            discountValue: Number(tier.discountValue || 0),
           }))
-          .filter((tier) => tier.discountValue > 0);
+          .filter((tier) => tier.categoryId && tier.discountValue > 0);
         if (!payload.tiers.length) {
-          showError("Indique al menos un porcentaje por línea mayor a cero.");
+          showError("Indique al menos un tier con categoría y porcentaje mayor a cero.");
           return;
         }
         payload.discountValue = 0;
@@ -496,7 +516,7 @@ function KioskSales() {
         comboPayQty: "1",
         kioskLocationId: "",
         audienceCategory: "",
-        tierPercents: { DAMA: "", CABALLERO: "", UNISEX: "" },
+        tiers: [{ audienceCategory: "CABALLERO", categoryId: "", discountValue: "" }],
         startDate: "",
         endDate: "",
         active: true,
