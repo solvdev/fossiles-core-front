@@ -1,5 +1,6 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  Alert,
   Button,
   Card,
   CardBody,
@@ -25,22 +26,40 @@ const EMPTY_TIER = { audienceCategory: "CABALLERO", categoryId: "", discountValu
 
 const DISCOUNT_TYPE_OPTIONS = [
   { value: "PERCENT", label: "Porcentaje (%)" },
-  { value: "TIERED_PERCENT", label: "Porcentaje por línea" },
+  {
+    value: "TIERED_PERCENT",
+    label: "Por audiencia + categoría (auto en caja)",
+    searchText: "porcentaje por linea tier categoria billeteras auto",
+  },
   { value: "FIXED", label: "Monto fijo (Q)" },
   { value: "COMBO", label: "Combo (2x1)" },
 ];
 
 function PosPromotionsTab({ promoForm, onPromoFormChange, promotions, onCreatePromotion, kiosks }) {
   const [categories, setCategories] = useState([]);
+  const [categoriesLoading, setCategoriesLoading] = useState(false);
+  const [categoriesError, setCategoriesError] = useState("");
   const isCombo = promoForm.discountType === "COMBO";
   const isTiered = promoForm.discountType === "TIERED_PERCENT";
   const tiers = promoForm.tiers?.length ? promoForm.tiers : [EMPTY_TIER];
 
-  useEffect(() => {
-    getProductCategories()
-      .then((rows) => setCategories(Array.isArray(rows) ? rows : []))
-      .catch(() => setCategories([]));
+  const loadCategories = useCallback(async () => {
+    try {
+      setCategoriesLoading(true);
+      setCategoriesError("");
+      const rows = await getProductCategories();
+      setCategories(Array.isArray(rows) ? rows : []);
+    } catch (err) {
+      setCategories([]);
+      setCategoriesError(err.message || "No se pudieron cargar las categorías.");
+    } finally {
+      setCategoriesLoading(false);
+    }
   }, []);
+
+  useEffect(() => {
+    loadCategories();
+  }, [loadCategories]);
 
   const kioskOptions = useMemo(
     () =>
@@ -148,13 +167,35 @@ function PosPromotionsTab({ promoForm, onPromoFormChange, promotions, onCreatePr
                 emptyLabel="Todas las líneas"
                 inputClassName="kiosk-pos-input-lg"
               />
+              <small className="text-muted d-block mt-1">
+                Para elegir categoría (ej. Billeteras), usa el tipo «Por audiencia + categoría».
+              </small>
             </Col>
           )}
         </Row>
+        {!isTiered && promoForm.discountType === "PERCENT" && (
+          <Alert color="info" className="mt-2 mb-0 py-2">
+            Las promociones que se aplican solas en caja requieren el tipo{" "}
+            <strong>Por audiencia + categoría</strong>. Ahí podrás elegir audiencia, categoría y % por fila.
+          </Alert>
+        )}
         <Row className="mt-2">
           {isTiered ? (
             <Col md="12">
-              <Label className="kiosk-pos-label">Tiers (audiencia + categoría + %)</Label>
+              <Alert color="light" className="py-2 mb-2">
+                Cada fila define: <strong>audiencia</strong> (Dama/Caballero/Unisex) +{" "}
+                <strong>categoría</strong> (ej. Billeteras) + <strong>%</strong>. El POS aplica el descuento
+                automáticamente cuando el producto cumple ambos criterios.
+              </Alert>
+              {categoriesError && (
+                <Alert color="warning" className="py-2 mb-2">
+                  {categoriesError}{" "}
+                  <button type="button" className="btn btn-link btn-sm p-0 align-baseline" onClick={loadCategories}>
+                    Reintentar
+                  </button>
+                </Alert>
+              )}
+              <Label className="kiosk-pos-label">Tiers — audiencia + categoría + descuento</Label>
               {tiers.map((tier, index) => (
                 <Row key={`promo-tier-row-${index}`} className="mb-2 align-items-end">
                   <Col md="3">
@@ -169,13 +210,15 @@ function PosPromotionsTab({ promoForm, onPromoFormChange, promotions, onCreatePr
                     />
                   </Col>
                   <Col md="4">
-                    <Label className="kiosk-pos-label small mb-1">Categoría</Label>
+                    <Label className="kiosk-pos-label small mb-1">Categoría de producto</Label>
                     <FilterableSelect
                       value={tier.categoryId ? String(tier.categoryId) : ""}
                       onChange={(value) => updateTier(index, { categoryId: value || "" })}
                       options={categoryOptions}
-                      placeholder="Buscar categoría..."
+                      placeholder={categoriesLoading ? "Cargando categorías..." : "Buscar categoría..."}
                       emptyLabel="Seleccione categoría"
+                      allowEmpty={false}
+                      disabled={categoriesLoading || categoryOptions.length === 0}
                       inputClassName="kiosk-pos-input-lg"
                     />
                   </Col>

@@ -490,17 +490,23 @@ function KioskSales() {
         payload.comboPayQty = Number(promoForm.comboPayQty || 0);
         payload.discountValue = 0;
       } else if (promoForm.discountType === "TIERED_PERCENT") {
-        payload.tiers = (promoForm.tiers || [])
+        const rawTiers = (promoForm.tiers || [])
           .map((tier) => ({
             audienceCategory: tier.audienceCategory,
             categoryId: tier.categoryId ? Number(tier.categoryId) : null,
             discountValue: Number(tier.discountValue || 0),
           }))
           .filter((tier) => tier.categoryId && tier.discountValue > 0);
-        if (!payload.tiers.length) {
+        if (!rawTiers.length) {
           showError("Indique al menos un tier con categoría y porcentaje mayor a cero.");
           return;
         }
+        const tierKeys = rawTiers.map((tier) => `${tier.audienceCategory}:${tier.categoryId}`);
+        if (new Set(tierKeys).size !== tierKeys.length) {
+          showError("No puede repetir la misma audiencia y categoría en dos tiers.");
+          return;
+        }
+        payload.tiers = rawTiers;
         payload.discountValue = 0;
         payload.audienceCategory = null;
       } else {
