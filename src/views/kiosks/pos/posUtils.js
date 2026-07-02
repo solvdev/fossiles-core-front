@@ -1,6 +1,8 @@
 import {
   filterCartLinesForPromotion,
   productMatchesAudienceFilter,
+  buildPromotionTierMap,
+  normalizeAudienceCategory,
 } from "utils/productAudienceHelper";
 import { hasInventorySizeBreakdown } from "utils/inventoryVariantHelper";
 import { isPackagingProductCode } from "utils/kioskPackagingHelper";
@@ -360,6 +362,20 @@ export const saleNeedsFelCertification = (sale, requestInvoice) => {
 
 export const estimatePromotionDiscount = (subtotal, promotion, cartLines) => {
   if (!promotion || subtotal <= 0) return 0;
+  const type = String(promotion.discountType || "").toUpperCase();
+  if (type.includes("TIERED")) {
+    const tierMap = buildPromotionTierMap(promotion);
+    if (!Object.keys(tierMap).length) return 0;
+    const discount = (cartLines || []).reduce((sum, line) => {
+      const audience = normalizeAudienceCategory(line?.audienceCategory);
+      const pct = Number(tierMap[audience] || 0);
+      if (pct <= 0) return sum;
+      const qty = Number(line.quantity || 0);
+      const price = Number(line.unitPrice || 0);
+      return sum + (qty * price * pct) / 100;
+    }, 0);
+    return Math.min(subtotal, discount);
+  }
   const eligibleLines = promotion.isQuickPercent
     ? cartLines || []
     : filterCartLinesForPromotion(cartLines, promotion.audienceCategory);
@@ -369,7 +385,6 @@ export const estimatePromotionDiscount = (subtotal, promotion, cartLines) => {
     return sum + qty * price;
   }, 0);
   if (eligibleSubtotal <= 0) return 0;
-  const type = String(promotion.discountType || "").toUpperCase();
   const value = Number(promotion.discountValue || 0);
   if (type.includes("COMBO")) {
     const buy = Number(promotion.comboBuyQty || 0);

@@ -95,6 +95,7 @@ function KioskSales() {
     comboPayQty: "1",
     kioskLocationId: "",
     audienceCategory: "",
+    tierPercents: { DAMA: "", CABALLERO: "", UNISEX: "" },
     startDate: "",
     endDate: "",
     active: true,
@@ -467,6 +468,20 @@ function KioskSales() {
         payload.comboBuyQty = Number(promoForm.comboBuyQty || 0);
         payload.comboPayQty = Number(promoForm.comboPayQty || 0);
         payload.discountValue = 0;
+      } else if (promoForm.discountType === "TIERED_PERCENT") {
+        const tierPercents = promoForm.tierPercents || {};
+        payload.tiers = ["DAMA", "CABALLERO", "UNISEX"]
+          .map((audienceCategory) => ({
+            audienceCategory,
+            discountValue: Number(tierPercents[audienceCategory] || 0),
+          }))
+          .filter((tier) => tier.discountValue > 0);
+        if (!payload.tiers.length) {
+          showError("Indique al menos un porcentaje por línea mayor a cero.");
+          return;
+        }
+        payload.discountValue = 0;
+        payload.audienceCategory = null;
       } else {
         payload.discountValue = Number(promoForm.discountValue || 0);
       }
@@ -480,6 +495,7 @@ function KioskSales() {
         comboPayQty: "1",
         kioskLocationId: "",
         audienceCategory: "",
+        tierPercents: { DAMA: "", CABALLERO: "", UNISEX: "" },
         startDate: "",
         endDate: "",
         active: true,

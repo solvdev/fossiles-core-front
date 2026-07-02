@@ -10,6 +10,8 @@ export const PROMO_AUDIENCE_OPTIONS = [
   { value: "CABALLERO", label: "Caballero" },
 ];
 
+export const PROMO_TIER_AUDIENCE_OPTIONS = PRODUCT_AUDIENCE_OPTIONS;
+
 export const normalizeAudienceCategory = (value) => {
   const v = String(value || "UNISEX")
     .trim()
@@ -47,7 +49,29 @@ export const lineMatchesPromotionAudience = (line, promoAudience) => {
 export const filterCartLinesForPromotion = (cartLines, promoAudience) =>
   (cartLines || []).filter((line) => lineMatchesPromotionAudience(line, promoAudience));
 
+export const buildPromotionTierMap = (promotion) => {
+  const map = {};
+  (promotion?.tiers || []).forEach((tier) => {
+    const audience = normalizeAudienceCategory(tier?.audienceCategory);
+    map[audience] = Number(tier?.discountValue || 0);
+  });
+  return map;
+};
+
+export const formatPromotionTierSummary = (promotion) => {
+  const tiers = (promotion?.tiers || []).filter((tier) => Number(tier?.discountValue || 0) > 0);
+  if (!tiers.length) return "";
+  return tiers
+    .map((tier) => `${getProductAudienceLabel(tier.audienceCategory)} ${Number(tier.discountValue)}%`)
+    .join(" · ");
+};
+
 export const formatPromotionOptionLabel = (promo) => {
+  const type = String(promo?.discountType || "").toUpperCase();
+  if (type.includes("TIERED")) {
+    const tierSummary = formatPromotionTierSummary(promo);
+    return tierSummary ? `${promo?.name || "Promoción"} · ${tierSummary}` : promo?.name || "Promoción";
+  }
   const audience = promo?.audienceCategory ? ` · ${getPromoAudienceLabel(promo.audienceCategory)}` : "";
   return `${promo?.name || "Promoción"}${audience}`;
 };

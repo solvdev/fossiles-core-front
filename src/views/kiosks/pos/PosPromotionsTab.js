@@ -11,11 +11,14 @@ import {
   Row,
   Table,
 } from "reactstrap";
-import { PROMO_AUDIENCE_OPTIONS, getPromoAudienceLabel } from "utils/productAudienceHelper";
+import { PROMO_AUDIENCE_OPTIONS, PROMO_TIER_AUDIENCE_OPTIONS, formatPromotionTierSummary, getPromoAudienceLabel } from "utils/productAudienceHelper";
 import { formatCurrency } from "./posUtils";
+
+const EMPTY_TIER_PERCENTS = { DAMA: "", CABALLERO: "", UNISEX: "" };
 
 function PosPromotionsTab({ promoForm, onPromoFormChange, promotions, onCreatePromotion, kiosks }) {
   const isCombo = promoForm.discountType === "COMBO";
+  const isTiered = promoForm.discountType === "TIERED_PERCENT";
 
   return (
     <Card className="kiosk-pos-block">
@@ -41,6 +44,7 @@ function PosPromotionsTab({ promoForm, onPromoFormChange, promotions, onCreatePr
               onChange={(e) => onPromoFormChange({ discountType: e.target.value })}
             >
               <option value="PERCENT">Porcentaje (%)</option>
+              <option value="TIERED_PERCENT">Porcentaje por línea</option>
               <option value="FIXED">Monto fijo (Q)</option>
               <option value="COMBO">Combo (2x1)</option>
             </Input>
@@ -61,24 +65,48 @@ function PosPromotionsTab({ promoForm, onPromoFormChange, promotions, onCreatePr
               ))}
             </Input>
           </Col>
-          <Col md="4">
-            <Label className="kiosk-pos-label">Línea (vacío = todas)</Label>
-            <Input
-              className="kiosk-pos-input-lg"
-              type="select"
-              value={promoForm.audienceCategory}
-              onChange={(e) => onPromoFormChange({ audienceCategory: e.target.value })}
-            >
-              {PROMO_AUDIENCE_OPTIONS.map((opt) => (
-                <option key={`promo-aud-${opt.value || "all"}`} value={opt.value}>
-                  {opt.label}
-                </option>
-              ))}
-            </Input>
-          </Col>
+          {!isTiered && (
+            <Col md="4">
+              <Label className="kiosk-pos-label">Línea (vacío = todas)</Label>
+              <Input
+                className="kiosk-pos-input-lg"
+                type="select"
+                value={promoForm.audienceCategory}
+                onChange={(e) => onPromoFormChange({ audienceCategory: e.target.value })}
+              >
+                {PROMO_AUDIENCE_OPTIONS.map((opt) => (
+                  <option key={`promo-aud-${opt.value || "all"}`} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </Input>
+            </Col>
+          )}
         </Row>
         <Row className="mt-2">
-          {isCombo ? (
+          {isTiered ? (
+            PROMO_TIER_AUDIENCE_OPTIONS.map((opt) => (
+              <Col md="4" key={`promo-tier-${opt.value}`}>
+                <Label className="kiosk-pos-label">% {opt.label}</Label>
+                <Input
+                  className="kiosk-pos-input-lg"
+                  type="number"
+                  min="0"
+                  max="100"
+                  step="0.01"
+                  value={(promoForm.tierPercents || EMPTY_TIER_PERCENTS)[opt.value] || ""}
+                  onChange={(e) =>
+                    onPromoFormChange({
+                      tierPercents: {
+                        ...(promoForm.tierPercents || EMPTY_TIER_PERCENTS),
+                        [opt.value]: e.target.value,
+                      },
+                    })
+                  }
+                />
+              </Col>
+            ))
+          ) : isCombo ? (
             <>
               <Col md="3">
                 <Label className="kiosk-pos-label">Lleva (uds)</Label>
@@ -155,18 +183,26 @@ function PosPromotionsTab({ promoForm, onPromoFormChange, promotions, onCreatePr
                 <td>
                   {promo.discountType === "COMBO"
                     ? `Combo ${promo.comboBuyQty}x${promo.comboPayQty}`
-                    : promo.discountType === "PERCENT"
-                      ? "Porcentaje"
-                      : "Monto fijo"}
+                    : String(promo.discountType || "").toUpperCase().includes("TIERED")
+                      ? "Por línea"
+                      : promo.discountType === "PERCENT"
+                        ? "Porcentaje"
+                        : "Monto fijo"}
                 </td>
                 <td>
-                  {promo.discountType === "PERCENT"
-                    ? `${promo.discountValue}%`
-                    : promo.discountType === "COMBO"
-                      ? "-"
-                      : formatCurrency(promo.discountValue)}
+                  {String(promo.discountType || "").toUpperCase().includes("TIERED")
+                    ? formatPromotionTierSummary(promo) || "-"
+                    : promo.discountType === "PERCENT"
+                      ? `${promo.discountValue}%`
+                      : promo.discountType === "COMBO"
+                        ? "-"
+                        : formatCurrency(promo.discountValue)}
                 </td>
-                <td>{getPromoAudienceLabel(promo.audienceCategory)}</td>
+                <td>
+                  {String(promo.discountType || "").toUpperCase().includes("TIERED")
+                    ? "Por línea"
+                    : getPromoAudienceLabel(promo.audienceCategory)}
+                </td>
                 <td>{promo.kioskLocationId ? promo.kioskLocationId : "Todos"}</td>
                 <td>
                   {(promo.startDate || "-")} - {(promo.endDate || "-")}
