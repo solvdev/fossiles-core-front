@@ -215,6 +215,17 @@ export const updateKioskPromotion = async (id, payload) => {
   return parseJson(response, "No se pudo actualizar la promoción.");
 };
 
+export const deleteKioskPromotion = async (id) => {
+  const response = await fetch(`${API_URL}/kiosk-pos/promotions/${id}`, {
+    method: "DELETE",
+    headers: headers(),
+  });
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({ message: "No se pudo eliminar la promoción." }));
+    throw new Error(errorData.message || "No se pudo eliminar la promoción.");
+  }
+};
+
 export const registerDepositSlip = async (saleId, payload, kioskLocationId) => {
   const response = await fetch(
     `${API_URL}/kiosk-pos/sales/${saleId}/deposit-slip${toQuery({ kioskLocationId })}`,

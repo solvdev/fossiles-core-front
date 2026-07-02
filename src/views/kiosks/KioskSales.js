@@ -20,6 +20,7 @@ import {
 import {
   createKioskPosSale,
   createKioskPromotion,
+  deleteKioskPromotion,
   getCurrentCashSession,
   getKioskPosContext,
   getKioskPromotions,
@@ -110,6 +111,7 @@ function KioskSales() {
   const [cashSessionLoading, setCashSessionLoading] = useState(false);
   const [pendingDepositSummary, setPendingDepositSummary] = useState(null);
   const [pendingReceiptCount, setPendingReceiptCount] = useState(0);
+  const [deletingPromotionId, setDeletingPromotionId] = useState(null);
 
   const today = useMemo(() => getTodayYmdGuatemala(), []);
 
@@ -348,7 +350,7 @@ function KioskSales() {
       };
     }
 
-    const auto = estimateAutoPromotionDiscount(cart, promotions);
+    const auto = estimateAutoPromotionDiscount(cart, promotions, subtotal.total);
     return {
       items: subtotal.items,
       total: subtotal.total,
@@ -532,6 +534,28 @@ function KioskSales() {
       setPromotions(Array.isArray(promoRows) ? promoRows : []);
     } catch (err) {
       showError(err.message || "No se pudo crear la promoción.");
+    }
+  };
+
+  const deletePromotion = async (promo) => {
+    if (!promo?.id) return;
+    const promoName = promo.name || "esta promoción";
+    if (!window.confirm(`¿Eliminar "${promoName}"? Esta acción no se puede deshacer.`)) {
+      return;
+    }
+    try {
+      setDeletingPromotionId(promo.id);
+      await deleteKioskPromotion(promo.id);
+      if (String(selectedPromotionId) === String(promo.id)) {
+        setSelectedPromotionId("");
+      }
+      showSuccess("Promoción eliminada correctamente.");
+      const promoRows = await getKioskPromotions(true, selectedKioskId || undefined);
+      setPromotions(Array.isArray(promoRows) ? promoRows : []);
+    } catch (err) {
+      showError(err.message || "No se pudo eliminar la promoción.");
+    } finally {
+      setDeletingPromotionId(null);
     }
   };
 
@@ -877,6 +901,8 @@ function KioskSales() {
                       onPromoFormChange={(patch) => setPromoForm((prev) => ({ ...prev, ...patch }))}
                       promotions={promotions}
                       onCreatePromotion={createPromotion}
+                      onDeletePromotion={deletePromotion}
+                      deletingPromotionId={deletingPromotionId}
                       kiosks={context.kiosks}
                     />
                   )}

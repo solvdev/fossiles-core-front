@@ -366,13 +366,28 @@ export const isDiscountEligibleCartLine = (line) =>
 export const filterDiscountEligibleCartLines = (cartLines) =>
   (cartLines || []).filter(isDiscountEligibleCartLine);
 
-export const estimateAutoPromotionDiscount = (cartLines, activePromotions) => {
-  const tieredPromos = (activePromotions || []).filter((promo) =>
+export const estimateAutoPromotionDiscount = (cartLines, activePromotions, subtotal = 0) => {
+  const promos = activePromotions || [];
+  if (!promos.length) {
+    return { discount: 0, autoApplied: false, promotionName: null, promotionId: null };
+  }
+
+  const cartSubtotal =
+    subtotal > 0
+      ? subtotal
+      : (cartLines || []).reduce(
+          (sum, line) => sum + Number(line.quantity || 0) * Number(line.unitPrice || 0),
+          0
+        );
+
+  let bestDiscount = 0;
+  let promotionName = null;
+  let promotionId = null;
+
+  const tieredPromos = promos.filter((promo) =>
     String(promo?.discountType || "").toUpperCase().includes("TIERED")
   );
-  if (!tieredPromos.length) return { discount: 0, autoApplied: false, promotionName: null };
-
-  const discount = filterDiscountEligibleCartLines(cartLines).reduce((sum, line) => {
+  const tieredDiscount = filterDiscountEligibleCartLines(cartLines).reduce((sum, line) => {
     const pct = resolveBestTierPercentForLine(line, tieredPromos);
     if (pct <= 0) return sum;
     const qty = Number(line.quantity || 0);
@@ -380,8 +395,33 @@ export const estimateAutoPromotionDiscount = (cartLines, activePromotions) => {
     return sum + (qty * price * pct) / 100;
   }, 0);
 
-  if (discount <= 0) return { discount: 0, autoApplied: false, promotionName: null };
-  return { discount, autoApplied: true, promotionName: "Promoción automática" };
+  if (tieredDiscount > bestDiscount) {
+    bestDiscount = tieredDiscount;
+    promotionName = "Promoción automática";
+    promotionId = null;
+  }
+
+  promos
+    .filter((promo) => !String(promo?.discountType || "").toUpperCase().includes("TIERED"))
+    .forEach((promo) => {
+      const discount = estimatePromotionDiscount(cartSubtotal, promo, cartLines);
+      if (discount > bestDiscount) {
+        bestDiscount = discount;
+        promotionName = promo.name || "Promoción automática";
+        promotionId = promo.id ?? null;
+      }
+    });
+
+  if (bestDiscount <= 0) {
+    return { discount: 0, autoApplied: false, promotionName: null, promotionId: null };
+  }
+
+  return {
+    discount: Math.min(cartSubtotal, bestDiscount),
+    autoApplied: true,
+    promotionName,
+    promotionId,
+  };
 };
 
 export const estimatePromotionDiscount = (subtotal, promotion, cartLines) => {

@@ -35,7 +35,15 @@ const DISCOUNT_TYPE_OPTIONS = [
   { value: "COMBO", label: "Combo (2x1)" },
 ];
 
-function PosPromotionsTab({ promoForm, onPromoFormChange, promotions, onCreatePromotion, kiosks }) {
+function PosPromotionsTab({
+  promoForm,
+  onPromoFormChange,
+  promotions,
+  onCreatePromotion,
+  onDeletePromotion,
+  deletingPromotionId,
+  kiosks,
+}) {
   const [categories, setCategories] = useState([]);
   const [categoriesLoading, setCategoriesLoading] = useState(false);
   const [categoriesError, setCategoriesError] = useState("");
@@ -168,24 +176,23 @@ function PosPromotionsTab({ promoForm, onPromoFormChange, promotions, onCreatePr
                 inputClassName="kiosk-pos-input-lg"
               />
               <small className="text-muted d-block mt-1">
-                Para elegir categoría (ej. Billeteras), usa el tipo «Por audiencia + categoría».
+                Todas las promociones se aplican solas en caja. Para tiers por categoría, usa el tipo «Por audiencia + categoría».
               </small>
             </Col>
           )}
         </Row>
         {!isTiered && promoForm.discountType === "PERCENT" && (
           <Alert color="info" className="mt-2 mb-0 py-2">
-            Las promociones que se aplican solas en caja requieren el tipo{" "}
-            <strong>Por audiencia + categoría</strong>. Ahí podrás elegir audiencia, categoría y % por fila.
+            Las promociones vigentes se aplican solas en caja. Para descuentos distintos por categoría, usa{" "}
+            <strong>Por audiencia + categoría</strong>.
           </Alert>
         )}
         <Row className="mt-2">
           {isTiered ? (
             <Col md="12">
               <Alert color="light" className="py-2 mb-2">
-                Cada fila define: <strong>audiencia</strong> (Dama/Caballero/Unisex) +{" "}
-                <strong>categoría</strong> (ej. Billeteras) + <strong>%</strong>. El POS aplica el descuento
-                automáticamente cuando el producto cumple ambos criterios.
+                Cada fila define audiencia + categoría + %. Se aplica sola en caja cuando el producto cumple ambos
+                criterios. Si hay varias promos vigentes, el sistema usa la que más beneficio da al cliente.
               </Alert>
               {categoriesError && (
                 <Alert color="warning" className="py-2 mb-2">
@@ -319,10 +326,18 @@ function PosPromotionsTab({ promoForm, onPromoFormChange, promotions, onCreatePr
               <th>Línea</th>
               <th>Kiosko</th>
               <th>Vigencia</th>
+              <th style={{ width: 100 }}>Acciones</th>
             </tr>
           </thead>
           <tbody>
-            {(promotions || []).map((promo) => (
+            {(promotions || []).length === 0 ? (
+              <tr>
+                <td colSpan={7} className="text-muted text-center">
+                  No hay promociones vigentes.
+                </td>
+              </tr>
+            ) : (
+              (promotions || []).map((promo) => (
               <tr key={`tbl-promo-${promo.id}`}>
                 <td>{promo.name}</td>
                 <td>
@@ -352,8 +367,20 @@ function PosPromotionsTab({ promoForm, onPromoFormChange, promotions, onCreatePr
                 <td>
                   {(promo.startDate || "-")} - {(promo.endDate || "-")}
                 </td>
+                <td>
+                  <Button
+                    color="danger"
+                    outline
+                    size="sm"
+                    disabled={deletingPromotionId === promo.id}
+                    onClick={() => onDeletePromotion?.(promo)}
+                  >
+                    {deletingPromotionId === promo.id ? "..." : "Eliminar"}
+                  </Button>
+                </td>
               </tr>
-            ))}
+              ))
+            )}
           </tbody>
         </Table>
       </CardBody>

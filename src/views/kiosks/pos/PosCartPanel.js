@@ -91,8 +91,8 @@ function PosCartPanel({
               <div className="kiosk-pos-totals-row">
                 <span>
                   Descuento
-                  {cartTotals.autoApplied && (
-                    <span className="text-muted small d-block">Descuento automático aplicado</span>
+                  {cartTotals.autoApplied && cartTotals.promotionName && (
+                    <span className="text-muted small d-block">{cartTotals.promotionName}</span>
                   )}
                 </span>
                 <span style={{ color: "#1D9E75" }}>-{formatCurrency(cartTotals.discount)}</span>
