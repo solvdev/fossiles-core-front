@@ -64,6 +64,7 @@ import { deskDisplayLabel } from "utils/deskSupervisorDisplay";
 import {
   buildCinchoDayBoardRows,
   deliveredStatusMapFromApi,
+  filterPendingCinchoRows,
   orderWorkAnchorYmd,
   workStatusMapFromApi,
 } from "utils/cinchoDayBoardHelper";
@@ -1315,12 +1316,46 @@ function TasksByTable() {
     return map;
   }, [productionOrdersForCinchos, scheduleByDate, filterDate]);
 
+  const pendingCinchoRowsByDate = useMemo(() => {
+    const map = {};
+    Object.entries(cinchoRowsByDate).forEach(([date, rows]) => {
+      const pending = filterPendingCinchoRows(
+        rows,
+        cinchoDeliveredByDate[date] || {},
+        cinchoWorkStatusByDate[date] || {}
+      );
+      if (pending.length) map[date] = pending;
+    });
+    return map;
+  }, [cinchoRowsByDate, cinchoDeliveredByDate, cinchoWorkStatusByDate]);
+
   const scheduleViewDates = useMemo(() => {
-    if (filterDate) return [filterDate];
+    const dateHasVisibleWork = (date) => {
+      if (Object.keys(scheduleByDate[date] || {}).length > 0) return true;
+      if ((pendingCinchoRowsByDate[date] || []).length > 0) return true;
+      if (
+        cinchoStatusLoadingByDate[date]
+        && (cinchoRowsByDate[date] || []).length > 0
+      ) {
+        return true;
+      }
+      return false;
+    };
+
+    if (filterDate) {
+      return dateHasVisibleWork(filterDate) ? [filterDate] : [];
+    }
+
     const dates = new Set(Object.keys(scheduleByDate || {}));
     Object.keys(cinchoRowsByDate).forEach((d) => dates.add(d));
-    return [...dates].sort();
-  }, [scheduleByDate, cinchoRowsByDate, filterDate]);
+    return [...dates].filter(dateHasVisibleWork).sort();
+  }, [
+    scheduleByDate,
+    cinchoRowsByDate,
+    pendingCinchoRowsByDate,
+    cinchoStatusLoadingByDate,
+    filterDate,
+  ]);
 
   const refreshCinchoDayStatusesForDates = useCallback(async (dateStrList) => {
     const unique = [...new Set(dateStrList)].filter(Boolean);
@@ -2330,7 +2365,7 @@ function TasksByTable() {
                         </div>
                       ) : (
                         scheduleViewDates.map((date) => {
-                          const cinchoRows = cinchoRowsByDate[date] || [];
+                          const cinchoRows = pendingCinchoRowsByDate[date] || [];
                           const deskMap = scheduleByDate[date] || {};
                           const deskKeys = Object.keys(deskMap);
                           const taskCount = Object.values(deskMap).flat().length;

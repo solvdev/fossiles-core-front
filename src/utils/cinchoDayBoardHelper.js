@@ -148,3 +148,18 @@ export function isRowDelivered(row, deliveredMap) {
   if (id == null) return false;
   return Boolean(deliveredMap[id] ?? deliveredMap[String(id)]);
 }
+
+/** Línea terminada en mesa cinchos: completada y marcada como entregada. */
+export function isCinchoRowFullyDone(row, deliveredMap, workStatusMap) {
+  return (
+    rowWorkStatus(row, workStatusMap) === CINCHO_WORK_STATUS.COMPLETED
+    && isRowDelivered(row, deliveredMap)
+  );
+}
+
+/** Solo filas con trabajo pendiente (no completadas+entregadas). */
+export function filterPendingCinchoRows(rows, deliveredMap, workStatusMap) {
+  return (rows || []).filter(
+    (row) => !isCinchoRowFullyDone(row, deliveredMap, workStatusMap)
+  );
+}
