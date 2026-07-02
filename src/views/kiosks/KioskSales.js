@@ -75,6 +75,7 @@ function KioskSales() {
   const [sales, setSales] = useState([]);
   const [myReport, setMyReport] = useState(null);
   const [promotions, setPromotions] = useState([]);
+  const [adminPromotions, setAdminPromotions] = useState([]);
   const [selectedPromotionId, setSelectedPromotionId] = useState("");
   const [productSearch, setProductSearch] = useState("");
   const [catalogView, setCatalogView] = useState("PRODUCTS");
@@ -198,9 +199,24 @@ function KioskSales() {
     }
   };
 
+  const loadAdminPromotions = async () => {
+    try {
+      const promoRows = await getKioskPromotions(false);
+      setAdminPromotions(Array.isArray(promoRows) ? promoRows : []);
+    } catch {
+      setAdminPromotions([]);
+    }
+  };
+
   useEffect(() => {
     loadInitial();
   }, []);
+
+  useEffect(() => {
+    if (activeTab === "PROMOS" && context?.admin) {
+      loadAdminPromotions();
+    }
+  }, [activeTab, context?.admin]);
 
   useEffect(() => {
     if (!selectedKioskId || activeTab !== "POS") return;
@@ -530,8 +546,12 @@ function KioskSales() {
         active: true,
       });
       showSuccess("Promoción creada correctamente.");
-      const promoRows = await getKioskPromotions(true, selectedKioskId || undefined);
-      setPromotions(Array.isArray(promoRows) ? promoRows : []);
+      await Promise.all([
+        loadAdminPromotions(),
+        getKioskPromotions(true, selectedKioskId || undefined).then((rows) =>
+          setPromotions(Array.isArray(rows) ? rows : [])
+        ),
+      ]);
     } catch (err) {
       showError(err.message || "No se pudo crear la promoción.");
     }
@@ -550,8 +570,12 @@ function KioskSales() {
         setSelectedPromotionId("");
       }
       showSuccess("Promoción eliminada correctamente.");
-      const promoRows = await getKioskPromotions(true, selectedKioskId || undefined);
-      setPromotions(Array.isArray(promoRows) ? promoRows : []);
+      await Promise.all([
+        loadAdminPromotions(),
+        getKioskPromotions(true, selectedKioskId || undefined).then((rows) =>
+          setPromotions(Array.isArray(rows) ? rows : [])
+        ),
+      ]);
     } catch (err) {
       showError(err.message || "No se pudo eliminar la promoción.");
     } finally {
@@ -899,7 +923,7 @@ function KioskSales() {
                     <PosPromotionsTab
                       promoForm={promoForm}
                       onPromoFormChange={(patch) => setPromoForm((prev) => ({ ...prev, ...patch }))}
-                      promotions={promotions}
+                      promotions={adminPromotions}
                       onCreatePromotion={createPromotion}
                       onDeletePromotion={deletePromotion}
                       deletingPromotionId={deletingPromotionId}

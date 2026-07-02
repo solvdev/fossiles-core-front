@@ -14,6 +14,7 @@ import {
 } from "reactstrap";
 import FilterableSelect from "components/distribution/FilterableSelect";
 import { getProductCategories } from "services/productCategoryService";
+import { getTodayYmdGuatemala } from "utils/dateTimeHelper";
 import {
   PROMO_AUDIENCE_OPTIONS,
   PROMO_TIER_AUDIENCE_OPTIONS,
@@ -50,6 +51,20 @@ function PosPromotionsTab({
   const isCombo = promoForm.discountType === "COMBO";
   const isTiered = promoForm.discountType === "TIERED_PERCENT";
   const tiers = promoForm.tiers?.length ? promoForm.tiers : [EMPTY_TIER];
+
+  const kioskNameById = useMemo(() => {
+    const map = new Map();
+    (kiosks || []).forEach((k) => map.set(String(k.kioskId), k.kioskName || k.kioskCode || String(k.kioskId)));
+    return map;
+  }, [kiosks]);
+
+  const promoStatusLabel = (promo) => {
+    if (promo?.active === false) return "Inactiva";
+    const today = getTodayYmdGuatemala();
+    if (promo?.startDate && promo.startDate > today) return "Programada";
+    if (promo?.endDate && promo.endDate < today) return "Vencida";
+    return "Vigente";
+  };
 
   const loadCategories = useCallback(async () => {
     try {
@@ -326,14 +341,15 @@ function PosPromotionsTab({
               <th>Línea</th>
               <th>Kiosko</th>
               <th>Vigencia</th>
+              <th>Estado</th>
               <th style={{ width: 100 }}>Acciones</th>
             </tr>
           </thead>
           <tbody>
             {(promotions || []).length === 0 ? (
               <tr>
-                <td colSpan={7} className="text-muted text-center">
-                  No hay promociones vigentes.
+                <td colSpan={8} className="text-muted text-center">
+                  No hay promociones registradas.
                 </td>
               </tr>
             ) : (
@@ -363,10 +379,15 @@ function PosPromotionsTab({
                     ? "Audiencia + categoría"
                     : getPromoAudienceLabel(promo.audienceCategory)}
                 </td>
-                <td>{promo.kioskLocationId ? promo.kioskLocationId : "Todos"}</td>
+                <td>
+                  {promo.kioskLocationId
+                    ? kioskNameById.get(String(promo.kioskLocationId)) || promo.kioskLocationId
+                    : "Todos"}
+                </td>
                 <td>
                   {(promo.startDate || "-")} - {(promo.endDate || "-")}
                 </td>
+                <td>{promoStatusLabel(promo)}</td>
                 <td>
                   <Button
                     color="danger"
