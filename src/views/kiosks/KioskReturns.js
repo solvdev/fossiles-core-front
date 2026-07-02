@@ -29,6 +29,7 @@ import {
   openExchangeSlipPrintWindow,
 } from "utils/kioskExchangeSlipPrint";
 import { formatCurrency, formatQty } from "./pos/posUtils";
+import "./KioskSales.css";
 import ExchangeSlipWizard from "./returns/ExchangeSlipWizard";
 import SimpleReturnWizard from "./returns/SimpleReturnWizard";
 
