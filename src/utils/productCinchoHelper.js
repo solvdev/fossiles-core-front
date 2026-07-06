@@ -60,3 +60,29 @@ export const formatSystemSizesText = (sizes) => {
 
 export const resolveSizesSummary = (row) =>
   row?.sizesSummary || formatSystemSizesText(row?.systemSizes) || "";
+
+export const resolvePhysicalSizesSummary = (row) =>
+  row?.physicalSizesSummary || formatSystemSizesText(row?.physicalSizes) || "";
+
+export const isCinchoProductRow = (row) =>
+  !!normalizeCinchoType(row?.cinchoType) && !row?.packaging;
+
+export const sortSizeKeys = (keys) =>
+  [...keys].sort((a, b) => {
+    const na = Number(a);
+    const nb = Number(b);
+    if (!Number.isNaN(na) && !Number.isNaN(nb)) return na - nb;
+    return String(a).localeCompare(String(b), undefined, { numeric: true });
+  });
+
+export const sumSizeCounts = (sizes) =>
+  Object.values(sizes || {}).reduce((sum, qty) => sum + Number(qty || 0), 0);
+
+export const collectSizeKeysForRows = (rows) => {
+  const keys = new Set();
+  (rows || []).forEach((row) => {
+    Object.keys(row?.systemSizes || {}).forEach((size) => keys.add(size));
+    Object.keys(row?.physicalSizes || {}).forEach((size) => keys.add(size));
+  });
+  return sortSizeKeys(keys);
+};
