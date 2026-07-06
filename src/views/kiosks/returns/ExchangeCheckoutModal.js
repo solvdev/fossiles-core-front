@@ -37,7 +37,6 @@ function ExchangeCheckoutModal({
   const [cardLast4, setCardLast4] = useState("");
   const [customerTaxId, setCustomerTaxId] = useState("CF");
   const [customerName, setCustomerName] = useState("CONSUMIDOR FINAL");
-  const [requestInvoice, setRequestInvoice] = useState(false);
   const [taxLookupLoading, setTaxLookupLoading] = useState(false);
   const [taxLookupError, setTaxLookupError] = useState("");
 
@@ -51,7 +50,6 @@ function ExchangeCheckoutModal({
     setCardLast4("");
     setCustomerTaxId("CF");
     setCustomerName("CONSUMIDOR FINAL");
-    setRequestInvoice(false);
     setTaxLookupError("");
   }, [isOpen]);
 
@@ -94,7 +92,6 @@ function ExchangeCheckoutModal({
     setTaxLookupError("");
     if (normalizeNit(value) === "CF") {
       setCustomerName("CONSUMIDOR FINAL");
-      setRequestInvoice(false);
     }
   };
 
@@ -145,7 +142,7 @@ function ExchangeCheckoutModal({
       customerTaxId: normalizedTaxId,
       customerName:
         normalizedTaxId === "CF" ? "CONSUMIDOR FINAL" : String(customerName || "").trim(),
-      requestInvoice: normalizedTaxId === "CF" ? requestInvoice : true,
+      requestInvoice: true,
       reason: reason || null,
       observations: observations || null,
     });
@@ -244,20 +241,9 @@ function ExchangeCheckoutModal({
           {invoiceIncomplete && !taxLookupError && (
             <div className="text-warning small mt-1">Consulte el NIT para obtener el nombre en factura</div>
           )}
-          {normalizeNit(customerTaxId) === "CF" && (
-            <div className="custom-control custom-checkbox mt-2">
-              <input
-                className="custom-control-input"
-                type="checkbox"
-                id="exchange-request-invoice"
-                checked={requestInvoice}
-                onChange={(e) => setRequestInvoice(e.target.checked)}
-              />
-              <label className="custom-control-label" htmlFor="exchange-request-invoice">
-                Emitir factura electrónica (CF)
-              </label>
-            </div>
-          )}
+          <div className="text-muted small mt-2">
+            Toda venta genera factura electrónica. Por defecto CF; consulte NIT si el cliente la pide a nombre.
+          </div>
         </div>
 
         <div className="kiosk-pos-checkout-section">

@@ -28,7 +28,7 @@ function PosCartPanel({
 
         <div className="kiosk-pos-customer-btn text-muted small mb-2" style={{ cursor: "default" }}>
           <i className="nc-icon nc-paper" />
-          Factura: se define al cobrar (NIT / CF)
+          Factura electrónica obligatoria (CF por defecto o NIT al cobrar)
         </div>
 
         <div className="kiosk-pos-cart-wrap">

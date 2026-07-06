@@ -435,7 +435,7 @@ function KioskSales() {
         comments: checkoutData.comments,
         promotionId: promoPayload.promotionId,
         manualDiscountPercent: promoPayload.manualDiscountPercent,
-        requestInvoice: checkoutData.requestInvoice === true,
+        requestInvoice: true,
         saleDate: today,
         items: cart.map((line) => ({
           productId: line.productId,
@@ -452,7 +452,7 @@ function KioskSales() {
       setSelectedPromotionId("");
       await loadInitial(selectedKioskId || undefined);
 
-      if (saleNeedsFelCertification(sale, checkoutData.requestInvoice) && !sale?.invoice?.felUuid && !sale?.felUuid) {
+      if (saleNeedsFelCertification(sale)) {
         setPendingFelSale(sale);
       } else {
         setLastSale(sale);

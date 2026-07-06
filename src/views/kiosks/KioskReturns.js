@@ -31,6 +31,13 @@ import {
   listPendingAuthorizations,
   rejectKioskExchange,
 } from "services/kioskExchangeService";
+import { getKioscoMovimientos } from "services/kioscoInventoryService";
+import { formatDateTimeGt } from "utils/dateTimeHelper";
+import {
+  formatKioscoMovementReference,
+  formatKioscoMovementRoute,
+  getKioscoMovementSignedQuantity,
+} from "utils/kioskMovementHelper";
 import {
   buildKioskExchangeSlipPrintHtml,
   buildKioskReturnSlipPrintHtml,
@@ -71,6 +78,7 @@ function KioskReturns() {
   const [locations, setLocations] = useState([]);
   const [exchanges, setExchanges] = useState([]);
   const [returns, setReturns] = useState([]);
+  const [depositReturns, setDepositReturns] = useState([]);
   const [pendingAuthorizations, setPendingAuthorizations] = useState([]);
   const [loading, setLoading] = useState(false);
   const [actionId, setActionId] = useState(null);
@@ -99,18 +107,36 @@ function KioskReturns() {
     }
   };
 
-  const loadData = async (kioskId = selectedKiosk) => {
+  const loadDepositReturns = async (kioskId, kioskList) => {
+    const kioskIds = kioskId
+      ? [Number(kioskId)]
+      : (kioskList || []).map((location) => location.id).filter(Boolean);
+    if (kioskIds.length === 0) {
+      return [];
+    }
+    const movementGroups = await Promise.all(
+      kioskIds.map((id) => getKioscoMovimientos(id).catch(() => []))
+    );
+    return movementGroups
+      .flat()
+      .filter((movement) => String(movement.movementType || "").toUpperCase() === "DEVOLUCION_DEPOSITO")
+      .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+  };
+
+  const loadData = async (kioskId = selectedKiosk, kioskList = locations) => {
     try {
       setLoading(true);
       setError("");
       const kioskLocationId = kioskId || undefined;
-      const [exchangeRows, authorizationRows] = await Promise.all([
+      const [exchangeRows, authorizationRows, depositRows] = await Promise.all([
         listKioskExchanges(kioskLocationId),
         canAuthorizeExchanges ? listPendingAuthorizations(kioskLocationId) : Promise.resolve([]),
+        loadDepositReturns(kioskId, kioskList),
       ]);
       const allRows = Array.isArray(exchangeRows) ? exchangeRows : [];
       setExchanges(allRows.filter((row) => String(row.slipType || "EXCHANGE").toUpperCase() === "EXCHANGE"));
       setReturns(allRows.filter((row) => String(row.slipType || "").toUpperCase() === "RETURN"));
+      setDepositReturns(Array.isArray(depositRows) ? depositRows : []);
       setPendingAuthorizations(Array.isArray(authorizationRows) ? authorizationRows : []);
     } catch (err) {
       setError(err.message || "Error al cargar devoluciones y boletas.");
@@ -124,8 +150,8 @@ function KioskReturns() {
   }, []);
 
   useEffect(() => {
-    void loadData();
-  }, [selectedKiosk]);
+    void loadData(selectedKiosk, locations);
+  }, [selectedKiosk, locations]);
 
   const handleAuthorize = async (slip) => {
     try {
@@ -235,6 +261,16 @@ function KioskReturns() {
                 </NavItem>
                 <NavItem>
                   <NavLink
+                    className={activeTab === "DEPOSIT_RETURNS" ? "active" : ""}
+                    onClick={() => setActiveTab("DEPOSIT_RETURNS")}
+                    style={{ cursor: "pointer" }}
+                  >
+                    Devoluciones a depósito
+                    {depositReturns.length > 0 ? ` (${depositReturns.length})` : ""}
+                  </NavLink>
+                </NavItem>
+                <NavItem>
+                  <NavLink
                     className={activeTab === "RETURNS" ? "active" : ""}
                     onClick={() => setActiveTab("RETURNS")}
                     style={{ cursor: "pointer" }}
@@ -298,11 +334,57 @@ function KioskReturns() {
                   )}
                 </TabPane>
 
+                <TabPane tabId="DEPOSIT_RETURNS">
+                  {loading ? (
+                    <p>Cargando...</p>
+                  ) : depositReturns.length === 0 ? (
+                    <p>
+                      No hay devoluciones a depósito registradas
+                      {selectedKiosk ? " para este kiosko" : ""}.
+                      {" "}Regístralas con el botón <strong>Devolución</strong> → tipo &quot;Devolución a depósito&quot;.
+                    </p>
+                  ) : (
+                    <Table responsive>
+                      <thead className="text-primary">
+                        <tr>
+                          <th>Fecha</th>
+                          {!selectedKiosk && <th>Kiosko</th>}
+                          <th>Producto</th>
+                          <th>Color</th>
+                          <th>Cant.</th>
+                          <th>Destino</th>
+                          <th>Boleta física</th>
+                          <th>Motivo</th>
+                          <th>Usuario</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {depositReturns.map((row) => (
+                          <tr key={row.id}>
+                            <td>{row.createdAt ? formatDateTimeGt(row.createdAt) : "—"}</td>
+                            {!selectedKiosk && <td>{row.locationName || "—"}</td>}
+                            <td>
+                              {row.productCode ? `${row.productCode} · ` : ""}
+                              {row.productName || row.productId || "—"}
+                            </td>
+                            <td>{row.colorName || "—"}</td>
+                            <td>{getKioscoMovementSignedQuantity(row)}</td>
+                            <td>{formatKioscoMovementRoute(row)}</td>
+                            <td>{formatKioscoMovementReference(row)}</td>
+                            <td>{row.reason || "—"}</td>
+                            <td>{row.username || "—"}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </Table>
+                  )}
+                </TabPane>
+
                 <TabPane tabId="RETURNS">
                   {loading ? (
                     <p>Cargando...</p>
                   ) : returns.length === 0 ? (
-                    <p>No hay devoluciones de cliente registradas. Las devoluciones a depósito se ven en movimientos del inventario kiosko.</p>
+                    <p>No hay devoluciones de cliente registradas.</p>
                   ) : (
                     <Table responsive>
                       <thead className="text-primary">

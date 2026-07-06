@@ -351,14 +351,8 @@ export const normalizeFelReceptorEmail = (raw) =>
     .filter(Boolean)
     .join(";");
 
-export const saleNeedsFelCertification = (sale, requestInvoice) => {
-  const taxId = String(sale?.customerTaxId || "CF")
-    .trim()
-    .toUpperCase()
-    .replace(/\s+/g, "");
-  if (taxId && taxId !== "CF" && taxId !== "C/F") return true;
-  return requestInvoice === true;
-};
+export const saleNeedsFelCertification = (sale) =>
+  !sale?.invoice?.felUuid && !sale?.felUuid;
 
 export const isDiscountEligibleCartLine = (line) =>
   !line?.isPackaging && !isPackagingProductCode(line?.productCode);
