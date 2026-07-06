@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { Card, CardBody, Col, Row, Spinner, Table } from "reactstrap";
 import {
+  getCashSessionDailySummaries,
   getKioskManagerDashboard,
   getMyKioskSales,
   getPendingDepositSummary,
@@ -26,7 +27,7 @@ const resolveSaleDay = (sale) => {
   return "";
 };
 
-const aggregateDailyRows = (sales) => {
+const aggregateDailyRows = (sales, cashSummaries) => {
   const grouped = new Map();
   (sales || []).forEach((sale) => {
     const dayKey = resolveSaleDay(sale);
@@ -43,6 +44,9 @@ const aggregateDailyRows = (sales) => {
         pendingDeposits: 0,
         voidCount: 0,
         testCount: 0,
+        cashExpenses: 0,
+        cashVariance: null,
+        sessionCashSales: null,
       });
     }
     const row = grouped.get(dayKey);
@@ -73,6 +77,33 @@ const aggregateDailyRows = (sales) => {
 
     if (sale.pendingDeposit === true) {
       row.pendingDeposits += 1;
+    }
+  });
+
+  (cashSummaries || []).forEach((summary) => {
+    const dayKey = summary?.workDate ? String(summary.workDate).slice(0, 10) : "";
+    if (!dayKey) return;
+    if (!grouped.has(dayKey)) {
+      grouped.set(dayKey, {
+        day: dayKey,
+        salesCount: 0,
+        totalItems: 0,
+        totalAmount: 0,
+        cashAmount: 0,
+        cardAmount: 0,
+        pendingDeposits: 0,
+        voidCount: 0,
+        testCount: 0,
+        cashExpenses: 0,
+        cashVariance: null,
+        sessionCashSales: null,
+      });
+    }
+    const row = grouped.get(dayKey);
+    row.cashExpenses += safeNumber(summary.cashExpensesTotal);
+    row.sessionCashSales = safeNumber(summary.cashSalesTotal);
+    if (summary.variance != null && String(summary.sessionStatus || "").toUpperCase() === "CLOSED") {
+      row.cashVariance = safeNumber(summary.variance);
     }
   });
 
@@ -122,13 +153,14 @@ function PosManagerDashboard({ kioskLocationId, kioskName, active }) {
       setLoading(true);
       const startDate = getMonthStartYmdGuatemala();
       const endDate = getTodayYmdGuatemala();
-      const [data, sales, pendingSummary] = await Promise.all([
+      const [data, sales, pendingSummary, cashSummaries] = await Promise.all([
         getKioskManagerDashboard(kioskLocationId),
         getMyKioskSales(startDate, endDate, kioskLocationId),
         getPendingDepositSummary(kioskLocationId),
+        getCashSessionDailySummaries(startDate, endDate, kioskLocationId),
       ]);
       setDashboard(data || null);
-      setDailyRows(aggregateDailyRows(sales));
+      setDailyRows(aggregateDailyRows(sales, cashSummaries));
       setPendingDepositSummary(pendingSummary || null);
       setPeriodLabel({ startDate, endDate });
     } catch (err) {
@@ -214,6 +246,8 @@ function PosManagerDashboard({ kioskLocationId, kioskName, active }) {
                 <th className="text-right">Unidades</th>
                 <th className="text-right">Total</th>
                 <th className="text-right">Efectivo</th>
+                <th className="text-right">Gastos</th>
+                <th className="text-right">Dif. caja</th>
                 <th className="text-right">Tarjeta</th>
                 <th className="text-right">Depósitos pendientes</th>
                 <th className="text-right">Anuladas</th>
@@ -228,6 +262,12 @@ function PosManagerDashboard({ kioskLocationId, kioskName, active }) {
                   <td className="text-right">{formatQty(row.totalItems)}</td>
                   <td className="text-right">{formatCurrency(row.totalAmount)}</td>
                   <td className="text-right">{formatCurrency(row.cashAmount)}</td>
+                  <td className="text-right">{formatCurrency(row.cashExpenses)}</td>
+                  <td className="text-right">
+                    {row.cashVariance == null
+                      ? "—"
+                      : formatCurrency(row.cashVariance)}
+                  </td>
                   <td className="text-right">{formatCurrency(row.cardAmount)}</td>
                   <td className="text-right">{row.pendingDeposits}</td>
                   <td className="text-right">{row.voidCount}</td>
@@ -236,7 +276,7 @@ function PosManagerDashboard({ kioskLocationId, kioskName, active }) {
               ))}
               {dailyRows.length === 0 && (
                 <tr>
-                  <td colSpan="9" className="text-center text-muted">
+                  <td colSpan="11" className="text-center text-muted">
                     No hay ventas en el rango actual.
                   </td>
                 </tr>
@@ -258,6 +298,10 @@ function PosManagerDashboard({ kioskLocationId, kioskName, active }) {
                   <th className="text-right">
                     {formatCurrency(dailyRows.reduce((sum, row) => sum + row.cashAmount, 0))}
                   </th>
+                  <th className="text-right">
+                    {formatCurrency(dailyRows.reduce((sum, row) => sum + row.cashExpenses, 0))}
+                  </th>
+                  <th />
                   <th className="text-right">
                     {formatCurrency(dailyRows.reduce((sum, row) => sum + row.cardAmount, 0))}
                   </th>

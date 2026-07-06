@@ -174,6 +174,24 @@ function PosReportsTab({
             </Col>
           </Row>
 
+          {cashSession && String(cashSession.status || "").toUpperCase() === "OPEN" && (
+            <Row className="mt-2">
+              <Col md="12">
+                <Card body className="kiosk-pos-report-card border-warning">
+                  <h6 className="mb-2">Cuadre de caja (turno abierto)</h6>
+                  <div className="small">
+                    Fondo Q300 + efectivo ventas ({formatCurrency(cashSession.cashSalesTotal || 0)})
+                    − gastos ({formatCurrency(cashSession.cashExpensesTotal || 0)})
+                    = <strong>{formatCurrency(cashSession.expectedCash || 0)}</strong> esperado en caja
+                  </div>
+                  <div className="small text-muted mt-1">
+                    Compara el efectivo en ventas de esta tabla con la pestaña Caja. Registra gastos en Caja antes de cerrar.
+                  </div>
+                </Card>
+              </Col>
+            </Row>
+          )}
+
           <p className="text-muted small mt-3 mb-2">
             Toca una venta para ver el detalle. Con caja abierta puedes anular ventas del turno desde la columna Acciones.
           </p>

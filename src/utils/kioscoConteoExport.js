@@ -61,7 +61,7 @@ function buildHeaderRows(report) {
 }
 
 function buildTableHeaders(showKardex) {
-  const headers = ["Código", "Producto", "Color"];
+  const headers = ["Código", "Producto", "Color", "Tallas"];
   if (showKardex) {
     KARDEX_HEADERS.forEach((col) => headers.push(col.label));
   }
@@ -75,6 +75,7 @@ function buildDataRow(row, showKardex) {
     row.productCode || "",
     row.productName || "",
     row.colorName || "—",
+    row.sizesSummary || "",
   ];
   if (showKardex) {
     KARDEX_HEADERS.forEach((col) => cells.push(row[col.key] ?? 0));
@@ -85,7 +86,7 @@ function buildDataRow(row, showKardex) {
 }
 
 function buildSubtotalRow(label, sub, showKardex) {
-  const cells = label === "TOTAL GENERAL" ? [label, "", ""] : ["", label, ""];
+  const cells = label === "TOTAL GENERAL" ? [label, "", "", ""] : ["", label, "", ""];
   if (showKardex) {
     KARDEX_HEADERS.forEach((col) => cells.push(sub[col.key] ?? 0));
   }
@@ -119,7 +120,7 @@ function buildSheetRows(report, showKardex) {
   return rows;
 }
 
-const NUMERIC_COL_START = 3;
+const NUMERIC_COL_START = 4;
 
 function ensureCell(ws, rowIdx, colIdx, value) {
   const cellRef = XLSX.utils.encode_cell({ r: rowIdx, c: colIdx });
@@ -305,11 +306,11 @@ export function exportConteoToPdf(report, { showKardex = true } = {}) {
     ? KARDEX_HEADERS.map((col) => `<th>${escape(col.label)}</th>`).join("")
     : "";
   const countHeaders = COUNT_LOCATION_KEYS.map((k) => `<th>${escape(k)}</th>`).join("");
-  const colSpan = 3 + (showKardex ? KARDEX_HEADERS.length : 0) + COUNT_LOCATION_KEYS.length + 2;
+  const colSpan = 4 + (showKardex ? KARDEX_HEADERS.length : 0) + COUNT_LOCATION_KEYS.length + 2;
 
   const theadHtml = `
     <tr>
-      <th>Código</th><th>Producto</th><th>Color</th>
+      <th>Código</th><th>Producto</th><th>Color</th><th>Tallas</th>
       ${kardexHeaders}
       ${countHeaders}
       <th>Total</th><th>Dif.</th>
@@ -327,6 +328,7 @@ export function exportConteoToPdf(report, { showKardex = true } = {}) {
       <td>${escape(row.productCode || "")}</td>
       <td>${escape(row.productName || "")}</td>
       <td>${escape(row.colorName || "—")}</td>
+      <td>${escape(row.sizesSummary || "")}</td>
       ${kardexCells}
       ${counts}
       <td class="num bold">${row.total ?? 0}</td>
@@ -342,7 +344,7 @@ export function exportConteoToPdf(report, { showKardex = true } = {}) {
     });
     if (cat.subtotal) {
       tbodyHtml += renderRow(
-        { ...cat.subtotal, productCode: "", productName: `Subtotal — ${cat.categoryName || ""}`, colorName: "" },
+        { ...cat.subtotal, productCode: "", productName: `Subtotal — ${cat.categoryName || ""}`, colorName: "", sizesSummary: "" },
         "font-weight:600;background:#f9fafb"
       );
     }
@@ -351,7 +353,7 @@ export function exportConteoToPdf(report, { showKardex = true } = {}) {
   const tg = report.totalGeneral;
   const tfootHtml = tg ? `<tfoot>
     <tr class="total-general">
-      <td colspan="3">TOTAL GENERAL</td>
+      <td colspan="4">TOTAL GENERAL</td>
       ${showKardex ? KARDEX_HEADERS.map((col) => `<td class="num">${tg[col.key] ?? 0}</td>`).join("") : ""}
       ${COUNT_LOCATION_KEYS.map((k) => `<td class="num">${(tg.counts || {})[k] ?? 0}</td>`).join("")}
       <td class="num bold">${tg.total ?? 0}</td>

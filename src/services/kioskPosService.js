@@ -150,6 +150,34 @@ export const closeCashSession = async (sessionId, payload) => {
   return parseJson(response, "No se pudo cerrar la caja.");
 };
 
+export const listCashSessionExpenses = async (sessionId) => {
+  const response = await fetch(`${API_URL}/kiosk-pos/cash-session/${sessionId}/expenses`, {
+    headers: headers(),
+  });
+  return parseJson(response, "No se pudieron cargar los gastos de caja.");
+};
+
+export const addCashSessionExpense = async (sessionId, payload) => {
+  const response = await fetch(`${API_URL}/kiosk-pos/cash-session/${sessionId}/expenses`, {
+    method: "POST",
+    headers: headers(),
+    body: JSON.stringify(payload || {}),
+  });
+  return parseJson(response, "No se pudo registrar el gasto.");
+};
+
+export const getCashSessionDailySummaries = async (startDate, endDate, kioskLocationId) => {
+  const response = await fetch(
+    `${API_URL}/kiosk-pos/cash-session/daily-summary${toQuery({
+      startDate,
+      endDate,
+      kioskLocationId,
+    })}`,
+    { headers: headers() }
+  );
+  return parseJson(response, "No se pudo cargar el resumen de caja por día.");
+};
+
 export const getKioskProductAvailability = async (productId, colorId, kioskLocationId) => {
   const response = await fetch(
     `${API_URL}/kiosk-pos/availability${toQuery({

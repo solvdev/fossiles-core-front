@@ -32,12 +32,15 @@ import { exportConteoToExcel, exportConteoToPdf } from "utils/kioscoConteoExport
 import { PRODUCT_AUDIENCE_OPTIONS, productMatchesAudienceFilter } from "utils/productAudienceHelper";
 import {
   CINCHO_FILTER_OPTIONS,
+  hasAssignedProductColor,
   productMatchesCinchoFilter,
   productMatchesSearchFilter,
+  resolveSizesSummary,
 } from "utils/productCinchoHelper";
 import { showError, showSuccess } from "utils/notificationHelper";
 
 const COUNT_LOCATION_KEYS = ["V1", "V2", "V3", "V4", "V5", "V6", "V7", "E", "BO"];
+const PRODUCT_INFO_COLS = 3;
 
 /** Diferencia absoluta minima (unidades) para considerar una discrepancia relevante. Debe reflejar
  * KioscoInventoryCountService.DIFF_ALERT_THRESHOLD en el backend. */
@@ -119,6 +122,9 @@ function DataRow({ row, showKardex, counts, onCountChange, disabled }) {
         <span style={{ color: "#6b7280" }}> {row.productName}</span>
       </td>
       <td style={{ fontSize: 12, color: "#6b7280" }}>{row.colorName || "—"}</td>
+      <td style={{ fontSize: 11, color: "#374151", whiteSpace: "nowrap" }}>
+        {resolveSizesSummary(row) || "—"}
+      </td>
       {showKardex && KARDEX_COLUMNS.map((col) => (
         <td key={col.key} className="text-right" style={{ fontSize: 11, color: col.key === "inventarioFinal" ? "#111" : "#6b7280" }}>
           {row[col.key]}
@@ -148,7 +154,7 @@ function SummaryRow({ label, row, showKardex, bg = "#f3f4f6", textColor = "#111"
   const style = { background: bg, fontSize: 11, fontWeight: bold ? 700 : 600, color: textColor };
   return (
     <tr style={style}>
-      <td colSpan={2} style={style}>{label}</td>
+      <td colSpan={PRODUCT_INFO_COLS} style={style}>{label}</td>
       {showKardex && KARDEX_COLUMNS.map((col) => (
         <td key={col.key} className="text-right" style={style}>{row[col.key]}</td>
       ))}
@@ -178,7 +184,7 @@ function CategoryGroup({ category, showKardex, editedCounts, onCountChange, disa
         onClick={() => setCollapsed((v) => !v)}
       >
         <td
-          colSpan={2 + (showKardex ? KARDEX_COLUMNS.length : 0) + COUNT_LOCATION_KEYS.length + 2}
+          colSpan={PRODUCT_INFO_COLS + (showKardex ? KARDEX_COLUMNS.length : 0) + COUNT_LOCATION_KEYS.length + 2}
           style={{ fontWeight: 700, fontSize: 12, padding: "5px 8px" }}
         >
           <span style={{ marginRight: 6 }}>{collapsed ? "▶" : "▼"}</span>
@@ -253,7 +259,8 @@ function KioskInventoryCountReport({ locationId }) {
       .map((category) => {
         const rows = category.rows.filter(
           (row) =>
-            productMatchesSearchFilter(row, debouncedSearch)
+            hasAssignedProductColor(row)
+            && productMatchesSearchFilter(row, debouncedSearch)
             && productMatchesAudienceFilter(row, audienceFilter)
             && productMatchesCinchoFilter(row, cinchoFilter)
         );
@@ -266,8 +273,18 @@ function KioskInventoryCountReport({ locationId }) {
   const filteredTotalGeneral = useMemo(() => {
     const allRows = filteredCategories.flatMap((c) => c.rows);
     if (allRows.length === 0) return null;
-    return sumFilteredRows(allRows);
-  }, [filteredCategories]);
+    const rowsWithLiveTotals = allRows.map((row) => {
+      const counts = editedCounts[rowKey(row)] || row.counts || {};
+      const total = rowTotal(counts);
+      return {
+        ...row,
+        counts,
+        total,
+        diferencia: rowDiff(row, counts),
+      };
+    });
+    return sumFilteredRows(rowsWithLiveTotals);
+  }, [filteredCategories, editedCounts]);
 
   const loadHistorial = useCallback(async (locId) => {
     if (!locId) {
@@ -457,7 +474,7 @@ function KioskInventoryCountReport({ locationId }) {
     }
   };
 
-  const totalCols = 2 + (showKardex ? KARDEX_COLUMNS.length : 0) + COUNT_LOCATION_KEYS.length + 2;
+  const totalCols = PRODUCT_INFO_COLS + (showKardex ? KARDEX_COLUMNS.length : 0) + COUNT_LOCATION_KEYS.length + 2;
   const isClosed = report?.status === "CERRADO";
   const pendingRows = filteredCategories.flatMap((c) => c.rows);
   const alertRows = pendingRows.filter(
@@ -773,7 +790,7 @@ function KioskInventoryCountReport({ locationId }) {
               <thead>
                 {/* Fila de grupos */}
                 <tr style={{ background: "#f3f4f6" }}>
-                  <th colSpan={2} style={thStyle}>Producto</th>
+                  <th colSpan={PRODUCT_INFO_COLS} style={thStyle}>Producto</th>
                   {showKardex && (
                     <th colSpan={KARDEX_COLUMNS.length} style={{ ...thStyle, background: "#e0e7ff", textAlign: "center" }}>
                       Kardex sistema
@@ -789,6 +806,7 @@ function KioskInventoryCountReport({ locationId }) {
                 <tr style={{ background: "#f9fafb" }}>
                   <th style={thStyle}>Producto / Código</th>
                   <th style={thStyle}>Color</th>
+                  <th style={thStyle}>Tallas</th>
                   {showKardex && KARDEX_COLUMNS.map((col) => (
                     <th key={col.key} style={{ ...thStyle, background: "#eef2ff" }} title={col.title}>{col.label}</th>
                   ))}
@@ -819,10 +837,10 @@ function KioskInventoryCountReport({ locationId }) {
                   ))
                 )}
               </tbody>
-              {filteredTotalGeneral && (
-                <tfoot>
+              {filteredTotalGeneral && filteredCategories.length > 0 && (
+                <tfoot style={{ position: "sticky", bottom: 0, zIndex: 2 }}>
                   <SummaryRow
-                    label="TOTAL GENERAL"
+                    label={`TOTAL GENERAL (${filteredCategories.flatMap((c) => c.rows).length} productos visibles)`}
                     row={filteredTotalGeneral}
                     showKardex={showKardex}
                     bg="#1f2937"

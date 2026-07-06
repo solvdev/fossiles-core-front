@@ -40,3 +40,23 @@ export const productMatchesSearchFilter = (row, search) => {
   const name = String(row?.productName || "").toLowerCase();
   return code.includes(q) || name.includes(q);
 };
+
+export const hasAssignedProductColor = (row) =>
+  row?.colorId != null && String(row?.colorName || "").trim() !== "";
+
+export const formatSystemSizesText = (sizes) => {
+  if (!sizes || typeof sizes !== "object") return "";
+  const parts = Object.entries(sizes)
+    .filter(([, qty]) => Number(qty) > 0)
+    .sort(([a], [b]) => {
+      const na = Number(a);
+      const nb = Number(b);
+      if (!Number.isNaN(na) && !Number.isNaN(nb)) return na - nb;
+      return String(a).localeCompare(String(b), undefined, { numeric: true });
+    })
+    .map(([size, qty]) => `${size}: ${qty}`);
+  return parts.length ? parts.join(" · ") : "";
+};
+
+export const resolveSizesSummary = (row) =>
+  row?.sizesSummary || formatSystemSizesText(row?.systemSizes) || "";

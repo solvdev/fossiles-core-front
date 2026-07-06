@@ -11,13 +11,37 @@ import {
   ModalFooter,
   ModalHeader,
   Spinner,
+  Table,
 } from "reactstrap";
-import { closeCashSession, openCashSession } from "services/kioskPosService";
+import {
+  addCashSessionExpense,
+  closeCashSession,
+  openCashSession,
+} from "services/kioskPosService";
 import { formatDateTimeGt } from "utils/dateTimeHelper";
 import { showError, showSuccess } from "utils/notificationHelper";
 import { formatCurrency } from "./posUtils";
 
 const formatDateTime = (value) => formatDateTimeGt(value);
+
+function CashReconciliationSummary({ session }) {
+  const opening = Number(session?.openingAmount ?? 300);
+  const cashSales = Number(session?.cashSalesTotal ?? 0);
+  const expenses = Number(session?.cashExpensesTotal ?? 0);
+  const expected = Number(session?.expectedCash ?? opening + cashSales - expenses);
+
+  return (
+    <div className="kiosk-pos-cash-summary mb-3">
+      <div className="small text-muted mb-1">Cuadre de efectivo</div>
+      <div>Fondo inicial: <strong>{formatCurrency(opening)}</strong></div>
+      <div>+ Efectivo en ventas: <strong>{formatCurrency(cashSales)}</strong></div>
+      <div>- Gastos del turno: <strong>{formatCurrency(expenses)}</strong></div>
+      <div className="mt-2">
+        = Efectivo esperado en caja: <strong>{formatCurrency(expected)}</strong>
+      </div>
+    </div>
+  );
+}
 
 function PosCashCloseModal({ isOpen, session, onClose, onClosed, pendingDepositSummary }) {
   const [countedCash, setCountedCash] = useState("");
@@ -25,7 +49,6 @@ function PosCashCloseModal({ isOpen, session, onClose, onClosed, pendingDepositS
   const [saving, setSaving] = useState(false);
 
   const pendingCount = Number(pendingDepositSummary?.pendingCount || 0);
-
   const expected = Number(session?.expectedCash ?? 0);
   const parsedCounted = Number(countedCash);
   const variance =
@@ -66,14 +89,11 @@ function PosCashCloseModal({ isOpen, session, onClose, onClosed, pendingDepositS
             Registra las boletas en Reportes de ventas antes de cerrar si aplica.
           </Alert>
         )}
-        <div className="kiosk-pos-cash-summary mb-3">
-          <div>Fondo inicial: <strong>{formatCurrency(session?.openingAmount || 300)}</strong></div>
-          <div>Ventas en sesión: <strong>{session?.salesCount || 0}</strong></div>
-          <div>Efectivo en ventas: <strong>{formatCurrency(session?.cashSalesTotal || 0)}</strong></div>
-          <div>Tarjeta en ventas: <strong>{formatCurrency(session?.cardSalesTotal || 0)}</strong></div>
-          <div className="mt-2">
-            Efectivo esperado en caja: <strong>{formatCurrency(expected)}</strong>
-          </div>
+        <CashReconciliationSummary session={session} />
+        <div className="mb-2 text-muted small">
+          Ventas en sesión: <strong>{session?.salesCount || 0}</strong>
+          {" · "}
+          Tarjeta: <strong>{formatCurrency(session?.cardSalesTotal || 0)}</strong>
         </div>
         <Label className="kiosk-pos-label">Efectivo contado físicamente</Label>
         <Input
@@ -87,7 +107,12 @@ function PosCashCloseModal({ isOpen, session, onClose, onClosed, pendingDepositS
         />
         {variance != null && (
           <Alert color={variance === 0 ? "success" : "warning"} className="py-2">
-            Diferencia: <strong>{formatCurrency(variance)}</strong>
+            Diferencia (contado − esperado): <strong>{formatCurrency(variance)}</strong>
+            {variance !== 0 && (
+              <div className="small mt-1 mb-0">
+                {variance > 0 ? "Sobra efectivo en caja." : "Falta efectivo en caja."}
+              </div>
+            )}
           </Alert>
         )}
         <Label className="kiosk-pos-label">Notas de cierre</Label>
@@ -114,8 +139,12 @@ function PosCashCloseModal({ isOpen, session, onClose, onClosed, pendingDepositS
 function PosCashTab({ cashSession, kioskLocationId, kioskName, onSessionChange, loading, pendingDepositSummary }) {
   const [opening, setOpening] = useState(false);
   const [closeOpen, setCloseOpen] = useState(false);
+  const [expenseAmount, setExpenseAmount] = useState("");
+  const [expenseDescription, setExpenseDescription] = useState("");
+  const [expenseSaving, setExpenseSaving] = useState(false);
 
   const pendingCount = Number(pendingDepositSummary?.pendingCount || 0);
+  const expenses = cashSession?.expenses || [];
 
   const handleOpen = async () => {
     try {
@@ -127,6 +156,34 @@ function PosCashTab({ cashSession, kioskLocationId, kioskName, onSessionChange, 
       showError(err.message || "No se pudo abrir la caja.");
     } finally {
       setOpening(false);
+    }
+  };
+
+  const handleAddExpense = async () => {
+    if (!cashSession?.id) return;
+    const amount = Number(expenseAmount);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      showError("Ingresa un monto válido para el gasto.");
+      return;
+    }
+    if (!expenseDescription.trim()) {
+      showError("Describe para qué fue el gasto.");
+      return;
+    }
+    try {
+      setExpenseSaving(true);
+      await addCashSessionExpense(cashSession.id, {
+        amount,
+        description: expenseDescription.trim(),
+      });
+      setExpenseAmount("");
+      setExpenseDescription("");
+      showSuccess("Gasto registrado.");
+      await onSessionChange();
+    } catch (err) {
+      showError(err.message || "No se pudo registrar el gasto.");
+    } finally {
+      setExpenseSaving(false);
     }
   };
 
@@ -171,14 +228,73 @@ function PosCashTab({ cashSession, kioskLocationId, kioskName, onSessionChange, 
                   Cerrar caja
                 </Button>
               </div>
-              <div className="kiosk-pos-cash-summary">
-                <div>Ventas registradas: <strong>{cashSession.salesCount || 0}</strong></div>
-                <div>Efectivo en ventas: <strong>{formatCurrency(cashSession.cashSalesTotal || 0)}</strong></div>
-                <div>Tarjeta: <strong>{formatCurrency(cashSession.cardSalesTotal || 0)}</strong></div>
-                <div className="mt-2">
-                  Efectivo esperado ahora:{" "}
-                  <strong>{formatCurrency(cashSession.expectedCash || 300)}</strong>
+
+              <CashReconciliationSummary session={cashSession} />
+
+              <div className="text-muted small mb-3">
+                Ventas registradas: <strong>{cashSession.salesCount || 0}</strong>
+                {" · "}
+                Tarjeta: <strong>{formatCurrency(cashSession.cardSalesTotal || 0)}</strong>
+              </div>
+
+              <div className="border rounded p-3 mb-0">
+                <h6 className="mb-2">Registrar gasto de efectivo</h6>
+                <p className="text-muted small mb-2">
+                  Anota salidas de caja (compras menores, etc.) para cuadrar al cierre.
+                </p>
+                <div className="d-flex flex-wrap align-items-end" style={{ gap: 12 }}>
+                  <div style={{ minWidth: 120 }}>
+                    <Label className="kiosk-pos-label mb-1">Monto</Label>
+                    <Input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={expenseAmount}
+                      onChange={(e) => setExpenseAmount(e.target.value)}
+                      placeholder="0.00"
+                    />
+                  </div>
+                  <div style={{ flex: 1, minWidth: 180 }}>
+                    <Label className="kiosk-pos-label mb-1">Descripción</Label>
+                    <Input
+                      value={expenseDescription}
+                      onChange={(e) => setExpenseDescription(e.target.value)}
+                      placeholder="Ej. compra de bolsas"
+                    />
+                  </div>
+                  <Button color="warning" outline onClick={handleAddExpense} disabled={expenseSaving}>
+                    {expenseSaving ? <Spinner size="sm" /> : "Agregar gasto"}
+                  </Button>
                 </div>
+
+                {expenses.length > 0 && (
+                  <Table responsive size="sm" className="mt-3 mb-0">
+                    <thead>
+                      <tr>
+                        <th>Hora</th>
+                        <th>Descripción</th>
+                        <th className="text-right">Monto</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {expenses.map((expense) => (
+                        <tr key={expense.id}>
+                          <td>{formatDateTime(expense.createdAt)}</td>
+                          <td>{expense.description}</td>
+                          <td className="text-right">{formatCurrency(expense.amount)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot>
+                      <tr>
+                        <th colSpan="2">Total gastos</th>
+                        <th className="text-right">
+                          {formatCurrency(cashSession.cashExpensesTotal || 0)}
+                        </th>
+                      </tr>
+                    </tfoot>
+                  </Table>
+                )}
               </div>
             </>
           )}
