@@ -34,16 +34,21 @@ import {
   CINCHO_FILTER_OPTIONS,
   hasAssignedProductColor,
   isCinchoProductRow,
+  isFossCinchoProductRow,
+  formatFossLocationSizeSummary,
   productMatchesCinchoFilter,
   productMatchesSearchFilter,
   resolvePhysicalSizesSummary,
   resolveSizesSummary,
   sumSizeCounts,
+  CINCHO_COUNT_LOCATION,
 } from "utils/productCinchoHelper";
 import { showError, showSuccess } from "utils/notificationHelper";
 import CinchoCountDetailModal from "./CinchoCountDetailModal";
 
 const COUNT_LOCATION_KEYS = ["V1", "V2", "V3", "V4", "V5", "V6", "V7", "E", "BO"];
+const CINCHO_VITRINE_LOCATION = CINCHO_COUNT_LOCATION.VITRINE;
+const CINCHO_WAREHOUSE_LOCATION = CINCHO_COUNT_LOCATION.WAREHOUSE;
 const PRODUCT_INFO_COLS = 3;
 const LOC_COL_WIDTH = 52;
 const SUM_COL_WIDTH = 56;
@@ -85,10 +90,24 @@ const applySizeTotalToLocations = (sizeTotal, existingPartial, baseCounts) => {
   const base = { ...baseCounts, ...(existingPartial || {}) };
   const locTotal = rowTotal(base);
   if (locTotal === 0) {
-    return COUNT_LOCATION_KEYS.reduce((acc, k) => ({ ...acc, [k]: k === "BO" ? sizeTotal : 0 }), {});
+    return COUNT_LOCATION_KEYS.reduce(
+      (acc, k) => ({ ...acc, [k]: k === CINCHO_VITRINE_LOCATION ? sizeTotal : 0 }),
+      {}
+    );
   }
   const delta = sizeTotal - locTotal;
-  return { ...base, BO: Number(base.BO || 0) + delta };
+  return {
+    ...base,
+    [CINCHO_VITRINE_LOCATION]: Number(base[CINCHO_VITRINE_LOCATION] || 0) + delta,
+  };
+};
+
+const applyFossLocationSizesToCounts = (byLocation, existingPartial, baseCounts) => {
+  const base = { ...(baseCounts || {}), ...(existingPartial || {}) };
+  const next = { ...base };
+  next[CINCHO_VITRINE_LOCATION] = sumSizeCounts(byLocation?.[CINCHO_VITRINE_LOCATION]);
+  next[CINCHO_WAREHOUSE_LOCATION] = sumSizeCounts(byLocation?.[CINCHO_WAREHOUSE_LOCATION]);
+  return next;
 };
 
 const rowTotal = (counts) => COUNT_LOCATION_KEYS.reduce((s, k) => s + Number(counts[k] || 0), 0);
@@ -164,12 +183,15 @@ function CountCell({ value, onChange, disabled }) {
 }
 
 // ─── Fila de datos ────────────────────────────────────────────────────────────
-function DataRow({ row, showKardex, counts, physicalSizes, onCountChange, onOpenCinchoModal, disabled }) {
+function DataRow({ row, showKardex, counts, physicalSizes, physicalSizesByLocation, onCountChange, onOpenCinchoModal, disabled }) {
   const total = rowTotal(counts);
   const diferencia = rowDiff(row, counts);
   const isAlert = Math.abs(diferencia) >= DIFF_ALERT_THRESHOLD;
   const isCincho = isCinchoProductRow(row);
-  const physicalSummary = resolvePhysicalSizesSummary({ ...row, physicalSizes });
+  const isFoss = isFossCinchoProductRow(row);
+  const physicalSummary = isFoss && physicalSizesByLocation
+    ? formatFossLocationSizeSummary(physicalSizesByLocation)
+    : resolvePhysicalSizesSummary({ ...row, physicalSizes });
   return (
     <tr>
       <td style={{ fontSize: 12 }}>
@@ -193,7 +215,7 @@ function DataRow({ row, showKardex, counts, physicalSizes, onCountChange, onOpen
             onClick={() => onOpenCinchoModal(row.productId)}
             disabled={disabled}
           >
-            Contar por talla
+            {isFoss ? "Contar E/BO por talla" : "Contar por talla"}
           </Button>
         )}
       </td>
@@ -247,7 +269,7 @@ function SummaryRow({ label, row, showKardex, bg = "#f3f4f6", textColor = "#111"
 }
 
 // ─── Grupo de categoría colapsable ────────────────────────────────────────────
-function CategoryGroup({ category, showKardex, editedCounts, editedSizeCounts, onCountChange, onOpenCinchoModal, disabled }) {
+function CategoryGroup({ category, showKardex, editedCounts, editedSizeCounts, editedSizeCountsByLocation, onCountChange, onOpenCinchoModal, disabled }) {
   const [collapsed, setCollapsed] = useState(false);
   const hasDiff = category.rows.some((r) => rowDiff(r, editedCounts[rowKey(r)] || r.counts || {}) !== 0);
 
@@ -277,6 +299,7 @@ function CategoryGroup({ category, showKardex, editedCounts, editedSizeCounts, o
             const rKey = rowKey(row);
             const counts = editedCounts[rKey] || row.counts || {};
             const physicalSizes = editedSizeCounts[rKey] ?? row.physicalSizes;
+            const physicalSizesByLocation = editedSizeCountsByLocation[rKey] ?? row.physicalSizesByLocation;
             return (
               <DataRow
                 key={rKey}
@@ -284,6 +307,7 @@ function CategoryGroup({ category, showKardex, editedCounts, editedSizeCounts, o
                 showKardex={showKardex}
                 counts={counts}
                 physicalSizes={physicalSizes}
+                physicalSizesByLocation={physicalSizesByLocation}
                 onCountChange={(locKey, v) => onCountChange(rKey, locKey, v)}
                 onOpenCinchoModal={onOpenCinchoModal}
                 disabled={disabled}
@@ -317,6 +341,7 @@ function KioskInventoryCountReport({ locationId }) {
   const [cinchoFilter, setCinchoFilter] = useState("");
   const [showKardex, setShowKardex] = useState(false);
   const [editedSizeCounts, setEditedSizeCounts] = useState({});
+  const [editedSizeCountsByLocation, setEditedSizeCountsByLocation] = useState({});
   const [cinchoModalProductId, setCinchoModalProductId] = useState(null);
   const [historial, setHistorial] = useState([]);
   const [loadingHistorial, setLoadingHistorial] = useState(false);
@@ -361,6 +386,11 @@ function KioskInventoryCountReport({ locationId }) {
     );
   }, [allReportRows, cinchoModalProductId]);
 
+  const cinchoModalFossMode = useMemo(
+    () => cinchoModalRows.length > 0 && isFossCinchoProductRow(cinchoModalRows[0]),
+    [cinchoModalRows]
+  );
+
   const filteredTotalGeneral = useMemo(() => {
     const allRows = filteredCategories.flatMap((c) => c.rows);
     if (allRows.length === 0) return null;
@@ -398,12 +428,14 @@ function KioskInventoryCountReport({ locationId }) {
     setReport(null);
     setEditedCounts({});
     setEditedSizeCounts({});
+    setEditedSizeCountsByLocation({});
   }, [locationId, loadHistorial]);
 
   const openReport = (data) => {
     setReport(data);
     setEditedCounts({});
     setEditedSizeCounts({});
+    setEditedSizeCountsByLocation({});
     setReviewNotes(data.notes || "");
     setShowReviewBox(false);
     setCinchoModalProductId(null);
@@ -450,16 +482,34 @@ function KioskInventoryCountReport({ locationId }) {
     });
   };
 
-  const handleApplyCinchoModal = (sizeCountsByRowKey, applyToLocations) => {
+  const handleApplyCinchoModal = ({
+    fossMode,
+    sizeCountsByRowKey,
+    sizeCountsByLocationByRowKey,
+    applyToVitrine,
+  }) => {
     setEditedSizeCounts((prev) => ({ ...prev, ...sizeCountsByRowKey }));
-    if (!applyToLocations) return;
+    if (fossMode && sizeCountsByLocationByRowKey) {
+      setEditedSizeCountsByLocation((prev) => ({ ...prev, ...sizeCountsByLocationByRowKey }));
+    }
+
+    const shouldApplyLocations = fossMode || applyToVitrine;
+    if (!shouldApplyLocations) return;
 
     setEditedCounts((prev) => {
       const next = { ...prev };
       Object.entries(sizeCountsByRowKey).forEach(([rKey, sizes]) => {
         const baseRow = allReportRows.find((r) => rowKey(r) === rKey);
-        const sizeTotal = sumSizeCounts(sizes);
-        next[rKey] = applySizeTotalToLocations(sizeTotal, prev[rKey], baseRow?.counts || {});
+        if (fossMode && sizeCountsByLocationByRowKey?.[rKey]) {
+          next[rKey] = applyFossLocationSizesToCounts(
+            sizeCountsByLocationByRowKey[rKey],
+            prev[rKey],
+            baseRow?.counts || {}
+          );
+        } else {
+          const sizeTotal = sumSizeCounts(sizes);
+          next[rKey] = applySizeTotalToLocations(sizeTotal, prev[rKey], baseRow?.counts || {});
+        }
       });
       return next;
     });
@@ -467,7 +517,11 @@ function KioskInventoryCountReport({ locationId }) {
 
   const handleSave = async () => {
     if (!report) return;
-    const dirtyKeys = new Set([...Object.keys(editedCounts), ...Object.keys(editedSizeCounts)]);
+    const dirtyKeys = new Set([
+      ...Object.keys(editedCounts),
+      ...Object.keys(editedSizeCounts),
+      ...Object.keys(editedSizeCountsByLocation),
+    ]);
     if (dirtyKeys.size === 0) {
       showError("No hay cambios de conteo para guardar.");
       return;
@@ -483,11 +537,17 @@ function KioskInventoryCountReport({ locationId }) {
         };
         if (editedCounts[rKey]) {
           item.counts = editedCounts[rKey];
-        } else if (Object.prototype.hasOwnProperty.call(editedSizeCounts, rKey)) {
+        } else if (
+          Object.prototype.hasOwnProperty.call(editedSizeCounts, rKey)
+          || Object.prototype.hasOwnProperty.call(editedSizeCountsByLocation, rKey)
+        ) {
           item.counts = row.counts || {};
         }
         if (Object.prototype.hasOwnProperty.call(editedSizeCounts, rKey)) {
           item.physicalSizes = editedSizeCounts[rKey];
+        }
+        if (Object.prototype.hasOwnProperty.call(editedSizeCountsByLocation, rKey)) {
+          item.physicalSizesByLocation = editedSizeCountsByLocation[rKey];
         }
         return item;
       });
@@ -497,6 +557,7 @@ function KioskInventoryCountReport({ locationId }) {
       setReport(data);
       setEditedCounts({});
       setEditedSizeCounts({});
+      setEditedSizeCountsByLocation({});
       await loadHistorial(locationId);
       showSuccess("Conteo guardado correctamente.");
     } catch (err) {
@@ -539,6 +600,7 @@ function KioskInventoryCountReport({ locationId }) {
       setReport(data);
       setEditedCounts({});
       setEditedSizeCounts({});
+      setEditedSizeCountsByLocation({});
       await loadHistorial(locationId);
       showSuccess("Conteo cerrado correctamente.");
     } catch (err) {
@@ -950,6 +1012,7 @@ function KioskInventoryCountReport({ locationId }) {
                       showKardex={showKardex}
                       editedCounts={editedCounts}
                       editedSizeCounts={editedSizeCounts}
+                      editedSizeCountsByLocation={editedSizeCountsByLocation}
                       onCountChange={handleCountChange}
                       onOpenCinchoModal={setCinchoModalProductId}
                       disabled={isClosed}
@@ -979,7 +1042,7 @@ function KioskInventoryCountReport({ locationId }) {
             <span style={{ background: "#fef2f2", padding: "1px 4px" }}>Fondo rojo: diferencia ≥ {DIFF_ALERT_THRESHOLD} unidades</span>
             <span>Haz clic en el nombre de categoría para colapsar/expandir</span>
             {!showKardex && <span>Kardex oculto — actívalo con el botón "Mostrar Kardex"</span>}
-            <span>En cinchos use <strong>Contar por talla</strong> para registrar el desglose por color y talla</span>
+            <span>FOSS: use <strong>Contar E/BO por talla</strong> (vitrina E + bodega BO). Otros cinchos: total a vitrina E.</span>
           </div>
         </>
       )}
@@ -987,12 +1050,15 @@ function KioskInventoryCountReport({ locationId }) {
       <CinchoCountDetailModal
         isOpen={cinchoModalProductId != null}
         toggle={() => setCinchoModalProductId(null)}
+        fossMode={cinchoModalFossMode}
         productRows={cinchoModalRows.map((row) => ({
           ...row,
           physicalSizes: editedSizeCounts[rowKey(row)] ?? row.physicalSizes,
+          physicalSizesByLocation: editedSizeCountsByLocation[rowKey(row)] ?? row.physicalSizesByLocation,
         }))}
         rowKey={rowKey}
         editedSizeCounts={editedSizeCounts}
+        editedSizeCountsByLocation={editedSizeCountsByLocation}
         editedCounts={editedCounts}
         onApply={handleApplyCinchoModal}
         disabled={isClosed}

@@ -1,5 +1,10 @@
-import { isCinchoInventoryProductByCodeAndName } from "utils/cinchoProductionHelper";
+import { isCinchoInventoryProductByCodeAndName, isFossCinchosProductCode } from "utils/cinchoProductionHelper";
 import { hasInventorySizeBreakdown } from "utils/inventoryVariantHelper";
+
+export const CINCHO_COUNT_LOCATION = {
+  VITRINE: "E",
+  WAREHOUSE: "BO",
+};
 
 export const CINCHO_TYPE_OPTIONS = [
   { value: "", label: "— (no aplica)" },
@@ -67,6 +72,10 @@ export const resolveSizesSummary = (row) =>
 export const resolvePhysicalSizesSummary = (row) =>
   row?.physicalSizesSummary || formatSystemSizesText(row?.physicalSizes) || "";
 
+export const isFossCinchoProductRow = (row) =>
+  !!row && !row.packaging && !isPackagingProductCode(row.productCode)
+  && isFossCinchosProductCode(row.productCode);
+
 /** Cincho en conteo kiosko: FOSS/cincho por código o nombre, tipo Casual/Reversible, o inventario por talla. */
 export const isCinchoProductRow = (row) => {
   if (!row || row.packaging || isPackagingProductCode(row.productCode)) return false;
@@ -100,6 +109,56 @@ export const collectSizeKeysForRows = (rows) => {
   (rows || []).forEach((row) => {
     Object.keys(row?.systemSizes || {}).forEach((size) => keys.add(size));
     Object.keys(row?.physicalSizes || {}).forEach((size) => keys.add(size));
+    Object.values(row?.physicalSizesByLocation || {}).forEach((locSizes) => {
+      Object.keys(locSizes || {}).forEach((size) => keys.add(size));
+    });
   });
   return sortSizeKeys(keys);
+};
+
+export const emptyFossLocationSizeDraft = () => ({
+  [CINCHO_COUNT_LOCATION.VITRINE]: {},
+  [CINCHO_COUNT_LOCATION.WAREHOUSE]: {},
+});
+
+export const mergeFossLocationSizeTotals = (byLocation) => {
+  const vitrine = byLocation?.[CINCHO_COUNT_LOCATION.VITRINE] || {};
+  const warehouse = byLocation?.[CINCHO_COUNT_LOCATION.WAREHOUSE] || {};
+  const keys = new Set([...Object.keys(vitrine), ...Object.keys(warehouse)]);
+  const totals = {};
+  keys.forEach((size) => {
+    const total = Number(vitrine[size] || 0) + Number(warehouse[size] || 0);
+    if (total > 0) totals[size] = total;
+  });
+  return totals;
+};
+
+export const buildFossLocationSizeDraft = (row, editedByLocation, editedTotals) => {
+  if (editedByLocation) {
+    return {
+      [CINCHO_COUNT_LOCATION.VITRINE]: { ...(editedByLocation[CINCHO_COUNT_LOCATION.VITRINE] || {}) },
+      [CINCHO_COUNT_LOCATION.WAREHOUSE]: { ...(editedByLocation[CINCHO_COUNT_LOCATION.WAREHOUSE] || {}) },
+    };
+  }
+  if (row?.physicalSizesByLocation) {
+    return {
+      [CINCHO_COUNT_LOCATION.VITRINE]: { ...(row.physicalSizesByLocation[CINCHO_COUNT_LOCATION.VITRINE] || {}) },
+      [CINCHO_COUNT_LOCATION.WAREHOUSE]: { ...(row.physicalSizesByLocation[CINCHO_COUNT_LOCATION.WAREHOUSE] || {}) },
+    };
+  }
+  const physical = editedTotals || row?.physicalSizes || {};
+  return {
+    [CINCHO_COUNT_LOCATION.VITRINE]: { ...physical },
+    [CINCHO_COUNT_LOCATION.WAREHOUSE]: {},
+  };
+};
+
+export const formatFossLocationSizeSummary = (byLocation) => {
+  if (!byLocation) return "";
+  const vitrine = formatSystemSizesText(byLocation[CINCHO_COUNT_LOCATION.VITRINE]);
+  const warehouse = formatSystemSizesText(byLocation[CINCHO_COUNT_LOCATION.WAREHOUSE]);
+  const parts = [];
+  if (vitrine) parts.push(`E: ${vitrine}`);
+  if (warehouse) parts.push(`BO: ${warehouse}`);
+  return parts.join(" · ");
 };
