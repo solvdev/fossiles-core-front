@@ -11,7 +11,7 @@ import {
 import {
   collectSizeKeysForRows,
   formatSystemSizesText,
-  getCinchoTypeLabel,
+  resolveCinchoProductLabel,
   sumSizeCounts,
 } from "utils/productCinchoHelper";
 
@@ -92,7 +92,7 @@ function CinchoCountDetailModal({
       <ModalHeader toggle={toggle}>
         Conteo por talla — {sample.productCode} {sample.productName}
         <div style={{ fontSize: 12, fontWeight: 400, color: "#6b7280", marginTop: 4 }}>
-          {getCinchoTypeLabel(sample.cinchoType)} · {productRows.length} color{productRows.length !== 1 ? "es" : ""}
+          {resolveCinchoProductLabel(sample)} · {productRows.length} color{productRows.length !== 1 ? "es" : ""}
         </div>
       </ModalHeader>
       <ModalBody>

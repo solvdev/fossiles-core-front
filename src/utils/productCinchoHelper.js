@@ -1,3 +1,6 @@
+import { isCinchoInventoryProductByCodeAndName } from "utils/cinchoProductionHelper";
+import { hasInventorySizeBreakdown } from "utils/inventoryVariantHelper";
+
 export const CINCHO_TYPE_OPTIONS = [
   { value: "", label: "— (no aplica)" },
   { value: "CASUAL", label: "Casual" },
@@ -64,8 +67,22 @@ export const resolveSizesSummary = (row) =>
 export const resolvePhysicalSizesSummary = (row) =>
   row?.physicalSizesSummary || formatSystemSizesText(row?.physicalSizes) || "";
 
-export const isCinchoProductRow = (row) =>
-  !!normalizeCinchoType(row?.cinchoType) && !row?.packaging;
+/** Cincho en conteo kiosko: FOSS/cincho por código o nombre, tipo Casual/Reversible, o inventario por talla. */
+export const isCinchoProductRow = (row) => {
+  if (!row || row.packaging || isPackagingProductCode(row.productCode)) return false;
+  if (normalizeCinchoType(row.cinchoType)) return true;
+  if (isCinchoInventoryProductByCodeAndName(row.productCode, row.productName)) return true;
+  if (hasInventorySizeBreakdown(row.systemSizes)) return true;
+  return false;
+};
+
+export const resolveCinchoProductLabel = (row) => {
+  const type = normalizeCinchoType(row?.cinchoType);
+  if (type) return getCinchoTypeLabel(type);
+  if (isCinchoInventoryProductByCodeAndName(row?.productCode, row?.productName)) return "FOSS / Cincho";
+  if (hasInventorySizeBreakdown(row?.systemSizes)) return "Por talla";
+  return "—";
+};
 
 export const sortSizeKeys = (keys) =>
   [...keys].sort((a, b) => {
