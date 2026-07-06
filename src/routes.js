@@ -1057,7 +1057,7 @@ const routes = [
       },
       {
         path: "/kiosk-returns",
-        name: "Devoluciones / Reintegros",
+        name: "Devoluciones y Cambios",
         mini: "DR",
         component: <KioskReturns />,
         layout: "/admin",
