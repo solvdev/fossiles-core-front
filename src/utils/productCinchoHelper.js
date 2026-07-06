@@ -52,6 +52,10 @@ export const productMatchesSearchFilter = (row, search) => {
 export const hasAssignedProductColor = (row) =>
   row?.colorId != null && String(row?.colorName || "").trim() !== "";
 
+/** Empaques SUM- no llevan color; deben aparecer igual en el conteo físico. */
+export const shouldShowInKioskPhysicalCount = (row) =>
+  hasAssignedProductColor(row) || row?.packaging === true || isPackagingProductCode(row?.productCode);
+
 export const formatSystemSizesText = (sizes) => {
   if (!sizes || typeof sizes !== "object") return "";
   const parts = Object.entries(sizes)

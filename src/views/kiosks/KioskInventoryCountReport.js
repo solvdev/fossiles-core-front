@@ -32,7 +32,7 @@ import { exportConteoToExcel, exportConteoToPdf } from "utils/kioscoConteoExport
 import { PRODUCT_AUDIENCE_OPTIONS, productMatchesAudienceFilter } from "utils/productAudienceHelper";
 import {
   CINCHO_FILTER_OPTIONS,
-  hasAssignedProductColor,
+  shouldShowInKioskPhysicalCount,
   isCinchoProductRow,
   isFossCinchoProductRow,
   formatFossLocationSizeSummary,
@@ -363,7 +363,7 @@ function KioskInventoryCountReport({ locationId }) {
       .map((category) => {
         const rows = category.rows.filter(
           (row) =>
-            hasAssignedProductColor(row)
+            shouldShowInKioskPhysicalCount(row)
             && productMatchesSearchFilter(row, debouncedSearch)
             && productMatchesAudienceFilter(row, audienceFilter)
             && productMatchesCinchoFilter(row, cinchoFilter)
