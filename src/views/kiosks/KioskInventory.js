@@ -54,6 +54,7 @@ import {
 import { isPackagingProductCode } from "utils/kioskPackagingHelper";
 import { hasInventorySizeBreakdown } from "utils/inventoryVariantHelper";
 import { isFossCinchosProductCode } from "utils/cinchoProductionHelper";
+import { sortSizeKeys } from "utils/productCinchoHelper";
 import { showError, showSuccess, showWarning } from "utils/notificationHelper";
 import { formatShipmentReconcileMessage } from "utils/shipmentReceiptRepairHelper";
 import ShipmentReconcilePreviewModal from "components/distribution/ShipmentReconcilePreviewModal";
@@ -121,6 +122,8 @@ function KioskInventory() {
   const [reconcilePreviewError, setReconcilePreviewError] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+  const [customAjusteSizeKeys, setCustomAjusteSizeKeys] = useState([]);
+  const [newAjusteSizeKey, setNewAjusteSizeKey] = useState("");
   const [activeTab, setActiveTab] = useState("INVENTARIO");
   const [stockViewFilter, setStockViewFilter] = useState("ALL");
 
@@ -216,20 +219,22 @@ function KioskInventory() {
   }, [selectedStockRow]);
 
   const fossAjusteMode = useMemo(() => {
-    if (!selectedProduct || !isFossCinchosProductCode(selectedProduct.code)) return false;
-    return requiresSizeKey || hasInventorySizeBreakdown(selectedStockRow?.sizes);
-  }, [selectedProduct, requiresSizeKey, selectedStockRow]);
+    if (!selectedProduct || form.operation !== "AJUSTE") return false;
+    return isFossCinchosProductCode(selectedProduct.code);
+  }, [selectedProduct, form.operation]);
 
   const ajusteSizeKeys = useMemo(() => {
     const keys = new Set(Object.keys(selectedStockRow?.sizes || {}));
     Object.keys(form.realSizes || {}).forEach((key) => keys.add(key));
-    return Array.from(keys).sort((a, b) => {
-      const na = Number(a);
-      const nb = Number(b);
-      if (!Number.isNaN(na) && !Number.isNaN(nb)) return na - nb;
-      return String(a).localeCompare(String(b), undefined, { numeric: true });
-    });
-  }, [selectedStockRow, form.realSizes]);
+    customAjusteSizeKeys.forEach((key) => keys.add(key));
+    return sortSizeKeys(keys);
+  }, [selectedStockRow, form.realSizes, customAjusteSizeKeys]);
+
+  useEffect(() => {
+    setCustomAjusteSizeKeys([]);
+    setNewAjusteSizeKey("");
+    setForm((prev) => ({ ...prev, realSizes: {} }));
+  }, [form.productId, form.colorId, form.locationId]);
 
   useEffect(() => {
     void loadCatalogs();
@@ -299,6 +304,16 @@ function KioskInventory() {
     setForm((prev) => ({ ...prev, [key]: value }));
   };
 
+  const handleAddAjusteSizeKey = () => {
+    const normalized = String(newAjusteSizeKey || "").trim();
+    if (!normalized) {
+      showWarning("Indique el número de talla (ej. 32).");
+      return;
+    }
+    setCustomAjusteSizeKeys((prev) => (prev.includes(normalized) ? prev : [...prev, normalized]));
+    setNewAjusteSizeKey("");
+  };
+
   const validateForm = () => {
     if (form.operation === "CAMBIO") {
       if (!form.locationId) return "Debes seleccionar un kiosko.";
@@ -335,7 +350,7 @@ function KioskInventory() {
         const realSizes = form.realSizes || {};
         const total = ajusteSizeKeys.reduce((sum, size) => sum + Number(realSizes[size] || 0), 0);
         if (ajusteSizeKeys.length === 0) {
-          return "Este cincho FOSS no tiene tallas en inventario; verifica el stock del kiosko.";
+          return "Agregue al menos una talla (ej. 32, 34) con la cantidad contada.";
         }
         if (!Number.isInteger(total) || total < 0) {
           return "Indica la cantidad real por talla (enteros >= 0).";
@@ -840,9 +855,42 @@ function KioskInventory() {
                         fossAjusteMode ? (
                           <>
                             <Alert color="info" className="py-2">
-                              Cincho FOSS: indica la cantidad real contada por talla. Se actualizará el inventario
-                              final y el desglose en kardex.
+                              Cincho FOSS: indica la cantidad real contada por talla. Si <strong>sizes_data</strong> está
+                              vacío, este ajuste crea el desglose y alinea Fin. con lo contado.
+                              {selectedStockRow?.currentStock != null ? (
+                                <div className="mt-1">
+                                  Stock actual del sistema: <strong>{selectedStockRow.currentStock}</strong>
+                                  {!hasInventorySizeBreakdown(selectedStockRow?.sizes)
+                                    ? " (sin desglose por talla todavía)."
+                                    : null}
+                                </div>
+                              ) : null}
                             </Alert>
+                            {ajusteSizeKeys.length === 0 ? (
+                              <Alert color="warning" className="py-2">
+                                No hay tallas registradas. Agregue las tallas que contó (32, 34, 36…) y la cantidad de cada una.
+                              </Alert>
+                            ) : null}
+                            <FormGroup className="d-flex align-items-end">
+                              <div className="flex-grow-1 mr-2">
+                                <Label>Agregar talla</Label>
+                                <Input
+                                  type="text"
+                                  placeholder="Ej. 32"
+                                  value={newAjusteSizeKey}
+                                  onChange={(e) => setNewAjusteSizeKey(e.target.value)}
+                                  onKeyDown={(e) => {
+                                    if (e.key === "Enter") {
+                                      e.preventDefault();
+                                      handleAddAjusteSizeKey();
+                                    }
+                                  }}
+                                />
+                              </div>
+                              <Button color="secondary" outline type="button" onClick={handleAddAjusteSizeKey}>
+                                Agregar
+                              </Button>
+                            </FormGroup>
                             {ajusteSizeKeys.map((size) => (
                               <FormGroup key={size}>
                                 <Label>Talla {size}</Label>
