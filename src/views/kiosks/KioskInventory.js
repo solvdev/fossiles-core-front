@@ -55,13 +55,19 @@ import { sortSizeKeys } from "utils/productCinchoHelper";
 import { showError, showSuccess, showWarning } from "utils/notificationHelper";
 import {
   canSell,
+  createEmptyLineItem,
   isSaleBelowMinimum,
   OPERATION_OPTIONS,
   sortMovementsDesc,
+  supportsBulkLines,
   validateAnulacionForm,
+  validateBulkLines,
   validateCommonStockForm,
   validateTransferForm,
 } from "./kioskInventoryFormHelper";
+import KioskInventoryStatsBar from "./KioskInventoryStatsBar";
+import KioskInventoryStockExplorer from "./KioskInventoryStockExplorer";
+import "./KioskInventory.css";
 
 const INITIAL_FORM = {
   operation: "ENTRADA",
@@ -105,6 +111,10 @@ function KioskInventory() {
   const [newAjusteSizeKey, setNewAjusteSizeKey] = useState("");
   const [activeTab, setActiveTab] = useState("INVENTARIO");
   const [stockViewFilter, setStockViewFilter] = useState("ALL");
+  const [lineItems, setLineItems] = useState([createEmptyLineItem()]);
+  const [stockExploreProductId, setStockExploreProductId] = useState("");
+  const [stockExploreColorId, setStockExploreColorId] = useState("");
+  const [showAllStockRows, setShowAllStockRows] = useState(false);
 
   const kiosks = useMemo(
     () =>
@@ -225,10 +235,22 @@ function KioskInventory() {
       setStockRows([]);
       setLowStockRows([]);
       setMovements([]);
+      setStockExploreProductId("");
+      setStockExploreColorId("");
       return;
     }
     void refreshLocationData(selectedLocation);
   }, [selectedLocation]);
+
+  useEffect(() => {
+    setStockExploreColorId("");
+  }, [stockExploreProductId, selectedLocation]);
+
+  useEffect(() => {
+    if (supportsBulkLines(form.operation)) {
+      setLineItems([createEmptyLineItem()]);
+    }
+  }, [form.operation]);
 
   const loadCatalogs = async () => {
     try {
@@ -293,7 +315,44 @@ function KioskInventory() {
     setNewAjusteSizeKey("");
   };
 
+  const findStockRow = (productId, colorId) => {
+    if (!productId) return null;
+    const colorCandidate = colorId ? Number(colorId) : null;
+    return stockRows.find((row) => {
+      const sameProduct = Number(row.productId) === Number(productId);
+      const sameColor =
+        colorCandidate == null ? row.colorId == null : Number(row.colorId) === colorCandidate;
+      return sameProduct && sameColor;
+    });
+  };
+
+  const updateLineItem = (lineId, key, value) => {
+    setLineItems((prev) =>
+      prev.map((line) => (line.id === lineId ? { ...line, [key]: value } : line))
+    );
+  };
+
+  const addLineItem = () => {
+    setLineItems((prev) => [...prev, createEmptyLineItem()]);
+  };
+
+  const removeLineItem = (lineId) => {
+    setLineItems((prev) => {
+      if (prev.length <= 1) {
+        return [createEmptyLineItem()];
+      }
+      return prev.filter((line) => line.id !== lineId);
+    });
+  };
+
   const validateForm = () => {
+    if (supportsBulkLines(form.operation)) {
+      return validateBulkLines(form.operation, lineItems, {
+        locationId: form.locationId,
+        invoiceId: form.invoiceId,
+        reason: form.reason,
+      });
+    }
     if (form.operation === "CAMBIO") {
       if (!form.locationId) return "Debes seleccionar un kiosko.";
       if (!form.returnedProductId) return "Debes seleccionar el producto que devuelve el cliente.";
@@ -367,6 +426,28 @@ function KioskInventory() {
       return "La factura original es obligatoria.";
     }
     return "";
+  };
+
+  const buildPayloadForLine = (line) => {
+    const base = {
+      productId: Number(line.productId),
+      colorId: line.colorId ? Number(line.colorId) : null,
+      userId: form.userId ? Number(form.userId) : null,
+      quantity: Number(line.quantity),
+      sizeKey: String(line.sizeKey || "").trim() || null,
+    };
+    switch (form.operation) {
+      case "ENTRADA":
+        return { ...base, referenceId: form.referenceId ? Number(form.referenceId) : null };
+      case "VENTA":
+        return { ...base, invoiceId: Number(form.invoiceId) };
+      case "DEVOLUCION_DEPOSITO":
+        return { ...base, referenceId: form.referenceId ? Number(form.referenceId) : null };
+      case "MERMA":
+        return { ...base, reason: String(form.reason || "").trim() };
+      default:
+        return base;
+    }
   };
 
   const buildPayload = () => {
@@ -451,6 +532,35 @@ function KioskInventory() {
     }
   };
 
+  const submitBulkOperation = async () => {
+    const activeLines = lineItems.filter((line) => line.productId && line.quantity);
+    const locationId = Number(form.locationId);
+    const errors = [];
+    for (const line of activeLines) {
+      if (form.operation === "VENTA") {
+        const row = findStockRow(line.productId, line.colorId);
+        if (!canSell(row, line.quantity)) {
+          errors.push(`Sin stock suficiente para producto #${line.productId}.`);
+        }
+      }
+    }
+    if (errors.length) {
+      throw new Error(errors[0]);
+    }
+    for (const line of activeLines) {
+      const payload = buildPayloadForLine(line);
+      if (form.operation === "ENTRADA") {
+        await registrarKioscoEntrada(locationId, payload);
+      } else if (form.operation === "VENTA") {
+        await registrarKioscoVenta(locationId, payload);
+      } else if (form.operation === "DEVOLUCION_DEPOSITO") {
+        await registrarKioscoDevolucionDeposito(locationId, payload);
+      } else if (form.operation === "MERMA") {
+        await registrarKioscoMerma(locationId, payload);
+      }
+    }
+  };
+
   const submitOperation = async () => {
     const validationError = validateForm();
     if (validationError) {
@@ -459,27 +569,35 @@ function KioskInventory() {
     }
     try {
       setSubmitting(true);
-      const payload = buildPayload();
-      if (form.operation === "ENTRADA") {
-        await registrarKioscoEntrada(Number(form.locationId), payload);
-      } else if (form.operation === "VENTA") {
-        await registrarKioscoVenta(Number(form.locationId), payload);
-      } else if (form.operation === "DEVOLUCION_DEPOSITO") {
-        await registrarKioscoDevolucionDeposito(Number(form.locationId), payload);
-      } else if (form.operation === "DEVOLUCION_CLIENTE") {
-        await registrarKioscoDevolucionCliente(Number(form.locationId), payload);
-      } else if (form.operation === "TRASLADO") {
-        await registrarKioscoTraslado(payload);
-      } else if (form.operation === "MERMA") {
-        await registrarKioscoMerma(Number(form.locationId), payload);
-      } else if (form.operation === "AJUSTE") {
-        await registrarKioscoAjuste(Number(form.locationId), payload);
-      } else if (form.operation === "ANULACION") {
-        await registrarKioscoAnulacion(Number(form.locationId), payload);
-      } else if (form.operation === "CAMBIO") {
-        await registrarKioscoCambio(Number(form.locationId), payload);
+      if (supportsBulkLines(form.operation)) {
+        await submitBulkOperation();
+      } else {
+        const payload = buildPayload();
+        if (form.operation === "ENTRADA") {
+          await registrarKioscoEntrada(Number(form.locationId), payload);
+        } else if (form.operation === "VENTA") {
+          await registrarKioscoVenta(Number(form.locationId), payload);
+        } else if (form.operation === "DEVOLUCION_DEPOSITO") {
+          await registrarKioscoDevolucionDeposito(Number(form.locationId), payload);
+        } else if (form.operation === "DEVOLUCION_CLIENTE") {
+          await registrarKioscoDevolucionCliente(Number(form.locationId), payload);
+        } else if (form.operation === "TRASLADO") {
+          await registrarKioscoTraslado(payload);
+        } else if (form.operation === "MERMA") {
+          await registrarKioscoMerma(Number(form.locationId), payload);
+        } else if (form.operation === "AJUSTE") {
+          await registrarKioscoAjuste(Number(form.locationId), payload);
+        } else if (form.operation === "ANULACION") {
+          await registrarKioscoAnulacion(Number(form.locationId), payload);
+        } else if (form.operation === "CAMBIO") {
+          await registrarKioscoCambio(Number(form.locationId), payload);
+        }
       }
-      showSuccess("Movimiento registrado correctamente.");
+      showSuccess(
+        supportsBulkLines(form.operation)
+          ? `${lineItems.filter((l) => l.productId && l.quantity).length} movimiento(s) registrado(s).`
+          : "Movimiento registrado correctamente."
+      );
       await loadConsolidated();
       if (selectedLocation) {
         await refreshLocationData(selectedLocation);
@@ -491,6 +609,9 @@ function KioskInventory() {
         locationOriginId: prev.locationOriginId,
         locationDestinationId: prev.locationDestinationId,
       }));
+      if (supportsBulkLines(form.operation)) {
+        setLineItems([createEmptyLineItem()]);
+      }
     } catch (err) {
       showError(err.message || "No se pudo registrar el movimiento.");
     } finally {
@@ -525,6 +646,15 @@ function KioskInventory() {
 
   const saleWouldHitMin = form.operation === "VENTA" && isSaleBelowMinimum(selectedStockRow, form.quantity);
   const saleCanSubmit = form.operation !== "VENTA" || canSell(selectedStockRow, form.quantity);
+  const bulkSaleCanSubmit = useMemo(() => {
+    if (form.operation !== "VENTA" || !supportsBulkLines(form.operation)) return true;
+    return lineItems.every((line) => {
+      if (!line.productId || !line.quantity) return true;
+      return canSell(findStockRow(line.productId, line.colorId), line.quantity);
+    });
+  }, [form.operation, lineItems, stockRows]);
+
+  const bulkLineCount = lineItems.filter((l) => l.productId && l.quantity).length;
 
   return (
     <div className="content">
@@ -574,33 +704,10 @@ function KioskInventory() {
             </CardHeader>
             <CardBody>
               {error && <Alert color="danger">{error}</Alert>}
-              {consolidated && (
-                <Row className="mb-3">
-                  <Col md="3"><Alert color="light" className="mb-0 border">Kioskos: <strong>{consolidated.totalKiosks}</strong></Alert></Col>
-                  <Col md="3"><Alert color="light" className="mb-0 border">Unidades: <strong>{consolidated.totalUnits}</strong></Alert></Col>
-                  <Col md="3"><Alert color="light" className="mb-0 border">Items stock bajo: <strong>{consolidated.totalLowStockRows}</strong></Alert></Col>
-                  <Col md="3"><Alert color="light" className="mb-0 border">Filas inventario: <strong>{consolidated.totalStockRows}</strong></Alert></Col>
-                </Row>
-              )}
+              <KioskInventoryStatsBar consolidated={consolidated} />
 
               <Row className="mb-3">
-                <Col md="4">
-                  <FormGroup>
-                    <Label>Kiosko para consulta</Label>
-                    <FilterableSelect
-                      value={selectedLocation}
-                      onChange={(value) => {
-                        setSelectedLocation(value);
-                        onFormChange("locationId", value);
-                      }}
-                      options={kioskOptions}
-                      placeholder="Buscar kiosko…"
-                      emptyLabel="Selecciona kiosko"
-                      disabled={loadingCatalogs}
-                    />
-                  </FormGroup>
-                </Col>
-                <Col md="4" className="d-flex align-items-end flex-wrap" style={{ gap: 8 }}>
+                <Col className="d-flex align-items-center flex-wrap" style={{ gap: 8 }}>
                   <Button
                     color="primary"
                     outline
@@ -625,9 +732,9 @@ function KioskInventory() {
               {activeTab === "INVENTARIO" && (
               <Row>
                 <Col md="5">
-                  <Card className="border">
+                  <Card className="border kiosk-inv-movement-card">
                     <CardHeader>
-                      <CardTitle tag="h6">Registrar movimiento</CardTitle>
+                      <CardTitle tag="h6" className="mb-0">Registrar movimiento</CardTitle>
                     </CardHeader>
                     <CardBody>
                       <FormGroup>
@@ -677,7 +784,10 @@ function KioskInventory() {
                           <Label>Kiosko</Label>
                           <FilterableSelect
                             value={form.locationId}
-                            onChange={(value) => onFormChange("locationId", value)}
+                            onChange={(value) => {
+                              onFormChange("locationId", value);
+                              setSelectedLocation(value);
+                            }}
                             options={kioskOptions}
                             placeholder="Buscar kiosko…"
                             emptyLabel="Selecciona kiosko"
@@ -729,6 +839,106 @@ function KioskInventory() {
                               disabled={loadingCatalogs}
                             />
                           </FormGroup>
+                        </>
+                      ) : supportsBulkLines(form.operation) ? (
+                        <>
+                          <Alert color="info" className="py-2">
+                            Agrega varias líneas de producto. Todas se registran en un solo envío
+                            ({OPERATION_OPTIONS.find((o) => o.value === form.operation)?.label}).
+                          </Alert>
+                          <div className="table-responsive">
+                            <Table size="sm" className="kiosk-inv-line-table mb-2">
+                              <thead>
+                                <tr>
+                                  <th>Producto</th>
+                                  <th>Color</th>
+                                  <th>Talla</th>
+                                  <th>Cant.</th>
+                                  <th />
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {lineItems.map((line) => {
+                                  const lineStock = findStockRow(line.productId, line.colorId);
+                                  const lineNeedsSize =
+                                    lineStock && hasInventorySizeBreakdown(lineStock.sizes);
+                                  return (
+                                    <tr key={line.id}>
+                                      <td style={{ minWidth: 160 }}>
+                                        <ProductSelector
+                                          products={products}
+                                          value={line.productId}
+                                          onChange={(product) =>
+                                            updateLineItem(
+                                              line.id,
+                                              "productId",
+                                              product ? String(product.id) : ""
+                                            )
+                                          }
+                                          placeholder="Producto…"
+                                          disabled={loadingCatalogs}
+                                          renderOptionExtra={renderProductOptionExtra}
+                                        />
+                                      </td>
+                                      <td style={{ minWidth: 120 }}>
+                                        <ColorSelector
+                                          colors={colors}
+                                          value={line.colorId}
+                                          onChange={(color) =>
+                                            updateLineItem(
+                                              line.id,
+                                              "colorId",
+                                              color ? String(color.id) : ""
+                                            )
+                                          }
+                                          placeholder="Color…"
+                                          disabled={loadingCatalogs}
+                                        />
+                                      </td>
+                                      <td style={{ width: 72 }}>
+                                        <Input
+                                          type="text"
+                                          bsSize="sm"
+                                          value={line.sizeKey}
+                                          onChange={(e) =>
+                                            updateLineItem(line.id, "sizeKey", e.target.value)
+                                          }
+                                          placeholder={lineNeedsSize ? "Req." : "—"}
+                                          disabled={!lineNeedsSize}
+                                        />
+                                      </td>
+                                      <td style={{ width: 72 }}>
+                                        <Input
+                                          type="number"
+                                          bsSize="sm"
+                                          min="1"
+                                          step="1"
+                                          value={line.quantity}
+                                          onChange={(e) =>
+                                            updateLineItem(line.id, "quantity", e.target.value)
+                                          }
+                                        />
+                                      </td>
+                                      <td style={{ width: 36 }}>
+                                        <Button
+                                          color="link"
+                                          size="sm"
+                                          className="text-danger p-0"
+                                          onClick={() => removeLineItem(line.id)}
+                                          title="Quitar línea"
+                                        >
+                                          ×
+                                        </Button>
+                                      </td>
+                                    </tr>
+                                  );
+                                })}
+                              </tbody>
+                            </Table>
+                          </div>
+                          <Button color="secondary" outline size="sm" onClick={addLineItem} className="mb-3">
+                            + Agregar línea
+                          </Button>
                         </>
                       ) : (
                         <>
@@ -847,7 +1057,7 @@ function KioskInventory() {
                             />
                           </FormGroup>
                         )
-                      ) : (
+                      ) : supportsBulkLines(form.operation) ? null : (
                         <FormGroup>
                           <Label>Cantidad</Label>
                           <Input
@@ -860,7 +1070,8 @@ function KioskInventory() {
                         </FormGroup>
                       )}
 
-                      {requiresSizeKey &&
+                      {!supportsBulkLines(form.operation) &&
+                      requiresSizeKey &&
                       ["ENTRADA", "VENTA", "MERMA"].includes(form.operation) ? (
                         <FormGroup>
                           <Label>Talla</Label>
@@ -967,9 +1178,14 @@ function KioskInventory() {
                           Esta venta deja el stock en mínimo o por debajo del mínimo de reposición.
                         </Alert>
                       )}
-                      {form.operation === "VENTA" && form.quantity && !saleCanSubmit && (
+                      {form.operation === "VENTA" && !supportsBulkLines(form.operation) && form.quantity && !saleCanSubmit && (
                         <Alert color="danger">
                           La cantidad supera el stock disponible para el producto/color seleccionado.
+                        </Alert>
+                      )}
+                      {form.operation === "VENTA" && supportsBulkLines(form.operation) && !bulkSaleCanSubmit && (
+                        <Alert color="danger">
+                          Una o más líneas superan el stock disponible.
                         </Alert>
                       )}
 
@@ -989,13 +1205,23 @@ function KioskInventory() {
                         color="primary"
                         block
                         onClick={() => void submitOperation()}
-                        disabled={submitting || (form.operation === "VENTA" && !saleCanSubmit)}
+                        disabled={
+                          submitting
+                          || (form.operation === "VENTA"
+                            && !supportsBulkLines(form.operation)
+                            && !saleCanSubmit)
+                          || (form.operation === "VENTA"
+                            && supportsBulkLines(form.operation)
+                            && !bulkSaleCanSubmit)
+                        }
                       >
                         {submitting ? (
                           <>
                             <Spinner size="sm" className="mr-2" />
                             Guardando...
                           </>
+                        ) : supportsBulkLines(form.operation) ? (
+                          `Registrar ${bulkLineCount || ""} movimiento(s)`
                         ) : (
                           "Registrar movimiento"
                         )}
@@ -1006,80 +1232,37 @@ function KioskInventory() {
 
                 <Col md="7">
                   <Card className="border mb-3">
-                    <CardHeader className="d-flex justify-content-between align-items-center flex-wrap">
-                      <CardTitle tag="h6" className="mb-0">
-                        Stock por kiosko {selectedLocation ? <Badge color="info">{filteredStockRows.length}</Badge> : null}
-                      </CardTitle>
-                      {selectedLocation && stockRows.length > 0 ? (
-                        <div className="btn-group btn-group-sm mt-2 mt-md-0">
-                          <Button
-                            color={stockViewFilter === "ALL" ? "primary" : "outline-primary"}
-                            onClick={() => setStockViewFilter("ALL")}
-                          >
-                            Todo
-                          </Button>
-                          <Button
-                            color={stockViewFilter === "PRODUCTS" ? "primary" : "outline-primary"}
-                            onClick={() => setStockViewFilter("PRODUCTS")}
-                          >
-                            Productos
-                          </Button>
-                          <Button
-                            color={stockViewFilter === "PACKAGING" ? "primary" : "outline-primary"}
-                            onClick={() => setStockViewFilter("PACKAGING")}
-                          >
-                            Empaques {packagingStockCount > 0 ? `(${packagingStockCount})` : ""}
-                          </Button>
-                        </div>
-                      ) : null}
+                    <CardHeader>
+                      <CardTitle tag="h6" className="mb-0">Stock por kiosko</CardTitle>
                     </CardHeader>
                     <CardBody>
-                      {loadingData ? (
-                        <div className="text-center py-3"><Spinner /> Cargando stock...</div>
-                      ) : stockRows.length === 0 ? (
-                        <Alert color="light" className="border mb-0">Selecciona un kiosko para ver stock.</Alert>
-                      ) : filteredStockRows.length === 0 ? (
-                        <Alert color="light" className="border mb-0">
-                          {stockViewFilter === "PACKAGING"
-                            ? "No hay empaques SUM- registrados en este kiosko. Use Entrada de stock para agregarlos."
-                            : "No hay filas para el filtro seleccionado."}
-                        </Alert>
-                      ) : (
-                        <Table responsive size="sm">
-                          <thead>
-                            <tr>
-                              <th>Producto</th>
-                              <th>Color</th>
-                              <th className="text-right">Actual</th>
-                              <th className="text-right">Mínimo</th>
-                              <th>Estado</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {filteredStockRows.map((row) => {
-                              const low = Number(row.currentStock || 0) <= Number(row.minimumStock || 0);
-                              const isPackaging = isPackagingProductCode(row.productCode);
-                              return (
-                                <tr key={row.id} className={low ? "table-danger" : ""}>
-                                  <td>
-                                    {row.productCode} - {row.productName}
-                                    {isPackaging ? <Badge color="secondary" className="ml-1">Empaque</Badge> : null}
-                                  </td>
-                                  <td>{row.colorName || "—"}</td>
-                                  <td className="text-right">{row.currentStock}</td>
-                                  <td className="text-right">{row.minimumStock}</td>
-                                  <td>{low ? <Badge color="danger">Bajo</Badge> : <Badge color="success">Normal</Badge>}</td>
-                                </tr>
-                              );
-                            })}
-                          </tbody>
-                        </Table>
-                      )}
-                      {lowStockRows.length > 0 && (
-                        <Alert color="warning" className="mb-0">
+                      <KioskInventoryStockExplorer
+                        kioskOptions={kioskOptions}
+                        products={products}
+                        colors={colors}
+                        stockRows={stockRows}
+                        loading={loadingData}
+                        selectedKiosk={selectedLocation}
+                        onKioskChange={(value) => {
+                          setSelectedLocation(value);
+                          onFormChange("locationId", value);
+                        }}
+                        selectedProductId={stockExploreProductId}
+                        onProductChange={setStockExploreProductId}
+                        selectedColorId={stockExploreColorId}
+                        onColorChange={setStockExploreColorId}
+                        showAllRows={showAllStockRows}
+                        onToggleShowAll={() => setShowAllStockRows((prev) => !prev)}
+                        packagingStockCount={packagingStockCount}
+                        stockViewFilter={stockViewFilter}
+                        onStockViewFilterChange={setStockViewFilter}
+                        filteredStockRows={filteredStockRows}
+                      />
+                      {lowStockRows.length > 0 && selectedLocation ? (
+                        <Alert color="warning" className="mb-0 mt-2">
                           Hay <strong>{lowStockRows.length}</strong> producto(s) en stock bajo para este kiosko.
                         </Alert>
-                      )}
+                      ) : null}
                     </CardBody>
                   </Card>
 

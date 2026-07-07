@@ -10,6 +10,28 @@ export const OPERATION_OPTIONS = [
   { value: "ANULACION", label: "Anulación de factura" },
 ];
 
+/** Operaciones que admiten varias líneas producto+cantidad en un solo envío. */
+export const BULK_LINE_OPERATIONS = new Set([
+  "ENTRADA",
+  "VENTA",
+  "DEVOLUCION_DEPOSITO",
+  "MERMA",
+]);
+
+export function supportsBulkLines(operation) {
+  return BULK_LINE_OPERATIONS.has(operation);
+}
+
+export function createEmptyLineItem(id = Date.now()) {
+  return {
+    id,
+    productId: "",
+    colorId: "",
+    quantity: "",
+    sizeKey: "",
+  };
+}
+
 export function isPositiveInteger(value) {
   const num = Number(value);
   return Number.isInteger(num) && num > 0;
@@ -24,6 +46,33 @@ export function validateCommonStockForm({ locationId, productId, quantity }) {
   }
   if (!isPositiveInteger(quantity)) {
     return "La cantidad debe ser un entero mayor a cero.";
+  }
+  return "";
+}
+
+export function validateBulkLines(operation, lines, { locationId, invoiceId, reason } = {}) {
+  if (!locationId) {
+    return "Debes seleccionar un kiosko.";
+  }
+  const activeLines = (lines || []).filter((line) => line.productId || line.quantity);
+  if (activeLines.length === 0) {
+    return "Agrega al menos una línea con producto y cantidad.";
+  }
+  for (let i = 0; i < activeLines.length; i += 1) {
+    const line = activeLines[i];
+    const lineNo = i + 1;
+    if (!line.productId) {
+      return `Línea ${lineNo}: selecciona un producto.`;
+    }
+    if (!isPositiveInteger(line.quantity)) {
+      return `Línea ${lineNo}: la cantidad debe ser un entero mayor a cero.`;
+    }
+  }
+  if (operation === "VENTA" && !invoiceId) {
+    return "La referencia de factura es obligatoria.";
+  }
+  if (operation === "MERMA" && !String(reason || "").trim()) {
+    return "El motivo de merma es obligatorio.";
   }
   return "";
 }
