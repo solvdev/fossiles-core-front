@@ -445,8 +445,8 @@ export function ShipmentReceiptDetail({
     if (
       !window.confirm(
         "¿Cuadrar inventario y kardex con este envío?\n\n"
-          + "Elimina duplicados y ajusta entradas al valor del documento. "
-          + "No altera conteo físico ni deja registro visible de ajuste."
+          + "Elimina ENTRADAs duplicadas del envío según el documento. "
+          + "No borra ventas ni anulaciones. No altera el conteo físico guardado."
       )
     ) {
       return;

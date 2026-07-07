@@ -3047,8 +3047,8 @@ function PrepareShipments() {
     if (
       !window.confirm(
         "¿Cuadrar inventario y kardex con este envío?\n\n"
-          + "Elimina duplicados y ajusta entradas al valor del documento. "
-          + "No altera conteo físico ni deja registro visible de ajuste."
+          + "Elimina ENTRADAs duplicadas del envío según el documento. "
+          + "No borra ventas ni anulaciones. No altera el conteo físico guardado."
       )
     ) {
       return;
@@ -4070,7 +4070,7 @@ function PrepareShipments() {
                               disabled={repairingReceiptShipmentId === shipment.id || reconcilingReceiptShipmentId === shipment.id}
                               onClick={() => handleReconcileReceiptInventory(shipment)}
                               className="mr-2"
-                              title="Admin: cuadra entradas/kardex con el envío sin duplicar"
+                              title="Admin: elimina ENTRADAs duplicadas; no borra ventas"
                             >
                               {reconcilingReceiptShipmentId === shipment.id ? (
                                 <Spinner size="sm" />

@@ -466,7 +466,8 @@ function KioskInventory() {
     if (
       !window.confirm(
         "¿Cuadrar inventario y kardex según envíos entregados?\n\n"
-          + "Corrige duplicados en silencio. No altera conteo físico ni deja registro de ajuste visible."
+          + "Elimina ENTRADAs duplicadas del envío según el documento. "
+          + "No borra ventas ni anulaciones. No altera el conteo físico guardado."
       )
     ) {
       return;
@@ -591,7 +592,7 @@ function KioskInventory() {
                       outline
                       onClick={() => void handleReconcileInventory()}
                       disabled={loadingCatalogs || initializingStock || reconcilingStock || !selectedLocation}
-                      title="Solo administración: cuadra entradas con envíos sin afectar conteo físico"
+                      title="Admin: elimina ENTRADAs duplicadas de envíos; no borra ventas"
                     >
                       {reconcilingStock ? (
                         <>

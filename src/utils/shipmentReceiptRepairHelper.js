@@ -22,7 +22,7 @@ export const formatShipmentReceiptRepairMessage = (result) => {
 };
 
 /**
- * Mensajes al cuadrar inventario/kardex con envíos (reconciliación silenciosa admin).
+ * Mensajes al cuadrar inventario/kardex con envíos (admin).
  */
 export const formatShipmentReconcileMessage = (result) => {
   const linesReconciled = Number(result?.linesReconciled ?? 0);
@@ -34,7 +34,7 @@ export const formatShipmentReconcileMessage = (result) => {
   if (linesReconciled > 0 || duplicatesRemoved > 0) {
     message = `Inventario cuadrado: ${linesReconciled} línea(s) ajustada(s)`;
     if (duplicatesRemoved > 0) {
-      message += `, ${duplicatesRemoved} duplicado(s) eliminado(s)`;
+      message += `, ${duplicatesRemoved} ENTRADA(s) duplicada(s) eliminada(s)`;
     }
     if (stockRowsRecalculated > 0) {
       message += `, ${stockRowsRecalculated} fila(s) de stock recalculada(s)`;
