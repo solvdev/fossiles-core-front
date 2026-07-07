@@ -41,9 +41,9 @@ export const formatShipmentReconcileMessage = (result) => {
     }
     message += ".";
   } else if (warnings.length > 0) {
-    message = "No se realizaron cambios. Revise las advertencias abajo.";
+    message = "No se eliminaron duplicados. Revise las advertencias abajo.";
   } else {
-    message = "El inventario y kardex ya coincidían con los envíos entregados.";
+    message = "No había ENTRADAs duplicadas que eliminar.";
   }
 
   if (warnings.length > 0) {

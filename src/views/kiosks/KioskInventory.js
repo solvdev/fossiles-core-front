@@ -615,7 +615,7 @@ function KioskInventory() {
                       outline
                       onClick={() => void openReconcilePreview()}
                       disabled={loadingCatalogs || initializingStock || reconcilingStock || !selectedLocation}
-                      title="Admin: elimina ENTRADAs duplicadas de envíos; no borra ventas"
+                      title="Admin: solo elimina ENTRADAs duplicadas; no agrega faltantes"
                     >
                       {reconcilingStock ? (
                         <>

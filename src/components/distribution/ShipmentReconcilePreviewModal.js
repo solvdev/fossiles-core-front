@@ -47,14 +47,14 @@ function ShipmentReconcilePreviewModal({
             <Alert color={preview?.hasChanges ? "warning" : "success"} className="py-2">
               {preview?.hasChanges ? (
                 <>
-                  <strong>Se aplicarán correcciones.</strong>
+                  <strong>Solo se eliminarán ENTRADAs duplicadas.</strong>
                   {summary ? <div className="mt-1">{summary}</div> : null}
                 </>
               ) : (
                 <>
-                  <strong>No hay correcciones pendientes.</strong>
+                  <strong>No hay duplicados que eliminar.</strong>
                   <div className="mt-1">
-                    El inventario y kardex ya coinciden con los envíos entregados revisados.
+                    El cuadre no agrega movimientos. Para cargar faltantes use &quot;Sincronizar inventario kiosco&quot;.
                   </div>
                 </>
               )}
@@ -123,9 +123,8 @@ function ShipmentReconcilePreviewModal({
             )}
 
             <Alert color="light" className="border mt-3 mb-0 py-2">
-              Revisa todos los envíos recibidos en el kiosko (distribución, OP, standalone y empaques SUM-).
-              No se borran ventas ni anulaciones. Tras cuadrar, vuelva a abrir o revisar el conteo físico
-              para actualizar las columnas Ent./Fin.
+              Cuadrar solo borra ENTRADAs de más (según el documento del envío). No agrega faltantes ni toca ventas.
+              Para cargar lo que falte use Sincronizar inventario kiosco.
             </Alert>
           </>
         )}
