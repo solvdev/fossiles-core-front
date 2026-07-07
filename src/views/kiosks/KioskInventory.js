@@ -43,7 +43,7 @@ import {
 import { isPackagingProductCode } from "utils/kioskPackagingHelper";
 import { hasInventorySizeBreakdown } from "utils/inventoryVariantHelper";
 import { isFossCinchosProductCode } from "utils/cinchoProductionHelper";
-import { sortSizeKeys } from "utils/productCinchoHelper";
+import { sortSizeKeys, filterVisibleKioskStockRows } from "utils/productCinchoHelper";
 import { showError, showSuccess, showWarning } from "utils/notificationHelper";
 import {
   canSell,
@@ -106,6 +106,8 @@ function KioskInventory() {
   const [stockExploreProductId, setStockExploreProductId] = useState("");
   const [stockExploreColorId, setStockExploreColorId] = useState("");
   const [showAllStockRows, setShowAllStockRows] = useState(false);
+  const [movementKioskId, setMovementKioskId] = useState("");
+  const [loadingMovements, setLoadingMovements] = useState(false);
   const [movementFilters, setMovementFilters] = useState({
     type: "",
     productTerm: "",
@@ -141,19 +143,29 @@ function KioskInventory() {
       <Badge color="secondary" className="ml-1">Empaque</Badge>
     ) : null;
 
+  const visibleStockRows = useMemo(
+    () => filterVisibleKioskStockRows(stockRows),
+    [stockRows]
+  );
+
   const filteredStockRows = useMemo(() => {
     if (stockViewFilter === "PACKAGING") {
-      return stockRows.filter((row) => isPackagingProductCode(row.productCode));
+      return visibleStockRows.filter((row) => isPackagingProductCode(row.productCode));
     }
     if (stockViewFilter === "PRODUCTS") {
-      return stockRows.filter((row) => !isPackagingProductCode(row.productCode));
+      return visibleStockRows.filter((row) => !isPackagingProductCode(row.productCode));
     }
-    return stockRows;
-  }, [stockRows, stockViewFilter]);
+    return visibleStockRows;
+  }, [visibleStockRows, stockViewFilter]);
 
   const packagingStockCount = useMemo(
-    () => stockRows.filter((row) => isPackagingProductCode(row.productCode)).length,
-    [stockRows]
+    () => visibleStockRows.filter((row) => isPackagingProductCode(row.productCode)).length,
+    [visibleStockRows]
+  );
+
+  const visibleLowStockCount = useMemo(
+    () => filterVisibleKioskStockRows(lowStockRows).length,
+    [lowStockRows]
   );
 
   const kioskOptions = useMemo(
@@ -231,13 +243,26 @@ function KioskInventory() {
     if (!selectedLocation) {
       setStockRows([]);
       setLowStockRows([]);
-      setMovements([]);
       setStockExploreProductId("");
       setStockExploreColorId("");
       return;
     }
     void refreshLocationData(selectedLocation);
   }, [selectedLocation]);
+
+  useEffect(() => {
+    if (selectedLocation) {
+      setMovementKioskId(selectedLocation);
+    }
+  }, [selectedLocation]);
+
+  useEffect(() => {
+    if (!movementKioskId) {
+      setMovements([]);
+      return;
+    }
+    void loadMovements(movementKioskId);
+  }, [movementKioskId]);
 
   useEffect(() => {
     setStockExploreColorId("");
@@ -271,23 +296,33 @@ function KioskInventory() {
     setMovementFilters((prev) => ({ ...prev, [key]: value }));
   };
 
+  const loadMovements = async (locationId) => {
+    try {
+      setLoadingMovements(true);
+      const movementList = await getKioscoMovimientos(locationId);
+      setMovements(sortMovementsDesc(movementList || []));
+    } catch (err) {
+      setMovements([]);
+      showError(err.message || "No se pudieron cargar los movimientos del kiosko.");
+    } finally {
+      setLoadingMovements(false);
+    }
+  };
+
   const refreshLocationData = async (locationId) => {
     try {
       setLoadingData(true);
       setError("");
-      const [stock, lowStock, movementList] = await Promise.all([
+      const [stock, lowStock] = await Promise.all([
         getKioscoStock(locationId),
         getKioscoStockBajo(locationId),
-        getKioscoMovimientos(locationId),
       ]);
       setStockRows(stock || []);
       setLowStockRows(lowStock || []);
-      setMovements(sortMovementsDesc(movementList || []));
     } catch (err) {
       setError(err.message || "No se pudo cargar el inventario del kiosko.");
       setStockRows([]);
       setLowStockRows([]);
-      setMovements([]);
     } finally {
       setLoadingData(false);
     }
@@ -613,6 +648,9 @@ function KioskInventory() {
       if (selectedLocation) {
         await refreshLocationData(selectedLocation);
       }
+      if (movementKioskId) {
+        await loadMovements(movementKioskId);
+      }
       setForm((prev) => ({
         ...INITIAL_FORM,
         operation: prev.operation,
@@ -646,6 +684,9 @@ function KioskInventory() {
       );
       if (selectedLocation) {
         await refreshLocationData(selectedLocation);
+      }
+      if (movementKioskId) {
+        await loadMovements(movementKioskId);
       }
     } catch (err) {
       showError(err.message || "No se pudo inicializar el inventario de kiosko.");
@@ -1272,7 +1313,7 @@ function KioskInventory() {
                         kioskOptions={kioskOptions}
                         products={products}
                         colors={colors}
-                        stockRows={stockRows}
+                        stockRows={visibleStockRows}
                         loading={loadingData}
                         selectedKiosk={selectedLocation}
                         onKioskChange={(value) => {
@@ -1290,9 +1331,9 @@ function KioskInventory() {
                         onStockViewFilterChange={setStockViewFilter}
                         filteredStockRows={filteredStockRows}
                       />
-                      {lowStockRows.length > 0 && selectedLocation ? (
+                      {visibleLowStockCount > 0 && selectedLocation ? (
                         <Alert color="warning" className="mb-0 mt-2">
-                          Hay <strong>{lowStockRows.length}</strong> producto(s) en stock bajo para este kiosko.
+                          Hay <strong>{visibleLowStockCount}</strong> producto(s) en stock bajo para este kiosko.
                         </Alert>
                       ) : null}
                     </CardBody>
@@ -1304,10 +1345,12 @@ function KioskInventory() {
                 <Col md="12">
                   <KioskInventoryMovementsPanel
                     movements={movements}
-                    loading={loadingData}
+                    loading={loadingMovements}
                     filters={movementFilters}
                     onFilterChange={onMovementFilterChange}
-                    selectedKiosk={selectedLocation}
+                    kioskOptions={kioskOptions}
+                    selectedKiosk={movementKioskId}
+                    onKioskChange={setMovementKioskId}
                   />
                 </Col>
               </Row>

@@ -11,8 +11,20 @@ export const KIOSCO_MOVEMENT_TYPE_LABELS = {
   CAMBIO: "Cambio",
 };
 
-export const getKioscoMovementTypeLabel = (type) =>
-  KIOSCO_MOVEMENT_TYPE_LABELS[String(type || "")] || type || "—";
+export const normalizeKioscoMovementType = (type) => {
+  if (type == null || type === "") return "";
+  if (typeof type === "string") return type;
+  if (typeof type === "object") {
+    if (type.name) return String(type.name);
+    if (type.value) return String(type.value);
+  }
+  return String(type);
+};
+
+export const getKioscoMovementTypeLabel = (type) => {
+  const normalized = normalizeKioscoMovementType(type);
+  return KIOSCO_MOVEMENT_TYPE_LABELS[normalized] || normalized || "—";
+};
 
 export const formatKioscoMovementRoute = (movement) => {
   if (!movement) return "—";
@@ -29,7 +41,7 @@ export const formatKioscoMovementReference = (movement) => {
   if (movement?.referenceNumber) return movement.referenceNumber;
   const ref = movement?.referenceId;
   if (ref == null || ref === "") return "—";
-  const type = String(movement?.movementType || "");
+  const type = normalizeKioscoMovementType(movement?.movementType);
   if (type === "TRASLADO_ENTRADA" || type === "TRASLADO_SALIDA") {
     return `Traslado #${ref}`;
   }
@@ -64,7 +76,7 @@ export const getKioscoMovementSignedQuantity = (movement) => {
 };
 
 export const isKioscoTransferMovement = (movement) => {
-  const type = String(movement?.movementType || "");
+  const type = normalizeKioscoMovementType(movement?.movementType);
   return type === "TRASLADO_ENTRADA"
     || type === "TRASLADO_SALIDA"
     || movement?.referenceType === "SHIPMENT"

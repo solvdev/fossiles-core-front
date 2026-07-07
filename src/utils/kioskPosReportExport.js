@@ -93,6 +93,7 @@ export const exportKioskSalesToPdf = ({ sales, myReport, startDate, endDate, kio
         <td>${escape(sale.saleNumber)}</td>
         <td>${escape(sale.internalNumber || sale.invoice?.internalNumber || "")}</td>
         <td>${escape(sale.customerName || sale.customerTaxId || "CF")}</td>
+        <td>${escape(sale.soldByName || sale.soldByUsername || "")}</td>
         <td>${escape(sale.paymentMethod)}${sale.cardAuthNumber || sale.cardLast4 ? ` (Aut. ${escape(sale.cardAuthNumber || "")} · **** ${escape(sale.cardLast4 || "")})` : ""}</td>
         <td>${escape(formatQty(sale.totalItems))}</td>
         <td>${escape(formatMoney(sale.totalAmount))}</td>
@@ -140,13 +141,14 @@ export const exportKioskSalesToPdf = ({ sales, myReport, startDate, endDate, kio
               <th>No. Venta</th>
               <th>No. interno</th>
               <th>Cliente</th>
+              <th>Vendedor</th>
               <th>Pago</th>
               <th>Items</th>
               <th>Total</th>
               <th>Factura</th>
             </tr>
           </thead>
-          <tbody>${saleRows || `<tr><td colspan="8">Sin ventas</td></tr>`}</tbody>
+          <tbody>${saleRows || `<tr><td colspan="9">Sin ventas</td></tr>`}</tbody>
         </table>
         <script>window.onload = function () { window.print(); };</script>
       </body>

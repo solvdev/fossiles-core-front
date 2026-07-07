@@ -32,6 +32,7 @@ import {
 import { countShipmentsInTransit } from "services/productDistributionService";
 import { getTodayYmdGuatemala } from "utils/dateTimeHelper";
 import { isPackagingProductCode } from "utils/kioskPackagingHelper";
+import { filterVisibleKioskStockRows } from "utils/productCinchoHelper";
 import { showError, showSuccess } from "utils/notificationHelper";
 import PosAdminKioskPicker from "./pos/PosAdminKioskPicker";
 import PosCatalogPanel from "./pos/PosCatalogPanel";
@@ -182,7 +183,7 @@ function KioskSales() {
         getMyKioskReport(undefined, undefined, kioskLocationId),
         getKioskPromotions(true, kioskLocationId),
       ]);
-      setContext(ctx || null);
+      setContext(ctx ? { ...ctx, inventory: filterVisibleKioskStockRows(ctx.inventory) } : null);
       if (ctx?.kioskId) setSelectedKioskId(String(ctx.kioskId));
       setSales(Array.isArray(kioskSales) ? kioskSales : []);
       setMyReport(kioskReport || null);
@@ -225,7 +226,9 @@ function KioskSales() {
         const ctx = await getKioskPosContext(selectedKioskId, {
           search: productSearch,
         });
-        setContext((prev) => (prev ? { ...prev, inventory: ctx?.inventory || [] } : ctx));
+        setContext((prev) =>
+          prev ? { ...prev, inventory: filterVisibleKioskStockRows(ctx?.inventory) } : ctx
+        );
       } catch (err) {
         showError(err.message || "No se pudo actualizar el catálogo.");
       }

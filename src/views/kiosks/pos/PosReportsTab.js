@@ -203,6 +203,7 @@ function PosReportsTab({
                 <th>No. Venta</th>
                 <th>No. interno</th>
                 <th>Cliente</th>
+                <th>Vendedor</th>
                 <th>Pago</th>
                 <th>Items</th>
                 <th>Total</th>
@@ -256,6 +257,7 @@ function PosReportsTab({
                     </td>
                     <td>{getSaleInternalNumber(sale) || "—"}</td>
                     <td>{sale.customerName || sale.customerTaxId || "CF"}</td>
+                    <td>{sale.soldByName || sale.soldByUsername || "—"}</td>
                     <td>
                       {sale.paymentMethod || "-"}
                       {(sale.cardAuthNumber || sale.cardLast4) && (
@@ -310,7 +312,7 @@ function PosReportsTab({
               })}
               {filteredSales.length === 0 && (
                 <tr>
-                  <td colSpan="10" className="text-center text-muted">
+                  <td colSpan="11" className="text-center text-muted">
                     No hay ventas para el filtro seleccionado.
                   </td>
                 </tr>

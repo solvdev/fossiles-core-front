@@ -52,9 +52,12 @@ export const productMatchesSearchFilter = (row, search) => {
 export const hasAssignedProductColor = (row) =>
   row?.colorId != null && String(row?.colorName || "").trim() !== "";
 
-/** Empaques SUM- no llevan color; deben aparecer igual en el conteo físico. */
+/** Empaques SUM- no llevan color; deben aparecer igual en conteo físico y listados de stock. */
 export const shouldShowInKioskPhysicalCount = (row) =>
   hasAssignedProductColor(row) || row?.packaging === true || isPackagingProductCode(row?.productCode);
+
+export const filterVisibleKioskStockRows = (rows) =>
+  (rows || []).filter(shouldShowInKioskPhysicalCount);
 
 export const formatSystemSizesText = (sizes) => {
   if (!sizes || typeof sizes !== "object") return "";

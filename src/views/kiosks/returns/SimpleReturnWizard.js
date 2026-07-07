@@ -16,6 +16,7 @@ import {
   lookupKioskSale,
 } from "services/kioskExchangeService";
 import { getKioscoStock, registrarKioscoDevolucionDeposito } from "services/kioscoInventoryService";
+import { filterVisibleKioskStockRows } from "utils/productCinchoHelper";
 import {
   buildKioskReturnSlipPrintHtml,
   openExchangeSlipPrintWindow,
@@ -125,7 +126,7 @@ function SimpleReturnWizard({ isOpen, onClose, kioskLocationId, onCompleted }) {
     try {
       setLoading(true);
       const rows = await getKioscoStock(kioskLocationId);
-      setStockRows(Array.isArray(rows) ? rows : []);
+      setStockRows(filterVisibleKioskStockRows(Array.isArray(rows) ? rows : []));
     } catch (err) {
       setError(err.message || "No se pudo cargar el inventario del kiosko.");
     } finally {

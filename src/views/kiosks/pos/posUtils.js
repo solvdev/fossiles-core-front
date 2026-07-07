@@ -6,6 +6,7 @@ import {
 } from "utils/productAudienceHelper";
 import { hasInventorySizeBreakdown } from "utils/inventoryVariantHelper";
 import { isPackagingProductCode } from "utils/kioskPackagingHelper";
+import { shouldShowInKioskPhysicalCount } from "utils/productCinchoHelper";
 
 export const POS_CATALOG_VIEWS = [
   { value: "PRODUCTS", label: "Productos" },
@@ -189,6 +190,7 @@ export const filterPosInventory = (inventory, { search, categoryFilter, colorFil
     const isPackaging = isPackagingProductCode(item.productCode);
     if (catalogView === "PACKAGING" && !isPackaging) return false;
     if (catalogView === "PRODUCTS" && isPackaging) return false;
+    if (catalogView !== "PACKAGING" && !shouldShowInKioskPhysicalCount(item)) return false;
     if (catalogView === "PACKAGING") {
       if (!query) return true;
       const text = normalizePosLabel(`${item.productCode || ""} ${item.productName || ""}`);

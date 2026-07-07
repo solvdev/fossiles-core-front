@@ -22,6 +22,7 @@ import {
   getKioscoMovementSignedQuantity,
   getKioscoMovementTypeLabel,
   KIOSCO_MOVEMENT_TYPE_LABELS,
+  normalizeKioscoMovementType,
 } from "utils/kioskMovementHelper";
 
 const MOVEMENT_TYPE_OPTIONS = Object.entries(KIOSCO_MOVEMENT_TYPE_LABELS).map(([value, label]) => ({
@@ -29,6 +30,19 @@ const MOVEMENT_TYPE_OPTIONS = Object.entries(KIOSCO_MOVEMENT_TYPE_LABELS).map(([
   label,
   searchText: label,
 }));
+
+const MOVEMENT_TYPE_BADGE_COLORS = {
+  ENTRADA: "success",
+  TRASLADO_ENTRADA: "success",
+  VENTA: "primary",
+  DEVOLUCION_CLIENTE: "info",
+  DEVOLUCION_DEPOSITO: "info",
+  TRASLADO_SALIDA: "warning",
+  MERMA: "danger",
+  AJUSTE: "secondary",
+  ANULACION: "danger",
+  CAMBIO: "warning",
+};
 
 function matchesDateRange(createdAt, fromDate, toDate) {
   if (!fromDate && !toDate) return true;
@@ -44,13 +58,17 @@ function KioskInventoryMovementsPanel({
   loading,
   filters,
   onFilterChange,
+  kioskOptions,
   selectedKiosk,
+  onKioskChange,
 }) {
   const filteredMovements = useMemo(() => {
     const term = String(filters.productTerm || "").trim().toLowerCase();
     const refTerm = String(filters.referenceTerm || "").trim().toLowerCase();
+    const typeFilter = normalizeKioscoMovementType(filters.type);
     return (movements || []).filter((movement) => {
-      if (filters.type && String(movement.movementType) !== filters.type) {
+      const movementType = normalizeKioscoMovementType(movement.movementType);
+      if (typeFilter && movementType !== typeFilter) {
         return false;
       }
       if (term) {
@@ -83,6 +101,12 @@ function KioskInventoryMovementsPanel({
     });
   }, [movements, filters]);
 
+  const selectedKioskLabel = useMemo(() => {
+    if (!selectedKiosk) return "";
+    const match = (kioskOptions || []).find((option) => String(option.value) === String(selectedKiosk));
+    return match?.label || "";
+  }, [kioskOptions, selectedKiosk]);
+
   return (
     <Card className="border">
       <CardHeader>
@@ -96,126 +120,141 @@ function KioskInventoryMovementsPanel({
         </CardTitle>
       </CardHeader>
       <CardBody>
-        {!selectedKiosk ? (
-          <Alert color="light" className="border mb-0">
-            Selecciona un kiosko en «Stock por kiosko» para ver movimientos.
-          </Alert>
-        ) : (
-          <>
-            <Row className="mb-3">
-              <Col md="3" sm="6">
+        <Row className="mb-3">
+          <Col md="3" sm="6">
+            <FormGroup className="mb-2">
+              <Label className="mb-1">Kiosko</Label>
+              <FilterableSelect
+                value={selectedKiosk}
+                onChange={onKioskChange}
+                options={kioskOptions}
+                placeholder="Buscar kiosko…"
+                emptyLabel="Selecciona kiosko"
+              />
+            </FormGroup>
+          </Col>
+          <Col md="3" sm="6">
+            <FormGroup className="mb-2">
+              <Label className="mb-1">Tipo de movimiento</Label>
+              <FilterableSelect
+                value={filters.type}
+                onChange={(value) => onFilterChange("type", value)}
+                options={MOVEMENT_TYPE_OPTIONS}
+                placeholder="Todos los tipos…"
+                emptyLabel="Todos"
+              />
+            </FormGroup>
+          </Col>
+          <Col md="3" sm="6">
+            <FormGroup className="mb-2">
+              <Label className="mb-1">Producto / color</Label>
+              <Input
+                bsSize="sm"
+                value={filters.productTerm}
+                onChange={(e) => onFilterChange("productTerm", e.target.value)}
+                placeholder="Código o nombre…"
+              />
+            </FormGroup>
+          </Col>
+          <Col md="3" sm="6">
+            <FormGroup className="mb-2">
+              <Label className="mb-1">Boleta / referencia</Label>
+              <Input
+                bsSize="sm"
+                value={filters.referenceTerm}
+                onChange={(e) => onFilterChange("referenceTerm", e.target.value)}
+                placeholder="Número o factura…"
+              />
+            </FormGroup>
+          </Col>
+          <Col md="3" sm="6">
+            <Row>
+              <Col xs="6">
                 <FormGroup className="mb-2">
-                  <Label className="mb-1">Tipo</Label>
-                  <FilterableSelect
-                    value={filters.type}
-                    onChange={(value) => onFilterChange("type", value)}
-                    options={MOVEMENT_TYPE_OPTIONS}
-                    placeholder="Todos los tipos…"
-                    emptyLabel="Todos"
-                  />
-                </FormGroup>
-              </Col>
-              <Col md="3" sm="6">
-                <FormGroup className="mb-2">
-                  <Label className="mb-1">Producto / color</Label>
+                  <Label className="mb-1">Desde</Label>
                   <Input
                     bsSize="sm"
-                    value={filters.productTerm}
-                    onChange={(e) => onFilterChange("productTerm", e.target.value)}
-                    placeholder="Código o nombre…"
+                    type="date"
+                    value={filters.fromDate}
+                    onChange={(e) => onFilterChange("fromDate", e.target.value)}
                   />
                 </FormGroup>
               </Col>
-              <Col md="3" sm="6">
+              <Col xs="6">
                 <FormGroup className="mb-2">
-                  <Label className="mb-1">Boleta / referencia</Label>
+                  <Label className="mb-1">Hasta</Label>
                   <Input
                     bsSize="sm"
-                    value={filters.referenceTerm}
-                    onChange={(e) => onFilterChange("referenceTerm", e.target.value)}
-                    placeholder="Número o factura…"
+                    type="date"
+                    value={filters.toDate}
+                    onChange={(e) => onFilterChange("toDate", e.target.value)}
                   />
                 </FormGroup>
-              </Col>
-              <Col md="3" sm="6">
-                <Row>
-                  <Col xs="6">
-                    <FormGroup className="mb-2">
-                      <Label className="mb-1">Desde</Label>
-                      <Input
-                        bsSize="sm"
-                        type="date"
-                        value={filters.fromDate}
-                        onChange={(e) => onFilterChange("fromDate", e.target.value)}
-                      />
-                    </FormGroup>
-                  </Col>
-                  <Col xs="6">
-                    <FormGroup className="mb-2">
-                      <Label className="mb-1">Hasta</Label>
-                      <Input
-                        bsSize="sm"
-                        type="date"
-                        value={filters.toDate}
-                        onChange={(e) => onFilterChange("toDate", e.target.value)}
-                      />
-                    </FormGroup>
-                  </Col>
-                </Row>
               </Col>
             </Row>
+          </Col>
+        </Row>
 
-            {loading ? (
-              <div className="text-center py-3">
-                <Spinner size="sm" className="mr-2" />
-                Cargando movimientos…
-              </div>
-            ) : movements.length === 0 ? (
-              <Alert color="light" className="border mb-0">No hay movimientos para este kiosko.</Alert>
-            ) : filteredMovements.length === 0 ? (
-              <Alert color="light" className="border mb-0">Ningún movimiento coincide con los filtros.</Alert>
-            ) : (
-              <Table responsive size="sm" className="mb-0">
-                <thead>
-                  <tr>
-                    <th>Fecha</th>
-                    <th>Tipo</th>
-                    <th>Origen → Destino</th>
-                    <th>Producto</th>
-                    <th>Color</th>
-                    <th className="text-right">Cant.</th>
-                    <th className="text-right">Antes</th>
-                    <th className="text-right">Después</th>
-                    <th>Ref. / boleta</th>
+        {!selectedKiosk ? (
+          <Alert color="light" className="border mb-0">
+            Selecciona un kiosko para ver el historial de movimientos.
+          </Alert>
+        ) : loading ? (
+          <div className="text-center py-3">
+            <Spinner size="sm" className="mr-2" />
+            Cargando movimientos…
+          </div>
+        ) : movements.length === 0 ? (
+          <Alert color="light" className="border mb-0">
+            No hay movimientos para {selectedKioskLabel || "este kiosko"}.
+          </Alert>
+        ) : filteredMovements.length === 0 ? (
+          <Alert color="light" className="border mb-0">Ningún movimiento coincide con los filtros.</Alert>
+        ) : (
+          <Table responsive size="sm" className="mb-0">
+            <thead>
+              <tr>
+                <th>Fecha</th>
+                <th>Tipo</th>
+                <th>Kiosko</th>
+                <th>Origen → Destino</th>
+                <th>Producto</th>
+                <th>Color</th>
+                <th className="text-right">Cant.</th>
+                <th className="text-right">Antes</th>
+                <th className="text-right">Después</th>
+                <th>Ref. / boleta</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredMovements.map((movement) => {
+                const movementType = normalizeKioscoMovementType(movement.movementType);
+                return (
+                  <tr key={movement.id}>
+                    <td className="text-nowrap">
+                      {movement.createdAt ? formatDateTimeGt(movement.createdAt) : "—"}
+                    </td>
+                    <td>
+                      <Badge color={MOVEMENT_TYPE_BADGE_COLORS[movementType] || "secondary"}>
+                        {getKioscoMovementTypeLabel(movementType)}
+                      </Badge>
+                    </td>
+                    <td>{movement.locationName || selectedKioskLabel || "—"}</td>
+                    <td style={{ whiteSpace: "nowrap" }}>{formatKioscoMovementRoute(movement)}</td>
+                    <td>
+                      {movement.productCode || movement.productId}
+                      {movement.productName ? ` — ${movement.productName}` : ""}
+                    </td>
+                    <td>{movement.colorName || "—"}</td>
+                    <td className="text-right">{getKioscoMovementSignedQuantity(movement)}</td>
+                    <td className="text-right">{movement.stockBefore ?? "—"}</td>
+                    <td className="text-right">{movement.stockAfter ?? "—"}</td>
+                    <td>{formatKioscoMovementReference(movement)}</td>
                   </tr>
-                </thead>
-                <tbody>
-                  {filteredMovements.map((movement) => (
-                    <tr key={movement.id}>
-                      <td className="text-nowrap">
-                        {movement.createdAt ? formatDateTimeGt(movement.createdAt) : "—"}
-                      </td>
-                      <td>
-                        <Badge color="secondary">
-                          {getKioscoMovementTypeLabel(movement.movementType)}
-                        </Badge>
-                      </td>
-                      <td style={{ whiteSpace: "nowrap" }}>{formatKioscoMovementRoute(movement)}</td>
-                      <td>
-                        {movement.productCode || movement.productId}
-                        {movement.productName ? ` — ${movement.productName}` : ""}
-                      </td>
-                      <td>{movement.colorName || "—"}</td>
-                      <td className="text-right">{getKioscoMovementSignedQuantity(movement)}</td>
-                      <td className="text-right">{movement.stockBefore ?? "—"}</td>
-                      <td className="text-right">{movement.stockAfter ?? "—"}</td>
-                      <td>{formatKioscoMovementReference(movement)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </Table>
-            )}
-          </>
+                );
+              })}
+            </tbody>
+          </Table>
         )}
       </CardBody>
     </Card>

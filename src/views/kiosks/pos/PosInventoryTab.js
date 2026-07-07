@@ -16,6 +16,7 @@ import {
 import { getProductInventoryByLocationVariants } from "services/productInventoryService";
 import { getKioscoStock } from "services/kioscoInventoryService";
 import { formatInventorySizesLine } from "utils/inventoryVariantHelper";
+import { filterVisibleKioskStockRows } from "utils/productCinchoHelper";
 import { showError } from "utils/notificationHelper";
 import { formatQty } from "./posUtils";
 
@@ -152,7 +153,7 @@ function PosInventoryTab({ kioskLocationId, kioskName, active }) {
         getKioscoStock(kioskLocationId),
         getProductInventoryByLocationVariants(kioskLocationId).catch(() => []),
       ]);
-      setRows(mergeInventoryRows(kioscoData, legacyData));
+      setRows(filterVisibleKioskStockRows(mergeInventoryRows(kioscoData, legacyData)));
     } catch (err) {
       setRows([]);
       showError(err.message || "No se pudo cargar el inventario detallado del kiosko.");
