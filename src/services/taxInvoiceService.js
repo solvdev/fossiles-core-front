@@ -79,18 +79,35 @@ export const createDraftTaxInvoiceFromKioskSale = async (saleId) => {
   return parseJson(response, "No se pudo crear el borrador de factura POS.");
 };
 
+export const countMissingKioskSaleTaxInvoices = async ({
+  kioskLocationId,
+  fromDate,
+  toDate,
+} = {}) => {
+  const response = await fetch(
+    `${API_URL}/tax-invoices/kiosk-sales/missing-count${toQuery({
+      kioskLocationId,
+      fromDate,
+      toDate,
+    })}`,
+    {
+      method: "GET",
+      headers: headers(),
+    }
+  );
+  return parseJson(response, "No se pudo contar las ventas POS sin factura.");
+};
+
 export const backfillKioskSaleTaxInvoices = async ({
   kioskLocationId,
   fromDate,
   toDate,
-  dryRun = false,
 } = {}) => {
   const response = await fetch(
-    `${API_URL}/tax-invoices/backfill-kiosk-sales${toQuery({
+    `${API_URL}/tax-invoices/kiosk-sales/backfill${toQuery({
       kioskLocationId,
       fromDate,
       toDate,
-      dryRun,
     })}`,
     {
       method: "POST",

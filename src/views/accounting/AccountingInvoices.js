@@ -21,6 +21,7 @@ import { useAuth } from "contexts/AuthContext";
 import { getLocations } from "services/locationService";
 import {
   backfillKioskSaleTaxInvoices,
+  countMissingKioskSaleTaxInvoices,
   getTaxInvoiceSummary,
   listTaxInvoices,
   retryTaxInvoice,
@@ -186,13 +187,15 @@ function AccountingInvoices() {
     try {
       setBackfilling(true);
       setError("");
-      const result = await backfillKioskSaleTaxInvoices({
+      const params = {
         kioskLocationId: backfillKioskId ? Number(backfillKioskId) : undefined,
         fromDate: filters.fromDate || undefined,
         toDate: filters.toDate || undefined,
-        dryRun,
-      });
-      setBackfillPreview(result);
+      };
+      const result = dryRun
+        ? await countMissingKioskSaleTaxInvoices(params)
+        : await backfillKioskSaleTaxInvoices(params);
+      setBackfillPreview({ ...result, dryRun });
       if (dryRun) {
         showSuccess(`Hay ${result?.candidates || 0} venta(s) POS sin tax_invoice.`);
       } else {
@@ -202,7 +205,10 @@ function AccountingInvoices() {
         await Promise.all([loadInvoices(filters), loadSummary()]);
       }
     } catch (err) {
-      const msg = err.message || "No se pudo ejecutar el backfill de facturas POS.";
+      const msg =
+        err.message?.includes("POST") && err.message?.includes("not supported")
+          ? "El servidor aún no tiene el endpoint de backfill. Despliega la última versión del backend (fossiles-core-back)."
+          : err.message || "No se pudo ejecutar el backfill de facturas POS.";
       setError(msg);
       showError(msg);
     } finally {
