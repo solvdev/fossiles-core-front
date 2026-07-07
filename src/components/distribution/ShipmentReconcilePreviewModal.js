@@ -29,7 +29,12 @@ function ShipmentReconcilePreviewModal({
   const warnings = Array.isArray(preview?.warnings) ? preview.warnings.filter(Boolean) : [];
   const lines = Array.isArray(preview?.lines) ? preview.lines : [];
   const summary = formatReconcilePreviewSummary(preview);
-  const canApply = Boolean(preview?.hasChanges) && !loading && !error;
+  const mutationCount =
+    Number(preview?.entradasToDelete ?? 0)
+    + Number(preview?.entradasToTrim ?? 0)
+    + Number(preview?.mermasToDelete ?? 0);
+  const canApply = mutationCount > 0 && !loading && !error;
+  const warningLines = lines.filter((line) => line.status === "WARNING");
 
   return (
     <Modal isOpen={isOpen} toggle={toggle} size="xl">
@@ -44,11 +49,18 @@ function ShipmentReconcilePreviewModal({
           <Alert color="danger" className="mb-0">{error}</Alert>
         ) : (
           <>
-            <Alert color={preview?.hasChanges ? "warning" : "success"} className="py-2">
-              {preview?.hasChanges ? (
+            <Alert color={mutationCount > 0 ? "warning" : warningLines.length > 0 ? "info" : "success"} className="py-2">
+              {mutationCount > 0 ? (
                 <>
                   <strong>Solo se eliminarán ENTRADAs duplicadas.</strong>
                   {summary ? <div className="mt-1">{summary}</div> : null}
+                </>
+              ) : warningLines.length > 0 ? (
+                <>
+                  <strong>Hay advertencias pero no hay eliminaciones automáticas.</strong>
+                  <div className="mt-1">
+                    Revise quantity_received en el envío o corrija el documento antes de cuadrar.
+                  </div>
                 </>
               ) : (
                 <>
