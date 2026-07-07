@@ -12,9 +12,10 @@ import {
   Spinner,
   Table,
 } from "reactstrap";
-import { confirmReceipt, repairDeliveredShipmentReceiptInventory } from "services/productDistributionService";
+import { confirmReceipt, repairDeliveredShipmentReceiptInventory, reconcileDeliveredShipmentReceiptInventory } from "services/productDistributionService";
+import { useAuth } from "contexts/AuthContext";
 import { showError, showSuccess, showWarning } from "utils/notificationHelper";
-import { formatShipmentReceiptRepairMessage } from "utils/shipmentReceiptRepairHelper";
+import { formatShipmentReceiptRepairMessage, formatShipmentReconcileMessage } from "utils/shipmentReceiptRepairHelper";
 import { formatDateTimeGt } from "utils/dateTimeHelper";
 import {
   buildCategoryOptions,
@@ -319,11 +320,23 @@ export function ShipmentReceiptDetail({
   readOnly = false,
   successMessage = "Recepción confirmada. Inventario de kiosko actualizado.",
 }) {
+  const { roles } = useAuth();
+  const canReconcileInventory = useMemo(
+    () =>
+      (roles || []).some((role) => {
+        const text = `${role?.code || ""} ${role?.name || ""}`.toUpperCase();
+        return text.includes("ADMIN")
+          || (text.includes("LOGIST") && !text.includes("KIOSKO"))
+          || (text.includes("SUPERVIS") && text.includes("KIOSKO"));
+      }),
+    [roles]
+  );
   const [receivedByDetail, setReceivedByDetail] = useState({});
   const [lineNotesByDetail, setLineNotesByDetail] = useState({});
   const [notes, setNotes] = useState("");
   const [saving, setSaving] = useState(false);
   const [repairing, setRepairing] = useState(false);
+  const [reconciling, setReconciling] = useState(false);
 
   const isDelivered = String(shipment?.status || "").toUpperCase() === "DELIVERED";
 
@@ -424,6 +437,36 @@ export function ShipmentReceiptDetail({
       showError(err.message || "No se pudo reparar el inventario de recepción.");
     } finally {
       setRepairing(false);
+    }
+  };
+
+  const handleReconcileInventory = async () => {
+    if (!shipment?.id || !isDelivered) return;
+    if (
+      !window.confirm(
+        "¿Cuadrar inventario y kardex con este envío?\n\n"
+          + "Elimina duplicados y ajusta entradas al valor del documento. "
+          + "No altera conteo físico ni deja registro visible de ajuste."
+      )
+    ) {
+      return;
+    }
+    try {
+      setReconciling(true);
+      const result = await reconcileDeliveredShipmentReceiptInventory(shipment.id);
+      const { message, warnings } = formatShipmentReconcileMessage(result);
+      if (warnings.length > 0) {
+        showWarning(message);
+      } else {
+        showSuccess(message);
+      }
+      if (onRepaired) {
+        await onRepaired();
+      }
+    } catch (err) {
+      showError(err.message || "No se pudo cuadrar el inventario con el envío.");
+    } finally {
+      setReconciling(false);
     }
   };
 
@@ -579,10 +622,15 @@ export function ShipmentReceiptDetail({
             Envío entregado. Si el stock kiosco no refleja este documento (productos, tallas o empaques SUM-),
             sincronice con el botón de abajo. No descarga archivos.
           </Alert>
-          <div className="text-right">
-            <Button type="button" color="warning" outline onClick={handleRepairInventory} disabled={repairing}>
+          <div className="text-right d-flex flex-wrap justify-content-end" style={{ gap: 8 }}>
+            <Button type="button" color="warning" outline onClick={handleRepairInventory} disabled={repairing || reconciling}>
               {repairing ? <Spinner size="sm" /> : "Sincronizar inventario kiosco"}
             </Button>
+            {canReconcileInventory && (
+              <Button type="button" color="secondary" outline onClick={handleReconcileInventory} disabled={repairing || reconciling}>
+                {reconciling ? <Spinner size="sm" /> : "Cuadrar con envío"}
+              </Button>
+            )}
           </div>
         </div>
       )}

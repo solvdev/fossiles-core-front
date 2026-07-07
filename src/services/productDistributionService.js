@@ -407,25 +407,30 @@ export const confirmReceipt = async (shipmentId, data = {}) => {
   return response.json();
 };
 
-export const repairDeliveredShipmentReceiptInventory = async (shipmentId, { force = false } = {}) => {
+export const repairDeliveredShipmentReceiptInventory = async (shipmentId, { force = false, mode = "add" } = {}) => {
   const params = new URLSearchParams();
-  if (force) {
-    params.set('force', 'true');
+  if (mode === "reset") {
+    params.set("mode", "reset");
+  } else if (force) {
+    params.set("force", "true");
   }
   const query = params.toString();
   const response = await fetch(
-    `${API_URL}/product-distributions/shipments/${shipmentId}/repair-receipt-inventory${query ? `?${query}` : ''}`,
+    `${API_URL}/product-distributions/shipments/${shipmentId}/repair-receipt-inventory${query ? `?${query}` : ""}`,
     {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
+      method: "PUT",
+      headers: { "Content-Type": "application/json", ...getAuthHeader() },
     }
   );
   if (!response.ok) {
-    const err = await response.json().catch(() => ({ message: 'Error al reparar inventario de recepción' }));
-    throw new Error(err.message || 'Error al reparar inventario de recepción');
+    const err = await response.json().catch(() => ({ message: "Error al reparar inventario de recepción" }));
+    throw new Error(err.message || "Error al reparar inventario de recepción");
   }
   return response.json();
 };
+
+export const reconcileDeliveredShipmentReceiptInventory = async (shipmentId) =>
+  repairDeliveredShipmentReceiptInventory(shipmentId, { mode: "reset" });
 
 export const auditDeliveredShipmentReceiptInventory = async (shipmentId) => {
   const response = await fetch(

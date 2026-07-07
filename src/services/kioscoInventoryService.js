@@ -126,3 +126,6 @@ export const initializeKioscoInventory = async (locationId = null, userId = null
   const suffix = params.toString() ? `?${params.toString()}` : "";
   return apiRequest(`/kiosco-inventory/initialize${suffix}`, { method: "POST" });
 };
+
+export const reconcileKioscoShipmentEntries = async (locationId) =>
+  apiRequest(`/kiosco-inventory/${locationId}/reconcile-shipment-entries`, { method: "POST" });

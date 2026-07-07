@@ -30,6 +30,7 @@ import {
   listStandaloneKioskShipments,
   getShipmentById,
   repairDeliveredShipmentReceiptInventory,
+  reconcileDeliveredShipmentReceiptInventory,
 } from "services/productDistributionService";
 import * as XLSX from "xlsx-js-style";
 import { getProducts } from "services/productService";
@@ -43,7 +44,8 @@ import {
   voidVendorShipmentDocument,
 } from "services/productionOrderService";
 import { showError, showSuccess, showWarning } from "utils/notificationHelper";
-import { formatShipmentReceiptRepairMessage } from "utils/shipmentReceiptRepairHelper";
+import { formatShipmentReceiptRepairMessage, formatShipmentReconcileMessage } from "utils/shipmentReceiptRepairHelper";
+import { useAuth } from "contexts/AuthContext";
 import { isCinchoOrderType, isOpcFamilyProductionOrderCode } from "utils/cinchoProductionHelper";
 import { isLuisFelipeVendorFlow } from "utils/luisFelipeVendorHelper";
 import { extractDestinationFromShipmentNotes } from "utils/opcShipmentHelper";
@@ -619,6 +621,17 @@ function buildOrderSelectOptions(orders, labelFn) {
 
 function PrepareShipments() {
   const navigate = useNavigate();
+  const { roles } = useAuth();
+  const canReconcileInventory = useMemo(
+    () =>
+      (roles || []).some((role) => {
+        const text = `${role?.code || ""} ${role?.name || ""}`.toUpperCase();
+        return text.includes("ADMIN")
+          || (text.includes("LOGIST") && !text.includes("KIOSKO"))
+          || (text.includes("SUPERVIS") && text.includes("KIOSKO"));
+      }),
+    [roles]
+  );
   const [distributions, setDistributions] = useState([]);
   const [distributionId, setDistributionId] = useState("");
   const [shipments, setShipments] = useState([]);
@@ -630,6 +643,7 @@ function PrepareShipments() {
   const [sendingShipmentId, setSendingShipmentId] = useState(null);
   const [revertingShipmentId, setRevertingShipmentId] = useState(null);
   const [repairingReceiptShipmentId, setRepairingReceiptShipmentId] = useState(null);
+  const [reconcilingReceiptShipmentId, setReconcilingReceiptShipmentId] = useState(null);
   const [cancellingShipmentId, setCancellingShipmentId] = useState(null);
   const [error, setError] = useState("");
   const [partialPendingCount, setPartialPendingCount] = useState(0);
@@ -3028,6 +3042,37 @@ function PrepareShipments() {
     }
   };
 
+  const handleReconcileReceiptInventory = async (shipment) => {
+    if (!shipment?.id) return;
+    if (
+      !window.confirm(
+        "¿Cuadrar inventario y kardex con este envío?\n\n"
+          + "Elimina duplicados y ajusta entradas al valor del documento. "
+          + "No altera conteo físico ni deja registro visible de ajuste."
+      )
+    ) {
+      return;
+    }
+    try {
+      setReconcilingReceiptShipmentId(shipment.id);
+      setError("");
+      const result = await reconcileDeliveredShipmentReceiptInventory(shipment.id);
+      const { message, warnings } = formatShipmentReconcileMessage(result);
+      if (warnings.length > 0) {
+        showWarning(message);
+      } else {
+        showSuccess(message);
+      }
+      await reloadCurrentShipments();
+    } catch (err) {
+      const message = err.message || "No se pudo cuadrar el inventario con el envío";
+      setError(message);
+      showError(message);
+    } finally {
+      setReconcilingReceiptShipmentId(null);
+    }
+  };
+
   const handleEditShipmentFromPartial = async (release) => {
     if (!release?.shipmentId) return;
     let shipment = (shipments || []).find((s) => Number(s.id) === Number(release.shipmentId));
@@ -4001,7 +4046,7 @@ function PrepareShipments() {
                               color="warning"
                               size="sm"
                               outline
-                              disabled={repairingReceiptShipmentId === shipment.id}
+                              disabled={repairingReceiptShipmentId === shipment.id || reconcilingReceiptShipmentId === shipment.id}
                               onClick={() => handleRepairReceiptInventory(shipment)}
                               className="mr-2"
                               title="Carga al kiosko productos, tallas y empaques SUM- del envío según cantidades recibidas"
@@ -4013,6 +4058,24 @@ function PrepareShipments() {
                                   <i className="nc-icon nc-refresh-69 mr-1" />
                                   Sincronizar inv. kiosco
                                 </>
+                              )}
+                            </Button>
+                          )}
+                          {canReconcileInventory && isShipmentReceiptRepairable(shipment.status, shipment.locationId) && (
+                            <Button
+                              type="button"
+                              color="secondary"
+                              size="sm"
+                              outline
+                              disabled={repairingReceiptShipmentId === shipment.id || reconcilingReceiptShipmentId === shipment.id}
+                              onClick={() => handleReconcileReceiptInventory(shipment)}
+                              className="mr-2"
+                              title="Admin: cuadra entradas/kardex con el envío sin duplicar"
+                            >
+                              {reconcilingReceiptShipmentId === shipment.id ? (
+                                <Spinner size="sm" />
+                              ) : (
+                                "Cuadrar con envío"
                               )}
                             </Button>
                           )}

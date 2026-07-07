@@ -20,6 +20,7 @@ import {
 } from "reactstrap";
 import { ColorSelector, ProductSelector } from "components/catalog/FilterableCatalogSelectors";
 import { FilterableSelect } from "components/distribution/FilterableSelect";
+import { useAuth } from "contexts/AuthContext";
 import { getLocations } from "services/locationService";
 import KioskInventoryCountReport from "./KioskInventoryCountReport";
 import KioskInventoryKardexPanel from "./KioskInventoryKardexPanel";
@@ -31,6 +32,7 @@ import {
   getKioscoStock,
   getKioscoStockBajo,
   initializeKioscoInventory,
+  reconcileKioscoShipmentEntries,
   registrarKioscoAjuste,
   registrarKioscoAnulacion,
   registrarKioscoDevolucionCliente,
@@ -49,7 +51,8 @@ import {
   getKioscoMovementTypeLabel,
 } from "utils/kioskMovementHelper";
 import { isPackagingProductCode } from "utils/kioskPackagingHelper";
-import { showError, showSuccess } from "utils/notificationHelper";
+import { showError, showSuccess, showWarning } from "utils/notificationHelper";
+import { formatShipmentReconcileMessage } from "utils/shipmentReceiptRepairHelper";
 import {
   canSell,
   isSaleBelowMinimum,
@@ -82,6 +85,17 @@ const INITIAL_FORM = {
 };
 
 function KioskInventory() {
+  const { roles } = useAuth();
+  const canReconcileInventory = useMemo(
+    () =>
+      (roles || []).some((role) => {
+        const text = `${role?.code || ""} ${role?.name || ""}`.toUpperCase();
+        return text.includes("ADMIN")
+          || (text.includes("LOGIST") && !text.includes("KIOSKO"))
+          || (text.includes("SUPERVIS") && text.includes("KIOSKO"));
+      }),
+    [roles]
+  );
   const [locations, setLocations] = useState([]);
   const [products, setProducts] = useState([]);
   const [colors, setColors] = useState([]);
@@ -94,6 +108,7 @@ function KioskInventory() {
   const [loadingCatalogs, setLoadingCatalogs] = useState(false);
   const [loadingData, setLoadingData] = useState(false);
   const [initializingStock, setInitializingStock] = useState(false);
+  const [reconcilingStock, setReconcilingStock] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [activeTab, setActiveTab] = useState("INVENTARIO");
@@ -443,6 +458,37 @@ function KioskInventory() {
     }
   };
 
+  const handleReconcileInventory = async () => {
+    if (!selectedLocation) {
+      showError("Selecciona un kiosko para cuadrar inventario con envíos.");
+      return;
+    }
+    if (
+      !window.confirm(
+        "¿Cuadrar inventario y kardex según envíos entregados?\n\n"
+          + "Corrige duplicados en silencio. No altera conteo físico ni deja registro de ajuste visible."
+      )
+    ) {
+      return;
+    }
+    try {
+      setReconcilingStock(true);
+      const result = await reconcileKioscoShipmentEntries(Number(selectedLocation));
+      const { message, warnings } = formatShipmentReconcileMessage(result);
+      if (warnings.length > 0) {
+        showWarning(message);
+      } else {
+        showSuccess(message);
+      }
+      await loadConsolidated();
+      await refreshLocationData(selectedLocation);
+    } catch (err) {
+      showError(err.message || "No se pudo cuadrar el inventario con envíos.");
+    } finally {
+      setReconcilingStock(false);
+    }
+  };
+
   const saleWouldHitMin = form.operation === "VENTA" && isSaleBelowMinimum(selectedStockRow, form.quantity);
   const saleCanSubmit = form.operation !== "VENTA" || canSell(selectedStockRow, form.quantity);
 
@@ -520,12 +566,12 @@ function KioskInventory() {
                     />
                   </FormGroup>
                 </Col>
-                <Col md="4" className="d-flex align-items-end">
+                <Col md="4" className="d-flex align-items-end flex-wrap" style={{ gap: 8 }}>
                   <Button
                     color="primary"
                     outline
                     onClick={() => void handleInitializeInventory()}
-                    disabled={loadingCatalogs || initializingStock}
+                    disabled={loadingCatalogs || initializingStock || reconcilingStock}
                   >
                     {initializingStock ? (
                       <>
@@ -539,6 +585,24 @@ function KioskInventory() {
                       </>
                     )}
                   </Button>
+                  {canReconcileInventory && (
+                    <Button
+                      color="secondary"
+                      outline
+                      onClick={() => void handleReconcileInventory()}
+                      disabled={loadingCatalogs || initializingStock || reconcilingStock || !selectedLocation}
+                      title="Solo administración: cuadra entradas con envíos sin afectar conteo físico"
+                    >
+                      {reconcilingStock ? (
+                        <>
+                          <Spinner size="sm" className="mr-2" />
+                          Cuadrando...
+                        </>
+                      ) : (
+                        "Cuadrar con envíos"
+                      )}
+                    </Button>
+                  )}
                 </Col>
               </Row>
 
