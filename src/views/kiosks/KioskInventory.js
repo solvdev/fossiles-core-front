@@ -20,7 +20,6 @@ import {
 } from "reactstrap";
 import { ColorSelector, ProductSelector } from "components/catalog/FilterableCatalogSelectors";
 import { FilterableSelect } from "components/distribution/FilterableSelect";
-import { useAuth } from "contexts/AuthContext";
 import { getLocations } from "services/locationService";
 import KioskInventoryCountReport from "./KioskInventoryCountReport";
 import KioskInventoryKardexPanel from "./KioskInventoryKardexPanel";
@@ -32,8 +31,6 @@ import {
   getKioscoStock,
   getKioscoStockBajo,
   initializeKioscoInventory,
-  previewKioscoShipmentEntriesReconcile,
-  reconcileKioscoShipmentEntries,
   registrarKioscoAjuste,
   registrarKioscoAnulacion,
   registrarKioscoDevolucionCliente,
@@ -56,8 +53,6 @@ import { hasInventorySizeBreakdown } from "utils/inventoryVariantHelper";
 import { isFossCinchosProductCode } from "utils/cinchoProductionHelper";
 import { sortSizeKeys } from "utils/productCinchoHelper";
 import { showError, showSuccess, showWarning } from "utils/notificationHelper";
-import { formatShipmentReconcileMessage } from "utils/shipmentReceiptRepairHelper";
-import ShipmentReconcilePreviewModal from "components/distribution/ShipmentReconcilePreviewModal";
 import {
   canSell,
   isSaleBelowMinimum,
@@ -92,17 +87,6 @@ const INITIAL_FORM = {
 };
 
 function KioskInventory() {
-  const { roles } = useAuth();
-  const canReconcileInventory = useMemo(
-    () =>
-      (roles || []).some((role) => {
-        const text = `${role?.code || ""} ${role?.name || ""}`.toUpperCase();
-        return text.includes("ADMIN")
-          || (text.includes("LOGIST") && !text.includes("KIOSKO"))
-          || (text.includes("SUPERVIS") && text.includes("KIOSKO"));
-      }),
-    [roles]
-  );
   const [locations, setLocations] = useState([]);
   const [products, setProducts] = useState([]);
   const [colors, setColors] = useState([]);
@@ -115,11 +99,6 @@ function KioskInventory() {
   const [loadingCatalogs, setLoadingCatalogs] = useState(false);
   const [loadingData, setLoadingData] = useState(false);
   const [initializingStock, setInitializingStock] = useState(false);
-  const [reconcilingStock, setReconcilingStock] = useState(false);
-  const [reconcilePreviewOpen, setReconcilePreviewOpen] = useState(false);
-  const [reconcilePreview, setReconcilePreview] = useState(null);
-  const [reconcilePreviewLoading, setReconcilePreviewLoading] = useState(false);
-  const [reconcilePreviewError, setReconcilePreviewError] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [customAjusteSizeKeys, setCustomAjusteSizeKeys] = useState([]);
@@ -544,55 +523,6 @@ function KioskInventory() {
     }
   };
 
-  const closeReconcilePreview = () => {
-    if (reconcilingStock) return;
-    setReconcilePreviewOpen(false);
-    setReconcilePreview(null);
-    setReconcilePreviewError("");
-  };
-
-  const openReconcilePreview = async () => {
-    if (!selectedLocation) {
-      showError("Selecciona un kiosko para cuadrar inventario con envíos.");
-      return;
-    }
-    setReconcilePreviewOpen(true);
-    setReconcilePreview(null);
-    setReconcilePreviewError("");
-    try {
-      setReconcilePreviewLoading(true);
-      const preview = await previewKioscoShipmentEntriesReconcile(Number(selectedLocation));
-      setReconcilePreview(preview);
-    } catch (err) {
-      setReconcilePreviewError(err.message || "No se pudo cargar la vista previa del cuadre.");
-    } finally {
-      setReconcilePreviewLoading(false);
-    }
-  };
-
-  const handleConfirmReconcileInventory = async () => {
-    if (!selectedLocation || !reconcilePreview?.hasChanges) {
-      return;
-    }
-    try {
-      setReconcilingStock(true);
-      const result = await reconcileKioscoShipmentEntries(Number(selectedLocation));
-      const { message, warnings } = formatShipmentReconcileMessage(result);
-      closeReconcilePreview();
-      if (warnings.length > 0) {
-        showWarning(message);
-      } else {
-        showSuccess(message);
-      }
-      await loadConsolidated();
-      await refreshLocationData(selectedLocation);
-    } catch (err) {
-      showError(err.message || "No se pudo cuadrar el inventario con envíos.");
-    } finally {
-      setReconcilingStock(false);
-    }
-  };
-
   const saleWouldHitMin = form.operation === "VENTA" && isSaleBelowMinimum(selectedStockRow, form.quantity);
   const saleCanSubmit = form.operation !== "VENTA" || canSell(selectedStockRow, form.quantity);
 
@@ -675,7 +605,7 @@ function KioskInventory() {
                     color="primary"
                     outline
                     onClick={() => void handleInitializeInventory()}
-                    disabled={loadingCatalogs || initializingStock || reconcilingStock}
+                    disabled={loadingCatalogs || initializingStock}
                   >
                     {initializingStock ? (
                       <>
@@ -689,24 +619,6 @@ function KioskInventory() {
                       </>
                     )}
                   </Button>
-                  {canReconcileInventory && (
-                    <Button
-                      color="secondary"
-                      outline
-                      onClick={() => void openReconcilePreview()}
-                      disabled={loadingCatalogs || initializingStock || reconcilingStock || !selectedLocation}
-                      title="Admin: solo elimina ENTRADAs duplicadas; no agrega faltantes"
-                    >
-                      {reconcilingStock ? (
-                        <>
-                          <Spinner size="sm" className="mr-2" />
-                          Cuadrando...
-                        </>
-                      ) : (
-                        "Cuadrar con envíos"
-                      )}
-                    </Button>
-                  )}
                 </Col>
               </Row>
 
@@ -1227,16 +1139,6 @@ function KioskInventory() {
           </Card>
         </Col>
       </Row>
-      <ShipmentReconcilePreviewModal
-        isOpen={reconcilePreviewOpen}
-        toggle={closeReconcilePreview}
-        title="Vista previa: cuadrar con envíos entregados"
-        preview={reconcilePreview}
-        loading={reconcilePreviewLoading}
-        error={reconcilePreviewError}
-        applying={reconcilingStock}
-        onConfirm={() => void handleConfirmReconcileInventory()}
-      />
     </div>
   );
 }
