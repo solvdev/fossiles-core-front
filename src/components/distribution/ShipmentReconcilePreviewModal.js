@@ -33,8 +33,10 @@ function ShipmentReconcilePreviewModal({
     Number(preview?.entradasToDelete ?? 0)
     + Number(preview?.entradasToTrim ?? 0)
     + Number(preview?.mermasToDelete ?? 0);
-  const canApply = mutationCount > 0 && !loading && !error;
+  const recalculateCount = Number(preview?.stockRowsToRecalculate ?? 0);
+  const canApply = Boolean(preview?.hasChanges) && !loading && !error;
   const warningLines = lines.filter((line) => line.status === "WARNING");
+  const changeLines = lines.filter((line) => line.status === "CHANGE");
 
   return (
     <Modal isOpen={isOpen} toggle={toggle} size="xl">
@@ -49,17 +51,25 @@ function ShipmentReconcilePreviewModal({
           <Alert color="danger" className="mb-0">{error}</Alert>
         ) : (
           <>
-            <Alert color={mutationCount > 0 ? "warning" : warningLines.length > 0 ? "info" : "success"} className="py-2">
+            <Alert color={canApply ? (mutationCount > 0 ? "warning" : "info") : warningLines.length > 0 ? "info" : "success"} className="py-2">
               {mutationCount > 0 ? (
                 <>
-                  <strong>Solo se eliminarán ENTRADAs duplicadas.</strong>
+                  <strong>Se eliminarán ENTRADAs duplicadas del envío.</strong>
                   {summary ? <div className="mt-1">{summary}</div> : null}
+                </>
+              ) : canApply && recalculateCount > 0 ? (
+                <>
+                  <strong>Se recalculará stock kiosko (sin eliminar ENTRADAs).</strong>
+                  {summary ? <div className="mt-1">{summary}</div> : null}
+                  <div className="mt-1">
+                    Útil para cinchos FOSS con sizes_data inflado. Si Fin. sigue mal, use ajuste por talla.
+                  </div>
                 </>
               ) : warningLines.length > 0 ? (
                 <>
-                  <strong>Hay advertencias pero no hay eliminaciones automáticas.</strong>
+                  <strong>Hay advertencias pero no hay acciones automáticas.</strong>
                   <div className="mt-1">
-                    Revise quantity_received en el envío o corrija el documento antes de cuadrar.
+                    Revise el documento del envío o corrija inventario manualmente antes de cuadrar.
                   </div>
                 </>
               ) : (
