@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { getShipmentsInTransit, getShipmentsByStatus } from "services/productDistributionService";
+import { getShipmentsInTransit } from "services/productDistributionService";
 import { showError } from "utils/notificationHelper";
 import ShipmentReceiptPanel from "components/distribution/ShipmentReceiptPanel";
 import PosReceiptModal from "./PosReceiptModal";
@@ -20,24 +20,10 @@ function PosReceiptTab({ kioskLocationId, kioskName, onReceiptConfirmed, onPendi
     }
     try {
       setLoading(true);
-      const [inTransit, deliveredRows] = await Promise.all([
-        getShipmentsInTransit(locationId),
-        getShipmentsByStatus("DELIVERED"),
-      ]);
-      const deliveredForKiosk = (deliveredRows || []).filter(
-        (row) => Number(row.locationId) === locationId
-      );
-      const merged = [...(inTransit || []), ...deliveredForKiosk];
-      const byId = new Map();
-      merged.forEach((shipment) => {
-        if (shipment?.id != null) {
-          byId.set(shipment.id, shipment);
-        }
-      });
-      const rows = Array.from(byId.values());
-      setShipments(rows);
+      const rows = await getShipmentsInTransit(locationId);
+      setShipments(Array.isArray(rows) ? rows : []);
       if (onPendingCountChange) {
-        onPendingCountChange(rows.filter((s) => String(s.status || "").toUpperCase() === "SENT").length);
+        onPendingCountChange((rows || []).length);
       }
     } catch (err) {
       showError(err.message || "No se pudieron cargar las distribuciones pendientes.");
