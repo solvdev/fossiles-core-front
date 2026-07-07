@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Alert,
@@ -16,17 +16,35 @@ import {
   Table,
 } from "reactstrap";
 import { createManualTaxInvoice } from "services/taxInvoiceService";
+import { getLocations } from "services/locationService";
+import { lookupKioskSale } from "services/kioskExchangeService";
 import { lookupTaxpayerByNit } from "services/kioskPosService";
 import { formatFelCustomerName, isValidGuatemalaNit, normalizeNit } from "views/kiosks/pos/posUtils";
 
 const emptyLine = () => ({ description: "", quantity: "1", unitPrice: "" });
+
+function formatEstablishmentLabel(location) {
+  const parts = [location.name];
+  if (location.felEstablishmentCode) {
+    parts.push(`Est. ${location.felEstablishmentCode}`);
+  }
+  if (location.internalSeriesCode) {
+    parts.push(location.internalSeriesCode);
+  }
+  return parts.join(" · ");
+}
 
 function AccountingInvoiceForm() {
   const navigate = useNavigate();
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [taxLookupLoading, setTaxLookupLoading] = useState(false);
+  const [saleLookupLoading, setSaleLookupLoading] = useState(false);
+  const [locationsLoading, setLocationsLoading] = useState(true);
+  const [establishments, setEstablishments] = useState([]);
   const [form, setForm] = useState({
+    locationId: "",
+    kioskSaleNumber: "",
     customerTaxId: "CF",
     customerName: "CONSUMIDOR FINAL",
     documentType: "FACT",
@@ -36,6 +54,23 @@ function AccountingInvoiceForm() {
     notes: "",
     lines: [emptyLine()],
   });
+
+  useEffect(() => {
+    getLocations()
+      .then((rows) => {
+        const eligible = (rows || [])
+          .filter((loc) => String(loc.felEstablishmentCode || "").trim())
+          .sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), "es"));
+        setEstablishments(eligible);
+      })
+      .catch(() => setEstablishments([]))
+      .finally(() => setLocationsLoading(false));
+  }, []);
+
+  const selectedEstablishment = useMemo(
+    () => establishments.find((loc) => String(loc.id) === String(form.locationId)) || null,
+    [establishments, form.locationId]
+  );
 
   const updateLine = (index, field, value) => {
     setForm((prev) => ({
@@ -51,6 +86,41 @@ function AccountingInvoiceForm() {
       ...prev,
       lines: prev.lines.length <= 1 ? prev.lines : prev.lines.filter((_, i) => i !== index),
     }));
+  };
+
+  const lookupPosSale = async () => {
+    const saleNumber = String(form.kioskSaleNumber || "").trim();
+    if (!form.locationId) {
+      setError("Seleccione primero el establecimiento emisor.");
+      return;
+    }
+    if (!saleNumber) {
+      return;
+    }
+    try {
+      setSaleLookupLoading(true);
+      setError("");
+      const sale = await lookupKioskSale(saleNumber, form.locationId);
+      const saleLines = (sale.items || []).map((item) => ({
+        description: [item.productCode, item.productName, item.colorName].filter(Boolean).join(" "),
+        quantity: String(item.quantity ?? 1),
+        unitPrice: String(item.unitPrice ?? ""),
+      }));
+      setForm((prev) => ({
+        ...prev,
+        kioskSaleNumber: sale.saleNumber || saleNumber,
+        customerTaxId: sale.customerTaxId || prev.customerTaxId,
+        customerName: sale.customerName || prev.customerName,
+        address: sale.address || "",
+        phone: sale.phone || "",
+        email: sale.email || "",
+        lines: saleLines.length > 0 ? saleLines : prev.lines,
+      }));
+    } catch (err) {
+      setError(err.message || "No se encontró la venta POS.");
+    } finally {
+      setSaleLookupLoading(false);
+    }
   };
 
   const lookupTaxId = async () => {
@@ -90,14 +160,21 @@ function AccountingInvoiceForm() {
       }))
       .filter((line) => line.description && line.quantity > 0 && line.unitPrice > 0);
 
-    if (lines.length === 0) {
-      setError("Agregue al menos una línea válida.");
+    const linkedSaleNumber = String(form.kioskSaleNumber || "").trim();
+    if (!linkedSaleNumber && lines.length === 0) {
+      setError("Agregue al menos una línea válida o asocie una venta POS.");
+      return;
+    }
+    if (!form.locationId) {
+      setError("Seleccione el establecimiento desde donde se emitirá la factura.");
       return;
     }
 
     try {
       setSaving(true);
       const invoice = await createManualTaxInvoice({
+        locationId: Number(form.locationId),
+        kioskSaleNumber: linkedSaleNumber || undefined,
         customerTaxId: normalizeNit(form.customerTaxId) || "CF",
         customerName: form.customerName,
         documentType: form.documentType,
@@ -105,7 +182,7 @@ function AccountingInvoiceForm() {
         phone: form.phone || null,
         email: form.email || null,
         notes: form.notes || null,
-        lines,
+        lines: linkedSaleNumber ? undefined : lines,
       });
       navigate(`/admin/accounting/invoices/${invoice.id}`);
     } catch (err) {
@@ -124,6 +201,72 @@ function AccountingInvoiceForm() {
         <CardBody>
           {error && <Alert color="danger">{error}</Alert>}
           <form onSubmit={handleSubmit}>
+            <Row className="mb-2">
+              <Col md="8">
+                <FormGroup>
+                  <Label>Establecimiento emisor</Label>
+                  <Input
+                    type="select"
+                    value={form.locationId}
+                    onChange={(e) => setForm((prev) => ({ ...prev, locationId: e.target.value }))}
+                    disabled={locationsLoading}
+                    required
+                  >
+                    <option value="">
+                      {locationsLoading ? "Cargando establecimientos..." : "Seleccione establecimiento"}
+                    </option>
+                    {establishments.map((location) => (
+                      <option key={location.id} value={location.id}>
+                        {formatEstablishmentLabel(location)}
+                      </option>
+                    ))}
+                  </Input>
+                  {!locationsLoading && establishments.length === 0 && (
+                    <small className="text-danger d-block mt-1">
+                      No hay ubicaciones con código de establecimiento FEL. Configúrelas en Catálogos → Ubicaciones.
+                    </small>
+                  )}
+                  {selectedEstablishment && (
+                    <small className="text-muted d-block mt-1">
+                      Facturará como {selectedEstablishment.felEstablishmentName || selectedEstablishment.name}
+                      {selectedEstablishment.internalSeriesCode
+                        ? ` · número interno serie ${selectedEstablishment.internalSeriesCode}`
+                        : ""}
+                    </small>
+                  )}
+                </FormGroup>
+              </Col>
+            </Row>
+
+            <Row className="mb-2">
+              <Col md="5">
+                <FormGroup>
+                  <Label>Venta POS asociada (opcional)</Label>
+                  <Input
+                    value={form.kioskSaleNumber}
+                    onChange={(e) => setForm((prev) => ({ ...prev, kioskSaleNumber: e.target.value }))}
+                    onBlur={lookupPosSale}
+                    placeholder="Número de venta = fel_transaction_id"
+                    disabled={!form.locationId}
+                  />
+                  <small className="text-muted d-block mt-1">
+                    Mismo valor que sale_number en POS. Busca la venta y usa sus datos al certificar.
+                  </small>
+                </FormGroup>
+              </Col>
+              <Col md="3" className="d-flex align-items-end">
+                <Button
+                  type="button"
+                  color="info"
+                  className="mb-3"
+                  onClick={lookupPosSale}
+                  disabled={saleLookupLoading || !form.locationId || !form.kioskSaleNumber.trim()}
+                >
+                  {saleLookupLoading ? <Spinner size="sm" /> : "Buscar venta"}
+                </Button>
+              </Col>
+            </Row>
+
             <Row>
               <Col md="3">
                 <FormGroup>
@@ -209,7 +352,7 @@ function AccountingInvoiceForm() {
               <Button color="default" className="mr-2" type="button" onClick={() => navigate("/admin/accounting/invoices")}>
                 Cancelar
               </Button>
-              <Button color="primary" type="submit" disabled={saving}>
+              <Button color="primary" type="submit" disabled={saving || locationsLoading || establishments.length === 0}>
                 {saving ? <Spinner size="sm" /> : "Crear y certificar"}
               </Button>
             </div>

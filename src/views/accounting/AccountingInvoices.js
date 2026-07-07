@@ -96,11 +96,13 @@ function AccountingInvoices() {
   const [filters, setFilters] = useState({
     sourceType: "",
     status: "",
+    internalNumber: "",
     customerTaxId: "",
     fromDate: "",
     toDate: "",
     certificationFilter: "",
   });
+  const [knownInternalNumbers, setKnownInternalNumbers] = useState([]);
 
   const loadSummary = async () => {
     try {
@@ -132,6 +134,19 @@ function AccountingInvoices() {
     loadSummary();
     loadInvoices();
   }, []);
+
+  useEffect(() => {
+    const numbers = (invoices || [])
+      .map((invoice) => invoice.internalNumber)
+      .filter(Boolean);
+    if (numbers.length === 0) return;
+    setKnownInternalNumbers((prev) => {
+      const merged = new Set([...prev, ...numbers]);
+      return [...merged].sort((a, b) =>
+        b.localeCompare(a, undefined, { numeric: true, sensitivity: "base" })
+      );
+    });
+  }, [invoices]);
 
   useEffect(() => {
     if (!showPosAdminTools) return;
@@ -166,6 +181,13 @@ function AccountingInvoices() {
 
   const handleApplyFilters = () => {
     loadInvoices(filters);
+  };
+
+  const handleFilterKeyDown = (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      handleApplyFilters();
+    }
   };
 
   const handleBackfillKioskSales = async (dryRun) => {
@@ -248,6 +270,16 @@ function AccountingInvoices() {
     }
     return "en el listado";
   }, [filters.certificationFilter, filters.status]);
+
+  const internalNumberSuggestions = useMemo(() => {
+    const term = String(filters.internalNumber || "").trim().toUpperCase();
+    if (!term) {
+      return knownInternalNumbers.slice(0, 80);
+    }
+    return knownInternalNumbers
+      .filter((value) => String(value).toUpperCase().includes(term))
+      .slice(0, 80);
+  }, [knownInternalNumbers, filters.internalNumber]);
 
   const canCertifyInvoice = (invoice) =>
     canCertify
@@ -438,10 +470,28 @@ function AccountingInvoices() {
             </Col>
             <Col md="2">
               <FormGroup>
+                <Label>Núm. interno</Label>
+                <Input
+                  list="fel-internal-number-options"
+                  value={filters.internalNumber}
+                  onChange={(e) => handleFilterChange("internalNumber", e.target.value)}
+                  onKeyDown={handleFilterKeyDown}
+                  placeholder="A45-28"
+                />
+                <datalist id="fel-internal-number-options">
+                  {internalNumberSuggestions.map((value) => (
+                    <option key={value} value={value} />
+                  ))}
+                </datalist>
+              </FormGroup>
+            </Col>
+            <Col md="2">
+              <FormGroup>
                 <Label>NIT</Label>
                 <Input
                   value={filters.customerTaxId}
                   onChange={(e) => handleFilterChange("customerTaxId", e.target.value)}
+                  onKeyDown={handleFilterKeyDown}
                   placeholder="Buscar NIT"
                 />
               </FormGroup>
