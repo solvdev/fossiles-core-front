@@ -133,6 +133,15 @@ export const retryTaxInvoice = async (id) => {
   return parseJson(response, "No se pudo reintentar la certificación FEL.");
 };
 
+export const voidTaxInvoice = async (id, reason) => {
+  const response = await fetch(`${API_URL}/tax-invoices/${id}/void`, {
+    method: "POST",
+    headers: headers(),
+    body: JSON.stringify({ reason }),
+  });
+  return parseJson(response, "No se pudo anular la factura FEL.");
+};
+
 export const updateTaxInvoiceFelMetadata = async (id, payload) => {
   const response = await fetch(`${API_URL}/tax-invoices/${id}/fel-metadata`, {
     method: "PATCH",

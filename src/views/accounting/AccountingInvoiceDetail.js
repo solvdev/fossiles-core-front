@@ -21,6 +21,9 @@ import {
   openFelInvoiceReport,
 } from "services/taxInvoiceService";
 import { formatDateTimeGt } from "utils/dateTimeHelper";
+import { useAuth } from "contexts/AuthContext";
+import { canEditTaxInvoiceFel } from "utils/taxInvoiceEditHelper";
+import TaxInvoiceVoidModal from "components/accounting/TaxInvoiceVoidModal";
 
 const STATUS_COLORS = {
   CERTIFIED: "success",
@@ -33,6 +36,7 @@ const STATUS_COLORS = {
 const ACTION_LABELS = {
   ISSUE: "Emisión",
   RETRY: "Reintento",
+  VOID: "Anulación",
 };
 
 function formatCurrency(value) {
@@ -42,10 +46,13 @@ function formatCurrency(value) {
 function AccountingInvoiceDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const { hasRole, hasAnyRole, hasPermission } = useAuth();
+  const canVoidFel = canEditTaxInvoiceFel({ hasRole, hasAnyRole, hasPermission });
   const [invoice, setInvoice] = useState(null);
   const [loading, setLoading] = useState(true);
   const [retrying, setRetrying] = useState(false);
   const [downloadingXml, setDownloadingXml] = useState(false);
+  const [voidOpen, setVoidOpen] = useState(false);
   const [error, setError] = useState("");
   const [openAttemptId, setOpenAttemptId] = useState(null);
 
@@ -94,6 +101,7 @@ function AccountingInvoiceDetail() {
   const canRetry = invoice && ["FAILED", "SKIPPED", "DRAFT"].includes(invoice.status);
   const canDownloadXml = invoice?.status === "CERTIFIED" && invoice?.hasCertifiedXml;
   const canDownloadFelReport = invoice?.status === "CERTIFIED" && invoice?.felUuid;
+  const canVoid = canVoidFel && invoice?.status === "CERTIFIED" && invoice?.felUuid;
 
   const handleDownloadFelReport = () => {
     try {
@@ -140,6 +148,11 @@ function AccountingInvoiceDetail() {
                   Descargar factura
                 </Button>
               )}
+              {canVoid && (
+                <Button color="danger" size="sm" outline className="mr-2" onClick={() => setVoidOpen(true)}>
+                  Anular FEL
+                </Button>
+              )}
               {canDownloadXml && (
                 <Button color="success" size="sm" className="mr-2" onClick={handleDownloadXml} disabled={downloadingXml}>
                   {downloadingXml ? <Spinner size="sm" /> : "Descargar XML certificado"}
@@ -170,6 +183,19 @@ function AccountingInvoiceDetail() {
                 <p><strong>Serie / Número:</strong> {invoice.felSerie || "—"} / {invoice.felNumero || "—"}</p>
               )}
               {invoice.felError && <p className="text-danger"><strong>Error FEL:</strong> {invoice.felError}</p>}
+              {invoice.status === "VOID" && (
+                <>
+                  {invoice.voidedAt && (
+                    <p><strong>Anulada el:</strong> {formatDateTimeGt(invoice.voidedAt)}</p>
+                  )}
+                  {invoice.voidReason && (
+                    <p><strong>Motivo:</strong> {invoice.voidReason}</p>
+                  )}
+                  {invoice.felVoidUuid && (
+                    <p><strong>UUID anulación:</strong> {invoice.felVoidUuid}</p>
+                  )}
+                </>
+              )}
               {invoice.status === "CERTIFIED" && !invoice.hasCertifiedXml && (
                 <p className="text-muted small mb-0">
                   XML certificado no disponible (factura anterior a este respaldo o certificación sin xml_certificado).
@@ -291,6 +317,13 @@ function AccountingInvoiceDetail() {
           )}
         </CardBody>
       </Card>
+
+      <TaxInvoiceVoidModal
+        isOpen={voidOpen}
+        onClose={() => setVoidOpen(false)}
+        invoice={invoice}
+        onSuccess={loadInvoice}
+      />
     </div>
   );
 }

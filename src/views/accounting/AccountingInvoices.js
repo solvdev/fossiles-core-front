@@ -33,6 +33,7 @@ import { canEditTaxInvoiceFel } from "utils/taxInvoiceEditHelper";
 import { showError, showSuccess } from "utils/notificationHelper";
 import { KIOSK_POS_ADMIN_TOOLS } from "config/kioskPosAdminTools";
 import KioskSaleRestoreModal from "components/accounting/KioskSaleRestoreModal";
+import TaxInvoiceVoidModal from "components/accounting/TaxInvoiceVoidModal";
 
 const SOURCE_LABELS = {
   MANUAL: "Manual",
@@ -76,6 +77,7 @@ function AccountingInvoices() {
   const { hasRole, hasAnyRole, hasPermission } = useAuth();
   const canCertify = hasPermission("CONTABILIDAD.FACTURAS.CERTIFICAR");
   const canBackfillKioskSales = canEditTaxInvoiceFel({ hasRole, hasAnyRole, hasPermission });
+  const canVoidFel = canBackfillKioskSales;
   const showTaxInvoiceBackfill = KIOSK_POS_ADMIN_TOOLS.taxInvoiceBackfill && canBackfillKioskSales;
   const showSaleRestore =
     KIOSK_POS_ADMIN_TOOLS.saleRestore
@@ -91,6 +93,7 @@ function AccountingInvoices() {
   const [backfilling, setBackfilling] = useState(false);
   const [backfillPreview, setBackfillPreview] = useState(null);
   const [restoreOpen, setRestoreOpen] = useState(false);
+  const [voidTargetInvoice, setVoidTargetInvoice] = useState(null);
   const [backfillKioskId, setBackfillKioskId] = useState("");
   const [kiosks, setKiosks] = useState([]);
   const [filters, setFilters] = useState({
@@ -286,6 +289,12 @@ function AccountingInvoices() {
     && invoice
     && UNSIGNED_STATUSES.has(invoice.status)
     && invoice.status !== "VOID";
+
+  const canVoidInvoice = (invoice) =>
+    canVoidFel
+    && invoice
+    && invoice.status === "CERTIFIED"
+    && invoice.felUuid;
 
   return (
     <div className="content">
@@ -638,6 +647,17 @@ function AccountingInvoices() {
                             {certifyingId === invoice.id ? <Spinner size="sm" /> : "Firmar FEL"}
                           </Button>
                         )}
+                        {canVoidInvoice(invoice) && (
+                          <Button
+                            color="danger"
+                            size="sm"
+                            outline
+                            className="btn-round mr-1"
+                            onClick={() => setVoidTargetInvoice(invoice)}
+                          >
+                            Anular
+                          </Button>
+                        )}
                         <Button
                           color="info"
                           size="sm"
@@ -659,6 +679,16 @@ function AccountingInvoices() {
       <KioskSaleRestoreModal
         isOpen={restoreOpen}
         onClose={() => setRestoreOpen(false)}
+        onSuccess={() => {
+          loadInvoices(filters);
+          loadSummary();
+        }}
+      />
+
+      <TaxInvoiceVoidModal
+        isOpen={Boolean(voidTargetInvoice)}
+        onClose={() => setVoidTargetInvoice(null)}
+        invoice={voidTargetInvoice}
         onSuccess={() => {
           loadInvoices(filters);
           loadSummary();
