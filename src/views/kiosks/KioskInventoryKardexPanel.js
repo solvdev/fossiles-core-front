@@ -59,7 +59,7 @@ const MOVEMENT_TYPE_OPTIONS = [
   { value: "ANULACION", label: "Anulación" },
   { value: "AJUSTE", label: "Ajuste" },
   { value: "DEVOLUCION_CLIENTE", label: "Dev. cliente" },
-  { value: "DEVOLUCION_DEPOSITO", label: "Dev. depósito" },
+  { value: "DEVOLUCION_DEPOSITO", label: "Dev. bodega" },
   { value: "MERMA", label: "Merma" },
   { value: "CAMBIO", label: "Cambio" },
 ];

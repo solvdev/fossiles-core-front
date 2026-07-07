@@ -232,7 +232,7 @@ function KioskReturns() {
               {error && <Alert color="danger">{error}</Alert>}
               <p className="text-muted">
                 Boletas de cambio: devuelve un producto a precio vendido y factura el nuevo a precio catálogo.
-                Devoluciones a depósito registran la salida del inventario kiosko hacia bodega (sin venta POS).
+                Devoluciones a bodega registran la salida del inventario kiosko hacia bodega (sin venta POS).
                 Devoluciones de cliente quedan ligadas a la venta original.
               </p>
               <Row className="mb-3">
@@ -265,7 +265,7 @@ function KioskReturns() {
                     onClick={() => setActiveTab("DEPOSIT_RETURNS")}
                     style={{ cursor: "pointer" }}
                   >
-                    Devoluciones a depósito
+                    Devoluciones a bodega
                     {depositReturns.length > 0 ? ` (${depositReturns.length})` : ""}
                   </NavLink>
                 </NavItem>
@@ -339,9 +339,9 @@ function KioskReturns() {
                     <p>Cargando...</p>
                   ) : depositReturns.length === 0 ? (
                     <p>
-                      No hay devoluciones a depósito registradas
+                      No hay devoluciones a bodega registradas
                       {selectedKiosk ? " para este kiosko" : ""}.
-                      {" "}Regístralas con el botón <strong>Devolución</strong> → tipo &quot;Devolución a depósito&quot;.
+                      {" "}Regístralas con el botón <strong>Devolución</strong> → tipo &quot;Devolución a bodega&quot;.
                     </p>
                   ) : (
                     <Table responsive>

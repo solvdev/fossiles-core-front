@@ -4,7 +4,6 @@ import { ProductSelector } from "components/catalog/FilterableCatalogSelectors";
 import { FilterableSelect } from "components/distribution/FilterableSelect";
 import {
   formatInventorySizesLine,
-  flattenInventoryVariantsToSizeRows,
   hasInventorySizeBreakdown,
 } from "utils/inventoryVariantHelper";
 import { isPackagingProductCode } from "utils/kioskPackagingHelper";
@@ -46,11 +45,6 @@ function KioskInventoryStockExplorer({
     }
     return productVariants.length === 1 ? productVariants[0] : null;
   }, [productVariants, selectedColorId]);
-
-  const sizeRows = useMemo(
-    () => flattenInventoryVariantsToSizeRows(selectedVariant ? [selectedVariant] : productVariants),
-    [selectedVariant, productVariants]
-  );
 
   const selectedProduct = useMemo(
     () => (products || []).find((p) => Number(p.id) === Number(selectedProductId)) || null,
@@ -179,27 +173,28 @@ function KioskInventoryStockExplorer({
           )}
 
           {productVariants.length > 1 && !selectedColorId ? (
-            <Alert color="info" className="py-2 mb-2">
-              Este producto tiene {productVariants.length} variantes de color. Selecciona una arriba
-              o revisa el resumen:
-            </Alert>
-          ) : null}
-
-          {productVariants.length > 1 && !selectedColorId && sizeRows.length > 0 ? (
             <Table responsive size="sm" className="mb-0 bg-white">
               <thead>
                 <tr>
                   <th>Color</th>
-                  <th>Talla</th>
-                  <th className="text-right">Cantidad</th>
+                  <th className="text-right">Stock</th>
+                  <th className="text-right">Mínimo</th>
+                  <th>Tallas</th>
                 </tr>
               </thead>
               <tbody>
-                {sizeRows.map((row) => (
-                  <tr key={row.key}>
-                    <td>{row.colorName}</td>
-                    <td>{row.size || "—"}</td>
-                    <td className="text-right">{row.quantity}</td>
+                {productVariants.map((row) => (
+                  <tr
+                    key={row.id || `${row.productId}-${row.colorId}`}
+                    style={{ cursor: "pointer" }}
+                    onClick={() => onColorChange(row.colorId ? String(row.colorId) : "")}
+                  >
+                    <td>{row.colorName || "Sin color"}</td>
+                    <td className="text-right font-weight-bold">{row.currentStock ?? 0}</td>
+                    <td className="text-right">{row.minimumStock ?? 0}</td>
+                    <td className="small text-muted">
+                      {formatInventorySizesLine(row.sizes) || "—"}
+                    </td>
                   </tr>
                 ))}
               </tbody>

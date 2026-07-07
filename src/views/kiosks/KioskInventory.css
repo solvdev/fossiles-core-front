@@ -95,6 +95,14 @@
   cursor: pointer;
   margin-right: 8px;
   margin-bottom: 8px;
+  font-size: 0.85rem;
+  padding: 6px 12px;
+}
+
+.kiosk-inv-color-pill.badge-secondary {
+  background: #f1f5f9;
+  color: #334155;
+  border: 1px solid #cbd5e1;
 }
 
 .kiosk-inv-color-pill.active {

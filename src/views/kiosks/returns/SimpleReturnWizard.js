@@ -243,7 +243,7 @@ function SimpleReturnWizard({ isOpen, onClose, kioskLocationId, onCompleted }) {
       return;
     }
     if (!reason.trim()) {
-      setError("Indica el motivo de la devolución a depósito.");
+      setError("Indica el motivo de la devolución a bodega.");
       return;
     }
     try {
@@ -263,7 +263,7 @@ function SimpleReturnWizard({ isOpen, onClose, kioskLocationId, onCompleted }) {
       onCompleted?.();
       onClose();
     } catch (err) {
-      setError(err.message || "No se pudo registrar la devolución a depósito.");
+      setError(err.message || "No se pudo registrar la devolución a bodega.");
     } finally {
       setLoading(false);
     }
@@ -298,13 +298,13 @@ function SimpleReturnWizard({ isOpen, onClose, kioskLocationId, onCompleted }) {
                   setDepositLines([]);
                 }}
               >
-                <option value={RETURN_TYPE_DEPOSIT}>Devolución a depósito (desde inventario kiosko)</option>
+                <option value={RETURN_TYPE_DEPOSIT}>Devolución a bodega (desde inventario kiosko)</option>
                 <option value={RETURN_TYPE_CLIENT}>Devolución de cliente (con venta POS)</option>
               </Input>
             </FormGroup>
             <p className="text-muted" style={{ fontSize: 13 }}>
               {returnType === RETURN_TYPE_DEPOSIT
-                ? "Registra la salida de productos del kiosko hacia depósito. No requiere número de venta: eliges del stock actual (color, talla y cantidad) y anotas la boleta física de respaldo."
+                ? "Registra la salida de productos del kiosko hacia bodega. No requiere número de venta: eliges del stock actual (color, talla y cantidad) y anotas la boleta física de respaldo."
                 : "Devolución ligada a una venta POS original. El producto vuelve al inventario del kiosko si es apto para reventa."}
             </p>
           </>
@@ -505,7 +505,7 @@ function SimpleReturnWizard({ isOpen, onClose, kioskLocationId, onCompleted }) {
               Atrás
             </Button>
             <Button color="success" onClick={() => void handleSubmitDeposit()} disabled={loading || depositLines.length === 0}>
-              {loading ? "Guardando..." : "Registrar devolución a depósito"}
+              {loading ? "Guardando..." : "Registrar devolución a bodega"}
             </Button>
           </>
         )}

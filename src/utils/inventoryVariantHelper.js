@@ -51,18 +51,16 @@ export function flattenInventoryVariantsToSizeRows(variants) {
           });
         });
     } else {
-      const qty = parseFloat(v.quantity || 0);
-      if (qty !== 0 || v.colorId || v.colorName) {
-        rows.push({
-          key: `${v.id || v.productId}-${v.colorId || "n"}-total`,
-          colorId: v.colorId,
-          colorName: colorLabel,
-          size: null,
-          quantity: qty,
-          productId: v.productId,
-          locationId: v.locationId,
-        });
-      }
+      const qty = parseFloat(v.currentStock ?? v.quantity ?? 0);
+      rows.push({
+        key: `${v.id || v.productId}-${v.colorId || "n"}-total`,
+        colorId: v.colorId,
+        colorName: colorLabel,
+        size: null,
+        quantity: qty,
+        productId: v.productId,
+        locationId: v.locationId,
+      });
     }
   });
   return rows;

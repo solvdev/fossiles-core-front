@@ -26,7 +26,6 @@ import KioskInventoryKardexPanel from "./KioskInventoryKardexPanel";
 import { getProducts } from "services/productService";
 import { getColors } from "services/colorService";
 import {
-  getKioscoConsolidado,
   getKioscoMovimientos,
   getKioscoStock,
   getKioscoStockBajo,
@@ -41,13 +40,6 @@ import {
   registrarKioscoTraslado,
   registrarKioscoVenta,
 } from "services/kioscoInventoryService";
-import { formatDateTimeGt } from "utils/dateTimeHelper";
-import {
-  formatKioscoMovementReference,
-  formatKioscoMovementRoute,
-  getKioscoMovementSignedQuantity,
-  getKioscoMovementTypeLabel,
-} from "utils/kioskMovementHelper";
 import { isPackagingProductCode } from "utils/kioskPackagingHelper";
 import { hasInventorySizeBreakdown } from "utils/inventoryVariantHelper";
 import { isFossCinchosProductCode } from "utils/cinchoProductionHelper";
@@ -65,7 +57,7 @@ import {
   validateCommonStockForm,
   validateTransferForm,
 } from "./kioskInventoryFormHelper";
-import KioskInventoryStatsBar from "./KioskInventoryStatsBar";
+import KioskInventoryMovementsPanel from "./KioskInventoryMovementsPanel";
 import KioskInventoryStockExplorer from "./KioskInventoryStockExplorer";
 import "./KioskInventory.css";
 
@@ -100,7 +92,6 @@ function KioskInventory() {
   const [stockRows, setStockRows] = useState([]);
   const [lowStockRows, setLowStockRows] = useState([]);
   const [movements, setMovements] = useState([]);
-  const [consolidated, setConsolidated] = useState(null);
   const [form, setForm] = useState(INITIAL_FORM);
   const [loadingCatalogs, setLoadingCatalogs] = useState(false);
   const [loadingData, setLoadingData] = useState(false);
@@ -115,6 +106,13 @@ function KioskInventory() {
   const [stockExploreProductId, setStockExploreProductId] = useState("");
   const [stockExploreColorId, setStockExploreColorId] = useState("");
   const [showAllStockRows, setShowAllStockRows] = useState(false);
+  const [movementFilters, setMovementFilters] = useState({
+    type: "",
+    productTerm: "",
+    referenceTerm: "",
+    fromDate: "",
+    toDate: "",
+  });
 
   const kiosks = useMemo(
     () =>
@@ -227,7 +225,6 @@ function KioskInventory() {
 
   useEffect(() => {
     void loadCatalogs();
-    void loadConsolidated();
   }, []);
 
   useEffect(() => {
@@ -270,13 +267,8 @@ function KioskInventory() {
     }
   };
 
-  const loadConsolidated = async () => {
-    try {
-      const data = await getKioscoConsolidado();
-      setConsolidated(data || null);
-    } catch (_err) {
-      // no bloquear pantalla por resumen
-    }
+  const onMovementFilterChange = (key, value) => {
+    setMovementFilters((prev) => ({ ...prev, [key]: value }));
   };
 
   const refreshLocationData = async (locationId) => {
@@ -351,7 +343,16 @@ function KioskInventory() {
         locationId: form.locationId,
         invoiceId: form.invoiceId,
         reason: form.reason,
+        physicalSlipNumber: form.physicalSlipNumber,
       });
+    }
+    if (form.operation === "DEVOLUCION_DEPOSITO") {
+      if (!form.locationId) {
+        return "Debes seleccionar un kiosko.";
+      }
+      if (!String(form.physicalSlipNumber || "").trim()) {
+        return "Debes indicar el número de boleta de devolución a bodega.";
+      }
     }
     if (form.operation === "CAMBIO") {
       if (!form.locationId) return "Debes seleccionar un kiosko.";
@@ -442,7 +443,12 @@ function KioskInventory() {
       case "VENTA":
         return { ...base, invoiceId: Number(form.invoiceId) };
       case "DEVOLUCION_DEPOSITO":
-        return { ...base, referenceId: form.referenceId ? Number(form.referenceId) : null };
+        return {
+          ...base,
+          referenceId: form.referenceId ? Number(form.referenceId) : null,
+          physicalSlipNumber: String(form.physicalSlipNumber || "").trim(),
+          reason: String(form.reason || "").trim() || null,
+        };
       case "MERMA":
         return { ...base, reason: String(form.reason || "").trim() };
       default:
@@ -463,7 +469,13 @@ function KioskInventory() {
       case "VENTA":
         return { ...base, invoiceId: Number(form.invoiceId) };
       case "DEVOLUCION_DEPOSITO":
-        return { ...base, referenceId: form.referenceId ? Number(form.referenceId) : null };
+        return {
+          ...base,
+          referenceId: form.referenceId ? Number(form.referenceId) : null,
+          physicalSlipNumber: String(form.physicalSlipNumber || "").trim(),
+          reason: String(form.reason || "").trim() || null,
+          sizeKey: String(form.sizeKey || "").trim() || null,
+        };
       case "DEVOLUCION_CLIENTE":
         return {
           ...base,
@@ -598,7 +610,6 @@ function KioskInventory() {
           ? `${lineItems.filter((l) => l.productId && l.quantity).length} movimiento(s) registrado(s).`
           : "Movimiento registrado correctamente."
       );
-      await loadConsolidated();
       if (selectedLocation) {
         await refreshLocationData(selectedLocation);
       }
@@ -633,7 +644,6 @@ function KioskInventory() {
       showSuccess(
         `${result.message} Creados: ${result.createdCount || 0}, existentes: ${result.existingCount || 0}.`
       );
-      await loadConsolidated();
       if (selectedLocation) {
         await refreshLocationData(selectedLocation);
       }
@@ -704,7 +714,6 @@ function KioskInventory() {
             </CardHeader>
             <CardBody>
               {error && <Alert color="danger">{error}</Alert>}
-              <KioskInventoryStatsBar consolidated={consolidated} />
 
               <Row className="mb-3">
                 <Col className="d-flex align-items-center flex-wrap" style={{ gap: 8 }}>
@@ -730,6 +739,7 @@ function KioskInventory() {
               </Row>
 
               {activeTab === "INVENTARIO" && (
+              <>
               <Row>
                 <Col md="5">
                   <Card className="border kiosk-inv-movement-card">
@@ -1093,9 +1103,7 @@ function KioskInventory() {
                         </FormGroup>
                       ) : null}
 
-                      {form.operation === "ENTRADA" ||
-                      form.operation === "DEVOLUCION_DEPOSITO" ||
-                      form.operation === "CAMBIO" ? (
+                      {form.operation === "ENTRADA" || form.operation === "CAMBIO" ? (
                         <FormGroup>
                           <Label>Referencia (opcional)</Label>
                           <Input
@@ -1104,6 +1112,30 @@ function KioskInventory() {
                             step="1"
                             value={form.referenceId}
                             onChange={(e) => onFormChange("referenceId", e.target.value)}
+                          />
+                        </FormGroup>
+                      ) : null}
+
+                      {form.operation === "DEVOLUCION_DEPOSITO" ? (
+                        <FormGroup>
+                          <Label>Número de boleta de devolución a bodega (física)</Label>
+                          <Input
+                            type="text"
+                            value={form.physicalSlipNumber}
+                            onChange={(e) => onFormChange("physicalSlipNumber", e.target.value)}
+                            placeholder="Ej: BB-0042"
+                          />
+                        </FormGroup>
+                      ) : null}
+
+                      {form.operation === "DEVOLUCION_DEPOSITO" ? (
+                        <FormGroup>
+                          <Label>Motivo (opcional)</Label>
+                          <Input
+                            type="text"
+                            value={form.reason}
+                            onChange={(e) => onFormChange("reason", e.target.value)}
+                            placeholder="Ej: exceso de inventario en kiosko"
                           />
                         </FormGroup>
                       ) : null}
@@ -1265,50 +1297,21 @@ function KioskInventory() {
                       ) : null}
                     </CardBody>
                   </Card>
-
-                  <Card className="border">
-                    <CardHeader>
-                      <CardTitle tag="h6">Historial de movimientos (más recientes primero)</CardTitle>
-                    </CardHeader>
-                    <CardBody>
-                      {loadingData ? (
-                        <div className="text-center py-3"><Spinner /> Cargando movimientos...</div>
-                      ) : movements.length === 0 ? (
-                        <Alert color="light" className="border mb-0">No hay movimientos para mostrar.</Alert>
-                      ) : (
-                        <Table responsive size="sm">
-                          <thead>
-                            <tr>
-                              <th>Fecha</th>
-                              <th>Tipo</th>
-                              <th>Origen → Destino</th>
-                              <th>Producto</th>
-                              <th className="text-right">Cant.</th>
-                              <th className="text-right">Antes</th>
-                              <th className="text-right">Después</th>
-                              <th>Ref.</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {movements.map((movement) => (
-                              <tr key={movement.id}>
-                                <td>{movement.createdAt ? formatDateTimeGt(movement.createdAt) : "—"}</td>
-                                <td><Badge color="secondary">{getKioscoMovementTypeLabel(movement.movementType)}</Badge></td>
-                                <td style={{ whiteSpace: "nowrap" }}>{formatKioscoMovementRoute(movement)}</td>
-                                <td>{movement.productCode || movement.productId}</td>
-                                <td className="text-right">{getKioscoMovementSignedQuantity(movement)}</td>
-                                <td className="text-right">{movement.stockBefore}</td>
-                                <td className="text-right">{movement.stockAfter}</td>
-                                <td>{formatKioscoMovementReference(movement)}</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </Table>
-                      )}
-                    </CardBody>
-                  </Card>
                 </Col>
               </Row>
+
+              <Row className="mt-3">
+                <Col md="12">
+                  <KioskInventoryMovementsPanel
+                    movements={movements}
+                    loading={loadingData}
+                    filters={movementFilters}
+                    onFilterChange={onMovementFilterChange}
+                    selectedKiosk={selectedLocation}
+                  />
+                </Col>
+              </Row>
+              </>
               )}
 
               {activeTab === "KARDEX" && (

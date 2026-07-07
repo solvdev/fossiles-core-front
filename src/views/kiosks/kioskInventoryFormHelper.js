@@ -2,7 +2,7 @@ export const OPERATION_OPTIONS = [
   { value: "ENTRADA", label: "Entrada de stock" },
   { value: "VENTA", label: "Venta" },
   { value: "CAMBIO", label: "Cambio de producto" },
-  { value: "DEVOLUCION_DEPOSITO", label: "Devolución a depósito" },
+  { value: "DEVOLUCION_DEPOSITO", label: "Devolución a bodega" },
   { value: "DEVOLUCION_CLIENTE", label: "Devolución de cliente" },
   { value: "TRASLADO", label: "Traslado entre kioskos" },
   { value: "MERMA", label: "Merma" },
@@ -50,9 +50,16 @@ export function validateCommonStockForm({ locationId, productId, quantity }) {
   return "";
 }
 
-export function validateBulkLines(operation, lines, { locationId, invoiceId, reason } = {}) {
+export function validateBulkLines(
+  operation,
+  lines,
+  { locationId, invoiceId, reason, physicalSlipNumber } = {}
+) {
   if (!locationId) {
     return "Debes seleccionar un kiosko.";
+  }
+  if (operation === "DEVOLUCION_DEPOSITO" && !String(physicalSlipNumber || "").trim()) {
+    return "Debes indicar el número de boleta de devolución a bodega.";
   }
   const activeLines = (lines || []).filter((line) => line.productId || line.quantity);
   if (activeLines.length === 0) {
