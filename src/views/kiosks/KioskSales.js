@@ -25,7 +25,6 @@ import {
   getKioskPosContext,
   getKioskPromotions,
   getKioskProductAvailability,
-  getMyKioskReport,
   getMyKioskSales,
   getPendingDepositSummary,
 } from "services/kioskPosService";
@@ -74,7 +73,6 @@ function KioskSales() {
   const [cart, setCart] = useState([]);
   const [cinchoPickVariant, setCinchoPickVariant] = useState(null);
   const [sales, setSales] = useState([]);
-  const [myReport, setMyReport] = useState(null);
   const [promotions, setPromotions] = useState([]);
   const [adminPromotions, setAdminPromotions] = useState([]);
   const [selectedPromotionId, setSelectedPromotionId] = useState("");
@@ -173,20 +171,24 @@ function KioskSales() {
   const cashSessionOpen =
     cashSession && String(cashSession.status || "").toUpperCase() === "OPEN";
 
+  const loadReportData = async (kioskLocationId, fromDate, toDate) => {
+    const from = fromDate || getTodayYmdGuatemala();
+    const to = toDate || from;
+    const kioskSales = await getMyKioskSales(from, to, kioskLocationId);
+    setSales(Array.isArray(kioskSales) ? kioskSales : []);
+    return { from, to };
+  };
+
   const loadInitial = async (kioskIdOverride) => {
     try {
       setLoading(true);
       const kioskLocationId = kioskIdOverride || selectedKioskId || undefined;
-      const [ctx, kioskSales, kioskReport, promoRows] = await Promise.all([
-        getKioskPosContext(kioskLocationId, {}),
-        getMyKioskSales(undefined, undefined, kioskLocationId),
-        getMyKioskReport(undefined, undefined, kioskLocationId),
-        getKioskPromotions(true, kioskLocationId),
-      ]);
+      const today = getTodayYmdGuatemala();
+      const ctx = await getKioskPosContext(kioskLocationId, {});
+      await loadReportData(kioskLocationId, startDate || today, endDate || today);
+      const promoRows = await getKioskPromotions(true, kioskLocationId);
       setContext(ctx ? { ...ctx, inventory: filterVisibleKioskStockRows(ctx.inventory) } : null);
       if (ctx?.kioskId) setSelectedKioskId(String(ctx.kioskId));
-      setSales(Array.isArray(kioskSales) ? kioskSales : []);
-      setMyReport(kioskReport || null);
       setPromotions(Array.isArray(promoRows) ? promoRows : []);
       await Promise.all([
         loadCashSession(kioskLocationId || ctx?.kioskId),
@@ -380,15 +382,23 @@ function KioskSales() {
     };
   }, [cart, selectedPromotion, promotions]);
 
-  const applyReportFilters = async () => {
+  const applyReportFilters = async (fromOverride, toOverride) => {
+    const from = fromOverride || startDate || getTodayYmdGuatemala();
+    const to = toOverride || endDate || from;
+    if (!fromOverride) {
+      if (!startDate) setStartDate(from);
+      if (!endDate) setEndDate(to);
+    } else {
+      setStartDate(from);
+      setEndDate(to);
+    }
+    if (from > to) {
+      showError("La fecha de inicio no puede ser posterior a la fecha fin.");
+      return;
+    }
     try {
       setLoading(true);
-      const [kioskSales, kioskReport] = await Promise.all([
-        getMyKioskSales(startDate || undefined, endDate || undefined, selectedKioskId || undefined),
-        getMyKioskReport(startDate || undefined, endDate || undefined, selectedKioskId || undefined),
-      ]);
-      setSales(Array.isArray(kioskSales) ? kioskSales : []);
-      setMyReport(kioskReport || null);
+      await loadReportData(selectedKioskId || context?.kioskId, from, to);
     } catch (err) {
       showError(err.message || "No se pudieron filtrar los reportes.");
     } finally {
@@ -907,7 +917,6 @@ function KioskSales() {
                       onStartDateChange={setStartDate}
                       onEndDateChange={setEndDate}
                       onApplyFilters={applyReportFilters}
-                      myReport={myReport}
                       sales={sales}
                       kioskLocationId={selectedKioskId || context?.kioskId}
                       kioskName={selectedKioskName || context?.kioskName}

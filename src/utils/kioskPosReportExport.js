@@ -1,5 +1,5 @@
 import * as XLSX from "xlsx";
-import { formatNowGt } from "./dateTimeHelper";
+import { formatDateGt, formatNowGt, getSaleYmdGuatemala } from "./dateTimeHelper";
 
 const formatDateTime = (value) => {
   if (!value) return "";
@@ -10,24 +10,73 @@ const formatMoney = (value) => Number(value || 0).toFixed(2);
 
 const formatQty = (value) => Number(value || 0).toFixed(2);
 
-const buildFileSuffix = ({ startDate, endDate, kioskCode }) => {
-  const from = startDate || "inicio";
-  const to = endDate || "fin";
-  const kiosk = kioskCode ? `_${kioskCode}` : "";
-  return `${from}_${to}${kiosk}`;
+const normalizeRange = (startDate, endDate) => {
+  let from = startDate || "";
+  let to = endDate || "";
+  if (from && !to) to = from;
+  if (!from && to) from = to;
+  if (from && to && from > to) {
+    return { startDate: to, endDate: from };
+  }
+  return { startDate: from, endDate: to };
 };
 
-export const exportKioskSalesToExcel = ({ sales, myReport, startDate, endDate, kioskName, kioskCode }) => {
-  const suffix = buildFileSuffix({ startDate, endDate, kioskCode });
+export const filterSalesByDateRange = (sales, startDate, endDate) => {
+  const { startDate: from, endDate: to } = normalizeRange(startDate, endDate);
+  if (!from || !to) return sales || [];
+  return (sales || []).filter((sale) => {
+    const ymd = getSaleYmdGuatemala(sale);
+    return ymd && ymd >= from && ymd <= to;
+  });
+};
+
+export const buildKioskReportSummary = (sales) => {
+  const rows = (sales || []).filter((sale) => String(sale.status || "").toUpperCase() !== "VOID");
+  const salesCount = rows.length;
+  const totalItems = rows.reduce((sum, sale) => sum + Number(sale.totalItems || 0), 0);
+  const totalAmount = rows.reduce((sum, sale) => sum + Number(sale.totalAmount || 0), 0);
+  const averageTicket = salesCount > 0 ? totalAmount / salesCount : 0;
+  return { salesCount, totalItems, totalAmount, averageTicket };
+};
+
+const formatPeriodLabel = ({ startDate, endDate }) => {
+  const { startDate: from, endDate: to } = normalizeRange(startDate, endDate);
+  if (!from && !to) return "Sin período";
+  if (from === to) return `Día ${formatDateGt(from)}`;
+  return `${formatDateGt(from)} — ${formatDateGt(to)}`;
+};
+
+const buildFileSuffix = ({ startDate, endDate, kioskCode }) => {
+  const { startDate: from, endDate: to } = normalizeRange(startDate, endDate);
+  const rangeLabel = from === to ? from : `${from || "inicio"}_${to || "fin"}`;
+  const kiosk = kioskCode ? `_${kioskCode}` : "";
+  return `${rangeLabel}${kiosk}`;
+};
+
+export const exportKioskSalesToExcel = ({
+  sales,
+  myReport,
+  startDate,
+  endDate,
+  kioskName,
+  kioskCode,
+  depositFilter = "ALL",
+}) => {
+  const { startDate: from, endDate: to } = normalizeRange(startDate, endDate);
+  const suffix = buildFileSuffix({ startDate: from, endDate: to, kioskCode });
+  const periodLabel = formatPeriodLabel({ startDate: from, endDate: to });
+  const summary = buildKioskReportSummary(sales);
 
   const summaryRows = [
     { Campo: "Kiosko", Valor: kioskName || "—" },
-    { Campo: "Desde", Valor: startDate || "—" },
-    { Campo: "Hasta", Valor: endDate || "—" },
-    { Campo: "Ventas", Valor: myReport?.salesCount ?? 0 },
-    { Campo: "Total unidades", Valor: formatQty(myReport?.totalItems) },
-    { Campo: "Total monto (Q)", Valor: formatMoney(myReport?.totalAmount) },
-    { Campo: "Ticket promedio (Q)", Valor: formatMoney(myReport?.averageTicket) },
+    { Campo: "Período", Valor: periodLabel },
+    { Campo: "Desde", Valor: from || "—" },
+    { Campo: "Hasta", Valor: to || "—" },
+    { Campo: "Filtro boleta depósito", Valor: depositFilter === "PENDING" ? "Solo pendientes" : "Todas" },
+    { Campo: "Ventas", Valor: summary.salesCount },
+    { Campo: "Total unidades", Valor: formatQty(summary.totalItems) },
+    { Campo: "Total monto (Q)", Valor: formatMoney(summary.totalAmount) },
+    { Campo: "Ticket promedio (Q)", Valor: formatMoney(summary.averageTicket) },
     { Campo: "Generado", Valor: formatNowGt() },
   ];
 
@@ -79,7 +128,17 @@ export const exportKioskSalesToExcel = ({ sales, myReport, startDate, endDate, k
   XLSX.writeFile(wb, `Reporte_Kiosko_${suffix}.xlsx`);
 };
 
-export const exportKioskSalesToPdf = ({ sales, myReport, startDate, endDate, kioskName }) => {
+export const exportKioskSalesToPdf = ({
+  sales,
+  myReport,
+  startDate,
+  endDate,
+  kioskName,
+  depositFilter = "ALL",
+}) => {
+  const { startDate: from, endDate: to } = normalizeRange(startDate, endDate);
+  const periodLabel = formatPeriodLabel({ startDate: from, endDate: to });
+  const summary = buildKioskReportSummary(sales);
   const escape = (value) =>
     String(value ?? "")
       .replace(/&/g, "&amp;")
@@ -125,14 +184,15 @@ export const exportKioskSalesToPdf = ({ sales, myReport, startDate, endDate, kio
       <body>
         <h1>Reporte de ventas — ${escape(kioskName || "Kiosko")}</h1>
         <div class="meta">
-          Período: ${escape(startDate || "—")} a ${escape(endDate || "—")}<br/>
+          Período: ${escape(periodLabel)}<br/>
+          ${depositFilter === "PENDING" ? "Filtro: solo ventas con boleta de depósito pendiente<br/>" : ""}
           Generado: ${escape(formatNowGt())}
         </div>
         <div class="summary">
-          <div>Ventas: <strong>${escape(myReport?.salesCount ?? 0)}</strong></div>
-          <div>Unidades: <strong>${escape(formatQty(myReport?.totalItems))}</strong></div>
-          <div>Total: <strong>Q ${escape(formatMoney(myReport?.totalAmount))}</strong></div>
-          <div>Ticket prom.: <strong>Q ${escape(formatMoney(myReport?.averageTicket))}</strong></div>
+          <div>Ventas: <strong>${escape(summary.salesCount)}</strong></div>
+          <div>Unidades: <strong>${escape(formatQty(summary.totalItems))}</strong></div>
+          <div>Total: <strong>Q ${escape(formatMoney(summary.totalAmount))}</strong></div>
+          <div>Ticket prom.: <strong>Q ${escape(formatMoney(summary.averageTicket))}</strong></div>
         </div>
         <table>
           <thead>

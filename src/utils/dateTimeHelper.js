@@ -94,3 +94,46 @@ export const getMonthStartYmdGuatemala = () => {
   const today = getTodayYmdGuatemala();
   return `${today.slice(0, 7)}-01`;
 };
+
+/** Suma o resta días a una fecha YYYY-MM-DD (calendario, sin DST). */
+export const shiftYmdGuatemala = (ymd, daysDelta) => {
+  const base = ymd || getTodayYmdGuatemala();
+  const [year, month, day] = base.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
+  date.setUTCDate(date.getUTCDate() + Number(daysDelta || 0));
+  return date.toISOString().slice(0, 10);
+};
+
+export const getYesterdayYmdGuatemala = () => shiftYmdGuatemala(getTodayYmdGuatemala(), -1);
+
+/** Lunes de la semana actual en Guatemala (YYYY-MM-DD). */
+export const getWeekStartYmdGuatemala = () => {
+  const today = getTodayYmdGuatemala();
+  const [year, month, day] = today.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
+  const dow = date.getUTCDay();
+  const mondayOffset = dow === 0 ? -6 : 1 - dow;
+  return shiftYmdGuatemala(today, mondayOffset);
+};
+
+/** Extrae YYYY-MM-DD de una venta POS (saleDate o soldAt). */
+export const getSaleYmdGuatemala = (sale) => {
+  if (!sale) return "";
+  if (sale.saleDate && DATE_ONLY_REGEX.test(String(sale.saleDate).trim())) {
+    return String(sale.saleDate).trim();
+  }
+  const soldAt = sale.soldAt || sale.saleDate;
+  if (!soldAt) return "";
+  const text = String(soldAt).trim();
+  if (DATE_ONLY_REGEX.test(text)) return text;
+  const match = DATE_TIME_NO_ZONE_REGEX.exec(text);
+  if (match) return `${match[1]}-${match[2]}-${match[3]}`;
+  const parsed = toDate(soldAt);
+  if (!parsed) return "";
+  return new Intl.DateTimeFormat("sv-SE", {
+    timeZone: GT_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(parsed);
+};

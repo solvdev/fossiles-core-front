@@ -1,12 +1,31 @@
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import { Button, Card, CardBody, CardHeader, CardTitle, Col, Input, Label, Row, Table } from "reactstrap";
 import { getKioskSaleById } from "services/kioskPosService";
-import { formatDateTimeGt } from "utils/dateTimeHelper";
-import { exportKioskSalesToExcel, exportKioskSalesToPdf } from "utils/kioskPosReportExport";
+import {
+  formatDateGt,
+  formatDateTimeGt,
+  getMonthStartYmdGuatemala,
+  getTodayYmdGuatemala,
+  getWeekStartYmdGuatemala,
+  getYesterdayYmdGuatemala,
+} from "utils/dateTimeHelper";
+import {
+  buildKioskReportSummary,
+  exportKioskSalesToExcel,
+  exportKioskSalesToPdf,
+} from "utils/kioskPosReportExport";
 import { showError, showSuccess, showWarning } from "utils/notificationHelper";
 import PosSaleDetailModal from "./PosSaleDetailModal";
 import PosVoidSaleModal from "./PosVoidSaleModal";
 import { formatCurrency, formatQty, getSaleInternalNumber, isSalePendingDeposit } from "./posUtils";
+
+const formatPeriodLabel = (startDate, endDate) => {
+  const from = startDate || "";
+  const to = endDate || from;
+  if (!from) return "Selecciona fechas y aplica el filtro";
+  if (from === to) return `Día ${formatDateGt(from)}`;
+  return `${formatDateGt(from)} — ${formatDateGt(to)}`;
+};
 
 const canVoidSaleRow = (sale, cashSession) => {
   if (!cashSession || String(cashSession.status || "").toUpperCase() !== "OPEN" || !sale) return false;
@@ -22,7 +41,6 @@ function PosReportsTab({
   onStartDateChange,
   onEndDateChange,
   onApplyFilters,
-  myReport,
   sales,
   kioskLocationId,
   kioskName,
@@ -35,13 +53,83 @@ function PosReportsTab({
   const [saleDetail, setSaleDetail] = useState(null);
   const [voidTargetSale, setVoidTargetSale] = useState(null);
   const [depositFilter, setDepositFilter] = useState("ALL");
+  const [dateFilterMode, setDateFilterMode] = useState("single");
 
   const filteredSales = (sales || []).filter((sale) => {
     if (depositFilter !== "PENDING") return true;
     return isSalePendingDeposit(sale);
   });
 
-  const openSaleDetail = async (sale) => {
+  const displaySummary = useMemo(
+    () => buildKioskReportSummary(filteredSales),
+    [filteredSales]
+  );
+
+  const periodLabel = formatPeriodLabel(startDate, endDate);
+
+  const applyQuickRange = (from, to, mode = "range") => {
+    setDateFilterMode(mode);
+    onStartDateChange(from);
+    onEndDateChange(to);
+    if (onApplyFilters) {
+      onApplyFilters(from, to);
+    }
+  };
+
+  const handleStartDateChange = (value) => {
+    onStartDateChange(value);
+    if (dateFilterMode === "single") {
+      onEndDateChange(value);
+    }
+  };
+
+  const handleDateFilterModeChange = (mode) => {
+    setDateFilterMode(mode);
+    if (mode === "single" && startDate) {
+      onEndDateChange(startDate);
+    }
+  };
+
+  const handleExportExcel = () => {
+    if (!startDate && !endDate) {
+      showWarning("Selecciona al menos una fecha antes de exportar.");
+      return;
+    }
+    if (!filteredSales.length) {
+      showWarning("No hay ventas para exportar con el filtro actual.");
+      return;
+    }
+    try {
+      exportKioskSalesToExcel({
+        sales: filteredSales,
+        startDate,
+        endDate,
+        kioskName,
+        kioskCode,
+        depositFilter,
+      });
+      showSuccess("Excel descargado correctamente.");
+    } catch (err) {
+      showError(err.message || "No se pudo generar el Excel.");
+    }
+  };
+
+  const handleExportPdf = () => {
+    if (!startDate && !endDate) {
+      showWarning("Selecciona al menos una fecha antes de exportar.");
+      return;
+    }
+    if (!filteredSales.length) {
+      showWarning("No hay ventas para exportar con el filtro actual.");
+      return;
+    }
+    const opened = exportKioskSalesToPdf({
+      sales: filteredSales,
+      startDate,
+      endDate,
+      kioskName,
+      depositFilter,
+    });
     if (!sale?.id) return;
     setDetailOpen(true);
     setDetailLoading(true);
@@ -68,38 +156,6 @@ function PosReportsTab({
     setSaleDetail(null);
   };
 
-  const handleExportExcel = () => {
-    if (!sales?.length) {
-      showWarning("No hay ventas para exportar con el filtro actual.");
-      return;
-    }
-    try {
-      exportKioskSalesToExcel({
-        sales,
-        myReport,
-        startDate,
-        endDate,
-        kioskName,
-        kioskCode,
-      });
-      showSuccess("Excel descargado correctamente.");
-    } catch (err) {
-      showError(err.message || "No se pudo generar el Excel.");
-    }
-  };
-
-  const handleExportPdf = () => {
-    if (!sales?.length) {
-      showWarning("No hay ventas para exportar con el filtro actual.");
-      return;
-    }
-    const opened = exportKioskSalesToPdf({
-      sales,
-      myReport,
-      startDate,
-      endDate,
-      kioskName,
-    });
     if (opened === false) {
       showWarning("Permite ventanas emergentes para descargar el PDF.");
       return;
@@ -107,7 +163,7 @@ function PosReportsTab({
     showSuccess("PDF listo para imprimir o guardar.");
   };
 
-  return (
+  const openSaleDetail = async (sale) => {
     <>
       <Card className="kiosk-pos-block">
         <CardHeader className="d-flex flex-wrap align-items-center justify-content-between">
@@ -124,31 +180,49 @@ function PosReportsTab({
           </div>
         </CardHeader>
         <CardBody>
-          <Row>
+          <Row className="align-items-end">
+            <Col md="2">
+              <Label className="kiosk-pos-label">Tipo de filtro</Label>
+              <Input
+                className="kiosk-pos-input-lg"
+                type="select"
+                value={dateFilterMode}
+                onChange={(e) => handleDateFilterModeChange(e.target.value)}
+              >
+                <option value="single">Día exacto</option>
+                <option value="range">Rango de fechas</option>
+              </Input>
+            </Col>
             <Col md="3">
-              <Label className="kiosk-pos-label">Inicio</Label>
+              <Label className="kiosk-pos-label">{dateFilterMode === "single" ? "Día" : "Desde"}</Label>
               <Input
                 className="kiosk-pos-input-lg"
                 type="date"
                 value={startDate}
-                onChange={(e) => onStartDateChange(e.target.value)}
+                onChange={(e) => handleStartDateChange(e.target.value)}
               />
             </Col>
-            <Col md="3">
-              <Label className="kiosk-pos-label">Fin</Label>
-              <Input
-                className="kiosk-pos-input-lg"
-                type="date"
-                value={endDate}
-                onChange={(e) => onEndDateChange(e.target.value)}
-              />
-            </Col>
-            <Col md="3" className="d-flex align-items-end mt-2 mt-md-0">
-              <Button color="primary" className="kiosk-pos-btn-lg" onClick={onApplyFilters}>
+            {dateFilterMode === "range" && (
+              <Col md="3">
+                <Label className="kiosk-pos-label">Hasta</Label>
+                <Input
+                  className="kiosk-pos-input-lg"
+                  type="date"
+                  value={endDate}
+                  onChange={(e) => onEndDateChange(e.target.value)}
+                />
+              </Col>
+            )}
+            <Col md="2" className="d-flex align-items-end mt-2 mt-md-0">
+              <Button
+                color="primary"
+                className="kiosk-pos-btn-lg"
+                onClick={() => onApplyFilters()}
+              >
                 Aplicar filtro
               </Button>
             </Col>
-            <Col md="3">
+            <Col md="2">
               <Label className="kiosk-pos-label">Boleta depósito</Label>
               <Input
                 className="kiosk-pos-input-lg"
@@ -162,14 +236,67 @@ function PosReportsTab({
             </Col>
           </Row>
 
+          <div className="d-flex flex-wrap mt-2 kiosk-pos-report-quick-filters">
+            <Button
+              color="default"
+              size="sm"
+              className="mr-1 mb-1"
+              onClick={() => {
+                const today = getTodayYmdGuatemala();
+                applyQuickRange(today, today, "single");
+              }}
+            >
+              Hoy
+            </Button>
+            <Button
+              color="default"
+              size="sm"
+              className="mr-1 mb-1"
+              onClick={() => {
+                const yesterday = getYesterdayYmdGuatemala();
+                applyQuickRange(yesterday, yesterday, "single");
+              }}
+            >
+              Ayer
+            </Button>
+            <Button
+              color="default"
+              size="sm"
+              className="mr-1 mb-1"
+              onClick={() => {
+                const today = getTodayYmdGuatemala();
+                applyQuickRange(getWeekStartYmdGuatemala(), today, "range");
+              }}
+            >
+              Esta semana
+            </Button>
+            <Button
+              color="default"
+              size="sm"
+              className="mb-1"
+              onClick={() => {
+                const today = getTodayYmdGuatemala();
+                applyQuickRange(getMonthStartYmdGuatemala(), today, "range");
+              }}
+            >
+              Este mes
+            </Button>
+          </div>
+
+          <p className="text-muted small mt-2 mb-0">
+            Período activo: <strong>{periodLabel}</strong>
+            {" · "}
+            {filteredSales.length} venta(s) en pantalla. Excel y PDF exportan solo este período (y filtro de boleta si aplica).
+          </p>
+
           <Row className="mt-3">
             <Col md="12">
               <Card body className="kiosk-pos-report-card">
-                <h6 className="mb-2">Resumen</h6>
-                <div>Ventas: <strong>{myReport?.salesCount || 0}</strong></div>
-                <div>Total unidades: <strong>{formatQty(myReport?.totalItems || 0)}</strong></div>
-                <div>Total monto: <strong>{formatCurrency(myReport?.totalAmount || 0)}</strong></div>
-                <div>Ticket promedio: <strong>{formatCurrency(myReport?.averageTicket || 0)}</strong></div>
+                <h6 className="mb-2">Resumen del período</h6>
+                <div>Ventas: <strong>{displaySummary.salesCount}</strong></div>
+                <div>Total unidades: <strong>{formatQty(displaySummary.totalItems)}</strong></div>
+                <div>Total monto: <strong>{formatCurrency(displaySummary.totalAmount)}</strong></div>
+                <div>Ticket promedio: <strong>{formatCurrency(displaySummary.averageTicket)}</strong></div>
               </Card>
             </Col>
           </Row>
