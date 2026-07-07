@@ -708,7 +708,7 @@ function KioskInventory() {
   const bulkLineCount = lineItems.filter((l) => l.productId && l.quantity).length;
 
   return (
-    <div className="content">
+    <div className="content kiosk-inv-page">
       <Row>
         <Col md="12">
           <Card>
@@ -756,8 +756,24 @@ function KioskInventory() {
             <CardBody>
               {error && <Alert color="danger">{error}</Alert>}
 
-              <Row className="mb-3">
-                <Col className="d-flex align-items-center flex-wrap" style={{ gap: 8 }}>
+              <Row className="mb-3 align-items-end">
+                <Col md="4" sm="6">
+                  <FormGroup className="mb-0">
+                    <Label>Kiosko</Label>
+                    <FilterableSelect
+                      value={selectedLocation}
+                      onChange={(value) => {
+                        setSelectedLocation(value);
+                        onFormChange("locationId", value);
+                      }}
+                      options={kioskOptions}
+                      placeholder="Buscar kiosko…"
+                      emptyLabel="Selecciona kiosko"
+                      disabled={loadingCatalogs}
+                    />
+                  </FormGroup>
+                </Col>
+                <Col md="8" sm="6" className="d-flex align-items-end flex-wrap" style={{ gap: 8 }}>
                   <Button
                     color="primary"
                     outline

@@ -714,7 +714,7 @@ function KioskInventoryCountReport({ locationId }) {
           {loadingHistorial ? (
             <div className="text-center py-2"><Spinner size="sm" /> Cargando historial...</div>
           ) : historial.length === 0 ? (
-            <Alert color="light" className="border mb-0" style={{ fontSize: 12 }}>
+            <Alert color="light" className="border mb-0 kiosk-inv-hint-alert" style={{ fontSize: 12 }}>
               No hay sesiones registradas para este kiosko. Crea la primera con el formulario de arriba.
             </Alert>
           ) : (
@@ -790,10 +790,10 @@ function KioskInventoryCountReport({ locationId }) {
       )}
 
       {!report ? (
-        <Alert color="light" className="border">
+        <Alert color="light" className="border kiosk-inv-hint-alert">
           {locationId
             ? <>Selecciona el rango de fechas y presiona <strong>Abrir conteo</strong> para crear uno nuevo, o carga uno existente de arriba.</>
-            : <>Selecciona un kiosko en la pestaña de inventario para ver y gestionar los conteos.</>}
+            : <>Selecciona un <strong>kiosko</strong> arriba para ver y gestionar los conteos físicos.</>}
         </Alert>
       ) : (
         <>
@@ -1097,7 +1097,7 @@ function KioskInventoryCountReport({ locationId }) {
           {loadingRecipients ? (
             <div className="text-center py-3"><Spinner size="sm" /> Cargando destinatarios...</div>
           ) : recipients.length === 0 ? (
-            <Alert color="light" className="border mb-0" style={{ fontSize: 12 }}>
+            <Alert color="light" className="border mb-0 kiosk-inv-hint-alert" style={{ fontSize: 12 }}>
               No hay destinatarios configurados todavía.
             </Alert>
           ) : (

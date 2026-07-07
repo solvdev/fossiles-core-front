@@ -108,3 +108,24 @@
 .kiosk-inv-color-pill.active {
   box-shadow: 0 0 0 2px #2563eb;
 }
+
+.kiosk-inv-page .nav-tabs .nav-link {
+  color: #475569;
+  font-weight: 500;
+}
+
+.kiosk-inv-page .nav-tabs .nav-link.active {
+  color: #0f172a;
+  font-weight: 600;
+}
+
+.kiosk-inv-page .alert-light,
+.kiosk-inv-hint-alert {
+  background-color: #f8fafc !important;
+  border-color: #cbd5e1 !important;
+  color: #334155 !important;
+}
+
+.kiosk-inv-hint-alert strong {
+  color: #0f172a;
+}

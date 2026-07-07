@@ -307,8 +307,8 @@ function KioskInventoryKardexPanel({ locationId }) {
       )}
 
       {!locationId ? (
-        <Alert color="light" className="border mb-0">
-          Selecciona un kiosko y un rango de fechas para generar el reporte.
+        <Alert color="light" className="border mb-0 kiosk-inv-hint-alert">
+          Selecciona un <strong>kiosko</strong> arriba y un rango de fechas para generar el reporte.
         </Alert>
       ) : loading ? (
         <div className="text-center py-3"><Spinner /> Generando reporte...</div>
