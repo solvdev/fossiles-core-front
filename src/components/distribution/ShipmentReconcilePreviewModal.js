@@ -123,6 +123,7 @@ function ShipmentReconcilePreviewModal({
             )}
 
             <Alert color="light" className="border mt-3 mb-0 py-2">
+              Revisa todos los envíos recibidos en el kiosko (distribución, OP, standalone y empaques SUM-).
               No se borran ventas ni anulaciones. Tras cuadrar, vuelva a abrir o revisar el conteo físico
               para actualizar las columnas Ent./Fin.
             </Alert>
