@@ -31,6 +31,7 @@ import {
   getShipmentById,
   repairDeliveredShipmentReceiptInventory,
   reconcileDeliveredShipmentReceiptInventory,
+  previewDeliveredShipmentReceiptReconcile,
 } from "services/productDistributionService";
 import * as XLSX from "xlsx-js-style";
 import { getProducts } from "services/productService";
@@ -71,6 +72,7 @@ import {
 import PrepareShipmentsCustomerBlock from "components/distribution/PrepareShipmentsCustomerBlock";
 import CreateStandaloneKioskShipmentModal from "components/distribution/CreateStandaloneKioskShipmentModal";
 import EditShipmentProductsModal from "components/distribution/EditShipmentProductsModal";
+import ShipmentReconcilePreviewModal from "components/distribution/ShipmentReconcilePreviewModal";
 import { FilterableSelect } from "components/distribution/FilterableSelect";
 import OpvShipmentPriceReviewModal from "components/production/OpvShipmentPriceReviewModal";
 import ProductionOrderPartialReleasesPanel from "components/production/ProductionOrderPartialReleasesPanel";
@@ -644,6 +646,11 @@ function PrepareShipments() {
   const [revertingShipmentId, setRevertingShipmentId] = useState(null);
   const [repairingReceiptShipmentId, setRepairingReceiptShipmentId] = useState(null);
   const [reconcilingReceiptShipmentId, setReconcilingReceiptShipmentId] = useState(null);
+  const [reconcilePreviewShipment, setReconcilePreviewShipment] = useState(null);
+  const [reconcilePreviewOpen, setReconcilePreviewOpen] = useState(false);
+  const [reconcilePreview, setReconcilePreview] = useState(null);
+  const [reconcilePreviewLoading, setReconcilePreviewLoading] = useState(false);
+  const [reconcilePreviewError, setReconcilePreviewError] = useState("");
   const [cancellingShipmentId, setCancellingShipmentId] = useState(null);
   const [error, setError] = useState("");
   const [partialPendingCount, setPartialPendingCount] = useState(0);
@@ -3042,22 +3049,39 @@ function PrepareShipments() {
     }
   };
 
-  const handleReconcileReceiptInventory = async (shipment) => {
+  const closeReconcilePreview = () => {
+    if (reconcilingReceiptShipmentId) return;
+    setReconcilePreviewOpen(false);
+    setReconcilePreviewShipment(null);
+    setReconcilePreview(null);
+    setReconcilePreviewError("");
+  };
+
+  const openReconcilePreview = async (shipment) => {
     if (!shipment?.id) return;
-    if (
-      !window.confirm(
-        "¿Cuadrar inventario y kardex con este envío?\n\n"
-          + "Elimina ENTRADAs duplicadas del envío según el documento. "
-          + "No borra ventas ni anulaciones. No altera el conteo físico guardado."
-      )
-    ) {
-      return;
-    }
+    setReconcilePreviewShipment(shipment);
+    setReconcilePreviewOpen(true);
+    setReconcilePreview(null);
+    setReconcilePreviewError("");
     try {
-      setReconcilingReceiptShipmentId(shipment.id);
+      setReconcilePreviewLoading(true);
+      const preview = await previewDeliveredShipmentReceiptReconcile(shipment.id);
+      setReconcilePreview(preview);
+    } catch (err) {
+      setReconcilePreviewError(err.message || "No se pudo cargar la vista previa del cuadre.");
+    } finally {
+      setReconcilePreviewLoading(false);
+    }
+  };
+
+  const handleConfirmReconcileReceiptInventory = async () => {
+    if (!reconcilePreviewShipment?.id || !reconcilePreview?.hasChanges) return;
+    try {
+      setReconcilingReceiptShipmentId(reconcilePreviewShipment.id);
       setError("");
-      const result = await reconcileDeliveredShipmentReceiptInventory(shipment.id);
+      const result = await reconcileDeliveredShipmentReceiptInventory(reconcilePreviewShipment.id);
       const { message, warnings } = formatShipmentReconcileMessage(result);
+      closeReconcilePreview();
       if (warnings.length > 0) {
         showWarning(message);
       } else {
@@ -4067,8 +4091,12 @@ function PrepareShipments() {
                               color="secondary"
                               size="sm"
                               outline
-                              disabled={repairingReceiptShipmentId === shipment.id || reconcilingReceiptShipmentId === shipment.id}
-                              onClick={() => handleReconcileReceiptInventory(shipment)}
+                              disabled={
+                                repairingReceiptShipmentId === shipment.id
+                                || reconcilingReceiptShipmentId === shipment.id
+                                || (reconcilePreviewLoading && reconcilePreviewShipment?.id === shipment.id)
+                              }
+                              onClick={() => openReconcilePreview(shipment)}
                               className="mr-2"
                               title="Admin: elimina ENTRADAs duplicadas; no borra ventas"
                             >
@@ -4219,6 +4247,17 @@ function PrepareShipments() {
           setEditProductsShipment(null);
           await reloadCurrentShipments();
         }}
+      />
+
+      <ShipmentReconcilePreviewModal
+        isOpen={reconcilePreviewOpen}
+        toggle={closeReconcilePreview}
+        title={`Vista previa: cuadrar envío ${reconcilePreviewShipment?.shipmentNumber || reconcilePreviewShipment?.id || ""}`}
+        preview={reconcilePreview}
+        loading={reconcilePreviewLoading}
+        error={reconcilePreviewError}
+        applying={Boolean(reconcilingReceiptShipmentId)}
+        onConfirm={() => void handleConfirmReconcileReceiptInventory()}
       />
     </div>
   );

@@ -40,6 +40,8 @@ export const formatShipmentReconcileMessage = (result) => {
       message += `, ${stockRowsRecalculated} fila(s) de stock recalculada(s)`;
     }
     message += ".";
+  } else if (warnings.length > 0) {
+    message = "No se realizaron cambios. Revise las advertencias abajo.";
   } else {
     message = "El inventario y kardex ya coincidían con los envíos entregados.";
   }

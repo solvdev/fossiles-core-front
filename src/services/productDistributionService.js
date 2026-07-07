@@ -432,6 +432,20 @@ export const repairDeliveredShipmentReceiptInventory = async (shipmentId, { forc
 export const reconcileDeliveredShipmentReceiptInventory = async (shipmentId) =>
   repairDeliveredShipmentReceiptInventory(shipmentId, { mode: "reset" });
 
+export const previewDeliveredShipmentReceiptReconcile = async (shipmentId) => {
+  const response = await fetch(
+    `${API_URL}/product-distributions/shipments/${shipmentId}/reconcile-shipment-entries/preview`,
+    {
+      headers: { "Content-Type": "application/json", ...getAuthHeader() },
+    }
+  );
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ message: "Error al obtener vista previa del cuadre" }));
+    throw new Error(err.message || "Error al obtener vista previa del cuadre");
+  }
+  return response.json();
+};
+
 export const auditDeliveredShipmentReceiptInventory = async (shipmentId) => {
   const response = await fetch(
     `${API_URL}/product-distributions/shipments/${shipmentId}/receipt-inventory-audit`,

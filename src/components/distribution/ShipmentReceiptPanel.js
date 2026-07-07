@@ -12,7 +12,8 @@ import {
   Spinner,
   Table,
 } from "reactstrap";
-import { confirmReceipt, repairDeliveredShipmentReceiptInventory, reconcileDeliveredShipmentReceiptInventory } from "services/productDistributionService";
+import { confirmReceipt, repairDeliveredShipmentReceiptInventory, reconcileDeliveredShipmentReceiptInventory, previewDeliveredShipmentReceiptReconcile } from "services/productDistributionService";
+import ShipmentReconcilePreviewModal from "components/distribution/ShipmentReconcilePreviewModal";
 import { useAuth } from "contexts/AuthContext";
 import { showError, showSuccess, showWarning } from "utils/notificationHelper";
 import { formatShipmentReceiptRepairMessage, formatShipmentReconcileMessage } from "utils/shipmentReceiptRepairHelper";
@@ -337,6 +338,10 @@ export function ShipmentReceiptDetail({
   const [saving, setSaving] = useState(false);
   const [repairing, setRepairing] = useState(false);
   const [reconciling, setReconciling] = useState(false);
+  const [reconcilePreviewOpen, setReconcilePreviewOpen] = useState(false);
+  const [reconcilePreview, setReconcilePreview] = useState(null);
+  const [reconcilePreviewLoading, setReconcilePreviewLoading] = useState(false);
+  const [reconcilePreviewError, setReconcilePreviewError] = useState("");
 
   const isDelivered = String(shipment?.status || "").toUpperCase() === "DELIVERED";
 
@@ -440,21 +445,36 @@ export function ShipmentReceiptDetail({
     }
   };
 
-  const handleReconcileInventory = async () => {
+  const closeReconcilePreview = () => {
+    if (reconciling) return;
+    setReconcilePreviewOpen(false);
+    setReconcilePreview(null);
+    setReconcilePreviewError("");
+  };
+
+  const openReconcilePreview = async () => {
     if (!shipment?.id || !isDelivered) return;
-    if (
-      !window.confirm(
-        "¿Cuadrar inventario y kardex con este envío?\n\n"
-          + "Elimina ENTRADAs duplicadas del envío según el documento. "
-          + "No borra ventas ni anulaciones. No altera el conteo físico guardado."
-      )
-    ) {
-      return;
+    setReconcilePreviewOpen(true);
+    setReconcilePreview(null);
+    setReconcilePreviewError("");
+    try {
+      setReconcilePreviewLoading(true);
+      const preview = await previewDeliveredShipmentReceiptReconcile(shipment.id);
+      setReconcilePreview(preview);
+    } catch (err) {
+      setReconcilePreviewError(err.message || "No se pudo cargar la vista previa del cuadre.");
+    } finally {
+      setReconcilePreviewLoading(false);
     }
+  };
+
+  const handleConfirmReconcileInventory = async () => {
+    if (!shipment?.id || !reconcilePreview?.hasChanges) return;
     try {
       setReconciling(true);
       const result = await reconcileDeliveredShipmentReceiptInventory(shipment.id);
       const { message, warnings } = formatShipmentReconcileMessage(result);
+      closeReconcilePreview();
       if (warnings.length > 0) {
         showWarning(message);
       } else {
@@ -627,13 +647,23 @@ export function ShipmentReceiptDetail({
               {repairing ? <Spinner size="sm" /> : "Sincronizar inventario kiosco"}
             </Button>
             {canReconcileInventory && (
-              <Button type="button" color="secondary" outline onClick={handleReconcileInventory} disabled={repairing || reconciling}>
+              <Button type="button" color="secondary" outline onClick={openReconcilePreview} disabled={repairing || reconciling}>
                 {reconciling ? <Spinner size="sm" /> : "Cuadrar con envío"}
               </Button>
             )}
           </div>
         </div>
       )}
+      <ShipmentReconcilePreviewModal
+        isOpen={reconcilePreviewOpen}
+        toggle={closeReconcilePreview}
+        title={`Vista previa: cuadrar envío ${shipment?.shipmentNumber || shipment?.id || ""}`}
+        preview={reconcilePreview}
+        loading={reconcilePreviewLoading}
+        error={reconcilePreviewError}
+        applying={reconciling}
+        onConfirm={() => void handleConfirmReconcileInventory()}
+      />
     </div>
   );
 }

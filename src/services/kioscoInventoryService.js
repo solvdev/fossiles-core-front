@@ -129,3 +129,6 @@ export const initializeKioscoInventory = async (locationId = null, userId = null
 
 export const reconcileKioscoShipmentEntries = async (locationId) =>
   apiRequest(`/kiosco-inventory/${locationId}/reconcile-shipment-entries`, { method: "POST" });
+
+export const previewKioscoShipmentEntriesReconcile = async (locationId) =>
+  apiRequest(`/kiosco-inventory/${locationId}/reconcile-shipment-entries/preview`);

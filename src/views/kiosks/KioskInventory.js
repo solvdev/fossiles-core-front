@@ -32,6 +32,7 @@ import {
   getKioscoStock,
   getKioscoStockBajo,
   initializeKioscoInventory,
+  previewKioscoShipmentEntriesReconcile,
   reconcileKioscoShipmentEntries,
   registrarKioscoAjuste,
   registrarKioscoAnulacion,
@@ -53,6 +54,7 @@ import {
 import { isPackagingProductCode } from "utils/kioskPackagingHelper";
 import { showError, showSuccess, showWarning } from "utils/notificationHelper";
 import { formatShipmentReconcileMessage } from "utils/shipmentReceiptRepairHelper";
+import ShipmentReconcilePreviewModal from "components/distribution/ShipmentReconcilePreviewModal";
 import {
   canSell,
   isSaleBelowMinimum,
@@ -109,6 +111,10 @@ function KioskInventory() {
   const [loadingData, setLoadingData] = useState(false);
   const [initializingStock, setInitializingStock] = useState(false);
   const [reconcilingStock, setReconcilingStock] = useState(false);
+  const [reconcilePreviewOpen, setReconcilePreviewOpen] = useState(false);
+  const [reconcilePreview, setReconcilePreview] = useState(null);
+  const [reconcilePreviewLoading, setReconcilePreviewLoading] = useState(false);
+  const [reconcilePreviewError, setReconcilePreviewError] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [activeTab, setActiveTab] = useState("INVENTARIO");
@@ -458,24 +464,41 @@ function KioskInventory() {
     }
   };
 
-  const handleReconcileInventory = async () => {
+  const closeReconcilePreview = () => {
+    if (reconcilingStock) return;
+    setReconcilePreviewOpen(false);
+    setReconcilePreview(null);
+    setReconcilePreviewError("");
+  };
+
+  const openReconcilePreview = async () => {
     if (!selectedLocation) {
       showError("Selecciona un kiosko para cuadrar inventario con envíos.");
       return;
     }
-    if (
-      !window.confirm(
-        "¿Cuadrar inventario y kardex según envíos entregados?\n\n"
-          + "Elimina ENTRADAs duplicadas del envío según el documento. "
-          + "No borra ventas ni anulaciones. No altera el conteo físico guardado."
-      )
-    ) {
+    setReconcilePreviewOpen(true);
+    setReconcilePreview(null);
+    setReconcilePreviewError("");
+    try {
+      setReconcilePreviewLoading(true);
+      const preview = await previewKioscoShipmentEntriesReconcile(Number(selectedLocation));
+      setReconcilePreview(preview);
+    } catch (err) {
+      setReconcilePreviewError(err.message || "No se pudo cargar la vista previa del cuadre.");
+    } finally {
+      setReconcilePreviewLoading(false);
+    }
+  };
+
+  const handleConfirmReconcileInventory = async () => {
+    if (!selectedLocation || !reconcilePreview?.hasChanges) {
       return;
     }
     try {
       setReconcilingStock(true);
       const result = await reconcileKioscoShipmentEntries(Number(selectedLocation));
       const { message, warnings } = formatShipmentReconcileMessage(result);
+      closeReconcilePreview();
       if (warnings.length > 0) {
         showWarning(message);
       } else {
@@ -590,7 +613,7 @@ function KioskInventory() {
                     <Button
                       color="secondary"
                       outline
-                      onClick={() => void handleReconcileInventory()}
+                      onClick={() => void openReconcilePreview()}
                       disabled={loadingCatalogs || initializingStock || reconcilingStock || !selectedLocation}
                       title="Admin: elimina ENTRADAs duplicadas de envíos; no borra ventas"
                     >
@@ -1029,6 +1052,16 @@ function KioskInventory() {
           </Card>
         </Col>
       </Row>
+      <ShipmentReconcilePreviewModal
+        isOpen={reconcilePreviewOpen}
+        toggle={closeReconcilePreview}
+        title="Vista previa: cuadrar con envíos entregados"
+        preview={reconcilePreview}
+        loading={reconcilePreviewLoading}
+        error={reconcilePreviewError}
+        applying={reconcilingStock}
+        onConfirm={() => void handleConfirmReconcileInventory()}
+      />
     </div>
   );
 }
