@@ -130,10 +130,17 @@ function PosReportsTab({
       kioskName,
       depositFilter,
     });
+    if (opened === false) {
+      showWarning("Permite ventanas emergentes para descargar el PDF.");
+      return;
+    }
+    showSuccess("PDF listo para imprimir o guardar.");
+  };
+
+  const openSaleDetail = async (sale) => {
     if (!sale?.id) return;
     setDetailOpen(true);
     setDetailLoading(true);
-    // Fallback inmediato para que siempre abra el modal aunque falle el fetch detallado
     setSaleDetail(sale);
     try {
       const detail = await getKioskSaleById(
@@ -156,14 +163,7 @@ function PosReportsTab({
     setSaleDetail(null);
   };
 
-    if (opened === false) {
-      showWarning("Permite ventanas emergentes para descargar el PDF.");
-      return;
-    }
-    showSuccess("PDF listo para imprimir o guardar.");
-  };
-
-  const openSaleDetail = async (sale) => {
+  return (
     <>
       <Card className="kiosk-pos-block">
         <CardHeader className="d-flex flex-wrap align-items-center justify-content-between">
