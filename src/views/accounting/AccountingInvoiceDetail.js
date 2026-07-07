@@ -183,18 +183,24 @@ function AccountingInvoiceDetail() {
                 <p><strong>Serie / Número:</strong> {invoice.felSerie || "—"} / {invoice.felNumero || "—"}</p>
               )}
               {invoice.felError && <p className="text-danger"><strong>Error FEL:</strong> {invoice.felError}</p>}
-              {invoice.status === "VOID" && (
+              {(invoice.felVoidUuid || invoice.voidReason) && (
                 <>
                   {invoice.voidedAt && (
-                    <p><strong>Anulada el:</strong> {formatDateTimeGt(invoice.voidedAt)}</p>
+                    <p><strong>Última anulación SAT:</strong> {formatDateTimeGt(invoice.voidedAt)}</p>
                   )}
                   {invoice.voidReason && (
-                    <p><strong>Motivo:</strong> {invoice.voidReason}</p>
+                    <p><strong>Motivo anulación:</strong> {invoice.voidReason}</p>
                   )}
                   {invoice.felVoidUuid && (
                     <p><strong>UUID anulación:</strong> {invoice.felVoidUuid}</p>
                   )}
                 </>
+              )}
+              {invoice.status === "VOID" && (
+                <p className="text-warning small">
+                  Estado heredado de versión anterior. Use <strong>Firmar FEL</strong> o ejecute el script
+                  migration-reset-void-tax-invoice-to-draft.sql para dejarla en borrador.
+                </p>
               )}
               {invoice.status === "CERTIFIED" && !invoice.hasCertifiedXml && (
                 <p className="text-muted small mb-0">
