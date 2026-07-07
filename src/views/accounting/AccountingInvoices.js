@@ -20,8 +20,10 @@ import {
 import { useAuth } from "contexts/AuthContext";
 import { getLocations } from "services/locationService";
 import {
-  backfillKioskSaleTaxInvoices,
-  countMissingKioskSaleTaxInvoices,
+  backfillKioskSaleTaxInvoicesWithFallback,
+  countMissingKioskSaleTaxInvoicesWithFallback,
+} from "utils/kioskTaxInvoiceBackfillHelper";
+import {
   getTaxInvoiceSummary,
   listTaxInvoices,
   retryTaxInvoice,
@@ -193,11 +195,12 @@ function AccountingInvoices() {
         toDate: filters.toDate || undefined,
       };
       const result = dryRun
-        ? await countMissingKioskSaleTaxInvoices(params)
-        : await backfillKioskSaleTaxInvoices(params);
+        ? await countMissingKioskSaleTaxInvoicesWithFallback(params)
+        : await backfillKioskSaleTaxInvoicesWithFallback(params);
       setBackfillPreview({ ...result, dryRun });
       if (dryRun) {
-        showSuccess(`Hay ${result?.candidates || 0} venta(s) POS sin tax_invoice.`);
+        const via = result?.clientSideFallback ? " (vía ventas POS)" : "";
+        showSuccess(`Hay ${result?.candidates || 0} venta(s) POS sin tax_invoice${via}.`);
       } else {
         showSuccess(
           `Backfill listo: ${result?.created || 0} creado(s), ${result?.failed || 0} fallido(s).`
@@ -478,6 +481,9 @@ function AccountingInvoices() {
                 <strong>Backfill POS:</strong>{" "}
                 {backfillPreview.dryRun ? "simulación" : "ejecutado"} —{" "}
                 candidatas: {backfillPreview.candidates || 0}
+                {backfillPreview.clientSideFallback && (
+                  <span className="text-warning"> · modo compatibilidad (sin endpoint nuevo)</span>
+                )}
                 {!backfillPreview.dryRun && (
                   <>
                     {" "}
