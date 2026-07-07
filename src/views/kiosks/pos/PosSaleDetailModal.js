@@ -19,7 +19,7 @@ import EditTaxInvoiceFelModal from "components/accounting/EditTaxInvoiceFelModal
 import { useAuth } from "contexts/AuthContext";
 import { canEditTaxInvoiceFel } from "utils/taxInvoiceEditHelper";
 import { showError, showSuccess } from "utils/notificationHelper";
-import { formatCurrency, formatQty, isDepositApplicable, isSalePendingDeposit } from "./posUtils";
+import { formatCurrency, formatQty, getSaleInternalNumber, isDepositApplicable, isSalePendingDeposit } from "./posUtils";
 
 const formatDateTime = (value) => formatDateTimeGt(value);
 
@@ -130,6 +130,7 @@ function PosSaleDetailModal({
   const felSerie = invoice?.felSerie || sale?.felSerie;
   const felNumero = invoice?.felNumero || sale?.felNumero;
   const felError = invoice?.felError || sale?.felError;
+  const internalNumber = getSaleInternalNumber(sale);
   const canDownloadXml = felStatus === "CERTIFIED" && invoice?.hasCertifiedXml && invoice?.id;
   const canDownloadFelReport = Boolean(felUuid);
 
@@ -274,6 +275,10 @@ function PosSaleDetailModal({
               <div>
                 <div className="kiosk-pos-detail-label">Estado</div>
                 <div>{sale.status || "—"}</div>
+              </div>
+              <div>
+                <div className="kiosk-pos-detail-label">No. interno</div>
+                <div>{internalNumber || "—"}</div>
               </div>
             </div>
 
@@ -477,9 +482,9 @@ function PosSaleDetailModal({
                   <strong>Serie / Número:</strong> {felSerie || "—"} / {felNumero || "—"}
                 </div>
               )}
-              {invoice?.internalNumber && (
+              {internalNumber && (
                 <div className="small mb-1">
-                  <strong>No. interno:</strong> {invoice.internalNumber}
+                  <strong>No. interno:</strong> {internalNumber}
                 </div>
               )}
               {felUuid && (

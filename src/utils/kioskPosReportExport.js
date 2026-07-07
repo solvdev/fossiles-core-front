@@ -34,7 +34,7 @@ export const exportKioskSalesToExcel = ({ sales, myReport, startDate, endDate, k
   const saleRows = (sales || []).map((sale) => ({
     Fecha: formatDateTime(sale.soldAt || sale.saleDate),
     "No. Venta": sale.saleNumber || "",
-    "No. interno": sale.invoice?.internalNumber ?? "",
+    "No. interno": sale.internalNumber || sale.invoice?.internalNumber || "",
     Cliente: sale.customerName || sale.customerTaxId || "CF",
     NIT: sale.customerTaxId || "CF",
     Pago: sale.paymentMethod || "",
@@ -91,7 +91,7 @@ export const exportKioskSalesToPdf = ({ sales, myReport, startDate, endDate, kio
       (sale) => `<tr>
         <td>${escape(formatDateTime(sale.soldAt || sale.saleDate))}</td>
         <td>${escape(sale.saleNumber)}</td>
-        <td>${escape(sale.invoice?.internalNumber ?? "")}</td>
+        <td>${escape(sale.internalNumber || sale.invoice?.internalNumber || "")}</td>
         <td>${escape(sale.customerName || sale.customerTaxId || "CF")}</td>
         <td>${escape(sale.paymentMethod)}${sale.cardAuthNumber || sale.cardLast4 ? ` (Aut. ${escape(sale.cardAuthNumber || "")} · **** ${escape(sale.cardLast4 || "")})` : ""}</td>
         <td>${escape(formatQty(sale.totalItems))}</td>

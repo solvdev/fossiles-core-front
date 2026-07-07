@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import { Button, Card, CardBody } from "reactstrap";
 import { downloadTaxInvoiceCertifiedXml, openFelInvoiceReport } from "services/taxInvoiceService";
 import { showError } from "utils/notificationHelper";
-import { formatCurrency } from "./posUtils";
+import { formatCurrency, getSaleInternalNumber } from "./posUtils";
 
 function PosSuccessScreen({ sale, onNewSale }) {
   const [downloadingXml, setDownloadingXml] = useState(false);
@@ -14,6 +14,7 @@ function PosSuccessScreen({ sale, onNewSale }) {
   const felUuid = invoice?.felUuid || sale.felUuid;
   const felSerie = invoice?.felSerie || sale.felSerie;
   const felNumero = invoice?.felNumero || sale.felNumero;
+  const internalNumber = getSaleInternalNumber(sale);
   const felError = invoice?.felError || sale.felError;
   const canDownloadXml = felStatus === "CERTIFIED" && invoice?.hasCertifiedXml && invoice?.id;
   const canDownloadFelReport = felStatus === "CERTIFIED" && felUuid;
@@ -43,6 +44,11 @@ function PosSuccessScreen({ sale, onNewSale }) {
       <CardBody className="text-center py-5">
         <h3 className="text-success mb-3">Venta registrada</h3>
         <p className="kiosk-pos-success-number mb-2">{sale.saleNumber}</p>
+        {internalNumber && (
+          <p className="mb-2 text-muted">
+            No. interno: <strong>{internalNumber}</strong>
+          </p>
+        )}
         <p className="mb-1">
           Total cobrado: <strong>{formatCurrency(sale.totalAmount)}</strong>
         </p>

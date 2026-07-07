@@ -18,12 +18,18 @@ import {
   Table,
 } from "reactstrap";
 import { useAuth } from "contexts/AuthContext";
+import { getLocations } from "services/locationService";
 import {
+  backfillKioskSaleTaxInvoices,
   getTaxInvoiceSummary,
   listTaxInvoices,
   retryTaxInvoice,
 } from "services/taxInvoiceService";
 import { formatDateTimeGt } from "utils/dateTimeHelper";
+import { canEditTaxInvoiceFel } from "utils/taxInvoiceEditHelper";
+import { showError, showSuccess } from "utils/notificationHelper";
+import { KIOSK_POS_ADMIN_TOOLS } from "config/kioskPosAdminTools";
+import KioskSaleRestoreModal from "components/accounting/KioskSaleRestoreModal";
 
 const SOURCE_LABELS = {
   MANUAL: "Manual",
@@ -64,8 +70,14 @@ function formatCurrency(value) {
 
 function AccountingInvoices() {
   const navigate = useNavigate();
-  const { hasPermission } = useAuth();
+  const { hasRole, hasAnyRole, hasPermission } = useAuth();
   const canCertify = hasPermission("CONTABILIDAD.FACTURAS.CERTIFICAR");
+  const canBackfillKioskSales = canEditTaxInvoiceFel({ hasRole, hasAnyRole, hasPermission });
+  const showTaxInvoiceBackfill = KIOSK_POS_ADMIN_TOOLS.taxInvoiceBackfill && canBackfillKioskSales;
+  const showSaleRestore =
+    KIOSK_POS_ADMIN_TOOLS.saleRestore
+    && (hasAnyRole?.(["ADMIN", "ADMINISTRADOR"]) || hasRole?.("ADMIN"));
+  const showPosAdminTools = showTaxInvoiceBackfill || showSaleRestore;
 
   const [invoices, setInvoices] = useState([]);
   const [summary, setSummary] = useState(null);
@@ -73,6 +85,11 @@ function AccountingInvoices() {
   const [summaryLoading, setSummaryLoading] = useState(false);
   const [error, setError] = useState("");
   const [certifyingId, setCertifyingId] = useState(null);
+  const [backfilling, setBackfilling] = useState(false);
+  const [backfillPreview, setBackfillPreview] = useState(null);
+  const [restoreOpen, setRestoreOpen] = useState(false);
+  const [backfillKioskId, setBackfillKioskId] = useState("");
+  const [kiosks, setKiosks] = useState([]);
   const [filters, setFilters] = useState({
     sourceType: "",
     status: "",
@@ -113,6 +130,17 @@ function AccountingInvoices() {
     loadInvoices();
   }, []);
 
+  useEffect(() => {
+    if (!showPosAdminTools) return;
+    getLocations()
+      .then((rows) => {
+        setKiosks(
+          (rows || []).filter((loc) => String(loc.categoria || "").toUpperCase() === "KIOSKO")
+        );
+      })
+      .catch(() => setKiosks([]));
+  }, [showPosAdminTools]);
+
   const handleFilterChange = (field, value) => {
     setFilters((prev) => {
       const next = { ...prev, [field]: value };
@@ -135,6 +163,51 @@ function AccountingInvoices() {
 
   const handleApplyFilters = () => {
     loadInvoices(filters);
+  };
+
+  const handleBackfillKioskSales = async (dryRun) => {
+    if (!showTaxInvoiceBackfill) return;
+
+    const rangeLabel =
+      filters.fromDate || filters.toDate
+        ? ` (${filters.fromDate || "inicio"} → ${filters.toDate || "hoy"})`
+        : " (todas las fechas)";
+    const kioskLabel = backfillKioskId
+      ? ` · kiosko ${kiosks.find((k) => String(k.id) === String(backfillKioskId))?.name || backfillKioskId}`
+      : "";
+
+    const confirmed = window.confirm(
+      dryRun
+        ? `¿Contar ventas POS sin tax_invoice${rangeLabel}${kioskLabel}?`
+        : `¿Crear borradores tax_invoice para ventas POS sin factura${rangeLabel}${kioskLabel}?\n\nNo certifica FEL: después podrás cargar UUID/serie/número manualmente.`
+    );
+    if (!confirmed) return;
+
+    try {
+      setBackfilling(true);
+      setError("");
+      const result = await backfillKioskSaleTaxInvoices({
+        kioskLocationId: backfillKioskId ? Number(backfillKioskId) : undefined,
+        fromDate: filters.fromDate || undefined,
+        toDate: filters.toDate || undefined,
+        dryRun,
+      });
+      setBackfillPreview(result);
+      if (dryRun) {
+        showSuccess(`Hay ${result?.candidates || 0} venta(s) POS sin tax_invoice.`);
+      } else {
+        showSuccess(
+          `Backfill listo: ${result?.created || 0} creado(s), ${result?.failed || 0} fallido(s).`
+        );
+        await Promise.all([loadInvoices(filters), loadSummary()]);
+      }
+    } catch (err) {
+      const msg = err.message || "No se pudo ejecutar el backfill de facturas POS.";
+      setError(msg);
+      showError(msg);
+    } finally {
+      setBackfilling(false);
+    }
   };
 
   const handleCertify = async (invoice) => {
@@ -216,6 +289,79 @@ function AccountingInvoices() {
           )}
         </CardBody>
       </Card>
+
+      {showPosAdminTools && (
+        <Card className="mb-4 border-warning">
+          <CardHeader className="bg-light">
+            <CardTitle tag="h5" className="mb-0">
+              Herramientas POS <span className="text-muted small">(temporal)</span>
+            </CardTitle>
+          </CardHeader>
+          <CardBody>
+            <p className="text-muted small mb-3">
+              Usa las fechas del filtro de abajo para acotar el backfill. Desactiva en{" "}
+              <code>.env</code> cuando termines (
+              <code>REACT_APP_ENABLE_POS_TAX_INVOICE_BACKFILL</code>,{" "}
+              <code>REACT_APP_ENABLE_POS_SALE_RESTORE</code>).
+            </p>
+            <Row className="align-items-end">
+              {showTaxInvoiceBackfill && (
+                <Col md="4" className="mb-3 mb-md-0">
+                  <FormGroup className="mb-2">
+                    <Label className="small mb-1">Kiosko (backfill)</Label>
+                    <Input
+                      type="select"
+                      bsSize="sm"
+                      value={backfillKioskId}
+                      onChange={(e) => setBackfillKioskId(e.target.value)}
+                    >
+                      <option value="">Todos los kioskos</option>
+                      {kiosks.map((k) => (
+                        <option key={k.id} value={k.id}>
+                          {k.name || k.code || k.id}
+                        </option>
+                      ))}
+                    </Input>
+                  </FormGroup>
+                  <div className="d-flex flex-wrap" style={{ gap: "0.5rem" }}>
+                    <Button
+                      color="info"
+                      outline
+                      size="sm"
+                      disabled={backfilling}
+                      onClick={() => handleBackfillKioskSales(true)}
+                    >
+                      {backfilling ? <Spinner size="sm" /> : "1. Contar POS sin factura"}
+                    </Button>
+                    <Button
+                      color="warning"
+                      size="sm"
+                      disabled={backfilling}
+                      onClick={() => handleBackfillKioskSales(false)}
+                    >
+                      {backfilling ? <Spinner size="sm" /> : "2. Generar borradores faltantes"}
+                    </Button>
+                  </div>
+                  <div className="small text-muted mt-2">
+                    Crea <code>tax_invoice</code> en borrador sin certificar FEL.
+                  </div>
+                </Col>
+              )}
+              {showSaleRestore && (
+                <Col md={showTaxInvoiceBackfill ? "4" : "12"} className="mb-3 mb-md-0">
+                  <div className="font-weight-bold small mb-2">Venta eliminada por error</div>
+                  <Button color="danger" outline size="sm" onClick={() => setRestoreOpen(true)}>
+                    3. Restaurar venta POS
+                  </Button>
+                  <div className="small text-muted mt-2">
+                    Mismo <code>saleNumber</code>, sin mover inventario.
+                  </div>
+                </Col>
+              )}
+            </Row>
+          </CardBody>
+        </Card>
+      )}
 
       <Card>
         <CardHeader>
@@ -320,6 +466,39 @@ function AccountingInvoices() {
 
           {error && <Alert color="danger">{error}</Alert>}
 
+          {backfillPreview && (
+            <Alert color={backfillPreview.failed > 0 ? "warning" : "info"} className="mb-3">
+              <div>
+                <strong>Backfill POS:</strong>{" "}
+                {backfillPreview.dryRun ? "simulación" : "ejecutado"} —{" "}
+                candidatas: {backfillPreview.candidates || 0}
+                {!backfillPreview.dryRun && (
+                  <>
+                    {" "}
+                    · creadas: {backfillPreview.created || 0}
+                    · fallidas: {backfillPreview.failed || 0}
+                  </>
+                )}
+              </div>
+              {(backfillPreview.samples || []).length > 0 && (
+                <div className="small mt-2">
+                  Ejemplos:{" "}
+                  {(backfillPreview.samples || [])
+                    .slice(0, 5)
+                    .map((row) => `${row.saleNumber || row.saleId}${row.internalNumber ? ` → ${row.internalNumber}` : ""}`)
+                    .join(" · ")}
+                </div>
+              )}
+              {(backfillPreview.errors || []).length > 0 && (
+                <ul className="small mb-0 mt-2 pl-3">
+                  {(backfillPreview.errors || []).slice(0, 5).map((line) => (
+                    <li key={line}>{line}</li>
+                  ))}
+                </ul>
+              )}
+            </Alert>
+          )}
+
           {!loading && (
             <p className="text-muted small">
               Mostrando {invoices.length} factura{invoices.length === 1 ? "" : "s"} {filteredCountLabel}.
@@ -414,6 +593,15 @@ function AccountingInvoices() {
           )}
         </CardBody>
       </Card>
+
+      <KioskSaleRestoreModal
+        isOpen={restoreOpen}
+        onClose={() => setRestoreOpen(false)}
+        onSuccess={() => {
+          loadInvoices(filters);
+          loadSummary();
+        }}
+      />
     </div>
   );
 }

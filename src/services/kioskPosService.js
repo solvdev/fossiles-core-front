@@ -48,6 +48,16 @@ export const createKioskPosSale = async (payload) => {
   return parseJson(response, "No se pudo registrar la venta de kiosko.");
 };
 
+/** Restaura venta eliminada con el mismo saleNumber. Solo admin; no mueve inventario. */
+export const restoreKioskPosSale = async (payload) => {
+  const response = await fetch(`${API_URL}/kiosk-pos/sales/restore`, {
+    method: "POST",
+    headers: headers(),
+    body: JSON.stringify(payload),
+  });
+  return parseJson(response, "No se pudo restaurar la venta de kiosko.");
+};
+
 export const getKioskSaleById = async (saleId, kioskLocationId) => {
   const response = await fetch(
     `${API_URL}/kiosk-pos/sales/${saleId}${toQuery({ kioskLocationId })}`,

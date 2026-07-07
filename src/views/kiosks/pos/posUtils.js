@@ -354,6 +354,9 @@ export const normalizeFelReceptorEmail = (raw) =>
 export const saleNeedsFelCertification = (sale) =>
   !sale?.invoice?.felUuid && !sale?.felUuid;
 
+export const getSaleInternalNumber = (sale) =>
+  sale?.internalNumber || sale?.invoice?.internalNumber || "";
+
 export const isDiscountEligibleCartLine = (line) =>
   !line?.isPackaging && !isPackagingProductCode(line?.productCode);
 

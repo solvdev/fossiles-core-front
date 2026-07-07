@@ -71,6 +71,35 @@ export const issueTaxInvoiceFromKioskSale = async (saleId) => {
   return parseJson(response, "No se pudo emitir la factura POS.");
 };
 
+export const createDraftTaxInvoiceFromKioskSale = async (saleId) => {
+  const response = await fetch(`${API_URL}/tax-invoices/draft-from-kiosk-sale/${saleId}`, {
+    method: "POST",
+    headers: headers(),
+  });
+  return parseJson(response, "No se pudo crear el borrador de factura POS.");
+};
+
+export const backfillKioskSaleTaxInvoices = async ({
+  kioskLocationId,
+  fromDate,
+  toDate,
+  dryRun = false,
+} = {}) => {
+  const response = await fetch(
+    `${API_URL}/tax-invoices/backfill-kiosk-sales${toQuery({
+      kioskLocationId,
+      fromDate,
+      toDate,
+      dryRun,
+    })}`,
+    {
+      method: "POST",
+      headers: headers(),
+    }
+  );
+  return parseJson(response, "No se pudieron generar los borradores de factura POS.");
+};
+
 export const issueTaxInvoiceFromOnlineSale = async (saleId) => {
   const response = await fetch(`${API_URL}/tax-invoices/from-online-sale/${saleId}`, {
     method: "POST",

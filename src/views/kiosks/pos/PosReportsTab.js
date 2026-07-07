@@ -6,7 +6,7 @@ import { exportKioskSalesToExcel, exportKioskSalesToPdf } from "utils/kioskPosRe
 import { showError, showSuccess, showWarning } from "utils/notificationHelper";
 import PosSaleDetailModal from "./PosSaleDetailModal";
 import PosVoidSaleModal from "./PosVoidSaleModal";
-import { formatCurrency, formatQty, isSalePendingDeposit } from "./posUtils";
+import { formatCurrency, formatQty, getSaleInternalNumber, isSalePendingDeposit } from "./posUtils";
 
 const canVoidSaleRow = (sale, cashSession) => {
   if (!cashSession || String(cashSession.status || "").toUpperCase() !== "OPEN" || !sale) return false;
@@ -254,7 +254,7 @@ function PosReportsTab({
                         </span>
                       )}
                     </td>
-                    <td>{sale.invoice?.internalNumber ?? "—"}</td>
+                    <td>{getSaleInternalNumber(sale) || "—"}</td>
                     <td>{sale.customerName || sale.customerTaxId || "CF"}</td>
                     <td>
                       {sale.paymentMethod || "-"}
