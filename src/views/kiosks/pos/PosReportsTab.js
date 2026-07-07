@@ -13,6 +13,7 @@ import {
   buildKioskReportSummary,
   exportKioskSalesToExcel,
   exportKioskSalesToPdf,
+  formatSaleItemsSummary,
 } from "utils/kioskPosReportExport";
 import { showError, showSuccess, showWarning } from "utils/notificationHelper";
 import PosSaleDetailModal from "./PosSaleDetailModal";
@@ -330,6 +331,7 @@ function PosReportsTab({
                 <th>No. Venta</th>
                 <th>No. interno</th>
                 <th>Cliente</th>
+                <th>Productos</th>
                 <th>Vendedor</th>
                 <th>Pago</th>
                 <th>Items</th>
@@ -384,6 +386,11 @@ function PosReportsTab({
                     </td>
                     <td>{getSaleInternalNumber(sale) || "—"}</td>
                     <td>{sale.customerName || sale.customerTaxId || "CF"}</td>
+                    <td className="kiosk-pos-sales-products-cell">
+                      {formatSaleItemsSummary(sale) || (
+                        <span className="text-muted">Sin detalle</span>
+                      )}
+                    </td>
                     <td>{sale.soldByName || sale.soldByUsername || "—"}</td>
                     <td>
                       {sale.paymentMethod || "-"}
@@ -439,7 +446,7 @@ function PosReportsTab({
               })}
               {filteredSales.length === 0 && (
                 <tr>
-                  <td colSpan="11" className="text-center text-muted">
+                  <td colSpan="12" className="text-center text-muted">
                     No hay ventas para el filtro seleccionado.
                   </td>
                 </tr>

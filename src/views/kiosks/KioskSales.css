@@ -1612,6 +1612,15 @@
   white-space: nowrap;
 }
 
+.kiosk-pos-sales-products-cell {
+  min-width: 180px;
+  max-width: 280px;
+  white-space: normal;
+  font-size: 0.82rem;
+  line-height: 1.35;
+  color: #374151;
+}
+
 .kiosk-pos-sales-void-btn {
   min-width: 72px;
   font-weight: 600;

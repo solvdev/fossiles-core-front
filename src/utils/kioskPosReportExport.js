@@ -10,6 +10,91 @@ const formatMoney = (value) => Number(value || 0).toFixed(2);
 
 const formatQty = (value) => Number(value || 0).toFixed(2);
 
+export const formatSaleItemLine = (item) => {
+  const qty = Number(item?.quantity || 0);
+  const qtyLabel = Number.isInteger(qty) ? String(qty) : qty.toFixed(2).replace(/\.?0+$/, "");
+  const code = item?.productCode ? `${item.productCode} ` : "";
+  const name = item?.productName || "Producto";
+  const color = item?.colorName ? ` (${item.colorName})` : "";
+  return `${qtyLabel}x ${code}${name}${color}`.trim();
+};
+
+export const formatSaleItemsSummary = (sale, maxLines = 4) => {
+  const items = sale?.items || [];
+  if (!items.length) return "";
+  const lines = items.map(formatSaleItemLine);
+  if (lines.length <= maxLines) return lines.join("; ");
+  return `${lines.slice(0, maxLines).join("; ")} (+${lines.length - maxLines} más)`;
+};
+
+const buildSaleDetailRows = (sales) => {
+  const detailRows = [];
+  (sales || []).forEach((sale) => {
+    (sale.items || []).forEach((item) => {
+      detailRows.push({
+        "No. Venta": sale.saleNumber || "",
+        Fecha: formatDateTime(sale.soldAt || sale.saleDate),
+        Cliente: sale.customerName || sale.customerTaxId || "CF",
+        Código: item.productCode || "",
+        Producto: item.productName || "",
+        Color: item.colorName || "",
+        Cantidad: formatQty(item.quantity),
+        "Precio unit.": formatMoney(item.unitPrice),
+        "Total línea": formatMoney(item.lineTotal),
+      });
+    });
+  });
+  return detailRows;
+};
+
+const buildPdfDetailSection = (sales, escape) => {
+  const blocks = (sales || [])
+    .map((sale) => {
+      const items = sale.items || [];
+      if (!items.length) return "";
+      const itemRows = items
+        .map(
+          (item) => `<tr>
+            <td>${escape(item.productCode || "")}</td>
+            <td>${escape(item.productName || "")}</td>
+            <td>${escape(item.colorName || "")}</td>
+            <td>${escape(formatQty(item.quantity))}</td>
+            <td>${escape(formatMoney(item.unitPrice))}</td>
+            <td>${escape(formatMoney(item.lineTotal))}</td>
+          </tr>`
+        )
+        .join("");
+      return `
+        <div class="sale-detail-block">
+          <div class="sale-detail-title">
+            Venta ${escape(sale.saleNumber || "")} · ${escape(formatDateTime(sale.soldAt || sale.saleDate))}
+            · ${escape(sale.customerName || sale.customerTaxId || "CF")}
+          </div>
+          <table class="detail-table">
+            <thead>
+              <tr>
+                <th>Código</th>
+                <th>Producto</th>
+                <th>Color</th>
+                <th>Cant.</th>
+                <th>P. unit.</th>
+                <th>Total</th>
+              </tr>
+            </thead>
+            <tbody>${itemRows}</tbody>
+          </table>
+        </div>`;
+    })
+    .filter(Boolean)
+    .join("");
+
+  if (!blocks) return "";
+  return `
+    <h2 class="section-title">Detalle de productos por venta</h2>
+    ${blocks}
+  `;
+};
+
 const normalizeRange = (startDate, endDate) => {
   let from = startDate || "";
   let to = endDate || "";
@@ -86,6 +171,7 @@ export const exportKioskSalesToExcel = ({
     "No. interno": sale.internalNumber || sale.invoice?.internalNumber || "",
     Cliente: sale.customerName || sale.customerTaxId || "CF",
     NIT: sale.customerTaxId || "CF",
+    "Detalle productos": formatSaleItemsSummary(sale, 20) || "—",
     Pago: sale.paymentMethod || "",
     "Autorización tarjeta": sale.cardAuthNumber || "",
     "Tarjeta últimos 4": sale.cardLast4 || "",
@@ -101,21 +187,7 @@ export const exportKioskSalesToExcel = ({
     Promoción: sale.promotionName || "",
   }));
 
-  const detailRows = [];
-  (sales || []).forEach((sale) => {
-    (sale.items || []).forEach((item) => {
-      detailRows.push({
-        "No. Venta": sale.saleNumber || "",
-        Fecha: formatDateTime(sale.soldAt || sale.saleDate),
-        Código: item.productCode || "",
-        Producto: item.productName || "",
-        Color: item.colorName || "",
-        Cantidad: formatQty(item.quantity),
-        "Precio unit.": formatMoney(item.unitPrice),
-        "Total línea": formatMoney(item.lineTotal),
-      });
-    });
-  });
+  const detailRows = buildSaleDetailRows(sales);
 
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(summaryRows), "Resumen");
@@ -152,6 +224,7 @@ export const exportKioskSalesToPdf = ({
         <td>${escape(sale.saleNumber)}</td>
         <td>${escape(sale.internalNumber || sale.invoice?.internalNumber || "")}</td>
         <td>${escape(sale.customerName || sale.customerTaxId || "CF")}</td>
+        <td class="products-cell">${escape(formatSaleItemsSummary(sale, 6) || "—")}</td>
         <td>${escape(sale.soldByName || sale.soldByUsername || "")}</td>
         <td>${escape(sale.paymentMethod)}${sale.cardAuthNumber || sale.cardLast4 ? ` (Aut. ${escape(sale.cardAuthNumber || "")} · **** ${escape(sale.cardLast4 || "")})` : ""}</td>
         <td>${escape(formatQty(sale.totalItems))}</td>
@@ -160,6 +233,8 @@ export const exportKioskSalesToPdf = ({
       </tr>`
     )
     .join("");
+
+  const detailSection = buildPdfDetailSection(sales, escape);
 
   const win = window.open("", "_blank");
   if (!win) return false;
@@ -178,6 +253,11 @@ export const exportKioskSalesToPdf = ({
           table { width: 100%; border-collapse: collapse; font-size: 11px; }
           th, td { border: 1px solid #d1d5db; padding: 5px 6px; text-align: left; }
           th { background: #f3f4f6; font-weight: 700; }
+          .products-cell { max-width: 220px; white-space: normal; font-size: 10px; }
+          .section-title { font-size: 14px; margin: 20px 0 8px; }
+          .sale-detail-block { margin-bottom: 14px; page-break-inside: avoid; }
+          .sale-detail-title { font-size: 11px; font-weight: 700; margin-bottom: 4px; }
+          .detail-table { font-size: 10px; margin-bottom: 4px; }
           @media print { body { margin: 8mm; } }
         </style>
       </head>
@@ -201,6 +281,7 @@ export const exportKioskSalesToPdf = ({
               <th>No. Venta</th>
               <th>No. interno</th>
               <th>Cliente</th>
+              <th>Productos</th>
               <th>Vendedor</th>
               <th>Pago</th>
               <th>Items</th>
@@ -208,8 +289,9 @@ export const exportKioskSalesToPdf = ({
               <th>Factura</th>
             </tr>
           </thead>
-          <tbody>${saleRows || `<tr><td colspan="9">Sin ventas</td></tr>`}</tbody>
+          <tbody>${saleRows || `<tr><td colspan="10">Sin ventas</td></tr>`}</tbody>
         </table>
+        ${detailSection}
         <script>window.onload = function () { window.print(); };</script>
       </body>
     </html>
