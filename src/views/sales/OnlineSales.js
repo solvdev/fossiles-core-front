@@ -76,6 +76,16 @@ const canGenerateFelInvoice = (sale) => {
 const isFelInvoiceRetry = (sale) =>
   sale?.invoiceStatus === "FAILED" || sale?.invoiceStatus === "SKIPPED";
 
+const canDownloadFelInvoice = (sale) =>
+  sale?.invoiceStatus === "CERTIFIED" && Boolean(sale?.invoiceFelUuid);
+
+const formatBillingDateGt = () => new Date().toLocaleDateString("es-GT", {
+  timeZone: "America/Guatemala",
+  year: "numeric",
+  month: "long",
+  day: "numeric",
+});
+
 const computeSaleAmountsFromItems = (sale) => {
   if (!sale) return { net: 0, total: 0, lineCount: 0 };
   const preview = buildFelInvoicePreview(sale);
@@ -144,6 +154,7 @@ const buildFelInvoicePreview = (sale) => {
 
   return {
     saleNumber: sale.saleNumber || sale.id,
+    billingDate: formatBillingDateGt(),
     customerTaxId,
     customerName,
     address: sale.address || "—",
@@ -1288,6 +1299,19 @@ function OnlineSales() {
         : prev
     ));
     await loadSales();
+  };
+
+  const handleDownloadCertifiedFelInvoice = (sale) => {
+    if (!canDownloadFelInvoice(sale)) {
+      showNotification("No hay factura certificada para descargar.", "warning");
+      return;
+    }
+    try {
+      setError("");
+      openFelInvoiceReport(sale.invoiceFelUuid);
+    } catch (e) {
+      setError(e.message || "No se pudo descargar la factura FEL.");
+    }
   };
 
   const confirmGenerateFelInvoice = async () => {
@@ -2670,6 +2694,17 @@ function OnlineSales() {
                                 {felInvoiceLoadingId === sale.id
                                   ? <Spinner size="sm" />
                                   : <i className={isFelInvoiceRetry(sale) ? "nc-icon nc-refresh-69" : "nc-icon nc-paper"} />}
+                              </Button>
+                            )}{" "}
+                            {canDownloadFelInvoice(sale) && (
+                              <Button
+                                color="primary"
+                                size="sm"
+                                className="btn-icon btn-round"
+                                title="Descargar factura certificada"
+                                onClick={() => handleDownloadCertifiedFelInvoice(sale)}
+                                style={{ padding: "3px 7px" }}>
+                                <i className="nc-icon nc-cloud-download-93" />
                               </Button>
                             )}{" "}
                             {canEditFel && sale.invoiceId && (
@@ -4786,6 +4821,7 @@ function OnlineSales() {
                       <Col md="6">
                         <p className="mb-1"><strong>Teléfono:</strong> {preview.phone}</p>
                         <p className="mb-1"><strong>Correo:</strong> {preview.email}</p>
+                        <p className="mb-1"><strong>Fecha de facturación:</strong> {preview.billingDate}</p>
                         <p className="mb-0"><strong>Total venta:</strong> {formatQ(preview.total)}</p>
                       </Col>
                     </Row>
