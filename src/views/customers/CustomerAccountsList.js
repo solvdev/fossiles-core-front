@@ -63,14 +63,14 @@ function PortfolioKindSelector({ kindTab, onSelect, totalsByKind, clientCount })
   const options = [
     {
       key: "OPV",
-      title: "Cartera OPV",
+      title: "Cartera Fossiles",
       subtitle: "Órdenes de producción venta",
       color: "#3498db",
       light: "#ebf5fb",
     },
     {
       key: "OPC",
-      title: "Cartera OPC",
+      title: "Cartera GCF",
       subtitle: "Órdenes cinchos",
       color: "#2c3e50",
       light: "#ecf0f1",
