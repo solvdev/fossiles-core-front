@@ -21,6 +21,7 @@ import {
   ModalHeader,
   ModalFooter,
 } from "reactstrap";
+import Select from "react-select";
 import {
   getTasks,
   updateTaskStatus,
@@ -463,6 +464,8 @@ function TasksByTable() {
   const [savingDeskSupervisors, setSavingDeskSupervisors] = useState(false);
   const [showGenerateModal, setShowGenerateModal] = useState(false);
   const [productionOrders, setProductionOrders] = useState([]);
+  /** Todas las OP activas para filtro/búsqueda (sin excluir cinchos ni estados intermedios). */
+  const [productionOrdersForFilter, setProductionOrdersForFilter] = useState([]);
   /** Órdenes activas OPL/OPCK/OPC (para cuadro cinchos del día). */
   const [productionOrdersForCinchos, setProductionOrdersForCinchos] = useState([]);
   const [cinchoDeliveredByDate, setCinchoDeliveredByDate] = useState({});
@@ -523,8 +526,8 @@ function TasksByTable() {
 
   useEffect(() => {
     const orderIdFromUrl = searchParams.get("orderId");
-    if (!orderIdFromUrl || productionOrders.length === 0) return;
-    const exists = productionOrders.some((o) => Number(o.id) === Number(orderIdFromUrl));
+    if (!orderIdFromUrl || productionOrdersForFilter.length === 0) return;
+    const exists = productionOrdersForFilter.some((o) => Number(o.id) === Number(orderIdFromUrl));
     if (!exists) return;
 
     setFilterProductionOrderId(String(orderIdFromUrl));
@@ -536,15 +539,15 @@ function TasksByTable() {
     const next = new URLSearchParams(searchParams);
     next.delete("orderId");
     setSearchParams(next, { replace: true });
-  }, [searchParams, setSearchParams, productionOrders]);
+  }, [searchParams, setSearchParams, productionOrdersForFilter]);
 
   useEffect(() => {
     if (!showGenerateModal || !selectedOrderId) return;
-    const order = productionOrders.find((o) => Number(o.id) === Number(selectedOrderId));
+    const order = productionOrdersForFilter.find((o) => Number(o.id) === Number(selectedOrderId));
     if (!order) return;
     const pending = getPendingTableCenterItems(tasks, order);
     setSelectedModalItemIds(new Set(pending.map((it) => it.id)));
-  }, [showGenerateModal, selectedOrderId, productionOrders, tasks]);
+  }, [showGenerateModal, selectedOrderId, productionOrdersForFilter, tasks]);
 
   useEffect(() => {
     if (!showLeatherModal) return;
@@ -592,6 +595,9 @@ function TasksByTable() {
           if (orderHasOnlyCinchoLineItems(o)) return false;
           return true;
         })
+      );
+      setProductionOrdersForFilter(
+        (data || []).filter((o) => String(o?.status || "").toUpperCase() !== "CANCELLED")
       );
     } catch (err) {
       console.error("Error loading production orders:", err);
@@ -1077,7 +1083,8 @@ function TasksByTable() {
     try {
       setGeneratingOrderTasks(true);
       const productionOrderId = parseInt(selectedOrderId, 10);
-      const order = productionOrders.find((o) => Number(o.id) === productionOrderId);
+      const order = productionOrdersForFilter.find((o) => Number(o.id) === productionOrderId)
+        || productionOrders.find((o) => Number(o.id) === productionOrderId);
       const desksToUse = Math.max(1, Math.min(numDesks, parseInt(workingDesksCount, 10) || numDesks));
       const startDate = distributionDate || filterDate || new Date().toISOString().split("T")[0];
 
@@ -1234,26 +1241,64 @@ function TasksByTable() {
 
   const productionOrderFilterOptions = useMemo(() => {
     const map = new Map();
-    (productionOrders || []).forEach((o) => {
-      if (o?.id != null && o?.code) map.set(Number(o.id), o);
+    (productionOrdersForFilter || []).forEach((o) => {
+      if (o?.id != null) map.set(Number(o.id), o);
     });
-    (tableCenterTasks || []).forEach((t) => {
-      if (t.productionOrderId != null && t.productionOrderCode) {
-        if (!map.has(Number(t.productionOrderId))) {
-          map.set(Number(t.productionOrderId), {
-            id: t.productionOrderId,
-            code: t.productionOrderCode,
-          });
-        }
+    (tasks || []).forEach((t) => {
+      if (t?.productionOrderId == null) return;
+      const id = Number(t.productionOrderId);
+      if (!map.has(id)) {
+        map.set(id, {
+          id: t.productionOrderId,
+          code: t.productionOrderCode,
+        });
       }
     });
-    return Array.from(map.values()).sort((a, b) => (a.code || "").localeCompare(b.code || ""));
-  }, [productionOrders, tableCenterTasks]);
+    return Array.from(map.values()).sort(
+      (a, b) => Number(b.id || 0) - Number(a.id || 0) || (a.code || "").localeCompare(b.code || "")
+    );
+  }, [productionOrdersForFilter, tasks]);
+
+  const productionOrderSelectOptions = useMemo(() => (
+    productionOrderFilterOptions.map((o) => {
+      const counts = countPlannedItemsForOrder(tasks, o);
+      const tableSuffix = counts.total > 0 ? ` (${counts.onTable}/${counts.total} en mesa)` : "";
+      const pendingSuffix = counts.pending > 0 ? ` · ${counts.pending} pend.` : "";
+      const status = String(o.status || "").toUpperCase();
+      const statusSuffix = status && !["PENDING", "IN_PROGRESS", "DRAFT"].includes(status)
+        ? ` [${status}]`
+        : "";
+      return {
+        value: String(o.id),
+        label: `${formatProductionOrderSelectLabel(o)}${tableSuffix}${pendingSuffix}${statusSuffix}`,
+        searchText: [
+          o.code,
+          o.customerName,
+          o.sellerName,
+          o.orderType,
+          o.distributionNumber,
+          o.originLabel,
+        ].filter(Boolean).join(" ").toLowerCase(),
+      };
+    })
+  ), [productionOrderFilterOptions, tasks]);
+
+  const selectedProductionOrderOption = useMemo(
+    () => productionOrderSelectOptions.find((o) => o.value === String(filterProductionOrderId)) || null,
+    [productionOrderSelectOptions, filterProductionOrderId]
+  );
+
+  const filterProductionOrderOption = useCallback((option, rawInput) => {
+    if (!rawInput) return true;
+    const q = rawInput.toLowerCase().trim();
+    const haystack = `${option.data.searchText || ""} ${option.label || ""}`.toLowerCase();
+    return haystack.includes(q);
+  }, []);
 
   const filteredOrderForView = useMemo(() => {
     if (!filterProductionOrderId) return null;
-    return (productionOrders || []).find((o) => Number(o.id) === Number(filterProductionOrderId)) || null;
-  }, [filterProductionOrderId, productionOrders]);
+    return productionOrderFilterOptions.find((o) => Number(o.id) === Number(filterProductionOrderId)) || null;
+  }, [filterProductionOrderId, productionOrderFilterOptions]);
 
   const filteredOrderPendingItems = useMemo(() => {
     if (!filteredOrderForView) return [];
@@ -2101,27 +2146,24 @@ function TasksByTable() {
                 <Col md="4">
                   <FormGroup className="mb-0">
                     <Label><small>Orden de producción</small></Label>
-                    <Input
-                      type="select"
-                      bsSize="sm"
-                      value={filterProductionOrderId}
-                      onChange={(e) => setFilterProductionOrderId(e.target.value)}
-                    >
-                      <option value="">Todas las órdenes</option>
-                      {productionOrderFilterOptions.map((o) => {
-                        const counts = countPlannedItemsForOrder(tasks, o);
-                        const suffix = counts.total > 0
-                          ? counts.pending > 0
-                            ? ` (${counts.onTable}/${counts.total} en mesa)`
-                            : ` (${counts.total} prod.)`
-                          : "";
-                        return (
-                          <option key={o.id} value={o.id}>
-                            {o.code}{suffix}
-                          </option>
-                        );
-                      })}
-                    </Input>
+                    <Select
+                      className="react-select"
+                      classNamePrefix="react-select"
+                      placeholder="Buscar OP por código, cliente..."
+                      isClearable
+                      isSearchable
+                      filterOption={filterProductionOrderOption}
+                      options={productionOrderSelectOptions}
+                      value={selectedProductionOrderOption}
+                      onChange={(selected) => setFilterProductionOrderId(selected ? selected.value : "")}
+                      styles={{
+                        control: (base) => ({ ...base, minHeight: 31, fontSize: 13 }),
+                        valueContainer: (base) => ({ ...base, padding: "0 8px" }),
+                        input: (base) => ({ ...base, margin: 0, padding: 0 }),
+                        indicatorsContainer: (base) => ({ ...base, height: 29 }),
+                      }}
+                      noOptionsMessage={() => "Sin coincidencias"}
+                    />
                   </FormGroup>
                 </Col>
                 <Col md="8">
@@ -3558,7 +3600,7 @@ function TasksByTable() {
 
           {/* Order picker con búsqueda */}
           {(() => {
-            const availableOrders = [...(productionOrders || [])].sort((a, b) => {
+            const availableOrders = [...(productionOrdersForFilter || [])].sort((a, b) => {
               const aPending = orderHasPendingItemsForTasks(tasks, a) ? 0 : 1;
               const bPending = orderHasPendingItemsForTasks(tasks, b) ? 0 : 1;
               if (aPending !== bPending) return aPending - bPending;
@@ -3584,7 +3626,7 @@ function TasksByTable() {
               return { label: "OP", color: "#374151", bg: "#f3f4f6", border: "#d1d5db" };
             };
 
-            const selectedOrder = productionOrders.find((o) => String(o.id) === String(selectedOrderId));
+            const selectedOrder = productionOrdersForFilter.find((o) => String(o.id) === String(selectedOrderId));
 
             return (
               <div style={{ marginTop: 20 }}>
@@ -3745,7 +3787,7 @@ function TasksByTable() {
               <p style={{ fontSize: 13, margin: 0 }}>Elige una orden arriba para ver sus productos</p>
             </div>
           ) : (() => {
-            const order = productionOrders.find((o) => Number(o.id) === Number(selectedOrderId));
+            const order = productionOrdersForFilter.find((o) => Number(o.id) === Number(selectedOrderId));
             if (!order) return null;
             const items = order.items || [];
             const plannedMap = collectPlannedOrderItemIds(tasks, order.id);
