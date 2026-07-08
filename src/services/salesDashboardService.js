@@ -41,3 +41,29 @@ export const getUnifiedSales = async ({ startDate, endDate, channel, kioskLocati
   );
   return parseJson(response, "No se pudieron cargar las ventas.");
 };
+
+export const getOpvShipments = async ({
+  search,
+  orderStatus,
+  shipmentStatus,
+  customerId,
+  from,
+  to,
+  hasShipment,
+  limit = 300,
+} = {}) => {
+  const response = await fetch(
+    `${API_URL}/sales/opv-shipments${toQuery({
+      search,
+      orderStatus,
+      shipmentStatus,
+      customerId,
+      from,
+      to,
+      hasShipment,
+      limit,
+    })}`,
+    { headers: headers() }
+  );
+  return parseJson(response, "No se pudo cargar envíos OPV.");
+};

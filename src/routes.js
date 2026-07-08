@@ -99,6 +99,7 @@ import KioskReturns from "views/kiosks/KioskReturns.js";
 import TotalSales from "views/sales/TotalSales.js";
 import SalesBySeller from "views/sales/SalesBySeller.js";
 import OnlineSales from "views/sales/OnlineSales.js";
+import OpvShipmentsPage from "views/sales/OpvShipmentsPage.js";
 import Invoicing from "views/sales/Invoicing.js";
 import AccountingInvoices from "views/accounting/AccountingInvoices.js";
 import AccountingInvoiceForm from "views/accounting/AccountingInvoiceForm.js";
@@ -1111,6 +1112,17 @@ const routes = [
           create: "VENTAS.VENTAS_ONLINE.CREAR",
           edit: "VENTAS.VENTAS_ONLINE.EDITAR",
           delete: "VENTAS.VENTAS_ONLINE.ELIMINAR",
+        },
+      },
+      {
+        path: "/opv-shipments",
+        name: "Envíos OPV",
+        mini: "OP",
+        component: <OpvShipmentsPage />,
+        layout: "/admin",
+        module: "VENTAS",
+        permissions: {
+          view: "VENTAS.VENTAS_TOTALES.VER",
         },
       },
       {

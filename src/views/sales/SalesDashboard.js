@@ -22,6 +22,7 @@ import { formatDateGt, getTodayYmdGuatemala } from "utils/dateTimeHelper";
 const ACTIONS = [
   { label: "Ventas totales", path: "/admin/total-sales", color: "primary" },
   { label: "Online", path: "/admin/online-sales", color: "info" },
+  { label: "Envíos OPV", path: "/admin/opv-shipments", color: "primary" },
   { label: "Kiosko POS", path: "/admin/kiosk-sales", color: "success" },
   { label: "Por vendedor", path: "/admin/sales-by-seller", color: "warning" },
   { label: "Reportes", path: "/admin/sales-reports", color: "secondary" },
