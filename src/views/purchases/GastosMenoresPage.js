@@ -2988,18 +2988,6 @@ function GastosMenoresPage() {
                 </Button>
                 {canModifyPurchaseItems(selectedPurchaseNumber) && !editingPurchaseNumber && (
                   <Button
-                    color="warning"
-                    size="sm"
-                    outline
-                    onClick={handleClosePurchase}
-                    disabled={loading || purchaseItems.length === 0}
-                  >
-                    <i className="nc-icon nc-lock-circle-open mr-1" />
-                    Cerrar compra
-                  </Button>
-                )}
-                {canModifyPurchaseItems(selectedPurchaseNumber) && !editingPurchaseNumber && (
-                  <Button
                     color="primary"
                     size="sm"
                     onClick={() => {
@@ -3485,6 +3473,19 @@ function GastosMenoresPage() {
                           </tr>
                         </tfoot>
                       </Table>
+                    </div>
+                  )}
+                  {canModifyPurchaseItems(selectedPurchaseNumber) && (
+                    <div className="d-flex justify-content-end mt-3">
+                      <Button
+                        color="warning"
+                        outline
+                        onClick={handleClosePurchase}
+                        disabled={loading || purchaseItems.length === 0}
+                      >
+                        <i className="nc-icon nc-lock-circle-open mr-1" />
+                        Cerrar compra
+                      </Button>
                     </div>
                   )}
                 </CardBody>
