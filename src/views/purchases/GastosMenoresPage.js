@@ -117,6 +117,46 @@ function GastosMenoresPage() {
     estimatedPrice: "",
     quantity: 1,
   });
+  const [pendingItemDrafts, setPendingItemDrafts] = useState([]);
+
+  const EMPTY_ITEM_FORM = {
+    itemName: "",
+    description: "",
+    supplier: "",
+    estimatedPrice: "",
+    quantity: 1,
+  };
+
+  const resetItemModal = () => {
+    setShowItemModal(false);
+    setEditingItem(null);
+    setItemFormData({ ...EMPTY_ITEM_FORM });
+    setPendingItemDrafts([]);
+  };
+
+  const buildItemPayload = (data) => ({
+    itemName: data.itemName.trim(),
+    description: data.description?.trim() || null,
+    supplier: data.supplier.trim(),
+    estimatedPrice: parseFloat(data.estimatedPrice),
+    quantity: parseInt(data.quantity, 10) || 1,
+  });
+
+  const validateItemForm = (data) => {
+    if (!data.itemName?.trim() || !data.supplier?.trim() || !data.estimatedPrice || !data.quantity) {
+      showError("Por favor complete todos los campos requeridos del artículo");
+      return false;
+    }
+    if (parseFloat(data.estimatedPrice) <= 0) {
+      showError("El precio estimado debe ser mayor a 0");
+      return false;
+    }
+    if (parseInt(data.quantity, 10) <= 0) {
+      showError("La cantidad debe ser al menos 1");
+      return false;
+    }
+    return true;
+  };
 
   // Compensaciones
   const [purchaseCompensations, setPurchaseCompensations] = useState([]);
@@ -776,42 +816,64 @@ function GastosMenoresPage() {
 
   const handleCreateItem = async () => {
     try {
-      if (!itemFormData.itemName || !itemFormData.supplier || !itemFormData.estimatedPrice || !itemFormData.quantity) {
-        showError("Por favor complete todos los campos requeridos");
+      if (editingItem) {
+        if (!validateItemForm(itemFormData)) return;
+        setLoading(true);
+        await updatePurchaseNumberItem(
+          selectedPurchaseNumber.id,
+          editingItem.id,
+          buildItemPayload(itemFormData)
+        );
+        showSuccess("Artículo actualizado correctamente");
+        resetItemModal();
+        const [purchaseData, items] = await Promise.all([
+          getPurchaseNumberById(selectedPurchaseNumber.id),
+          getPurchaseNumberItems(selectedPurchaseNumber.id),
+        ]);
+        setSelectedPurchaseNumber(purchaseData);
+        setPurchaseItems(items || []);
+        return;
+      }
+
+      const drafts = [...pendingItemDrafts];
+      const formFilled = itemFormData.itemName?.trim()
+        && itemFormData.supplier?.trim()
+        && itemFormData.estimatedPrice
+        && itemFormData.quantity;
+      if (formFilled) {
+        if (!validateItemForm(itemFormData)) return;
+        drafts.push({
+          tempId: `form-${Date.now()}`,
+          ...buildItemPayload(itemFormData),
+        });
+      }
+
+      if (drafts.length === 0) {
+        showError("Agregue al menos un artículo a la lista o complete el formulario");
         return;
       }
 
       setLoading(true);
-      const itemData = {
-        itemName: itemFormData.itemName,
-        description: itemFormData.description || null,
-        supplier: itemFormData.supplier,
-        estimatedPrice: parseFloat(itemFormData.estimatedPrice),
-        quantity: parseInt(itemFormData.quantity),
-      };
-
-      if (editingItem) {
-        await updatePurchaseNumberItem(selectedPurchaseNumber.id, editingItem.id, itemData);
-        showSuccess("Artículo actualizado correctamente");
-      } else {
-        await createPurchaseNumberItem(selectedPurchaseNumber.id, itemData);
-        showSuccess("Artículo agregado correctamente");
+      for (const draft of drafts) {
+        await createPurchaseNumberItem(selectedPurchaseNumber.id, {
+          itemName: draft.itemName,
+          description: draft.description,
+          supplier: draft.supplier,
+          estimatedPrice: draft.estimatedPrice,
+          quantity: draft.quantity,
+        });
       }
 
-      setShowItemModal(false);
-      setEditingItem(null);
-      setItemFormData({
-        itemName: "",
-        description: "",
-        supplier: "",
-        estimatedPrice: "",
-        quantity: 1,
-      });
+      showSuccess(
+        drafts.length === 1
+          ? "Artículo agregado correctamente"
+          : `${drafts.length} artículos agregados correctamente`
+      );
+      resetItemModal();
 
-      // Recargar items y compra
       const [purchaseData, items] = await Promise.all([
         getPurchaseNumberById(selectedPurchaseNumber.id),
-        getPurchaseNumberItems(selectedPurchaseNumber.id)
+        getPurchaseNumberItems(selectedPurchaseNumber.id),
       ]);
       setSelectedPurchaseNumber(purchaseData);
       setPurchaseItems(items || []);
@@ -822,8 +884,29 @@ function GastosMenoresPage() {
     }
   };
 
+  const handleAddItemToList = () => {
+    if (!validateItemForm(itemFormData)) return;
+    setPendingItemDrafts((prev) => [
+      ...prev,
+      {
+        tempId: `${Date.now()}-${prev.length}`,
+        ...buildItemPayload(itemFormData),
+      },
+    ]);
+    setItemFormData({
+      ...EMPTY_ITEM_FORM,
+      supplier: itemFormData.supplier,
+      quantity: 1,
+    });
+  };
+
+  const handleRemovePendingItem = (tempId) => {
+    setPendingItemDrafts((prev) => prev.filter((item) => item.tempId !== tempId));
+  };
+
   const handleEditItem = (item) => {
     setEditingItem(item);
+    setPendingItemDrafts([]);
     setItemFormData({
       itemName: item.itemName || "",
       description: item.description || "",
@@ -3166,13 +3249,8 @@ function GastosMenoresPage() {
                         size="sm"
                         onClick={() => {
                           setEditingItem(null);
-                          setItemFormData({
-                            itemName: "",
-                            description: "",
-                            supplier: "",
-                            estimatedPrice: "",
-                            quantity: 1,
-                          });
+                          setPendingItemDrafts([]);
+                          setItemFormData({ ...EMPTY_ITEM_FORM });
                           setShowItemModal(true);
                         }}
                       >
@@ -4212,31 +4290,17 @@ function GastosMenoresPage() {
       </Modal>
 
       {/* Modal para Agregar/Editar Artículo */}
-      <Modal isOpen={showItemModal} toggle={() => {
-        setShowItemModal(false);
-        setEditingItem(null);
-        setItemFormData({
-          itemName: "",
-          description: "",
-          supplier: "",
-          estimatedPrice: "",
-          quantity: 1,
-        });
-      }} size="lg">
-        <ModalHeader toggle={() => {
-          setShowItemModal(false);
-          setEditingItem(null);
-          setItemFormData({
-            itemName: "",
-            description: "",
-            supplier: "",
-            estimatedPrice: "",
-            quantity: 1,
-          });
-        }}>
-          {editingItem ? "Editar Artículo" : "Agregar Artículo"}
+      <Modal isOpen={showItemModal} toggle={resetItemModal} size="lg">
+        <ModalHeader toggle={resetItemModal}>
+          {editingItem ? "Editar Artículo" : "Agregar Artículos a la Compra"}
         </ModalHeader>
         <ModalBody>
+          {!editingItem && (
+            <Alert color="light" className="border mb-3 py-2" style={{ fontSize: 13 }}>
+              Complete cada artículo y use <strong>Agregar a la lista</strong> para armar varios sin cerrar el modal.
+              Al final pulse <strong>Guardar artículos</strong>.
+            </Alert>
+          )}
           <Row>
             <Col md="12">
               <FormGroup>
@@ -4302,30 +4366,98 @@ function GastosMenoresPage() {
             </Col>
             {itemFormData.estimatedPrice && itemFormData.quantity && (
               <Col md="12">
-                <Alert color="info">
-                  <strong>Total Estimado:</strong> Q {(parseFloat(itemFormData.estimatedPrice) * parseInt(itemFormData.quantity)).toFixed(2)}
+                <Alert color="info" className="mb-0">
+                  <strong>Total de esta línea:</strong>{" "}
+                  Q {(parseFloat(itemFormData.estimatedPrice) * parseInt(itemFormData.quantity, 10)).toFixed(2)}
                 </Alert>
               </Col>
             )}
           </Row>
+
+          {!editingItem && pendingItemDrafts.length > 0 && (
+            <div className="mt-4">
+              <div className="d-flex justify-content-between align-items-center mb-2">
+                <h6 className="mb-0" style={{ fontWeight: 600 }}>
+                  Lista pendiente ({pendingItemDrafts.length})
+                </h6>
+                <strong className="text-primary">
+                  Total: Q {pendingItemDrafts
+                    .reduce((sum, item) => sum + item.estimatedPrice * item.quantity, 0)
+                    .toFixed(2)}
+                </strong>
+              </div>
+              <div className="table-responsive">
+                <Table striped hover size="sm" className="mb-0">
+                  <thead style={{ backgroundColor: "#f8f9fa" }}>
+                    <tr>
+                      <th>Artículo</th>
+                      <th>Proveedor</th>
+                      <th className="text-right">P. unit.</th>
+                      <th className="text-right">Cant.</th>
+                      <th className="text-right">Total</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {pendingItemDrafts.map((item) => (
+                      <tr key={item.tempId}>
+                        <td>
+                          <strong>{item.itemName}</strong>
+                          {item.description && (
+                            <>
+                              <br />
+                              <small className="text-muted">{item.description}</small>
+                            </>
+                          )}
+                        </td>
+                        <td>{item.supplier}</td>
+                        <td className="text-right">Q {item.estimatedPrice.toFixed(2)}</td>
+                        <td className="text-right">{item.quantity}</td>
+                        <td className="text-right">
+                          <strong>Q {(item.estimatedPrice * item.quantity).toFixed(2)}</strong>
+                        </td>
+                        <td className="text-right">
+                          <Button
+                            color="danger"
+                            size="sm"
+                            outline
+                            onClick={() => handleRemovePendingItem(item.tempId)}
+                            disabled={loading}
+                          >
+                            Quitar
+                          </Button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </Table>
+              </div>
+            </div>
+          )}
         </ModalBody>
-        <ModalFooter>
-          <Button color="secondary" onClick={() => {
-            setShowItemModal(false);
-            setEditingItem(null);
-            setItemFormData({
-              itemName: "",
-              description: "",
-              supplier: "",
-              estimatedPrice: "",
-              quantity: 1,
-            });
-          }} disabled={loading}>
-            Cancelar
-          </Button>
-          <Button color="primary" onClick={handleCreateItem} disabled={loading}>
-            {loading ? "Guardando..." : editingItem ? "Actualizar" : "Agregar"}
-          </Button>
+        <ModalFooter className="d-flex justify-content-between flex-wrap">
+          <div>
+            {!editingItem && (
+              <Button color="info" outline onClick={handleAddItemToList} disabled={loading}>
+                <i className="nc-icon nc-simple-add mr-1" />
+                Agregar a la lista
+              </Button>
+            )}
+          </div>
+          <div>
+            <Button color="secondary" onClick={resetItemModal} disabled={loading} className="mr-2">
+              Cancelar
+            </Button>
+            <Button color="primary" onClick={handleCreateItem} disabled={loading}>
+              {loading
+                ? "Guardando..."
+                : editingItem
+                  ? "Actualizar"
+                  : pendingItemDrafts.length > 0
+                    ? `Guardar ${pendingItemDrafts.length} artículo(s)`
+                    : "Guardar artículo"}
+            </Button>
+          </div>
         </ModalFooter>
       </Modal>
 
