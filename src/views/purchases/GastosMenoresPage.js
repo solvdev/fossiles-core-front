@@ -52,6 +52,7 @@ import {
 } from "services/minorExpenseService";
 import { getUsers } from "services/userService";
 import { showSuccess, showError } from "utils/notificationHelper";
+import { downloadPurchaseSummaryPdf } from "utils/purchaseSummaryPdf";
 import * as XLSX from "xlsx";
 
 // Componente de filtro por defecto
@@ -114,7 +115,7 @@ function GastosMenoresPage() {
     itemName: "",
     description: "",
     estimatedPrice: "",
-    quantity: 1,
+    quantity: "1",
   });
   const [pendingItemDrafts, setPendingItemDrafts] = useState([]);
 
@@ -122,11 +123,32 @@ function GastosMenoresPage() {
     itemName: "",
     description: "",
     estimatedPrice: "",
-    quantity: 1,
+    quantity: "1",
   };
 
   const ITEM_MODAL_LABEL_STYLE = { fontWeight: 600, color: "#212529" };
   const ITEM_MODAL_TEXT_STYLE = { fontWeight: 500, color: "#212529" };
+
+  const parseItemUnitPrice = (value) => {
+    if (value === null || value === undefined || value === "") return null;
+    const normalized = String(value).replace(/,/g, "").trim();
+    const parsed = parseFloat(normalized);
+    return Number.isFinite(parsed) ? parsed : null;
+  };
+
+  const parseItemQuantity = (value) => {
+    if (value === null || value === undefined || value === "") return null;
+    const normalized = String(value).replace(/,/g, "").trim();
+    const parsed = parseInt(normalized, 10);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+  };
+
+  const calcItemLineTotal = (unitPrice, quantity) => {
+    const price = parseItemUnitPrice(unitPrice);
+    const qty = parseItemQuantity(quantity);
+    if (price === null || qty === null) return null;
+    return Math.round(price * qty * 100) / 100;
+  };
 
   const resetItemModal = () => {
     setShowItemModal(false);
@@ -138,8 +160,8 @@ function GastosMenoresPage() {
   const buildItemPayload = (data) => ({
     itemName: data.itemName.trim(),
     description: data.description?.trim() || null,
-    estimatedPrice: parseFloat(data.estimatedPrice),
-    quantity: parseInt(data.quantity, 10) || 1,
+    estimatedPrice: parseItemUnitPrice(data.estimatedPrice),
+    quantity: parseItemQuantity(data.quantity) || 1,
   });
 
   const validateItemForm = (data) => {
@@ -147,11 +169,13 @@ function GastosMenoresPage() {
       showError("Por favor complete todos los campos requeridos del artículo");
       return false;
     }
-    if (parseFloat(data.estimatedPrice) <= 0) {
+    const unitPrice = parseItemUnitPrice(data.estimatedPrice);
+    const quantity = parseItemQuantity(data.quantity);
+    if (unitPrice === null || unitPrice <= 0) {
       showError("El precio estimado debe ser mayor a 0");
       return false;
     }
-    if (parseInt(data.quantity, 10) <= 0) {
+    if (quantity === null || quantity <= 0) {
       showError("La cantidad debe ser al menos 1");
       return false;
     }
@@ -758,6 +782,19 @@ function GastosMenoresPage() {
     }
   };
 
+  const handleDownloadPurchaseSummary = () => {
+    try {
+      downloadPurchaseSummaryPdf({
+        purchase: selectedPurchaseNumber,
+        items: purchaseItems,
+        expenses: purchaseExpenses,
+      });
+      showSuccess("Resumen de compra descargado correctamente");
+    } catch (err) {
+      showError(err.message || "Error al descargar el resumen de la compra");
+    }
+  };
+
   const handleCreatePurchase = async () => {
     try {
       setLoading(true);
@@ -891,10 +928,7 @@ function GastosMenoresPage() {
         ...buildItemPayload(itemFormData),
       },
     ]);
-    setItemFormData({
-      ...EMPTY_ITEM_FORM,
-      quantity: 1,
-    });
+    setItemFormData({ ...EMPTY_ITEM_FORM });
   };
 
   const handleRemovePendingItem = (tempId) => {
@@ -908,7 +942,7 @@ function GastosMenoresPage() {
       itemName: item.itemName || "",
       description: item.description || "",
       estimatedPrice: item.estimatedPrice?.toString() || "",
-      quantity: item.quantity || 1,
+      quantity: item.quantity?.toString() || "1",
     });
     setShowItemModal(true);
   };
@@ -939,7 +973,7 @@ function GastosMenoresPage() {
 
   const handleCreateExpenseFromItem = (item) => {
     // Prellenar el formulario con datos del artículo
-    const estimatedTotal = parseFloat(item.estimatedPrice) * parseInt(item.quantity);
+    const estimatedTotal = calcItemLineTotal(item.estimatedPrice, item.quantity) || 0;
     setFormData({
       invoiceNumber: "",
       purchaseDate: new Date().toISOString().split("T")[0],
@@ -2909,6 +2943,16 @@ function GastosMenoresPage() {
             </div>
             {selectedPurchaseNumber && (
               <div className="d-flex align-items-center gap-2">
+                <Button
+                  color="info"
+                  size="sm"
+                  outline
+                  onClick={handleDownloadPurchaseSummary}
+                  disabled={loadingPurchaseDetail || purchaseItems.length === 0}
+                >
+                  <i className="nc-icon nc-cloud-download-93 mr-1" />
+                  Descargar resumen
+                </Button>
                 {selectedPurchaseNumber.editable && !editingPurchaseNumber && (
                   <Button
                     color="primary"
@@ -3299,7 +3343,10 @@ function GastosMenoresPage() {
                                 <td>Q {parseFloat(item.estimatedPrice || 0).toFixed(2)}</td>
                                 <td>{item.quantity}</td>
                                 <td>
-                                  <strong>Q {parseFloat(item.estimatedTotal || 0).toFixed(2)}</strong>
+                                  <strong>
+                                    Q {(calcItemLineTotal(item.estimatedPrice, item.quantity)
+                                      ?? parseFloat(item.estimatedTotal || 0)).toFixed(2)}
+                                  </strong>
                                 </td>
                                 <td>
                                   {item.actualPrice ? (
@@ -3379,7 +3426,13 @@ function GastosMenoresPage() {
                             </td>
                             <td>
                               <strong className="text-primary">
-                                Q {purchaseItems.reduce((sum, item) => sum + (parseFloat(item.estimatedTotal || 0)), 0).toFixed(2)}
+                                Q {purchaseItems.reduce(
+                                  (sum, item) => sum + (
+                                    calcItemLineTotal(item.estimatedPrice, item.quantity)
+                                    ?? parseFloat(item.estimatedTotal || 0)
+                                  ),
+                                  0
+                                ).toFixed(2)}
                               </strong>
                             </td>
                             <td colSpan="4"></td>
@@ -4351,16 +4404,16 @@ function GastosMenoresPage() {
                   min="1"
                   style={ITEM_MODAL_TEXT_STYLE}
                   value={itemFormData.quantity}
-                  onChange={(e) => setItemFormData({ ...itemFormData, quantity: parseInt(e.target.value) || 1 })}
+                  onChange={(e) => setItemFormData({ ...itemFormData, quantity: e.target.value })}
                   required
                 />
               </FormGroup>
             </Col>
-            {itemFormData.estimatedPrice && itemFormData.quantity && (
+            {calcItemLineTotal(itemFormData.estimatedPrice, itemFormData.quantity) !== null && (
               <Col md="12">
                 <Alert color="info" className="mb-0" style={{ fontWeight: 600 }}>
                   <strong>Total de esta línea:</strong>{" "}
-                  Q {(parseFloat(itemFormData.estimatedPrice) * parseInt(itemFormData.quantity, 10)).toFixed(2)}
+                  Q {calcItemLineTotal(itemFormData.estimatedPrice, itemFormData.quantity).toFixed(2)}
                 </Alert>
               </Col>
             )}
@@ -4383,7 +4436,7 @@ function GastosMenoresPage() {
                 </h6>
                 <strong className="text-primary" style={{ fontWeight: 700 }}>
                   Total: Q {pendingItemDrafts
-                    .reduce((sum, item) => sum + item.estimatedPrice * item.quantity, 0)
+                    .reduce((sum, item) => sum + (calcItemLineTotal(item.estimatedPrice, item.quantity) || 0), 0)
                     .toFixed(2)}
                 </strong>
               </div>
@@ -4415,7 +4468,9 @@ function GastosMenoresPage() {
                         </td>
                         <td className="text-right" style={{ fontWeight: 600 }}>{item.quantity}</td>
                         <td className="text-right">
-                          <strong style={{ fontWeight: 700 }}>Q {(item.estimatedPrice * item.quantity).toFixed(2)}</strong>
+                          <strong style={{ fontWeight: 700 }}>
+                            Q {(calcItemLineTotal(item.estimatedPrice, item.quantity) || 0).toFixed(2)}
+                          </strong>
                         </td>
                         <td className="text-right">
                           <Button
