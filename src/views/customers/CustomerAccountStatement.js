@@ -46,6 +46,43 @@ import {
   openCustomerAccountReportPrintWindow,
 } from "utils/customerAccountReportPrintHtml";
 
+function buildChargePrefill(doc, partial = null, shipment = null) {
+  if (shipment) {
+    return {
+      productionOrderId: doc.productionOrderId,
+      orderCode: doc.orderCode,
+      orderKind: doc.orderKind,
+      vendorShipmentNumber: doc.vendorShipmentNumber,
+      partialReleaseId: partial?.partialReleaseId ?? null,
+      productShipmentId: shipment.productShipmentId,
+      shipmentNumber: shipment.shipmentNumber,
+      estimatedTotal: shipment.estimatedTotal ?? partial?.estimatedTotal ?? doc.estimatedTotal,
+    };
+  }
+
+  const unchargedShipments = [];
+  (doc.partialReleases || []).forEach((pr) => {
+    (pr.shipments || []).forEach((s) => {
+      if (s.chargeStatus === "NONE" || !s.chargeEntryId) {
+        unchargedShipments.push({ partial: pr, shipment: s });
+      }
+    });
+  });
+
+  if (unchargedShipments.length === 1) {
+    const { partial, shipment: s } = unchargedShipments[0];
+    return buildChargePrefill(doc, partial, s);
+  }
+
+  return {
+    productionOrderId: doc.productionOrderId,
+    orderCode: doc.orderCode,
+    orderKind: doc.orderKind,
+    vendorShipmentNumber: doc.vendorShipmentNumber,
+    estimatedTotal: doc.estimatedTotal,
+  };
+}
+
 function DocumentRow({ doc, onCharge, expanded, onToggle }) {
   const partials = doc.partialReleases || [];
   const hasPartials = partials.length > 0;
@@ -76,7 +113,13 @@ function DocumentRow({ doc, onCharge, expanded, onToggle }) {
               {expanded ? "▾" : "▸"} Parciales
             </Button>
           )}
-          <Button color="primary" size="sm" outline className="btn-round" onClick={() => onCharge(doc)}>
+          <Button
+            color="primary"
+            size="sm"
+            outline
+            className="btn-round"
+            onClick={() => onCharge(buildChargePrefill(doc))}
+          >
             Crear cargo
           </Button>
         </td>
@@ -89,26 +132,43 @@ function DocumentRow({ doc, onCharge, expanded, onToggle }) {
                 <tr>
                   <th>Parcial</th>
                   <th>Estado cargo</th>
+                  <th className="text-right">Estimado</th>
                   <th className="text-right">Cargado</th>
                   <th className="text-right">Saldo</th>
                   <th>Envíos</th>
+                  <th />
                 </tr>
               </thead>
               <tbody>
                 {partials.map((pr) => (
-                  <tr key={pr.partialReleaseId}>
+                  <tr key={pr.partialReleaseId ?? pr.label}>
                     <td>{pr.label || `#${pr.sequenceNum}`}</td>
                     <td>{CHARGE_STATUS_LABELS[pr.chargeStatus] || pr.chargeStatus || "—"}</td>
+                    <td className="text-right">{formatAccountMoney(pr.estimatedTotal)}</td>
                     <td className="text-right">{formatAccountMoney(pr.chargedAmount)}</td>
                     <td className="text-right">{formatAccountMoney(pr.balanceDue)}</td>
                     <td>
                       {(pr.shipments || []).map((s) => (
-                        <div key={s.productShipmentId} className="small">
-                          {s.shipmentNumber} · {CHARGE_STATUS_LABELS[s.chargeStatus] || s.chargeStatus}
-                          {s.balanceDue != null ? ` · ${formatAccountMoney(s.balanceDue)}` : ""}
+                        <div key={s.productShipmentId} className="small d-flex flex-wrap align-items-center">
+                          <span className="mr-2">
+                            {s.shipmentNumber} · {CHARGE_STATUS_LABELS[s.chargeStatus] || s.chargeStatus}
+                            {s.estimatedTotal != null ? ` · Est. ${formatAccountMoney(s.estimatedTotal)}` : ""}
+                            {s.balanceDue != null ? ` · Saldo ${formatAccountMoney(s.balanceDue)}` : ""}
+                          </span>
+                          {(s.chargeStatus === "NONE" || !s.chargeEntryId) && (
+                            <Button
+                              color="success"
+                              size="sm"
+                              className="btn-round py-0 px-2"
+                              onClick={() => onCharge(buildChargePrefill(doc, pr, s))}
+                            >
+                              Cargo
+                            </Button>
+                          )}
                         </div>
                       ))}
                     </td>
+                    <td />
                   </tr>
                 ))}
               </tbody>
@@ -471,7 +531,7 @@ function CustomerAccountStatement() {
                                 [doc.productionOrderId]: !prev[doc.productionOrderId],
                               }))
                             }
-                            onCharge={(d) => openEntryModal("1", d)}
+                            onCharge={(prefill) => openEntryModal("1", prefill)}
                           />
                         ))}
                       </tbody>

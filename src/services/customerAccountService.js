@@ -55,6 +55,7 @@ export const searchReceivableDocuments = async ({
   regionCode,
   routeNumber,
   routeLocationCode,
+  allOrderTypes = false,
   limit = 200,
 } = {}) => {
   const params = new URLSearchParams();
@@ -66,6 +67,7 @@ export const searchReceivableDocuments = async ({
   if (regionCode) params.set("regionCode", regionCode);
   if (routeNumber != null && routeNumber !== "") params.set("routeNumber", String(routeNumber));
   if (routeLocationCode) params.set("routeLocationCode", routeLocationCode);
+  if (allOrderTypes) params.set("allOrderTypes", "true");
   params.set("limit", String(limit));
 
   const response = await fetch(`${API_URL}/customer-accounts/receivable-search?${params}`, {

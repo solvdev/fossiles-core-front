@@ -40,6 +40,7 @@ import {
   parseRouteLocationCode,
 } from "utils/deliveryRouteCatalog";
 import { showError } from "utils/notificationHelper";
+import CustomerAccountEntryModal from "components/customers/CustomerAccountEntryModal";
 
 function BalanceCell({ amount, type }) {
   const value = Number(amount) || 0;
@@ -198,7 +199,13 @@ function CustomerRow({ row, kindTab }) {
   );
 }
 
-function DocumentSearchRow({ row }) {
+function orderKindBadgeColor(orderKind) {
+  if (orderKind === "OPC") return "dark";
+  if (orderKind === "OPV") return "primary";
+  return "secondary";
+}
+
+function DocumentSearchRow({ row, onCreateCharge }) {
   const statusLabel = CHARGE_STATUS_LABELS[row.chargeStatus] || row.chargeStatus || "—";
   const statusColor =
     row.chargeStatus === "PAID"
@@ -210,6 +217,8 @@ function DocumentSearchRow({ row }) {
           : row.chargeStatus === "NONE"
             ? "secondary"
             : "light";
+
+  const canCreateCharge = !row.hasCharge && row.customerId && row.productionOrderId;
 
   return (
     <tr>
@@ -224,8 +233,11 @@ function DocumentSearchRow({ row }) {
         )}
       </td>
       <td>
-        <Badge color={row.orderKind === "OPC" ? "dark" : "primary"}>{row.orderKind}</Badge>
+        <Badge color={orderKindBadgeColor(row.orderKind)}>{row.orderKind}</Badge>
         <div className="small mt-1">{row.orderCode || "—"}</div>
+        {row.orderType && row.orderType !== row.orderKind && (
+          <div className="small text-muted">{row.orderType}</div>
+        )}
       </td>
       <td>
         <strong>{row.shipmentNumber || row.vendorShipmentNumber || "—"}</strong>
@@ -240,7 +252,11 @@ function DocumentSearchRow({ row }) {
         )}
       </td>
       <td className="text-right">
-        {row.hasCharge ? formatAccountMoney(row.chargedAmount) : "—"}
+        {row.estimatedTotal != null && !row.hasCharge
+          ? formatAccountMoney(row.estimatedTotal)
+          : row.hasCharge
+            ? formatAccountMoney(row.chargedAmount)
+            : "—"}
       </td>
       <td className="text-right">
         {row.hasCharge ? (
@@ -252,6 +268,16 @@ function DocumentSearchRow({ row }) {
         )}
       </td>
       <td className="text-right">
+        {canCreateCharge && (
+          <Button
+            color="success"
+            size="sm"
+            className="btn-round mr-1"
+            onClick={() => onCreateCharge(row)}
+          >
+            Generar cargo
+          </Button>
+        )}
         <Link
           to={`/admin/customer-accounts/${row.customerId}`}
           className="btn btn-info btn-sm btn-round"
@@ -281,6 +307,9 @@ function CustomerAccountsList() {
   const [reportTo, setReportTo] = useState("");
   const [printing, setPrinting] = useState(false);
   const [openGroups, setOpenGroups] = useState({});
+  const [allOrderTypes, setAllOrderTypes] = useState(false);
+  const [chargeModalOpen, setChargeModalOpen] = useState(false);
+  const [chargeModalRow, setChargeModalRow] = useState(null);
 
   const regions = useMemo(() => listRegions(), []);
   const filterRoutes = useMemo(
@@ -317,12 +346,13 @@ function CustomerAccountsList() {
     try {
       const data = await searchReceivableDocuments({
         search: search.trim(),
-        orderKind: kindTab,
+        orderKind: allOrderTypes ? undefined : kindTab,
         chargeStatus: chargeStatusFilter || undefined,
         hasCharge: documentViewFilter === "withCharge" ? true : undefined,
         regionCode: filterRegion || undefined,
         routeNumber: filterRoute ? Number(filterRoute) : undefined,
         routeLocationCode: filterLocation || undefined,
+        allOrderTypes,
         limit: 500,
       });
       let rows = Array.isArray(data) ? data : [];
@@ -344,6 +374,7 @@ function CustomerAccountsList() {
     filterRegion,
     filterRoute,
     filterLocation,
+    allOrderTypes,
   ]);
 
   useEffect(() => {
@@ -429,6 +460,18 @@ function CustomerAccountsList() {
     setOpenGroups((prev) => ({ ...prev, [key]: !prev[key] }));
   };
 
+  const handleCreateCharge = (row) => {
+    setChargeModalRow(row);
+    setChargeModalOpen(true);
+  };
+
+  const handleChargeSaved = () => {
+    setChargeModalOpen(false);
+    setChargeModalRow(null);
+    loadDocumentSearch();
+    load();
+  };
+
   const handlePrintReport = async () => {
     const printWindow = openBlankPrintWindow();
     if (!printWindow) {
@@ -507,12 +550,14 @@ function CustomerAccountsList() {
                   <FormGroup className="mb-md-0">
                     <Label>Buscar</Label>
                     <Input
-                      placeholder="Cliente, clave, NIT, Nº envío, orden, factura..."
+                      placeholder="Cliente, clave, NIT, Nº envío, código OP, factura..."
                       value={search}
                       onChange={(e) => setSearch(e.target.value)}
                     />
                     <small className="text-muted">
-                      Busca en clientes y documentos OPV/OPC (envíos, órdenes, facturas)
+                      {allOrderTypes
+                        ? "Busca cualquier OP con cliente asignado (todos los tipos)"
+                        : "Busca en clientes y documentos OPV/OPC (envíos, órdenes, facturas)"}
                     </small>
                   </FormGroup>
                 </Col>
@@ -611,6 +656,19 @@ function CustomerAccountsList() {
                     <Label check>
                       <Input
                         type="checkbox"
+                        checked={allOrderTypes}
+                        onChange={(e) => setAllOrderTypes(e.target.checked)}
+                      />
+                      <span className="form-check-sign" />
+                      Todas las OP (cualquier tipo)
+                    </Label>
+                  </FormGroup>
+                </Col>
+                <Col md="2" className="d-flex align-items-end">
+                  <FormGroup check className="mb-md-0">
+                    <Label check>
+                      <Input
+                        type="checkbox"
                         checked={positiveBalanceOnly}
                         onChange={(e) => setPositiveBalanceOnly(e.target.checked)}
                       />
@@ -621,17 +679,21 @@ function CustomerAccountsList() {
                 </Col>
               </Row>
 
-              <PortfolioKindSelector
-                kindTab={kindTab}
-                onSelect={setKindTab}
-                totalsByKind={portfolioTotalsByKind}
-                clientCount={rows.length}
-              />
+              {!allOrderTypes && (
+                <PortfolioKindSelector
+                  kindTab={kindTab}
+                  onSelect={setKindTab}
+                  totalsByKind={portfolioTotalsByKind}
+                  clientCount={rows.length}
+                />
+              )}
 
               <Card className="mb-3 border-info">
                 <CardHeader className="py-2 bg-light">
                   <strong className="text-info">
-                    Envíos y documentos — cartera {kindTab}
+                    {allOrderTypes
+                      ? "Órdenes de producción — todos los tipos"
+                      : `Envíos y documentos — cartera ${kindTab}`}
                   </strong>
                   <span className="text-muted small ml-2">
                     {documentLoading
@@ -644,8 +706,9 @@ function CustomerAccountsList() {
                     <div className="text-center py-3">Cargando documentos...</div>
                   ) : documentRows.length === 0 ? (
                     <Alert color="info" className="m-3 mb-0">
-                      No hay envíos ni documentos para {kindTab} con los filtros actuales.
-                      Pruebe quitar filtros o cambiar a la otra cartera (OPV / OPC).
+                      {allOrderTypes
+                        ? "No hay órdenes con los filtros actuales. Escriba el código de la OP o quite filtros."
+                        : `No hay envíos ni documentos para ${kindTab} con los filtros actuales. Pruebe quitar filtros, activar "Todas las OP" o cambiar cartera (OPV / OPC).`}
                     </Alert>
                   ) : (
                     <div className="table-responsive">
@@ -657,7 +720,7 @@ function CustomerAccountsList() {
                             <th>Orden</th>
                             <th>Nº envío</th>
                             <th>Estado cobro</th>
-                            <th className="text-right">Monto cargo</th>
+                            <th className="text-right">Monto est./cargo</th>
                             <th className="text-right">Saldo</th>
                             <th className="text-right">Acciones</th>
                           </tr>
@@ -667,6 +730,7 @@ function CustomerAccountsList() {
                             <DocumentSearchRow
                               key={`${row.chargeEntryId || "n"}-${row.productionOrderId}-${row.productShipmentId || "order"}-${row.partialReleaseId || "x"}`}
                               row={row}
+                              onCreateCharge={handleCreateCharge}
                             />
                           ))}
                         </tbody>
@@ -844,6 +908,32 @@ function CustomerAccountsList() {
           </Card>
         </Col>
       </Row>
+
+      <CustomerAccountEntryModal
+        isOpen={chargeModalOpen}
+        toggle={() => {
+          setChargeModalOpen(false);
+          setChargeModalRow(null);
+        }}
+        customerId={chargeModalRow?.customerId}
+        customerInfo={{
+          name: chargeModalRow?.customerName,
+          legacyCode: chargeModalRow?.legacyCode,
+          nit: chargeModalRow?.nit,
+          routeLocationCode: chargeModalRow?.routeLocationCode,
+        }}
+        defaultConceptCode="1"
+        initialDoc={chargeModalRow ? {
+          productionOrderId: chargeModalRow.productionOrderId,
+          partialReleaseId: chargeModalRow.partialReleaseId,
+          productShipmentId: chargeModalRow.productShipmentId,
+          vendorShipmentNumber: chargeModalRow.vendorShipmentNumber,
+          estimatedTotal: chargeModalRow.estimatedTotal,
+          orderCode: chargeModalRow.orderCode,
+          orderKind: chargeModalRow.orderKind,
+        } : null}
+        onSaved={handleChargeSaved}
+      />
     </div>
   );
 }

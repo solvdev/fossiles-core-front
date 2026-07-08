@@ -72,9 +72,11 @@ function CustomerAccountEntryModal({
     if (initialDoc) {
       base.productionOrderId = String(initialDoc.productionOrderId || "");
       base.vendorShipmentNumber = initialDoc.vendorShipmentNumber || "";
-      base.description = `${initialDoc.orderKind || "LF"} ${initialDoc.orderCode || ""}`.trim();
-      if (initialDoc.estimatedTotal != null) {
-        base.amount = String(Number(initialDoc.estimatedTotal).toFixed(2));
+      const shipmentRef = initialDoc.shipmentNumber ? ` · ${initialDoc.shipmentNumber}` : "";
+      base.description = `${initialDoc.orderKind || "LF"} ${initialDoc.orderCode || ""}${shipmentRef}`.trim();
+      const estimated = initialDoc.estimatedTotal;
+      if (estimated != null && Number(estimated) > 0) {
+        base.amount = String(Number(estimated).toFixed(2));
       }
       if (initialDoc.partialReleaseId) {
         base.partialReleaseId = String(initialDoc.partialReleaseId);
