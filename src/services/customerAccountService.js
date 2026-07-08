@@ -20,6 +20,8 @@ export const MOVEMENT_CONCEPTS = [
   { code: "11", label: "Descarga", entryType: "PAYMENT", description: "Descarga de crédito cobrado" },
 ];
 
+export const getMovementConcept = (code) => MOVEMENT_CONCEPTS.find((c) => c.code === String(code));
+
 export const getCustomerAccountSummary = async ({
   search = "",
   luisFelipeOnly = true,
