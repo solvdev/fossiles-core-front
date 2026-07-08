@@ -43,6 +43,7 @@ import {
   getPurchaseNumberExpenses,
   updatePurchaseNumber,
   closePurchaseNumber,
+  finalizePurchaseNumber,
   getPurchaseNumberItems,
   createPurchaseNumberItem,
   updatePurchaseNumberItem,
@@ -58,8 +59,8 @@ import * as XLSX from "xlsx";
 
 const PURCHASE_STATUS_LABELS = {
   PENDIENTE: { color: "warning", text: "Abierta" },
-  TERMINADO: { color: "secondary", text: "Cerrada" },
-  PAGADO: { color: "success", text: "Pagada" },
+  TERMINADO: { color: "info", text: "Artículos cerrados" },
+  PAGADO: { color: "success", text: "Finalizada" },
 };
 
 const getPurchaseStatusLabel = (status) => (
@@ -67,7 +68,15 @@ const getPurchaseStatusLabel = (status) => (
 );
 
 const canModifyPurchaseItems = (purchase) => (
-  purchase?.itemsEditable ?? (purchase?.status === "PENDIENTE" && purchase?.editable)
+  purchase?.itemsEditable ?? purchase?.status === "PENDIENTE"
+);
+
+const canEditPurchaseExpenses = (purchase) => (
+  purchase?.status !== "PAGADO" && (purchase?.editable ?? true)
+);
+
+const canEditPurchaseExpense = (purchase, expense) => (
+  canEditPurchaseExpenses(purchase) && expense?.reimbursementStatus !== "PAGADO"
 );
 
 // Componente de filtro por defecto
@@ -812,16 +821,16 @@ function GastosMenoresPage() {
     }
   };
 
-  const handleClosePurchase = async () => {
+  const handleClosePurchaseArticles = async () => {
     if (!selectedPurchaseNumber) return;
 
     if (purchaseItems.length === 0) {
-      showError("Agregue al menos un artículo antes de cerrar la compra");
+      showError("Agregue al menos un artículo antes de cerrar la lista");
       return;
     }
 
     if (!window.confirm(
-      "¿Cerrar esta compra?\n\nYa no se podrán agregar ni modificar artículos. Aún podrá registrar gastos sobre los artículos existentes."
+      "¿Cerrar la lista de artículos?\n\nYa no se podrán agregar ni modificar artículos. Podrá seguir registrando y editando gastos hasta finalizar la compra."
     )) {
       return;
     }
@@ -830,13 +839,40 @@ function GastosMenoresPage() {
       setLoading(true);
       const updatedPurchase = await closePurchaseNumber(selectedPurchaseNumber.id);
       setSelectedPurchaseNumber(updatedPurchase);
-      showSuccess("Compra cerrada correctamente");
+      showSuccess("Lista de artículos cerrada correctamente");
       loadPurchaseNumbers();
     } catch (err) {
-      showError(err.message || "Error al cerrar la compra");
+      showError(err.message || "Error al cerrar la lista de artículos");
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleFinalizePurchase = async () => {
+    if (!selectedPurchaseNumber) return;
+
+    if (!window.confirm(
+      "¿Finalizar esta compra?\n\nYa no se podrán crear ni editar gastos asociados."
+    )) {
+      return;
+    }
+
+    try {
+      setLoading(true);
+      const updatedPurchase = await finalizePurchaseNumber(selectedPurchaseNumber.id);
+      setSelectedPurchaseNumber(updatedPurchase);
+      showSuccess("Compra finalizada correctamente");
+      loadPurchaseNumbers();
+    } catch (err) {
+      showError(err.message || "Error al finalizar la compra");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleEditPurchaseExpense = (expense) => {
+    setShowPurchaseDetailModal(false);
+    handleEdit(expense);
   };
 
   const handleCreatePurchase = async () => {
@@ -3113,12 +3149,17 @@ function GastosMenoresPage() {
                             </Badge>
                             {selectedPurchaseNumber.status === "PENDIENTE" && (
                               <small className="text-muted d-block mt-1">
-                                Puede agregar artículos. Cierre la compra cuando la lista esté lista.
+                                Agregue artículos y cierre la lista cuando esté lista.
                               </small>
                             )}
                             {selectedPurchaseNumber.status === "TERMINADO" && (
                               <small className="text-muted d-block mt-1">
-                                Lista de artículos cerrada. Aún puede registrar gastos.
+                                Lista de artículos cerrada. Registre y edite gastos; al terminar, finalice la compra.
+                              </small>
+                            )}
+                            {selectedPurchaseNumber.status === "PAGADO" && (
+                              <small className="text-muted d-block mt-1">
+                                Compra finalizada. No se permiten más cambios.
                               </small>
                             )}
                           </p>
@@ -3436,7 +3477,7 @@ function GastosMenoresPage() {
                                   <div className="d-flex flex-wrap" style={{ gap: "0.25rem" }}>
                                     {!item.isPurchased && selectedPurchaseNumber && (
                                       <>
-                                        {selectedPurchaseNumber.editable && (
+                                        {canEditPurchaseExpenses(selectedPurchaseNumber) && (
                                           <Button
                                             color="info"
                                             size="sm"
@@ -3513,11 +3554,11 @@ function GastosMenoresPage() {
                       <Button
                         color="warning"
                         outline
-                        onClick={handleClosePurchase}
+                        onClick={handleClosePurchaseArticles}
                         disabled={loading || purchaseItems.length === 0}
                       >
                         <i className="nc-icon nc-lock-circle-open mr-1" />
-                        Cerrar compra
+                        Cerrar lista de artículos
                       </Button>
                     </div>
                   )}
@@ -4120,6 +4161,7 @@ function GastosMenoresPage() {
                                 </Table>
                               </div>
                               <div className="mt-3 d-flex justify-content-end">
+                                {canEditPurchaseExpenses(selectedPurchaseNumber) && (
                                 <Button
                                   color="primary"
                                   onClick={handleSaveAdjustments}
@@ -4127,6 +4169,7 @@ function GastosMenoresPage() {
                                 >
                                   {savingAdjustments ? "Guardando..." : "Guardar Ajustes"}
                                 </Button>
+                                )}
                               </div>
                             </div>
                           )}
@@ -4236,7 +4279,7 @@ function GastosMenoresPage() {
                                         </div>
                                       </div>
                                     )}
-                                    <div className="d-flex justify-content-end">
+                                    <div className="d-flex justify-content-end flex-wrap" style={{ gap: "0.25rem" }}>
                                       <Button
                                         color="info"
                                         size="sm"
@@ -4248,6 +4291,16 @@ function GastosMenoresPage() {
                                         <i className="nc-icon nc-zoom-split mr-1" />
                                         Ver Detalle
                                       </Button>
+                                      {canEditPurchaseExpense(selectedPurchaseNumber, expense) && (
+                                        <Button
+                                          color="warning"
+                                          size="sm"
+                                          onClick={() => handleEditPurchaseExpense(expense)}
+                                        >
+                                          <i className="nc-icon nc-ruler-pencil mr-1" />
+                                          Editar
+                                        </Button>
+                                      )}
                                     </div>
                                   </div>
                                 </CardBody>
@@ -4330,16 +4383,27 @@ function GastosMenoresPage() {
                                     <Badge color={status.color} style={{ border: "1px solid #6c757d" }}>{status.text}</Badge>
                                   </td>
                                   <td>
-                                    <Button
-                                      color="info"
-                                      size="sm"
-                                      onClick={() => {
-                                        setShowPurchaseDetailModal(false);
-                                        handleViewDetails(expense);
-                                      }}
-                                    >
-                                      <i className="nc-icon nc-zoom-split" /> Ver
-                                    </Button>
+                                    <div className="d-flex flex-wrap" style={{ gap: "0.25rem" }}>
+                                      <Button
+                                        color="info"
+                                        size="sm"
+                                        onClick={() => {
+                                          setShowPurchaseDetailModal(false);
+                                          handleViewDetails(expense);
+                                        }}
+                                      >
+                                        <i className="nc-icon nc-zoom-split" /> Ver
+                                      </Button>
+                                      {canEditPurchaseExpense(selectedPurchaseNumber, expense) && (
+                                        <Button
+                                          color="warning"
+                                          size="sm"
+                                          onClick={() => handleEditPurchaseExpense(expense)}
+                                        >
+                                          <i className="nc-icon nc-ruler-pencil" /> Editar
+                                        </Button>
+                                      )}
+                                    </div>
                                   </td>
                                 </tr>
                               );
@@ -4362,6 +4426,18 @@ function GastosMenoresPage() {
                       </div>
                     </div>
                   )}
+                  {selectedPurchaseNumber?.status === "TERMINADO" && (
+                    <div className="d-flex justify-content-end mt-3">
+                      <Button
+                        color="success"
+                        onClick={handleFinalizePurchase}
+                        disabled={loading}
+                      >
+                        <i className="nc-icon nc-check-2 mr-1" />
+                        Finalizar compra
+                      </Button>
+                    </div>
+                  )}
                 </CardBody>
               </Card>
             </div>
@@ -4372,6 +4448,17 @@ function GastosMenoresPage() {
           )}
         </ModalBody>
         <ModalFooter style={{ borderTop: "2px solid #e9ecef", padding: "1rem 1.5rem" }}>
+          {selectedPurchaseNumber?.status === "TERMINADO" && (
+            <Button
+              color="success"
+              onClick={handleFinalizePurchase}
+              disabled={loading}
+              className="mr-auto"
+            >
+              <i className="nc-icon nc-check-2 mr-1" />
+              Finalizar compra
+            </Button>
+          )}
           <Button
             color="secondary"
             onClick={() => {

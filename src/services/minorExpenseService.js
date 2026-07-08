@@ -380,13 +380,35 @@ export const closePurchaseNumber = async (id) => {
     });
 
     if (!response.ok) {
-      const errorData = await response.json().catch(() => ({ message: 'Error al cerrar la compra' }));
-      throw new Error(errorData.message || 'Error al cerrar la compra');
+      const errorData = await response.json().catch(() => ({ message: 'Error al cerrar la lista de artículos' }));
+      throw new Error(errorData.message || 'Error al cerrar la lista de artículos');
     }
 
     return await response.json();
   } catch (error) {
     console.error('Close purchase number error:', error);
+    throw error;
+  }
+};
+
+export const finalizePurchaseNumber = async (id) => {
+  try {
+    const response = await fetch(`${API_URL}/purchase-numbers/${id}/finalize`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...getAuthHeader()
+      }
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({ message: 'Error al finalizar la compra' }));
+      throw new Error(errorData.message || 'Error al finalizar la compra');
+    }
+
+    return await response.json();
+  } catch (error) {
+    console.error('Finalize purchase number error:', error);
     throw error;
   }
 };

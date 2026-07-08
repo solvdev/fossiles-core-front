@@ -131,8 +131,8 @@ export const downloadPurchaseSummaryPdf = ({ purchase, items, expenses }) => {
   if (purchase.status) {
     const statusLabel = {
       PENDIENTE: "Abierta",
-      TERMINADO: "Cerrada",
-      PAGADO: "Pagada",
+      TERMINADO: "Artículos cerrados",
+      PAGADO: "Finalizada",
     }[purchase.status] || purchase.status;
     pdf.text(`Estado: ${statusLabel}`, margin, y);
     y += 5;
