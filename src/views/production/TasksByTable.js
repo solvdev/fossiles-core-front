@@ -48,6 +48,9 @@ import {
 import {
   collectPlannedOrderItemIds,
   countPlannedItemsForOrder,
+  getExcludedCinchoItemsForTableCenter,
+  getPendingTableCenterItems,
+  isOrderItemEligibleForTableCenter,
   orderHasPendingItemsForTasks,
 } from "utils/taskPlanningHelper";
 import { showSuccess, showError } from "utils/notificationHelper";
@@ -436,6 +439,7 @@ function TasksByTable() {
   const [filterDesk, setFilterDesk] = useState("");
   const [filterDate, setFilterDate] = useState("");
   const [filterStatus, setFilterStatus] = useState("all");
+  const [filterProductionOrderId, setFilterProductionOrderId] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
   const [filterDieCut, setFilterDieCut] = useState("all");
   const [printTaskId, setPrintTaskId] = useState(null);
@@ -523,6 +527,7 @@ function TasksByTable() {
     const exists = productionOrders.some((o) => Number(o.id) === Number(orderIdFromUrl));
     if (!exists) return;
 
+    setFilterProductionOrderId(String(orderIdFromUrl));
     setSelectedOrderId(String(orderIdFromUrl));
     setShowGenerateModal(true);
     setViewMode("operation");
@@ -532,6 +537,14 @@ function TasksByTable() {
     next.delete("orderId");
     setSearchParams(next, { replace: true });
   }, [searchParams, setSearchParams, productionOrders]);
+
+  useEffect(() => {
+    if (!showGenerateModal || !selectedOrderId) return;
+    const order = productionOrders.find((o) => Number(o.id) === Number(selectedOrderId));
+    if (!order) return;
+    const pending = getPendingTableCenterItems(tasks, order);
+    setSelectedModalItemIds(new Set(pending.map((it) => it.id)));
+  }, [showGenerateModal, selectedOrderId, productionOrders, tasks]);
 
   useEffect(() => {
     if (!showLeatherModal) return;
@@ -1064,13 +1077,18 @@ function TasksByTable() {
     try {
       setGeneratingOrderTasks(true);
       const productionOrderId = parseInt(selectedOrderId, 10);
+      const order = productionOrders.find((o) => Number(o.id) === productionOrderId);
       const desksToUse = Math.max(1, Math.min(numDesks, parseInt(workingDesksCount, 10) || numDesks));
       const startDate = distributionDate || filterDate || new Date().toISOString().split("T")[0];
 
       const planned = collectPlannedOrderItemIds(tasks, productionOrderId);
-      const itemIds = Array.from(selectedModalItemIds).filter((id) => !planned.has(Number(id)));
+      const itemIds = Array.from(selectedModalItemIds).filter((id) => {
+        if (planned.has(Number(id))) return false;
+        const item = order?.items?.find((it) => Number(it.id) === Number(id));
+        return item && isOrderItemEligibleForTableCenter(order, item);
+      });
       if (itemIds.length === 0) {
-        showError("Los productos seleccionados ya tienen tareas en mesas");
+        showError("Los productos seleccionados ya tienen tareas en mesas o no aplican al centro de producción");
         return;
       }
       const result = await generateTasksForSelectedItems(productionOrderId, itemIds);
@@ -1162,7 +1180,14 @@ function TasksByTable() {
     setFilterDate("");
     setFilterStatus("all");
     setFilterDieCut("all");
+    setFilterProductionOrderId("");
     setSearchTerm("");
+  };
+
+  const openGenerateModalForOrder = (orderId) => {
+    if (!orderId) return;
+    setSelectedOrderId(String(orderId));
+    setShowGenerateModal(true);
   };
 
   // ==================== COMPUTED ====================
@@ -1207,8 +1232,39 @@ function TasksByTable() {
     [tableCenterTasks]
   );
 
+  const productionOrderFilterOptions = useMemo(() => {
+    const map = new Map();
+    (productionOrders || []).forEach((o) => {
+      if (o?.id != null && o?.code) map.set(Number(o.id), o);
+    });
+    (tableCenterTasks || []).forEach((t) => {
+      if (t.productionOrderId != null && t.productionOrderCode) {
+        if (!map.has(Number(t.productionOrderId))) {
+          map.set(Number(t.productionOrderId), {
+            id: t.productionOrderId,
+            code: t.productionOrderCode,
+          });
+        }
+      }
+    });
+    return Array.from(map.values()).sort((a, b) => (a.code || "").localeCompare(b.code || ""));
+  }, [productionOrders, tableCenterTasks]);
+
+  const filteredOrderForView = useMemo(() => {
+    if (!filterProductionOrderId) return null;
+    return (productionOrders || []).find((o) => Number(o.id) === Number(filterProductionOrderId)) || null;
+  }, [filterProductionOrderId, productionOrders]);
+
+  const filteredOrderPendingItems = useMemo(() => {
+    if (!filteredOrderForView) return [];
+    return getPendingTableCenterItems(tasks, filteredOrderForView);
+  }, [filteredOrderForView, tasks]);
+
   const filteredTasks = useMemo(() => {
     return tableCenterTasks.filter((task) => {
+      if (filterProductionOrderId && Number(task.productionOrderId) !== Number(filterProductionOrderId)) {
+        return false;
+      }
       if (filterDesk && task.desk !== parseInt(filterDesk)) return false;
       if (filterDate && task.scheduledDate !== filterDate) return false;
       if (filterStatus !== "all" && task.status !== filterStatus) return false;
@@ -1222,7 +1278,7 @@ function TasksByTable() {
       }
       return true;
     });
-  }, [tableCenterTasks, filterDesk, filterDate, filterStatus, filterDieCut, searchTerm]);
+  }, [tableCenterTasks, filterProductionOrderId, filterDesk, filterDate, filterStatus, filterDieCut, searchTerm]);
 
   // "Pendientes de asignar" deben ser solo tareas activas sin mesa (no incluir COMPLETED/CANCELLED).
   // Cuando una tarea se completa, se limpia desk para liberar capacidad, pero queda el historial en workedDesk.
@@ -2040,6 +2096,68 @@ function TasksByTable() {
                   </Row>
                 </CardBody>
               </Card>
+
+              <Row className="mb-3 align-items-end">
+                <Col md="4">
+                  <FormGroup className="mb-0">
+                    <Label><small>Orden de producción</small></Label>
+                    <Input
+                      type="select"
+                      bsSize="sm"
+                      value={filterProductionOrderId}
+                      onChange={(e) => setFilterProductionOrderId(e.target.value)}
+                    >
+                      <option value="">Todas las órdenes</option>
+                      {productionOrderFilterOptions.map((o) => {
+                        const counts = countPlannedItemsForOrder(tasks, o);
+                        const suffix = counts.total > 0
+                          ? counts.pending > 0
+                            ? ` (${counts.onTable}/${counts.total} en mesa)`
+                            : ` (${counts.total} prod.)`
+                          : "";
+                        return (
+                          <option key={o.id} value={o.id}>
+                            {o.code}{suffix}
+                          </option>
+                        );
+                      })}
+                    </Input>
+                  </FormGroup>
+                </Col>
+                <Col md="8">
+                  {filteredOrderForView && filteredOrderPendingItems.length > 0 && (
+                    <Alert color="warning" className="mb-0 py-2" style={{ fontSize: 13 }}>
+                      <div className="d-flex flex-wrap align-items-center justify-content-between" style={{ gap: 8 }}>
+                        <span>
+                          <strong>{filteredOrderForView.code}</strong>
+                          {" — "}
+                          {filteredOrderPendingItems.length} producto
+                          {filteredOrderPendingItems.length !== 1 ? "s" : ""} sin tarea en mesas
+                          {filteredOrderPendingItems.length <= 3 && (
+                            <span className="text-muted">
+                              {": "}
+                              {filteredOrderPendingItems.map((it) => it.productName || it.productCode).join(", ")}
+                            </span>
+                          )}
+                        </span>
+                        <Button
+                          color="success"
+                          size="sm"
+                          onClick={() => openGenerateModalForOrder(filteredOrderForView.id)}
+                        >
+                          Enviar pendientes a mesas
+                        </Button>
+                      </div>
+                    </Alert>
+                  )}
+                  {filteredOrderForView && filteredOrderPendingItems.length === 0 && (
+                    <Alert color="success" className="mb-0 py-2" style={{ fontSize: 13 }}>
+                      <strong>{filteredOrderForView.code}</strong>
+                      {" — todos los productos elegibles ya tienen tarea en mesas."}
+                    </Alert>
+                  )}
+                </Col>
+              </Row>
 
               {/* ========== FILTERS ========== */}
               {(viewMode === "schedule" || (viewMode === "operation" && showDetailedList)) && (
@@ -3422,7 +3540,7 @@ function TasksByTable() {
             <div>
               <h4 style={{ fontWeight: 700, margin: 0, color: "#1e293b" }}>Enviar a mesas</h4>
               <p style={{ color: "#64748b", fontSize: 13, margin: "4px 0 0" }}>
-                Seleccioná los productos de la orden que irán a producción
+                Elegí la OP y marcá solo los productos que aún no tienen tarea en mesas
               </p>
             </div>
             <button
@@ -3440,7 +3558,12 @@ function TasksByTable() {
 
           {/* Order picker con búsqueda */}
           {(() => {
-            const availableOrders = ordersWithPendingItems;
+            const availableOrders = [...(productionOrders || [])].sort((a, b) => {
+              const aPending = orderHasPendingItemsForTasks(tasks, a) ? 0 : 1;
+              const bPending = orderHasPendingItemsForTasks(tasks, b) ? 0 : 1;
+              if (aPending !== bPending) return aPending - bPending;
+              return (a.code || "").localeCompare(b.code || "");
+            });
             const q = orderPickerSearch.trim().toLowerCase();
             const filteredOrders = q
               ? availableOrders.filter(
@@ -3461,7 +3584,7 @@ function TasksByTable() {
               return { label: "OP", color: "#374151", bg: "#f3f4f6", border: "#d1d5db" };
             };
 
-            const selectedOrder = availableOrders.find((o) => String(o.id) === String(selectedOrderId));
+            const selectedOrder = productionOrders.find((o) => String(o.id) === String(selectedOrderId));
 
             return (
               <div style={{ marginTop: 20 }}>
@@ -3551,7 +3674,11 @@ function TasksByTable() {
                         return (
                           <div
                             key={order.id}
-                            onClick={() => !generatingOrderTasks && (setSelectedOrderId(String(order.id)), setSelectedModalItemIds(new Set()), setOrderPickerSearch(""))}
+                            onClick={() => !generatingOrderTasks && (
+                              setSelectedOrderId(String(order.id)),
+                              setFilterProductionOrderId(String(order.id)),
+                              setOrderPickerSearch("")
+                            )}
                             style={{
                               border: "1.5px solid #e2e8f0", borderRadius: 10, padding: "10px 14px",
                               cursor: generatingOrderTasks ? "default" : "pointer",
@@ -3622,8 +3749,10 @@ function TasksByTable() {
             if (!order) return null;
             const items = order.items || [];
             const plannedMap = collectPlannedOrderItemIds(tasks, order.id);
-            const pendingItems = items.filter((it) => !plannedMap.has(Number(it.id)));
-            const onTableItems = items.filter((it) => plannedMap.has(Number(it.id)));
+            const eligibleItems = items.filter((it) => isOrderItemEligibleForTableCenter(order, it));
+            const cinchoExcluded = getExcludedCinchoItemsForTableCenter(order);
+            const pendingItems = getPendingTableCenterItems(tasks, order);
+            const onTableItems = eligibleItems.filter((it) => plannedMap.has(Number(it.id)));
             const allSelected = pendingItems.length > 0 && pendingItems.every((it) => selectedModalItemIds.has(it.id));
 
             const renderItemChips = (item, variant) => {
@@ -3684,7 +3813,7 @@ function TasksByTable() {
               }
             };
 
-            if (items.length === 0) {
+            if (eligibleItems.length === 0 && cinchoExcluded.length === 0) {
               return (
                 <div style={{ textAlign: "center", padding: "32px 0", color: "#94a3b8" }}>
                   <div style={{ fontSize: 36, marginBottom: 8 }}>⚠️</div>
@@ -3695,6 +3824,15 @@ function TasksByTable() {
 
             return (
               <div>
+                {cinchoExcluded.length > 0 && (
+                  <Alert color="info" className="mb-3" style={{ fontSize: 12 }}>
+                    {cinchoExcluded.length} producto{cinchoExcluded.length !== 1 ? "s" : ""} cincho/pulsera
+                    {" "}
+                    ({cinchoExcluded.map((it) => it.productName || it.productCode).join(", ")})
+                    {" "}
+                    no van al centro de mesas — se gestionan en la mesa de cinchos.
+                  </Alert>
+                )}
                 {onTableItems.length > 0 && (
                   <div style={{ marginBottom: pendingItems.length > 0 ? 22 : 0 }}>
                     <div style={{
@@ -3820,11 +3958,11 @@ function TasksByTable() {
                       })}
                     </div>
                   </div>
-                ) : (
+                ) : eligibleItems.length > 0 ? (
                   <Alert color="success" className="mb-0" style={{ fontSize: 13 }}>
-                    Todos los productos de esta orden ya tienen tareas en mesas.
+                    Todos los productos elegibles de esta orden ya tienen tareas en mesas.
                   </Alert>
-                )}
+                ) : null}
               </div>
             );
           })()}

@@ -2,6 +2,26 @@
  * Helpers para envío selectivo de productos a mesas (centro de producción).
  */
 
+import {
+  isCinchoOrderType,
+  isMesaCinchosLineProduct,
+} from "utils/cinchoProductionHelper";
+
+/** Ítem de OP que puede generar tarea en mesas (no cincho en OP no-cincho). */
+export function isOrderItemEligibleForTableCenter(order, item) {
+  if (!item) return false;
+  if (isCinchoOrderType(order?.orderType)) return false;
+  return !isMesaCinchosLineProduct(item.productCode, item.productName);
+}
+
+/** Líneas cincho/pulsera de OP mixta: van a mesa cinchos, no al centro estándar. */
+export function getExcludedCinchoItemsForTableCenter(order) {
+  if (isCinchoOrderType(order?.orderType)) return [];
+  return (order?.items || []).filter((it) =>
+    isMesaCinchosLineProduct(it.productCode, it.productName)
+  );
+}
+
 /** Map itemId → resumen de tarea que ya cubre ese ítem de OP. */
 export function collectPlannedOrderItemIds(tasks, orderId) {
   const planned = new Map();
@@ -31,15 +51,20 @@ export function collectPlannedOrderItemIds(tasks, orderId) {
   return planned;
 }
 
-export function orderHasPendingItemsForTasks(tasks, order) {
-  const items = order?.items || [];
-  if (items.length === 0) return false;
+export function getPendingTableCenterItems(tasks, order) {
+  if (!order?.id) return [];
   const planned = collectPlannedOrderItemIds(tasks, order.id);
-  return items.some((it) => !planned.has(Number(it.id)));
+  return (order.items || []).filter(
+    (it) => isOrderItemEligibleForTableCenter(order, it) && !planned.has(Number(it.id))
+  );
+}
+
+export function orderHasPendingItemsForTasks(tasks, order) {
+  return getPendingTableCenterItems(tasks, order).length > 0;
 }
 
 export function countPlannedItemsForOrder(tasks, order) {
-  const items = order?.items || [];
+  const items = (order?.items || []).filter((it) => isOrderItemEligibleForTableCenter(order, it));
   const planned = collectPlannedOrderItemIds(tasks, order.id);
   let onTable = 0;
   items.forEach((it) => {
