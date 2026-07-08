@@ -20,8 +20,6 @@ export const MOVEMENT_CONCEPTS = [
   { code: "11", label: "Descarga", entryType: "PAYMENT", description: "Descarga de crédito cobrado" },
 ];
 
-export const getMovementConcept = (code) => MOVEMENT_CONCEPTS.find((c) => c.code === String(code));
-
 export const getCustomerAccountSummary = async ({
   search = "",
   luisFelipeOnly = true,
@@ -43,6 +41,36 @@ export const getCustomerAccountSummary = async ({
     headers: { "Content-Type": "application/json", ...getAuthHeader() },
   });
   if (!response.ok) await parseError(response, "Error al cargar cuentas por cobrar");
+  return response.json();
+};
+
+export const searchReceivableDocuments = async ({
+  search = "",
+  orderKind,
+  chargeStatus,
+  hasCharge,
+  hasPayment,
+  regionCode,
+  routeNumber,
+  routeLocationCode,
+  limit = 200,
+} = {}) => {
+  const params = new URLSearchParams();
+  if (search) params.set("search", search);
+  if (orderKind) params.set("orderKind", orderKind);
+  if (chargeStatus) params.set("chargeStatus", chargeStatus);
+  if (hasCharge != null) params.set("hasCharge", String(hasCharge));
+  if (hasPayment != null) params.set("hasPayment", String(hasPayment));
+  if (regionCode) params.set("regionCode", regionCode);
+  if (routeNumber != null && routeNumber !== "") params.set("routeNumber", String(routeNumber));
+  if (routeLocationCode) params.set("routeLocationCode", routeLocationCode);
+  params.set("limit", String(limit));
+
+  const response = await fetch(`${API_URL}/customer-accounts/receivable-search?${params}`, {
+    method: "GET",
+    headers: { "Content-Type": "application/json", ...getAuthHeader() },
+  });
+  if (!response.ok) await parseError(response, "Error al buscar documentos por cobrar");
   return response.json();
 };
 

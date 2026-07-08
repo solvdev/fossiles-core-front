@@ -17,11 +17,13 @@ import {
   Table,
 } from "reactstrap";
 import {
+  CHARGE_STATUS_LABELS,
   formatAccountMoney,
   getCreditBadgeStyle,
   getCustomerAccountPrintReport,
   getCustomerAccountSummary,
   getDueBadgeStyle,
+  searchReceivableDocuments,
   splitAccountBalance,
 } from "services/customerAccountService";
 import {
@@ -196,6 +198,71 @@ function CustomerRow({ row, kindTab }) {
   );
 }
 
+function DocumentSearchRow({ row }) {
+  const statusLabel = CHARGE_STATUS_LABELS[row.chargeStatus] || row.chargeStatus || "—";
+  const statusColor =
+    row.chargeStatus === "PAID"
+      ? "success"
+      : row.chargeStatus === "PARTIAL"
+        ? "warning"
+        : row.chargeStatus === "CHARGED"
+          ? "info"
+          : row.chargeStatus === "NONE"
+            ? "secondary"
+            : "light";
+
+  return (
+    <tr>
+      <td>
+        <div>{row.customerName || "—"}</div>
+        {row.legacyCode && <small className="text-muted"><code>{row.legacyCode}</code></small>}
+      </td>
+      <td>
+        <code>{row.routeLocationCode || "—"}</code>
+        {row.routeLocationLabel && (
+          <div className="small text-muted">{row.routeLocationLabel}</div>
+        )}
+      </td>
+      <td>
+        <Badge color={row.orderKind === "OPC" ? "dark" : "primary"}>{row.orderKind}</Badge>
+        <div className="small mt-1">{row.orderCode || "—"}</div>
+      </td>
+      <td>
+        <strong>{row.shipmentNumber || row.vendorShipmentNumber || "—"}</strong>
+        {row.partialReleaseLabel && (
+          <div className="small text-muted">{row.partialReleaseLabel}</div>
+        )}
+      </td>
+      <td>
+        <Badge color={statusColor}>{statusLabel}</Badge>
+        {row.hasPayment && row.chargeStatus !== "PAID" && (
+          <Badge color="warning" className="ml-1">Abono</Badge>
+        )}
+      </td>
+      <td className="text-right">
+        {row.hasCharge ? formatAccountMoney(row.chargedAmount) : "—"}
+      </td>
+      <td className="text-right">
+        {row.hasCharge ? (
+          <span style={getDueBadgeStyle(row.balanceDue)}>
+            {formatAccountMoney(row.balanceDue)}
+          </span>
+        ) : (
+          "—"
+        )}
+      </td>
+      <td className="text-right">
+        <Link
+          to={`/admin/customer-accounts/${row.customerId}`}
+          className="btn btn-info btn-sm btn-round"
+        >
+          Estado de cuenta
+        </Link>
+      </td>
+    </tr>
+  );
+}
+
 function CustomerAccountsList() {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -206,6 +273,9 @@ function CustomerAccountsList() {
   const [filterRoute, setFilterRoute] = useState("");
   const [filterLocation, setFilterLocation] = useState("");
   const [kindTab, setKindTab] = useState("OPV");
+  const [chargeStatusFilter, setChargeStatusFilter] = useState("");
+  const [documentRows, setDocumentRows] = useState([]);
+  const [documentLoading, setDocumentLoading] = useState(false);
   const [reportFrom, setReportFrom] = useState("");
   const [reportTo, setReportTo] = useState("");
   const [printing, setPrinting] = useState(false);
@@ -241,9 +311,47 @@ function CustomerAccountsList() {
     }
   }, [search, positiveBalanceOnly, filterRegion, filterRoute, filterLocation]);
 
+  const hasDocumentSearchCriteria = Boolean(search.trim() || chargeStatusFilter);
+
+  const loadDocumentSearch = useCallback(async () => {
+    if (!hasDocumentSearchCriteria) {
+      setDocumentRows([]);
+      return;
+    }
+    setDocumentLoading(true);
+    try {
+      const data = await searchReceivableDocuments({
+        search: search.trim(),
+        orderKind: kindTab,
+        chargeStatus: chargeStatusFilter || undefined,
+        regionCode: filterRegion || undefined,
+        routeNumber: filterRoute ? Number(filterRoute) : undefined,
+        routeLocationCode: filterLocation || undefined,
+      });
+      setDocumentRows(Array.isArray(data) ? data : []);
+    } catch (err) {
+      showError(err.message || "Error al buscar documentos");
+      setDocumentRows([]);
+    } finally {
+      setDocumentLoading(false);
+    }
+  }, [
+    search,
+    chargeStatusFilter,
+    kindTab,
+    filterRegion,
+    filterRoute,
+    filterLocation,
+    hasDocumentSearchCriteria,
+  ]);
+
   useEffect(() => {
     load();
   }, [load]);
+
+  useEffect(() => {
+    loadDocumentSearch();
+  }, [loadDocumentSearch]);
 
   const filteredRows = useMemo(() => {
     if (!positiveBalanceOnly) return rows;
@@ -396,12 +504,31 @@ function CustomerAccountsList() {
               <Row className="mb-3">
                 <Col md="4">
                   <FormGroup className="mb-md-0">
-                    <Label>Buscar cliente</Label>
+                    <Label>Buscar</Label>
                     <Input
-                      placeholder="Nombre, clave, NIT, teléfono..."
+                      placeholder="Cliente, clave, NIT, Nº envío, orden, factura..."
                       value={search}
                       onChange={(e) => setSearch(e.target.value)}
                     />
+                    <small className="text-muted">
+                      Busca en clientes y en documentos (envíos, órdenes, facturas)
+                    </small>
+                  </FormGroup>
+                </Col>
+                <Col md="2">
+                  <FormGroup className="mb-md-0">
+                    <Label>Estado de cobro</Label>
+                    <Input
+                      type="select"
+                      value={chargeStatusFilter}
+                      onChange={(e) => setChargeStatusFilter(e.target.value)}
+                    >
+                      <option value="">Todos</option>
+                      <option value="NONE">Sin cargo</option>
+                      <option value="CHARGED">Cargado (sin abono)</option>
+                      <option value="PARTIAL">Abono parcial</option>
+                      <option value="PAID">Pagado</option>
+                    </Input>
                   </FormGroup>
                 </Col>
                 <Col md="2">
@@ -478,6 +605,55 @@ function CustomerAccountsList() {
                   </FormGroup>
                 </Col>
               </Row>
+
+              {hasDocumentSearchCriteria && (
+                <Card className="mb-3 border-info">
+                  <CardHeader className="py-2 bg-light">
+                    <strong className="text-info">
+                      Resultados por envío / documento ({kindTab})
+                    </strong>
+                    <span className="text-muted small ml-2">
+                      {documentLoading
+                        ? "Buscando..."
+                        : `${documentRows.length} resultado(s)`}
+                    </span>
+                  </CardHeader>
+                  <CardBody className="p-0">
+                    {documentLoading ? (
+                      <div className="text-center py-3">Buscando documentos...</div>
+                    ) : documentRows.length === 0 ? (
+                      <Alert color="info" className="m-3 mb-0">
+                        No hay envíos o documentos que coincidan con la búsqueda.
+                      </Alert>
+                    ) : (
+                      <div className="table-responsive">
+                        <Table hover size="sm" className="mb-0">
+                          <thead className="text-primary">
+                            <tr>
+                              <th>Cliente</th>
+                              <th>Ruta</th>
+                              <th>Orden</th>
+                              <th>Nº envío</th>
+                              <th>Estado cobro</th>
+                              <th className="text-right">Monto cargo</th>
+                              <th className="text-right">Saldo</th>
+                              <th className="text-right">Acciones</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {documentRows.map((row) => (
+                              <DocumentSearchRow
+                                key={`${row.productionOrderId}-${row.productShipmentId || "order"}-${row.partialReleaseId || "x"}`}
+                                row={row}
+                              />
+                            ))}
+                          </tbody>
+                        </Table>
+                      </div>
+                    )}
+                  </CardBody>
+                </Card>
+              )}
 
               <PortfolioKindSelector
                 kindTab={kindTab}
