@@ -116,6 +116,7 @@ function GastosMenoresPage() {
   const [allPurchaseNumbers, setAllPurchaseNumbers] = useState([]); // Para filtros
   const [purchaseNumberMode, setPurchaseNumberMode] = useState("new"); // "new" o "existing"
   const [expensePurchaseLink, setExpensePurchaseLink] = useState(null);
+  const [expenseFormReturnToPurchase, setExpenseFormReturnToPurchase] = useState(false);
   const [newPurchaseNumberDescription, setNewPurchaseNumberDescription] = useState("");
   const [newPurchaseNumberTotalAmount, setNewPurchaseNumberTotalAmount] = useState("");
   const [showPurchaseDetailModal, setShowPurchaseDetailModal] = useState(false);
@@ -642,7 +643,7 @@ function GastosMenoresPage() {
         }
       }
 
-      resetForm();
+      await closeExpenseForm();
       loadExpenses();
       loadSummary();
       loadPendingReimbursements();
@@ -653,7 +654,7 @@ function GastosMenoresPage() {
     }
   };
 
-  const handleEdit = (expense) => {
+  const populateExpenseFormFromExpense = (expense) => {
     setFormData({
       invoiceNumber: expense.invoiceNumber || "",
       purchaseDate: expense.purchaseDate || new Date().toISOString().split("T")[0],
@@ -679,10 +680,40 @@ function GastosMenoresPage() {
     setInvoiceFile(null);
     setIsEditing(true);
     setSelectedExpenseId(expense.id);
-    setExpensePurchaseLink(null);
     setPurchaseNumberMode(expense.purchaseNumberId ? "existing" : "new");
+  };
+
+  const buildExpensePurchaseLink = (purchase, { expense, item } = {}) => {
+    if (!purchase) return null;
+    const linkedItem = item || (
+      expense?.purchaseNumberItemId
+        ? purchaseItems.find((i) => i.id === expense.purchaseNumberItemId)
+        : null
+    );
+    return {
+      purchaseNumberId: purchase.id,
+      purchaseNumber: purchase.purchaseNumber,
+      description: purchase.description || "",
+      itemId: linkedItem?.id || expense?.purchaseNumberItemId || null,
+      itemName: linkedItem?.itemName || null,
+    };
+  };
+
+  const handleEdit = (expense) => {
+    populateExpenseFormFromExpense(expense);
+    setExpensePurchaseLink(null);
+    setExpenseFormReturnToPurchase(false);
     setShowForm(true);
-    loadPurchaseNumbers(); // Recargar números disponibles
+    loadPurchaseNumbers();
+  };
+
+  const openEditExpenseFormFromPurchase = (expense, item = null) => {
+    if (!selectedPurchaseNumber) return;
+    setExpensePurchaseLink(buildExpensePurchaseLink(selectedPurchaseNumber, { expense, item }));
+    setExpenseFormReturnToPurchase(true);
+    populateExpenseFormFromExpense(expense);
+    setShowForm(true);
+    loadPurchaseNumbers();
   };
 
   const handleDelete = async (id) => {
@@ -708,7 +739,7 @@ function GastosMenoresPage() {
     setShowDetailsModal(true);
   };
 
-  const handleViewPurchaseDetails = async (purchaseNumberId, purchaseNumber) => {
+  const refreshPurchaseDetailModal = async (purchaseNumberId) => {
     if (!purchaseNumberId) return;
 
     try {
@@ -723,20 +754,24 @@ function GastosMenoresPage() {
       setPurchaseExpenses(expenses || []);
       setPurchaseItems(items || []);
       setPurchaseCompensations(compensations || []);
-      // Inicializar ajustes con los valores existentes
       const adjustments = {};
-      expenses.forEach(exp => {
+      (expenses || []).forEach((exp) => {
         if (exp.reimbursementAdjustment != null) {
           adjustments[exp.id] = exp.reimbursementAdjustment.toString();
         }
       });
       setReimbursementAdjustments(adjustments);
-      setShowPurchaseDetailModal(true);
     } catch (err) {
       showError(err.message || "Error al cargar los detalles de la compra");
     } finally {
       setLoadingPurchaseDetail(false);
     }
+  };
+
+  const handleViewPurchaseDetails = async (purchaseNumberId) => {
+    if (!purchaseNumberId) return;
+    await refreshPurchaseDetailModal(purchaseNumberId);
+    setShowPurchaseDetailModal(true);
   };
 
   const handleAdjustmentChange = (expenseId, value) => {
@@ -808,6 +843,26 @@ function GastosMenoresPage() {
     }
   };
 
+  const closePurchaseDetailModal = () => {
+    if (showForm) {
+      setShowForm(false);
+      setExpensePurchaseLink(null);
+      setExpenseFormReturnToPurchase(false);
+      setIsEditing(false);
+      setSelectedExpenseId(null);
+      setFormErrors({});
+    }
+    setShowPurchaseDetailModal(false);
+    setSelectedPurchaseNumber(null);
+    setPurchaseExpenses([]);
+    setPurchaseCompensations([]);
+    setEditingPurchaseNumber(false);
+    setPurchaseNumberEditData({
+      description: "",
+      totalAmount: "",
+    });
+  };
+
   const handleDownloadPurchaseSummary = () => {
     try {
       downloadPurchaseSummaryPdf({
@@ -870,9 +925,8 @@ function GastosMenoresPage() {
     }
   };
 
-  const handleEditPurchaseExpense = (expense) => {
-    setShowPurchaseDetailModal(false);
-    handleEdit(expense);
+  const handleEditPurchaseExpense = (expense, item = null) => {
+    openEditExpenseFormFromPurchase(expense, item);
   };
 
   const handleCreatePurchase = async () => {
@@ -1055,13 +1109,8 @@ function GastosMenoresPage() {
     if (!selectedPurchaseNumber) return;
 
     const estimatedTotal = calcItemLineTotal(item.estimatedPrice, item.quantity) || 0;
-    setExpensePurchaseLink({
-      purchaseNumberId: selectedPurchaseNumber.id,
-      purchaseNumber: selectedPurchaseNumber.purchaseNumber,
-      description: selectedPurchaseNumber.description || "",
-      itemId: item.id,
-      itemName: item.itemName || "",
-    });
+    setExpensePurchaseLink(buildExpensePurchaseLink(selectedPurchaseNumber, { item }));
+    setExpenseFormReturnToPurchase(true);
     setFormData({
       invoiceNumber: "",
       purchaseDate: new Date().toISOString().split("T")[0],
@@ -1087,7 +1136,6 @@ function GastosMenoresPage() {
     setPurchaseNumberMode("existing");
     setIsEditing(false);
     setSelectedExpenseId(null);
-    setShowPurchaseDetailModal(false);
     setShowForm(true);
   };
 
@@ -1117,7 +1165,10 @@ function GastosMenoresPage() {
     }
   };
 
-  const resetForm = () => {
+  const closeExpenseForm = async () => {
+    const shouldReturn = expenseFormReturnToPurchase;
+    const purchaseId = selectedPurchaseNumber?.id;
+
     setFormData({
       invoiceNumber: "",
       purchaseDate: new Date().toISOString().split("T")[0],
@@ -1142,16 +1193,24 @@ function GastosMenoresPage() {
     });
     setInvoiceFile(null);
     setExpensePurchaseLink(null);
+    setExpenseFormReturnToPurchase(false);
     setPurchaseNumberMode("new");
     setNewPurchaseNumberDescription("");
     setNewPurchaseNumberTotalAmount("");
     setIsEditing(false);
     setSelectedExpenseId(null);
-    loadPurchaseNumbers(); // Recargar números disponibles
     setFormErrors({});
-    setIsEditing(false);
-    setSelectedExpenseId(null);
     setShowForm(false);
+    loadPurchaseNumbers();
+
+    if (shouldReturn && purchaseId) {
+      await refreshPurchaseDetailModal(purchaseId);
+      setShowPurchaseDetailModal(true);
+    }
+  };
+
+  const resetForm = () => {
+    closeExpenseForm();
   };
 
   const exportToExcel = () => {
@@ -2112,10 +2171,18 @@ function GastosMenoresPage() {
       </Card>
 
       {/* Modal de Formulario */}
-      <Modal isOpen={showForm} toggle={resetForm} size="lg">
-        <ModalHeader toggle={resetForm}>
+      <Modal
+        isOpen={showForm}
+        toggle={closeExpenseForm}
+        size="lg"
+        zIndex={1060}
+        backdrop={expenseFormReturnToPurchase ? false : true}
+      >
+        <ModalHeader toggle={closeExpenseForm}>
           {isEditing
-            ? "Editar Gasto"
+            ? expensePurchaseLink
+              ? "Editar Gasto de Compra"
+              : "Editar Gasto"
             : expensePurchaseLink
               ? "Nuevo Gasto desde Artículo"
               : "Nuevo Gasto"}
@@ -2128,9 +2195,11 @@ function GastosMenoresPage() {
                 {expensePurchaseLink.description && (
                   <div className="text-muted">{expensePurchaseLink.description}</div>
                 )}
-                <div className="mt-1">
-                  <strong>Artículo:</strong> {expensePurchaseLink.itemName}
-                </div>
+                {expensePurchaseLink.itemName && (
+                  <div className="mt-1">
+                    <strong>Artículo:</strong> {expensePurchaseLink.itemName}
+                  </div>
+                )}
               </Alert>
             )}
             {!expensePurchaseLink && (
@@ -2545,7 +2614,7 @@ function GastosMenoresPage() {
             </Row>
           </ModalBody>
           <ModalFooter>
-            <Button color="secondary" onClick={resetForm} disabled={loading}>
+            <Button color="secondary" onClick={closeExpenseForm} disabled={loading}>
               Cancelar
             </Button>
             <Button color="primary" type="submit" disabled={loading || uploadingFile}>
@@ -2556,7 +2625,13 @@ function GastosMenoresPage() {
       </Modal>
 
       {/* Modal de Detalle */}
-      <Modal isOpen={showDetailsModal} toggle={() => setShowDetailsModal(false)} size="lg">
+      <Modal
+        isOpen={showDetailsModal}
+        toggle={() => setShowDetailsModal(false)}
+        size="lg"
+        zIndex={showPurchaseDetailModal ? 1060 : undefined}
+        backdrop={showPurchaseDetailModal ? false : true}
+      >
         <ModalHeader toggle={() => setShowDetailsModal(false)} style={{ borderBottom: "2px solid #e9ecef", padding: "1.25rem 1.5rem" }}>
           <div className="d-flex justify-content-between align-items-center w-100">
             <div className="d-flex align-items-center">
@@ -3010,25 +3085,11 @@ function GastosMenoresPage() {
       {/* Modal de Detalle de Compra */}
       <Modal
         isOpen={showPurchaseDetailModal}
-        toggle={() => {
-          setShowPurchaseDetailModal(false);
-          setSelectedPurchaseNumber(null);
-          setPurchaseExpenses([]);
-          setPurchaseCompensations([]);
-          setEditingPurchaseNumber(false);
-          setPurchaseNumberEditData({
-            description: "",
-            totalAmount: "",
-          });
-        }}
+        toggle={closePurchaseDetailModal}
         size="xl"
       >
         <ModalHeader
-          toggle={() => {
-            setShowPurchaseDetailModal(false);
-            setSelectedPurchaseNumber(null);
-            setPurchaseExpenses([]);
-          }}
+          toggle={closePurchaseDetailModal}
           style={{ borderBottom: "2px solid #e9ecef", padding: "1.25rem 1.5rem" }}
         >
           <div className="d-flex justify-content-between align-items-center w-100">
@@ -3430,6 +3491,9 @@ function GastosMenoresPage() {
                             const totalDiff = priceDiff !== null
                               ? priceDiff * item.quantity
                               : null;
+                            const linkedExpense = item.minorExpenseId
+                              ? purchaseExpenses.find((e) => e.id === item.minorExpenseId)
+                              : null;
 
                             return (
                               <tr key={item.id}>
@@ -3506,20 +3570,25 @@ function GastosMenoresPage() {
                                         )}
                                       </>
                                     )}
-                                    {item.isPurchased && item.minorExpenseId && (
-                                      <Button
-                                        color="info"
-                                        size="sm"
-                                        onClick={() => {
-                                          const expense = purchaseExpenses.find(e => e.id === item.minorExpenseId);
-                                          if (expense) {
-                                            setShowPurchaseDetailModal(false);
-                                            handleViewDetails(expense);
-                                          }
-                                        }}
-                                      >
-                                        <i className="nc-icon nc-zoom-split" /> Ver Gasto
-                                      </Button>
+                                    {item.isPurchased && linkedExpense && (
+                                      <>
+                                        <Button
+                                          color="info"
+                                          size="sm"
+                                          onClick={() => handleViewDetails(linkedExpense)}
+                                        >
+                                          <i className="nc-icon nc-zoom-split" /> Ver Gasto
+                                        </Button>
+                                        {canEditPurchaseExpense(selectedPurchaseNumber, linkedExpense) && (
+                                          <Button
+                                            color="warning"
+                                            size="sm"
+                                            onClick={() => handleEditPurchaseExpense(linkedExpense, item)}
+                                          >
+                                            <i className="nc-icon nc-ruler-pencil" /> Editar
+                                          </Button>
+                                        )}
+                                      </>
                                     )}
                                   </div>
                                 </td>
@@ -4283,10 +4352,7 @@ function GastosMenoresPage() {
                                       <Button
                                         color="info"
                                         size="sm"
-                                        onClick={() => {
-                                          setShowPurchaseDetailModal(false);
-                                          handleViewDetails(expense);
-                                        }}
+                                        onClick={() => handleViewDetails(expense)}
                                       >
                                         <i className="nc-icon nc-zoom-split mr-1" />
                                         Ver Detalle
@@ -4387,10 +4453,7 @@ function GastosMenoresPage() {
                                       <Button
                                         color="info"
                                         size="sm"
-                                        onClick={() => {
-                                          setShowPurchaseDetailModal(false);
-                                          handleViewDetails(expense);
-                                        }}
+                                        onClick={() => handleViewDetails(expense)}
                                       >
                                         <i className="nc-icon nc-zoom-split" /> Ver
                                       </Button>
@@ -4461,11 +4524,7 @@ function GastosMenoresPage() {
           )}
           <Button
             color="secondary"
-            onClick={() => {
-              setShowPurchaseDetailModal(false);
-              setSelectedPurchaseNumber(null);
-              setPurchaseExpenses([]);
-            }}
+            onClick={closePurchaseDetailModal}
             style={{ padding: "0.5rem 1.5rem", fontWeight: "500" }}
           >
             Cerrar
