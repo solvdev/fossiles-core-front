@@ -84,7 +84,7 @@ function PortfolioKindSelector({ kindTab, onSelect, totalsByKind, clientCount })
       <div className="d-flex flex-wrap align-items-center justify-content-between mb-2">
         <div>
           <strong className="text-primary">Cartera activa</strong>
-          <div className="text-muted small">Seleccione OPV u OPC para ver saldos y listado</div>
+          <div className="text-muted small">Seleccione OPV u OPC — incluye envíos físicos y cargos</div>
         </div>
         <Badge
           pill
@@ -274,6 +274,7 @@ function CustomerAccountsList() {
   const [filterLocation, setFilterLocation] = useState("");
   const [kindTab, setKindTab] = useState("OPV");
   const [chargeStatusFilter, setChargeStatusFilter] = useState("");
+  const [documentViewFilter, setDocumentViewFilter] = useState("all");
   const [documentRows, setDocumentRows] = useState([]);
   const [documentLoading, setDocumentLoading] = useState(false);
   const [reportFrom, setReportFrom] = useState("");
@@ -311,24 +312,24 @@ function CustomerAccountsList() {
     }
   }, [search, positiveBalanceOnly, filterRegion, filterRoute, filterLocation]);
 
-  const hasDocumentSearchCriteria = Boolean(search.trim() || chargeStatusFilter);
-
   const loadDocumentSearch = useCallback(async () => {
-    if (!hasDocumentSearchCriteria) {
-      setDocumentRows([]);
-      return;
-    }
     setDocumentLoading(true);
     try {
       const data = await searchReceivableDocuments({
         search: search.trim(),
         orderKind: kindTab,
         chargeStatus: chargeStatusFilter || undefined,
+        hasCharge: documentViewFilter === "withCharge" ? true : undefined,
         regionCode: filterRegion || undefined,
         routeNumber: filterRoute ? Number(filterRoute) : undefined,
         routeLocationCode: filterLocation || undefined,
+        limit: 500,
       });
-      setDocumentRows(Array.isArray(data) ? data : []);
+      let rows = Array.isArray(data) ? data : [];
+      if (documentViewFilter === "withShipment") {
+        rows = rows.filter((r) => r.productShipmentId || r.documentLevel === "SHIPMENT");
+      }
+      setDocumentRows(rows);
     } catch (err) {
       showError(err.message || "Error al buscar documentos");
       setDocumentRows([]);
@@ -338,11 +339,11 @@ function CustomerAccountsList() {
   }, [
     search,
     chargeStatusFilter,
+    documentViewFilter,
     kindTab,
     filterRegion,
     filterRoute,
     filterLocation,
-    hasDocumentSearchCriteria,
   ]);
 
   useEffect(() => {
@@ -511,7 +512,7 @@ function CustomerAccountsList() {
                       onChange={(e) => setSearch(e.target.value)}
                     />
                     <small className="text-muted">
-                      Busca en clientes y en documentos (envíos, órdenes, facturas)
+                      Busca en clientes y documentos OPV/OPC (envíos, órdenes, facturas)
                     </small>
                   </FormGroup>
                 </Col>
@@ -591,6 +592,20 @@ function CustomerAccountsList() {
                     </Input>
                   </FormGroup>
                 </Col>
+                <Col md="2">
+                  <FormGroup className="mb-md-0">
+                    <Label>Ver documentos</Label>
+                    <Input
+                      type="select"
+                      value={documentViewFilter}
+                      onChange={(e) => setDocumentViewFilter(e.target.value)}
+                    >
+                      <option value="all">Todos (OPV/OPC activa)</option>
+                      <option value="withCharge">Solo con cargo</option>
+                      <option value="withShipment">Solo con envío físico</option>
+                    </Input>
+                  </FormGroup>
+                </Col>
                 <Col md="2" className="d-flex align-items-end">
                   <FormGroup check className="mb-md-0">
                     <Label check>
@@ -606,61 +621,60 @@ function CustomerAccountsList() {
                 </Col>
               </Row>
 
-              {hasDocumentSearchCriteria && (
-                <Card className="mb-3 border-info">
-                  <CardHeader className="py-2 bg-light">
-                    <strong className="text-info">
-                      Resultados por envío / documento ({kindTab})
-                    </strong>
-                    <span className="text-muted small ml-2">
-                      {documentLoading
-                        ? "Buscando..."
-                        : `${documentRows.length} resultado(s)`}
-                    </span>
-                  </CardHeader>
-                  <CardBody className="p-0">
-                    {documentLoading ? (
-                      <div className="text-center py-3">Buscando documentos...</div>
-                    ) : documentRows.length === 0 ? (
-                      <Alert color="info" className="m-3 mb-0">
-                        No hay envíos o documentos que coincidan con la búsqueda.
-                      </Alert>
-                    ) : (
-                      <div className="table-responsive">
-                        <Table hover size="sm" className="mb-0">
-                          <thead className="text-primary">
-                            <tr>
-                              <th>Cliente</th>
-                              <th>Ruta</th>
-                              <th>Orden</th>
-                              <th>Nº envío</th>
-                              <th>Estado cobro</th>
-                              <th className="text-right">Monto cargo</th>
-                              <th className="text-right">Saldo</th>
-                              <th className="text-right">Acciones</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {documentRows.map((row) => (
-                              <DocumentSearchRow
-                                key={`${row.productionOrderId}-${row.productShipmentId || "order"}-${row.partialReleaseId || "x"}`}
-                                row={row}
-                              />
-                            ))}
-                          </tbody>
-                        </Table>
-                      </div>
-                    )}
-                  </CardBody>
-                </Card>
-              )}
-
               <PortfolioKindSelector
                 kindTab={kindTab}
                 onSelect={setKindTab}
                 totalsByKind={portfolioTotalsByKind}
                 clientCount={rows.length}
               />
+
+              <Card className="mb-3 border-info">
+                <CardHeader className="py-2 bg-light">
+                  <strong className="text-info">
+                    Envíos y documentos — cartera {kindTab}
+                  </strong>
+                  <span className="text-muted small ml-2">
+                    {documentLoading
+                      ? "Cargando..."
+                      : `${documentRows.length} resultado(s)`}
+                  </span>
+                </CardHeader>
+                <CardBody className="p-0">
+                  {documentLoading ? (
+                    <div className="text-center py-3">Cargando documentos...</div>
+                  ) : documentRows.length === 0 ? (
+                    <Alert color="info" className="m-3 mb-0">
+                      No hay envíos ni documentos para {kindTab} con los filtros actuales.
+                      Pruebe quitar filtros o cambiar a la otra cartera (OPV / OPC).
+                    </Alert>
+                  ) : (
+                    <div className="table-responsive">
+                      <Table hover size="sm" className="mb-0">
+                        <thead className="text-primary">
+                          <tr>
+                            <th>Cliente</th>
+                            <th>Ruta</th>
+                            <th>Orden</th>
+                            <th>Nº envío</th>
+                            <th>Estado cobro</th>
+                            <th className="text-right">Monto cargo</th>
+                            <th className="text-right">Saldo</th>
+                            <th className="text-right">Acciones</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {documentRows.map((row) => (
+                            <DocumentSearchRow
+                              key={`${row.chargeEntryId || "n"}-${row.productionOrderId}-${row.productShipmentId || "order"}-${row.partialReleaseId || "x"}`}
+                              row={row}
+                            />
+                          ))}
+                        </tbody>
+                      </Table>
+                    </div>
+                  )}
+                </CardBody>
+              </Card>
 
               <Row className="mb-3">
                 <Col md="3">
