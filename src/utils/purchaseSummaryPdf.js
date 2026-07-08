@@ -129,7 +129,12 @@ export const downloadPurchaseSummaryPdf = ({ purchase, items, expenses }) => {
   pdf.text(`Número de compra: ${purchase.purchaseNumber || "N/A"}`, margin, y);
   y += 5;
   if (purchase.status) {
-    pdf.text(`Estado: ${purchase.status}`, margin, y);
+    const statusLabel = {
+      PENDIENTE: "Abierta",
+      TERMINADO: "Cerrada",
+      PAGADO: "Pagada",
+    }[purchase.status] || purchase.status;
+    pdf.text(`Estado: ${statusLabel}`, margin, y);
     y += 5;
   }
   if (purchase.totalAmount != null) {

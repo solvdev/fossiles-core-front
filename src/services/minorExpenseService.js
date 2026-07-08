@@ -369,6 +369,28 @@ export const updatePurchaseNumber = async (id, purchaseNumberData) => {
   }
 };
 
+export const closePurchaseNumber = async (id) => {
+  try {
+    const response = await fetch(`${API_URL}/purchase-numbers/${id}/close`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...getAuthHeader()
+      }
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({ message: 'Error al cerrar la compra' }));
+      throw new Error(errorData.message || 'Error al cerrar la compra');
+    }
+
+    return await response.json();
+  } catch (error) {
+    console.error('Close purchase number error:', error);
+    throw error;
+  }
+};
+
 export const getPurchaseNumberExpenses = async (purchaseNumberId) => {
   try {
     const response = await fetch(`${API_URL}/purchase-numbers/${purchaseNumberId}/expenses`, {

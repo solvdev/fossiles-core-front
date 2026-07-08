@@ -42,6 +42,7 @@ import {
   getPurchaseNumberById,
   getPurchaseNumberExpenses,
   updatePurchaseNumber,
+  closePurchaseNumber,
   getPurchaseNumberItems,
   createPurchaseNumberItem,
   updatePurchaseNumberItem,
@@ -54,6 +55,20 @@ import { getUsers } from "services/userService";
 import { showSuccess, showError } from "utils/notificationHelper";
 import { downloadPurchaseSummaryPdf } from "utils/purchaseSummaryPdf";
 import * as XLSX from "xlsx";
+
+const PURCHASE_STATUS_LABELS = {
+  PENDIENTE: { color: "warning", text: "Abierta" },
+  TERMINADO: { color: "secondary", text: "Cerrada" },
+  PAGADO: { color: "success", text: "Pagada" },
+};
+
+const getPurchaseStatusLabel = (status) => (
+  PURCHASE_STATUS_LABELS[status] || { color: "secondary", text: status || "N/A" }
+);
+
+const canModifyPurchaseItems = (purchase) => (
+  purchase?.itemsEditable ?? (purchase?.status === "PENDIENTE" && purchase?.editable)
+);
 
 // Componente de filtro por defecto
 function DefaultColumnFilter({
@@ -792,6 +807,33 @@ function GastosMenoresPage() {
       showSuccess("Resumen de compra descargado correctamente");
     } catch (err) {
       showError(err.message || "Error al descargar el resumen de la compra");
+    }
+  };
+
+  const handleClosePurchase = async () => {
+    if (!selectedPurchaseNumber) return;
+
+    if (purchaseItems.length === 0) {
+      showError("Agregue al menos un artículo antes de cerrar la compra");
+      return;
+    }
+
+    if (!window.confirm(
+      "¿Cerrar esta compra?\n\nYa no se podrán agregar ni modificar artículos. Aún podrá registrar gastos sobre los artículos existentes."
+    )) {
+      return;
+    }
+
+    try {
+      setLoading(true);
+      const updatedPurchase = await closePurchaseNumber(selectedPurchaseNumber.id);
+      setSelectedPurchaseNumber(updatedPurchase);
+      showSuccess("Compra cerrada correctamente");
+      loadPurchaseNumbers();
+    } catch (err) {
+      showError(err.message || "Error al cerrar la compra");
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -1768,17 +1810,8 @@ function GastosMenoresPage() {
                                 </span>
                               </td>
                               <td>
-                                <Badge
-                                  color={
-                                    pn.status === "PAGADO"
-                                      ? "success"
-                                      : pn.status === "TERMINADO"
-                                        ? "secondary"
-                                        : "warning"
-                                  }
-                                >
-                                  {pn.status === "PAGADO" ? "Pagado" :
-                                    pn.status === "TERMINADO" ? "Terminado" : "Pendiente"}
+                                <Badge color={getPurchaseStatusLabel(pn.status).color}>
+                                  {getPurchaseStatusLabel(pn.status).text}
                                 </Badge>
                               </td>
                               <td>
@@ -1831,7 +1864,7 @@ function GastosMenoresPage() {
                                   >
                                     <i className="nc-icon nc-zoom-split" /> Ver
                                   </Button>
-                                  {pn.editable && (
+                                  {canModifyPurchaseItems(pn) && (
                                     <Button
                                       color="warning"
                                       size="sm"
@@ -2953,7 +2986,19 @@ function GastosMenoresPage() {
                   <i className="nc-icon nc-cloud-download-93 mr-1" />
                   Descargar resumen
                 </Button>
-                {selectedPurchaseNumber.editable && !editingPurchaseNumber && (
+                {canModifyPurchaseItems(selectedPurchaseNumber) && !editingPurchaseNumber && (
+                  <Button
+                    color="warning"
+                    size="sm"
+                    outline
+                    onClick={handleClosePurchase}
+                    disabled={loading || purchaseItems.length === 0}
+                  >
+                    <i className="nc-icon nc-lock-circle-open mr-1" />
+                    Cerrar compra
+                  </Button>
+                )}
+                {canModifyPurchaseItems(selectedPurchaseNumber) && !editingPurchaseNumber && (
                   <Button
                     color="primary"
                     size="sm"
@@ -2970,13 +3015,7 @@ function GastosMenoresPage() {
                   </Button>
                 )}
                 <Badge
-                  color={
-                    selectedPurchaseNumber.status === "PAGADO"
-                      ? "success"
-                      : selectedPurchaseNumber.status === "TERMINADO"
-                        ? "secondary"
-                        : "warning"
-                  }
+                  color={getPurchaseStatusLabel(selectedPurchaseNumber.status).color}
                   style={{
                     fontSize: "0.875rem",
                     padding: "0.5rem 1rem",
@@ -2987,17 +3026,17 @@ function GastosMenoresPage() {
                   {selectedPurchaseNumber.status === "PAGADO" ? (
                     <>
                       <i className="nc-icon nc-check-2 mr-1" />
-                      Pagado
+                      {getPurchaseStatusLabel(selectedPurchaseNumber.status).text}
                     </>
                   ) : selectedPurchaseNumber.status === "TERMINADO" ? (
                     <>
-                      <i className="nc-icon nc-simple-remove mr-1" />
-                      Terminado
+                      <i className="nc-icon nc-lock-circle mr-1" />
+                      {getPurchaseStatusLabel(selectedPurchaseNumber.status).text}
                     </>
                   ) : (
                     <>
-                      <i className="nc-icon nc-time-alarm mr-1" />
-                      Pendiente
+                      <i className="nc-icon nc-bullet-list-67 mr-1" />
+                      {getPurchaseStatusLabel(selectedPurchaseNumber.status).text}
                     </>
                   )}
                 </Badge>
@@ -3048,18 +3087,19 @@ function GastosMenoresPage() {
                             Estado
                           </label>
                           <p style={{ margin: 0 }}>
-                            <Badge
-                              color={
-                                selectedPurchaseNumber.status === "PAGADO"
-                                  ? "success"
-                                  : selectedPurchaseNumber.status === "TERMINADO"
-                                    ? "secondary"
-                                    : "warning"
-                              }
-                            >
-                              {selectedPurchaseNumber.status === "PAGADO" ? "Pagado" :
-                                selectedPurchaseNumber.status === "TERMINADO" ? "Terminado" : "Pendiente"}
+                            <Badge color={getPurchaseStatusLabel(selectedPurchaseNumber.status).color}>
+                              {getPurchaseStatusLabel(selectedPurchaseNumber.status).text}
                             </Badge>
+                            {selectedPurchaseNumber.status === "PENDIENTE" && (
+                              <small className="text-muted d-block mt-1">
+                                Puede agregar artículos. Cierre la compra cuando la lista esté lista.
+                              </small>
+                            )}
+                            {selectedPurchaseNumber.status === "TERMINADO" && (
+                              <small className="text-muted d-block mt-1">
+                                Lista de artículos cerrada. Aún puede registrar gastos.
+                              </small>
+                            )}
                           </p>
                         </div>
                       </div>
@@ -3283,7 +3323,7 @@ function GastosMenoresPage() {
                         Artículos de la Compra ({purchaseItems.length})
                       </h6>
                     </div>
-                    {selectedPurchaseNumber && selectedPurchaseNumber.editable && (
+                    {selectedPurchaseNumber && canModifyPurchaseItems(selectedPurchaseNumber) && (
                       <Button
                         color="primary"
                         size="sm"
@@ -3373,29 +3413,35 @@ function GastosMenoresPage() {
                                 </td>
                                 <td>
                                   <div className="d-flex flex-wrap" style={{ gap: "0.25rem" }}>
-                                    {!item.isPurchased && selectedPurchaseNumber && selectedPurchaseNumber.editable && (
+                                    {!item.isPurchased && selectedPurchaseNumber && (
                                       <>
-                                        <Button
-                                          color="info"
-                                          size="sm"
-                                          onClick={() => handleCreateExpenseFromItem(item)}
-                                        >
-                                          <i className="nc-icon nc-simple-add" /> Crear Gasto
-                                        </Button>
-                                        <Button
-                                          color="warning"
-                                          size="sm"
-                                          onClick={() => handleEditItem(item)}
-                                        >
-                                          <i className="nc-icon nc-settings" />
-                                        </Button>
-                                        <Button
-                                          color="danger"
-                                          size="sm"
-                                          onClick={() => handleDeleteItem(item.id)}
-                                        >
-                                          <i className="nc-icon nc-simple-remove" />
-                                        </Button>
+                                        {selectedPurchaseNumber.editable && (
+                                          <Button
+                                            color="info"
+                                            size="sm"
+                                            onClick={() => handleCreateExpenseFromItem(item)}
+                                          >
+                                            <i className="nc-icon nc-simple-add" /> Crear Gasto
+                                          </Button>
+                                        )}
+                                        {canModifyPurchaseItems(selectedPurchaseNumber) && (
+                                          <>
+                                            <Button
+                                              color="warning"
+                                              size="sm"
+                                              onClick={() => handleEditItem(item)}
+                                            >
+                                              <i className="nc-icon nc-settings" />
+                                            </Button>
+                                            <Button
+                                              color="danger"
+                                              size="sm"
+                                              onClick={() => handleDeleteItem(item.id)}
+                                            >
+                                              <i className="nc-icon nc-simple-remove" />
+                                            </Button>
+                                          </>
+                                        )}
                                       </>
                                     )}
                                     {item.isPurchased && item.minorExpenseId && (
