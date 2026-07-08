@@ -41,12 +41,11 @@ const calcLineTotal = (item) => {
 };
 
 const buildItemDescription = (item, expense) => {
-  let description = (item.itemName || "").trim();
-  if (item.description) {
-    description += ` ${String(item.description).trim()}`;
-  }
+  let description = String(item.description || "").trim();
   if (expense?.invoiceNumber) {
-    description += ` Fact. ${expense.invoiceNumber}`;
+    description += description
+      ? ` Fact. ${expense.invoiceNumber}`
+      : `Fact. ${expense.invoiceNumber}`;
   }
   return description.toUpperCase();
 };
