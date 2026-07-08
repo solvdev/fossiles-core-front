@@ -2231,13 +2231,13 @@ function GastosMenoresPage() {
             <Row>
               <Col md="6">
                 <FormGroup>
-                  <Label>Número de Factura *</Label>
+                  <Label>Número de Documento *</Label>
                   <Input
                     type="text"
                     value={formData.invoiceNumber}
                     onChange={(e) => handleFormChange("invoiceNumber", e.target.value)}
                     invalid={!!formErrors.invoiceNumber}
-                    disabled={isEditing}
+                    
                   />
                   {formErrors.invoiceNumber && (
                     <div className="text-danger small">{formErrors.invoiceNumber}</div>
