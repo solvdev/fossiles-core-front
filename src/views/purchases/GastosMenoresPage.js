@@ -106,6 +106,7 @@ function GastosMenoresPage() {
   const [purchaseNumbers, setPurchaseNumbers] = useState([]);
   const [allPurchaseNumbers, setAllPurchaseNumbers] = useState([]); // Para filtros
   const [purchaseNumberMode, setPurchaseNumberMode] = useState("new"); // "new" o "existing"
+  const [expensePurchaseLink, setExpensePurchaseLink] = useState(null);
   const [newPurchaseNumberDescription, setNewPurchaseNumberDescription] = useState("");
   const [newPurchaseNumberTotalAmount, setNewPurchaseNumberTotalAmount] = useState("");
   const [showPurchaseDetailModal, setShowPurchaseDetailModal] = useState(false);
@@ -669,6 +670,7 @@ function GastosMenoresPage() {
     setInvoiceFile(null);
     setIsEditing(true);
     setSelectedExpenseId(expense.id);
+    setExpensePurchaseLink(null);
     setPurchaseNumberMode(expense.purchaseNumberId ? "existing" : "new");
     setShowForm(true);
     loadPurchaseNumbers(); // Recargar números disponibles
@@ -1014,8 +1016,16 @@ function GastosMenoresPage() {
   };
 
   const handleCreateExpenseFromItem = (item) => {
-    // Prellenar el formulario con datos del artículo
+    if (!selectedPurchaseNumber) return;
+
     const estimatedTotal = calcItemLineTotal(item.estimatedPrice, item.quantity) || 0;
+    setExpensePurchaseLink({
+      purchaseNumberId: selectedPurchaseNumber.id,
+      purchaseNumber: selectedPurchaseNumber.purchaseNumber,
+      description: selectedPurchaseNumber.description || "",
+      itemId: item.id,
+      itemName: item.itemName || "",
+    });
     setFormData({
       invoiceNumber: "",
       purchaseDate: new Date().toISOString().split("T")[0],
@@ -1039,6 +1049,8 @@ function GastosMenoresPage() {
       estimatedPrice: parseFloat(item.estimatedPrice),
     });
     setPurchaseNumberMode("existing");
+    setIsEditing(false);
+    setSelectedExpenseId(null);
     setShowPurchaseDetailModal(false);
     setShowForm(true);
   };
@@ -1093,6 +1105,7 @@ function GastosMenoresPage() {
       estimatedPrice: null,
     });
     setInvoiceFile(null);
+    setExpensePurchaseLink(null);
     setPurchaseNumberMode("new");
     setNewPurchaseNumberDescription("");
     setNewPurchaseNumberTotalAmount("");
@@ -2065,10 +2078,26 @@ function GastosMenoresPage() {
       {/* Modal de Formulario */}
       <Modal isOpen={showForm} toggle={resetForm} size="lg">
         <ModalHeader toggle={resetForm}>
-          {isEditing ? "Editar Gasto" : "Nuevo Gasto"}
+          {isEditing
+            ? "Editar Gasto"
+            : expensePurchaseLink
+              ? "Nuevo Gasto desde Artículo"
+              : "Nuevo Gasto"}
         </ModalHeader>
         <form onSubmit={handleSubmit}>
           <ModalBody>
+            {expensePurchaseLink && (
+              <Alert color="info" className="mb-3">
+                <div><strong>Compra asociada:</strong> {expensePurchaseLink.purchaseNumber}</div>
+                {expensePurchaseLink.description && (
+                  <div className="text-muted">{expensePurchaseLink.description}</div>
+                )}
+                <div className="mt-1">
+                  <strong>Artículo:</strong> {expensePurchaseLink.itemName}
+                </div>
+              </Alert>
+            )}
+            {!expensePurchaseLink && (
             <Row>
               <Col md="12">
                 <FormGroup>
@@ -2079,7 +2108,10 @@ function GastosMenoresPage() {
                     onChange={(e) => {
                       setPurchaseNumberMode(e.target.value);
                       if (e.target.value === "new") {
-                        setFormData(prev => ({ ...prev, purchaseNumberId: null }));
+                        setFormData(prev => ({ ...prev, purchaseNumberId: null, purchaseNumberItemId: null }));
+                      }
+                      if (e.target.value === "none") {
+                        setFormData(prev => ({ ...prev, purchaseNumberId: null, purchaseNumberItemId: null }));
                       }
                     }}
                   >
@@ -2090,6 +2122,7 @@ function GastosMenoresPage() {
                 </FormGroup>
               </Col>
             </Row>
+            )}
             <Row>
               <Col md="6">
                 <FormGroup>
@@ -2121,7 +2154,7 @@ function GastosMenoresPage() {
                 </FormGroup>
               </Col>
             </Row>
-            {purchaseNumberMode === "existing" && (
+            {purchaseNumberMode === "existing" && !expensePurchaseLink && (
               <Row>
                 <Col md="12">
                   <FormGroup>
