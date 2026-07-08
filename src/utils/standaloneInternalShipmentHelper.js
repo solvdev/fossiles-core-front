@@ -140,6 +140,9 @@ export function resolveInternalEnviCollaborator(shipment) {
 
 export function formatInternalRequestTypeLabel(source) {
   const requestType = source?.requestType || "PLANILLA";
+  if (requestType === "OPI") {
+    return "Producción OPI";
+  }
   if (requestType === "PLANILLA") {
     return "Planilla (50%)";
   }
@@ -150,6 +153,18 @@ export function formatInternalRequestTypeLabel(source) {
     return `Defectos (${Number(source.discountPercent)}%)`;
   }
   return "Defectos (50%)";
+}
+
+export function needsOpiProductionAuthorization(request) {
+  if (!request?.productionOrderId) return false;
+  if (request.opiAuthorizedAt) return false;
+  return String(request.productionOrderStatus || "").toUpperCase() === "DRAFT";
+}
+
+export function canApproveInternalShipment(request) {
+  if (!request || request.status !== "PENDIENTE") return false;
+  if (String(request.requestType || "").toUpperCase() === "OPI") return false;
+  return !needsOpiProductionAuthorization(request);
 }
 
 export function resolveInternalEnviTypeLabel(shipment) {

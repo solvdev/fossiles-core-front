@@ -156,6 +156,7 @@ function ProductionOrdersList() {
 
   const getStatusBadge = (status) => {
     const statusMap = {
+      DRAFT: { color: "secondary", text: "Borrador" },
       PENDING: { color: "warning", text: "Pendiente" },
       IN_PROGRESS: { color: "info", text: "En Progreso" },
       IN_QA: { color: "info", text: "En Progreso" },
@@ -168,6 +169,7 @@ function ProductionOrdersList() {
 
   const getStatusLabel = (status) => {
     const statusMap = {
+      DRAFT: "Borrador",
       PENDING: "Pendiente",
       IN_PROGRESS: "En Progreso",
       IN_QA: "En Progreso",
@@ -241,6 +243,7 @@ function ProductionOrdersList() {
   const getProcessStage = (order) => {
     const qty = getOrderQtyProgress(order?.items);
     if (order?.status === "CANCELLED") return { key: "CANCELLED", label: "Cancelada", color: "danger" };
+    if (order?.status === "DRAFT") return { key: "DRAFT", label: "Borrador (pend. autorización)", color: "secondary" };
     if (order?.status === "PENDING") return { key: "PENDING_PRODUCTION", label: "Pendiente en Producción", color: "warning" };
     if (order?.status === "IN_PROGRESS") return { key: "IN_PRODUCTION", label: "En Producción", color: "info" };
     if (order?.status === "COMPLETED" && qty.pending > 0) return { key: "IN_BODEGA", label: "Pendiente en Bodega PT", color: "primary" };

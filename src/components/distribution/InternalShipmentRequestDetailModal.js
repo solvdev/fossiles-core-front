@@ -13,8 +13,10 @@ import {
 import { getInternalShipmentRequestById } from "services/internalShipmentRequestService";
 import { formatDateTimeGt } from "utils/dateTimeHelper";
 import {
+  canApproveInternalShipment,
   computeInternalEnviUnitPrice,
   formatInternalRequestTypeLabel,
+  needsOpiProductionAuthorization,
 } from "utils/standaloneInternalShipmentHelper";
 import { showError, showSuccess } from "utils/notificationHelper";
 
@@ -24,6 +26,7 @@ function InternalShipmentRequestDetailModal({
   onClose,
   canApprove,
   onApprove,
+  onAuthorizeProduction,
   onReject,
   actionId,
 }) {
@@ -79,15 +82,31 @@ function InternalShipmentRequestDetailModal({
     0
   );
 
+  const isOpiOnly = String(request?.requestType || "").toUpperCase() === "OPI";
+  const showPricing = !isOpiOnly;
+
   const handleApprove = async () => {
     if (!request || !onApprove) return;
-    if (!window.confirm("¿Autorizar esta solicitud de envío interno?")) return;
+    if (!window.confirm("¿Autorizar el envío interno (ENVI) de esta solicitud?")) return;
     try {
       await onApprove(request);
-      showSuccess("Solicitud autorizada.");
+      showSuccess("Envío autorizado.");
       onClose();
     } catch (err) {
       showError(err.message || "No se pudo autorizar.");
+    }
+  };
+
+  const handleAuthorizeProduction = async () => {
+    if (!request || !onAuthorizeProduction) return;
+    const opiCode = request.productionOrderCode || "OPI";
+    if (!window.confirm(`¿Autorizar la producción de ${opiCode}?`)) return;
+    try {
+      await onAuthorizeProduction(request);
+      showSuccess("Producción OPI autorizada.");
+      onClose();
+    } catch (err) {
+      showError(err.message || "No se pudo autorizar la producción.");
     }
   };
 
@@ -99,7 +118,7 @@ function InternalShipmentRequestDetailModal({
   return (
     <Modal isOpen={isOpen} toggle={onClose} size="lg">
       <ModalHeader toggle={onClose}>
-        Solicitud ENVI #{requestId || "—"}
+        Solicitud #{requestId || "—"}
       </ModalHeader>
       <ModalBody>
         {loading ? (
@@ -113,7 +132,7 @@ function InternalShipmentRequestDetailModal({
               <div><strong>Teléfono:</strong> {request.recipientPhone || "—"}</div>
               <div><strong>NIT/DPI:</strong> {request.recipientTaxId || "—"}</div>
               <div><strong>Tipo:</strong> {formatInternalRequestTypeLabel(request)}</div>
-              <div><strong>Estado:</strong>{" "}
+              <div><strong>Estado solicitud:</strong>{" "}
                 <Badge color={request.status === "PENDIENTE" ? "warning" : request.status === "APROBADA" ? "success" : "danger"}>
                   {request.status}
                 </Badge>
@@ -123,7 +142,16 @@ function InternalShipmentRequestDetailModal({
                 <div><strong>ENVI generado:</strong> {request.shipmentNumber}</div>
               )}
               {request.productionOrderCode && (
-                <div><strong>OPI generada:</strong> {request.productionOrderCode}</div>
+                <div>
+                  <strong>OPI vinculada:</strong> {request.productionOrderCode}
+                  {" "}
+                  <Badge color={needsOpiProductionAuthorization(request) ? "warning" : "success"}>
+                    {needsOpiProductionAuthorization(request) ? "Borrador" : "Producción autorizada"}
+                  </Badge>
+                </div>
+              )}
+              {request.opiAuthorizedAt && (
+                <div><strong>Producción autorizada:</strong> {formatDateTimeGt(request.opiAuthorizedAt)}</div>
               )}
               {request.notes && (
                 <div className="mt-2"><strong>Observaciones:</strong> {request.notes}</div>
@@ -143,8 +171,8 @@ function InternalShipmentRequestDetailModal({
                   <th>Color</th>
                   <th>Talla</th>
                   <th className="text-right">Cant.</th>
-                  <th className="text-right">P. unit.</th>
-                  <th className="text-right">Subtotal</th>
+                  {showPricing && <th className="text-right">P. unit.</th>}
+                  {showPricing && <th className="text-right">Subtotal</th>}
                 </tr>
               </thead>
               <tbody>
@@ -155,21 +183,27 @@ function InternalShipmentRequestDetailModal({
                     <td>{line.colorName || "—"}</td>
                     <td>{line.size || "—"}</td>
                     <td className="text-right">{line.quantity ?? 0}</td>
-                    <td className="text-right">
-                      {line.unitPrice != null ? `Q ${line.unitPrice.toFixed(2)}` : "—"}
-                    </td>
-                    <td className="text-right">
-                      {line.subtotal != null ? `Q ${line.subtotal.toFixed(2)}` : "—"}
-                    </td>
+                    {showPricing && (
+                      <td className="text-right">
+                        {line.unitPrice != null ? `Q ${line.unitPrice.toFixed(2)}` : "—"}
+                      </td>
+                    )}
+                    {showPricing && (
+                      <td className="text-right">
+                        {line.subtotal != null ? `Q ${line.subtotal.toFixed(2)}` : "—"}
+                      </td>
+                    )}
                   </tr>
                 ))}
               </tbody>
-              <tfoot>
-                <tr>
-                  <td colSpan={6} className="text-right font-weight-bold">Total</td>
-                  <td className="text-right font-weight-bold">Q {totalAmount.toFixed(2)}</td>
-                </tr>
-              </tfoot>
+              {showPricing && (
+                <tfoot>
+                  <tr>
+                    <td colSpan={6} className="text-right font-weight-bold">Total</td>
+                    <td className="text-right font-weight-bold">Q {totalAmount.toFixed(2)}</td>
+                  </tr>
+                </tfoot>
+              )}
             </Table>
           </>
         )}
@@ -177,13 +211,24 @@ function InternalShipmentRequestDetailModal({
       <ModalFooter>
         {request?.status === "PENDIENTE" && canApprove && (
           <>
-            <Button
-              color="success"
-              onClick={() => void handleApprove()}
-              disabled={actionId === request?.id}
-            >
-              {actionId === request?.id ? <Spinner size="sm" /> : "Autorizar"}
-            </Button>
+            {needsOpiProductionAuthorization(request) && onAuthorizeProduction && (
+              <Button
+                color="primary"
+                onClick={() => void handleAuthorizeProduction()}
+                disabled={actionId === request?.id}
+              >
+                {actionId === request?.id ? <Spinner size="sm" /> : "Autorizar producción"}
+              </Button>
+            )}
+            {canApproveInternalShipment(request) && onApprove && (
+              <Button
+                color="success"
+                onClick={() => void handleApprove()}
+                disabled={actionId === request?.id}
+              >
+                {actionId === request?.id ? <Spinner size="sm" /> : "Autorizar envío"}
+              </Button>
+            )}
             <Button color="danger" outline onClick={handleReject} disabled={actionId === request?.id}>
               Denegar
             </Button>

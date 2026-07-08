@@ -49,6 +49,14 @@ export const createInternalShipmentRequest = async (payload) => {
   return parseJson(response, "No se pudo crear la solicitud.");
 };
 
+export const authorizeOpiProduction = async (id) => {
+  const response = await fetch(`${API_URL}/internal-shipment-requests/${id}/authorize-production`, {
+    method: "POST",
+    headers: headers(),
+  });
+  return parseJson(response, "No se pudo autorizar la producción OPI.");
+};
+
 export const approveInternalShipmentRequest = async (id) => {
   const response = await fetch(`${API_URL}/internal-shipment-requests/${id}/approve`, {
     method: "POST",

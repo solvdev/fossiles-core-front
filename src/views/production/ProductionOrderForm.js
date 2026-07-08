@@ -597,7 +597,13 @@ function ProductionOrderForm({ orderId, isOpen, toggle, onSuccess }) {
         }
       } else {
         await createProductionOrder(submitData);
-        showSuccess("Orden de producción creada correctamente");
+        if (formData.orderType === "INTERNA") {
+          showSuccess(
+            "OPI registrada en borrador. Quedó una solicitud pendiente de autorización en Contabilidad."
+          );
+        } else {
+          showSuccess("Orden de producción creada correctamente");
+        }
       }
 
       resetForm();

@@ -591,6 +591,8 @@ function TasksByTable() {
       setProductionOrders(
         active.filter((o) => {
           const orderType = String(o?.orderType || "").trim().toUpperCase();
+          const status = String(o?.status || "").toUpperCase();
+          if (status === "DRAFT") return false;
           if (isCinchoOrderType(orderType)) return false;
           if (orderHasOnlyCinchoLineItems(o)) return false;
           return true;
@@ -1265,9 +1267,11 @@ function TasksByTable() {
       const tableSuffix = counts.total > 0 ? ` (${counts.onTable}/${counts.total} en mesa)` : "";
       const pendingSuffix = counts.pending > 0 ? ` · ${counts.pending} pend.` : "";
       const status = String(o.status || "").toUpperCase();
-      const statusSuffix = status && !["PENDING", "IN_PROGRESS", "DRAFT"].includes(status)
-        ? ` [${status}]`
-        : "";
+      const statusSuffix = status === "DRAFT"
+        ? " [BORRADOR]"
+        : status && !["PENDING", "IN_PROGRESS", "DRAFT"].includes(status)
+          ? ` [${status}]`
+          : "";
       return {
         value: String(o.id),
         label: `${formatProductionOrderSelectLabel(o)}${tableSuffix}${pendingSuffix}${statusSuffix}`,

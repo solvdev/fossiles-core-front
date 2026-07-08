@@ -30,6 +30,7 @@ import InternalShipmentRequestDetailModal from "components/distribution/Internal
 import { useAuth } from "contexts/AuthContext";
 import {
   approveInternalShipmentRequest,
+  authorizeOpiProduction,
   listExistingEnviShipments,
   listInternalShipmentRequests,
   rejectInternalShipmentRequest,
@@ -37,7 +38,9 @@ import {
 import { printInternalEnviShipment } from "utils/enviInternalPrintHelper";
 import { formatDateTimeGt } from "utils/dateTimeHelper";
 import {
+  canApproveInternalShipment,
   formatInternalRequestTypeLabel,
+  needsOpiProductionAuthorization,
   resolveInternalEnviCollaborator,
   resolveInternalEnviTypeLabel,
 } from "utils/standaloneInternalShipmentHelper";
@@ -130,6 +133,34 @@ function AuthorizeShipments() {
     } finally {
       setActionId(null);
     }
+  };
+
+  const authorizeProduction = async (request) => {
+    if (!canApprove || !request?.id) return;
+    try {
+      setActionId(request.id);
+      setError("");
+      const updated = await authorizeOpiProduction(request.id);
+      const opiCode = updated?.productionOrderCode || request.productionOrderCode || "OPI";
+      showSuccess(`Producción autorizada para ${opiCode}.`);
+      await loadRequests();
+      setDetailRequestId(null);
+    } catch (err) {
+      showError(err.message || "No se pudo autorizar la producción OPI.");
+      throw err;
+    } finally {
+      setActionId(null);
+    }
+  };
+
+  const handleAuthorizeProduction = async (request) => {
+    if (!canApprove || !request?.id) return;
+    const opiCode = request.productionOrderCode || "OPI";
+    const ok = window.confirm(
+      `¿Autorizar la producción de ${opiCode} para la solicitud #${request.id}?`
+    );
+    if (!ok) return;
+    await authorizeProduction(request);
   };
 
   const handleApprove = async (request) => {
@@ -264,6 +295,7 @@ function AuthorizeShipments() {
                       <option value="">Todos</option>
                       <option value="PLANILLA">Planilla</option>
                       <option value="DEFECTOS">Defectos</option>
+                      <option value="OPI">Producción OPI</option>
                     </Input>
                   </FormGroup>
                 </Col>
@@ -293,6 +325,7 @@ function AuthorizeShipments() {
                       <th>Líneas</th>
                       <th>Estado</th>
                       <th>OPI</th>
+                      <th>Prod. OPI</th>
                       {isAccountingView && <th>ENVI</th>}
                       <th className="text-right">Acciones</th>
                     </tr>
@@ -322,6 +355,17 @@ function AuthorizeShipments() {
                           )}
                         </td>
                         <td>{req.productionOrderCode || "—"}</td>
+                        <td>
+                          {req.productionOrderCode ? (
+                            needsOpiProductionAuthorization(req) ? (
+                              <Badge color="warning">Borrador</Badge>
+                            ) : (
+                              <Badge color="success">Autorizada</Badge>
+                            )
+                          ) : (
+                            "—"
+                          )}
+                        </td>
                         {isAccountingView && <td>{req.shipmentNumber || "—"}</td>}
                         <td className="text-right text-nowrap" onClick={(e) => e.stopPropagation()}>
                           <Button
@@ -334,15 +378,28 @@ function AuthorizeShipments() {
                           </Button>
                           {req.status === "PENDIENTE" && canApprove && (
                             <>
-                              <Button
-                                color="success"
-                                size="sm"
-                                className="btn-round mr-1"
-                                disabled={actionId === req.id}
-                                onClick={() => handleApprove(req)}
-                              >
-                                {actionId === req.id ? <Spinner size="sm" /> : "Autorizar"}
-                              </Button>
+                              {needsOpiProductionAuthorization(req) && (
+                                <Button
+                                  color="primary"
+                                  size="sm"
+                                  className="btn-round mr-1"
+                                  disabled={actionId === req.id}
+                                  onClick={() => handleAuthorizeProduction(req)}
+                                >
+                                  {actionId === req.id ? <Spinner size="sm" /> : "Autorizar prod."}
+                                </Button>
+                              )}
+                              {canApproveInternalShipment(req) && (
+                                <Button
+                                  color="success"
+                                  size="sm"
+                                  className="btn-round mr-1"
+                                  disabled={actionId === req.id}
+                                  onClick={() => handleApprove(req)}
+                                >
+                                  {actionId === req.id ? <Spinner size="sm" /> : "Autorizar envío"}
+                                </Button>
+                              )}
                               <Button
                                 color="danger"
                                 size="sm"
@@ -462,6 +519,7 @@ function AuthorizeShipments() {
         onClose={() => setDetailRequestId(null)}
         canApprove={canApprove}
         onApprove={approveRequest}
+        onAuthorizeProduction={authorizeProduction}
         onReject={(id) => {
           setDetailRequestId(null);
           openRejectModal(id);

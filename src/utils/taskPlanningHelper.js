@@ -53,6 +53,7 @@ export function collectPlannedOrderItemIds(tasks, orderId) {
 
 export function getPendingTableCenterItems(tasks, order) {
   if (!order?.id) return [];
+  if (String(order?.status || "").toUpperCase() === "DRAFT") return [];
   const planned = collectPlannedOrderItemIds(tasks, order.id);
   return (order.items || []).filter(
     (it) => isOrderItemEligibleForTableCenter(order, it) && !planned.has(Number(it.id))
