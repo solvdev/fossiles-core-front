@@ -113,7 +113,6 @@ function GastosMenoresPage() {
   const [itemFormData, setItemFormData] = useState({
     itemName: "",
     description: "",
-    supplier: "",
     estimatedPrice: "",
     quantity: 1,
   });
@@ -122,10 +121,12 @@ function GastosMenoresPage() {
   const EMPTY_ITEM_FORM = {
     itemName: "",
     description: "",
-    supplier: "",
     estimatedPrice: "",
     quantity: 1,
   };
+
+  const ITEM_MODAL_LABEL_STYLE = { fontWeight: 600, color: "#212529" };
+  const ITEM_MODAL_TEXT_STYLE = { fontWeight: 500, color: "#212529" };
 
   const resetItemModal = () => {
     setShowItemModal(false);
@@ -137,13 +138,12 @@ function GastosMenoresPage() {
   const buildItemPayload = (data) => ({
     itemName: data.itemName.trim(),
     description: data.description?.trim() || null,
-    supplier: data.supplier.trim(),
     estimatedPrice: parseFloat(data.estimatedPrice),
     quantity: parseInt(data.quantity, 10) || 1,
   });
 
   const validateItemForm = (data) => {
-    if (!data.itemName?.trim() || !data.supplier?.trim() || !data.estimatedPrice || !data.quantity) {
+    if (!data.itemName?.trim() || !data.estimatedPrice || !data.quantity) {
       showError("Por favor complete todos los campos requeridos del artículo");
       return false;
     }
@@ -837,7 +837,6 @@ function GastosMenoresPage() {
 
       const drafts = [...pendingItemDrafts];
       const formFilled = itemFormData.itemName?.trim()
-        && itemFormData.supplier?.trim()
         && itemFormData.estimatedPrice
         && itemFormData.quantity;
       if (formFilled) {
@@ -858,7 +857,6 @@ function GastosMenoresPage() {
         await createPurchaseNumberItem(selectedPurchaseNumber.id, {
           itemName: draft.itemName,
           description: draft.description,
-          supplier: draft.supplier,
           estimatedPrice: draft.estimatedPrice,
           quantity: draft.quantity,
         });
@@ -895,7 +893,6 @@ function GastosMenoresPage() {
     ]);
     setItemFormData({
       ...EMPTY_ITEM_FORM,
-      supplier: itemFormData.supplier,
       quantity: 1,
     });
   };
@@ -910,7 +907,6 @@ function GastosMenoresPage() {
     setItemFormData({
       itemName: item.itemName || "",
       description: item.description || "",
-      supplier: item.supplier || "",
       estimatedPrice: item.estimatedPrice?.toString() || "",
       quantity: item.quantity || 1,
     });
@@ -948,7 +944,7 @@ function GastosMenoresPage() {
       invoiceNumber: "",
       purchaseDate: new Date().toISOString().split("T")[0],
       description: item.description || item.itemName || "",
-      supplier: item.supplier || "",
+      supplier: "",
       totalAmount: estimatedTotal.toFixed(2),
       purchaserName: "Mensajero",
       authorizerName: "Contabilidad",
@@ -3271,7 +3267,6 @@ function GastosMenoresPage() {
                         <thead style={{ backgroundColor: "#f8f9fa" }}>
                           <tr>
                             <th>Artículo</th>
-                            <th>Proveedor</th>
                             <th>Precio Est. (Unidad)</th>
                             <th>Cantidad</th>
                             <th>Total Est.</th>
@@ -3301,7 +3296,6 @@ function GastosMenoresPage() {
                                     </>
                                   )}
                                 </td>
-                                <td>{item.supplier}</td>
                                 <td>Q {parseFloat(item.estimatedPrice || 0).toFixed(2)}</td>
                                 <td>{item.quantity}</td>
                                 <td>
@@ -4291,12 +4285,18 @@ function GastosMenoresPage() {
 
       {/* Modal para Agregar/Editar Artículo */}
       <Modal isOpen={showItemModal} toggle={resetItemModal} size="lg">
-        <ModalHeader toggle={resetItemModal}>
-          {editingItem ? "Editar Artículo" : "Agregar Artículos a la Compra"}
+        <ModalHeader toggle={resetItemModal} style={{ color: "#212529", fontWeight: 700 }}>
+          <span style={{ color: "#212529", fontWeight: 700 }}>
+            {editingItem ? "Editar Artículo" : "Agregar Artículos a la Compra"}
+          </span>
         </ModalHeader>
-        <ModalBody>
+        <ModalBody style={ITEM_MODAL_TEXT_STYLE}>
           {!editingItem && (
-            <Alert color="light" className="border mb-3 py-2" style={{ fontSize: 13 }}>
+            <Alert
+              color="light"
+              className="border mb-3 py-2"
+              style={{ fontSize: 13, fontWeight: 500, color: "#212529", backgroundColor: "#f8f9fa" }}
+            >
               Complete cada artículo y use <strong>Agregar a la lista</strong> para armar varios sin cerrar el modal.
               Al final pulse <strong>Guardar artículos</strong>.
             </Alert>
@@ -4304,9 +4304,10 @@ function GastosMenoresPage() {
           <Row>
             <Col md="12">
               <FormGroup>
-                <Label>Nombre del Artículo *</Label>
+                <Label style={ITEM_MODAL_LABEL_STYLE}>Nombre del Artículo *</Label>
                 <Input
                   type="text"
+                  style={ITEM_MODAL_TEXT_STYLE}
                   value={itemFormData.itemName}
                   onChange={(e) => setItemFormData({ ...itemFormData, itemName: e.target.value })}
                   placeholder="Ej: Papel A4"
@@ -4316,10 +4317,11 @@ function GastosMenoresPage() {
             </Col>
             <Col md="12">
               <FormGroup>
-                <Label>Descripción</Label>
+                <Label style={ITEM_MODAL_LABEL_STYLE}>Descripción</Label>
                 <Input
                   type="textarea"
                   rows="2"
+                  style={ITEM_MODAL_TEXT_STYLE}
                   value={itemFormData.description}
                   onChange={(e) => setItemFormData({ ...itemFormData, description: e.target.value })}
                   placeholder="Descripción detallada del artículo"
@@ -4328,23 +4330,12 @@ function GastosMenoresPage() {
             </Col>
             <Col md="6">
               <FormGroup>
-                <Label>Proveedor *</Label>
-                <Input
-                  type="text"
-                  value={itemFormData.supplier}
-                  onChange={(e) => setItemFormData({ ...itemFormData, supplier: e.target.value })}
-                  placeholder="Nombre del proveedor"
-                  required
-                />
-              </FormGroup>
-            </Col>
-            <Col md="3">
-              <FormGroup>
-                <Label>Precio Estimado (por unidad) *</Label>
+                <Label style={ITEM_MODAL_LABEL_STYLE}>Precio Estimado (por unidad) *</Label>
                 <Input
                   type="number"
                   step="0.01"
                   min="0"
+                  style={ITEM_MODAL_TEXT_STYLE}
                   value={itemFormData.estimatedPrice}
                   onChange={(e) => setItemFormData({ ...itemFormData, estimatedPrice: e.target.value })}
                   placeholder="0.00"
@@ -4352,12 +4343,13 @@ function GastosMenoresPage() {
                 />
               </FormGroup>
             </Col>
-            <Col md="3">
+            <Col md="6">
               <FormGroup>
-                <Label>Cantidad *</Label>
+                <Label style={ITEM_MODAL_LABEL_STYLE}>Cantidad *</Label>
                 <Input
                   type="number"
                   min="1"
+                  style={ITEM_MODAL_TEXT_STYLE}
                   value={itemFormData.quantity}
                   onChange={(e) => setItemFormData({ ...itemFormData, quantity: parseInt(e.target.value) || 1 })}
                   required
@@ -4366,7 +4358,7 @@ function GastosMenoresPage() {
             </Col>
             {itemFormData.estimatedPrice && itemFormData.quantity && (
               <Col md="12">
-                <Alert color="info" className="mb-0">
+                <Alert color="info" className="mb-0" style={{ fontWeight: 600 }}>
                   <strong>Total de esta línea:</strong>{" "}
                   Q {(parseFloat(itemFormData.estimatedPrice) * parseInt(itemFormData.quantity, 10)).toFixed(2)}
                 </Alert>
@@ -4374,27 +4366,35 @@ function GastosMenoresPage() {
             )}
           </Row>
 
+          {!editingItem && (
+            <div className="mt-3 d-flex justify-content-end">
+              <Button color="info" outline onClick={handleAddItemToList} disabled={loading}>
+                <i className="nc-icon nc-simple-add mr-1" />
+                Agregar a la lista
+              </Button>
+            </div>
+          )}
+
           {!editingItem && pendingItemDrafts.length > 0 && (
             <div className="mt-4">
               <div className="d-flex justify-content-between align-items-center mb-2">
-                <h6 className="mb-0" style={{ fontWeight: 600 }}>
+                <h6 className="mb-0" style={{ fontWeight: 700, color: "#212529" }}>
                   Lista pendiente ({pendingItemDrafts.length})
                 </h6>
-                <strong className="text-primary">
+                <strong className="text-primary" style={{ fontWeight: 700 }}>
                   Total: Q {pendingItemDrafts
                     .reduce((sum, item) => sum + item.estimatedPrice * item.quantity, 0)
                     .toFixed(2)}
                 </strong>
               </div>
               <div className="table-responsive">
-                <Table striped hover size="sm" className="mb-0">
+                <Table striped hover size="sm" className="mb-0" style={ITEM_MODAL_TEXT_STYLE}>
                   <thead style={{ backgroundColor: "#f8f9fa" }}>
                     <tr>
-                      <th>Artículo</th>
-                      <th>Proveedor</th>
-                      <th className="text-right">P. unit.</th>
-                      <th className="text-right">Cant.</th>
-                      <th className="text-right">Total</th>
+                      <th style={{ fontWeight: 700, color: "#212529" }}>Artículo</th>
+                      <th className="text-right" style={{ fontWeight: 700, color: "#212529" }}>P. unit.</th>
+                      <th className="text-right" style={{ fontWeight: 700, color: "#212529" }}>Cant.</th>
+                      <th className="text-right" style={{ fontWeight: 700, color: "#212529" }}>Total</th>
                       <th></th>
                     </tr>
                   </thead>
@@ -4402,19 +4402,20 @@ function GastosMenoresPage() {
                     {pendingItemDrafts.map((item) => (
                       <tr key={item.tempId}>
                         <td>
-                          <strong>{item.itemName}</strong>
+                          <strong style={{ fontWeight: 700 }}>{item.itemName}</strong>
                           {item.description && (
                             <>
                               <br />
-                              <small className="text-muted">{item.description}</small>
+                              <small className="text-muted" style={{ fontWeight: 500 }}>{item.description}</small>
                             </>
                           )}
                         </td>
-                        <td>{item.supplier}</td>
-                        <td className="text-right">Q {item.estimatedPrice.toFixed(2)}</td>
-                        <td className="text-right">{item.quantity}</td>
+                        <td className="text-right" style={{ fontWeight: 600 }}>
+                          Q {item.estimatedPrice.toFixed(2)}
+                        </td>
+                        <td className="text-right" style={{ fontWeight: 600 }}>{item.quantity}</td>
                         <td className="text-right">
-                          <strong>Q {(item.estimatedPrice * item.quantity).toFixed(2)}</strong>
+                          <strong style={{ fontWeight: 700 }}>Q {(item.estimatedPrice * item.quantity).toFixed(2)}</strong>
                         </td>
                         <td className="text-right">
                           <Button
@@ -4435,15 +4436,7 @@ function GastosMenoresPage() {
             </div>
           )}
         </ModalBody>
-        <ModalFooter className="d-flex justify-content-between flex-wrap">
-          <div>
-            {!editingItem && (
-              <Button color="info" outline onClick={handleAddItemToList} disabled={loading}>
-                <i className="nc-icon nc-simple-add mr-1" />
-                Agregar a la lista
-              </Button>
-            )}
-          </div>
+        <ModalFooter className="d-flex justify-content-end flex-wrap">
           <div>
             <Button color="secondary" onClick={resetItemModal} disabled={loading} className="mr-2">
               Cancelar
