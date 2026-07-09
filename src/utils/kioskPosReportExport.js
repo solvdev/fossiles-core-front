@@ -4,31 +4,16 @@ import { formatDateGt, formatDateTimeGt, formatNowGt, getSaleYmdGuatemala } from
 const getSaleInternalNumber = (sale) =>
   sale?.internalNumber || sale?.invoice?.internalNumber || "";
 
-const thinBorder = {
-  top: { style: "thin", color: { rgb: "000000" } },
-  bottom: { style: "thin", color: { rgb: "000000" } },
-  left: { style: "thin", color: { rgb: "000000" } },
-  right: { style: "thin", color: { rgb: "000000" } },
-};
+/** Solo líneas horizontales (como el reporte legado). */
+const hBorder = (top, bottom) => ({
+  top: top ? { style: top, color: { rgb: "000000" } } : undefined,
+  bottom: bottom ? { style: bottom, color: { rgb: "000000" } } : undefined,
+});
 
-const thickBottom = {
-  ...thinBorder,
-  bottom: { style: "medium", color: { rgb: "000000" } },
-};
-
-const thickTop = {
-  ...thinBorder,
-  top: { style: "medium", color: { rgb: "000000" } },
-};
-
-const doubleBottom = {
-  ...thinBorder,
-  bottom: { style: "double", color: { rgb: "000000" } },
-};
-
-const boldFont = { bold: true, name: "Calibri", sz: 11 };
-const normalFont = { name: "Calibri", sz: 11 };
-const titleFont = { bold: true, name: "Calibri", sz: 14 };
+const fontBase = { name: "Calibri", sz: 11, color: { rgb: "000000" } };
+const boldFont = { ...fontBase, bold: true };
+const titleFont = { ...fontBase, bold: true, sz: 14 };
+const normalFont = { ...fontBase };
 
 const moneyFmt = '"Q"#,##0.00';
 
@@ -47,7 +32,6 @@ const formatPeriodDateTime = (ymd, endOfDay = false) => {
   if (!ymd) return "";
   const dateLabel = formatDateGt(ymd);
   if (!dateLabel || dateLabel === "-") return ymd;
-  // formatDateGt returns dd/mm/yyyy; example uses dd-mm-yyyy
   const dashed = String(dateLabel).replace(/\//g, "-");
   return `${dashed} ${endOfDay ? "23:59" : "00:00"}`;
 };
@@ -60,7 +44,14 @@ const formatPeriodLabelExact = (startDate, endDate) => {
 
 const formatGeneratedByLine = (generatedByName) => {
   const name = String(generatedByName || "").trim().toUpperCase() || "USUARIO";
-  const when = formatDateTimeGt(new Date()).replace(/\//g, "-");
+  // Ejemplo legado: "ROBERTO EL 09-07-2026 14:48"
+  const when = formatDateTimeGt(new Date())
+    .replace(/\//g, "-")
+    .replace(/,\s*/g, " ")
+    .replace(/\s*a\.?\s*m\.?/gi, "")
+    .replace(/\s*p\.?\s*m\.?/gi, "")
+    .replace(/\s+/g, " ")
+    .trim();
   return `${name} EL ${when}`;
 };
 
@@ -92,12 +83,11 @@ const paymentMarks = (sale) => {
   const method = normalizePayment(sale);
   const cashAmt = Number(sale?.cashAmount || 0);
   const cardAmt = Number(sale?.cardAmount || 0);
-  const efectivo = method === "EFECTIVO" || method === "MIXTO" || cashAmt > 0;
-  const pos = method === "TARJETA" || method === "MIXTO" || cardAmt > 0;
-  // Si solo dice TARJETA, no marcar efectivo; si solo EFECTIVO, no marcar POS
   if (method === "EFECTIVO") return { efectivo: "X", pos: "" };
   if (method === "TARJETA") return { efectivo: "", pos: "X" };
   if (method === "MIXTO") return { efectivo: "X", pos: "X" };
+  const efectivo = cashAmt > 0;
+  const pos = cardAmt > 0;
   return { efectivo: efectivo ? "X" : "", pos: pos ? "X" : "" };
 };
 
@@ -139,10 +129,13 @@ export const buildKioskReportSummary = (sales) => {
   return { salesCount, totalItems, totalAmount, averageTicket };
 };
 
+/**
+ * Filas del reporte. En Totales, V.Unidad y Total llevan el mismo gran total
+ * (como el Excel legado).
+ */
 const buildReportRows = (sales) => {
   const rows = [];
   let totalQty = 0;
-  let totalUnit = 0;
   let totalAmount = 0;
 
   activeSales(sales).forEach((sale) => {
@@ -164,7 +157,6 @@ const buildReportRows = (sales) => {
       const unit = Number(item.unitPrice || 0);
       const lineTotal = Number(item.lineTotal != null ? item.lineTotal : qty * unit);
       totalQty += qty;
-      totalUnit += unit;
       totalAmount += lineTotal;
       rows.push({
         type: "item",
@@ -184,7 +176,7 @@ const buildReportRows = (sales) => {
     nombre: "Totales",
     descripcion: "",
     cantidad: totalQty,
-    vUnidad: totalUnit,
+    vUnidad: totalAmount,
     total: totalAmount,
     efectivo: "",
     pos: "",
@@ -193,12 +185,27 @@ const buildReportRows = (sales) => {
   return rows;
 };
 
+const COLS = 7; // A..G: Nombre, Descripcion, Cantidad, V.Unidad, Total, Efectivo, POS
+
 const colLetter = (index) => XLSX.utils.encode_col(index);
 
-const styleCell = (ws, r, c, style) => {
-  const addr = `${colLetter(c)}${r + 1}`;
-  if (!ws[addr]) ws[addr] = { t: "s", v: "" };
-  ws[addr].s = { ...(ws[addr].s || {}), ...style };
+const setCell = (ws, r, c, cell) => {
+  ws[`${colLetter(c)}${r + 1}`] = cell;
+};
+
+const applyHBorderRow = (ws, r, top, bottom, fromC = 0, toC = COLS - 1) => {
+  for (let c = fromC; c <= toC; c += 1) {
+    const addr = `${colLetter(c)}${r + 1}`;
+    if (!ws[addr]) ws[addr] = { t: "s", v: "" };
+    const prev = ws[addr].s || {};
+    ws[addr].s = {
+      ...prev,
+      border: {
+        ...(prev.border || {}),
+        ...hBorder(top, bottom),
+      },
+    };
+  }
 };
 
 export const exportKioskSalesToExcel = ({
@@ -211,36 +218,27 @@ export const exportKioskSalesToExcel = ({
 }) => {
   const { startDate: from, endDate: to } = normalizeRange(startDate, endDate);
   const reportRows = buildReportRows(sales);
+
   const aoa = [
     ["REPORTE DE VENTAS"],
     [`BODEGA: ${kioskName || "—"}`],
     [`FECHA: ${formatPeriodLabelExact(from, to)}`],
     [`GENERADO POR: ${formatGeneratedByLine(generatedByName)}`],
     [],
-    ["* Nombre", "", "Descripcion", "Cantidad", "V.Unidad", "Total", "Efectivo", "POS"],
+    ["* Nombre", "Descripcion", "Cantidad", "V.Unidad", "Total", "Efectivo", "POS"],
   ];
 
   reportRows.forEach((row) => {
     if (row.type === "invoice") {
-      aoa.push([row.nombre, "", "", "", "", "", "", ""]);
+      aoa.push([row.nombre, "", "", "", "", "", ""]);
       return;
     }
     if (row.type === "totals") {
-      aoa.push([
-        row.nombre,
-        "",
-        "",
-        row.cantidad,
-        row.vUnidad,
-        row.total,
-        "",
-        "",
-      ]);
+      aoa.push([row.nombre, "", row.cantidad, row.vUnidad, row.total, "", ""]);
       return;
     }
     aoa.push([
       row.nombre,
-      "",
       row.descripcion,
       row.cantidad,
       row.vUnidad,
@@ -252,14 +250,13 @@ export const exportKioskSalesToExcel = ({
 
   const ws = XLSX.utils.aoa_to_sheet(aoa);
   ws["!merges"] = [
-    { s: { r: 0, c: 0 }, e: { r: 0, c: 7 } },
-    { s: { r: 1, c: 0 }, e: { r: 1, c: 7 } },
-    { s: { r: 2, c: 0 }, e: { r: 2, c: 7 } },
-    { s: { r: 3, c: 0 }, e: { r: 3, c: 7 } },
+    { s: { r: 0, c: 0 }, e: { r: 0, c: COLS - 1 } },
+    { s: { r: 1, c: 0 }, e: { r: 1, c: COLS - 1 } },
+    { s: { r: 2, c: 0 }, e: { r: 2, c: COLS - 1 } },
+    { s: { r: 3, c: 0 }, e: { r: 3, c: COLS - 1 } },
   ];
   ws["!cols"] = [
-    { wch: 42 },
-    { wch: 3 },
+    { wch: 36 },
     { wch: 14 },
     { wch: 10 },
     { wch: 12 },
@@ -268,116 +265,105 @@ export const exportKioskSalesToExcel = ({
     { wch: 8 },
   ];
 
-  // Header meta
+  // Meta header (sin bordes)
   for (let r = 0; r <= 3; r += 1) {
-    styleCell(ws, r, 0, { font: r === 0 ? titleFont : boldFont });
+    setCell(ws, r, 0, {
+      t: "s",
+      v: aoa[r][0],
+      s: { font: r === 0 ? titleFont : boldFont, alignment: { horizontal: "left" } },
+    });
   }
 
-  // Column headers row (index 5)
-  for (let c = 0; c < 8; c += 1) {
-    styleCell(ws, 5, c, { font: boldFont, border: thickBottom, alignment: { horizontal: c >= 3 ? "right" : "left" } });
-  }
+  // Encabezados de columna: línea gruesa arriba y abajo
+  const headerLabels = aoa[5];
+  headerLabels.forEach((label, c) => {
+    setCell(ws, 5, c, {
+      t: "s",
+      v: label,
+      s: {
+        font: boldFont,
+        alignment: {
+          horizontal: c === 2 || c === 3 || c === 4 ? "right" : c >= 5 ? "center" : "left",
+        },
+        border: hBorder("medium", "medium"),
+      },
+    });
+  });
 
   let excelRow = 6;
-  reportRows.forEach((row) => {
+  reportRows.forEach((row, idx) => {
+    const next = reportRows[idx + 1];
+    const isLastItemBeforeInvoice = row.type === "item" && next && next.type === "invoice";
+    const isLastItemBeforeTotals = row.type === "item" && next && next.type === "totals";
+
     if (row.type === "invoice") {
-      ws[`A${excelRow + 1}`] = { t: "s", v: row.nombre, s: { font: boldFont, border: thickTop } };
-      for (let c = 1; c < 8; c += 1) {
-        styleCell(ws, excelRow, c, { border: thickTop });
-      }
-      // also thick bottom on invoice header
-      for (let c = 0; c < 8; c += 1) {
-        const addr = `${colLetter(c)}${excelRow + 1}`;
-        ws[addr] = ws[addr] || { t: "s", v: "" };
-        ws[addr].s = {
-          ...(ws[addr].s || {}),
+      setCell(ws, excelRow, 0, {
+        t: "s",
+        v: row.nombre,
+        s: {
           font: boldFont,
-          border: {
-            top: { style: "medium", color: { rgb: "000000" } },
-            bottom: { style: "medium", color: { rgb: "000000" } },
-            left: { style: "thin", color: { rgb: "000000" } },
-            right: { style: "thin", color: { rgb: "000000" } },
-          },
-        };
+          alignment: { horizontal: "left" },
+          border: hBorder("medium", undefined),
+        },
+      });
+      // Línea gruesa solo sobre Nombre → V.Unidad (como el legado)
+      applyHBorderRow(ws, excelRow, "medium", undefined, 0, 3);
+      for (let c = 4; c < COLS; c += 1) {
+        setCell(ws, excelRow, c, { t: "s", v: "", s: { font: normalFont } });
       }
     } else if (row.type === "item") {
-      const values = [
-        row.nombre,
-        "",
-        row.descripcion,
-        row.cantidad,
-        row.vUnidad,
-        row.total,
-        row.efectivo,
-        row.pos,
+      const bottom = isLastItemBeforeInvoice || isLastItemBeforeTotals ? "medium" : undefined;
+      const cells = [
+        { t: "s", v: row.nombre, align: "left" },
+        { t: "s", v: row.descripcion || "", align: "left" },
+        { t: "n", v: Number(row.cantidad) || 0, align: "right" },
+        { t: "n", v: Number(row.vUnidad) || 0, align: "right", money: true },
+        { t: "n", v: Number(row.total) || 0, align: "right", money: true },
+        { t: "s", v: row.efectivo || "", align: "center" },
+        { t: "s", v: row.pos || "", align: "center" },
       ];
-      values.forEach((val, c) => {
-        const addr = `${colLetter(c)}${excelRow + 1}`;
-        if (c === 3) {
-          ws[addr] = { t: "n", v: Number(val) || 0, s: { font: normalFont, alignment: { horizontal: "right" } } };
-        } else if (c === 4 || c === 5) {
-          ws[addr] = {
-            t: "n",
-            v: Number(val) || 0,
-            z: moneyFmt,
-            s: { font: normalFont, alignment: { horizontal: "right" }, numFmt: moneyFmt },
-          };
-        } else {
-          ws[addr] = {
-            t: "s",
-            v: val == null ? "" : String(val),
-            s: { font: normalFont, alignment: { horizontal: c >= 6 ? "center" : "left" } },
-          };
-        }
+      cells.forEach((cell, c) => {
+        const borderBottom = bottom && c <= 3 ? "medium" : undefined;
+        setCell(ws, excelRow, c, {
+          t: cell.t,
+          v: cell.v,
+          z: cell.money ? moneyFmt : undefined,
+          s: {
+            font: normalFont,
+            alignment: { horizontal: cell.align },
+            numFmt: cell.money ? moneyFmt : undefined,
+            border: borderBottom ? hBorder(undefined, borderBottom) : undefined,
+          },
+        });
       });
     } else if (row.type === "totals") {
-      const values = [row.nombre, "", "", row.cantidad, row.vUnidad, row.total, "", ""];
-      values.forEach((val, c) => {
-        const addr = `${colLetter(c)}${excelRow + 1}`;
-        if (c === 3) {
-          ws[addr] = {
-            t: "n",
-            v: Number(val) || 0,
-            s: { font: boldFont, alignment: { horizontal: "right" }, border: { ...thickTop, ...doubleBottom } },
-          };
-        } else if (c === 4 || c === 5) {
-          ws[addr] = {
-            t: "n",
-            v: Number(val) || 0,
-            z: moneyFmt,
-            s: {
-              font: boldFont,
-              alignment: { horizontal: "right" },
-              numFmt: moneyFmt,
-              border: {
-                top: { style: "medium", color: { rgb: "000000" } },
-                bottom: { style: "double", color: { rgb: "000000" } },
-                left: { style: "thin", color: { rgb: "000000" } },
-                right: { style: "thin", color: { rgb: "000000" } },
-              },
-            },
-          };
-        } else {
-          ws[addr] = {
-            t: "s",
-            v: val == null ? "" : String(val),
-            s: {
-              font: boldFont,
-              border: {
-                top: { style: "medium", color: { rgb: "000000" } },
-                bottom: { style: "double", color: { rgb: "000000" } },
-                left: { style: "thin", color: { rgb: "000000" } },
-                right: { style: "thin", color: { rgb: "000000" } },
-              },
-            },
-          };
-        }
+      const values = [
+        { t: "s", v: "Totales", align: "left" },
+        { t: "s", v: "", align: "left" },
+        { t: "n", v: Number(row.cantidad) || 0, align: "right" },
+        { t: "n", v: Number(row.vUnidad) || 0, align: "right", money: true },
+        { t: "n", v: Number(row.total) || 0, align: "right", money: true },
+        { t: "s", v: "", align: "center" },
+        { t: "s", v: "", align: "center" },
+      ];
+      values.forEach((cell, c) => {
+        setCell(ws, excelRow, c, {
+          t: cell.t,
+          v: cell.v,
+          z: cell.money ? moneyFmt : undefined,
+          s: {
+            font: boldFont,
+            alignment: { horizontal: cell.align },
+            numFmt: cell.money ? moneyFmt : undefined,
+            border: hBorder("medium", "double"),
+          },
+        });
       });
     }
     excelRow += 1;
   });
 
-  ws["!ref"] = `A1:H${excelRow}`;
+  ws["!ref"] = `A1:G${excelRow}`;
 
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, "REPORTE DE VENTAS");
@@ -402,7 +388,13 @@ export const exportKioskSalesToPdf = ({
       .replace(/>/g, "&gt;");
 
   const bodyHtml = reportRows
-    .map((row) => {
+    .map((row, idx) => {
+      const next = reportRows[idx + 1];
+      const sepBeforeNextInvoice = row.type === "item" && next && next.type === "invoice";
+      const sepBeforeTotals = row.type === "item" && next && next.type === "totals";
+      const itemClass =
+        sepBeforeNextInvoice || sepBeforeTotals ? ' class="item-sep"' : "";
+
       if (row.type === "invoice") {
         return `<tr class="invoice-row"><td colspan="7"><strong>${escape(row.nombre)}</strong></td></tr>`;
       }
@@ -417,7 +409,7 @@ export const exportKioskSalesToPdf = ({
           <td></td>
         </tr>`;
       }
-      return `<tr>
+      return `<tr${itemClass}>
         <td>${escape(row.nombre)}</td>
         <td>${escape(row.descripcion)}</td>
         <td class="num">${escape(formatQtyPlain(row.cantidad))}</td>
@@ -438,31 +430,50 @@ export const exportKioskSalesToPdf = ({
   <meta charset="utf-8" />
   <title>REPORTE DE VENTAS</title>
   <style>
-    @page { size: letter landscape; margin: 10mm; }
-    body { font-family: Arial, Helvetica, sans-serif; font-size: 11px; color: #000; margin: 12px; }
-    .title { font-size: 16px; font-weight: 700; margin: 0 0 4px; }
-    .meta { font-size: 12px; font-weight: 700; margin: 2px 0; }
-    table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+    @page { size: letter landscape; margin: 12mm; }
+    body {
+      font-family: Calibri, Arial, Helvetica, sans-serif;
+      font-size: 11px;
+      color: #000;
+      margin: 12px;
+    }
+    .title { font-size: 15px; font-weight: 700; margin: 0 0 2px; }
+    .meta { font-size: 12px; font-weight: 700; margin: 1px 0; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 12px;
+    }
     th {
       text-align: left;
+      border-top: 2px solid #000;
       border-bottom: 2px solid #000;
-      padding: 4px 6px;
+      padding: 5px 6px;
       font-weight: 700;
     }
     th.num, td.num { text-align: right; }
-    td.center { text-align: center; }
-    td { padding: 3px 6px; vertical-align: top; }
+    th.center, td.center { text-align: center; }
+    td {
+      padding: 2px 6px;
+      vertical-align: top;
+      border: none;
+    }
     tr.invoice-row td {
       border-top: 2px solid #000;
+      font-weight: 700;
+      padding-top: 7px;
+      padding-bottom: 3px;
+    }
+    tr.item-sep td:nth-child(-n+4) {
       border-bottom: 2px solid #000;
-      padding-top: 6px;
-      padding-bottom: 6px;
+      padding-bottom: 5px;
     }
     tr.totals-row td {
       border-top: 2px solid #000;
       border-bottom: 3px double #000;
       font-weight: 700;
       padding-top: 6px;
+      padding-bottom: 4px;
     }
     @media print { body { margin: 0; } }
   </style>
@@ -495,5 +506,4 @@ export const exportKioskSalesToPdf = ({
   return true;
 };
 
-// Keep helper used elsewhere
 export const formatNowGtExport = formatNowGt;
