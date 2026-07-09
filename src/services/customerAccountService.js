@@ -263,3 +263,41 @@ export const getConceptLabel = (code) => {
   const concept = getMovementConcept(code);
   return concept ? `${concept.code} — ${concept.label}` : code || "—";
 };
+
+/** Agrupa líneas del estado de cuenta: hijos (descargas/descuentos) bajo su cargo. */
+export const groupStatementLines = (lines = []) => {
+  const childrenByChargeId = new Map();
+  lines.forEach((line) => {
+    if (line.appliedToEntryId) {
+      const list = childrenByChargeId.get(line.appliedToEntryId) || [];
+      list.push(line);
+      childrenByChargeId.set(line.appliedToEntryId, list);
+    }
+  });
+  const topLevel = lines.filter((line) => !line.appliedToEntryId);
+  let running = 0;
+  const displayLines = topLevel.map((line) => {
+    const debit = Number(line.debit) || 0;
+    const credit = Number(line.credit) || 0;
+    if (line.status === "ACTIVE") {
+      running += debit - credit;
+    }
+    const children = (childrenByChargeId.get(line.id) || []).slice();
+    const appliedTotal = children
+      .filter((c) => c.status === "ACTIVE")
+      .reduce((sum, c) => sum + (Number(c.credit) || 0), 0);
+    return {
+      ...line,
+      runningBalance: line.status === "ACTIVE" ? running : line.runningBalance,
+      childEntries: children,
+      childCount: children.filter((c) => c.status === "ACTIVE").length,
+      chargeBalanceDue:
+        line.entryType === "CHARGE" && line.status === "ACTIVE"
+          ? line.chargeBalanceDue ?? Math.max(0, (Number(line.debit) || 0) - appliedTotal)
+          : line.chargeBalanceDue,
+    };
+  });
+  return { displayLines, childrenByChargeId };
+};
+
+export const isChargeLine = (line) => line?.entryType === "CHARGE";

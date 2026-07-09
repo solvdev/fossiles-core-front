@@ -21,6 +21,7 @@ import {
   cerrarKioscoConteo,
   getKioscoConteoHistorial,
   getKioscoConteoReport,
+  getKioscoSubconteo,
   getKioscoNotificationRecipients,
   removeKioscoNotificationRecipient,
   revisarKioscoConteo,
@@ -30,7 +31,7 @@ import {
 } from "services/kioscoInventoryService";
 import { formatDateGt, formatDateTimeGt } from "utils/dateTimeHelper";
 import { exportConteoToExcel, exportConteoToPdf } from "utils/kioscoConteoExport";
-import { buildConteoDisplayReport } from "utils/kioscoConteoDisplay";
+import { buildConteoDisplayReport, formatConteoSubtotalLabel } from "utils/kioscoConteoDisplay";
 import { PRODUCT_AUDIENCE_OPTIONS, productMatchesAudienceFilter } from "utils/productAudienceHelper";
 import {
   CINCHO_FILTER_OPTIONS,
@@ -95,6 +96,17 @@ const KARDEX_COLUMNS = [
   { key: "inventarioFinal", label: "Fin.", title: "Inventario Final (sistema)" },
 ];
 
+const subcountKardexFinalColumn = {
+  key: "inventarioFinal",
+  label: "Fin.corte",
+  title: "Inventario final al corte (sistema)",
+};
+
+const resolveKardexColumns = (isSubcountView) =>
+  isSubcountView
+    ? KARDEX_COLUMNS.map((col) => (col.key === "inventarioFinal" ? subcountKardexFinalColumn : col))
+    : KARDEX_COLUMNS;
+
 const applySizeTotalToLocations = (sizeTotal, existingPartial, baseCounts) => {
   const base = { ...baseCounts, ...(existingPartial || {}) };
   const locTotal = rowTotal(base);
@@ -148,13 +160,13 @@ const fmt = (v) => formatDateGt(v, { month: "short" });
 const fmtDt = (v) => (v ? formatDateTimeGt(v) : null);
 
 // ─── Columnas fijas para alinear cabecera y datos ─────────────────────────────
-function CountTableColGroup({ showKardex }) {
+function CountTableColGroup({ showKardex, kardexColumns }) {
   return (
     <colgroup>
       <col />
       <col />
       <col />
-      {showKardex && KARDEX_COLUMNS.map((col) => (
+      {showKardex && kardexColumns.map((col) => (
         <col key={col.key} style={{ width: LOC_COL_WIDTH }} />
       ))}
       {COUNT_LOCATION_KEYS.map((k) => (
@@ -192,7 +204,7 @@ function CountCell({ value, onChange, disabled }) {
 }
 
 // ─── Fila de datos ────────────────────────────────────────────────────────────
-function DataRow({ row, showKardex, counts, physicalSizes, physicalSizesByLocation, onCountChange, onOpenCinchoModal, disabled }) {
+function DataRow({ row, showKardex, kardexColumns, counts, physicalSizes, physicalSizesByLocation, onCountChange, onOpenCinchoModal, disabled }) {
   const total = rowTotal(counts);
   const diferencia = rowDiff(row, counts);
   const isAlert = Math.abs(diferencia) >= DIFF_ALERT_THRESHOLD;
@@ -239,7 +251,7 @@ function DataRow({ row, showKardex, counts, physicalSizes, physicalSizesByLocati
           </Button>
         )}
       </td>
-      {showKardex && KARDEX_COLUMNS.map((col) => (
+      {showKardex && kardexColumns.map((col) => (
         <td key={col.key} className="text-right" style={{ fontSize: 11, color: col.key === "inventarioFinal" ? "#111" : "#6b7280" }}>
           {row[col.key]}
         </td>
@@ -269,12 +281,12 @@ function DataRow({ row, showKardex, counts, physicalSizes, physicalSizesByLocati
 }
 
 // ─── Fila de subtotal / total ─────────────────────────────────────────────────
-function SummaryRow({ label, row, showKardex, bg = "#f3f4f6", textColor = "#111", bold = false }) {
+function SummaryRow({ label, row, showKardex, kardexColumns, bg = "#f3f4f6", textColor = "#111", bold = false }) {
   const style = { background: bg, fontSize: 11, fontWeight: bold ? 700 : 600, color: textColor };
   return (
     <tr style={style}>
       <td colSpan={PRODUCT_INFO_COLS} style={style}>{label}</td>
-      {showKardex && KARDEX_COLUMNS.map((col) => (
+      {showKardex && kardexColumns.map((col) => (
         <td key={col.key} className="text-right" style={style}>{row[col.key]}</td>
       ))}
       {COUNT_LOCATION_KEYS.map((k) => (
@@ -293,7 +305,7 @@ function SummaryRow({ label, row, showKardex, bg = "#f3f4f6", textColor = "#111"
 }
 
 // ─── Grupo de categoría colapsable ────────────────────────────────────────────
-function CategoryGroup({ category, showKardex, editedCounts, editedSizeCounts, editedSizeCountsByLocation, onCountChange, onOpenCinchoModal, disabled }) {
+function CategoryGroup({ category, showKardex, kardexColumns, editedCounts, editedSizeCounts, editedSizeCountsByLocation, onCountChange, onOpenCinchoModal, disabled }) {
   const [collapsed, setCollapsed] = useState(false);
   const hasDiff = category.rows.some((r) => rowDiff(r, editedCounts[rowKey(r)] || r.counts || {}) !== 0);
 
@@ -304,7 +316,7 @@ function CategoryGroup({ category, showKardex, editedCounts, editedSizeCounts, e
         onClick={() => setCollapsed((v) => !v)}
       >
         <td
-          colSpan={PRODUCT_INFO_COLS + (showKardex ? KARDEX_COLUMNS.length : 0) + COUNT_LOCATION_KEYS.length + 2}
+          colSpan={PRODUCT_INFO_COLS + (showKardex ? kardexColumns.length : 0) + COUNT_LOCATION_KEYS.length + 2}
           style={{ fontWeight: 700, fontSize: 12, padding: "5px 8px" }}
         >
           <span style={{ marginRight: 6 }}>{collapsed ? "▶" : "▼"}</span>
@@ -329,6 +341,7 @@ function CategoryGroup({ category, showKardex, editedCounts, editedSizeCounts, e
                 key={rKey}
                 row={row}
                 showKardex={showKardex}
+                kardexColumns={kardexColumns}
                 counts={counts}
                 physicalSizes={physicalSizes}
                 physicalSizesByLocation={physicalSizesByLocation}
@@ -339,9 +352,10 @@ function CategoryGroup({ category, showKardex, editedCounts, editedSizeCounts, e
             );
           })}
           <SummaryRow
-            label={`Subtotal — ${category.categoryName}`}
+            label={formatConteoSubtotalLabel(category.categoryName)}
             row={category.subtotal}
             showKardex={showKardex}
+            kardexColumns={kardexColumns}
           />
         </>
       )}
@@ -376,6 +390,12 @@ function KioskInventoryCountReport({ locationId }) {
   const [loadingRecipients, setLoadingRecipients] = useState(false);
   const [newRecipient, setNewRecipient] = useState({ name: "", email: "" });
   const [savingRecipient, setSavingRecipient] = useState(false);
+  const [principalReport, setPrincipalReport] = useState(null);
+  const [subcountAsOf, setSubcountAsOf] = useState("");
+  const [loadingSubcount, setLoadingSubcount] = useState(false);
+
+  const isSubcountView = report?.reportType === "SUBCONTEO";
+  const kardexColumns = useMemo(() => resolveKardexColumns(isSubcountView), [isSubcountView]);
 
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedSearch(searchQuery.trim()), 300);
@@ -453,13 +473,21 @@ function KioskInventoryCountReport({ locationId }) {
   useEffect(() => {
     void loadHistorial(locationId);
     setReport(null);
+    setPrincipalReport(null);
+    setSubcountAsOf("");
     setEditedCounts({});
     setEditedSizeCounts({});
     setEditedSizeCountsByLocation({});
   }, [locationId, loadHistorial]);
 
-  const openReport = (data) => {
+  const openReport = (data, { isPrincipal = true } = {}) => {
     setReport(data);
+    if (isPrincipal && data?.reportType !== "SUBCONTEO") {
+      setPrincipalReport(data);
+      if (data?.periodFrom) {
+        setSubcountAsOf((prev) => prev || data.periodTo || "");
+      }
+    }
     setEditedCounts({});
     setEditedSizeCounts({});
     setEditedSizeCountsByLocation({});
@@ -489,12 +517,52 @@ function KioskInventoryCountReport({ locationId }) {
     try {
       setLoading(true);
       const data = await getKioscoConteoReport(countId);
-      openReport(data);
+      openReport(data, { isPrincipal: true });
     } catch (err) {
       showError(err.message || "No se pudo cargar el conteo.");
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleViewSubconteo = async () => {
+    if (!report?.id || !subcountAsOf) {
+      showError("Selecciona la fecha de corte del inventario sistema.");
+      return;
+    }
+    if (subcountAsOf < report.periodFrom || subcountAsOf > report.periodTo) {
+      showError("La fecha de corte debe estar dentro del período del conteo.");
+      return;
+    }
+    try {
+      setLoadingSubcount(true);
+      const parentReport = report.reportType === "SUBCONTEO" ? principalReport : report;
+      if (!parentReport?.id) {
+        showError("No hay un conteo principal cargado.");
+        return;
+      }
+      setPrincipalReport(parentReport);
+      const data = await getKioscoSubconteo(parentReport.id, subcountAsOf);
+      setReport(data);
+      setEditedCounts({});
+      setEditedSizeCounts({});
+      setEditedSizeCountsByLocation({});
+      setCinchoModalProductId(null);
+      setShowKardex(true);
+    } catch (err) {
+      showError(err.message || "No se pudo generar el subconteo.");
+    } finally {
+      setLoadingSubcount(false);
+    }
+  };
+
+  const handleBackToPrincipal = () => {
+    if (!principalReport) return;
+    setReport(principalReport);
+    setEditedCounts({});
+    setEditedSizeCounts({});
+    setEditedSizeCountsByLocation({});
+    setCinchoModalProductId(null);
   };
 
   const handleCountChange = (rKey, locKey, value) => {
@@ -782,10 +850,10 @@ function KioskInventoryCountReport({ locationId }) {
     }
   };
 
-  const totalCols = PRODUCT_INFO_COLS + (showKardex ? KARDEX_COLUMNS.length : 0) + COUNT_LOCATION_KEYS.length + 2;
+  const totalCols = PRODUCT_INFO_COLS + (showKardex ? kardexColumns.length : 0) + COUNT_LOCATION_KEYS.length + 2;
   const isClosed = report?.status === "CERRADO";
   const isDraft = report?.status === "DRAFT";
-  const isCountLocked = !isDraft;
+  const isCountLocked = !isDraft || isSubcountView;
   const statusMeta = conteoStatusMeta(report?.status);
   const exportReport = useMemo(() => {
     if (!displayReport) return null;
@@ -988,9 +1056,22 @@ function KioskInventoryCountReport({ locationId }) {
             </Alert>
           )}
 
-          {report.notes && !showReviewBox && (
+          {report.notes && !showReviewBox && !isSubcountView && (
             <Alert color="warning" className="mb-3" style={{ fontSize: 12 }}>
               <strong>Áreas para corregir:</strong> {report.notes}
+            </Alert>
+          )}
+
+          {isSubcountView && (
+            <Alert color="info" className="mb-3" style={{ fontSize: 12 }}>
+              <strong>Subconteo — inventario sistema al {fmt(report.asOfDate)}.</strong>{" "}
+              Kardex del {fmt(report.periodFrom)} al {fmt(report.asOfDate)}. El conteo físico es el del conteo principal;
+              la diferencia compara ese físico contra el sistema al corte.
+              {principalReport && (
+                <Button color="link" className="p-0 ml-2" style={{ fontSize: 12 }} onClick={handleBackToPrincipal}>
+                  Volver al conteo principal
+                </Button>
+              )}
             </Alert>
           )}
 
@@ -1042,11 +1123,45 @@ function KioskInventoryCountReport({ locationId }) {
             </Col>
           </Row>
 
+          {/* ── Subconteo ── */}
+          {!isSubcountView && report && (
+            <Row className="mb-3">
+              <Col md="4">
+                <FormGroup className="mb-0">
+                  <Label style={{ fontSize: 12 }}>Corte inventario sistema (subconteo)</Label>
+                  <Input
+                    type="date"
+                    value={subcountAsOf}
+                    min={report.periodFrom || undefined}
+                    max={report.periodTo || undefined}
+                    onChange={(e) => setSubcountAsOf(e.target.value)}
+                  />
+                </FormGroup>
+              </Col>
+              <Col md="8" className="d-flex align-items-end">
+                <Button
+                  color="primary"
+                  size="sm"
+                  outline
+                  onClick={() => void handleViewSubconteo()}
+                  disabled={loadingSubcount || !subcountAsOf}
+                >
+                  {loadingSubcount ? <Spinner size="sm" /> : "Ver subconteo al corte"}
+                </Button>
+              </Col>
+            </Row>
+          )}
+
           {/* ── Barra de acciones ── */}
           <Row className="mb-3">
             <Col>
               <div className="d-flex flex-wrap" style={{ gap: 8 }}>
-                {isDraft && (
+                {isSubcountView && principalReport && (
+                  <Button color="secondary" size="sm" outline onClick={handleBackToPrincipal}>
+                    ← Conteo principal
+                  </Button>
+                )}
+                {isDraft && !isSubcountView && (
                   <>
                     <Button color="success" size="sm" onClick={() => void handleSave()} disabled={saving || finalizing}>
                       {saving ? <Spinner size="sm" /> : "💾 Guardar conteo"}
@@ -1061,21 +1176,29 @@ function KioskInventoryCountReport({ locationId }) {
                     </Button>
                   </>
                 )}
-                {report.status === "CONTADO" && (
+                {report.status === "CONTADO" && !isSubcountView && (
                   <Button color="info" size="sm" outline onClick={() => setShowReviewBox((v) => !v)} disabled={saving}>
                     ✔ Marcar como revisado
                   </Button>
                 )}
-                {report.status === "REVISADO" && (
+                {report.status === "REVISADO" && !isSubcountView && (
                   <Button color="danger" size="sm" outline onClick={() => void handleClose()} disabled={closing}>
                     {closing ? <Spinner size="sm" /> : "🔒 Cerrar conteo"}
                   </Button>
                 )}
                 <ButtonGroup size="sm">
-                  <Button color="secondary" outline onClick={() => exportConteoToExcel(exportReport || displayReport, { showKardex: true })}>
-                    ⬇ Excel
+                  <Button
+                    color="secondary"
+                    outline
+                    onClick={() => exportConteoToExcel(exportReport || displayReport, { showKardex: true })}
+                  >
+                    {isSubcountView ? "⬇ Excel subconteo" : "⬇ Excel"}
                   </Button>
-                  <Button color="secondary" outline onClick={() => exportConteoToPdf(exportReport || displayReport, { showKardex: true })}>
+                  <Button
+                    color="secondary"
+                    outline
+                    onClick={() => exportConteoToPdf(exportReport || displayReport, { showKardex: true })}
+                  >
                     🖨 PDF / Imprimir
                   </Button>
                 </ButtonGroup>
@@ -1126,14 +1249,14 @@ function KioskInventoryCountReport({ locationId }) {
           {/* ── Tabla principal ── */}
           <div style={{ overflowX: "auto" }}>
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, tableLayout: "fixed" }}>
-              <CountTableColGroup showKardex={showKardex} />
+              <CountTableColGroup showKardex={showKardex} kardexColumns={kardexColumns} />
               <thead>
                 {/* Fila de grupos */}
                 <tr style={{ background: "#f3f4f6" }}>
                   <th colSpan={PRODUCT_INFO_COLS} style={thStyle}>Producto</th>
                   {showKardex && (
-                    <th colSpan={KARDEX_COLUMNS.length} style={{ ...thStyle, background: "#e0e7ff", textAlign: "center" }}>
-                      Kardex sistema
+                    <th colSpan={kardexColumns.length} style={{ ...thStyle, background: "#e0e7ff", textAlign: "center" }}>
+                      {isSubcountView ? "Kardex al corte" : "Kardex sistema"}
                     </th>
                   )}
                   <th colSpan={COUNT_LOCATION_KEYS.length} style={{ ...thStyle, background: "#dcfce7", textAlign: "center" }}>
@@ -1147,7 +1270,7 @@ function KioskInventoryCountReport({ locationId }) {
                   <th style={thStyle}>Producto / Código</th>
                   <th style={thStyle}>Color</th>
                   <th style={thStyle}>Talla</th>
-                  {showKardex && KARDEX_COLUMNS.map((col) => (
+                  {showKardex && kardexColumns.map((col) => (
                     <th key={col.key} style={{ ...thStyle, background: "#eef2ff" }} title={col.title}>{col.label}</th>
                   ))}
                   {COUNT_LOCATION_KEYS.map((k) => (
@@ -1168,6 +1291,7 @@ function KioskInventoryCountReport({ locationId }) {
                       key={category.categoryName || category.categoryId || "sin-categoria"}
                       category={category}
                       showKardex={showKardex}
+                      kardexColumns={kardexColumns}
                       editedCounts={editedCounts}
                       editedSizeCounts={editedSizeCounts}
                       editedSizeCountsByLocation={editedSizeCountsByLocation}
@@ -1184,6 +1308,7 @@ function KioskInventoryCountReport({ locationId }) {
                     label={`TOTAL GENERAL (${filteredCategories.flatMap((c) => c.rows).length} productos visibles)`}
                     row={filteredTotalGeneral}
                     showKardex={showKardex}
+                    kardexColumns={kardexColumns}
                     bg="#1f2937"
                     textColor="#fff"
                     bold

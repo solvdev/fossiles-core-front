@@ -37,6 +37,7 @@ function CustomerAccountDischargeModal({
   customerId,
   customerInfo = {},
   movementConceptCode = "11",
+  initialCharge = null,
   onSaved,
 }) {
   const [documents, setDocuments] = useState([]);
@@ -50,15 +51,38 @@ function CustomerAccountDischargeModal({
   useEffect(() => {
     if (!isOpen || !customerId) return;
     setError("");
-    setSelectedDoc(null);
-    setForm({
+    const today = getTodayYmdGuatemala();
+    const baseForm = {
       ...EMPTY_FORM,
-      collectionDate: getTodayYmdGuatemala(),
-      entryDate: getTodayYmdGuatemala(),
+      collectionDate: today,
+      entryDate: today,
       paymentMethod: movementConceptCode === "3" ? "CHEQUE" : movementConceptCode === "4" ? "EFECTIVO" : "EFECTIVO",
-    });
-    loadDocuments();
-  }, [isOpen, customerId, orderKindFilter, movementConceptCode]);
+    };
+    if (initialCharge) {
+      const doc = {
+        chargeEntryId: initialCharge.id ?? initialCharge.chargeEntryId,
+        invoiceNumber: initialCharge.invoiceNumber || initialCharge.vendorShipmentNumber,
+        documentNumber: initialCharge.documentNumber || initialCharge.productionOrderCode,
+        orderCode: initialCharge.productionOrderCode,
+        orderKind: initialCharge.orderKind,
+        balanceDue: initialCharge.chargeBalanceDue ?? initialCharge.balanceDue,
+        chargeAmount: initialCharge.debit ?? initialCharge.chargeAmount,
+        productionOrderId: initialCharge.productionOrderId,
+        partialReleaseId: initialCharge.partialReleaseId,
+        productShipmentId: initialCharge.productShipmentId,
+      };
+      setDocuments([doc]);
+      setSelectedDoc(doc);
+      setForm({
+        ...baseForm,
+        grossAmount: String(Number(doc.balanceDue || 0).toFixed(2)),
+      });
+    } else {
+      setSelectedDoc(null);
+      setForm(baseForm);
+      loadDocuments();
+    }
+  }, [isOpen, customerId, orderKindFilter, movementConceptCode, initialCharge]);
 
   const loadDocuments = async () => {
     setLoading(true);
@@ -179,7 +203,14 @@ function CustomerAccountDischargeModal({
           </Button>
         </FormGroup>
 
-        {loading ? (
+        {initialCharge ? (
+          selectedDoc && (
+            <div className="mb-3 p-2 bg-light rounded small">
+              <strong>{selectedDoc.invoiceNumber || selectedDoc.documentNumber}</strong>
+              <span className="ml-2">Saldo: {formatAccountMoney(selectedDoc.balanceDue)}</span>
+            </div>
+          )
+        ) : loading ? (
           <div className="text-center py-3">Cargando documentos...</div>
         ) : documents.length === 0 ? (
           <Alert color="info">No hay documentos con saldo pendiente para este cliente.</Alert>

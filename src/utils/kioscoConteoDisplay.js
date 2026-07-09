@@ -9,6 +9,12 @@ import {
 const COUNT_LOCATION_KEYS = ["V1", "V2", "V3", "V4", "V5", "V6", "V7", "E", "BO"];
 const PACKAGING_KEY = "PACKAGING";
 
+/** Etiqueta de subtotal: "Subtotal — EMPAQUES" (nombre de categoría en mayúsculas). */
+export function formatConteoSubtotalLabel(categoryName) {
+  const part = String(categoryName || "").trim().toUpperCase();
+  return part ? `Subtotal — ${part}` : "Subtotal";
+}
+
 const rowTotal = (counts) =>
   COUNT_LOCATION_KEYS.reduce((sum, key) => sum + Number((counts || {})[key] || 0), 0);
 

@@ -13,9 +13,9 @@ import {
 } from "reactstrap";
 import {
   createCustomerAccountDocumentSettlement,
+  createCustomerAccountEntry,
   formatAccountMoney,
   getReceivableDocuments,
-  PAYMENT_METHODS,
 } from "services/customerAccountService";
 import { getTodayYmdGuatemala } from "utils/dateTimeHelper";
 import {
@@ -24,21 +24,41 @@ import {
 } from "utils/customerPaymentReceiptPrintHtml";
 
 const EMPTY_FORM = {
-  discountMode: "none",
+  mode: "discount",
+  discountMode: "amount",
   discountAmount: "",
   discountPercent: "",
-  paymentGross: "",
-  paymentDiscountMode: "none",
-  paymentDiscountAmount: "",
-  paymentDiscountPercent: "",
-  receiptNumber: "",
-  collectionDate: "",
+  returnAmount: "",
+  returnVoucherNumber: "",
+  returnDate: "",
   entryDate: "",
-  paymentMethod: "EFECTIVO",
   notes: "",
 };
 
-function CustomerAccountReturnModal({ isOpen, toggle, customerId, customerInfo = {}, onSaved }) {
+function chargeToDoc(chargeLine) {
+  if (!chargeLine) return null;
+  return {
+    chargeEntryId: chargeLine.id,
+    invoiceNumber: chargeLine.invoiceNumber || chargeLine.vendorShipmentNumber,
+    documentNumber: chargeLine.documentNumber || chargeLine.productionOrderCode,
+    orderCode: chargeLine.productionOrderCode,
+    orderKind: chargeLine.orderKind,
+    balanceDue: chargeLine.chargeBalanceDue,
+    chargeAmount: chargeLine.debit,
+    productionOrderId: chargeLine.productionOrderId,
+    partialReleaseId: chargeLine.partialReleaseId,
+    productShipmentId: chargeLine.productShipmentId,
+  };
+}
+
+function CustomerAccountReturnModal({
+  isOpen,
+  toggle,
+  customerId,
+  customerInfo = {},
+  initialCharge = null,
+  onSaved,
+}) {
   const [documents, setDocuments] = useState([]);
   const [selectedDoc, setSelectedDoc] = useState(null);
   const [form, setForm] = useState(EMPTY_FORM);
@@ -49,14 +69,20 @@ function CustomerAccountReturnModal({ isOpen, toggle, customerId, customerInfo =
   useEffect(() => {
     if (!isOpen || !customerId) return;
     setError("");
-    setSelectedDoc(null);
     setForm({
       ...EMPTY_FORM,
-      collectionDate: getTodayYmdGuatemala(),
       entryDate: getTodayYmdGuatemala(),
+      returnDate: getTodayYmdGuatemala(),
     });
-    loadDocuments();
-  }, [isOpen, customerId]);
+    if (initialCharge) {
+      const doc = chargeToDoc(initialCharge);
+      setSelectedDoc(doc);
+      setDocuments(doc ? [doc] : []);
+    } else {
+      setSelectedDoc(null);
+      loadDocuments();
+    }
+  }, [isOpen, customerId, initialCharge]);
 
   const loadDocuments = async () => {
     setLoading(true);
@@ -78,13 +104,14 @@ function CustomerAccountReturnModal({ isOpen, toggle, customerId, customerInfo =
     const saldo = Number(doc.balanceDue || 0);
     setForm((prev) => ({
       ...prev,
-      paymentGross: saldo > 0 ? String(saldo.toFixed(2)) : "",
+      returnAmount: saldo > 0 ? String(saldo.toFixed(2)) : prev.returnAmount,
     }));
   };
 
   const balance = Number(selectedDoc?.balanceDue || 0);
 
   const commercialDiscount = useMemo(() => {
+    if (form.mode !== "discount") return 0;
     if (form.discountMode === "amount") {
       return Math.max(0, Number(form.discountAmount) || 0);
     }
@@ -93,185 +120,181 @@ function CustomerAccountReturnModal({ isOpen, toggle, customerId, customerInfo =
       return Math.max(0, balance * (pct / 100));
     }
     return 0;
-  }, [form.discountMode, form.discountAmount, form.discountPercent, balance]);
+  }, [form.mode, form.discountMode, form.discountAmount, form.discountPercent, balance]);
 
-  const paymentGross = Math.max(0, Number(form.paymentGross) || 0);
-
-  const paymentNet = useMemo(() => {
-    const gross = paymentGross;
-    if (form.paymentDiscountMode === "amount") {
-      return Math.max(0, gross - (Number(form.paymentDiscountAmount) || 0));
-    }
-    if (form.paymentDiscountMode === "percent") {
-      const pct = Number(form.paymentDiscountPercent) || 0;
-      return Math.max(0, gross - gross * (pct / 100));
-    }
-    return gross;
-  }, [paymentGross, form.paymentDiscountMode, form.paymentDiscountAmount, form.paymentDiscountPercent]);
-
-  const balanceAfterDiscount = Math.max(0, balance - commercialDiscount);
-  const finalBalance = Math.max(0, balance - commercialDiscount - paymentGross);
+  const returnAmount = form.mode === "return" ? Math.max(0, Number(form.returnAmount) || 0) : 0;
 
   const handleSubmit = async () => {
     if (!selectedDoc) {
       setError("Seleccione el documento.");
       return;
     }
-    if (commercialDiscount <= 0 && paymentGross <= 0) {
-      setError("Indique un descuento comercial y/o un monto de descarga.");
-      return;
-    }
-    if (commercialDiscount + paymentGross > balance + 0.001) {
-      setError(`Descuento + descarga no pueden exceder el saldo (${formatAccountMoney(balance)}).`);
-      return;
-    }
-    if (paymentGross > 0 && !form.receiptNumber.trim()) {
-      setError("El número de recibo de caja es obligatorio cuando hay descarga.");
-      return;
-    }
-    if (paymentGross > 0 && !form.collectionDate) {
-      setError("La fecha de cobro es obligatoria cuando hay descarga.");
-      return;
-    }
-    if (paymentGross > 0 && paymentNet <= 0) {
-      setError("El efectivo a cobrar debe ser mayor a cero.");
-      return;
+    if (form.mode === "discount") {
+      if (commercialDiscount <= 0) {
+        setError("Indique el monto o porcentaje del descuento comercial.");
+        return;
+      }
+      if (commercialDiscount > balance + 0.001) {
+        setError(`El descuento no puede exceder el saldo (${formatAccountMoney(balance)}).`);
+        return;
+      }
+    } else {
+      if (returnAmount <= 0) {
+        setError("Indique el monto de la devolución.");
+        return;
+      }
+      if (!form.returnVoucherNumber.trim()) {
+        setError("El número de recibo / boleta de devolución es obligatorio.");
+        return;
+      }
+      if (!form.returnDate) {
+        setError("La fecha de devolución es obligatoria.");
+        return;
+      }
+      if (returnAmount > balance + 0.001) {
+        setError(`La devolución no puede exceder el saldo (${formatAccountMoney(balance)}).`);
+        return;
+      }
     }
 
     setSaving(true);
     setError("");
     try {
-      const payload = {
-        appliedToEntryId: selectedDoc.chargeEntryId,
-        entryDate: form.entryDate || getTodayYmdGuatemala(),
-        collectionDate: paymentGross > 0 ? form.collectionDate : null,
-        discountAmount: form.discountMode === "amount" ? Number(form.discountAmount) || null : null,
-        discountPercent: form.discountMode === "percent" ? Number(form.discountPercent) || null : null,
-        paymentGross: paymentGross > 0 ? paymentGross : null,
-        paymentDiscountAmount:
-          paymentGross > 0 && form.paymentDiscountMode === "amount"
-            ? Number(form.paymentDiscountAmount) || null
-            : null,
-        paymentDiscountPercent:
-          paymentGross > 0 && form.paymentDiscountMode === "percent"
-            ? Number(form.paymentDiscountPercent) || null
-            : null,
-        receiptNumber: form.receiptNumber.trim() || null,
-        documentNumber: form.receiptNumber.trim() || null,
-        paymentMethod: form.paymentMethod,
-        notes: form.notes.trim() || null,
-        productionOrderId: selectedDoc.productionOrderId,
-        partialReleaseId: selectedDoc.partialReleaseId,
-        productShipmentId: selectedDoc.productShipmentId,
-        invoiceNumber: selectedDoc.invoiceNumber,
-        vendorShipmentNumber: selectedDoc.invoiceNumber,
-      };
-      const saved = await createCustomerAccountDocumentSettlement(customerId, payload);
-      const html = buildCustomerSettlementPrintHtml(saved, customerInfo, selectedDoc);
-      openAccountPrintWindow(html);
+      if (form.mode === "discount") {
+        const payload = {
+          appliedToEntryId: selectedDoc.chargeEntryId,
+          entryDate: form.entryDate || getTodayYmdGuatemala(),
+          discountAmount: form.discountMode === "amount" ? Number(form.discountAmount) || null : null,
+          discountPercent: form.discountMode === "percent" ? Number(form.discountPercent) || null : null,
+          notes: form.notes.trim() || null,
+          productionOrderId: selectedDoc.productionOrderId,
+          partialReleaseId: selectedDoc.partialReleaseId,
+          productShipmentId: selectedDoc.productShipmentId,
+          invoiceNumber: selectedDoc.invoiceNumber,
+          vendorShipmentNumber: selectedDoc.invoiceNumber,
+        };
+        const saved = await createCustomerAccountDocumentSettlement(customerId, payload);
+        const html = buildCustomerSettlementPrintHtml(saved, customerInfo, selectedDoc);
+        openAccountPrintWindow(html);
+      } else {
+        const payload = {
+          entryType: "RETURN",
+          entryDate: form.entryDate || getTodayYmdGuatemala(),
+          returnDate: form.returnDate,
+          amount: returnAmount,
+          grossCollectedAmount: returnAmount,
+          appliedToEntryId: selectedDoc.chargeEntryId,
+          returnVoucherNumber: form.returnVoucherNumber.trim(),
+          invoiceNumber: selectedDoc.invoiceNumber,
+          documentNumber: form.returnVoucherNumber.trim(),
+          vendorShipmentNumber: selectedDoc.invoiceNumber,
+          productionOrderId: selectedDoc.productionOrderId,
+          partialReleaseId: selectedDoc.partialReleaseId,
+          productShipmentId: selectedDoc.productShipmentId,
+          description: form.notes.trim() || `Devolución ${selectedDoc.invoiceNumber || ""}`.trim(),
+        };
+        await createCustomerAccountEntry(customerId, payload);
+      }
       toggle();
-      if (onSaved) onSaved(saved);
+      if (onSaved) onSaved();
     } catch (err) {
-      setError(err.message || "No se pudo registrar la liquidación");
+      setError(err.message || "No se pudo registrar el movimiento");
     } finally {
       setSaving(false);
     }
   };
 
+  const showDocPicker = !initialCharge;
+
   return (
-    <Modal isOpen={isOpen} toggle={toggle} size="xl">
-      <ModalHeader toggle={toggle}>Devolución / Descuento y descarga</ModalHeader>
+    <Modal isOpen={isOpen} toggle={toggle} size="lg">
+      <ModalHeader toggle={toggle}>Descuento o devolución</ModalHeader>
       <ModalBody>
         {error && <Alert color="danger">{error}</Alert>}
         <Alert color="info" className="py-2">
-          Primero aplique el <strong>descuento comercial</strong> (reduce saldo sin cobro). Luego indique la{" "}
-          <strong>descarga parcial</strong> del saldo restante. No tiene que liquidar todo de un golpe.
+          Registre aquí solo <strong>descuento comercial</strong> o <strong>devolución</strong>. Para cobrar al cliente
+          use el botón <strong>Descarga (11)</strong>, que tiene su propio flujo con recibo de caja.
         </Alert>
 
-        {loading ? (
-          <div className="text-center py-3">Cargando...</div>
-        ) : documents.length === 0 ? (
-          <Alert color="info">No hay documentos con saldo pendiente.</Alert>
-        ) : (
-          <Table responsive size="sm" hover className="mb-3">
-            <thead className="text-primary">
-              <tr>
-                <th />
-                <th>No. Fact / ENVP</th>
-                <th>Documento</th>
-                <th className="text-right">Saldo</th>
-              </tr>
-            </thead>
-            <tbody>
-              {documents.map((doc) => (
-                <tr
-                  key={doc.chargeEntryId}
-                  className={selectedDoc?.chargeEntryId === doc.chargeEntryId ? "table-active" : ""}
-                  style={{ cursor: "pointer" }}
-                  onClick={() => selectDocument(doc)}
-                >
-                  <td>
-                    <Input
-                      type="radio"
-                      checked={selectedDoc?.chargeEntryId === doc.chargeEntryId}
-                      onChange={() => selectDocument(doc)}
-                    />
-                  </td>
-                  <td>{doc.invoiceNumber || "—"}</td>
-                  <td>{doc.documentNumber || doc.orderCode || "—"}</td>
-                  <td className="text-right">{formatAccountMoney(doc.balanceDue)}</td>
+        {showDocPicker && (
+          loading ? (
+            <div className="text-center py-3">Cargando...</div>
+          ) : documents.length === 0 ? (
+            <Alert color="info">No hay documentos con saldo pendiente.</Alert>
+          ) : (
+            <Table responsive size="sm" hover className="mb-3">
+              <thead className="text-primary">
+                <tr>
+                  <th />
+                  <th>No. Fact / ENVP</th>
+                  <th>Documento</th>
+                  <th className="text-right">Saldo</th>
                 </tr>
-              ))}
-            </tbody>
-          </Table>
+              </thead>
+              <tbody>
+                {documents.map((doc) => (
+                  <tr
+                    key={doc.chargeEntryId}
+                    className={selectedDoc?.chargeEntryId === doc.chargeEntryId ? "table-active" : ""}
+                    style={{ cursor: "pointer" }}
+                    onClick={() => selectDocument(doc)}
+                  >
+                    <td>
+                      <Input
+                        type="radio"
+                        checked={selectedDoc?.chargeEntryId === doc.chargeEntryId}
+                        onChange={() => selectDocument(doc)}
+                      />
+                    </td>
+                    <td>{doc.invoiceNumber || "—"}</td>
+                    <td>{doc.documentNumber || doc.orderCode || "—"}</td>
+                    <td className="text-right">{formatAccountMoney(doc.balanceDue)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </Table>
+          )
         )}
 
         {selectedDoc && (
           <>
             <div className="mb-3 p-2 bg-light rounded small">
-              <div><strong>Saldo documento:</strong> {formatAccountMoney(balance)}</div>
-              {commercialDiscount > 0 && (
-                <>
-                  <div><strong>− Descuento comercial:</strong> {formatAccountMoney(commercialDiscount)}</div>
-                  <div><strong>= Saldo después descuento:</strong> {formatAccountMoney(balanceAfterDiscount)}</div>
-                </>
-              )}
-              {paymentGross > 0 && (
-                <>
-                  <div><strong>− Descarga:</strong> {formatAccountMoney(paymentGross)}</div>
-                  <div><strong>= Saldo final:</strong> {formatAccountMoney(finalBalance)}</div>
-                  <div className="mt-1"><strong>Efectivo a cobrar:</strong> {formatAccountMoney(paymentNet)}</div>
-                </>
-              )}
-              {commercialDiscount <= 0 && paymentGross <= 0 && (
-                <div className="text-muted mt-1">Indique descuento comercial y/o monto a descargar.</div>
-              )}
+              <div><strong>Documento:</strong> {selectedDoc.invoiceNumber || selectedDoc.documentNumber || "—"}</div>
+              <div><strong>Saldo pendiente:</strong> {formatAccountMoney(balance)}</div>
             </div>
 
-            <div className="border rounded p-3 mb-3">
-              <h6 className="text-muted mb-3" style={{ fontSize: 13 }}>1. Descuento comercial (opcional)</h6>
-              <div className="row">
-                <div className="col-md-4">
-                  <FormGroup className="mb-md-0">
-                    <Label className="mb-1">Tipo</Label>
-                    <Input
-                      type="select"
-                      bsSize="sm"
-                      value={form.discountMode}
-                      onChange={(e) => patch("discountMode", e.target.value)}
-                    >
-                      <option value="none">Sin descuento</option>
-                      <option value="amount">Monto (Q)</option>
-                      <option value="percent">Porcentaje (%)</option>
-                    </Input>
-                  </FormGroup>
-                </div>
-                {form.discountMode !== "none" && (
+            <FormGroup>
+              <Label>Tipo de movimiento</Label>
+              <Input
+                type="select"
+                value={form.mode}
+                onChange={(e) => patch("mode", e.target.value)}
+              >
+                <option value="discount">Descuento comercial</option>
+                <option value="return">Devolución</option>
+              </Input>
+            </FormGroup>
+
+            {form.mode === "discount" ? (
+              <div className="border rounded p-3">
+                <div className="row">
                   <div className="col-md-4">
                     <FormGroup className="mb-md-0">
-                      <Label className="mb-1">
-                        {form.discountMode === "amount" ? "Monto (Q)" : "Porcentaje (%)"}
-                      </Label>
+                      <Label>Forma de descuento</Label>
+                      <Input
+                        type="select"
+                        bsSize="sm"
+                        value={form.discountMode}
+                        onChange={(e) => patch("discountMode", e.target.value)}
+                      >
+                        <option value="amount">Monto (Q)</option>
+                        <option value="percent">Porcentaje (%)</option>
+                      </Input>
+                    </FormGroup>
+                  </div>
+                  <div className="col-md-4">
+                    <FormGroup className="mb-md-0">
+                      <Label>{form.discountMode === "amount" ? "Monto (Q)" : "Porcentaje (%)"}</Label>
                       <Input
                         type="number"
                         bsSize="sm"
@@ -285,122 +308,64 @@ function CustomerAccountReturnModal({ isOpen, toggle, customerId, customerInfo =
                       />
                     </FormGroup>
                   </div>
-                )}
-              </div>
-            </div>
-
-            <div className="border rounded p-3 mb-2">
-              <h6 className="text-muted mb-3" style={{ fontSize: 13 }}>2. Descarga y cobro (opcional)</h6>
-              <div className="row">
-                <div className="col-md-4">
-                  <FormGroup className="mb-2">
-                    <Label className="mb-1">Monto a descargar (Q)</Label>
-                    <Input
-                      type="number"
-                      bsSize="sm"
-                      min="0"
-                      step="0.01"
-                      value={form.paymentGross}
-                      onChange={(e) => patch("paymentGross", e.target.value)}
-                    />
-                  </FormGroup>
+                  <div className="col-md-4 d-flex align-items-end">
+                    <div className="mb-3">
+                      <small className="text-muted d-block">Descuento a aplicar</small>
+                      <strong>{formatAccountMoney(commercialDiscount)}</strong>
+                    </div>
+                  </div>
                 </div>
-                {paymentGross > 0 && (
-                  <>
-                    <div className="col-md-4">
-                      <FormGroup className="mb-2">
-                        <Label className="mb-1">No. recibo caja *</Label>
-                        <Input
-                          bsSize="sm"
-                          value={form.receiptNumber}
-                          onChange={(e) => patch("receiptNumber", e.target.value)}
-                        />
-                      </FormGroup>
-                    </div>
-                    <div className="col-md-2">
-                      <FormGroup className="mb-2">
-                        <Label className="mb-1">Método</Label>
-                        <Input
-                          type="select"
-                          bsSize="sm"
-                          value={form.paymentMethod}
-                          onChange={(e) => patch("paymentMethod", e.target.value)}
-                        >
-                          {PAYMENT_METHODS.map((m) => (
-                            <option key={m.value} value={m.value}>{m.label}</option>
-                          ))}
-                        </Input>
-                      </FormGroup>
-                    </div>
-                    <div className="col-md-2">
-                      <FormGroup className="mb-2">
-                        <Label className="mb-1">Fecha cobro *</Label>
-                        <Input
-                          type="date"
-                          bsSize="sm"
-                          value={form.collectionDate}
-                          onChange={(e) => patch("collectionDate", e.target.value)}
-                        />
-                      </FormGroup>
-                    </div>
-                    <div className="col-md-4">
-                      <FormGroup className="mb-2">
-                        <Label className="mb-1">Descuento al cobrar</Label>
-                        <Input
-                          type="select"
-                          bsSize="sm"
-                          value={form.paymentDiscountMode}
-                          onChange={(e) => patch("paymentDiscountMode", e.target.value)}
-                        >
-                          <option value="none">Sin descuento</option>
-                          <option value="amount">Monto (Q)</option>
-                          <option value="percent">Porcentaje (%)</option>
-                        </Input>
-                      </FormGroup>
-                    </div>
-                    {form.paymentDiscountMode !== "none" && (
-                      <div className="col-md-3">
-                        <FormGroup className="mb-2">
-                          <Label className="mb-1">
-                            {form.paymentDiscountMode === "amount" ? "Desc. (Q)" : "Desc. (%)"}
-                          </Label>
-                          <Input
-                            type="number"
-                            bsSize="sm"
-                            min="0"
-                            max={form.paymentDiscountMode === "percent" ? 100 : undefined}
-                            step="0.01"
-                            value={
-                              form.paymentDiscountMode === "amount"
-                                ? form.paymentDiscountAmount
-                                : form.paymentDiscountPercent
-                            }
-                            onChange={(e) =>
-                              patch(
-                                form.paymentDiscountMode === "amount"
-                                  ? "paymentDiscountAmount"
-                                  : "paymentDiscountPercent",
-                                e.target.value
-                              )
-                            }
-                          />
-                        </FormGroup>
-                      </div>
-                    )}
-                  </>
-                )}
               </div>
-            </div>
+            ) : (
+              <div className="border rounded p-3">
+                <div className="row">
+                  <div className="col-md-4">
+                    <FormGroup>
+                      <Label>Monto devolución (Q) *</Label>
+                      <Input
+                        type="number"
+                        bsSize="sm"
+                        min="0"
+                        step="0.01"
+                        value={form.returnAmount}
+                        onChange={(e) => patch("returnAmount", e.target.value)}
+                      />
+                    </FormGroup>
+                  </div>
+                  <div className="col-md-4">
+                    <FormGroup>
+                      <Label>No. recibo / boleta *</Label>
+                      <Input
+                        bsSize="sm"
+                        value={form.returnVoucherNumber}
+                        onChange={(e) => patch("returnVoucherNumber", e.target.value)}
+                      />
+                    </FormGroup>
+                  </div>
+                  <div className="col-md-4">
+                    <FormGroup>
+                      <Label>Fecha devolución *</Label>
+                      <Input
+                        type="date"
+                        bsSize="sm"
+                        value={form.returnDate}
+                        onChange={(e) => patch("returnDate", e.target.value)}
+                      />
+                    </FormGroup>
+                  </div>
+                </div>
+              </div>
+            )}
 
-            <FormGroup className="mb-0">
-              <Label className="mb-1">Notas (opcional)</Label>
+            <FormGroup className="mb-0 mt-3">
+              <Label>Notas (opcional)</Label>
               <Input
                 type="textarea"
                 bsSize="sm"
                 rows={2}
                 value={form.notes}
                 onChange={(e) => patch("notes", e.target.value)}
-                placeholder="Motivo del descuento o descarga..."
+                placeholder="Motivo del descuento o devolución..."
               />
             </FormGroup>
           </>
@@ -411,7 +376,7 @@ function CustomerAccountReturnModal({ isOpen, toggle, customerId, customerInfo =
           Cancelar
         </Button>
         <Button color="primary" onClick={handleSubmit} disabled={saving || !selectedDoc}>
-          {saving ? "Guardando..." : "Registrar e imprimir"}
+          {saving ? "Guardando..." : "Registrar"}
         </Button>
       </ModalFooter>
     </Modal>

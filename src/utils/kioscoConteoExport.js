@@ -1,15 +1,20 @@
 import * as XLSX from "xlsx-js-style";
+import { formatConteoSubtotalLabel } from "./kioscoConteoDisplay";
 import { formatNowGt } from "./dateTimeHelper";
 
 const COUNT_LOCATION_KEYS = ["V1", "V2", "V3", "V4", "V5", "V6", "V7", "E", "BO"];
+const PRODUCT_COL_COUNT = 4;
 const DIFF_ALERT_THRESHOLD = 3;
 
 const COLORS = {
   border: "D1D5DB",
+  separator: "9CA3AF",
   titleBg: "DBEAFE",
   metaBg: "F9FAFB",
   tableHeaderBg: "F3F4F6",
+  vitrineHeaderBg: "DCFCE7",
   categoryBg: "E5E7EB",
+  separatorBg: "E5E7EB",
   subtotalBg: "F9FAFB",
   totalBg: "1F2937",
   totalText: "FFFFFF",
@@ -26,6 +31,8 @@ const thinBorder = {
   left: { style: "thin", color: { rgb: COLORS.border } },
 };
 
+const thickBorderSide = { style: "medium", color: { rgb: COLORS.separator } };
+
 const fillStyle = (rgb) => ({ fgColor: { rgb } });
 
 const KARDEX_HEADERS = [
@@ -39,88 +46,183 @@ const KARDEX_HEADERS = [
   { key: "inventarioFinal", label: "Inv. final" },
 ];
 
+const isSubcountReport = (report) => report?.reportType === "SUBCONTEO";
+
+const resolveKardexHeaders = (report) => {
+  if (!isSubcountReport(report)) return KARDEX_HEADERS;
+  return KARDEX_HEADERS.map((col) =>
+    col.key === "inventarioFinal" ? { ...col, label: "Inv. final al corte" } : col
+  );
+};
+
 const escape = (v) =>
   String(v ?? "")
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
 
+function colLayout(showKardex) {
+  const kardexCount = showKardex ? KARDEX_HEADERS.length : 0;
+  const kardexStart = PRODUCT_COL_COUNT;
+  const separatorCol = kardexStart + kardexCount;
+  const vitrineStart = separatorCol + 1;
+  const totalCol = vitrineStart + COUNT_LOCATION_KEYS.length;
+  const diffCol = totalCol + 1;
+  return {
+    kardexCount,
+    kardexStart,
+    separatorCol,
+    vitrineStart,
+    totalCol,
+    diffCol,
+    colCount: diffCol + 1,
+  };
+}
+
 function buildHeaderRows(report) {
-  return [
-    ["Conteo físico de inventario kiosco"],
+  const subcount = isSubcountReport(report);
+  const rows = [
+    [subcount ? "Subconteo — inventario sistema al corte" : "Conteo físico de inventario kiosco"],
     ["Kiosko", report.locationName || report.locationCode || "—"],
-    ["Período", `${report.periodFrom || ""} a ${report.periodTo || ""}`],
+  ];
+  if (subcount) {
+    rows.push(["Tipo", "Subconteo"]);
+    rows.push(["Corte sistema", report.asOfDate || "—"]);
+    rows.push(["Kardex período", `${report.periodFrom || ""} a ${report.asOfDate || ""}`]);
+    rows.push(["Conteo físico", "Del conteo principal (mismas vitrinas)"]);
+  }
+  rows.push(
+    ["Período sesión", `${report.periodFrom || ""} a ${report.periodTo || ""}`],
     ["Estado", report.status || "—"],
     ["Generado por", report.generatedByName || "—"],
     ["Generado el", report.generatedAt ? String(report.generatedAt).slice(0, 19).replace("T", " ") : "—"],
     ["Revisado por", report.reviewedByName || "Pendiente"],
     ["Notas", report.notes || ""],
     ["Exportado", formatNowGt()],
-    [],
-  ];
-}
-
-function buildTableHeaders(showKardex) {
-  const headers = ["Código", "Producto", "Color", "Talla"];
-  if (showKardex) {
-    KARDEX_HEADERS.forEach((col) => headers.push(col.label));
-  }
-  COUNT_LOCATION_KEYS.forEach((k) => headers.push(k));
-  headers.push("Total físico", "Diferencia");
-  return headers;
-}
-
-function buildDataRow(row, showKardex) {
-  const cells = [
-    row.productCode || "",
-    row.productName || "",
-    row.colorName || "—",
-    row.sizeLabel || row.sizesSummary || "",
-  ];
-  if (showKardex) {
-    KARDEX_HEADERS.forEach((col) => cells.push(row[col.key] ?? 0));
-  }
-  COUNT_LOCATION_KEYS.forEach((k) => cells.push((row.counts || {})[k] ?? 0));
-  cells.push(row.total ?? 0, row.diferencia ?? 0);
-  return cells;
-}
-
-function buildSubtotalRow(label, sub, showKardex) {
-  const cells = label === "TOTAL GENERAL" ? [label, "", "", ""] : ["", label, "", ""];
-  if (showKardex) {
-    KARDEX_HEADERS.forEach((col) => cells.push(sub[col.key] ?? 0));
-  }
-  COUNT_LOCATION_KEYS.forEach((k) => cells.push((sub.counts || {})[k] ?? 0));
-  cells.push(sub.total ?? 0, sub.diferencia ?? 0);
-  return cells;
-}
-
-function buildSheetRows(report, showKardex) {
-  const rows = [...buildHeaderRows(report)];
-  rows.push(buildTableHeaders(showKardex));
-
-  (report.categories || []).forEach((cat) => {
-    const titleRow = new Array(buildTableHeaders(showKardex).length).fill("");
-    titleRow[0] = cat.categoryName || "Sin categoría";
-    rows.push(titleRow);
-
-    (cat.rows || []).forEach((row) => {
-      rows.push(buildDataRow(row, showKardex));
-    });
-
-    if (cat.subtotal) {
-      rows.push(buildSubtotalRow(`Subtotal — ${cat.categoryName || ""}`, cat.subtotal, showKardex));
-    }
-    rows.push([]);
-  });
-
-  if (report.totalGeneral) {
-    rows.push(buildSubtotalRow("TOTAL GENERAL", report.totalGeneral, showKardex));
-  }
+    []
+  );
   return rows;
 }
 
-const NUMERIC_COL_START = 4;
+function buildTableHeaderCells(showKardex, report) {
+  const kardexHeaders = resolveKardexHeaders(report);
+  const { colCount } = colLayout(showKardex);
+  const cells = Array(colCount).fill("");
+  const productHeaders = ["Código", "Producto", "Color", "Talla"];
+  productHeaders.forEach((label, index) => {
+    cells[index] = label;
+  });
+  if (showKardex) {
+    kardexHeaders.forEach((col, index) => {
+      cells[PRODUCT_COL_COUNT + index] = col.label;
+    });
+  }
+  COUNT_LOCATION_KEYS.forEach((key, index) => {
+    cells[colLayout(showKardex).vitrineStart + index] = key;
+  });
+  const { totalCol, diffCol } = colLayout(showKardex);
+  cells[totalCol] = "Total físico";
+  cells[diffCol] = "Diferencia";
+  return cells;
+}
+
+function buildDataRowCells(row, showKardex, report) {
+  const kardexHeaders = resolveKardexHeaders(report);
+  const { kardexStart, separatorCol, vitrineStart, totalCol, diffCol, colCount } = colLayout(showKardex);
+  const cells = Array(colCount).fill("");
+  cells[0] = row.productCode || "";
+  cells[1] = row.productName || "";
+  cells[2] = row.colorName || "—";
+  cells[3] = row.sizeLabel || row.sizesSummary || "";
+  if (showKardex) {
+    kardexHeaders.forEach((col, index) => {
+      cells[kardexStart + index] = row[col.key] ?? 0;
+    });
+  }
+  COUNT_LOCATION_KEYS.forEach((key, index) => {
+    cells[vitrineStart + index] = (row.counts || {})[key] ?? 0;
+  });
+  cells[totalCol] = row.total ?? 0;
+  cells[diffCol] = row.diferencia ?? 0;
+  cells[separatorCol] = "";
+  return cells;
+}
+
+function buildSubtotalCells(label, sub, showKardex, report) {
+  const cells = buildDataRowCells(
+    {
+      productCode: label === "TOTAL GENERAL" ? label : "",
+      productName: label === "TOTAL GENERAL" ? "" : label,
+      colorName: "",
+      sizesSummary: "",
+      counts: sub.counts,
+      total: sub.total,
+      diferencia: sub.diferencia,
+      ...sub,
+    },
+    showKardex,
+    report
+  );
+  if (label === "TOTAL GENERAL") {
+    cells[0] = label;
+    cells[1] = "";
+  } else {
+    cells[0] = "";
+    cells[1] = label;
+  }
+  cells[2] = "";
+  cells[3] = "";
+  return cells;
+}
+
+function buildSheetStructure(report, showKardex) {
+  const { colCount } = colLayout(showKardex);
+  const rows = [];
+  const meta = [];
+
+  buildHeaderRows(report).forEach((row) => {
+    rows.push(row);
+    meta.push({ type: "meta" });
+  });
+
+  rows.push(buildTableHeaderCells(showKardex, report));
+  meta.push({ type: "main-header" });
+
+  (report.categories || []).forEach((cat) => {
+    const titleRow = Array(colCount).fill("");
+    titleRow[0] = cat.categoryName || "Sin categoría";
+    rows.push(titleRow);
+    meta.push({ type: "category-title" });
+
+    rows.push(buildTableHeaderCells(showKardex, report));
+    meta.push({ type: "category-headers" });
+
+    (cat.rows || []).forEach((row, rowIndex) => {
+      rows.push(buildDataRowCells(row, showKardex, report));
+      meta.push({
+        type: "data",
+        isAlert: Math.abs(row.diferencia ?? 0) >= DIFF_ALERT_THRESHOLD,
+        isZebra: rowIndex % 2 === 1,
+        diferencia: row.diferencia ?? 0,
+      });
+    });
+
+    if (cat.subtotal) {
+      rows.push(buildSubtotalCells(formatConteoSubtotalLabel(cat.categoryName), cat.subtotal, showKardex, report));
+      meta.push({ type: "subtotal" });
+    }
+
+    rows.push(Array(colCount).fill(""));
+    meta.push({ type: "blank" });
+  });
+
+  if (report.totalGeneral) {
+    rows.push(buildSubtotalCells("TOTAL GENERAL", report.totalGeneral, showKardex, report));
+    meta.push({ type: "total-general" });
+  }
+
+  return { rows, meta, layout: colLayout(showKardex) };
+}
 
 function ensureCell(ws, rowIdx, colIdx, value) {
   const cellRef = XLSX.utils.encode_cell({ r: rowIdx, c: colIdx });
@@ -141,22 +243,79 @@ function styleRowRange(ws, rowIdx, colCount, style) {
   }
 }
 
-function applySheetLayout(ws, showKardex, merges) {
-  const colCount = buildTableHeaders(showKardex).length;
+function isNumericCol(colIdx, layout) {
+  const { kardexStart, kardexCount, separatorCol, vitrineStart, totalCol, diffCol } = layout;
+  if (colIdx < PRODUCT_COL_COUNT) return false;
+  if (colIdx === separatorCol) return false;
+  if (colIdx >= kardexStart && colIdx < separatorCol) return true;
+  if (colIdx >= vitrineStart && colIdx <= diffCol) return true;
+  return false;
+}
 
+function borderWithSeparator(colIdx, layout, baseBorder = thinBorder) {
+  const { separatorCol, vitrineStart, kardexStart, kardexCount } = layout;
+  const lastKardexCol = kardexStart + kardexCount - 1;
+  const border = { ...baseBorder };
+  if (colIdx === separatorCol) {
+    return {
+      ...border,
+      left: thickBorderSide,
+      right: thickBorderSide,
+      top: border.top,
+      bottom: border.bottom,
+    };
+  }
+  if (colIdx === vitrineStart) {
+    return { ...border, left: thickBorderSide };
+  }
+  if (kardexCount > 0 && colIdx === lastKardexCol) {
+    return { ...border, right: thickBorderSide };
+  }
+  if (kardexCount === 0 && colIdx === PRODUCT_COL_COUNT - 1) {
+    return { ...border, right: thickBorderSide };
+  }
+  return border;
+}
+
+function applySheetLayout(ws, layout, merges) {
+  const { colCount, separatorCol, vitrineStart } = layout;
   ws["!merges"] = merges;
-  ws["!cols"] = Array.from({ length: colCount }, (_, i) => ({
-    wch: i === 1 ? 28 : i >= NUMERIC_COL_START && i < colCount - 2 ? 8 : 14,
-  }));
+  ws["!cols"] = Array.from({ length: colCount }, (_, colIdx) => {
+    if (colIdx === separatorCol) return { wch: 2 };
+    if (colIdx === 1) return { wch: 28 };
+    if (colIdx >= vitrineStart && colIdx < layout.totalCol) return { wch: 6 };
+    if (colIdx >= PRODUCT_COL_COUNT && colIdx < separatorCol) return { wch: 9 };
+    if (colIdx === layout.totalCol || colIdx === layout.diffCol) return { wch: 10 };
+    return { wch: 14 };
+  });
+}
+
+function styleHeaderRow(ws, rowIdx, layout, { vitrineHighlight = false } = {}) {
+  const { colCount, separatorCol, vitrineStart, diffCol } = layout;
+  for (let colIdx = 0; colIdx < colCount; colIdx += 1) {
+    let fill = COLORS.tableHeaderBg;
+    if (vitrineHighlight && colIdx >= vitrineStart && colIdx <= diffCol) {
+      fill = COLORS.vitrineHeaderBg;
+    }
+    if (colIdx === separatorCol) {
+      fill = COLORS.separatorBg;
+    }
+    styleCell(ws, rowIdx, colIdx, {
+      font: { name: "Arial", sz: 10, bold: true, color: { rgb: "111827" } },
+      alignment: { vertical: "center", horizontal: "center", wrapText: true },
+      border: borderWithSeparator(colIdx, layout),
+      fill: fillStyle(fill),
+    });
+  }
 }
 
 function applyConteoSheetStyles(ws, report, showKardex) {
-  const colCount = buildTableHeaders(showKardex).length;
-  const diffCol = colCount - 1;
+  const { rows, meta, layout } = buildSheetStructure(report, showKardex);
+  const { colCount, separatorCol, vitrineStart, diffCol } = layout;
   const headerOffset = buildHeaderRows(report).length;
   const merges = [{ s: { r: 0, c: 0 }, e: { r: 0, c: colCount - 1 } }];
 
-  applySheetLayout(ws, showKardex, merges);
+  applySheetLayout(ws, layout, merges);
 
   styleRowRange(ws, 0, colCount, {
     font: { name: "Arial", sz: 13, bold: true, color: { rgb: "1E3A8A" } },
@@ -181,33 +340,34 @@ function applyConteoSheetStyles(ws, report, showKardex) {
     });
   }
 
-  styleRowRange(ws, headerOffset, colCount, {
-    font: { name: "Arial", sz: 10, bold: true, color: { rgb: "111827" } },
-    alignment: { vertical: "center", horizontal: "center", wrapText: true },
-    border: thinBorder,
-    fill: fillStyle(COLORS.tableHeaderBg),
-  });
-
-  let rowIdx = headerOffset + 1;
-  (report.categories || []).forEach((cat) => {
-    merges.push({ s: { r: rowIdx, c: 0 }, e: { r: rowIdx, c: colCount - 1 } });
-    styleRowRange(ws, rowIdx, colCount, {
-      font: { name: "Arial", sz: 10, bold: true, color: { rgb: "111827" } },
-      alignment: { vertical: "center", horizontal: "left" },
-      border: thinBorder,
-      fill: fillStyle(COLORS.categoryBg),
-    });
-    rowIdx += 1;
-
-    (cat.rows || []).forEach((row, rowIndex) => {
-      const isAlert = Math.abs(row.diferencia ?? 0) >= DIFF_ALERT_THRESHOLD;
-      const isZebra = rowIndex % 2 === 1;
-      const rowFill = isAlert ? COLORS.alertBg : isZebra ? COLORS.zebraBg : "FFFFFF";
-      const diffColor = (row.diferencia ?? 0) !== 0 ? COLORS.diffBad : COLORS.diffOk;
-
+  meta.slice(headerOffset).forEach((entry, offset) => {
+    const currentRow = headerOffset + offset;
+    if (entry.type === "main-header") {
+      styleHeaderRow(ws, currentRow, layout, { vitrineHighlight: true });
+      return;
+    }
+    if (entry.type === "category-title") {
+      merges.push({ s: { r: currentRow, c: 0 }, e: { r: currentRow, c: colCount - 1 } });
+      styleRowRange(ws, currentRow, colCount, {
+        font: { name: "Arial", sz: 10, bold: true, color: { rgb: "111827" } },
+        alignment: { vertical: "center", horizontal: "left" },
+        border: thinBorder,
+        fill: fillStyle(COLORS.categoryBg),
+      });
+      return;
+    }
+    if (entry.type === "category-headers") {
+      styleHeaderRow(ws, currentRow, layout, { vitrineHighlight: true });
+      return;
+    }
+    if (entry.type === "data") {
+      const rowFill = entry.isAlert ? COLORS.alertBg : entry.isZebra ? COLORS.zebraBg : "FFFFFF";
+      const diffColor = entry.diferencia !== 0 ? COLORS.diffBad : COLORS.diffOk;
       for (let colIdx = 0; colIdx < colCount; colIdx += 1) {
-        const isNumeric = colIdx >= NUMERIC_COL_START;
-        styleCell(ws, rowIdx, colIdx, {
+        const isNumeric = isNumericCol(colIdx, layout);
+        let fill = rowFill;
+        if (colIdx === separatorCol) fill = COLORS.separatorBg;
+        styleCell(ws, currentRow, colIdx, {
           font: {
             name: "Arial",
             sz: 10,
@@ -219,71 +379,70 @@ function applyConteoSheetStyles(ws, report, showKardex) {
             horizontal: isNumeric ? "right" : "left",
             wrapText: colIdx === 1,
           },
-          border: thinBorder,
-          fill: fillStyle(rowFill),
+          border: borderWithSeparator(colIdx, layout),
+          fill: fillStyle(fill),
         });
       }
-      rowIdx += 1;
-    });
-
-    if (cat.subtotal) {
+      return;
+    }
+    if (entry.type === "subtotal") {
       for (let colIdx = 0; colIdx < colCount; colIdx += 1) {
-        const isNumeric = colIdx >= NUMERIC_COL_START;
-        styleCell(ws, rowIdx, colIdx, {
+        const isNumeric = isNumericCol(colIdx, layout);
+        let fill = COLORS.subtotalBg;
+        if (colIdx === separatorCol) fill = COLORS.separatorBg;
+        styleCell(ws, currentRow, colIdx, {
           font: { name: "Arial", sz: 10, bold: true, color: { rgb: "111827" } },
           alignment: {
             vertical: "center",
             horizontal: isNumeric ? "right" : "left",
             wrapText: colIdx === 1,
           },
-          border: thinBorder,
-          fill: fillStyle(COLORS.subtotalBg),
+          border: borderWithSeparator(colIdx, layout),
+          fill: fillStyle(fill),
         });
       }
-      rowIdx += 1;
+      return;
     }
-
-    rowIdx += 1;
+    if (entry.type === "total-general") {
+      merges.push({ s: { r: currentRow, c: 0 }, e: { r: currentRow, c: 2 } });
+      const totalDiff = report.totalGeneral?.diferencia ?? 0;
+      const totalDiffColor = totalDiff !== 0 ? "FCA5A5" : "86EFAC";
+      for (let colIdx = 0; colIdx < colCount; colIdx += 1) {
+        const isNumeric = isNumericCol(colIdx, layout);
+        styleCell(ws, currentRow, colIdx, {
+          font: {
+            name: "Arial",
+            sz: 10,
+            bold: true,
+            color: { rgb: colIdx === diffCol ? totalDiffColor : COLORS.totalText },
+          },
+          alignment: {
+            vertical: "center",
+            horizontal: colIdx < 3 ? "left" : isNumeric ? "right" : "left",
+          },
+          border: borderWithSeparator(colIdx, layout),
+          fill: fillStyle(COLORS.totalBg),
+        });
+      }
+    }
   });
 
-  if (report.totalGeneral) {
-    merges.push({ s: { r: rowIdx, c: 0 }, e: { r: rowIdx, c: 2 } });
-    ws["!merges"] = merges;
-
-    const totalDiff = report.totalGeneral.diferencia ?? 0;
-    const totalDiffColor = totalDiff !== 0 ? "FCA5A5" : "86EFAC";
-
-    for (let colIdx = 0; colIdx < colCount; colIdx += 1) {
-      const isNumeric = colIdx >= NUMERIC_COL_START;
-      styleCell(ws, rowIdx, colIdx, {
-        font: {
-          name: "Arial",
-          sz: 10,
-          bold: true,
-          color: { rgb: colIdx === diffCol ? totalDiffColor : COLORS.totalText },
-        },
-        alignment: {
-          vertical: "center",
-          horizontal: colIdx < 3 ? "left" : isNumeric ? "right" : "left",
-        },
-        border: thinBorder,
-        fill: fillStyle(COLORS.totalBg),
-      });
-    }
-  } else {
-    ws["!merges"] = merges;
-  }
+  ws["!merges"] = merges;
 }
 
 export function exportConteoToExcel(report, { showKardex = true } = {}) {
-  const rows = buildSheetRows(report, showKardex);
+  const { rows } = buildSheetStructure(report, showKardex);
   const ws = XLSX.utils.aoa_to_sheet(rows);
   applyConteoSheetStyles(ws, report, showKardex);
 
   const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, "Conteo físico");
+  const sheetName = isSubcountReport(report) ? "Subconteo" : "Conteo físico";
+  XLSX.utils.book_append_sheet(wb, ws, sheetName);
 
-  const suffix = `${report.locationCode || "kiosko"}_${report.periodFrom || ""}_${report.periodTo || ""}`;
+  const loc = report.locationCode || "kiosko";
+  const suffix = isSubcountReport(report)
+    ? `Subconteo_${loc}_${report.asOfDate || ""}`
+    : `${loc}_${report.periodFrom || ""}_${report.periodTo || ""}`;
   XLSX.writeFile(wb, `Conteo_Fisico_${suffix}.xlsx`);
 }
 
@@ -291,10 +450,14 @@ export function exportConteoToPdf(report, { showKardex = true } = {}) {
   const win = window.open("", "_blank");
   if (!win) return;
 
+  const subcount = isSubcountReport(report);
   const headerMeta = `
     <div class="meta-grid">
       <div><span>Kiosko</span><strong>${escape(report.locationName || report.locationCode || "—")}</strong></div>
-      <div><span>Período</span><strong>${escape(report.periodFrom || "")} – ${escape(report.periodTo || "")}</strong></div>
+      ${subcount ? `<div><span>Tipo</span><strong>Subconteo</strong></div>` : ""}
+      ${subcount ? `<div><span>Corte sistema</span><strong>${escape(report.asOfDate || "—")}</strong></div>` : ""}
+      <div><span>Período sesión</span><strong>${escape(report.periodFrom || "")} – ${escape(report.periodTo || "")}</strong></div>
+      ${subcount ? `<div class="full"><span>Conteo físico</span><strong>Del conteo principal (mismas vitrinas)</strong></div>` : ""}
       <div><span>Estado</span><strong>${escape(report.status || "—")}</strong></div>
       <div><span>Generado por</span><strong>${escape(report.generatedByName || "—")}</strong></div>
       <div><span>Revisado por</span><strong>${escape(report.reviewedByName || "Pendiente")}</strong></div>
@@ -302,11 +465,12 @@ export function exportConteoToPdf(report, { showKardex = true } = {}) {
     </div>
   `;
 
+  const kardexHeaderList = resolveKardexHeaders(report);
   const kardexHeaders = showKardex
-    ? KARDEX_HEADERS.map((col) => `<th>${escape(col.label)}</th>`).join("")
+    ? kardexHeaderList.map((col) => `<th>${escape(col.label)}</th>`).join("")
     : "";
   const countHeaders = COUNT_LOCATION_KEYS.map((k) => `<th>${escape(k)}</th>`).join("");
-  const colSpan = 4 + (showKardex ? KARDEX_HEADERS.length : 0) + COUNT_LOCATION_KEYS.length + 2;
+  const colSpan = 4 + (showKardex ? kardexHeaderList.length : 0) + COUNT_LOCATION_KEYS.length + 2;
 
   const theadHtml = `
     <tr>
@@ -319,7 +483,7 @@ export function exportConteoToPdf(report, { showKardex = true } = {}) {
 
   const renderRow = (row, style = "") => {
     const kardexCells = showKardex
-      ? KARDEX_HEADERS.map((col) => `<td class="num">${row[col.key] ?? 0}</td>`).join("")
+      ? kardexHeaderList.map((col) => `<td class="num">${row[col.key] ?? 0}</td>`).join("")
       : "";
     const counts = COUNT_LOCATION_KEYS.map((k) => `<td class="num">${(row.counts || {})[k] ?? 0}</td>`).join("");
     const difClass = (row.diferencia ?? 0) !== 0 ? "dif-bad" : "dif-ok";
@@ -344,7 +508,7 @@ export function exportConteoToPdf(report, { showKardex = true } = {}) {
     });
     if (cat.subtotal) {
       tbodyHtml += renderRow(
-        { ...cat.subtotal, productCode: "", productName: `Subtotal — ${cat.categoryName || ""}`, colorName: "", sizesSummary: "" },
+        { ...cat.subtotal, productCode: "", productName: formatConteoSubtotalLabel(cat.categoryName), colorName: "", sizesSummary: "" },
         "font-weight:600;background:#f9fafb"
       );
     }
@@ -354,7 +518,7 @@ export function exportConteoToPdf(report, { showKardex = true } = {}) {
   const tfootHtml = tg ? `<tfoot>
     <tr class="total-general">
       <td colspan="4">TOTAL GENERAL</td>
-      ${showKardex ? KARDEX_HEADERS.map((col) => `<td class="num">${tg[col.key] ?? 0}</td>`).join("") : ""}
+      ${showKardex ? kardexHeaderList.map((col) => `<td class="num">${tg[col.key] ?? 0}</td>`).join("") : ""}
       ${COUNT_LOCATION_KEYS.map((k) => `<td class="num">${(tg.counts || {})[k] ?? 0}</td>`).join("")}
       <td class="num bold">${tg.total ?? 0}</td>
       <td class="num bold ${(tg.diferencia ?? 0) !== 0 ? "dif-bad" : "dif-ok"}">${tg.diferencia ?? 0}</td>
@@ -383,7 +547,7 @@ export function exportConteoToPdf(report, { showKardex = true } = {}) {
       @media print { body { margin: 6mm; } }
     </style>
   </head><body>
-    <h1>Conteo Físico de Inventario — ${escape(report.locationName || report.locationCode || "")}</h1>
+    <h1>${subcount ? "Subconteo — inventario sistema al corte" : "Conteo Físico de Inventario"} — ${escape(report.locationName || report.locationCode || "")}</h1>
     ${headerMeta}
     <table>
       <thead>${theadHtml}</thead>

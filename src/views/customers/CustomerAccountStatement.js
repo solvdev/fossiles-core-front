@@ -28,6 +28,8 @@ import {
 import classnames from "classnames";
 import CustomerAccountEntryModal from "components/customers/CustomerAccountEntryModal";
 import CustomerAccountReturnModal from "components/customers/CustomerAccountReturnModal";
+import CustomerAccountDischargeModal from "components/customers/CustomerAccountDischargeModal";
+import CustomerAccountChargeDetailModal from "components/customers/CustomerAccountChargeDetailModal";
 import {
   CHARGE_STATUS_LABELS,
   ENTRY_TYPE_LABELS,
@@ -37,6 +39,8 @@ import {
   getCustomerAccountStatement,
   getDueBadgeStyle,
   getLfSalesDocuments,
+  groupStatementLines,
+  isChargeLine,
   splitAccountBalance,
   voidCustomerAccountEntry,
 } from "services/customerAccountService";
@@ -195,6 +199,11 @@ function CustomerAccountStatement() {
   const [defaultConceptCode, setDefaultConceptCode] = useState("1");
   const [entryPrefillDoc, setEntryPrefillDoc] = useState(null);
   const [returnModalOpen, setReturnModalOpen] = useState(false);
+  const [dischargeModalOpen, setDischargeModalOpen] = useState(false);
+  const [chargeDetailOpen, setChargeDetailOpen] = useState(false);
+  const [selectedChargeLine, setSelectedChargeLine] = useState(null);
+  const [returnPrefillCharge, setReturnPrefillCharge] = useState(null);
+  const [dischargePrefillCharge, setDischargePrefillCharge] = useState(null);
   const [voidModalOpen, setVoidModalOpen] = useState(false);
   const [voidTarget, setVoidTarget] = useState(null);
   const [voidReason, setVoidReason] = useState("");
@@ -272,6 +281,24 @@ function CustomerAccountStatement() {
   const closingDueOpv = Number(statement?.closingBalanceDueOpv) || 0;
   const closingDueOpc = Number(statement?.closingBalanceDueOpc) || 0;
   const lines = statement?.lines || [];
+  const { displayLines } = useMemo(() => groupStatementLines(lines), [lines]);
+
+  const openChargeDetail = (line) => {
+    setSelectedChargeLine(line);
+    setChargeDetailOpen(true);
+  };
+
+  const openDischargeForCharge = (chargeLine) => {
+    setChargeDetailOpen(false);
+    setDischargePrefillCharge(chargeLine);
+    setDischargeModalOpen(true);
+  };
+
+  const openDiscountReturnForCharge = (chargeLine) => {
+    setChargeDetailOpen(false);
+    setReturnPrefillCharge(chargeLine);
+    setReturnModalOpen(true);
+  };
 
   const handlePrint = () => {
     if (!statement) return;
@@ -334,11 +361,17 @@ function CustomerAccountStatement() {
                   <Button color="primary" size="sm" className="btn-round mr-1" onClick={() => openEntryModal("1")}>
                     Nuevo movimiento
                   </Button>
-                  <Button color="success" size="sm" className="btn-round mr-1" onClick={() => openEntryModal("11")}>
+                  <Button color="success" size="sm" className="btn-round mr-1" onClick={() => {
+                    setDischargePrefillCharge(null);
+                    setDischargeModalOpen(true);
+                  }}>
                     Descarga (11)
                   </Button>
-                  <Button color="warning" size="sm" className="btn-round mr-1" onClick={() => setReturnModalOpen(true)}>
-                    Devolución / Descuento
+                  <Button color="warning" size="sm" className="btn-round mr-1" onClick={() => {
+                    setReturnPrefillCharge(null);
+                    setReturnModalOpen(true);
+                  }}>
+                    Descuento / Devolución
                   </Button>
                   <Button color="info" size="sm" className="btn-round" onClick={handlePrint} disabled={!statement}>
                     <i className="nc-icon nc-paper" /> Imprimir
@@ -421,9 +454,12 @@ function CustomerAccountStatement() {
 
               <TabContent activeTab={activeTab}>
                 <TabPane tabId="movements">
+                  <p className="text-muted small mb-2">
+                    La tabla muestra cargos y movimientos independientes. Descargas, descuentos y devoluciones ligadas a un cargo se consultan con <strong>Ver detalle</strong>.
+                  </p>
                   {loading ? (
                     <div className="text-center py-4">Cargando...</div>
-                  ) : lines.length === 0 ? (
+                  ) : displayLines.length === 0 ? (
                     <Alert color="info">No hay movimientos en el período seleccionado.</Alert>
                   ) : (
                     <Table responsive>
@@ -442,7 +478,7 @@ function CustomerAccountStatement() {
                         </tr>
                       </thead>
                       <tbody>
-                        {lines.map((line) => (
+                        {displayLines.map((line) => (
                           <tr key={line.id}>
                             <td>{line.entryDate}</td>
                             <td>{getConceptLabel(line.movementConceptCode)}</td>
@@ -452,6 +488,11 @@ function CustomerAccountStatement() {
                             <td>
                               {line.documentNumber || line.productionOrderCode || "—"}
                               {line.orderKind ? ` (${line.orderKind})` : ""}
+                              {isChargeLine(line) && line.childCount > 0 && (
+                                <Badge color="info" className="ml-1" style={{ fontSize: 10 }}>
+                                  {line.childCount} liq.
+                                </Badge>
+                              )}
                             </td>
                             <td className="text-right">
                               {Number(line.debit) > 0 ? formatAccountMoney(line.debit) : "—"}
@@ -461,8 +502,24 @@ function CustomerAccountStatement() {
                             </td>
                             <td className="text-right">
                               {line.runningBalance != null ? formatAccountMoney(line.runningBalance) : "—"}
+                              {isChargeLine(line) && line.chargeBalanceDue != null && Number(line.chargeBalanceDue) > 0 && (
+                                <div className="small text-muted">
+                                  Pend. {formatAccountMoney(line.chargeBalanceDue)}
+                                </div>
+                              )}
                             </td>
-                            <td className="text-right">
+                            <td className="text-right text-nowrap">
+                              {isChargeLine(line) && (
+                                <Button
+                                  color="info"
+                                  size="sm"
+                                  outline
+                                  className="btn-round mr-1"
+                                  onClick={() => openChargeDetail(line)}
+                                >
+                                  Ver detalle
+                                </Button>
+                              )}
                               {line.status === "ACTIVE" && (
                                 <Button
                                   color="danger"
@@ -538,7 +595,7 @@ function CustomerAccountStatement() {
                     </Table>
                   )}
                   <p className="text-muted small mb-0">
-                    Los cargos se registran manualmente. Use concepto 11 para descargar lo cobrado al cliente.
+                    Los cargos se registran manualmente. Las descargas, descuentos y devoluciones se ven dentro de cada cargo con &quot;Ver detalle&quot;.
                   </p>
                 </TabPane>
               </TabContent>
@@ -566,12 +623,48 @@ function CustomerAccountStatement() {
 
       <CustomerAccountReturnModal
         isOpen={returnModalOpen}
-        toggle={() => setReturnModalOpen(false)}
+        toggle={() => {
+          setReturnModalOpen(false);
+          setReturnPrefillCharge(null);
+        }}
         customerId={Number(customerId)}
         customerInfo={customerInfo}
+        initialCharge={returnPrefillCharge}
         onSaved={() => {
-          showSuccess("Liquidación registrada.");
+          showSuccess("Movimiento registrado.");
           load();
+        }}
+      />
+
+      <CustomerAccountDischargeModal
+        isOpen={dischargeModalOpen}
+        toggle={() => {
+          setDischargeModalOpen(false);
+          setDischargePrefillCharge(null);
+        }}
+        customerId={Number(customerId)}
+        customerInfo={customerInfo}
+        initialCharge={dischargePrefillCharge}
+        onSaved={() => {
+          showSuccess("Descarga registrada.");
+          load();
+        }}
+      />
+
+      <CustomerAccountChargeDetailModal
+        isOpen={chargeDetailOpen}
+        toggle={() => {
+          setChargeDetailOpen(false);
+          setSelectedChargeLine(null);
+        }}
+        chargeLine={selectedChargeLine}
+        onDischarge={openDischargeForCharge}
+        onDiscountReturn={openDiscountReturnForCharge}
+        onVoidChild={(child) => {
+          setChargeDetailOpen(false);
+          setVoidTarget(child);
+          setVoidReason("");
+          setVoidModalOpen(true);
         }}
       />
 

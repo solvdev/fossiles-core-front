@@ -60,6 +60,11 @@ export const startKioscoConteo = async (locationId, from, to) => {
 export const getKioscoConteoReport = async (countId) =>
   apiRequest(`/kiosco-inventory/conteo-fisico/${countId}`);
 
+export const getKioscoSubconteo = async (countId, asOf) => {
+  const params = new URLSearchParams({ asOf });
+  return apiRequest(`/kiosco-inventory/conteo-fisico/${countId}/subconteo?${params.toString()}`);
+};
+
 export const saveKioscoConteoItems = async (countId, items) =>
   apiRequest(`/kiosco-inventory/conteo-fisico/${countId}/items`, { method: "PUT", body: items });
 
