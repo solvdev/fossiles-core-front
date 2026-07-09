@@ -455,7 +455,7 @@ function CustomerAccountStatement() {
               <TabContent activeTab={activeTab}>
                 <TabPane tabId="movements">
                   <p className="text-muted small mb-2">
-                    La tabla muestra cargos y movimientos independientes. Descargas, descuentos y devoluciones ligadas a un cargo se consultan con <strong>Ver detalle</strong>.
+                    Solo se listan las <strong>Facturas</strong>. Pagos, abonos, notas de crédito, descargas y devoluciones del envío se ven con <strong>Ver detalle</strong>.
                   </p>
                   {loading ? (
                     <div className="text-center py-4">Cargando...</div>

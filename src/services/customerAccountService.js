@@ -264,37 +264,85 @@ export const getConceptLabel = (code) => {
   return concept ? `${concept.code} — ${concept.label}` : code || "—";
 };
 
-/** Agrupa líneas del estado de cuenta: hijos (descargas/descuentos) bajo su cargo. */
+const CREDIT_ENTRY_TYPES = new Set(["PAYMENT", "CREDIT_NOTE", "RETURN"]);
+
+const normDocKey = (value) => String(value || "").trim().toUpperCase();
+
+/** Busca el cargo (factura) al que pertenece un abono/NC/devolución. */
+export const findParentChargeId = (line, charges = []) => {
+  if (!line || !CREDIT_ENTRY_TYPES.has(line.entryType)) return null;
+  if (line.appliedToEntryId != null) {
+    const byId = charges.find((c) => c.id === line.appliedToEntryId);
+    if (byId) return byId.id;
+  }
+  if (line.productShipmentId != null) {
+    const byShipment = charges.find((c) => c.productShipmentId === line.productShipmentId);
+    if (byShipment) return byShipment.id;
+  }
+  const inv = normDocKey(line.invoiceNumber || line.vendorShipmentNumber);
+  if (inv) {
+    const byInvoice = charges.find(
+      (c) => normDocKey(c.invoiceNumber || c.vendorShipmentNumber) === inv
+    );
+    if (byInvoice) return byInvoice.id;
+  }
+  if (line.productionOrderId != null && line.partialReleaseId != null) {
+    const byRelease = charges.find(
+      (c) =>
+        c.productionOrderId === line.productionOrderId &&
+        c.partialReleaseId === line.partialReleaseId
+    );
+    if (byRelease) return byRelease.id;
+  }
+  if (line.productionOrderId != null) {
+    const sameOrder = charges.filter((c) => c.productionOrderId === line.productionOrderId);
+    if (sameOrder.length === 1) return sameOrder[0].id;
+  }
+  return null;
+};
+
+/**
+ * Agrupa líneas del estado de cuenta: solo Facturas (y saldo inicial) en la tabla;
+ * descargas, NC, pagos y devoluciones van como hijos del cargo (Ver detalle).
+ */
 export const groupStatementLines = (lines = []) => {
+  const list = Array.isArray(lines) ? lines : [];
+  const charges = list.filter((line) => line.entryType === "CHARGE");
   const childrenByChargeId = new Map();
-  lines.forEach((line) => {
-    if (line.appliedToEntryId) {
-      const list = childrenByChargeId.get(line.appliedToEntryId) || [];
-      list.push(line);
-      childrenByChargeId.set(line.appliedToEntryId, list);
-    }
+  const nestedIds = new Set();
+
+  list.forEach((line) => {
+    if (!CREDIT_ENTRY_TYPES.has(line.entryType)) return;
+    const parentId = findParentChargeId(line, charges);
+    if (parentId == null) return;
+    const children = childrenByChargeId.get(parentId) || [];
+    children.push(line);
+    childrenByChargeId.set(parentId, children);
+    nestedIds.add(line.id);
   });
-  const topLevel = lines.filter((line) => !line.appliedToEntryId);
-  let running = 0;
-  const displayLines = topLevel.map((line) => {
-    const debit = Number(line.debit) || 0;
-    const credit = Number(line.credit) || 0;
-    if (line.status === "ACTIVE") {
-      running += debit - credit;
+
+  // Tabla principal: facturas + saldo inicial + créditos sin documento asociado.
+  const topLevel = list.filter((line) => {
+    if (nestedIds.has(line.id)) return false;
+    if (CREDIT_ENTRY_TYPES.has(line.entryType) && findParentChargeId(line, charges) != null) {
+      return false;
     }
+    return true;
+  });
+
+  const displayLines = topLevel.map((line) => {
     const children = (childrenByChargeId.get(line.id) || []).slice();
     const appliedTotal = children
       .filter((c) => c.status === "ACTIVE")
       .reduce((sum, c) => sum + (Number(c.credit) || 0), 0);
+    const isCharge = line.entryType === "CHARGE" && line.status === "ACTIVE";
     return {
       ...line,
-      runningBalance: line.status === "ACTIVE" ? running : line.runningBalance,
       childEntries: children,
       childCount: children.filter((c) => c.status === "ACTIVE").length,
-      chargeBalanceDue:
-        line.entryType === "CHARGE" && line.status === "ACTIVE"
-          ? line.chargeBalanceDue ?? Math.max(0, (Number(line.debit) || 0) - appliedTotal)
-          : line.chargeBalanceDue,
+      chargeBalanceDue: isCharge
+        ? Math.max(0, (Number(line.debit) || 0) - appliedTotal)
+        : line.chargeBalanceDue,
     };
   });
   return { displayLines, childrenByChargeId };

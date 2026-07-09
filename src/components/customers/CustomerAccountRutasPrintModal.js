@@ -123,7 +123,7 @@ function CustomerAccountRutasPrintModal({
       return;
     }
     if (!filteredRows.length) {
-      showError("No hay documentos con saldo para imprimir con esa selección.");
+      showError("No hay documentos cargados para imprimir con esa selección.");
       return;
     }
     const printWindow = openBlankPrintWindow();
@@ -245,7 +245,7 @@ function CustomerAccountRutasPrintModal({
           <Alert color="secondary" className="mb-0">
             {scope === "ROUTE" && !routeNumber
               ? "Selecciona región y ruta para ver el preview."
-              : "No hay documentos con saldo pendiente para esta selección."}
+              : "No hay documentos cargados para esta selección."}
           </Alert>
         ) : (
           <div style={{ maxHeight: 360, overflow: "auto", border: "1px solid #dee2e6", borderRadius: 6 }}>

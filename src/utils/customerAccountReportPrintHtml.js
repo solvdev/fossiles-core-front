@@ -59,9 +59,12 @@ function resolveClasif(row) {
 export function normalizeRutasCxcRows(rows = []) {
   return (Array.isArray(rows) ? rows : [])
     .filter((row) => {
-      const hasCharge = row.hasCharge !== false && row.chargeEntryId != null;
-      const saldos = Number(row.balanceDue ?? row.saldos ?? 0) || 0;
-      return hasCharge && saldos > 0.001;
+      // Incluye facturas con cargo: abiertas, parciales y pagadas (saldo 0).
+      const hasCharge =
+        row.hasCharge === true ||
+        row.chargeEntryId != null ||
+        Number(row.chargedAmount ?? row.chargeAmount ?? row.cargos ?? 0) > 0;
+      return hasCharge;
     })
     .map((row) => {
       const cargos = Number(row.cargos ?? row.chargedAmount ?? row.chargeAmount ?? 0) || 0;
@@ -320,7 +323,7 @@ export function buildRutasCxcPrintHtml({
           </tr>
         </thead>
         <tbody>
-          ${buildTableRowsHtml(dataRows) || `<tr><td colspan="9" class="empty">Sin documentos con saldo pendiente en esta cartera.</td></tr>`}
+          ${buildTableRowsHtml(dataRows) || `<tr><td colspan="9" class="empty">Sin documentos cargados en esta cartera.</td></tr>`}
         </tbody>
       </table>
       ${
@@ -352,7 +355,7 @@ export function buildRutasCxcPrintHtml({
 
   ${
     bodyHtml ||
-    `<p class="empty">Sin documentos con saldo pendiente en esta cartera.</p>`
+    `<p class="empty">Sin documentos cargados en esta cartera.</p>`
   }
 
   ${

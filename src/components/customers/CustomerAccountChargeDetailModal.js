@@ -75,7 +75,8 @@ function CustomerAccountChargeDetailModal({
           </div>
         </div>
 
-        {activeChildren.length === 0 ? (
+        <h6 className="mb-2">Movimientos del envío / factura</h6>
+        {children.length === 0 ? (
           <p className="text-muted mb-0">Este cargo no tiene descargas, descuentos ni devoluciones registradas.</p>
         ) : (
           <Table responsive size="sm" className="mb-0">
@@ -85,7 +86,7 @@ function CustomerAccountChargeDetailModal({
                 <th>Tipo</th>
                 <th>Concepto</th>
                 <th>Recibo / boleta</th>
-                <th className="text-right">Monto</th>
+                <th className="text-right">Abono</th>
                 <th />
               </tr>
             </thead>
