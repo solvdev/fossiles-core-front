@@ -102,6 +102,31 @@ const paymentMarks = (sale) => {
 const activeSales = (sales) =>
   (sales || []).filter((sale) => String(sale.status || "").toUpperCase() !== "VOID");
 
+/** Ordena A45-10 < A45-13 < A45-100 (prefijo + número). */
+const compareInternalNumbers = (a, b) => {
+  const left = String(getSaleInternalNumber(a) || a?.internalNumber || "").trim();
+  const right = String(getSaleInternalNumber(b) || b?.internalNumber || "").trim();
+  if (!left && !right) return 0;
+  if (!left) return 1;
+  if (!right) return -1;
+
+  const parseParts = (value) => {
+    const match = value.match(/^(.*?)(\d+)$/);
+    if (!match) return { prefix: value.toUpperCase(), num: null };
+    return { prefix: match[1].toUpperCase(), num: Number(match[2]) };
+  };
+
+  const pa = parseParts(left);
+  const pb = parseParts(right);
+  const prefixCmp = pa.prefix.localeCompare(pb.prefix, "es", { sensitivity: "base" });
+  if (prefixCmp !== 0) return prefixCmp;
+  if (pa.num != null && pb.num != null && pa.num !== pb.num) return pa.num - pb.num;
+  return left.localeCompare(right, "es", { numeric: true, sensitivity: "base" });
+};
+
+const sortSalesByInternalNumber = (sales) =>
+  [...(sales || [])].sort(compareInternalNumbers);
+
 export const formatSaleItemLine = (item) => {
   const qty = Number(item?.quantity || 0);
   const qtyLabel = Number.isInteger(qty) ? String(qty) : qty.toFixed(2).replace(/\.?0+$/, "");
@@ -137,7 +162,7 @@ export const buildKioskReportSummary = (sales) => {
   return { salesCount, totalItems, totalAmount, averageTicket };
 };
 
-/** Agrupa ventas activas por día (YYYY-MM-DD), ordenadas. */
+/** Agrupa ventas activas por día (YYYY-MM-DD); dentro de cada día por internalNumber ASC. */
 export const groupSalesByDay = (sales) => {
   const map = new Map();
   activeSales(sales).forEach((sale) => {
@@ -147,25 +172,29 @@ export const groupSalesByDay = (sales) => {
   });
   return Array.from(map.entries())
     .sort(([a], [b]) => String(a).localeCompare(String(b)))
-    .map(([ymd, daySales]) => ({ ymd, sales: daySales }));
+    .map(([ymd, daySales]) => ({
+      ymd,
+      sales: sortSalesByInternalNumber(daySales),
+    }));
 };
 
 /**
  * Filas del reporte. En Totales, V.Unidad y Total llevan el mismo gran total.
  * @param {object} [options]
  * @param {boolean} [options.includeTotals=true]
- * @param {string} [options.dayYmd] si se indica, inserta fila "DIA: dd-mm-yyyy"
+ * @param {string} [options.dayYmd] si se indica, inserta encabezado de fecha del día
+ * @param {boolean} [options.showDayHeader=true]
  */
 const buildReportRows = (sales, options = {}) => {
-  const { includeTotals = true, dayYmd = null } = options;
+  const { includeTotals = true, dayYmd = null, showDayHeader = true } = options;
   const rows = [];
   let totalQty = 0;
   let totalAmount = 0;
 
-  if (dayYmd) {
+  if (dayYmd && showDayHeader) {
     rows.push({
       type: "day",
-      nombre: `DIA: ${formatDayLabel(dayYmd)}`,
+      nombre: `FECHA: ${formatPeriodLabelExact(dayYmd, dayYmd)}`,
       descripcion: "",
       cantidad: "",
       vUnidad: "",
@@ -175,7 +204,7 @@ const buildReportRows = (sales, options = {}) => {
     });
   }
 
-  activeSales(sales).forEach((sale) => {
+  sortSalesByInternalNumber(activeSales(sales)).forEach((sale) => {
     const invoiceNo = getSaleInternalNumber(sale) || sale.internalNumber || "—";
     const marks = paymentMarks(sale);
     rows.push({
@@ -224,13 +253,11 @@ const buildReportRows = (sales, options = {}) => {
   return rows;
 };
 
+/** Un archivo: cada día empieza con FECHA: ... y sus facturas ordenadas. */
 const buildConsolidatedReportRows = (sales) => {
   const days = groupSalesByDay(sales);
   if (!days.length) {
     return buildReportRows([]);
-  }
-  if (days.length === 1) {
-    return buildReportRows(days[0].sales, { dayYmd: days[0].ymd });
   }
   const rows = [];
   days.forEach((day, idx) => {
@@ -246,16 +273,15 @@ const buildConsolidatedReportRows = (sales) => {
         pos: "",
       });
     }
-    rows.push(...buildReportRows(day.sales, { dayYmd: day.ymd, includeTotals: true }));
+    rows.push(
+      ...buildReportRows(day.sales, {
+        dayYmd: day.ymd,
+        showDayHeader: true,
+        includeTotals: true,
+      })
+    );
   });
   return rows;
-};
-
-const resolveReportRows = (sales, mode) => {
-  if (mode === "consolidated" || mode === "byDay") {
-    return buildConsolidatedReportRows(sales);
-  }
-  return buildReportRows(sales);
 };
 
 const colLetter = (index) => XLSX.utils.encode_col(index);
@@ -279,13 +305,13 @@ const applyHBorderRow = (ws, r, top, bottom, fromC = 0, toC = COLS - 1) => {
   }
 };
 
-const styleReportRowsOnSheet = (ws, reportRows, startExcelRow) => {
+const styleReportRowsOnSheet = (ws, reportRows, startExcelRow, merges = []) => {
   let excelRow = startExcelRow;
   reportRows.forEach((row, idx) => {
     const next = reportRows[idx + 1];
     const isLastItemBeforeInvoice = row.type === "item" && next && next.type === "invoice";
     const isLastItemBeforeTotals = row.type === "item" && next && next.type === "totals";
-    const isLastItemBeforeDay = row.type === "item" && next && next.type === "day";
+    const isLastItemBeforeDay = row.type === "item" && next && (next.type === "day" || next.type === "spacer");
 
     if (row.type === "spacer") {
       for (let c = 0; c < COLS; c += 1) {
@@ -297,20 +323,18 @@ const styleReportRowsOnSheet = (ws, reportRows, startExcelRow) => {
         v: row.nombre,
         s: {
           font: dayFont,
-          alignment: { horizontal: "left" },
+          alignment: { horizontal: "left", vertical: "center" },
           border: hBorder("medium", "medium"),
         },
       });
-      applyHBorderRow(ws, excelRow, "medium", "medium", 0, COLS - 1);
       for (let c = 1; c < COLS; c += 1) {
-        if (!ws[`${colLetter(c)}${excelRow + 1}`]) {
-          setCell(ws, excelRow, c, {
-            t: "s",
-            v: "",
-            s: { font: dayFont, border: hBorder("medium", "medium") },
-          });
-        }
+        setCell(ws, excelRow, c, {
+          t: "s",
+          v: "",
+          s: { font: dayFont, border: hBorder("medium", "medium") },
+        });
       }
+      merges.push({ s: { r: excelRow, c: 0 }, e: { r: excelRow, c: COLS - 1 } });
     } else if (row.type === "invoice") {
       setCell(ws, excelRow, 0, {
         t: "s",
@@ -397,12 +421,20 @@ const buildSalesWorksheet = ({
   const reportRows =
     mode === "consolidated"
       ? buildConsolidatedReportRows(sales)
-      : buildReportRows(sales, dayYmd ? { dayYmd } : {});
+      : buildReportRows(sortSalesByInternalNumber(activeSales(sales)), {
+          dayYmd: dayYmd || null,
+          showDayHeader: Boolean(dayYmd),
+        });
+
+  const periodLabel =
+    mode === "consolidated" && !dayYmd
+      ? `${formatPeriodLabelExact(from, to)} (CONSOLIDADO POR DÍA)`
+      : formatPeriodLabelExact(periodFrom, periodTo);
 
   const aoa = [
     ["REPORTE DE VENTAS"],
     [`BODEGA: ${kioskName || "—"}`],
-    [`FECHA: ${formatPeriodLabelExact(periodFrom, periodTo)}`],
+    [`PERÍODO: ${periodLabel}`],
     [`GENERADO POR: ${formatGeneratedByLine(generatedByName)}`],
     [],
     ["* Nombre", "Descripcion", "Cantidad", "V.Unidad", "Total", "Efectivo", "POS"],
@@ -433,7 +465,7 @@ const buildSalesWorksheet = ({
   });
 
   const ws = XLSX.utils.aoa_to_sheet(aoa);
-  ws["!merges"] = [
+  const merges = [
     { s: { r: 0, c: 0 }, e: { r: 0, c: COLS - 1 } },
     { s: { r: 1, c: 0 }, e: { r: 1, c: COLS - 1 } },
     { s: { r: 2, c: 0 }, e: { r: 2, c: COLS - 1 } },
@@ -472,7 +504,8 @@ const buildSalesWorksheet = ({
     });
   });
 
-  const lastRow = styleReportRowsOnSheet(ws, reportRows, 6);
+  const lastRow = styleReportRowsOnSheet(ws, reportRows, 6, merges);
+  ws["!merges"] = merges;
   ws["!ref"] = `A1:G${lastRow}`;
   return ws;
 };
@@ -502,7 +535,13 @@ export const exportKioskSalesToExcel = ({
   const wb = XLSX.utils.book_new();
   const rangeLabel = from === to ? from : `${from || "inicio"}_${to || "fin"}`;
   const kiosk = kioskCode ? `_${kioskCode}` : "";
-  const exportMode = days.length <= 1 ? "single" : mode;
+  // Con rango: respetar consolidado / por día. Un solo día: igual ordenado por internalNumber.
+  const exportMode =
+    mode === "byDay" || mode === "consolidated"
+      ? mode
+      : days.length > 1
+        ? "consolidated"
+        : "single";
 
   if (exportMode === "byDay") {
     days.forEach((day) => {
@@ -528,6 +567,7 @@ export const exportKioskSalesToExcel = ({
     kioskName,
     generatedByName,
     mode: exportMode === "consolidated" ? "consolidated" : "single",
+    dayYmd: exportMode === "single" && days.length === 1 ? days[0].ymd : null,
   });
   XLSX.utils.book_append_sheet(wb, ws, "REPORTE DE VENTAS");
   const suffix = exportMode === "consolidated" ? "_CONSOLIDADO" : "";
@@ -668,15 +708,19 @@ export const exportKioskSalesToPdf = ({
 }) => {
   const { startDate: from, endDate: to } = normalizeRange(startDate, endDate);
   const days = groupSalesByDay(sales);
-  const exportMode = days.length <= 1 ? "single" : mode;
+  const exportMode =
+    mode === "byDay" || mode === "consolidated"
+      ? mode
+      : days.length > 1
+        ? "consolidated"
+        : "single";
 
   let bodySections = "";
   if (exportMode === "byDay") {
     bodySections = days
       .map((day) => {
-        const rows = buildReportRows(day.sales, { dayYmd: day.ymd });
+        const rows = buildReportRows(day.sales, { dayYmd: day.ymd, showDayHeader: true });
         return `<div class="day-block">
-          <div class="meta">FECHA: ${escapeHtml(formatPeriodLabelExact(day.ymd, day.ymd))}</div>
           <table>
             ${tableHeaderHtml}
             <tbody>${buildReportRowsHtml(rows)}</tbody>
@@ -685,7 +729,13 @@ export const exportKioskSalesToPdf = ({
       })
       .join("");
   } else {
-    const reportRows = resolveReportRows(sales, exportMode);
+    const reportRows =
+      exportMode === "consolidated"
+        ? buildConsolidatedReportRows(sales)
+        : buildReportRows(sortSalesByInternalNumber(activeSales(sales)), {
+            dayYmd: days[0]?.ymd || null,
+            showDayHeader: Boolean(days[0]?.ymd),
+          });
     bodySections = `<table>
       ${tableHeaderHtml}
       <tbody>${buildReportRowsHtml(reportRows) || `<tr><td colspan="7">Sin ventas</td></tr>`}</tbody>
@@ -705,15 +755,11 @@ export const exportKioskSalesToPdf = ({
 <body>
   <div class="title">REPORTE DE VENTAS</div>
   <div class="meta">BODEGA: ${escapeHtml(kioskName || "—")}</div>
-  <div class="meta">FECHA: ${escapeHtml(formatPeriodLabelExact(from, to))}</div>
+  <div class="meta">PERÍODO: ${escapeHtml(formatPeriodLabelExact(from, to))}${
+    exportMode === "consolidated" ? " (CONSOLIDADO POR DÍA)" : ""
+  }</div>
   <div class="meta">GENERADO POR: ${escapeHtml(formatGeneratedByLine(generatedByName))}</div>
-  ${
-    exportMode === "byDay"
-      ? `<div class="meta">MODO: SEPARADO POR DÍA</div>${bodySections}`
-      : exportMode === "consolidated"
-        ? `<div class="meta">MODO: CONSOLIDADO POR DÍA</div>${bodySections}`
-        : bodySections
-  }
+  ${bodySections}
   <script>window.onload = function () { window.print(); };</script>
 </body>
 </html>`);

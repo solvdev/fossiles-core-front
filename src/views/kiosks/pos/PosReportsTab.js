@@ -198,8 +198,8 @@ function PosReportsTab({
                 value={exportMode}
                 onChange={(e) => setExportMode(e.target.value)}
               >
-                <option value="consolidated">Consolidado (día sobre cada bloque)</option>
-                <option value="byDay">Separado por día (hojas)</option>
+                <option value="consolidated">Consolidado (FECHA al inicio de cada día)</option>
+                <option value="byDay">Separado por día (una hoja c/u)</option>
               </Input>
             )}
             <Button color="default" size="sm" className="mr-2" onClick={handleExportExcel}>

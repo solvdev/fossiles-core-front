@@ -167,8 +167,8 @@ function SalesReports() {
                     onChange={(e) => setExportMode(e.target.value)}
                     disabled={loading || exporting}
                   >
-                    <option value="consolidated">Consolidado (día sobre cada bloque)</option>
-                    <option value="byDay">Separado por día (hojas)</option>
+                    <option value="consolidated">Consolidado (FECHA al inicio de cada día)</option>
+                    <option value="byDay">Separado por día (una hoja c/u)</option>
                   </Input>
                 )}
                 <Button
