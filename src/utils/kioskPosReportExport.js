@@ -155,7 +155,7 @@ const buildReportRows = (sales) => {
     (sale.items || []).forEach((item) => {
       const qty = Number(item.quantity || 0);
       const unit = Number(item.unitPrice || 0);
-      const lineTotal = Number(item.lineTotal != null ? item.lineTotal : qty * unit);
+      const lineTotal = qty * unit;
       totalQty += qty;
       totalAmount += lineTotal;
       rows.push({
