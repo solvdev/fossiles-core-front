@@ -40,30 +40,20 @@ export const getKioscoStockBajo = async (locationId) =>
 export const getKioscoConsolidado = async () =>
   apiRequest(`/kiosco-inventory/reporte/consolidado`);
 
-export const getKioscoKardex = async (locationId, from, to) => {
-  const params = new URLSearchParams({ from, to });
-  return apiRequest(`/kiosco-inventory/${locationId}/reporte/kardex?${params.toString()}`);
-};
-
-export const getKioscoKardexMovimientos = async (locationId, from, to, filters = {}) => {
-  const params = new URLSearchParams({ from, to });
-  if (filters.productId) params.append("productId", String(filters.productId));
-  if (filters.colorId) params.append("colorId", String(filters.colorId));
-  return apiRequest(`/kiosco-inventory/${locationId}/reporte/kardex/movimientos?${params.toString()}`);
-};
-
 export const startKioscoConteo = async (locationId, from, to) => {
   const params = new URLSearchParams({ from, to });
   return apiRequest(`/kiosco-inventory/${locationId}/conteo-fisico?${params.toString()}`, { method: "POST" });
 };
 
-export const getKioscoConteoReport = async (countId) =>
-  apiRequest(`/kiosco-inventory/conteo-fisico/${countId}`);
-
-export const getKioscoSubconteo = async (countId, asOf) => {
-  const params = new URLSearchParams({ asOf });
-  return apiRequest(`/kiosco-inventory/conteo-fisico/${countId}/subconteo?${params.toString()}`);
+export const getKioscoConteoReport = async (countId, { asOf } = {}) => {
+  const params = new URLSearchParams();
+  if (asOf) params.set("asOf", asOf);
+  const suffix = params.toString() ? `?${params.toString()}` : "";
+  return apiRequest(`/kiosco-inventory/conteo-fisico/${countId}${suffix}`);
 };
+
+export const getKioscoSubconteo = async (countId, asOf) =>
+  getKioscoConteoReport(countId, { asOf });
 
 export const saveKioscoConteoItems = async (countId, items) =>
   apiRequest(`/kiosco-inventory/conteo-fisico/${countId}/items`, { method: "PUT", body: items });

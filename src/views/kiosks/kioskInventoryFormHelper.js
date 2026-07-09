@@ -133,19 +133,6 @@ export function canSell(stockRow, quantityToSell) {
   return Number(stockRow.currentStock || 0) >= quantity;
 }
 
-export function validateKardexRangeForm({ locationId, from, to }) {
-  if (!locationId) {
-    return "Debes seleccionar un kiosko.";
-  }
-  if (!from || !to) {
-    return "Debes indicar el rango de fechas (desde y hasta).";
-  }
-  if (new Date(from) > new Date(to)) {
-    return "La fecha inicial no puede ser posterior a la fecha final.";
-  }
-  return "";
-}
-
 export function sortMovementsDesc(list) {
   return [...(list || [])].sort((a, b) => {
     const aTime = new Date(a.createdAt || 0).getTime();

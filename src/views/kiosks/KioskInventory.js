@@ -22,7 +22,6 @@ import { ColorSelector, ProductSelector } from "components/catalog/FilterableCat
 import { FilterableSelect } from "components/distribution/FilterableSelect";
 import { getLocations } from "services/locationService";
 import KioskInventoryCountReport from "./KioskInventoryCountReport";
-import KioskInventoryKardexPanel from "./KioskInventoryKardexPanel";
 import { getProducts } from "services/productService";
 import { getColors } from "services/colorService";
 import {
@@ -730,18 +729,6 @@ function KioskInventory() {
                 <NavItem>
                   <NavLink
                     href="#"
-                    className={activeTab === "KARDEX" ? "active" : ""}
-                    onClick={(e) => {
-                      e.preventDefault();
-                      setActiveTab("KARDEX");
-                    }}
-                  >
-                    Kardex (periodo)
-                  </NavLink>
-                </NavItem>
-                <NavItem>
-                  <NavLink
-                    href="#"
                     className={activeTab === "CONTEO" ? "active" : ""}
                     onClick={(e) => {
                       e.preventDefault();
@@ -1371,10 +1358,6 @@ function KioskInventory() {
                 </Col>
               </Row>
               </>
-              )}
-
-              {activeTab === "KARDEX" && (
-                <KioskInventoryKardexPanel locationId={selectedLocation} />
               )}
 
               {activeTab === "CONTEO" && (
