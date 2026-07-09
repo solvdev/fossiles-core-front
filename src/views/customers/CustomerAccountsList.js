@@ -20,14 +20,13 @@ import {
   CHARGE_STATUS_LABELS,
   formatAccountMoney,
   getCreditBadgeStyle,
-  getCustomerAccountPrintReport,
   getCustomerAccountSummary,
   getDueBadgeStyle,
   searchReceivableDocuments,
   splitAccountBalance,
 } from "services/customerAccountService";
 import {
-  buildCustomerAccountReportPrintHtml,
+  buildRutasCxcPrintHtml,
   openBlankPrintWindow,
   writeHtmlToPrintWindow,
 } from "utils/customerAccountReportPrintHtml";
@@ -303,8 +302,6 @@ function CustomerAccountsList() {
   const [documentViewFilter, setDocumentViewFilter] = useState("all");
   const [documentRows, setDocumentRows] = useState([]);
   const [documentLoading, setDocumentLoading] = useState(false);
-  const [reportFrom, setReportFrom] = useState("");
-  const [reportTo, setReportTo] = useState("");
   const [printing, setPrinting] = useState(false);
   const [openGroups, setOpenGroups] = useState({});
   const [allOrderTypes, setAllOrderTypes] = useState(false);
@@ -480,26 +477,35 @@ function CustomerAccountsList() {
     }
     setPrinting(true);
     try {
-      const report = await getCustomerAccountPrintReport({
+      const docs = await searchReceivableDocuments({
         search: search.trim(),
-        luisFelipeOnly: true,
-        positiveBalanceOnly,
-        from: reportFrom || undefined,
-        to: reportTo || undefined,
+        orderKind: kindTab,
+        hasCharge: true,
         regionCode: filterRegion || undefined,
         routeNumber: filterRoute ? Number(filterRoute) : undefined,
         routeLocationCode: filterLocation || undefined,
+        allOrderTypes: false,
+        limit: 2000,
       });
-      const filters = [
-        positiveBalanceOnly ? "Solo clientes con saldo pendiente" : null,
-        search.trim() ? `Búsqueda: ${search.trim()}` : null,
-        filterRegion ? `Región: ${getRegionLabel(filterRegion)}` : null,
-        filterRoute ? `Ruta: ${filterRoute}` : null,
-        filterLocation ? `Ubicación: ${filterLocation}` : null,
-      ]
-        .filter(Boolean)
-        .join(" · ");
-      const html = buildCustomerAccountReportPrintHtml(report, filters);
+      const rows = (Array.isArray(docs) ? docs : [])
+        .filter((row) => Number(row.balanceDue) > 0.001)
+        .map((row) => ({
+          ...row,
+          documentNumber: row.invoiceNumber || row.vendorShipmentNumber || row.shipmentNumber || row.orderCode,
+          clasif: row.routeLocationCode,
+          poblacion: row.routeLocationLabel,
+          cargos: row.chargedAmount,
+          abonos: Math.max(0, (Number(row.chargedAmount) || 0) - (Number(row.balanceDue) || 0)),
+          saldos: row.balanceDue,
+          dueDate: row.chargeDate,
+        }))
+        .sort((a, b) => {
+          const clasifCmp = String(a.clasif || "").localeCompare(String(b.clasif || ""), "es");
+          if (clasifCmp !== 0) return clasifCmp;
+          return String(a.customerName || "").localeCompare(String(b.customerName || ""), "es");
+        });
+
+      const html = buildRutasCxcPrintHtml({ rows, orderKind: kindTab });
       writeHtmlToPrintWindow(printWindow, html);
     } catch (err) {
       try {
@@ -534,7 +540,10 @@ function CustomerAccountsList() {
                     onClick={handlePrintReport}
                     disabled={loading || printing}
                   >
-                    <i className="nc-icon nc-paper" /> {printing ? "Generando..." : "Imprimir reporte"}
+                    <i className="nc-icon nc-paper" />{" "}
+                    {printing
+                      ? "Generando..."
+                      : `Imprimir RUTAS CxC (${kindTab === "OPC" ? "GCF" : "Fossiles"})`}
                   </Button>
                   <Button color="secondary" size="sm" className="btn-round" onClick={load} disabled={loading}>
                     <i className="nc-icon nc-refresh-69" /> Actualizar
@@ -739,21 +748,6 @@ function CustomerAccountsList() {
                   )}
                 </CardBody>
               </Card>
-
-              <Row className="mb-3">
-                <Col md="3">
-                  <FormGroup className="mb-md-0">
-                    <Label>Movimientos desde (impresión)</Label>
-                    <Input type="date" value={reportFrom} onChange={(e) => setReportFrom(e.target.value)} />
-                  </FormGroup>
-                </Col>
-                <Col md="3">
-                  <FormGroup className="mb-md-0">
-                    <Label>Movimientos hasta (impresión)</Label>
-                    <Input type="date" value={reportTo} onChange={(e) => setReportTo(e.target.value)} />
-                  </FormGroup>
-                </Col>
-              </Row>
 
               <Row className="mb-3">
                 <Col md="3">
