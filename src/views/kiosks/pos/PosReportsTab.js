@@ -46,6 +46,7 @@ function PosReportsTab({
   kioskLocationId,
   kioskName,
   kioskCode,
+  generatedByName,
   cashSession,
   onSaleUpdated,
 }) {
@@ -107,7 +108,7 @@ function PosReportsTab({
         endDate,
         kioskName,
         kioskCode,
-        depositFilter,
+        generatedByName,
       });
       showSuccess("Excel descargado correctamente.");
     } catch (err) {
@@ -129,7 +130,7 @@ function PosReportsTab({
       startDate,
       endDate,
       kioskName,
-      depositFilter,
+      generatedByName,
     });
     if (opened === false) {
       showWarning("Permite ventanas emergentes para descargar el PDF.");

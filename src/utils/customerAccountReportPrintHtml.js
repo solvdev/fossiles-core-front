@@ -1,6 +1,7 @@
 import { escapeHtml } from "utils/shipmentPrintDocumentHtml";
 import { formatDateGt, formatDateTimeGt, getTodayYmdGuatemala } from "utils/dateTimeHelper";
 import { ENTRY_TYPE_LABELS, formatAccountMoney } from "services/customerAccountService";
+import { getRegionLabel, parseRouteLocationCode } from "utils/deliveryRouteCatalog";
 
 const COMPANY_BY_KIND = {
   OPV: "CATALOGO FOSSILES",
@@ -41,7 +42,8 @@ function resolveDueDate(row) {
 
 function resolveAbonos(row) {
   if (row.abonos != null) return Number(row.abonos) || 0;
-  const charged = Number(row.chargedAmount ?? row.cargos ?? 0) || 0;
+  if (row.appliedCredits != null) return Number(row.appliedCredits) || 0;
+  const charged = Number(row.chargedAmount ?? row.chargeAmount ?? row.cargos ?? 0) || 0;
   const balance = Number(row.balanceDue ?? row.saldos ?? 0) || 0;
   return Math.max(0, charged - balance);
 }
@@ -54,26 +56,91 @@ function resolveClasif(row) {
   return row.clasif || row.routeLocationCode || "";
 }
 
-/**
- * Resumen RUTAS CxC — mismo layout del reporte legado (PDF).
- * @param {object} options
- * @param {Array} options.rows documentos con saldo de la cartera activa
- * @param {"OPV"|"OPC"} options.orderKind cartera activa
- */
-export function buildRutasCxcPrintHtml({ rows = [], orderKind = "OPV" } = {}) {
-  const companyName = resolveCompanyName(orderKind);
-  const reportDate = fmtDateSlash(getTodayYmdGuatemala());
-  const dataRows = (Array.isArray(rows) ? rows : []).filter(
-    (row) => Number(row.balanceDue ?? row.saldos ?? 0) > 0.001
-  );
-
-  let totalSaldos = 0;
-  const bodyRows = dataRows
-    .map((row) => {
-      const cargos = Number(row.chargedAmount ?? row.cargos ?? 0) || 0;
-      const abonos = resolveAbonos(row);
+export function normalizeRutasCxcRows(rows = []) {
+  return (Array.isArray(rows) ? rows : [])
+    .filter((row) => {
+      const hasCharge = row.hasCharge !== false && row.chargeEntryId != null;
       const saldos = Number(row.balanceDue ?? row.saldos ?? 0) || 0;
-      totalSaldos += saldos;
+      return hasCharge && saldos > 0.001;
+    })
+    .map((row) => {
+      const cargos = Number(row.cargos ?? row.chargedAmount ?? row.chargeAmount ?? 0) || 0;
+      const abonos = resolveAbonos(row);
+      // Prefer backend balance; fall back to cargos - abonos so print stays consistent.
+      const saldosRaw = row.saldos ?? row.balanceDue;
+      const saldos =
+        saldosRaw != null
+          ? Math.max(0, Number(saldosRaw) || 0)
+          : Math.max(0, cargos - abonos);
+      return {
+        ...row,
+        documentNumber:
+          row.documentNumber ||
+          row.invoiceNumber ||
+          row.vendorShipmentNumber ||
+          row.shipmentNumber ||
+          row.orderCode,
+        clasif: row.clasif || row.routeLocationCode,
+        poblacion: row.poblacion || row.routeLocationLabel,
+        cargos,
+        abonos,
+        saldos,
+        chargedAmount: cargos,
+        appliedCredits: abonos,
+        balanceDue: saldos,
+        dueDate: row.dueDate || row.chargeDate,
+      };
+    })
+    .sort((a, b) => {
+      const clasifCmp = String(a.clasif || "").localeCompare(String(b.clasif || ""), "es");
+      if (clasifCmp !== 0) return clasifCmp;
+      return String(a.customerName || "").localeCompare(String(b.customerName || ""), "es");
+    });
+}
+
+/** Agrupa filas por ruta (Ruta 1, Ruta 2…) para preview e impresión global. */
+export function groupRutasCxcRowsByRoute(rows = []) {
+  const groups = new Map();
+  normalizeRutasCxcRows(rows).forEach((row) => {
+    const parsed = parseRouteLocationCode(row.clasif || row.routeLocationCode);
+    const regionCode = parsed?.regionCode || "NONE";
+    const routeNumber = parsed?.routeNumber ?? null;
+    const key = routeNumber != null ? `R${routeNumber}` : "NONE";
+    if (!groups.has(key)) {
+      groups.set(key, {
+        key,
+        regionCode,
+        routeNumber,
+        label:
+          routeNumber != null
+            ? `${getRegionLabel(regionCode)} · Ruta ${routeNumber}`
+            : "Sin ruta asignada",
+        rows: [],
+        totalSaldos: 0,
+        documentCount: 0,
+      });
+    }
+    const group = groups.get(key);
+    group.rows.push(row);
+    group.totalSaldos += Number(row.saldos ?? row.balanceDue) || 0;
+    group.documentCount += 1;
+  });
+
+  const order = { CA: 1, CB: 2, CC: 3, NONE: 99 };
+  return Array.from(groups.values()).sort((a, b) => {
+    const ra = order[a.regionCode] ?? 50;
+    const rb = order[b.regionCode] ?? 50;
+    if (ra !== rb) return ra - rb;
+    return (a.routeNumber ?? 999) - (b.routeNumber ?? 999);
+  });
+}
+
+function buildTableRowsHtml(dataRows) {
+  return dataRows
+    .map((row) => {
+      const cargos = Number(row.cargos ?? row.chargedAmount ?? row.chargeAmount ?? 0) || 0;
+      const abonos = resolveAbonos(row);
+      const saldos = Number(row.saldos ?? row.balanceDue ?? Math.max(0, cargos - abonos)) || 0;
       return `
       <tr>
         <td class="col-doc">${escapeHtml(String(resolveDocumentNumber(row)))}</td>
@@ -88,13 +155,10 @@ export function buildRutasCxcPrintHtml({ rows = [], orderKind = "OPV" } = {}) {
       </tr>`;
     })
     .join("");
+}
 
-  return `<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8" />
-  <title>RUTAS CxC — ${escapeHtml(companyName)}</title>
-  <style>
+function buildRutasStyles() {
+  return `
     @page { size: letter landscape; margin: 10mm 12mm; }
     body {
       font-family: "Courier New", Courier, monospace;
@@ -123,6 +187,19 @@ export function buildRutasCxcPrintHtml({ rows = [], orderKind = "OPV" } = {}) {
       font-weight: 700;
       margin: 0;
       letter-spacing: 1px;
+    }
+    .route-subtitle {
+      font-size: 12px;
+      font-weight: 700;
+      margin: 2px 0 0;
+    }
+    .route-block { margin-top: 10px; page-break-inside: avoid; }
+    .route-heading {
+      font-size: 12px;
+      font-weight: 700;
+      margin: 10px 0 4px;
+      border-bottom: 1px solid #000;
+      padding-bottom: 2px;
     }
     table.rutas {
       width: 100%;
@@ -168,8 +245,98 @@ export function buildRutasCxcPrintHtml({ rows = [], orderKind = "OPV" } = {}) {
     @media print {
       body { padding: 0; }
       thead { display: table-header-group; }
+      .route-block { page-break-inside: avoid; }
     }
-  </style>
+  `;
+}
+
+/**
+ * Resumen RUTAS CxC — mismo layout del reporte legado (PDF).
+ * @param {object} options
+ * @param {Array} options.rows documentos con saldo de la cartera activa
+ * @param {"OPV"|"OPC"} options.orderKind cartera activa
+ * @param {boolean} [options.groupByRoute=false] separar secciones por ruta (global)
+ * @param {string} [options.routeLabel] subtítulo cuando es una sola ruta
+ */
+export function buildRutasCxcPrintHtml({
+  rows = [],
+  orderKind = "OPV",
+  groupByRoute = false,
+  routeLabel = "",
+} = {}) {
+  const companyName = resolveCompanyName(orderKind);
+  const reportDate = fmtDateSlash(getTodayYmdGuatemala());
+  const dataRows = normalizeRutasCxcRows(rows);
+  const groups = groupByRoute ? groupRutasCxcRowsByRoute(dataRows) : null;
+
+  let totalSaldos = 0;
+  let bodyHtml = "";
+
+  if (groups) {
+    bodyHtml = groups
+      .map((group) => {
+        totalSaldos += group.totalSaldos;
+        return `
+        <div class="route-block">
+          <div class="route-heading">${escapeHtml(group.label)} — ${group.documentCount} doc. — TOTAL ${escapeHtml(
+            fmtMoneyPlain(group.totalSaldos)
+          )}</div>
+          <table class="rutas">
+            <thead>
+              <tr>
+                <th class="col-doc">Documento</th>
+                <th class="col-clave">Clave</th>
+                <th class="col-nombre">Nombre del Cliente</th>
+                <th class="col-clasif">Clasif.</th>
+                <th class="col-pob">Poblacion</th>
+                <th class="col-fecha">Fecha Venc.</th>
+                <th class="num">CARGOS</th>
+                <th class="num">ABONOS</th>
+                <th class="num">SALDOS</th>
+              </tr>
+            </thead>
+            <tbody>${buildTableRowsHtml(group.rows)}</tbody>
+          </table>
+          <div class="footer-line">TOTAL RUTA: ${escapeHtml(fmtMoneyPlain(group.totalSaldos))}</div>
+          <div class="footer-line-bottom"></div>
+        </div>`;
+      })
+      .join("");
+  } else {
+    totalSaldos = dataRows.reduce((sum, row) => sum + (Number(row.saldos ?? row.balanceDue) || 0), 0);
+    bodyHtml = `
+      <table class="rutas">
+        <thead>
+          <tr>
+            <th class="col-doc">Documento</th>
+            <th class="col-clave">Clave</th>
+            <th class="col-nombre">Nombre del Cliente</th>
+            <th class="col-clasif">Clasif.</th>
+            <th class="col-pob">Poblacion</th>
+            <th class="col-fecha">Fecha Venc.</th>
+            <th class="num">CARGOS</th>
+            <th class="num">ABONOS</th>
+            <th class="num">SALDOS</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${buildTableRowsHtml(dataRows) || `<tr><td colspan="9" class="empty">Sin documentos con saldo pendiente en esta cartera.</td></tr>`}
+        </tbody>
+      </table>
+      ${
+        dataRows.length
+          ? `<div class="footer-line">TOTAL: ${escapeHtml(fmtMoneyPlain(totalSaldos))}</div>
+             <div class="footer-line-bottom"></div>`
+          : ""
+      }`;
+  }
+
+  return `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>RUTAS CxC — ${escapeHtml(companyName)}</title>
+  <style>${buildRutasStyles()}</style>
 </head>
 <body>
   <div class="header">
@@ -177,32 +344,20 @@ export function buildRutasCxcPrintHtml({ rows = [], orderKind = "OPV" } = {}) {
     <div class="header-center">
       <div class="company">${escapeHtml(companyName)}</div>
       <div class="title">RUTAS CxC</div>
+      ${routeLabel ? `<div class="route-subtitle">${escapeHtml(routeLabel)}</div>` : ""}
+      ${groupByRoute ? `<div class="route-subtitle">REPORTE GLOBAL</div>` : ""}
     </div>
     <div class="header-right">Página: 1</div>
   </div>
 
-  <table class="rutas">
-    <thead>
-      <tr>
-        <th class="col-doc">Documento</th>
-        <th class="col-clave">Clave</th>
-        <th class="col-nombre">Nombre del Cliente</th>
-        <th class="col-clasif">Clasif.</th>
-        <th class="col-pob">Poblacion</th>
-        <th class="col-fecha">Fecha Venc.</th>
-        <th class="num">CARGOS</th>
-        <th class="num">ABONOS</th>
-        <th class="num">SALDOS</th>
-      </tr>
-    </thead>
-    <tbody>
-      ${bodyRows || `<tr><td colspan="9" class="empty">Sin documentos con saldo pendiente en esta cartera.</td></tr>`}
-    </tbody>
-  </table>
+  ${
+    bodyHtml ||
+    `<p class="empty">Sin documentos con saldo pendiente en esta cartera.</p>`
+  }
 
   ${
-    dataRows.length
-      ? `<div class="footer-line">TOTAL: ${escapeHtml(fmtMoneyPlain(totalSaldos))}</div>
+    groupByRoute && dataRows.length
+      ? `<div class="footer-line">TOTAL GENERAL: ${escapeHtml(fmtMoneyPlain(totalSaldos))}</div>
          <div class="footer-line-bottom"></div>`
       : ""
   }

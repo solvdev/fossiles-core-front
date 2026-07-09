@@ -1,14 +1,108 @@
-import * as XLSX from "xlsx";
-import { formatDateGt, formatNowGt, getSaleYmdGuatemala } from "./dateTimeHelper";
+import * as XLSX from "xlsx-js-style";
+import { formatDateGt, formatDateTimeGt, formatNowGt, getSaleYmdGuatemala } from "./dateTimeHelper";
 
-const formatDateTime = (value) => {
-  if (!value) return "";
-  return String(value).replace("T", " ").slice(0, 19);
+const getSaleInternalNumber = (sale) =>
+  sale?.internalNumber || sale?.invoice?.internalNumber || "";
+
+const thinBorder = {
+  top: { style: "thin", color: { rgb: "000000" } },
+  bottom: { style: "thin", color: { rgb: "000000" } },
+  left: { style: "thin", color: { rgb: "000000" } },
+  right: { style: "thin", color: { rgb: "000000" } },
 };
 
-const formatMoney = (value) => Number(value || 0).toFixed(2);
+const thickBottom = {
+  ...thinBorder,
+  bottom: { style: "medium", color: { rgb: "000000" } },
+};
 
-const formatQty = (value) => Number(value || 0).toFixed(2);
+const thickTop = {
+  ...thinBorder,
+  top: { style: "medium", color: { rgb: "000000" } },
+};
+
+const doubleBottom = {
+  ...thinBorder,
+  bottom: { style: "double", color: { rgb: "000000" } },
+};
+
+const boldFont = { bold: true, name: "Calibri", sz: 11 };
+const normalFont = { name: "Calibri", sz: 11 };
+const titleFont = { bold: true, name: "Calibri", sz: 14 };
+
+const moneyFmt = '"Q"#,##0.00';
+
+const normalizeRange = (startDate, endDate) => {
+  let from = startDate || "";
+  let to = endDate || "";
+  if (from && !to) to = from;
+  if (!from && to) from = to;
+  if (from && to && from > to) {
+    return { startDate: to, endDate: from };
+  }
+  return { startDate: from, endDate: to };
+};
+
+const formatPeriodDateTime = (ymd, endOfDay = false) => {
+  if (!ymd) return "";
+  const dateLabel = formatDateGt(ymd);
+  if (!dateLabel || dateLabel === "-") return ymd;
+  // formatDateGt returns dd/mm/yyyy; example uses dd-mm-yyyy
+  const dashed = String(dateLabel).replace(/\//g, "-");
+  return `${dashed} ${endOfDay ? "23:59" : "00:00"}`;
+};
+
+const formatPeriodLabelExact = (startDate, endDate) => {
+  const { startDate: from, endDate: to } = normalizeRange(startDate, endDate);
+  if (!from && !to) return "Sin período";
+  return `${formatPeriodDateTime(from, false)} AL ${formatPeriodDateTime(to || from, true)}`;
+};
+
+const formatGeneratedByLine = (generatedByName) => {
+  const name = String(generatedByName || "").trim().toUpperCase() || "USUARIO";
+  const when = formatDateTimeGt(new Date()).replace(/\//g, "-");
+  return `${name} EL ${when}`;
+};
+
+const formatQtyPlain = (value) => {
+  const n = Number(value || 0);
+  if (Number.isInteger(n)) return String(n);
+  return n.toFixed(2).replace(/\.?0+$/, "");
+};
+
+const formatMoneyQ = (value) => {
+  const n = Number(value || 0);
+  return `Q${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+};
+
+const resolveItemName = (item) => {
+  const name = String(item?.productName || "Producto").trim();
+  return name.startsWith("*") ? name : `* ${name}`;
+};
+
+const resolveItemDescription = (item) => {
+  if (item?.categoryName) return String(item.categoryName).trim();
+  if (item?.colorName) return String(item.colorName).trim();
+  return "";
+};
+
+const normalizePayment = (sale) => String(sale?.paymentMethod || "").toUpperCase().trim();
+
+const paymentMarks = (sale) => {
+  const method = normalizePayment(sale);
+  const cashAmt = Number(sale?.cashAmount || 0);
+  const cardAmt = Number(sale?.cardAmount || 0);
+  const efectivo = method === "EFECTIVO" || method === "MIXTO" || cashAmt > 0;
+  const pos = method === "TARJETA" || method === "MIXTO" || cardAmt > 0;
+  // Si solo dice TARJETA, no marcar efectivo; si solo EFECTIVO, no marcar POS
+  if (method === "EFECTIVO") return { efectivo: "X", pos: "" };
+  if (method === "TARJETA") return { efectivo: "", pos: "X" };
+  if (method === "MIXTO") return { efectivo: "X", pos: "X" };
+  return { efectivo: efectivo ? "X" : "", pos: pos ? "X" : "" };
+};
+
+const activeSales = (sales) =>
+  (sales || []).filter((sale) => String(sale.status || "").toUpperCase() !== "VOID");
 
 export const formatSaleItemLine = (item) => {
   const qty = Number(item?.quantity || 0);
@@ -27,85 +121,6 @@ export const formatSaleItemsSummary = (sale, maxLines = 4) => {
   return `${lines.slice(0, maxLines).join("; ")} (+${lines.length - maxLines} más)`;
 };
 
-const buildSaleDetailRows = (sales) => {
-  const detailRows = [];
-  (sales || []).forEach((sale) => {
-    (sale.items || []).forEach((item) => {
-      detailRows.push({
-        "No. Venta": sale.saleNumber || "",
-        Fecha: formatDateTime(sale.soldAt || sale.saleDate),
-        Cliente: sale.customerName || sale.customerTaxId || "CF",
-        Código: item.productCode || "",
-        Producto: item.productName || "",
-        Color: item.colorName || "",
-        Cantidad: formatQty(item.quantity),
-        "Precio unit.": formatMoney(item.unitPrice),
-        "Total línea": formatMoney(item.lineTotal),
-      });
-    });
-  });
-  return detailRows;
-};
-
-const buildPdfDetailSection = (sales, escape) => {
-  const blocks = (sales || [])
-    .map((sale) => {
-      const items = sale.items || [];
-      if (!items.length) return "";
-      const itemRows = items
-        .map(
-          (item) => `<tr>
-            <td>${escape(item.productCode || "")}</td>
-            <td>${escape(item.productName || "")}</td>
-            <td>${escape(item.colorName || "")}</td>
-            <td>${escape(formatQty(item.quantity))}</td>
-            <td>${escape(formatMoney(item.unitPrice))}</td>
-            <td>${escape(formatMoney(item.lineTotal))}</td>
-          </tr>`
-        )
-        .join("");
-      return `
-        <div class="sale-detail-block">
-          <div class="sale-detail-title">
-            Venta ${escape(sale.saleNumber || "")} · ${escape(formatDateTime(sale.soldAt || sale.saleDate))}
-            · ${escape(sale.customerName || sale.customerTaxId || "CF")}
-          </div>
-          <table class="detail-table">
-            <thead>
-              <tr>
-                <th>Código</th>
-                <th>Producto</th>
-                <th>Color</th>
-                <th>Cant.</th>
-                <th>P. unit.</th>
-                <th>Total</th>
-              </tr>
-            </thead>
-            <tbody>${itemRows}</tbody>
-          </table>
-        </div>`;
-    })
-    .filter(Boolean)
-    .join("");
-
-  if (!blocks) return "";
-  return `
-    <h2 class="section-title">Detalle de productos por venta</h2>
-    ${blocks}
-  `;
-};
-
-const normalizeRange = (startDate, endDate) => {
-  let from = startDate || "";
-  let to = endDate || "";
-  if (from && !to) to = from;
-  if (!from && to) from = to;
-  if (from && to && from > to) {
-    return { startDate: to, endDate: from };
-  }
-  return { startDate: from, endDate: to };
-};
-
 export const filterSalesByDateRange = (sales, startDate, endDate) => {
   const { startDate: from, endDate: to } = normalizeRange(startDate, endDate);
   if (!from || !to) return sales || [];
@@ -116,7 +131,7 @@ export const filterSalesByDateRange = (sales, startDate, endDate) => {
 };
 
 export const buildKioskReportSummary = (sales) => {
-  const rows = (sales || []).filter((sale) => String(sale.status || "").toUpperCase() !== "VOID");
+  const rows = activeSales(sales);
   const salesCount = rows.length;
   const totalItems = rows.reduce((sum, sale) => sum + Number(sale.totalItems || 0), 0);
   const totalAmount = rows.reduce((sum, sale) => sum + Number(sale.totalAmount || 0), 0);
@@ -124,178 +139,361 @@ export const buildKioskReportSummary = (sales) => {
   return { salesCount, totalItems, totalAmount, averageTicket };
 };
 
-const formatPeriodLabel = ({ startDate, endDate }) => {
-  const { startDate: from, endDate: to } = normalizeRange(startDate, endDate);
-  if (!from && !to) return "Sin período";
-  if (from === to) return `Día ${formatDateGt(from)}`;
-  return `${formatDateGt(from)} — ${formatDateGt(to)}`;
+const buildReportRows = (sales) => {
+  const rows = [];
+  let totalQty = 0;
+  let totalUnit = 0;
+  let totalAmount = 0;
+
+  activeSales(sales).forEach((sale) => {
+    const invoiceNo = getSaleInternalNumber(sale) || sale.internalNumber || "—";
+    const marks = paymentMarks(sale);
+    rows.push({
+      type: "invoice",
+      nombre: `FACTURA NO. ${invoiceNo}`,
+      descripcion: "",
+      cantidad: "",
+      vUnidad: "",
+      total: "",
+      efectivo: "",
+      pos: "",
+    });
+
+    (sale.items || []).forEach((item) => {
+      const qty = Number(item.quantity || 0);
+      const unit = Number(item.unitPrice || 0);
+      const lineTotal = Number(item.lineTotal != null ? item.lineTotal : qty * unit);
+      totalQty += qty;
+      totalUnit += unit;
+      totalAmount += lineTotal;
+      rows.push({
+        type: "item",
+        nombre: resolveItemName(item),
+        descripcion: resolveItemDescription(item),
+        cantidad: qty,
+        vUnidad: unit,
+        total: lineTotal,
+        efectivo: marks.efectivo,
+        pos: marks.pos,
+      });
+    });
+  });
+
+  rows.push({
+    type: "totals",
+    nombre: "Totales",
+    descripcion: "",
+    cantidad: totalQty,
+    vUnidad: totalUnit,
+    total: totalAmount,
+    efectivo: "",
+    pos: "",
+  });
+
+  return rows;
 };
 
-const buildFileSuffix = ({ startDate, endDate, kioskCode }) => {
-  const { startDate: from, endDate: to } = normalizeRange(startDate, endDate);
-  const rangeLabel = from === to ? from : `${from || "inicio"}_${to || "fin"}`;
-  const kiosk = kioskCode ? `_${kioskCode}` : "";
-  return `${rangeLabel}${kiosk}`;
+const colLetter = (index) => XLSX.utils.encode_col(index);
+
+const styleCell = (ws, r, c, style) => {
+  const addr = `${colLetter(c)}${r + 1}`;
+  if (!ws[addr]) ws[addr] = { t: "s", v: "" };
+  ws[addr].s = { ...(ws[addr].s || {}), ...style };
 };
 
 export const exportKioskSalesToExcel = ({
   sales,
-  myReport,
   startDate,
   endDate,
   kioskName,
   kioskCode,
-  depositFilter = "ALL",
+  generatedByName,
 }) => {
   const { startDate: from, endDate: to } = normalizeRange(startDate, endDate);
-  const suffix = buildFileSuffix({ startDate: from, endDate: to, kioskCode });
-  const periodLabel = formatPeriodLabel({ startDate: from, endDate: to });
-  const summary = buildKioskReportSummary(sales);
-
-  const summaryRows = [
-    { Campo: "Kiosko", Valor: kioskName || "—" },
-    { Campo: "Período", Valor: periodLabel },
-    { Campo: "Desde", Valor: from || "—" },
-    { Campo: "Hasta", Valor: to || "—" },
-    { Campo: "Filtro boleta depósito", Valor: depositFilter === "PENDING" ? "Solo pendientes" : "Todas" },
-    { Campo: "Ventas", Valor: summary.salesCount },
-    { Campo: "Total unidades", Valor: formatQty(summary.totalItems) },
-    { Campo: "Total monto (Q)", Valor: formatMoney(summary.totalAmount) },
-    { Campo: "Ticket promedio (Q)", Valor: formatMoney(summary.averageTicket) },
-    { Campo: "Generado", Valor: formatNowGt() },
+  const reportRows = buildReportRows(sales);
+  const aoa = [
+    ["REPORTE DE VENTAS"],
+    [`BODEGA: ${kioskName || "—"}`],
+    [`FECHA: ${formatPeriodLabelExact(from, to)}`],
+    [`GENERADO POR: ${formatGeneratedByLine(generatedByName)}`],
+    [],
+    ["* Nombre", "", "Descripcion", "Cantidad", "V.Unidad", "Total", "Efectivo", "POS"],
   ];
 
-  const saleRows = (sales || []).map((sale) => ({
-    Fecha: formatDateTime(sale.soldAt || sale.saleDate),
-    "No. Venta": sale.saleNumber || "",
-    "No. interno": sale.internalNumber || sale.invoice?.internalNumber || "",
-    Cliente: sale.customerName || sale.customerTaxId || "CF",
-    NIT: sale.customerTaxId || "CF",
-    "Detalle productos": formatSaleItemsSummary(sale, 20) || "—",
-    Pago: sale.paymentMethod || "",
-    "Autorización tarjeta": sale.cardAuthNumber || "",
-    "Tarjeta últimos 4": sale.cardLast4 || "",
-    Items: formatQty(sale.totalItems),
-    Descuento: formatMoney(sale.discountAmount),
-    Subtotal: formatMoney(sale.subtotal),
-    Total: formatMoney(sale.totalAmount),
-    "Factura serie": sale.felSerie || sale.invoice?.felSerie || "",
-    "Factura número": sale.felNumero || sale.invoice?.felNumero || "",
-    "FEL UUID": sale.felUuid || sale.invoice?.felUuid || "",
-    "Estado FEL": sale.felStatus || sale.invoice?.status || "",
-    Vendedor: sale.soldByName || sale.soldByUsername || "",
-    Promoción: sale.promotionName || "",
-  }));
+  reportRows.forEach((row) => {
+    if (row.type === "invoice") {
+      aoa.push([row.nombre, "", "", "", "", "", "", ""]);
+      return;
+    }
+    if (row.type === "totals") {
+      aoa.push([
+        row.nombre,
+        "",
+        "",
+        row.cantidad,
+        row.vUnidad,
+        row.total,
+        "",
+        "",
+      ]);
+      return;
+    }
+    aoa.push([
+      row.nombre,
+      "",
+      row.descripcion,
+      row.cantidad,
+      row.vUnidad,
+      row.total,
+      row.efectivo,
+      row.pos,
+    ]);
+  });
 
-  const detailRows = buildSaleDetailRows(sales);
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  ws["!merges"] = [
+    { s: { r: 0, c: 0 }, e: { r: 0, c: 7 } },
+    { s: { r: 1, c: 0 }, e: { r: 1, c: 7 } },
+    { s: { r: 2, c: 0 }, e: { r: 2, c: 7 } },
+    { s: { r: 3, c: 0 }, e: { r: 3, c: 7 } },
+  ];
+  ws["!cols"] = [
+    { wch: 42 },
+    { wch: 3 },
+    { wch: 14 },
+    { wch: 10 },
+    { wch: 12 },
+    { wch: 12 },
+    { wch: 10 },
+    { wch: 8 },
+  ];
+
+  // Header meta
+  for (let r = 0; r <= 3; r += 1) {
+    styleCell(ws, r, 0, { font: r === 0 ? titleFont : boldFont });
+  }
+
+  // Column headers row (index 5)
+  for (let c = 0; c < 8; c += 1) {
+    styleCell(ws, 5, c, { font: boldFont, border: thickBottom, alignment: { horizontal: c >= 3 ? "right" : "left" } });
+  }
+
+  let excelRow = 6;
+  reportRows.forEach((row) => {
+    if (row.type === "invoice") {
+      ws[`A${excelRow + 1}`] = { t: "s", v: row.nombre, s: { font: boldFont, border: thickTop } };
+      for (let c = 1; c < 8; c += 1) {
+        styleCell(ws, excelRow, c, { border: thickTop });
+      }
+      // also thick bottom on invoice header
+      for (let c = 0; c < 8; c += 1) {
+        const addr = `${colLetter(c)}${excelRow + 1}`;
+        ws[addr] = ws[addr] || { t: "s", v: "" };
+        ws[addr].s = {
+          ...(ws[addr].s || {}),
+          font: boldFont,
+          border: {
+            top: { style: "medium", color: { rgb: "000000" } },
+            bottom: { style: "medium", color: { rgb: "000000" } },
+            left: { style: "thin", color: { rgb: "000000" } },
+            right: { style: "thin", color: { rgb: "000000" } },
+          },
+        };
+      }
+    } else if (row.type === "item") {
+      const values = [
+        row.nombre,
+        "",
+        row.descripcion,
+        row.cantidad,
+        row.vUnidad,
+        row.total,
+        row.efectivo,
+        row.pos,
+      ];
+      values.forEach((val, c) => {
+        const addr = `${colLetter(c)}${excelRow + 1}`;
+        if (c === 3) {
+          ws[addr] = { t: "n", v: Number(val) || 0, s: { font: normalFont, alignment: { horizontal: "right" } } };
+        } else if (c === 4 || c === 5) {
+          ws[addr] = {
+            t: "n",
+            v: Number(val) || 0,
+            z: moneyFmt,
+            s: { font: normalFont, alignment: { horizontal: "right" }, numFmt: moneyFmt },
+          };
+        } else {
+          ws[addr] = {
+            t: "s",
+            v: val == null ? "" : String(val),
+            s: { font: normalFont, alignment: { horizontal: c >= 6 ? "center" : "left" } },
+          };
+        }
+      });
+    } else if (row.type === "totals") {
+      const values = [row.nombre, "", "", row.cantidad, row.vUnidad, row.total, "", ""];
+      values.forEach((val, c) => {
+        const addr = `${colLetter(c)}${excelRow + 1}`;
+        if (c === 3) {
+          ws[addr] = {
+            t: "n",
+            v: Number(val) || 0,
+            s: { font: boldFont, alignment: { horizontal: "right" }, border: { ...thickTop, ...doubleBottom } },
+          };
+        } else if (c === 4 || c === 5) {
+          ws[addr] = {
+            t: "n",
+            v: Number(val) || 0,
+            z: moneyFmt,
+            s: {
+              font: boldFont,
+              alignment: { horizontal: "right" },
+              numFmt: moneyFmt,
+              border: {
+                top: { style: "medium", color: { rgb: "000000" } },
+                bottom: { style: "double", color: { rgb: "000000" } },
+                left: { style: "thin", color: { rgb: "000000" } },
+                right: { style: "thin", color: { rgb: "000000" } },
+              },
+            },
+          };
+        } else {
+          ws[addr] = {
+            t: "s",
+            v: val == null ? "" : String(val),
+            s: {
+              font: boldFont,
+              border: {
+                top: { style: "medium", color: { rgb: "000000" } },
+                bottom: { style: "double", color: { rgb: "000000" } },
+                left: { style: "thin", color: { rgb: "000000" } },
+                right: { style: "thin", color: { rgb: "000000" } },
+              },
+            },
+          };
+        }
+      });
+    }
+    excelRow += 1;
+  });
+
+  ws["!ref"] = `A1:H${excelRow}`;
 
   const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(summaryRows), "Resumen");
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(saleRows), "Ventas");
-  XLSX.utils.book_append_sheet(
-    wb,
-    XLSX.utils.json_to_sheet(detailRows.length ? detailRows : [{ Mensaje: "Sin líneas de detalle" }]),
-    "Detalle"
-  );
-  XLSX.writeFile(wb, `Reporte_Kiosko_${suffix}.xlsx`);
+  XLSX.utils.book_append_sheet(wb, ws, "REPORTE DE VENTAS");
+  const rangeLabel = from === to ? from : `${from || "inicio"}_${to || "fin"}`;
+  const kiosk = kioskCode ? `_${kioskCode}` : "";
+  XLSX.writeFile(wb, `REPORTE_DE_VENTAS_${rangeLabel}${kiosk}.xlsx`);
 };
 
 export const exportKioskSalesToPdf = ({
   sales,
-  myReport,
   startDate,
   endDate,
   kioskName,
-  depositFilter = "ALL",
+  generatedByName,
 }) => {
   const { startDate: from, endDate: to } = normalizeRange(startDate, endDate);
-  const periodLabel = formatPeriodLabel({ startDate: from, endDate: to });
-  const summary = buildKioskReportSummary(sales);
+  const reportRows = buildReportRows(sales);
   const escape = (value) =>
     String(value ?? "")
       .replace(/&/g, "&amp;")
       .replace(/</g, "&lt;")
       .replace(/>/g, "&gt;");
 
-  const saleRows = (sales || [])
-    .map(
-      (sale) => `<tr>
-        <td>${escape(formatDateTime(sale.soldAt || sale.saleDate))}</td>
-        <td>${escape(sale.saleNumber)}</td>
-        <td>${escape(sale.internalNumber || sale.invoice?.internalNumber || "")}</td>
-        <td>${escape(sale.customerName || sale.customerTaxId || "CF")}</td>
-        <td class="products-cell">${escape(formatSaleItemsSummary(sale, 6) || "—")}</td>
-        <td>${escape(sale.soldByName || sale.soldByUsername || "")}</td>
-        <td>${escape(sale.paymentMethod)}${sale.cardAuthNumber || sale.cardLast4 ? ` (Aut. ${escape(sale.cardAuthNumber || "")} · **** ${escape(sale.cardLast4 || "")})` : ""}</td>
-        <td>${escape(formatQty(sale.totalItems))}</td>
-        <td>${escape(formatMoney(sale.totalAmount))}</td>
-        <td>${escape(sale.felSerie || sale.invoice?.felSerie || "")} ${escape(sale.felNumero || sale.invoice?.felNumero || "")}</td>
-      </tr>`
-    )
+  const bodyHtml = reportRows
+    .map((row) => {
+      if (row.type === "invoice") {
+        return `<tr class="invoice-row"><td colspan="7"><strong>${escape(row.nombre)}</strong></td></tr>`;
+      }
+      if (row.type === "totals") {
+        return `<tr class="totals-row">
+          <td><strong>Totales</strong></td>
+          <td></td>
+          <td class="num"><strong>${escape(formatQtyPlain(row.cantidad))}</strong></td>
+          <td class="num"><strong>${escape(formatMoneyQ(row.vUnidad))}</strong></td>
+          <td class="num"><strong>${escape(formatMoneyQ(row.total))}</strong></td>
+          <td></td>
+          <td></td>
+        </tr>`;
+      }
+      return `<tr>
+        <td>${escape(row.nombre)}</td>
+        <td>${escape(row.descripcion)}</td>
+        <td class="num">${escape(formatQtyPlain(row.cantidad))}</td>
+        <td class="num">${escape(formatMoneyQ(row.vUnidad))}</td>
+        <td class="num">${escape(formatMoneyQ(row.total))}</td>
+        <td class="center">${escape(row.efectivo)}</td>
+        <td class="center">${escape(row.pos)}</td>
+      </tr>`;
+    })
     .join("");
-
-  const detailSection = buildPdfDetailSection(sales, escape);
 
   const win = window.open("", "_blank");
   if (!win) return false;
 
-  win.document.write(`
-    <!doctype html>
-    <html>
-      <head>
-        <title>Reporte de ventas kiosko</title>
-        <style>
-          body { font-family: Arial, sans-serif; margin: 16px; color: #111; }
-          h1 { font-size: 18px; margin: 0 0 4px; }
-          .meta { font-size: 12px; color: #555; margin-bottom: 12px; line-height: 1.5; }
-          .summary { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 16px; }
-          .summary div { background: #f3f4f6; border-radius: 6px; padding: 8px 12px; font-size: 12px; }
-          table { width: 100%; border-collapse: collapse; font-size: 11px; }
-          th, td { border: 1px solid #d1d5db; padding: 5px 6px; text-align: left; }
-          th { background: #f3f4f6; font-weight: 700; }
-          .products-cell { max-width: 220px; white-space: normal; font-size: 10px; }
-          .section-title { font-size: 14px; margin: 20px 0 8px; }
-          .sale-detail-block { margin-bottom: 14px; page-break-inside: avoid; }
-          .sale-detail-title { font-size: 11px; font-weight: 700; margin-bottom: 4px; }
-          .detail-table { font-size: 10px; margin-bottom: 4px; }
-          @media print { body { margin: 8mm; } }
-        </style>
-      </head>
-      <body>
-        <h1>Reporte de ventas — ${escape(kioskName || "Kiosko")}</h1>
-        <div class="meta">
-          Período: ${escape(periodLabel)}<br/>
-          ${depositFilter === "PENDING" ? "Filtro: solo ventas con boleta de depósito pendiente<br/>" : ""}
-          Generado: ${escape(formatNowGt())}
-        </div>
-        <div class="summary">
-          <div>Ventas: <strong>${escape(summary.salesCount)}</strong></div>
-          <div>Unidades: <strong>${escape(formatQty(summary.totalItems))}</strong></div>
-          <div>Total: <strong>Q ${escape(formatMoney(summary.totalAmount))}</strong></div>
-          <div>Ticket prom.: <strong>Q ${escape(formatMoney(summary.averageTicket))}</strong></div>
-        </div>
-        <table>
-          <thead>
-            <tr>
-              <th>Fecha</th>
-              <th>No. Venta</th>
-              <th>No. interno</th>
-              <th>Cliente</th>
-              <th>Productos</th>
-              <th>Vendedor</th>
-              <th>Pago</th>
-              <th>Items</th>
-              <th>Total</th>
-              <th>Factura</th>
-            </tr>
-          </thead>
-          <tbody>${saleRows || `<tr><td colspan="10">Sin ventas</td></tr>`}</tbody>
-        </table>
-        ${detailSection}
-        <script>window.onload = function () { window.print(); };</script>
-      </body>
-    </html>
-  `);
+  win.document.write(`<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>REPORTE DE VENTAS</title>
+  <style>
+    @page { size: letter landscape; margin: 10mm; }
+    body { font-family: Arial, Helvetica, sans-serif; font-size: 11px; color: #000; margin: 12px; }
+    .title { font-size: 16px; font-weight: 700; margin: 0 0 4px; }
+    .meta { font-size: 12px; font-weight: 700; margin: 2px 0; }
+    table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+    th {
+      text-align: left;
+      border-bottom: 2px solid #000;
+      padding: 4px 6px;
+      font-weight: 700;
+    }
+    th.num, td.num { text-align: right; }
+    td.center { text-align: center; }
+    td { padding: 3px 6px; vertical-align: top; }
+    tr.invoice-row td {
+      border-top: 2px solid #000;
+      border-bottom: 2px solid #000;
+      padding-top: 6px;
+      padding-bottom: 6px;
+    }
+    tr.totals-row td {
+      border-top: 2px solid #000;
+      border-bottom: 3px double #000;
+      font-weight: 700;
+      padding-top: 6px;
+    }
+    @media print { body { margin: 0; } }
+  </style>
+</head>
+<body>
+  <div class="title">REPORTE DE VENTAS</div>
+  <div class="meta">BODEGA: ${escape(kioskName || "—")}</div>
+  <div class="meta">FECHA: ${escape(formatPeriodLabelExact(from, to))}</div>
+  <div class="meta">GENERADO POR: ${escape(formatGeneratedByLine(generatedByName))}</div>
+  <table>
+    <thead>
+      <tr>
+        <th>* Nombre</th>
+        <th>Descripcion</th>
+        <th class="num">Cantidad</th>
+        <th class="num">V.Unidad</th>
+        <th class="num">Total</th>
+        <th class="center">Efectivo</th>
+        <th class="center">POS</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${bodyHtml || `<tr><td colspan="7">Sin ventas</td></tr>`}
+    </tbody>
+  </table>
+  <script>window.onload = function () { window.print(); };</script>
+</body>
+</html>`);
   win.document.close();
   return true;
 };
+
+// Keep helper used elsewhere
+export const formatNowGtExport = formatNowGt;

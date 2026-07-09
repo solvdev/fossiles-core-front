@@ -921,6 +921,11 @@ function KioskSales() {
                       kioskLocationId={selectedKioskId || context?.kioskId}
                       kioskName={selectedKioskName || context?.kioskName}
                       kioskCode={selectedKioskCode || context?.kioskCode}
+                      generatedByName={
+                        context?.fullName ||
+                        [context?.firstName, context?.lastName].filter(Boolean).join(" ").trim() ||
+                        context?.username
+                      }
                       cashSession={cashSession}
                       cashSessionOpen={cashSessionOpen}
                       onSaleUpdated={async () => {

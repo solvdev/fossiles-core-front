@@ -56,7 +56,7 @@ export const searchReceivableDocuments = async ({
   routeNumber,
   routeLocationCode,
   allOrderTypes = false,
-  limit = 200,
+  limit = 500,
 } = {}) => {
   const params = new URLSearchParams();
   if (search) params.set("search", search);

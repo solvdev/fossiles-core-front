@@ -26,11 +26,6 @@ import {
   splitAccountBalance,
 } from "services/customerAccountService";
 import {
-  buildRutasCxcPrintHtml,
-  openBlankPrintWindow,
-  writeHtmlToPrintWindow,
-} from "utils/customerAccountReportPrintHtml";
-import {
   getRegionLabel,
   groupAccountRowsByRoute,
   listLocations,
@@ -40,6 +35,7 @@ import {
 } from "utils/deliveryRouteCatalog";
 import { showError } from "utils/notificationHelper";
 import CustomerAccountEntryModal from "components/customers/CustomerAccountEntryModal";
+import CustomerAccountRutasPrintModal from "components/customers/CustomerAccountRutasPrintModal";
 
 function BalanceCell({ amount, type }) {
   const value = Number(amount) || 0;
@@ -302,11 +298,11 @@ function CustomerAccountsList() {
   const [documentViewFilter, setDocumentViewFilter] = useState("all");
   const [documentRows, setDocumentRows] = useState([]);
   const [documentLoading, setDocumentLoading] = useState(false);
-  const [printing, setPrinting] = useState(false);
   const [openGroups, setOpenGroups] = useState({});
   const [allOrderTypes, setAllOrderTypes] = useState(false);
   const [chargeModalOpen, setChargeModalOpen] = useState(false);
   const [chargeModalRow, setChargeModalRow] = useState(null);
+  const [rutasPrintOpen, setRutasPrintOpen] = useState(false);
 
   const regions = useMemo(() => listRegions(), []);
   const filterRoutes = useMemo(
@@ -469,56 +465,6 @@ function CustomerAccountsList() {
     load();
   };
 
-  const handlePrintReport = async () => {
-    const printWindow = openBlankPrintWindow();
-    if (!printWindow) {
-      showError("No se pudo abrir la ventana de impresión. Verifique el bloqueador de ventanas.");
-      return;
-    }
-    setPrinting(true);
-    try {
-      const docs = await searchReceivableDocuments({
-        search: search.trim(),
-        orderKind: kindTab,
-        hasCharge: true,
-        regionCode: filterRegion || undefined,
-        routeNumber: filterRoute ? Number(filterRoute) : undefined,
-        routeLocationCode: filterLocation || undefined,
-        allOrderTypes: false,
-        limit: 2000,
-      });
-      const rows = (Array.isArray(docs) ? docs : [])
-        .filter((row) => Number(row.balanceDue) > 0.001)
-        .map((row) => ({
-          ...row,
-          documentNumber: row.invoiceNumber || row.vendorShipmentNumber || row.shipmentNumber || row.orderCode,
-          clasif: row.routeLocationCode,
-          poblacion: row.routeLocationLabel,
-          cargos: row.chargedAmount,
-          abonos: Math.max(0, (Number(row.chargedAmount) || 0) - (Number(row.balanceDue) || 0)),
-          saldos: row.balanceDue,
-          dueDate: row.chargeDate,
-        }))
-        .sort((a, b) => {
-          const clasifCmp = String(a.clasif || "").localeCompare(String(b.clasif || ""), "es");
-          if (clasifCmp !== 0) return clasifCmp;
-          return String(a.customerName || "").localeCompare(String(b.customerName || ""), "es");
-        });
-
-      const html = buildRutasCxcPrintHtml({ rows, orderKind: kindTab });
-      writeHtmlToPrintWindow(printWindow, html);
-    } catch (err) {
-      try {
-        printWindow.close();
-      } catch (_e) {
-        /* ignore */
-      }
-      showError(err.message || "No se pudo generar el reporte");
-    } finally {
-      setPrinting(false);
-    }
-  };
-
   return (
     <div className="content">
       <Row>
@@ -537,13 +483,11 @@ function CustomerAccountsList() {
                     color="info"
                     size="sm"
                     className="btn-round mr-1"
-                    onClick={handlePrintReport}
-                    disabled={loading || printing}
+                    onClick={() => setRutasPrintOpen(true)}
+                    disabled={loading}
                   >
                     <i className="nc-icon nc-paper" />{" "}
-                    {printing
-                      ? "Generando..."
-                      : `Imprimir RUTAS CxC (${kindTab === "OPC" ? "GCF" : "Fossiles"})`}
+                    {`Imprimir RUTAS CxC (${kindTab === "OPC" ? "GCF" : "Fossiles"})`}
                   </Button>
                   <Button color="secondary" size="sm" className="btn-round" onClick={load} disabled={loading}>
                     <i className="nc-icon nc-refresh-69" /> Actualizar
@@ -927,6 +871,15 @@ function CustomerAccountsList() {
           orderKind: chargeModalRow.orderKind,
         } : null}
         onSaved={handleChargeSaved}
+      />
+
+      <CustomerAccountRutasPrintModal
+        isOpen={rutasPrintOpen}
+        toggle={() => setRutasPrintOpen(false)}
+        orderKind={kindTab}
+        search={search}
+        initialRegionCode={filterRegion}
+        initialRouteNumber={filterRoute}
       />
     </div>
   );
