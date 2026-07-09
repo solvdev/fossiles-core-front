@@ -13,9 +13,11 @@ const hBorder = (top, bottom) => ({
 const fontBase = { name: "Calibri", sz: 11, color: { rgb: "000000" } };
 const boldFont = { ...fontBase, bold: true };
 const titleFont = { ...fontBase, bold: true, sz: 14 };
+const dayFont = { ...fontBase, bold: true, sz: 12 };
 const normalFont = { ...fontBase };
 
 const moneyFmt = '"Q"#,##0.00';
+const COLS = 7;
 
 const normalizeRange = (startDate, endDate) => {
   let from = startDate || "";
@@ -42,9 +44,15 @@ const formatPeriodLabelExact = (startDate, endDate) => {
   return `${formatPeriodDateTime(from, false)} AL ${formatPeriodDateTime(to || from, true)}`;
 };
 
+const formatDayLabel = (ymd) => {
+  if (!ymd) return "";
+  const dateLabel = formatDateGt(ymd);
+  if (!dateLabel || dateLabel === "-") return ymd;
+  return String(dateLabel).replace(/\//g, "-");
+};
+
 const formatGeneratedByLine = (generatedByName) => {
   const name = String(generatedByName || "").trim().toUpperCase() || "USUARIO";
-  // Ejemplo legado: "ROBERTO EL 09-07-2026 14:48"
   const when = formatDateTimeGt(new Date())
     .replace(/\//g, "-")
     .replace(/,\s*/g, " ")
@@ -129,14 +137,43 @@ export const buildKioskReportSummary = (sales) => {
   return { salesCount, totalItems, totalAmount, averageTicket };
 };
 
+/** Agrupa ventas activas por día (YYYY-MM-DD), ordenadas. */
+export const groupSalesByDay = (sales) => {
+  const map = new Map();
+  activeSales(sales).forEach((sale) => {
+    const ymd = getSaleYmdGuatemala(sale) || "sin-fecha";
+    if (!map.has(ymd)) map.set(ymd, []);
+    map.get(ymd).push(sale);
+  });
+  return Array.from(map.entries())
+    .sort(([a], [b]) => String(a).localeCompare(String(b)))
+    .map(([ymd, daySales]) => ({ ymd, sales: daySales }));
+};
+
 /**
- * Filas del reporte. En Totales, V.Unidad y Total llevan el mismo gran total
- * (como el Excel legado).
+ * Filas del reporte. En Totales, V.Unidad y Total llevan el mismo gran total.
+ * @param {object} [options]
+ * @param {boolean} [options.includeTotals=true]
+ * @param {string} [options.dayYmd] si se indica, inserta fila "DIA: dd-mm-yyyy"
  */
-const buildReportRows = (sales) => {
+const buildReportRows = (sales, options = {}) => {
+  const { includeTotals = true, dayYmd = null } = options;
   const rows = [];
   let totalQty = 0;
   let totalAmount = 0;
+
+  if (dayYmd) {
+    rows.push({
+      type: "day",
+      nombre: `DIA: ${formatDayLabel(dayYmd)}`,
+      descripcion: "",
+      cantidad: "",
+      vUnidad: "",
+      total: "",
+      efectivo: "",
+      pos: "",
+    });
+  }
 
   activeSales(sales).forEach((sale) => {
     const invoiceNo = getSaleInternalNumber(sale) || sale.internalNumber || "—";
@@ -171,21 +208,55 @@ const buildReportRows = (sales) => {
     });
   });
 
-  rows.push({
-    type: "totals",
-    nombre: "Totales",
-    descripcion: "",
-    cantidad: totalQty,
-    vUnidad: totalAmount,
-    total: totalAmount,
-    efectivo: "",
-    pos: "",
-  });
+  if (includeTotals) {
+    rows.push({
+      type: "totals",
+      nombre: dayYmd ? `Totales ${formatDayLabel(dayYmd)}` : "Totales",
+      descripcion: "",
+      cantidad: totalQty,
+      vUnidad: totalAmount,
+      total: totalAmount,
+      efectivo: "",
+      pos: "",
+    });
+  }
 
   return rows;
 };
 
-const COLS = 7; // A..G: Nombre, Descripcion, Cantidad, V.Unidad, Total, Efectivo, POS
+const buildConsolidatedReportRows = (sales) => {
+  const days = groupSalesByDay(sales);
+  if (!days.length) {
+    return buildReportRows([]);
+  }
+  if (days.length === 1) {
+    return buildReportRows(days[0].sales, { dayYmd: days[0].ymd });
+  }
+  const rows = [];
+  days.forEach((day, idx) => {
+    if (idx > 0) {
+      rows.push({
+        type: "spacer",
+        nombre: "",
+        descripcion: "",
+        cantidad: "",
+        vUnidad: "",
+        total: "",
+        efectivo: "",
+        pos: "",
+      });
+    }
+    rows.push(...buildReportRows(day.sales, { dayYmd: day.ymd, includeTotals: true }));
+  });
+  return rows;
+};
+
+const resolveReportRows = (sales, mode) => {
+  if (mode === "consolidated" || mode === "byDay") {
+    return buildConsolidatedReportRows(sales);
+  }
+  return buildReportRows(sales);
+};
 
 const colLetter = (index) => XLSX.utils.encode_col(index);
 
@@ -208,28 +279,141 @@ const applyHBorderRow = (ws, r, top, bottom, fromC = 0, toC = COLS - 1) => {
   }
 };
 
-export const exportKioskSalesToExcel = ({
+const styleReportRowsOnSheet = (ws, reportRows, startExcelRow) => {
+  let excelRow = startExcelRow;
+  reportRows.forEach((row, idx) => {
+    const next = reportRows[idx + 1];
+    const isLastItemBeforeInvoice = row.type === "item" && next && next.type === "invoice";
+    const isLastItemBeforeTotals = row.type === "item" && next && next.type === "totals";
+    const isLastItemBeforeDay = row.type === "item" && next && next.type === "day";
+
+    if (row.type === "spacer") {
+      for (let c = 0; c < COLS; c += 1) {
+        setCell(ws, excelRow, c, { t: "s", v: "", s: { font: normalFont } });
+      }
+    } else if (row.type === "day") {
+      setCell(ws, excelRow, 0, {
+        t: "s",
+        v: row.nombre,
+        s: {
+          font: dayFont,
+          alignment: { horizontal: "left" },
+          border: hBorder("medium", "medium"),
+        },
+      });
+      applyHBorderRow(ws, excelRow, "medium", "medium", 0, COLS - 1);
+      for (let c = 1; c < COLS; c += 1) {
+        if (!ws[`${colLetter(c)}${excelRow + 1}`]) {
+          setCell(ws, excelRow, c, {
+            t: "s",
+            v: "",
+            s: { font: dayFont, border: hBorder("medium", "medium") },
+          });
+        }
+      }
+    } else if (row.type === "invoice") {
+      setCell(ws, excelRow, 0, {
+        t: "s",
+        v: row.nombre,
+        s: {
+          font: boldFont,
+          alignment: { horizontal: "left" },
+          border: hBorder("medium", undefined),
+        },
+      });
+      applyHBorderRow(ws, excelRow, "medium", undefined, 0, 3);
+      for (let c = 4; c < COLS; c += 1) {
+        setCell(ws, excelRow, c, { t: "s", v: "", s: { font: normalFont } });
+      }
+    } else if (row.type === "item") {
+      const bottom =
+        isLastItemBeforeInvoice || isLastItemBeforeTotals || isLastItemBeforeDay
+          ? "medium"
+          : undefined;
+      const cells = [
+        { t: "s", v: row.nombre, align: "left" },
+        { t: "s", v: row.descripcion || "", align: "left" },
+        { t: "n", v: Number(row.cantidad) || 0, align: "right" },
+        { t: "n", v: Number(row.vUnidad) || 0, align: "right", money: true },
+        { t: "n", v: Number(row.total) || 0, align: "right", money: true },
+        { t: "s", v: row.efectivo || "", align: "center" },
+        { t: "s", v: row.pos || "", align: "center" },
+      ];
+      cells.forEach((cell, c) => {
+        const borderBottom = bottom && c <= 3 ? "medium" : undefined;
+        setCell(ws, excelRow, c, {
+          t: cell.t,
+          v: cell.v,
+          z: cell.money ? moneyFmt : undefined,
+          s: {
+            font: normalFont,
+            alignment: { horizontal: cell.align },
+            numFmt: cell.money ? moneyFmt : undefined,
+            border: borderBottom ? hBorder(undefined, borderBottom) : undefined,
+          },
+        });
+      });
+    } else if (row.type === "totals") {
+      const values = [
+        { t: "s", v: row.nombre || "Totales", align: "left" },
+        { t: "s", v: "", align: "left" },
+        { t: "n", v: Number(row.cantidad) || 0, align: "right" },
+        { t: "n", v: Number(row.vUnidad) || 0, align: "right", money: true },
+        { t: "n", v: Number(row.total) || 0, align: "right", money: true },
+        { t: "s", v: "", align: "center" },
+        { t: "s", v: "", align: "center" },
+      ];
+      values.forEach((cell, c) => {
+        setCell(ws, excelRow, c, {
+          t: cell.t,
+          v: cell.v,
+          z: cell.money ? moneyFmt : undefined,
+          s: {
+            font: boldFont,
+            alignment: { horizontal: cell.align },
+            numFmt: cell.money ? moneyFmt : undefined,
+            border: hBorder("medium", "double"),
+          },
+        });
+      });
+    }
+    excelRow += 1;
+  });
+  return excelRow;
+};
+
+const buildSalesWorksheet = ({
   sales,
   startDate,
   endDate,
   kioskName,
-  kioskCode,
   generatedByName,
+  mode = "single",
+  dayYmd = null,
 }) => {
   const { startDate: from, endDate: to } = normalizeRange(startDate, endDate);
-  const reportRows = buildReportRows(sales);
+  const periodFrom = dayYmd || from;
+  const periodTo = dayYmd || to;
+  const reportRows =
+    mode === "consolidated"
+      ? buildConsolidatedReportRows(sales)
+      : buildReportRows(sales, dayYmd ? { dayYmd } : {});
 
   const aoa = [
     ["REPORTE DE VENTAS"],
     [`BODEGA: ${kioskName || "—"}`],
-    [`FECHA: ${formatPeriodLabelExact(from, to)}`],
+    [`FECHA: ${formatPeriodLabelExact(periodFrom, periodTo)}`],
     [`GENERADO POR: ${formatGeneratedByLine(generatedByName)}`],
     [],
     ["* Nombre", "Descripcion", "Cantidad", "V.Unidad", "Total", "Efectivo", "POS"],
   ];
 
   reportRows.forEach((row) => {
-    if (row.type === "invoice") {
+    if (row.type === "spacer") {
+      aoa.push(["", "", "", "", "", "", ""]);
+      return;
+    }
+    if (row.type === "day" || row.type === "invoice") {
       aoa.push([row.nombre, "", "", "", "", "", ""]);
       return;
     }
@@ -265,7 +449,6 @@ export const exportKioskSalesToExcel = ({
     { wch: 8 },
   ];
 
-  // Meta header (sin bordes)
   for (let r = 0; r <= 3; r += 1) {
     setCell(ws, r, 0, {
       t: "s",
@@ -274,7 +457,6 @@ export const exportKioskSalesToExcel = ({
     });
   }
 
-  // Encabezados de columna: línea gruesa arriba y abajo
   const headerLabels = aoa[5];
   headerLabels.forEach((label, c) => {
     setCell(ws, 5, c, {
@@ -290,87 +472,191 @@ export const exportKioskSalesToExcel = ({
     });
   });
 
-  let excelRow = 6;
-  reportRows.forEach((row, idx) => {
-    const next = reportRows[idx + 1];
-    const isLastItemBeforeInvoice = row.type === "item" && next && next.type === "invoice";
-    const isLastItemBeforeTotals = row.type === "item" && next && next.type === "totals";
+  const lastRow = styleReportRowsOnSheet(ws, reportRows, 6);
+  ws["!ref"] = `A1:G${lastRow}`;
+  return ws;
+};
 
-    if (row.type === "invoice") {
-      setCell(ws, excelRow, 0, {
-        t: "s",
-        v: row.nombre,
-        s: {
-          font: boldFont,
-          alignment: { horizontal: "left" },
-          border: hBorder("medium", undefined),
-        },
-      });
-      // Línea gruesa solo sobre Nombre → V.Unidad (como el legado)
-      applyHBorderRow(ws, excelRow, "medium", undefined, 0, 3);
-      for (let c = 4; c < COLS; c += 1) {
-        setCell(ws, excelRow, c, { t: "s", v: "", s: { font: normalFont } });
-      }
-    } else if (row.type === "item") {
-      const bottom = isLastItemBeforeInvoice || isLastItemBeforeTotals ? "medium" : undefined;
-      const cells = [
-        { t: "s", v: row.nombre, align: "left" },
-        { t: "s", v: row.descripcion || "", align: "left" },
-        { t: "n", v: Number(row.cantidad) || 0, align: "right" },
-        { t: "n", v: Number(row.vUnidad) || 0, align: "right", money: true },
-        { t: "n", v: Number(row.total) || 0, align: "right", money: true },
-        { t: "s", v: row.efectivo || "", align: "center" },
-        { t: "s", v: row.pos || "", align: "center" },
-      ];
-      cells.forEach((cell, c) => {
-        const borderBottom = bottom && c <= 3 ? "medium" : undefined;
-        setCell(ws, excelRow, c, {
-          t: cell.t,
-          v: cell.v,
-          z: cell.money ? moneyFmt : undefined,
-          s: {
-            font: normalFont,
-            alignment: { horizontal: cell.align },
-            numFmt: cell.money ? moneyFmt : undefined,
-            border: borderBottom ? hBorder(undefined, borderBottom) : undefined,
-          },
-        });
-      });
-    } else if (row.type === "totals") {
-      const values = [
-        { t: "s", v: "Totales", align: "left" },
-        { t: "s", v: "", align: "left" },
-        { t: "n", v: Number(row.cantidad) || 0, align: "right" },
-        { t: "n", v: Number(row.vUnidad) || 0, align: "right", money: true },
-        { t: "n", v: Number(row.total) || 0, align: "right", money: true },
-        { t: "s", v: "", align: "center" },
-        { t: "s", v: "", align: "center" },
-      ];
-      values.forEach((cell, c) => {
-        setCell(ws, excelRow, c, {
-          t: cell.t,
-          v: cell.v,
-          z: cell.money ? moneyFmt : undefined,
-          s: {
-            font: boldFont,
-            alignment: { horizontal: cell.align },
-            numFmt: cell.money ? moneyFmt : undefined,
-            border: hBorder("medium", "double"),
-          },
-        });
-      });
-    }
-    excelRow += 1;
-  });
+const safeSheetName = (ymd) => {
+  const label = formatDayLabel(ymd) || ymd || "DIA";
+  return String(label).replace(/[\\/?*[\]]/g, "-").slice(0, 31);
+};
 
-  ws["!ref"] = `A1:G${excelRow}`;
-
+/**
+ * @param {"single"|"byDay"|"consolidated"} [mode]
+ * - single: un bloque (comportamiento actual)
+ * - byDay: una hoja Excel por día
+ * - consolidated: un solo archivo con "DIA: ..." sobre cada bloque
+ */
+export const exportKioskSalesToExcel = ({
+  sales,
+  startDate,
+  endDate,
+  kioskName,
+  kioskCode,
+  generatedByName,
+  mode = "single",
+}) => {
+  const { startDate: from, endDate: to } = normalizeRange(startDate, endDate);
+  const days = groupSalesByDay(sales);
   const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, "REPORTE DE VENTAS");
   const rangeLabel = from === to ? from : `${from || "inicio"}_${to || "fin"}`;
   const kiosk = kioskCode ? `_${kioskCode}` : "";
-  XLSX.writeFile(wb, `REPORTE_DE_VENTAS_${rangeLabel}${kiosk}.xlsx`);
+  const exportMode = days.length <= 1 ? "single" : mode;
+
+  if (exportMode === "byDay") {
+    days.forEach((day) => {
+      const ws = buildSalesWorksheet({
+        sales: day.sales,
+        startDate: day.ymd,
+        endDate: day.ymd,
+        kioskName,
+        generatedByName,
+        mode: "single",
+        dayYmd: day.ymd,
+      });
+      XLSX.utils.book_append_sheet(wb, ws, safeSheetName(day.ymd));
+    });
+    XLSX.writeFile(wb, `REPORTE_DE_VENTAS_POR_DIA_${rangeLabel}${kiosk}.xlsx`);
+    return;
+  }
+
+  const ws = buildSalesWorksheet({
+    sales,
+    startDate: from,
+    endDate: to,
+    kioskName,
+    generatedByName,
+    mode: exportMode === "consolidated" ? "consolidated" : "single",
+  });
+  XLSX.utils.book_append_sheet(wb, ws, "REPORTE DE VENTAS");
+  const suffix = exportMode === "consolidated" ? "_CONSOLIDADO" : "";
+  XLSX.writeFile(wb, `REPORTE_DE_VENTAS${suffix}_${rangeLabel}${kiosk}.xlsx`);
 };
+
+const escapeHtml = (value) =>
+  String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+
+const buildReportRowsHtml = (reportRows) =>
+  reportRows
+    .map((row, idx) => {
+      const next = reportRows[idx + 1];
+      const sepBeforeNextInvoice = row.type === "item" && next && next.type === "invoice";
+      const sepBeforeTotals = row.type === "item" && next && next.type === "totals";
+      const sepBeforeDay = row.type === "item" && next && next.type === "day";
+      const itemClass =
+        sepBeforeNextInvoice || sepBeforeTotals || sepBeforeDay ? ' class="item-sep"' : "";
+
+      if (row.type === "spacer") {
+        return `<tr class="spacer-row"><td colspan="7">&nbsp;</td></tr>`;
+      }
+      if (row.type === "day") {
+        return `<tr class="day-row"><td colspan="7"><strong>${escapeHtml(row.nombre)}</strong></td></tr>`;
+      }
+      if (row.type === "invoice") {
+        return `<tr class="invoice-row"><td colspan="7"><strong>${escapeHtml(row.nombre)}</strong></td></tr>`;
+      }
+      if (row.type === "totals") {
+        return `<tr class="totals-row">
+          <td><strong>${escapeHtml(row.nombre || "Totales")}</strong></td>
+          <td></td>
+          <td class="num"><strong>${escapeHtml(formatQtyPlain(row.cantidad))}</strong></td>
+          <td class="num"><strong>${escapeHtml(formatMoneyQ(row.vUnidad))}</strong></td>
+          <td class="num"><strong>${escapeHtml(formatMoneyQ(row.total))}</strong></td>
+          <td></td>
+          <td></td>
+        </tr>`;
+      }
+      return `<tr${itemClass}>
+        <td>${escapeHtml(row.nombre)}</td>
+        <td>${escapeHtml(row.descripcion)}</td>
+        <td class="num">${escapeHtml(formatQtyPlain(row.cantidad))}</td>
+        <td class="num">${escapeHtml(formatMoneyQ(row.vUnidad))}</td>
+        <td class="num">${escapeHtml(formatMoneyQ(row.total))}</td>
+        <td class="center">${escapeHtml(row.efectivo)}</td>
+        <td class="center">${escapeHtml(row.pos)}</td>
+      </tr>`;
+    })
+    .join("");
+
+const reportStyles = `
+  @page { size: letter landscape; margin: 12mm; }
+  body {
+    font-family: Calibri, Arial, Helvetica, sans-serif;
+    font-size: 11px;
+    color: #000;
+    margin: 12px;
+  }
+  .title { font-size: 15px; font-weight: 700; margin: 0 0 2px; }
+  .meta { font-size: 12px; font-weight: 700; margin: 1px 0; }
+  .day-block { margin-top: 18px; page-break-inside: avoid; }
+  .day-block:first-of-type { margin-top: 12px; }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 8px;
+  }
+  th {
+    text-align: left;
+    border-top: 2px solid #000;
+    border-bottom: 2px solid #000;
+    padding: 5px 6px;
+    font-weight: 700;
+  }
+  th.num, td.num { text-align: right; }
+  th.center, td.center { text-align: center; }
+  td {
+    padding: 2px 6px;
+    vertical-align: top;
+    border: none;
+  }
+  tr.day-row td {
+    border-top: 2px solid #000;
+    border-bottom: 2px solid #000;
+    font-weight: 700;
+    font-size: 12px;
+    padding-top: 8px;
+    padding-bottom: 6px;
+  }
+  tr.invoice-row td {
+    border-top: 2px solid #000;
+    font-weight: 700;
+    padding-top: 7px;
+    padding-bottom: 3px;
+  }
+  tr.item-sep td:nth-child(-n+4) {
+    border-bottom: 2px solid #000;
+    padding-bottom: 5px;
+  }
+  tr.totals-row td {
+    border-top: 2px solid #000;
+    border-bottom: 3px double #000;
+    font-weight: 700;
+    padding-top: 6px;
+    padding-bottom: 4px;
+  }
+  tr.spacer-row td { height: 12px; }
+  @media print {
+    body { margin: 0; }
+    .day-block { page-break-before: auto; }
+  }
+`;
+
+const tableHeaderHtml = `
+  <thead>
+    <tr>
+      <th>* Nombre</th>
+      <th>Descripcion</th>
+      <th class="num">Cantidad</th>
+      <th class="num">V.Unidad</th>
+      <th class="num">Total</th>
+      <th class="center">Efectivo</th>
+      <th class="center">POS</th>
+    </tr>
+  </thead>`;
 
 export const exportKioskSalesToPdf = ({
   sales,
@@ -378,48 +664,33 @@ export const exportKioskSalesToPdf = ({
   endDate,
   kioskName,
   generatedByName,
+  mode = "single",
 }) => {
   const { startDate: from, endDate: to } = normalizeRange(startDate, endDate);
-  const reportRows = buildReportRows(sales);
-  const escape = (value) =>
-    String(value ?? "")
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;");
+  const days = groupSalesByDay(sales);
+  const exportMode = days.length <= 1 ? "single" : mode;
 
-  const bodyHtml = reportRows
-    .map((row, idx) => {
-      const next = reportRows[idx + 1];
-      const sepBeforeNextInvoice = row.type === "item" && next && next.type === "invoice";
-      const sepBeforeTotals = row.type === "item" && next && next.type === "totals";
-      const itemClass =
-        sepBeforeNextInvoice || sepBeforeTotals ? ' class="item-sep"' : "";
-
-      if (row.type === "invoice") {
-        return `<tr class="invoice-row"><td colspan="7"><strong>${escape(row.nombre)}</strong></td></tr>`;
-      }
-      if (row.type === "totals") {
-        return `<tr class="totals-row">
-          <td><strong>Totales</strong></td>
-          <td></td>
-          <td class="num"><strong>${escape(formatQtyPlain(row.cantidad))}</strong></td>
-          <td class="num"><strong>${escape(formatMoneyQ(row.vUnidad))}</strong></td>
-          <td class="num"><strong>${escape(formatMoneyQ(row.total))}</strong></td>
-          <td></td>
-          <td></td>
-        </tr>`;
-      }
-      return `<tr${itemClass}>
-        <td>${escape(row.nombre)}</td>
-        <td>${escape(row.descripcion)}</td>
-        <td class="num">${escape(formatQtyPlain(row.cantidad))}</td>
-        <td class="num">${escape(formatMoneyQ(row.vUnidad))}</td>
-        <td class="num">${escape(formatMoneyQ(row.total))}</td>
-        <td class="center">${escape(row.efectivo)}</td>
-        <td class="center">${escape(row.pos)}</td>
-      </tr>`;
-    })
-    .join("");
+  let bodySections = "";
+  if (exportMode === "byDay") {
+    bodySections = days
+      .map((day) => {
+        const rows = buildReportRows(day.sales, { dayYmd: day.ymd });
+        return `<div class="day-block">
+          <div class="meta">FECHA: ${escapeHtml(formatPeriodLabelExact(day.ymd, day.ymd))}</div>
+          <table>
+            ${tableHeaderHtml}
+            <tbody>${buildReportRowsHtml(rows)}</tbody>
+          </table>
+        </div>`;
+      })
+      .join("");
+  } else {
+    const reportRows = resolveReportRows(sales, exportMode);
+    bodySections = `<table>
+      ${tableHeaderHtml}
+      <tbody>${buildReportRowsHtml(reportRows) || `<tr><td colspan="7">Sin ventas</td></tr>`}</tbody>
+    </table>`;
+  }
 
   const win = window.open("", "_blank");
   if (!win) return false;
@@ -429,76 +700,20 @@ export const exportKioskSalesToPdf = ({
 <head>
   <meta charset="utf-8" />
   <title>REPORTE DE VENTAS</title>
-  <style>
-    @page { size: letter landscape; margin: 12mm; }
-    body {
-      font-family: Calibri, Arial, Helvetica, sans-serif;
-      font-size: 11px;
-      color: #000;
-      margin: 12px;
-    }
-    .title { font-size: 15px; font-weight: 700; margin: 0 0 2px; }
-    .meta { font-size: 12px; font-weight: 700; margin: 1px 0; }
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      margin-top: 12px;
-    }
-    th {
-      text-align: left;
-      border-top: 2px solid #000;
-      border-bottom: 2px solid #000;
-      padding: 5px 6px;
-      font-weight: 700;
-    }
-    th.num, td.num { text-align: right; }
-    th.center, td.center { text-align: center; }
-    td {
-      padding: 2px 6px;
-      vertical-align: top;
-      border: none;
-    }
-    tr.invoice-row td {
-      border-top: 2px solid #000;
-      font-weight: 700;
-      padding-top: 7px;
-      padding-bottom: 3px;
-    }
-    tr.item-sep td:nth-child(-n+4) {
-      border-bottom: 2px solid #000;
-      padding-bottom: 5px;
-    }
-    tr.totals-row td {
-      border-top: 2px solid #000;
-      border-bottom: 3px double #000;
-      font-weight: 700;
-      padding-top: 6px;
-      padding-bottom: 4px;
-    }
-    @media print { body { margin: 0; } }
-  </style>
+  <style>${reportStyles}</style>
 </head>
 <body>
   <div class="title">REPORTE DE VENTAS</div>
-  <div class="meta">BODEGA: ${escape(kioskName || "—")}</div>
-  <div class="meta">FECHA: ${escape(formatPeriodLabelExact(from, to))}</div>
-  <div class="meta">GENERADO POR: ${escape(formatGeneratedByLine(generatedByName))}</div>
-  <table>
-    <thead>
-      <tr>
-        <th>* Nombre</th>
-        <th>Descripcion</th>
-        <th class="num">Cantidad</th>
-        <th class="num">V.Unidad</th>
-        <th class="num">Total</th>
-        <th class="center">Efectivo</th>
-        <th class="center">POS</th>
-      </tr>
-    </thead>
-    <tbody>
-      ${bodyHtml || `<tr><td colspan="7">Sin ventas</td></tr>`}
-    </tbody>
-  </table>
+  <div class="meta">BODEGA: ${escapeHtml(kioskName || "—")}</div>
+  <div class="meta">FECHA: ${escapeHtml(formatPeriodLabelExact(from, to))}</div>
+  <div class="meta">GENERADO POR: ${escapeHtml(formatGeneratedByLine(generatedByName))}</div>
+  ${
+    exportMode === "byDay"
+      ? `<div class="meta">MODO: SEPARADO POR DÍA</div>${bodySections}`
+      : exportMode === "consolidated"
+        ? `<div class="meta">MODO: CONSOLIDADO POR DÍA</div>${bodySections}`
+        : bodySections
+  }
   <script>window.onload = function () { window.print(); };</script>
 </body>
 </html>`);

@@ -34,6 +34,7 @@ function SalesReports() {
   const [exporting, setExporting] = useState(false);
   const [error, setError] = useState("");
   const [report, setReport] = useState(null);
+  const [exportMode, setExportMode] = useState("consolidated"); // consolidated | byDay
 
   const generatedByName = useMemo(() => resolveUserFullName(user), [user]);
 
@@ -88,11 +89,17 @@ function SalesReports() {
     return "KIOSKOS";
   };
 
+  const resolveExportMode = (from, to) => {
+    if (from && to && from === to) return "single";
+    return exportMode;
+  };
+
   const handleExportExcel = async () => {
     setExporting(true);
     try {
       const payload = await loadSalesForExport();
       if (!payload) return;
+      const mode = resolveExportMode(payload.from, payload.to);
       exportKioskSalesToExcel({
         sales: payload.sales,
         startDate: payload.from,
@@ -100,8 +107,13 @@ function SalesReports() {
         kioskName: resolveExportKioskName(payload.sales),
         kioskCode: selectedKioskId ? `K${selectedKioskId}` : "ALL",
         generatedByName,
+        mode,
       });
-      showSuccess("Excel descargado correctamente.");
+      showSuccess(
+        mode === "byDay"
+          ? "Excel por día descargado (una hoja por fecha)."
+          : "Excel descargado correctamente."
+      );
     } catch (err) {
       showError(err.message || "No se pudo generar el Excel.");
     } finally {
@@ -114,12 +126,14 @@ function SalesReports() {
     try {
       const payload = await loadSalesForExport();
       if (!payload) return;
+      const mode = resolveExportMode(payload.from, payload.to);
       const opened = exportKioskSalesToPdf({
         sales: payload.sales,
         startDate: payload.from,
         endDate: payload.to,
         kioskName: resolveExportKioskName(payload.sales),
         generatedByName,
+        mode,
       });
       if (opened === false) {
         showWarning("Permite ventanas emergentes para imprimir o guardar el PDF.");
@@ -142,7 +156,21 @@ function SalesReports() {
               <CardTitle tag="h4" className="mb-0">
                 Reportes de Ventas
               </CardTitle>
-              <div className="mt-2 mt-md-0">
+              <div className="mt-2 mt-md-0 d-flex flex-wrap align-items-center">
+                {startDate && endDate && startDate !== endDate && (
+                  <Input
+                    type="select"
+                    bsSize="sm"
+                    className="mr-2 mb-0"
+                    style={{ width: "auto", minWidth: 200 }}
+                    value={exportMode}
+                    onChange={(e) => setExportMode(e.target.value)}
+                    disabled={loading || exporting}
+                  >
+                    <option value="consolidated">Consolidado (día sobre cada bloque)</option>
+                    <option value="byDay">Separado por día (hojas)</option>
+                  </Input>
+                )}
                 <Button
                   color="success"
                   size="sm"
@@ -166,8 +194,9 @@ function SalesReports() {
             <CardBody>
               {error && <Alert color="danger">{error}</Alert>}
               <Alert color="light" className="border">
-                El Excel/PDF sale en formato <strong>REPORTE DE VENTAS</strong> (por factura interna, con X en
-                Efectivo/POS). Usa un día exacto o un rango; por defecto es hoy.
+                Formato <strong>REPORTE DE VENTAS</strong> (factura interna, X en Efectivo/POS). En un rango
+                puedes bajar <strong>consolidado</strong> (con <em>DIA:</em> sobre cada bloque) o{" "}
+                <strong>separado por día</strong> (una hoja Excel / sección PDF por fecha).
               </Alert>
               <Row className="mb-3">
                 <Col md="3">

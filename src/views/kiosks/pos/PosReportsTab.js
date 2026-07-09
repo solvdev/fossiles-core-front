@@ -56,6 +56,7 @@ function PosReportsTab({
   const [voidTargetSale, setVoidTargetSale] = useState(null);
   const [depositFilter, setDepositFilter] = useState("ALL");
   const [dateFilterMode, setDateFilterMode] = useState("single");
+  const [exportMode, setExportMode] = useState("consolidated"); // consolidated | byDay
 
   const filteredSales = (sales || []).filter((sale) => {
     if (depositFilter !== "PENDING") return true;
@@ -92,6 +93,13 @@ function PosReportsTab({
     }
   };
 
+  const resolveExportMode = () => {
+    if (dateFilterMode === "single" || (startDate && endDate && startDate === endDate)) {
+      return "single";
+    }
+    return exportMode;
+  };
+
   const handleExportExcel = () => {
     if (!startDate && !endDate) {
       showWarning("Selecciona al menos una fecha antes de exportar.");
@@ -102,6 +110,7 @@ function PosReportsTab({
       return;
     }
     try {
+      const mode = resolveExportMode();
       exportKioskSalesToExcel({
         sales: filteredSales,
         startDate,
@@ -109,8 +118,13 @@ function PosReportsTab({
         kioskName,
         kioskCode,
         generatedByName,
+        mode,
       });
-      showSuccess("Excel descargado correctamente.");
+      showSuccess(
+        mode === "byDay"
+          ? "Excel por día descargado (una hoja por fecha)."
+          : "Excel descargado correctamente."
+      );
     } catch (err) {
       showError(err.message || "No se pudo generar el Excel.");
     }
@@ -125,12 +139,14 @@ function PosReportsTab({
       showWarning("No hay ventas para exportar con el filtro actual.");
       return;
     }
+    const mode = resolveExportMode();
     const opened = exportKioskSalesToPdf({
       sales: filteredSales,
       startDate,
       endDate,
       kioskName,
       generatedByName,
+      mode,
     });
     if (opened === false) {
       showWarning("Permite ventanas emergentes para descargar el PDF.");
@@ -172,7 +188,20 @@ function PosReportsTab({
           <CardTitle tag="h5" className="mb-0">
             Reportes de ventas
           </CardTitle>
-          <div className="kiosk-pos-report-export-actions mt-2 mt-md-0">
+          <div className="kiosk-pos-report-export-actions mt-2 mt-md-0 d-flex flex-wrap align-items-center">
+            {(dateFilterMode === "range" || (startDate && endDate && startDate !== endDate)) && (
+              <Input
+                type="select"
+                bsSize="sm"
+                className="mr-2 mb-0"
+                style={{ width: "auto", minWidth: 180 }}
+                value={exportMode}
+                onChange={(e) => setExportMode(e.target.value)}
+              >
+                <option value="consolidated">Consolidado (día sobre cada bloque)</option>
+                <option value="byDay">Separado por día (hojas)</option>
+              </Input>
+            )}
             <Button color="default" size="sm" className="mr-2" onClick={handleExportExcel}>
               <i className="nc-icon nc-paper" /> Excel
             </Button>
@@ -288,7 +317,12 @@ function PosReportsTab({
           <p className="text-muted small mt-2 mb-0">
             Período activo: <strong>{periodLabel}</strong>
             {" · "}
-            {filteredSales.length} venta(s) en pantalla. Excel y PDF exportan solo este período (y filtro de boleta si aplica).
+            {filteredSales.length} venta(s) en pantalla. Excel/PDF usan este período
+            {dateFilterMode === "range" || (startDate && endDate && startDate !== endDate)
+              ? ` · modo: ${exportMode === "byDay" ? "separado por día" : "consolidado con DIA:"}`
+              : ""}
+            .
+
           </p>
 
           <Row className="mt-3">
