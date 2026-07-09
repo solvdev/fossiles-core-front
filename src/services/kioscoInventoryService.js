@@ -63,6 +63,9 @@ export const getKioscoConteoReport = async (countId) =>
 export const saveKioscoConteoItems = async (countId, items) =>
   apiRequest(`/kiosco-inventory/conteo-fisico/${countId}/items`, { method: "PUT", body: items });
 
+export const terminarKioscoConteo = async (countId) =>
+  apiRequest(`/kiosco-inventory/conteo-fisico/${countId}/terminar`, { method: "POST" });
+
 export const revisarKioscoConteo = async (countId, notes) =>
   apiRequest(`/kiosco-inventory/conteo-fisico/${countId}/revisar`, { method: "POST", body: { notes } });
 

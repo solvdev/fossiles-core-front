@@ -122,7 +122,7 @@ function PortfolioKindSelector({ kindTab, onSelect, totalsByKind, clientCount })
                 <Badge
                   pill
                   style={{
-                    backgroundColor: active ? "rgba(255,255,255,0.25)" : opt.color,
+                    backgroundColor: "#6c757d",
                     color: "#fff",
                     fontSize: "0.75rem",
                     padding: "6px 10px",

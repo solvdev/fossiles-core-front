@@ -26,6 +26,7 @@ import {
   revisarKioscoConteo,
   saveKioscoConteoItems,
   startKioscoConteo,
+  terminarKioscoConteo,
 } from "services/kioscoInventoryService";
 import { formatDateGt, formatDateTimeGt } from "utils/dateTimeHelper";
 import { exportConteoToExcel, exportConteoToPdf } from "utils/kioscoConteoExport";
@@ -72,6 +73,13 @@ const sumColStyle = {
 /** Diferencia absoluta minima (unidades) para considerar una discrepancia relevante. Debe reflejar
  * KioscoInventoryCountService.DIFF_ALERT_THRESHOLD en el backend. */
 const DIFF_ALERT_THRESHOLD = 3;
+
+function conteoStatusMeta(status) {
+  if (status === "CERRADO") return { label: "🔒 Cerrado", color: "secondary" };
+  if (status === "REVISADO") return { label: "✓ Revisado", color: "success" };
+  if (status === "CONTADO") return { label: "✓ Contado", color: "info" };
+  return { label: "Borrador", color: "warning" };
+}
 
 const KARDEX_COLUMNS = [
   { key: "inventarioInicial", label: "Ini.", title: "Inventario Inicial" },
@@ -346,6 +354,7 @@ function KioskInventoryCountReport({ locationId }) {
   const [historial, setHistorial] = useState([]);
   const [loadingHistorial, setLoadingHistorial] = useState(false);
   const [closing, setClosing] = useState(false);
+  const [finalizing, setFinalizing] = useState(false);
   const [showRecipientsModal, setShowRecipientsModal] = useState(false);
   const [recipients, setRecipients] = useState([]);
   const [loadingRecipients, setLoadingRecipients] = useState(false);
@@ -515,18 +524,14 @@ function KioskInventoryCountReport({ locationId }) {
     });
   };
 
-  const handleSave = async () => {
-    if (!report) return;
+  const buildDirtyItemsPayload = () => {
     const dirtyKeys = new Set([
       ...Object.keys(editedCounts),
       ...Object.keys(editedSizeCounts),
       ...Object.keys(editedSizeCountsByLocation),
     ]);
-    if (dirtyKeys.size === 0) {
-      showError("No hay cambios de conteo para guardar.");
-      return;
-    }
-    const items = [...dirtyKeys]
+    if (dirtyKeys.size === 0) return null;
+    return [...dirtyKeys]
       .map((key) => allReportRows.find((r) => rowKey(r) === key))
       .filter(Boolean)
       .map((row) => {
@@ -551,19 +556,60 @@ function KioskInventoryCountReport({ locationId }) {
         }
         return item;
       });
+  };
+
+  const clearEditedCounts = () => {
+    setEditedCounts({});
+    setEditedSizeCounts({});
+    setEditedSizeCountsByLocation({});
+  };
+
+  const handleSave = async () => {
+    if (!report) return;
+    const items = buildDirtyItemsPayload();
+    if (!items?.length) {
+      showError("No hay cambios de conteo para guardar.");
+      return;
+    }
     try {
       setSaving(true);
       const data = await saveKioscoConteoItems(report.id, items);
       setReport(data);
-      setEditedCounts({});
-      setEditedSizeCounts({});
-      setEditedSizeCountsByLocation({});
+      clearEditedCounts();
       await loadHistorial(locationId);
       showSuccess("Conteo guardado correctamente.");
     } catch (err) {
       showError(err.message || "No se pudo guardar el conteo.");
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleFinalize = async () => {
+    if (!report) return;
+    if (!window.confirm(
+      "¿Terminar el conteo físico? Las cantidades en vitrinas quedarán bloqueadas y ya no podrán modificarse hasta la revisión."
+    )) {
+      return;
+    }
+    try {
+      setFinalizing(true);
+      let countId = report.id;
+      const items = buildDirtyItemsPayload();
+      if (items?.length) {
+        const saved = await saveKioscoConteoItems(countId, items);
+        setReport(saved);
+        countId = saved.id;
+        clearEditedCounts();
+      }
+      const data = await terminarKioscoConteo(countId);
+      setReport(data);
+      await loadHistorial(locationId);
+      showSuccess("Conteo terminado. Las vitrinas están bloqueadas para edición.");
+    } catch (err) {
+      showError(err.message || "No se pudo terminar el conteo.");
+    } finally {
+      setFinalizing(false);
     }
   };
 
@@ -598,9 +644,7 @@ function KioskInventoryCountReport({ locationId }) {
       setClosing(true);
       const data = await cerrarKioscoConteo(report.id);
       setReport(data);
-      setEditedCounts({});
-      setEditedSizeCounts({});
-      setEditedSizeCountsByLocation({});
+      clearEditedCounts();
       await loadHistorial(locationId);
       showSuccess("Conteo cerrado correctamente.");
     } catch (err) {
@@ -657,6 +701,9 @@ function KioskInventoryCountReport({ locationId }) {
 
   const totalCols = PRODUCT_INFO_COLS + (showKardex ? KARDEX_COLUMNS.length : 0) + COUNT_LOCATION_KEYS.length + 2;
   const isClosed = report?.status === "CERRADO";
+  const isDraft = report?.status === "DRAFT";
+  const isCountLocked = !isDraft;
+  const statusMeta = conteoStatusMeta(report?.status);
   const pendingRows = filteredCategories.flatMap((c) => c.rows);
   const alertRows = pendingRows.filter(
     (r) => Math.abs(rowDiff(r, editedCounts[rowKey(r)] || r.counts || {})) >= DIFF_ALERT_THRESHOLD
@@ -748,10 +795,10 @@ function KioskInventoryCountReport({ locationId }) {
                         </td>
                         <td>
                           <Badge
-                            color={s.status === "CERRADO" ? "secondary" : s.status === "REVISADO" ? "success" : "warning"}
+                            color={conteoStatusMeta(s.status).color}
                             style={{ fontSize: 10 }}
                           >
-                            {s.status === "CERRADO" ? "🔒 Cerrado" : s.status === "REVISADO" ? "✓ Revisado" : "Borrador"}
+                            {conteoStatusMeta(s.status).label}
                           </Badge>
                           {hasPendingDiff && (
                             <Badge color="danger" style={{ fontSize: 10, marginLeft: 4 }} title="Diferencia sin resolver">
@@ -810,10 +857,10 @@ function KioskInventoryCountReport({ locationId }) {
             alignItems: "center",
           }}>
             <Badge
-              color={isClosed ? "secondary" : report.status === "REVISADO" ? "success" : "warning"}
+              color={statusMeta.color}
               style={{ fontSize: 11, padding: "4px 8px" }}
             >
-              {isClosed ? "🔒 Cerrado" : report.status === "REVISADO" ? "✓ Revisado" : "Borrador"}
+              {statusMeta.label}
             </Badge>
             <span style={{ fontSize: 12, color: "#374151" }}>
               <strong>{report.periodFrom ? fmt(report.periodFrom) : "—"}</strong>
@@ -904,15 +951,25 @@ function KioskInventoryCountReport({ locationId }) {
           <Row className="mb-3">
             <Col>
               <div className="d-flex flex-wrap" style={{ gap: 8 }}>
-                {!isClosed && (
+                {isDraft && (
                   <>
-                    <Button color="success" size="sm" onClick={() => void handleSave()} disabled={saving}>
+                    <Button color="success" size="sm" onClick={() => void handleSave()} disabled={saving || finalizing}>
                       {saving ? <Spinner size="sm" /> : "💾 Guardar conteo"}
                     </Button>
-                    <Button color="info" size="sm" outline onClick={() => setShowReviewBox((v) => !v)} disabled={saving}>
-                      ✔ Marcar como revisado
+                    <Button
+                      color="warning"
+                      size="sm"
+                      onClick={() => void handleFinalize()}
+                      disabled={saving || finalizing}
+                    >
+                      {finalizing ? <Spinner size="sm" /> : "✓ Terminar conteo físico"}
                     </Button>
                   </>
+                )}
+                {report.status === "CONTADO" && (
+                  <Button color="info" size="sm" outline onClick={() => setShowReviewBox((v) => !v)} disabled={saving}>
+                    ✔ Marcar como revisado
+                  </Button>
                 )}
                 {report.status === "REVISADO" && (
                   <Button color="danger" size="sm" outline onClick={() => void handleClose()} disabled={closing}>
@@ -920,10 +977,10 @@ function KioskInventoryCountReport({ locationId }) {
                   </Button>
                 )}
                 <ButtonGroup size="sm">
-                  <Button color="secondary" outline onClick={() => exportConteoToExcel(report, { showKardex })}>
+                  <Button color="secondary" outline onClick={() => exportConteoToExcel(report, { showKardex: true })}>
                     ⬇ Excel
                   </Button>
-                  <Button color="secondary" outline onClick={() => exportConteoToPdf(report, { showKardex })}>
+                  <Button color="secondary" outline onClick={() => exportConteoToPdf(report, { showKardex: true })}>
                     🖨 PDF / Imprimir
                   </Button>
                 </ButtonGroup>
@@ -939,6 +996,12 @@ function KioskInventoryCountReport({ locationId }) {
               </div>
             </Col>
           </Row>
+
+          {report.status === "CONTADO" && (
+            <Alert color="info" className="mb-3" style={{ fontSize: 12 }}>
+              Conteo físico terminado. Las vitrinas están bloqueadas; un supervisor puede marcarlo como revisado.
+            </Alert>
+          )}
 
           {isClosed && (
             <Alert color="secondary" className="mb-3" style={{ fontSize: 12 }}>
@@ -1015,7 +1078,7 @@ function KioskInventoryCountReport({ locationId }) {
                       editedSizeCountsByLocation={editedSizeCountsByLocation}
                       onCountChange={handleCountChange}
                       onOpenCinchoModal={setCinchoModalProductId}
-                      disabled={isClosed}
+                      disabled={isCountLocked}
                     />
                   ))
                 )}
@@ -1041,7 +1104,7 @@ function KioskInventoryCountReport({ locationId }) {
             <span><span style={{ color: "#dc2626", fontWeight: 700 }}>▲/▼ n</span> Sistema vs. físico</span>
             <span style={{ background: "#fef2f2", padding: "1px 4px" }}>Fondo rojo: diferencia ≥ {DIFF_ALERT_THRESHOLD} unidades</span>
             <span>Haz clic en el nombre de categoría para colapsar/expandir</span>
-            {!showKardex && <span>Kardex oculto — actívalo con el botón "Mostrar Kardex"</span>}
+            {!showKardex && <span>Kardex oculto en pantalla — actívalo con &quot;Mostrar Kardex&quot; (Excel/PDF siempre lo incluyen)</span>}
             <span>FOSS: use <strong>Contar E/BO por talla</strong> (vitrina E + bodega BO). Otros cinchos: total a vitrina E.</span>
           </div>
         </>
@@ -1061,7 +1124,7 @@ function KioskInventoryCountReport({ locationId }) {
         editedSizeCountsByLocation={editedSizeCountsByLocation}
         editedCounts={editedCounts}
         onApply={handleApplyCinchoModal}
-        disabled={isClosed}
+        disabled={isCountLocked}
       />
 
       {/* ── Modal de destinatarios de alertas ── */}

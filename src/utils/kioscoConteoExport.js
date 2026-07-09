@@ -29,14 +29,14 @@ const thinBorder = {
 const fillStyle = (rgb) => ({ fgColor: { rgb } });
 
 const KARDEX_HEADERS = [
-  { key: "inventarioInicial", label: "Ini." },
-  { key: "comprasAjustes", label: "Comp." },
-  { key: "anulacionCompras", label: "A.C." },
-  { key: "entradas", label: "Ent." },
-  { key: "ventas", label: "Vtas." },
-  { key: "anulacionVenta", label: "A.V." },
-  { key: "salida", label: "Sal." },
-  { key: "inventarioFinal", label: "Fin." },
+  { key: "inventarioInicial", label: "Inv. inicial" },
+  { key: "comprasAjustes", label: "Compras/ajustes" },
+  { key: "anulacionCompras", label: "Anul. compras" },
+  { key: "entradas", label: "Entradas" },
+  { key: "ventas", label: "Ventas" },
+  { key: "anulacionVenta", label: "Anul. venta" },
+  { key: "salida", label: "Salidas" },
+  { key: "inventarioFinal", label: "Inv. final" },
 ];
 
 const escape = (v) =>
