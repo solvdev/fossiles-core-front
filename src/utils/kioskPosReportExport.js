@@ -399,7 +399,6 @@ const styleReportRowsOnSheet = (ws, reportRows, startExcelRow, merges = []) => {
         { t: "s", v: row.pos || "", align: "center" },
       ];
       cells.forEach((cell, c) => {
-        const borderBottom = bottom && c <= 3 ? "medium" : undefined;
         setCell(ws, excelRow, c, {
           t: cell.t,
           v: cell.v,
@@ -408,7 +407,8 @@ const styleReportRowsOnSheet = (ws, reportRows, startExcelRow, merges = []) => {
             font: normalFont,
             alignment: { horizontal: cell.align },
             numFmt: cell.money ? moneyFmt : undefined,
-            border: borderBottom ? hBorder(undefined, borderBottom) : undefined,
+            // Separador entre facturas: línea completa hasta POS
+            border: bottom ? hBorder(undefined, bottom) : undefined,
           },
         });
       });
@@ -701,7 +701,7 @@ const reportStyles = `
     padding-top: 7px;
     padding-bottom: 3px;
   }
-  tr.item-sep td:nth-child(-n+4) {
+  tr.item-sep td {
     border-bottom: 2px solid #000;
     padding-bottom: 5px;
   }
