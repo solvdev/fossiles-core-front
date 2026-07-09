@@ -217,11 +217,17 @@ export const groupSalesByDay = (sales, startDate, endDate) => {
  * Filas del reporte. En Totales, V.Unidad y Total llevan el mismo gran total.
  * @param {object} [options]
  * @param {boolean} [options.includeTotals=true]
- * @param {string} [options.dayYmd] si se indica, inserta encabezado de fecha del día
- * @param {boolean} [options.showDayHeader=true]
+ * @param {string} [options.dayYmd] fecha del bloque (para encabezado de día en consolidado)
+ * @param {boolean} [options.showDayHeader=false] fila FECHA: en el cuerpo (solo consolidado)
+ * @param {string} [options.totalsLabel="TOTAL"]
  */
 const buildReportRows = (sales, options = {}) => {
-  const { includeTotals = true, dayYmd = null, showDayHeader = true } = options;
+  const {
+    includeTotals = true,
+    dayYmd = null,
+    showDayHeader = false,
+    totalsLabel = "TOTAL",
+  } = options;
   const rows = [];
   let totalQty = 0;
   let totalAmount = 0;
@@ -275,7 +281,7 @@ const buildReportRows = (sales, options = {}) => {
   if (includeTotals) {
     rows.push({
       type: "totals",
-      nombre: dayYmd ? `Totales ${formatDayLabel(dayYmd)}` : "Totales",
+      nombre: totalsLabel,
       descripcion: "",
       cantidad: totalQty,
       vUnidad: totalAmount,
@@ -313,6 +319,7 @@ const buildConsolidatedReportRows = (sales, startDate, endDate) => {
         dayYmd: day.ymd,
         showDayHeader: true,
         includeTotals: true,
+        totalsLabel: "TOTAL",
       })
     );
   });
@@ -453,23 +460,27 @@ const buildSalesWorksheet = ({
   const { startDate: from, endDate: to } = normalizeRange(startDate, endDate);
   const periodFrom = dayYmd || from;
   const periodTo = dayYmd || to;
+  // Hoja por día / día único: fecha solo en encabezado (sin fila FECHA: en el cuerpo).
+  // Consolidado: sí lleva FECHA: al inicio de cada día en el cuerpo.
   const reportRows =
     mode === "consolidated"
       ? buildConsolidatedReportRows(sales, from, to)
       : buildReportRows(sortSalesByInternalNumber(activeSales(sales)), {
           dayYmd: dayYmd || null,
-          showDayHeader: Boolean(dayYmd),
+          showDayHeader: false,
+          totalsLabel: "TOTAL",
         });
 
   const periodLabel =
     mode === "consolidated" && !dayYmd
       ? `${formatPeriodLabelExact(from, to)} (CONSOLIDADO POR DÍA)`
       : formatPeriodLabelExact(periodFrom, periodTo);
+  const dateHeaderLabel = mode === "consolidated" && !dayYmd ? "PERÍODO" : "FECHA";
 
   const aoa = [
     ["REPORTE DE VENTAS"],
     [`BODEGA: ${kioskName || "—"}`],
-    [`PERÍODO: ${periodLabel}`],
+    [`${dateHeaderLabel}: ${periodLabel}`],
     [`GENERADO POR: ${formatGeneratedByLine(generatedByName)}`],
     [],
     ["* Nombre", "Descripcion", "Cantidad", "V.Unidad", "Total", "Efectivo", "POS"],
@@ -585,7 +596,7 @@ export const exportKioskSalesToExcel = ({
         endDate: day.ymd,
         kioskName,
         generatedByName,
-        mode: "single",
+        mode: "byDay",
         dayYmd: day.ymd,
       });
       XLSX.utils.book_append_sheet(wb, ws, safeSheetName(day.ymd));
@@ -601,7 +612,7 @@ export const exportKioskSalesToExcel = ({
     kioskName,
     generatedByName,
     mode: exportMode === "consolidated" ? "consolidated" : "single",
-    dayYmd: exportMode === "single" && daysWithSales.length === 1 ? daysWithSales[0].ymd : null,
+    dayYmd: exportMode !== "consolidated" && daysWithSales.length === 1 ? daysWithSales[0].ymd : null,
   });
   XLSX.utils.book_append_sheet(wb, ws, "REPORTE DE VENTAS");
   const suffix = exportMode === "consolidated" ? "_CONSOLIDADO" : "";
@@ -750,8 +761,16 @@ export const exportKioskSalesToPdf = ({
     const sections = daysWithSales.length ? daysWithSales : days;
     bodySections = sections
       .map((day) => {
-        const rows = buildReportRows(day.sales, { dayYmd: day.ymd, showDayHeader: true });
+        const rows = buildReportRows(day.sales, {
+          dayYmd: day.ymd,
+          showDayHeader: false,
+          totalsLabel: "TOTAL",
+        });
         return `<div class="day-block">
+          <div class="title">REPORTE DE VENTAS</div>
+          <div class="meta">BODEGA: ${escapeHtml(kioskName || "—")}</div>
+          <div class="meta">FECHA: ${escapeHtml(formatPeriodLabelExact(day.ymd, day.ymd))}</div>
+          <div class="meta">GENERADO POR: ${escapeHtml(formatGeneratedByLine(generatedByName))}</div>
           <table>
             ${tableHeaderHtml}
             <tbody>${buildReportRowsHtml(rows)}</tbody>
@@ -765,12 +784,22 @@ export const exportKioskSalesToPdf = ({
         ? buildConsolidatedReportRows(sales, from, to)
         : buildReportRows(sortSalesByInternalNumber(activeSales(sales)), {
             dayYmd: daysWithSales[0]?.ymd || null,
-            showDayHeader: Boolean(daysWithSales[0]?.ymd),
+            showDayHeader: false,
+            totalsLabel: "TOTAL",
           });
-    bodySections = `<table>
-      ${tableHeaderHtml}
-      <tbody>${buildReportRowsHtml(reportRows) || `<tr><td colspan="7">Sin ventas</td></tr>`}</tbody>
-    </table>`;
+    bodySections = `
+      <div class="title">REPORTE DE VENTAS</div>
+      <div class="meta">BODEGA: ${escapeHtml(kioskName || "—")}</div>
+      <div class="meta">${
+        exportMode === "consolidated" ? "PERÍODO" : "FECHA"
+      }: ${escapeHtml(formatPeriodLabelExact(from, to))}${
+        exportMode === "consolidated" ? " (CONSOLIDADO POR DÍA)" : ""
+      }</div>
+      <div class="meta">GENERADO POR: ${escapeHtml(formatGeneratedByLine(generatedByName))}</div>
+      <table>
+        ${tableHeaderHtml}
+        <tbody>${buildReportRowsHtml(reportRows) || `<tr><td colspan="7">Sin ventas</td></tr>`}</tbody>
+      </table>`;
   }
 
   const win = window.open("", "_blank");
@@ -784,12 +813,6 @@ export const exportKioskSalesToPdf = ({
   <style>${reportStyles}</style>
 </head>
 <body>
-  <div class="title">REPORTE DE VENTAS</div>
-  <div class="meta">BODEGA: ${escapeHtml(kioskName || "—")}</div>
-  <div class="meta">PERÍODO: ${escapeHtml(formatPeriodLabelExact(from, to))}${
-    exportMode === "consolidated" ? " (CONSOLIDADO POR DÍA)" : ""
-  }</div>
-  <div class="meta">GENERADO POR: ${escapeHtml(formatGeneratedByLine(generatedByName))}</div>
   ${bodySections}
   <script>window.onload = function () { window.print(); };</script>
 </body>
