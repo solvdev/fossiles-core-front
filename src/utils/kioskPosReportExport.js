@@ -162,15 +162,50 @@ export const buildKioskReportSummary = (sales) => {
   return { salesCount, totalItems, totalAmount, averageTicket };
 };
 
+const addDaysYmd = (ymd, days) => {
+  const [y, m, d] = String(ymd).split("-").map(Number);
+  if (!y || !m || !d) return ymd;
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  dt.setUTCDate(dt.getUTCDate() + days);
+  const yy = dt.getUTCFullYear();
+  const mm = String(dt.getUTCMonth() + 1).padStart(2, "0");
+  const dd = String(dt.getUTCDate()).padStart(2, "0");
+  return `${yy}-${mm}-${dd}`;
+};
+
+const listYmdRange = (startDate, endDate) => {
+  const { startDate: from, endDate: to } = normalizeRange(startDate, endDate);
+  if (!from || !to) return from || to ? [from || to] : [];
+  const out = [];
+  let cursor = from;
+  let guard = 0;
+  while (cursor <= to && guard < 400) {
+    out.push(cursor);
+    cursor = addDaysYmd(cursor, 1);
+    guard += 1;
+  }
+  return out;
+};
+
 /** Agrupa ventas activas por día (YYYY-MM-DD); dentro de cada día por internalNumber ASC. */
-export const groupSalesByDay = (sales) => {
+export const groupSalesByDay = (sales, startDate, endDate) => {
   const map = new Map();
   activeSales(sales).forEach((sale) => {
     const ymd = getSaleYmdGuatemala(sale) || "sin-fecha";
     if (!map.has(ymd)) map.set(ymd, []);
     map.get(ymd).push(sale);
   });
+
+  // Si hay rango, incluir todos los días del período (aunque algún día no tenga ventas).
+  const rangeDays = listYmdRange(startDate, endDate);
+  if (rangeDays.length) {
+    rangeDays.forEach((ymd) => {
+      if (!map.has(ymd)) map.set(ymd, []);
+    });
+  }
+
   return Array.from(map.entries())
+    .filter(([ymd]) => ymd !== "sin-fecha" || (map.get(ymd) || []).length > 0)
     .sort(([a], [b]) => String(a).localeCompare(String(b)))
     .map(([ymd, daySales]) => ({
       ymd,
@@ -254,8 +289,8 @@ const buildReportRows = (sales, options = {}) => {
 };
 
 /** Un archivo: cada día empieza con FECHA: ... y sus facturas ordenadas. */
-const buildConsolidatedReportRows = (sales) => {
-  const days = groupSalesByDay(sales);
+const buildConsolidatedReportRows = (sales, startDate, endDate) => {
+  const days = groupSalesByDay(sales, startDate, endDate).filter((d) => d.sales.length > 0);
   if (!days.length) {
     return buildReportRows([]);
   }
@@ -420,7 +455,7 @@ const buildSalesWorksheet = ({
   const periodTo = dayYmd || to;
   const reportRows =
     mode === "consolidated"
-      ? buildConsolidatedReportRows(sales)
+      ? buildConsolidatedReportRows(sales, from, to)
       : buildReportRows(sortSalesByInternalNumber(activeSales(sales)), {
           dayYmd: dayYmd || null,
           showDayHeader: Boolean(dayYmd),
@@ -531,20 +566,19 @@ export const exportKioskSalesToExcel = ({
   mode = "single",
 }) => {
   const { startDate: from, endDate: to } = normalizeRange(startDate, endDate);
-  const days = groupSalesByDay(sales);
+  const days = groupSalesByDay(sales, from, to);
+  const daysWithSales = days.filter((d) => d.sales.length > 0);
   const wb = XLSX.utils.book_new();
   const rangeLabel = from === to ? from : `${from || "inicio"}_${to || "fin"}`;
   const kiosk = kioskCode ? `_${kioskCode}` : "";
-  // Con rango: respetar consolidado / por día. Un solo día: igual ordenado por internalNumber.
-  const exportMode =
-    mode === "byDay" || mode === "consolidated"
-      ? mode
-      : days.length > 1
-        ? "consolidated"
-        : "single";
+  const exportMode = String(mode || "single");
 
   if (exportMode === "byDay") {
-    days.forEach((day) => {
+    const sheets = daysWithSales.length ? daysWithSales : days;
+    if (!sheets.length) {
+      throw new Error("No hay días para exportar en el período seleccionado.");
+    }
+    sheets.forEach((day) => {
       const ws = buildSalesWorksheet({
         sales: day.sales,
         startDate: day.ymd,
@@ -567,7 +601,7 @@ export const exportKioskSalesToExcel = ({
     kioskName,
     generatedByName,
     mode: exportMode === "consolidated" ? "consolidated" : "single",
-    dayYmd: exportMode === "single" && days.length === 1 ? days[0].ymd : null,
+    dayYmd: exportMode === "single" && daysWithSales.length === 1 ? daysWithSales[0].ymd : null,
   });
   XLSX.utils.book_append_sheet(wb, ws, "REPORTE DE VENTAS");
   const suffix = exportMode === "consolidated" ? "_CONSOLIDADO" : "";
@@ -707,17 +741,14 @@ export const exportKioskSalesToPdf = ({
   mode = "single",
 }) => {
   const { startDate: from, endDate: to } = normalizeRange(startDate, endDate);
-  const days = groupSalesByDay(sales);
-  const exportMode =
-    mode === "byDay" || mode === "consolidated"
-      ? mode
-      : days.length > 1
-        ? "consolidated"
-        : "single";
+  const days = groupSalesByDay(sales, from, to);
+  const daysWithSales = days.filter((d) => d.sales.length > 0);
+  const exportMode = String(mode || "single");
 
   let bodySections = "";
   if (exportMode === "byDay") {
-    bodySections = days
+    const sections = daysWithSales.length ? daysWithSales : days;
+    bodySections = sections
       .map((day) => {
         const rows = buildReportRows(day.sales, { dayYmd: day.ymd, showDayHeader: true });
         return `<div class="day-block">
@@ -731,10 +762,10 @@ export const exportKioskSalesToPdf = ({
   } else {
     const reportRows =
       exportMode === "consolidated"
-        ? buildConsolidatedReportRows(sales)
+        ? buildConsolidatedReportRows(sales, from, to)
         : buildReportRows(sortSalesByInternalNumber(activeSales(sales)), {
-            dayYmd: days[0]?.ymd || null,
-            showDayHeader: Boolean(days[0]?.ymd),
+            dayYmd: daysWithSales[0]?.ymd || null,
+            showDayHeader: Boolean(daysWithSales[0]?.ymd),
           });
     bodySections = `<table>
       ${tableHeaderHtml}

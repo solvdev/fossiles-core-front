@@ -94,10 +94,11 @@ function PosReportsTab({
   };
 
   const resolveExportMode = () => {
-    if (dateFilterMode === "single" || (startDate && endDate && startDate === endDate)) {
-      return "single";
+    // Si hay más de un día en el rango, respetar consolidado / por día.
+    if (startDate && endDate && startDate !== endDate) {
+      return exportMode;
     }
-    return exportMode;
+    return "single";
   };
 
   const handleExportExcel = () => {
@@ -189,7 +190,7 @@ function PosReportsTab({
             Reportes de ventas
           </CardTitle>
           <div className="kiosk-pos-report-export-actions mt-2 mt-md-0 d-flex flex-wrap align-items-center">
-            {(dateFilterMode === "range" || (startDate && endDate && startDate !== endDate)) && (
+            {startDate && endDate && startDate !== endDate && (
               <Input
                 type="select"
                 bsSize="sm"
@@ -318,8 +319,8 @@ function PosReportsTab({
             Período activo: <strong>{periodLabel}</strong>
             {" · "}
             {filteredSales.length} venta(s) en pantalla. Excel/PDF usan este período
-            {dateFilterMode === "range" || (startDate && endDate && startDate !== endDate)
-              ? ` · modo: ${exportMode === "byDay" ? "separado por día" : "consolidado con DIA:"}`
+            {startDate && endDate && startDate !== endDate
+              ? ` · modo: ${exportMode === "byDay" ? "una hoja por día" : "consolidado con FECHA:"}`
               : ""}
             .
 

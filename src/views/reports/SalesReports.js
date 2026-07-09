@@ -90,8 +90,8 @@ function SalesReports() {
   };
 
   const resolveExportMode = (from, to) => {
-    if (from && to && from === to) return "single";
-    return exportMode;
+    if (from && to && from !== to) return exportMode;
+    return "single";
   };
 
   const handleExportExcel = async () => {
