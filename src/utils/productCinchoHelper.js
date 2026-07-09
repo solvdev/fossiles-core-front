@@ -32,7 +32,7 @@ export const getCinchoTypeLabel = (value) => {
 };
 
 export const isPackagingProductCode = (code) =>
-  String(code || "").trim().toUpperCase().startsWith("SUM-");
+  String(code || "").trim().toUpperCase().startsWith("SUM");
 
 export const productMatchesCinchoFilter = (row, cinchoFilter) => {
   if (!cinchoFilter) return true;

@@ -30,6 +30,7 @@ import {
 } from "services/kioscoInventoryService";
 import { formatDateGt, formatDateTimeGt } from "utils/dateTimeHelper";
 import { exportConteoToExcel, exportConteoToPdf } from "utils/kioscoConteoExport";
+import { buildConteoDisplayReport } from "utils/kioscoConteoDisplay";
 import { PRODUCT_AUDIENCE_OPTIONS, productMatchesAudienceFilter } from "utils/productAudienceHelper";
 import {
   CINCHO_FILTER_OPTIONS,
@@ -381,9 +382,11 @@ function KioskInventoryCountReport({ locationId }) {
     return () => clearTimeout(timer);
   }, [searchQuery]);
 
+  const displayReport = useMemo(() => buildConteoDisplayReport(report), [report]);
+
   const filteredCategories = useMemo(() => {
-    if (!report?.categories) return [];
-    return report.categories
+    if (!displayReport?.categories) return [];
+    return displayReport.categories
       .map((category) => {
         const rows = category.rows.filter(
           (row) =>
@@ -396,11 +399,11 @@ function KioskInventoryCountReport({ locationId }) {
         return { ...category, rows, subtotal: sumFilteredRows(rows) };
       })
       .filter(Boolean);
-  }, [report, debouncedSearch, audienceFilter, cinchoFilter]);
+  }, [displayReport, debouncedSearch, audienceFilter, cinchoFilter]);
 
   const allReportRows = useMemo(
-    () => (report?.categories || []).flatMap((category) => category.rows),
-    [report]
+    () => (displayReport?.categories || []).flatMap((category) => category.rows),
+    [displayReport]
   );
 
   const cinchoModalRows = useMemo(() => {
@@ -784,6 +787,18 @@ function KioskInventoryCountReport({ locationId }) {
   const isDraft = report?.status === "DRAFT";
   const isCountLocked = !isDraft;
   const statusMeta = conteoStatusMeta(report?.status);
+  const exportReport = useMemo(() => {
+    if (!displayReport) return null;
+    if (!filteredCategories.length) return displayReport;
+    const categories = filteredCategories;
+    const allRows = categories.flatMap((category) => category.rows);
+    return {
+      ...displayReport,
+      categories,
+      totalGeneral: allRows.length ? sumFilteredRows(allRows) : displayReport.totalGeneral,
+    };
+  }, [displayReport, filteredCategories]);
+
   const pendingRows = filteredCategories.flatMap((c) => c.rows);
   const alertRows = pendingRows.filter(
     (r) => Math.abs(rowDiff(r, editedCounts[rowKey(r)] || r.counts || {})) >= DIFF_ALERT_THRESHOLD
@@ -1057,10 +1072,10 @@ function KioskInventoryCountReport({ locationId }) {
                   </Button>
                 )}
                 <ButtonGroup size="sm">
-                  <Button color="secondary" outline onClick={() => exportConteoToExcel(report, { showKardex: true })}>
+                  <Button color="secondary" outline onClick={() => exportConteoToExcel(exportReport || displayReport, { showKardex: true })}>
                     ⬇ Excel
                   </Button>
-                  <Button color="secondary" outline onClick={() => exportConteoToPdf(report, { showKardex: true })}>
+                  <Button color="secondary" outline onClick={() => exportConteoToPdf(exportReport || displayReport, { showKardex: true })}>
                     🖨 PDF / Imprimir
                   </Button>
                 </ButtonGroup>
