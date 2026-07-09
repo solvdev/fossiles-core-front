@@ -867,6 +867,33 @@ function KioskInventoryCountReport({ locationId }) {
     };
   }, [displayReport, filteredCategories]);
 
+  const excelExportPayload = useMemo(() => {
+    const data = exportReport || displayReport;
+    if (!data || !report) return data;
+    return {
+      ...report,
+      ...data,
+      reportType: report.reportType || (report.asOfDate ? "SUBCONTEO" : data.reportType),
+      asOfDate: report.asOfDate ?? data.asOfDate,
+    };
+  }, [report, exportReport, displayReport]);
+
+  const handleExportExcel = () => {
+    if (!excelExportPayload) {
+      showError("No hay datos para exportar.");
+      return;
+    }
+    exportConteoToExcel(excelExportPayload, { showKardex: true });
+  };
+
+  const handleExportPdf = () => {
+    if (!excelExportPayload) {
+      showError("No hay datos para exportar.");
+      return;
+    }
+    exportConteoToPdf(excelExportPayload, { showKardex: true });
+  };
+
   const pendingRows = filteredCategories.flatMap((c) => c.rows);
   const alertRows = pendingRows.filter(
     (r) => Math.abs(rowDiff(r, editedCounts[rowKey(r)] || r.counts || {})) >= DIFF_ALERT_THRESHOLD
@@ -1064,14 +1091,21 @@ function KioskInventoryCountReport({ locationId }) {
 
           {isSubcountView && (
             <Alert color="info" className="mb-3" style={{ fontSize: 12 }}>
-              <strong>Subconteo — inventario sistema al {fmt(report.asOfDate)}.</strong>{" "}
-              Kardex del {fmt(report.periodFrom)} al {fmt(report.asOfDate)}. El conteo físico es el del conteo principal;
-              la diferencia compara ese físico contra el sistema al corte.
-              {principalReport && (
-                <Button color="link" className="p-0 ml-2" style={{ fontSize: 12 }} onClick={handleBackToPrincipal}>
-                  Volver al conteo principal
+              <div className="d-flex flex-wrap align-items-center justify-content-between" style={{ gap: 8 }}>
+                <div>
+                  <strong>Subconteo — inventario sistema al {fmt(report.asOfDate)}.</strong>{" "}
+                  Kardex del {fmt(report.periodFrom)} al {fmt(report.asOfDate)}. El conteo físico es el del conteo principal;
+                  la diferencia compara ese físico contra el sistema al corte.
+                  {principalReport && (
+                    <Button color="link" className="p-0 ml-2" style={{ fontSize: 12 }} onClick={handleBackToPrincipal}>
+                      Volver al conteo principal
+                    </Button>
+                  )}
+                </div>
+                <Button color="success" size="sm" onClick={handleExportExcel}>
+                  ⬇ Excel inventario al {fmt(report.asOfDate)}
                 </Button>
-              )}
+              </div>
             </Alert>
           )}
 
@@ -1187,18 +1221,10 @@ function KioskInventoryCountReport({ locationId }) {
                   </Button>
                 )}
                 <ButtonGroup size="sm">
-                  <Button
-                    color="secondary"
-                    outline
-                    onClick={() => exportConteoToExcel(exportReport || displayReport, { showKardex: true })}
-                  >
+                  <Button color="secondary" outline onClick={handleExportExcel}>
                     {isSubcountView ? "⬇ Excel subconteo" : "⬇ Excel"}
                   </Button>
-                  <Button
-                    color="secondary"
-                    outline
-                    onClick={() => exportConteoToPdf(exportReport || displayReport, { showKardex: true })}
-                  >
+                  <Button color="secondary" outline onClick={handleExportPdf}>
                     🖨 PDF / Imprimir
                   </Button>
                 </ButtonGroup>

@@ -197,11 +197,15 @@ const resolveDisplayCategoryId = (key, row) => {
 export function buildConteoDisplayReport(report) {
   if (!report?.categories?.length) return report;
 
+  const isSubcount = report.reportType === "SUBCONTEO" || Boolean(report.asOfDate);
+
   const flatRows = report.categories.flatMap((category) =>
     (category.rows || []).map((row) => resolveSourceCategory(row, category))
   );
 
-  const expandedRows = flatRows.flatMap((row) => expandCinchoRowBySizes(row));
+  const expandedRows = isSubcount
+    ? flatRows
+    : flatRows.flatMap((row) => expandCinchoRowBySizes(row));
 
   const rowsByKey = new Map();
   const namesByKey = new Map();

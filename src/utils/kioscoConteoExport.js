@@ -46,7 +46,8 @@ const KARDEX_HEADERS = [
   { key: "inventarioFinal", label: "Inv. final" },
 ];
 
-const isSubcountReport = (report) => report?.reportType === "SUBCONTEO";
+const isSubcountReport = (report) =>
+  report?.reportType === "SUBCONTEO" || Boolean(report?.asOfDate);
 
 const resolveKardexHeaders = (report) => {
   if (!isSubcountReport(report)) return KARDEX_HEADERS;
