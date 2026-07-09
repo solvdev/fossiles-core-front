@@ -61,7 +61,7 @@ function buildHeaderRows(report) {
 }
 
 function buildTableHeaders(showKardex) {
-  const headers = ["Código", "Producto", "Color", "Tallas"];
+  const headers = ["Código", "Producto", "Color", "Talla"];
   if (showKardex) {
     KARDEX_HEADERS.forEach((col) => headers.push(col.label));
   }
@@ -75,7 +75,7 @@ function buildDataRow(row, showKardex) {
     row.productCode || "",
     row.productName || "",
     row.colorName || "—",
-    row.sizesSummary || "",
+    row.sizeLabel || row.sizesSummary || "",
   ];
   if (showKardex) {
     KARDEX_HEADERS.forEach((col) => cells.push(row[col.key] ?? 0));
@@ -310,7 +310,7 @@ export function exportConteoToPdf(report, { showKardex = true } = {}) {
 
   const theadHtml = `
     <tr>
-      <th>Código</th><th>Producto</th><th>Color</th><th>Tallas</th>
+      <th>Código</th><th>Producto</th><th>Color</th><th>Talla</th>
       ${kardexHeaders}
       ${countHeaders}
       <th>Total</th><th>Dif.</th>
@@ -328,7 +328,7 @@ export function exportConteoToPdf(report, { showKardex = true } = {}) {
       <td>${escape(row.productCode || "")}</td>
       <td>${escape(row.productName || "")}</td>
       <td>${escape(row.colorName || "—")}</td>
-      <td>${escape(row.sizesSummary || "")}</td>
+      <td>${escape(row.sizeLabel || row.sizesSummary || "")}</td>
       ${kardexCells}
       ${counts}
       <td class="num bold">${row.total ?? 0}</td>

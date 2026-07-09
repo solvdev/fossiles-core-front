@@ -41,6 +41,8 @@ import {
   productMatchesSearchFilter,
   resolvePhysicalSizesSummary,
   resolveSizesSummary,
+  rowKey,
+  persistKey,
   sumSizeCounts,
   CINCHO_COUNT_LOCATION,
 } from "utils/productCinchoHelper";
@@ -91,8 +93,6 @@ const KARDEX_COLUMNS = [
   { key: "salida", label: "Sal.", title: "Salida" },
   { key: "inventarioFinal", label: "Fin.", title: "Inventario Final (sistema)" },
 ];
-
-const rowKey = (row) => `${row.productId}-${row.colorId || ""}`;
 
 const applySizeTotalToLocations = (sizeTotal, existingPartial, baseCounts) => {
   const base = { ...baseCounts, ...(existingPartial || {}) };
@@ -197,9 +197,20 @@ function DataRow({ row, showKardex, counts, physicalSizes, physicalSizesByLocati
   const isAlert = Math.abs(diferencia) >= DIFF_ALERT_THRESHOLD;
   const isCincho = isCinchoProductRow(row);
   const isFoss = isFossCinchoProductRow(row);
-  const physicalSummary = isFoss && physicalSizesByLocation
+  const isExpandedSizeRow = !!row.sizeLabel;
+  const physicalSummary = !isExpandedSizeRow && isFoss && physicalSizesByLocation
     ? formatFossLocationSizeSummary(physicalSizesByLocation)
-    : resolvePhysicalSizesSummary({ ...row, physicalSizes });
+    : !isExpandedSizeRow ? resolvePhysicalSizesSummary({ ...row, physicalSizes }) : "";
+  const sizeCell = isExpandedSizeRow
+    ? row.sizeLabel
+    : (resolveSizesSummary(row) || "—");
+  const countLocationDisabled = (locKey) => {
+    if (!isExpandedSizeRow || !isCincho) return false;
+    if (isFoss) {
+      return locKey !== CINCHO_VITRINE_LOCATION && locKey !== CINCHO_WAREHOUSE_LOCATION;
+    }
+    return locKey !== CINCHO_VITRINE_LOCATION;
+  };
   return (
     <tr>
       <td style={{ fontSize: 12 }}>
@@ -208,13 +219,13 @@ function DataRow({ row, showKardex, counts, physicalSizes, physicalSizesByLocati
       </td>
       <td style={{ fontSize: 12, color: "#6b7280" }}>{row.colorName || "—"}</td>
       <td style={{ fontSize: 11, color: "#374151" }}>
-        <div style={{ whiteSpace: "nowrap" }}>{resolveSizesSummary(row) || "—"}</div>
+        <div style={{ whiteSpace: "nowrap", fontWeight: isExpandedSizeRow ? 600 : 400 }}>{sizeCell}</div>
         {physicalSummary && (
           <div style={{ fontSize: 10, color: "#2563eb", whiteSpace: "nowrap" }}>
             Físico: {physicalSummary}
           </div>
         )}
-        {isCincho && (
+        {isCincho && !isExpandedSizeRow && (
           <Button
             color="link"
             size="sm"
@@ -234,7 +245,11 @@ function DataRow({ row, showKardex, counts, physicalSizes, physicalSizesByLocati
       ))}
       {COUNT_LOCATION_KEYS.map((locKey) => (
         <td key={locKey} style={locColStyle}>
-          <CountCell value={counts[locKey]} onChange={(v) => onCountChange(locKey, v)} disabled={disabled} />
+          <CountCell
+            value={counts[locKey]}
+            onChange={(v) => onCountChange(locKey, v)}
+            disabled={disabled || countLocationDisabled(locKey)}
+          />
         </td>
       ))}
       <td style={{ ...sumColStyle, fontWeight: 600, fontSize: 12 }}>{total}</td>
@@ -525,20 +540,34 @@ function KioskInventoryCountReport({ locationId }) {
   };
 
   const buildDirtyItemsPayload = () => {
-    const dirtyKeys = new Set([
-      ...Object.keys(editedCounts),
-      ...Object.keys(editedSizeCounts),
-      ...Object.keys(editedSizeCountsByLocation),
-    ]);
-    if (dirtyKeys.size === 0) return null;
-    return [...dirtyKeys]
-      .map((key) => allReportRows.find((r) => rowKey(r) === key))
-      .filter(Boolean)
-      .map((row) => {
-        const rKey = rowKey(row);
+    const dirtyPersistKeys = new Set();
+    const markDirty = (key) => {
+      const row = allReportRows.find((r) => rowKey(r) === key);
+      if (row) dirtyPersistKeys.add(persistKey(row));
+    };
+    Object.keys(editedCounts).forEach(markDirty);
+    Object.keys(editedSizeCounts).forEach(markDirty);
+    Object.keys(editedSizeCountsByLocation).forEach(markDirty);
+    if (dirtyPersistKeys.size === 0) return null;
+
+    const rowsByPersist = new Map();
+    allReportRows.forEach((row) => {
+      const pk = persistKey(row);
+      if (!rowsByPersist.has(pk)) rowsByPersist.set(pk, []);
+      rowsByPersist.get(pk).push(row);
+    });
+
+    return [...dirtyPersistKeys].map((pk) => {
+      const groupRows = rowsByPersist.get(pk) || [];
+      const sample = groupRows[0];
+      if (!sample) return null;
+
+      const hasSizeRows = groupRows.some((r) => r.sizeLabel);
+      if (!hasSizeRows) {
+        const rKey = rowKey(sample);
         const item = {
-          productId: row.productId,
-          colorId: row.colorId || null,
+          productId: sample.productId,
+          colorId: sample.colorId || null,
         };
         if (editedCounts[rKey]) {
           item.counts = editedCounts[rKey];
@@ -546,7 +575,7 @@ function KioskInventoryCountReport({ locationId }) {
           Object.prototype.hasOwnProperty.call(editedSizeCounts, rKey)
           || Object.prototype.hasOwnProperty.call(editedSizeCountsByLocation, rKey)
         ) {
-          item.counts = row.counts || {};
+          item.counts = sample.counts || {};
         }
         if (Object.prototype.hasOwnProperty.call(editedSizeCounts, rKey)) {
           item.physicalSizes = editedSizeCounts[rKey];
@@ -555,7 +584,58 @@ function KioskInventoryCountReport({ locationId }) {
           item.physicalSizesByLocation = editedSizeCountsByLocation[rKey];
         }
         return item;
+      }
+
+      const foss = isFossCinchoProductRow(sample);
+      const physicalSizes = {};
+      const byLocation = {
+        [CINCHO_VITRINE_LOCATION]: {},
+        [CINCHO_WAREHOUSE_LOCATION]: {},
+      };
+
+      groupRows.forEach((row) => {
+        if (!row.sizeLabel) return;
+        const rKey = rowKey(row);
+        const counts = { ...(row.counts || {}), ...(editedCounts[rKey] || {}) };
+        if (foss) {
+          byLocation[CINCHO_VITRINE_LOCATION][row.sizeLabel] = Number(counts[CINCHO_VITRINE_LOCATION] || 0);
+          byLocation[CINCHO_WAREHOUSE_LOCATION][row.sizeLabel] = Number(counts[CINCHO_WAREHOUSE_LOCATION] || 0);
+          physicalSizes[row.sizeLabel] =
+            byLocation[CINCHO_VITRINE_LOCATION][row.sizeLabel]
+            + byLocation[CINCHO_WAREHOUSE_LOCATION][row.sizeLabel];
+        } else {
+          physicalSizes[row.sizeLabel] = Number(counts[CINCHO_VITRINE_LOCATION] || 0);
+        }
       });
+
+      const legacyKey = `${sample.productId}-${sample.colorId || ""}`;
+      if (Object.prototype.hasOwnProperty.call(editedSizeCounts, legacyKey)) {
+        Object.assign(physicalSizes, editedSizeCounts[legacyKey]);
+      }
+      if (Object.prototype.hasOwnProperty.call(editedSizeCountsByLocation, legacyKey)) {
+        Object.assign(byLocation[CINCHO_VITRINE_LOCATION], editedSizeCountsByLocation[legacyKey]?.[CINCHO_VITRINE_LOCATION] || {});
+        Object.assign(byLocation[CINCHO_WAREHOUSE_LOCATION], editedSizeCountsByLocation[legacyKey]?.[CINCHO_WAREHOUSE_LOCATION] || {});
+      }
+
+      const parentCounts = { ...(sample.counts || {}) };
+      if (foss) {
+        parentCounts[CINCHO_VITRINE_LOCATION] = sumSizeCounts(byLocation[CINCHO_VITRINE_LOCATION]);
+        parentCounts[CINCHO_WAREHOUSE_LOCATION] = sumSizeCounts(byLocation[CINCHO_WAREHOUSE_LOCATION]);
+      } else {
+        parentCounts[CINCHO_VITRINE_LOCATION] = sumSizeCounts(physicalSizes);
+      }
+
+      const item = {
+        productId: sample.productId,
+        colorId: sample.colorId || null,
+        counts: parentCounts,
+        physicalSizes,
+      };
+      if (foss) {
+        item.physicalSizesByLocation = byLocation;
+      }
+      return item;
+    }).filter(Boolean);
   };
 
   const clearEditedCounts = () => {
@@ -1051,7 +1131,7 @@ function KioskInventoryCountReport({ locationId }) {
                 <tr style={{ background: "#f9fafb" }}>
                   <th style={thStyle}>Producto / Código</th>
                   <th style={thStyle}>Color</th>
-                  <th style={thStyle}>Tallas</th>
+                  <th style={thStyle}>Talla</th>
                   {showKardex && KARDEX_COLUMNS.map((col) => (
                     <th key={col.key} style={{ ...thStyle, background: "#eef2ff" }} title={col.title}>{col.label}</th>
                   ))}
@@ -1070,7 +1150,7 @@ function KioskInventoryCountReport({ locationId }) {
                 ) : (
                   filteredCategories.map((category) => (
                     <CategoryGroup
-                      key={category.categoryId || "sin-categoria"}
+                      key={category.categoryName || category.categoryId || "sin-categoria"}
                       category={category}
                       showKardex={showKardex}
                       editedCounts={editedCounts}
@@ -1105,7 +1185,7 @@ function KioskInventoryCountReport({ locationId }) {
             <span style={{ background: "#fef2f2", padding: "1px 4px" }}>Fondo rojo: diferencia ≥ {DIFF_ALERT_THRESHOLD} unidades</span>
             <span>Haz clic en el nombre de categoría para colapsar/expandir</span>
             {!showKardex && <span>Kardex oculto en pantalla — actívalo con &quot;Mostrar Kardex&quot; (Excel/PDF siempre lo incluyen)</span>}
-            <span>FOSS: use <strong>Contar E/BO por talla</strong> (vitrina E + bodega BO). Otros cinchos: total a vitrina E.</span>
+            <span>FOSS cinchos: una fila por talla y color — edite E (vitrina) y BO (bodega). Otros cinchos: edite E por talla.</span>
           </div>
         </>
       )}

@@ -79,6 +79,12 @@ export const resolveSizesSummary = (row) =>
 export const resolvePhysicalSizesSummary = (row) =>
   row?.physicalSizesSummary || formatSystemSizesText(row?.physicalSizes) || "";
 
+/** Clave única por fila de conteo (incluye talla cuando el cincho está desglosado). */
+export const rowKey = (row) =>
+  `${row?.productId}-${row?.colorId || ""}-${row?.sizeLabel || ""}`;
+
+export const persistKey = (row) => `${row?.productId}-${row?.colorId || ""}`;
+
 export const isFossCinchoProductRow = (row) =>
   !!row && !row.packaging && !isPackagingProductCode(row.productCode)
   && isFossCinchosProductCode(row.productCode);
