@@ -16,8 +16,10 @@ import {
 import {
   addCashSessionExpense,
   closeCashSession,
+  getCashCloseReport,
   openCashSession,
 } from "services/kioskPosService";
+import { openKioskCashCloseReport } from "utils/kioskCashCloseReport";
 import { formatDateTimeGt } from "utils/dateTimeHelper";
 import { showError, showSuccess } from "utils/notificationHelper";
 import { formatCurrency } from "./posUtils";
@@ -35,7 +37,7 @@ function CashReconciliationSummary({ session }) {
       <div className="small text-muted mb-1">Cuadre de efectivo</div>
       <div>Fondo inicial: <strong>{formatCurrency(opening)}</strong></div>
       <div>+ Efectivo en ventas: <strong>{formatCurrency(cashSales)}</strong></div>
-      <div>- Gastos del turno: <strong>{formatCurrency(expenses)}</strong></div>
+          <div>- Desembolsos (gastos) del turno: <strong>{formatCurrency(expenses)}</strong></div>
       <div className="mt-2">
         = Efectivo esperado en caja: <strong>{formatCurrency(expected)}</strong>
       </div>
@@ -62,15 +64,25 @@ function PosCashCloseModal({ isOpen, session, onClose, onClosed, pendingDepositS
       showError("Ingresa el efectivo contado en caja.");
       return;
     }
+    const sessionId = session.id;
     try {
       setSaving(true);
-      await closeCashSession(session.id, {
+      await closeCashSession(sessionId, {
         countedCash: parsedCounted,
         notes: notes.trim() || null,
       });
       showSuccess("Caja cerrada correctamente.");
       onClosed();
       onClose();
+      try {
+        const report = await getCashCloseReport(sessionId);
+        const opened = openKioskCashCloseReport(report, { autoPrint: true });
+        if (!opened) {
+          showError("Permite ventanas emergentes para ver el reporte de cierre.");
+        }
+      } catch (reportErr) {
+        showError(reportErr.message || "Caja cerrada, pero no se pudo abrir el reporte.");
+      }
     } catch (err) {
       showError(err.message || "No se pudo cerrar la caja.");
     } finally {
@@ -238,9 +250,9 @@ function PosCashTab({ cashSession, kioskLocationId, kioskName, onSessionChange, 
               </div>
 
               <div className="border rounded p-3 mb-0">
-                <h6 className="mb-2">Registrar gasto de efectivo</h6>
+                <h6 className="mb-2">Registrar desembolso (gasto de efectivo)</h6>
                 <p className="text-muted small mb-2">
-                  Anota salidas de caja (compras menores, etc.) para cuadrar al cierre.
+                  Dinero que sale de la caja por un gasto operativo del turno (taxi, compras menores, etc.).
                 </p>
                 <div className="d-flex flex-wrap align-items-end" style={{ gap: 12 }}>
                   <div style={{ minWidth: 120 }}>
@@ -263,7 +275,7 @@ function PosCashTab({ cashSession, kioskLocationId, kioskName, onSessionChange, 
                     />
                   </div>
                   <Button color="warning" outline onClick={handleAddExpense} disabled={expenseSaving}>
-                    {expenseSaving ? <Spinner size="sm" /> : "Agregar gasto"}
+                    {expenseSaving ? <Spinner size="sm" /> : "Agregar desembolso"}
                   </Button>
                 </div>
 

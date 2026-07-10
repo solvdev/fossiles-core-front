@@ -44,6 +44,7 @@ import PosReportsTab from "./pos/PosReportsTab";
 import PosPromotionsTab from "./pos/PosPromotionsTab";
 import PosReceiptTab from "./pos/PosReceiptTab";
 import PosCashTab from "./pos/PosCashTab";
+import PosCashClosuresTab from "./pos/PosCashClosuresTab";
 import PosManagerDashboard from "./pos/PosManagerDashboard";
 import PosInventoryTab from "./pos/PosInventoryTab";
 import { useAuth } from "contexts/AuthContext";
@@ -644,6 +645,7 @@ function KioskSales() {
       { id: "RESUMEN", label: "Resumen" },
       { id: "POS", label: "POS" },
       { id: "CAJA", label: "Caja" },
+      { id: "CIERRES", label: "Cierres" },
       { id: "INVENTORY", label: "Inventario" },
     ];
     if (canConfirmReceipt) {
@@ -890,6 +892,14 @@ function KioskSales() {
                         await loadCashSession(selectedKioskId || context?.kioskId);
                         await loadPendingDepositSummary(selectedKioskId || context?.kioskId);
                       }}
+                    />
+                  )}
+
+                  {activeTab === "CIERRES" && (
+                    <PosCashClosuresTab
+                      kioskLocationId={selectedKioskId || context?.kioskId}
+                      isAdmin={Boolean(context?.admin)}
+                      kiosks={context?.kiosks || []}
                     />
                   )}
 

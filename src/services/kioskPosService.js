@@ -196,6 +196,25 @@ export const getCashSessionDailySummaries = async (startDate, endDate, kioskLoca
   return parseJson(response, "No se pudo cargar el resumen de caja por día.");
 };
 
+export const getCashSessionHistory = async (startDate, endDate, kioskLocationId) => {
+  const response = await fetch(
+    `${API_URL}/kiosk-pos/cash-session/history${toQuery({
+      startDate,
+      endDate,
+      kioskLocationId,
+    })}`,
+    { headers: headers() }
+  );
+  return parseJson(response, "No se pudo cargar el historial de cierres de caja.");
+};
+
+export const getCashCloseReport = async (sessionId) => {
+  const response = await fetch(`${API_URL}/kiosk-pos/cash-session/${sessionId}/close-report`, {
+    headers: headers(),
+  });
+  return parseJson(response, "No se pudo cargar el reporte de cierre de caja.");
+};
+
 export const getKioskProductAvailability = async (productId, colorId, kioskLocationId) => {
   const response = await fetch(
     `${API_URL}/kiosk-pos/availability${toQuery({
