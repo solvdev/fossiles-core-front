@@ -19,10 +19,10 @@ import {
   getCashCloseReport,
   openCashSession,
 } from "services/kioskPosService";
-import { openKioskCashCloseReport } from "utils/kioskCashCloseReport";
 import { formatDateTimeGt } from "utils/dateTimeHelper";
 import { showError, showSuccess } from "utils/notificationHelper";
 import { formatCurrency } from "./posUtils";
+import PosCashCloseReportModal from "./PosCashCloseReportModal";
 
 const formatDateTime = (value) => formatDateTimeGt(value);
 
@@ -45,7 +45,7 @@ function CashReconciliationSummary({ session }) {
   );
 }
 
-function PosCashCloseModal({ isOpen, session, onClose, onClosed, pendingDepositSummary }) {
+function PosCashCloseModal({ isOpen, session, onClose, onClosed, pendingDepositSummary, onReportReady }) {
   const [countedCash, setCountedCash] = useState("");
   const [notes, setNotes] = useState("");
   const [saving, setSaving] = useState(false);
@@ -74,14 +74,8 @@ function PosCashCloseModal({ isOpen, session, onClose, onClosed, pendingDepositS
       showSuccess("Caja cerrada correctamente.");
       onClosed();
       onClose();
-      try {
-        const report = await getCashCloseReport(sessionId);
-        const opened = openKioskCashCloseReport(report, { autoPrint: true });
-        if (!opened) {
-          showError("Permite ventanas emergentes para ver el reporte de cierre.");
-        }
-      } catch (reportErr) {
-        showError(reportErr.message || "Caja cerrada, pero no se pudo abrir el reporte.");
+      if (typeof onReportReady === "function") {
+        onReportReady(sessionId);
       }
     } catch (err) {
       showError(err.message || "No se pudo cerrar la caja.");
@@ -154,6 +148,9 @@ function PosCashTab({ cashSession, kioskLocationId, kioskName, onSessionChange, 
   const [expenseAmount, setExpenseAmount] = useState("");
   const [expenseDescription, setExpenseDescription] = useState("");
   const [expenseSaving, setExpenseSaving] = useState(false);
+  const [reportModalOpen, setReportModalOpen] = useState(false);
+  const [reportLoading, setReportLoading] = useState(false);
+  const [closeReport, setCloseReport] = useState(null);
 
   const pendingCount = Number(pendingDepositSummary?.pendingCount || 0);
   const expenses = cashSession?.expenses || [];
@@ -168,6 +165,21 @@ function PosCashTab({ cashSession, kioskLocationId, kioskName, onSessionChange, 
       showError(err.message || "No se pudo abrir la caja.");
     } finally {
       setOpening(false);
+    }
+  };
+
+  const handleShowCloseReport = async (sessionId) => {
+    try {
+      setReportModalOpen(true);
+      setReportLoading(true);
+      setCloseReport(null);
+      const report = await getCashCloseReport(sessionId);
+      setCloseReport(report);
+    } catch (err) {
+      setReportModalOpen(false);
+      showError(err.message || "Caja cerrada, pero no se pudo abrir el reporte.");
+    } finally {
+      setReportLoading(false);
     }
   };
 
@@ -319,6 +331,13 @@ function PosCashTab({ cashSession, kioskLocationId, kioskName, onSessionChange, 
         onClose={() => setCloseOpen(false)}
         onClosed={onSessionChange}
         pendingDepositSummary={pendingDepositSummary}
+        onReportReady={handleShowCloseReport}
+      />
+      <PosCashCloseReportModal
+        isOpen={reportModalOpen}
+        toggle={() => setReportModalOpen(false)}
+        report={closeReport}
+        loading={reportLoading}
       />
     </>
   );

@@ -14,10 +14,14 @@ import {
   getCashCloseReport,
   getCashSessionHistory,
 } from "services/kioskPosService";
-import { openKioskCashCloseReport } from "utils/kioskCashCloseReport";
+import {
+  downloadKioskCashClosePdf,
+  exportKioskCashCloseToExcel,
+} from "utils/kioskCashCloseReport";
 import { formatDateTimeGt, getTodayYmdGuatemala } from "utils/dateTimeHelper";
-import { showError } from "utils/notificationHelper";
+import { showError, showSuccess } from "utils/notificationHelper";
 import { formatCurrency } from "./posUtils";
+import PosCashCloseReportModal from "./PosCashCloseReportModal";
 
 const monthStartYmd = () => {
   const today = getTodayYmdGuatemala();
@@ -30,7 +34,11 @@ function PosCashClosuresTab({ kioskLocationId, isAdmin, kiosks }) {
   const [filterKioskId, setFilterKioskId] = useState("");
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [loadingReportId, setLoadingReportId] = useState(null);
+  const [busySessionId, setBusySessionId] = useState(null);
+  const [busyAction, setBusyAction] = useState(null);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [modalLoading, setModalLoading] = useState(false);
+  const [modalReport, setModalReport] = useState(null);
 
   useEffect(() => {
     if (!isAdmin && kioskLocationId) {
@@ -58,19 +66,60 @@ function PosCashClosuresTab({ kioskLocationId, isAdmin, kiosks }) {
     loadHistory();
   }, [loadHistory]);
 
-  const openReport = async (sessionId, autoPrint) => {
+  const fetchReport = async (sessionId) => {
+    const report = await getCashCloseReport(sessionId);
+    return report;
+  };
+
+  const handleView = async (sessionId) => {
     if (!sessionId) return;
     try {
-      setLoadingReportId(sessionId);
-      const report = await getCashCloseReport(sessionId);
-      const opened = openKioskCashCloseReport(report, { autoPrint });
-      if (!opened) {
-        showError("Permite ventanas emergentes para ver el reporte.");
-      }
+      setBusySessionId(sessionId);
+      setBusyAction("view");
+      setModalOpen(true);
+      setModalLoading(true);
+      setModalReport(null);
+      const report = await fetchReport(sessionId);
+      setModalReport(report);
     } catch (err) {
+      setModalOpen(false);
       showError(err.message || "No se pudo abrir el reporte de cierre.");
     } finally {
-      setLoadingReportId(null);
+      setModalLoading(false);
+      setBusySessionId(null);
+      setBusyAction(null);
+    }
+  };
+
+  const handlePdf = async (sessionId) => {
+    if (!sessionId) return;
+    try {
+      setBusySessionId(sessionId);
+      setBusyAction("pdf");
+      const report = await fetchReport(sessionId);
+      await downloadKioskCashClosePdf(report);
+      showSuccess("PDF descargado.");
+    } catch (err) {
+      showError(err.message || "No se pudo descargar el PDF.");
+    } finally {
+      setBusySessionId(null);
+      setBusyAction(null);
+    }
+  };
+
+  const handleExcel = async (sessionId) => {
+    if (!sessionId) return;
+    try {
+      setBusySessionId(sessionId);
+      setBusyAction("excel");
+      const report = await fetchReport(sessionId);
+      exportKioskCashCloseToExcel(report);
+      showSuccess("Excel descargado.");
+    } catch (err) {
+      showError(err.message || "No se pudo exportar a Excel.");
+    } finally {
+      setBusySessionId(null);
+      setBusyAction(null);
     }
   };
 
@@ -128,12 +177,12 @@ function PosCashClosuresTab({ kioskLocationId, isAdmin, kiosks }) {
                 <th className="text-right">Ventas</th>
                 <th className="text-right">Desembolsos</th>
                 <th className="text-right">Diferencia</th>
-                <th style={{ minWidth: 160 }}>Acciones</th>
+                <th style={{ minWidth: 220 }}>Acciones</th>
               </tr>
             </thead>
             <tbody>
               {rows.map((row) => {
-                const busy = loadingReportId === row.sessionId;
+                const busy = busySessionId === row.sessionId;
                 return (
                   <tr key={row.sessionId}>
                     <td>{row.kioskName || row.kioskCode || "—"}</td>
@@ -150,20 +199,31 @@ function PosCashClosuresTab({ kioskLocationId, isAdmin, kiosks }) {
                         color="secondary"
                         size="sm"
                         outline
-                        className="mr-1"
+                        className="mr-1 mb-1"
                         disabled={busy}
-                        onClick={() => openReport(row.sessionId, false)}
+                        onClick={() => handleView(row.sessionId)}
                       >
-                        {busy ? <Spinner size="sm" /> : "Ver"}
+                        {busy && busyAction === "view" ? <Spinner size="sm" /> : "Ver"}
                       </Button>
                       <Button
                         color="primary"
                         size="sm"
                         outline
+                        className="mr-1 mb-1"
                         disabled={busy}
-                        onClick={() => openReport(row.sessionId, true)}
+                        onClick={() => handlePdf(row.sessionId)}
                       >
-                        PDF
+                        {busy && busyAction === "pdf" ? <Spinner size="sm" /> : "PDF"}
+                      </Button>
+                      <Button
+                        color="success"
+                        size="sm"
+                        outline
+                        className="mb-1"
+                        disabled={busy}
+                        onClick={() => handleExcel(row.sessionId)}
+                      >
+                        {busy && busyAction === "excel" ? <Spinner size="sm" /> : "Excel"}
                       </Button>
                     </td>
                   </tr>
@@ -172,6 +232,13 @@ function PosCashClosuresTab({ kioskLocationId, isAdmin, kiosks }) {
             </tbody>
           </Table>
         )}
+
+        <PosCashCloseReportModal
+          isOpen={modalOpen}
+          toggle={() => setModalOpen(false)}
+          report={modalReport}
+          loading={modalLoading}
+        />
       </CardBody>
     </Card>
   );
