@@ -24,43 +24,53 @@ jobs:
           node-version: '20'
           cache: npm
 
+      # Importante: pipefail. Sin eso, `cmd | tee` reporta éxito aunque cmd falle
+      # (npm build error → Discord "Deploy exitoso" sin subir el build nuevo).
       - name: Instalar dependencias
         id: install
         run: |
-          { npm ci
-          } 2>&1 | tee -a /tmp/deploy.log
+          set -euo pipefail
+          npm ci 2>&1 | tee -a /tmp/deploy.log
 
       - name: Build
         id: build
         run: |
-          { npm run build
-          } 2>&1 | tee -a /tmp/deploy.log
+          set -euo pipefail
+          npm run build 2>&1 | tee -a /tmp/deploy.log
+          test -d build
+          test -f build/index.html
+          echo "Build OK: $(du -sh build | cut -f1)"
 
       - name: Setup SSH key
         id: ssh_setup
         run: |
-          { mkdir -p ~/.ssh
-            echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
-            chmod 600 ~/.ssh/deploy_key
-            ssh-keyscan -H ${{ secrets.FRONT_HOST }} >> ~/.ssh/known_hosts
-          } 2>&1 | tee -a /tmp/deploy.log
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H ${{ secrets.FRONT_HOST }} >> ~/.ssh/known_hosts
+          echo "SSH key lista" | tee -a /tmp/deploy.log
 
       - name: Sincronizar build al servidor (rsync, solo deltas)
         id: transfer
         run: |
-          { rsync -avz --delete \
-              --rsync-path="sudo rsync" \
-              -e "ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no" \
-              build/ \
-              ${{ secrets.SSH_USER }}@${{ secrets.FRONT_HOST }}:/var/www/front/build/
-          } 2>&1 | tee -a /tmp/deploy.log
+          set -euo pipefail
+          test -d build
+          test -f build/index.html
+          rsync -avz --delete \
+            --rsync-path="sudo rsync" \
+            -e "ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no" \
+            build/ \
+            ${{ secrets.SSH_USER }}@${{ secrets.FRONT_HOST }}:/var/www/front/build/ \
+            2>&1 | tee -a /tmp/deploy.log
 
       - name: Recargar Nginx
         id: reload
         run: |
-          { ssh -i ~/.ssh/deploy_key ${{ secrets.SSH_USER }}@${{ secrets.FRONT_HOST }} \
-              "sudo systemctl reload nginx && systemctl is-active nginx"
-          } 2>&1 | tee -a /tmp/deploy.log
+          set -euo pipefail
+          ssh -i ~/.ssh/deploy_key ${{ secrets.SSH_USER }}@${{ secrets.FRONT_HOST }} \
+            "sudo systemctl reload nginx && systemctl is-active nginx" \
+            2>&1 | tee -a /tmp/deploy.log
 
       - name: Notificar en Discord
         if: always()
@@ -69,23 +79,41 @@ jobs:
           DURATION=$(( $(date +%s) - ${DEPLOY_START:-$(date +%s)} ))
           MIN=$(( DURATION / 60 )); SEC=$(( DURATION % 60 ))
 
-          if [ "${{ job.status }}" = "success" ]; then
+          INSTALL_OUT="${{ steps.install.outcome }}"
+          BUILD_OUT="${{ steps.build.outcome }}"
+          SSH_OUT="${{ steps.ssh_setup.outcome }}"
+          TRANSFER_OUT="${{ steps.transfer.outcome }}"
+          RELOAD_OUT="${{ steps.reload.outcome }}"
+
+          DEPLOY_OK=true
+          PASO_FALLIDO="-"
+          for par in \
+            "Instalar dependencias:$INSTALL_OUT" \
+            "Build:$BUILD_OUT" \
+            "Setup SSH:$SSH_OUT" \
+            "Sincronizar build:$TRANSFER_OUT" \
+            "Recargar Nginx:$RELOAD_OUT"
+          do
+            nombre="${par%%:*}"
+            estado="${par##*:}"
+            if [ "$estado" = "failure" ] || [ "$estado" = "cancelled" ]; then
+              DEPLOY_OK=false
+              PASO_FALLIDO="$nombre"
+            fi
+          done
+          if [ "${{ job.status }}" != "success" ]; then
+            DEPLOY_OK=false
+          fi
+          if [ "$BUILD_OUT" != "success" ]; then
+            DEPLOY_OK=false
+            [ "$PASO_FALLIDO" = "-" ] && PASO_FALLIDO="Build"
+          fi
+
+          if [ "$DEPLOY_OK" = true ]; then
             EMOJI="✅"; COLOR=3066993; TITULO="Deploy exitoso"
           else
             EMOJI="❌"; COLOR=15158332; TITULO="Deploy fallido"
           fi
-
-          PASO_FALLIDO="-"
-          for par in \
-            "Instalar dependencias:${{ steps.install.outcome }}" \
-            "Build:${{ steps.build.outcome }}" \
-            "Setup SSH:${{ steps.ssh_setup.outcome }}" \
-            "Sincronizar build:${{ steps.transfer.outcome }}" \
-            "Recargar Nginx:${{ steps.reload.outcome }}"
-          do
-            nombre="${par%%:*}"; estado="${par##*:}"
-            [ "$estado" = "failure" ] && PASO_FALLIDO="$nombre"
-          done
 
           ERR_LOG=$(tail -c 3000 /tmp/deploy.log 2>/dev/null | sed 's/\x1b\[[0-9;]*m//g')
           [ -z "$ERR_LOG" ] && ERR_LOG="(sin logs capturados)"
@@ -95,7 +123,7 @@ jobs:
           COMMIT_CORTO="${{ github.sha }}"
           COMMIT_CORTO="${COMMIT_CORTO:0:7}"
 
-          if [ "${{ job.status }}" = "success" ]; then
+          if [ "$DEPLOY_OK" = true ]; then
             PAYLOAD=$(jq -n \
               --arg titulo "$EMOJI $TITULO — ${{ github.repository }}" \
               --arg url "$RUN_URL" \
@@ -128,6 +156,10 @@ jobs:
               --arg autor "${{ github.actor }}" \
               --arg paso "$PASO_FALLIDO" \
               --arg err "$ERR_LOG" \
+              --arg install "$INSTALL_OUT" \
+              --arg build "$BUILD_OUT" \
+              --arg transfer "$TRANSFER_OUT" \
+              --arg reload "$RELOAD_OUT" \
               '{embeds: [{
                 title: $titulo, url: $url, color: $color,
                 fields: [
@@ -135,7 +167,8 @@ jobs:
                   {name: "Paso que falló", value: $paso, inline: true},
                   {name: "Autor", value: $autor, inline: true},
                   {name: "Commit", value: ("[`" + $commit + "`](" + $commiturl + ")"), inline: false},
-                  {name: "Error", value: ("```\n" + ($err | .[0:950]) + "\n```"), inline: false}
+                  {name: "Outcomes", value: ("install=" + $install + " · build=" + $build + " · transfer=" + $transfer + " · reload=" + $reload), inline: false},
+                  {name: "Error", value: ("```\n" + ($err | .[0:900]) + "\n```"), inline: false}
                 ],
                 timestamp: (now | todate)
               }]}')
