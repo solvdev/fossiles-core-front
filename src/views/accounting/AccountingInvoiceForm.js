@@ -72,6 +72,19 @@ function AccountingInvoiceForm() {
     [establishments, form.locationId]
   );
 
+  const resolvedDocumentType = useMemo(() => {
+    const code = String(selectedEstablishment?.felEstablishmentCode || "").trim();
+    return code === "1" ? "FCAM" : "FACT";
+  }, [selectedEstablishment]);
+
+  useEffect(() => {
+    setForm((prev) =>
+      prev.documentType === resolvedDocumentType
+        ? prev
+        : { ...prev, documentType: resolvedDocumentType }
+    );
+  }, [resolvedDocumentType]);
+
   const updateLine = (index, field, value) => {
     setForm((prev) => ({
       ...prev,
@@ -303,16 +316,14 @@ function AccountingInvoiceForm() {
               <Col md="4">
                 <FormGroup>
                   <Label>Tipo de documento</Label>
-                  <Input
-                    type="select"
-                    value={form.documentType}
-                    onChange={(e) => setForm((p) => ({ ...p, documentType: e.target.value }))}
-                  >
+                  <Input type="select" value={form.documentType} disabled>
                     <option value="FACT">Factura (FACT)</option>
-                    <option value="FCAM" disabled>Factura Cambiaria (FCAM) — próximamente</option>
+                    <option value="FCAM">Factura Cambiaria (FCAM)</option>
                   </Input>
                   <small className="text-muted">
-                    FCAM requiere el complemento de Abonos exigido por SAT; aún no está disponible.
+                    {resolvedDocumentType === "FCAM"
+                      ? "Establecimiento 1 emite FCAM (complemento Abonos SAT)."
+                      : "Los demás establecimientos emiten FACT."}
                   </small>
                 </FormGroup>
               </Col>
