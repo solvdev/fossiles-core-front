@@ -97,6 +97,14 @@ function AccountingInvoiceForm() {
           .filter((loc) => String(loc.felEstablishmentCode || "").trim())
           .sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), "es"));
         setEstablishments(eligible);
+        setForm((prev) => {
+          if (prev.locationId) return prev;
+          const defaultEst =
+            eligible.find((loc) => String(loc.felEstablishmentCode || "").trim() === "1") ||
+            eligible[0];
+          if (!defaultEst) return prev;
+          return { ...prev, locationId: String(defaultEst.id) };
+        });
       })
       .catch(() => setEstablishments([]))
       .finally(() => setLocationsLoading(false));
