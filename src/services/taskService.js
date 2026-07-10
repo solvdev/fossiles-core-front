@@ -442,3 +442,48 @@ export const generateForPendingOnlineSales = async () => {
   return response.json();
 };
 
+// ==================== ORGANIZADOR DE TAREAS ====================
+
+/**
+ * OPs activas con ítems que aún tienen cantidad restante sin tarea.
+ * @param {Object} filters { type: 'OPL'|'REGULAR'|'ALL', search: string }
+ */
+export const getOrganizerOrders = async ({ type = 'ALL', search = '' } = {}) => {
+  const params = new URLSearchParams();
+  if (type) params.set('type', type);
+  if (search) params.set('search', search);
+  const response = await fetch(`${API_URL}/tasks/organizer/orders?${params.toString()}`, { headers: headers() });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ message: 'Error al obtener órdenes del organizador' }));
+    throw new Error(err.message || 'Error al obtener órdenes del organizador');
+  }
+  return response.json();
+};
+
+/**
+ * Crea una tarea manual desde el organizador.
+ * @param {Object} payload { productionOrderId, items: [{productionOrderItemId, quantity, daySaleExtra}], desk?, scheduledDate?, observations? }
+ */
+export const createManualTask = async (payload) => {
+  const response = await fetch(`${API_URL}/tasks/organizer/manual`, {
+    method: 'POST',
+    headers: headers(),
+    body: JSON.stringify(payload)
+  });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ message: 'Error al crear la tarea' }));
+    throw new Error(err.message || 'Error al crear la tarea');
+  }
+  return response.json();
+};
+
+/** Tareas PENDING atrasadas (fecha pasada) o sin fecha, con o sin mesa. */
+export const getBacklogTasks = async () => {
+  const response = await fetch(`${API_URL}/tasks/backlog`, { headers: headers() });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ message: 'Error al obtener tareas pendientes' }));
+    throw new Error(err.message || 'Error al obtener tareas pendientes');
+  }
+  return response.json();
+};
+
