@@ -155,6 +155,9 @@ const buildFelInvoicePreview = (sale) => {
   return {
     saleNumber: sale.saleNumber || sale.id,
     billingDate: formatBillingDateGt(),
+    // Ventas en línea = est. FEL 1 (CUEROGLAM central) → FCAM + Abonos
+    documentType: "FCAM",
+    establishmentCode: "1",
     customerTaxId,
     customerName,
     address: sale.address || "—",
@@ -4822,6 +4825,9 @@ function OnlineSales() {
                         <p className="mb-1"><strong>Teléfono:</strong> {preview.phone}</p>
                         <p className="mb-1"><strong>Correo:</strong> {preview.email}</p>
                         <p className="mb-1"><strong>Fecha de facturación:</strong> {preview.billingDate}</p>
+                        <p className="mb-1">
+                          <strong>Tipo FEL:</strong> {preview.documentType} (est. {preview.establishmentCode})
+                        </p>
                         <p className="mb-0"><strong>Total venta:</strong> {formatQ(preview.total)}</p>
                       </Col>
                     </Row>
@@ -4902,6 +4908,9 @@ function OnlineSales() {
                   <Badge color={invoice?.status === "CERTIFIED" ? "success" : invoice?.status === "FAILED" ? "danger" : "warning"}>
                     {invoice?.status || "—"}
                   </Badge>
+                  {invoice?.documentType && (
+                    <>{" "}· <strong>Tipo:</strong> {invoice.documentType}</>
+                  )}
                 </p>
                 {isTest && (
                   <Alert color="warning" className="py-2">

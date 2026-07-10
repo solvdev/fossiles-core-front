@@ -21,6 +21,7 @@ import { getProducts } from "services/productService";
 import { lookupKioskSale } from "services/kioskExchangeService";
 import { lookupTaxpayerByNit } from "services/kioskPosService";
 import { formatFelCustomerName, isValidGuatemalaNit, normalizeNit } from "views/kiosks/pos/posUtils";
+import Select from "react-select";
 
 const DISCOUNT_OPTIONS = [
   { value: "0", label: "Precio normal" },
@@ -32,7 +33,6 @@ const DISCOUNT_OPTIONS = [
 
 const emptyLine = () => ({
   productId: "",
-  productSearch: "",
   description: "",
   quantity: "1",
   basePrice: "",
@@ -146,6 +146,22 @@ function AccountingInvoiceForm() {
     return map;
   }, [products]);
 
+  const productOptions = useMemo(
+    () =>
+      products.map((product) => ({
+        value: String(product.id),
+        label: `${productLabel(product)} — ${formatMoney(product.salePrice)}`,
+        searchText: `${product.code || ""} ${product.name || ""}`.toLowerCase(),
+      })),
+    [products]
+  );
+
+  const filterProductOption = (option, rawInput) => {
+    const q = String(rawInput || "").trim().toLowerCase();
+    if (!q) return true;
+    return String(option.data?.searchText || option.label || "").toLowerCase().includes(q);
+  };
+
   const linesTotal = useMemo(
     () =>
       form.lines.reduce((sum, line) => {
@@ -155,17 +171,6 @@ function AccountingInvoiceForm() {
       }, 0),
     [form.lines]
   );
-
-  const filteredProductsForLine = (line) => {
-    const q = String(line.productSearch || "").trim().toLowerCase();
-    if (!q) return products.slice(0, 80);
-    return products
-      .filter((p) => {
-        const hay = `${p.code || ""} ${p.name || ""}`.toLowerCase();
-        return hay.includes(q);
-      })
-      .slice(0, 80);
-  };
 
   const patchLine = (index, patch) => {
     setForm((prev) => ({
@@ -182,7 +187,6 @@ function AccountingInvoiceForm() {
         productId: "",
         basePrice: current.basePrice,
         unitPrice: current.unitPrice,
-        // Conserva la descripción personalizada si ya la escribió.
       });
       return;
     }
@@ -192,14 +196,12 @@ function AccountingInvoiceForm() {
     const previousProduct = current.productId ? productsById.get(String(current.productId)) : null;
     const previousSuggested = previousProduct ? productLabel(previousProduct) : "";
     const currentDesc = String(current.description || "").trim();
-    // Solo autocompleta descripción si está vacía o era la sugerida del producto anterior.
     const keepCustom =
       currentDesc &&
       currentDesc !== previousSuggested &&
       currentDesc !== suggested;
     patchLine(index, {
       productId: String(product.id),
-      productSearch: "",
       description: keepCustom ? currentDesc : suggested,
       basePrice: String(base),
       unitPrice: String(priceWithDiscount(base, discountPercent)),
@@ -550,38 +552,31 @@ function AccountingInvoiceForm() {
               </thead>
               <tbody>
                 {form.lines.map((line, index) => {
-                  const options = filteredProductsForLine(line);
+                  const selectedProduct =
+                    productOptions.find((o) => o.value === String(line.productId || "")) || null;
                   const lineTotal = (Number(line.quantity) || 0) * (Number(line.unitPrice) || 0);
                   return (
                     <tr key={index}>
-                      <td>
-                        <Input
-                          bsSize="sm"
-                          className="mb-1"
-                          placeholder="Buscar código o nombre..."
-                          value={line.productSearch || ""}
-                          onChange={(e) => updateLineField(index, "productSearch", e.target.value)}
-                          disabled={productsLoading}
+                      <td style={{ minWidth: 260 }}>
+                        <Select
+                          className="react-select"
+                          classNamePrefix="react-select"
+                          placeholder="Escribe para buscar producto..."
+                          isClearable
+                          isDisabled={productsLoading}
+                          options={productOptions}
+                          value={selectedProduct}
+                          filterOption={filterProductOption}
+                          onChange={(selected) =>
+                            applyProductToLine(index, selected ? selected.value : "")
+                          }
+                          noOptionsMessage={() => "Sin coincidencias"}
+                          menuPortalTarget={typeof document !== "undefined" ? document.body : null}
+                          styles={{
+                            menuPortal: (base) => ({ ...base, zIndex: 9999 }),
+                            container: (base) => ({ ...base, minWidth: 240 }),
+                          }}
                         />
-                        <Input
-                          type="select"
-                          bsSize="sm"
-                          value={line.productId || ""}
-                          onChange={(e) => applyProductToLine(index, e.target.value)}
-                          disabled={productsLoading}
-                        >
-                          <option value="">Manual / sin catálogo</option>
-                          {line.productId && !options.some((p) => String(p.id) === String(line.productId)) && (
-                            <option value={line.productId}>
-                              {line.description || `Producto #${line.productId}`}
-                            </option>
-                          )}
-                          {options.map((product) => (
-                            <option key={product.id} value={product.id}>
-                              {productLabel(product)} — {formatMoney(product.salePrice)}
-                            </option>
-                          ))}
-                        </Input>
                       </td>
                       <td>
                         <Input
