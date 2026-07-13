@@ -71,7 +71,7 @@ function lineKey(line) {
   return [
     "pc",
     String(line.productCode || "").toUpperCase(),
-    String(line.colorId ?? line.colorName || "").toLowerCase(),
+    String((line.colorId ?? line.colorName) || "").toLowerCase(),
     line.daySaleExtra ? "dia" : "base",
   ].join("|");
 }
