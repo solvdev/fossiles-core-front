@@ -55,50 +55,6 @@ export const getTasksByDate = async (date) => {
   return response.json();
 };
 
-export const getTaskQueue = async () => {
-  const response = await fetch(`${API_URL}/tasks/queue`, { headers: headers() });
-  if (!response.ok) {
-    const err = await response.json().catch(() => ({ message: 'Error al obtener cola de tareas' }));
-    throw new Error(err.message || 'Error al obtener cola de tareas');
-  }
-  return response.json();
-};
-
-export const getScheduleDates = async () => {
-  const response = await fetch(`${API_URL}/tasks/schedule-dates`, { headers: headers() });
-  if (!response.ok) {
-    const err = await response.json().catch(() => ({ message: 'Error al obtener fechas' }));
-    throw new Error(err.message || 'Error al obtener fechas');
-  }
-  return response.json();
-};
-
-export const generateTasksForSelectedItems = async (productionOrderId, selectedItemIds) => {
-  const response = await fetch(`${API_URL}/tasks/generate/${productionOrderId}/selective`, {
-    method: 'POST',
-    headers: headers(),
-    body: JSON.stringify(selectedItemIds)
-  });
-  if (!response.ok) {
-    const err = await response.json().catch(() => ({ message: 'Error al generar tareas' }));
-    throw new Error(err.message || 'Error al generar tareas');
-  }
-  return response.json();
-};
-
-export const generateTasksForOrder = async (productionOrderId, force = false) => {
-  const query = force ? "?force=true" : "";
-  const response = await fetch(`${API_URL}/tasks/generate/${productionOrderId}${query}`, {
-    method: 'POST',
-    headers: headers()
-  });
-  if (!response.ok) {
-    const err = await response.json().catch(() => ({ message: 'Error al generar tareas' }));
-    throw new Error(err.message || 'Error al generar tareas');
-  }
-  return response.json();
-};
-
 export const updateTaskStatus = async (id, status) => {
   const response = await fetch(`${API_URL}/tasks/${id}/status`, {
     method: 'PUT',
@@ -315,82 +271,6 @@ export const getDesksCount = async () => {
   return response.json();
 };
 
-export const optimizePendingTasks = async (date, dryRun = false) => {
-  const params = new URLSearchParams();
-  if (date) params.append('date', date);
-  if (dryRun) params.append('dryRun', 'true');
-  const query = params.toString() ? `?${params.toString()}` : '';
-
-  const response = await fetch(`${API_URL}/tasks/optimize-pending${query}`, {
-    method: 'POST',
-    headers: headers()
-  });
-  if (!response.ok) {
-    const err = await response.json().catch(() => ({ message: 'Error al optimizar tareas pendientes' }));
-    throw new Error(err.message || 'Error al optimizar tareas pendientes');
-  }
-  return response.json();
-};
-
-export const rebalanceTasksByDay = async (date, desksCount) => {
-  const params = new URLSearchParams();
-  if (date) params.append('date', date);
-  if (desksCount) params.append('desksCount', String(desksCount));
-  const query = params.toString() ? `?${params.toString()}` : '';
-
-  const response = await fetch(`${API_URL}/tasks/rebalance-day${query}`, {
-    method: 'POST',
-    headers: headers()
-  });
-  if (!response.ok) {
-    const err = await response.json().catch(() => ({ message: 'Error al redistribuir tareas del dia' }));
-    throw new Error(err.message || 'Error al redistribuir tareas del dia');
-  }
-  return response.json();
-};
-
-export const getDistributionQueueProductionOrders = async (startDate, horizonDays = 5) => {
-  const params = new URLSearchParams();
-  if (startDate) params.append('startDate', startDate);
-  params.append('horizonDays', String(horizonDays || 5));
-
-  const response = await fetch(`${API_URL}/tasks/distribution-queue/production-orders?${params.toString()}`, {
-    headers: headers(),
-  });
-  if (!response.ok) {
-    const err = await response.json().catch(() => ({ message: 'Error al cargar cola de distribución' }));
-    throw new Error(err.message || 'Error al cargar cola de distribución');
-  }
-  return response.json();
-};
-
-export const planTasksWindow = async (startDate, desksCount, horizonDays = 5, productionOrderId = undefined, schedulingPriorities = undefined) => {
-  const params = new URLSearchParams();
-  if (startDate) params.append('startDate', startDate);
-  if (desksCount) params.append('desksCount', String(desksCount));
-  if (horizonDays) params.append('horizonDays', String(horizonDays));
-  if (productionOrderId) params.append('productionOrderId', String(productionOrderId));
-
-  const query = params.toString() ? `?${params.toString()}` : '';
-
-  const body =
-    schedulingPriorities && typeof schedulingPriorities === 'object' && Object.keys(schedulingPriorities).length > 0
-      ? JSON.stringify({ schedulingPriorities })
-      : undefined;
-
-  const response = await fetch(`${API_URL}/tasks/plan-window${query}`, {
-    method: 'POST',
-    headers: headers(),
-    body,
-  });
-
-  if (!response.ok) {
-    const err = await response.json().catch(() => ({ message: 'Error al planificar ventana' }));
-    throw new Error(err.message || 'Error al planificar ventana');
-  }
-  return response.json();
-};
-
 export const deleteTask = async (id) => {
   const response = await fetch(`${API_URL}/tasks/${id}`, {
     method: 'DELETE',
@@ -425,19 +305,47 @@ export const addDaySaleItemsToTask = async (taskId, productionOrderItemIds) => {
   return response.json();
 };
 
+// ==================== ORGANIZADOR DE TAREAS ====================
+
 /**
- * Genera tareas directamente para todas las órdenes VENTA_EN_LINEA que aún
- * no tienen tareas. Permite usar el plan diario con solo ventas online,
- * sin necesitar que existan tareas de otras órdenes regulares.
+ * OPs activas con ítems que aún tienen cantidad restante sin tarea.
+ * @param {Object} filters { type: 'OPL'|'REGULAR'|'ALL', search: string }
  */
-export const generateForPendingOnlineSales = async () => {
-  const response = await fetch(`${API_URL}/tasks/generate-for-pending-online-sales`, {
+export const getOrganizerOrders = async ({ type = 'ALL', search = '' } = {}) => {
+  const params = new URLSearchParams();
+  if (type) params.set('type', type);
+  if (search) params.set('search', search);
+  const response = await fetch(`${API_URL}/tasks/organizer/orders?${params.toString()}`, { headers: headers() });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ message: 'Error al obtener órdenes del organizador' }));
+    throw new Error(err.message || 'Error al obtener órdenes del organizador');
+  }
+  return response.json();
+};
+
+/**
+ * Crea una tarea manual desde el organizador.
+ * @param {Object} payload { productionOrderId, items: [{productionOrderItemId, quantity, daySaleExtra}], desk?, scheduledDate?, observations? }
+ */
+export const createManualTask = async (payload) => {
+  const response = await fetch(`${API_URL}/tasks/organizer/manual`, {
     method: 'POST',
-    headers: headers()
+    headers: headers(),
+    body: JSON.stringify(payload)
   });
   if (!response.ok) {
-    const err = await response.json().catch(() => ({ message: 'Error al generar tareas de ventas online' }));
-    throw new Error(err.message || 'Error al generar tareas de ventas online');
+    const err = await response.json().catch(() => ({ message: 'Error al crear la tarea' }));
+    throw new Error(err.message || 'Error al crear la tarea');
+  }
+  return response.json();
+};
+
+/** Tareas PENDING atrasadas (fecha pasada) o sin fecha, con o sin mesa. */
+export const getBacklogTasks = async () => {
+  const response = await fetch(`${API_URL}/tasks/organizer/backlog`, { headers: headers() });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ message: 'Error al obtener tareas pendientes' }));
+    throw new Error(err.message || 'Error al obtener tareas pendientes');
   }
   return response.json();
 };

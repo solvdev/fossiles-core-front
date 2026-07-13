@@ -53,6 +53,7 @@ const SCREEN_NAME_MAP = {
   "Órdenes de Producción": "ORDENES_PRODUCCION",
   "Plan de Producción Diario": "PLAN_PRODUCCION_DIARIO",
   "Tareas por Estación": "TAREAS_ESTACION",
+  "Organizador de Tareas": "ORGANIZADOR_TAREAS",
   "Inventario Materiales": "INVENTARIO_MATERIALES",
   "Inventario Productos": "INVENTARIO_PRODUCTOS",
   "Kardex Materiales": "KARDEX_MATERIALES",

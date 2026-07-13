@@ -51,6 +51,7 @@ import ProductPrices from "views/products/ProductPrices.js";
 import ProductionOrdersList from "views/production/ProductionOrdersList.js";
 import DailyProductionPlan from "views/production/DailyProductionPlan.js";
 import TasksByTable from "views/production/TasksByTable.js";
+import TaskOrganizer from "views/production/TaskOrganizer.js";
 import ProductionPhaseTrays from "views/production/ProductionPhaseTrays.js";
 import ProductionTraceability from "views/production/ProductionTraceability.js";
 import MaterialsTasksView from "views/production/MaterialsTasksView.js";
@@ -656,6 +657,19 @@ const routes = [
         component: <TasksByTable />,
         layout: "/admin",
         module: "PRODUCCION",
+        permissions: {
+          view: "PRODUCCION.TAREAS_ESTACION.VER",
+        },
+      },
+      {
+        path: "/task-organizer",
+        name: "Organizador de Tareas",
+        mini: "OT",
+        component: <TaskOrganizer />,
+        layout: "/admin",
+        module: "PRODUCCION",
+        // Mismo permiso que Centro de Producción: si no, ProtectedRoute
+        // redirige al dashboard y parece que el botón "abre" Producción.
         permissions: {
           view: "PRODUCCION.TAREAS_ESTACION.VER",
         },
