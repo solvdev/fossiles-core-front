@@ -62,6 +62,9 @@ export default function RedistributeBoard({
   introText,
 }) {
   const [activeItemId, setActiveItemId] = useState(null);
+  /** Mesa elegida en el selector manual por taskItemId (alternativa a arrastrar). */
+  const [manualDeskByItem, setManualDeskByItem] = useState({});
+  const [assigningItemId, setAssigningItemId] = useState(null);
 
   const activeTasks = useMemo(() => (tasks || []).filter((t) => t && t.status !== "CANCELLED" && t.status !== "COMPLETED"), [tasks]);
 
@@ -151,6 +154,32 @@ export default function RedistributeBoard({
     await onMove({ taskItemId, targetDesk, targetDate });
   }, [date, findContainerForTaskItem, onMove]);
 
+  /**
+   * Asignar/cambiar mesa sin arrastrar: elige mesa en el desplegable de la tarjeta y confirma.
+   * Mueve las unidades completas de esa línea (no divide la cantidad); "Sin mesa" la regresa
+   * a la columna de no asignadas.
+   */
+  const handleManualAssign = useCallback(async (taskItemId) => {
+    const raw = manualDeskByItem[taskItemId];
+    const targetDesk = raw ? Number(raw) : null;
+    const targetDate = date || null;
+    if (targetDesk && isWeekendYmd(targetDate)) {
+      showError("Solo se trabaja de lunes a viernes: elige una fecha entre semana antes de asignar mesa.");
+      return;
+    }
+    setAssigningItemId(taskItemId);
+    try {
+      await onMove({ taskItemId, targetDesk, targetDate });
+      setManualDeskByItem((prev) => {
+        const next = { ...prev };
+        delete next[taskItemId];
+        return next;
+      });
+    } finally {
+      setAssigningItemId(null);
+    }
+  }, [manualDeskByItem, date, onMove]);
+
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } })
   );
@@ -194,24 +223,52 @@ export default function RedistributeBoard({
                 count={(itemsByContainer[c.id] || []).length}
               >
                 {(itemsByContainer[c.id] || []).map((it) => (
-                  <DraggableCard
-                    key={it.taskItemId}
-                    id={`item-${it.taskItemId}`}
-                    title={`Task ${it.taskCode} / OP ${it.productionOrderCode}`}
-                  >
-                      <div style={{ fontSize: 12 }}>
-                        <Badge color="info" className="mr-1">{it.productionOrderCode}</Badge>
-                        <Badge color="dark">{it.taskCode}</Badge>
-                      </div>
-                      <div style={{ marginTop: 6 }}>
-                        <strong>{it.productCode}</strong> {it.productName}
-                        {it.colorName && <span className="text-muted"> · {it.colorName}</span>}
-                      </div>
-                      <div className="text-muted" style={{ fontSize: 12, marginTop: 4, display: "flex", justifyContent: "space-between" }}>
-                        <span>{it.quantity} uds</span>
-                        <span>{Math.round((it.estimatedHours || 0) * 60)} min</span>
-                      </div>
-                  </DraggableCard>
+                  <div key={it.taskItemId}>
+                    <DraggableCard
+                      id={`item-${it.taskItemId}`}
+                      title={`Task ${it.taskCode} / OP ${it.productionOrderCode}`}
+                    >
+                        <div style={{ fontSize: 12 }}>
+                          <Badge color="info" className="mr-1">{it.productionOrderCode}</Badge>
+                          <Badge color="dark">{it.taskCode}</Badge>
+                        </div>
+                        <div style={{ marginTop: 6 }}>
+                          <strong>{it.productCode}</strong> {it.productName}
+                          {it.colorName && <span className="text-muted"> · {it.colorName}</span>}
+                        </div>
+                        <div className="text-muted" style={{ fontSize: 12, marginTop: 4, display: "flex", justifyContent: "space-between" }}>
+                          <span>{it.quantity} uds</span>
+                          <span>{Math.round((it.estimatedHours || 0) * 60)} min</span>
+                        </div>
+                    </DraggableCard>
+                    <div className="d-flex" style={{ gap: 4, marginTop: 4 }}>
+                      <Input
+                        type="select"
+                        bsSize="sm"
+                        value={manualDeskByItem[it.taskItemId] ?? (it.desk ? String(it.desk) : "")}
+                        onChange={(e) => setManualDeskByItem((prev) => ({ ...prev, [it.taskItemId]: e.target.value }))}
+                        style={{ fontSize: 12 }}
+                      >
+                        <option value="">Sin mesa</option>
+                        {Array.from({ length: numDesks || 12 }, (_, i) => i + 1).map((d) => (
+                          <option key={d} value={d}>Mesa {d}</option>
+                        ))}
+                      </Input>
+                      <button
+                        type="button"
+                        className="btn btn-sm btn-primary"
+                        style={{ fontSize: 12, whiteSpace: "nowrap" }}
+                        disabled={
+                          assigningItemId === it.taskItemId
+                          || String(manualDeskByItem[it.taskItemId] ?? (it.desk ? String(it.desk) : "")) === String(it.desk || "")
+                        }
+                        onClick={() => handleManualAssign(it.taskItemId)}
+                        title="Cambia la mesa de esta tarea sin arrastrar. Mueve las uds. completas de esta línea."
+                      >
+                        {assigningItemId === it.taskItemId ? "…" : it.desk ? "Cambiar mesa" : "Asignar"}
+                      </button>
+                    </div>
+                  </div>
                 ))}
                 {(itemsByContainer[c.id] || []).length === 0 && (
                   <div className="text-muted" style={{ fontSize: 12 }}>Arrastra aquí.</div>

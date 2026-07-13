@@ -48,12 +48,30 @@ function formatAssignmentLine(a) {
 }
 
 /** Fila de ítem con input de cantidad parcial y botón Agregar. */
-function OrganizerItemRow({ order, item, inDraft, onAdd, onJumpToAssignment }) {
+function OrganizerItemRow({ order, item, inDraft, onAdd, onJumpToAssignment, onAssignDesk, numDesks }) {
   const [qty, setQty] = useState(item.remainingQuantity);
   const [extra, setExtra] = useState(false);
+  const [deskChoice, setDeskChoice] = useState({});
+  const [assigningKey, setAssigningKey] = useState(null);
   const minutesPerUnit = Math.round((item.prdTimePerUnit || 0.1) * 60);
   const sizesText = formatSizes(item.sizes);
   const assignments = item.assignments || [];
+
+  const handleAssign = async (assignmentKey, assignment) => {
+    const desk = deskChoice[assignmentKey];
+    if (!desk) return;
+    setAssigningKey(assignmentKey);
+    try {
+      await onAssignDesk(assignment, Number(desk));
+      setDeskChoice((prev) => {
+        const next = { ...prev };
+        delete next[assignmentKey];
+        return next;
+      });
+    } finally {
+      setAssigningKey(null);
+    }
+  };
 
   return (
     <tr>
@@ -65,26 +83,57 @@ function OrganizerItemRow({ order, item, inDraft, onAdd, onJumpToAssignment }) {
         )}
         {assignments.length > 0 && (
           <div style={{ fontSize: 11, marginTop: 4 }}>
-            {assignments.map((a, idx) => (
-              <div key={a.taskId != null ? a.taskId : idx}>
-                <button
-                  type="button"
-                  className="text-muted"
-                  onClick={() => onJumpToAssignment && onJumpToAssignment(a)}
-                  title="Ir al tablero en la fecha de esta tarea para asignarle mesa"
-                  style={{
-                    background: "none",
-                    border: "none",
-                    padding: 0,
-                    font: "inherit",
-                    textDecoration: "underline",
-                    cursor: "pointer",
-                  }}
-                >
-                  {formatAssignmentLine(a)} → ver en tablero
-                </button>
-              </div>
-            ))}
+            {assignments.map((a, idx) => {
+              const key = a.taskId != null ? a.taskId : idx;
+              if (a.desk == null) {
+                return (
+                  <div key={key} className="d-flex align-items-center mb-1" style={{ gap: 4 }}>
+                    <span className="text-muted">{formatAssignmentLine(a)}</span>
+                    <Input
+                      type="select"
+                      bsSize="sm"
+                      value={deskChoice[key] || ""}
+                      onChange={(e) => setDeskChoice((prev) => ({ ...prev, [key]: e.target.value }))}
+                      style={{ width: 88, fontSize: 11, height: 22, padding: "0 4px" }}
+                    >
+                      <option value="">Mesa…</option>
+                      {Array.from({ length: numDesks || 12 }, (_, i) => i + 1).map((d) => (
+                        <option key={d} value={d}>Mesa {d}</option>
+                      ))}
+                    </Input>
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-primary"
+                      style={{ fontSize: 11, padding: "0 6px", height: 22, lineHeight: "20px" }}
+                      disabled={!deskChoice[key] || assigningKey === key}
+                      onClick={() => handleAssign(key, a)}
+                    >
+                      {assigningKey === key ? "…" : "Asignar mesa"}
+                    </button>
+                  </div>
+                );
+              }
+              return (
+                <div key={key}>
+                  <button
+                    type="button"
+                    className="text-muted"
+                    onClick={() => onJumpToAssignment && onJumpToAssignment(a)}
+                    title="Ir al tablero en la fecha de esta tarea"
+                    style={{
+                      background: "none",
+                      border: "none",
+                      padding: 0,
+                      font: "inherit",
+                      textDecoration: "underline",
+                      cursor: "pointer",
+                    }}
+                  >
+                    {formatAssignmentLine(a)} → ver en tablero
+                  </button>
+                </div>
+              );
+            })}
           </div>
         )}
       </td>
@@ -157,6 +206,8 @@ export default function OrganizerOrderBrowser({
   draftItemIds,
   onAddLine,
   onJumpToAssignment,
+  onAssignDesk,
+  numDesks,
 }) {
   const [expandedId, setExpandedId] = useState(null);
 
@@ -286,6 +337,8 @@ export default function OrganizerOrderBrowser({
                         inDraft={draftItemIds.has(item.productionOrderItemId)}
                         onAdd={onAddLine}
                         onJumpToAssignment={onJumpToAssignment}
+                        onAssignDesk={onAssignDesk}
+                        numDesks={numDesks}
                       />
                     ))}
                   </tbody>

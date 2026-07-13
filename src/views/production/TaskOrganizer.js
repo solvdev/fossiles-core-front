@@ -4,8 +4,8 @@ import {
   Row, Col, Card, CardBody, Nav, NavItem, NavLink, TabContent, TabPane, Badge, Button,
 } from "reactstrap";
 import classnames from "classnames";
-import { formatDateGt, getTodayYmdGuatemala } from "utils/dateTimeHelper";
-import { showSuccess } from "utils/notificationHelper";
+import { formatDateGt, getTodayYmdGuatemala, isWeekendYmd } from "utils/dateTimeHelper";
+import { showSuccess, showError } from "utils/notificationHelper";
 import useTaskOrganizer from "./organizer/useTaskOrganizer";
 import OrganizerOrderBrowser from "./organizer/OrganizerOrderBrowser";
 import DraftTaskPanel from "./organizer/DraftTaskPanel";
@@ -44,6 +44,23 @@ export default function TaskOrganizer() {
         ? `Tarea ${assignment.taskCode || ""} ya está en Mesa ${assignment.desk} el ${formatDateGt(targetDate)}.`
         : `Mostrando el tablero del ${formatDateGt(targetDate)}: arrastra la tarea ${assignment?.taskCode || ""} a una mesa.`
     );
+  };
+
+  /**
+   * Asigna mesa directamente desde la pestaña Organizar, sin ir al tablero ni arrastrar.
+   * Usa el mismo endpoint move-item que el drag & drop del tablero; conserva la fecha
+   * que ya tenía la tarea (o la deja sin fecha si no tenía).
+   */
+  const assignDeskFromOrganizer = async (assignment, desk) => {
+    if (!assignment?.taskItemId || !desk) return;
+    const targetDate = assignment.scheduledDate || null;
+    if (isWeekendYmd(targetDate)) {
+      showError("Solo se trabaja de lunes a viernes: esta tarea tiene fecha de fin de semana.");
+      return;
+    }
+    await onMove({ taskItemId: assignment.taskItemId, targetDesk: desk, targetDate });
+    showSuccess(`Tarea ${assignment.taskCode || ""} asignada a Mesa ${desk}.`);
+    await org.loadOrders();
   };
 
   return (
@@ -116,6 +133,8 @@ export default function TaskOrganizer() {
                 draftItemIds={org.draftItemIds}
                 onAddLine={org.addDraftLine}
                 onJumpToAssignment={jumpToAssignment}
+                onAssignDesk={assignDeskFromOrganizer}
+                numDesks={org.numDesks}
               />
             </Col>
             <Col lg="5" xl="4">
