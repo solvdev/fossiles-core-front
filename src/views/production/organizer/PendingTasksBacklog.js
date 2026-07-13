@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import {
   Card, CardBody, CardHeader, CardTitle, Table, Badge, Button, Spinner,
   Modal, ModalHeader, ModalBody, ModalFooter, FormGroup, Label, Input, Row, Col,
@@ -24,6 +24,17 @@ function taskProductsSummary(task) {
   return items.length > 1 ? `${label} +${items.length - 1} más` : label;
 }
 
+function taskColorSummary(task) {
+  const items = task?.items || [];
+  const fromItems = [...new Set(items.map((i) => i.colorName).filter(Boolean))];
+  if (fromItems.length > 0) {
+    return fromItems.length > 1
+      ? `${fromItems[0]} +${fromItems.length - 1}`
+      : fromItems[0];
+  }
+  return task?.colorName || null;
+}
+
 /**
  * Tareas PENDING que quedaron de días anteriores (fecha pasada o sin fecha,
  * con o sin mesa). Permite reprogramarlas a la fecha/mesa que se elija.
@@ -31,6 +42,27 @@ function taskProductsSummary(task) {
 export default function PendingTasksBacklog({ backlog, loading, numDesks, onReload, onRescheduled }) {
   const [modal, setModal] = useState({ open: false, task: null, date: getTodayYmdGuatemala(), desk: "" });
   const [saving, setSaving] = useState(false);
+  const [orderFilter, setOrderFilter] = useState("");
+  const [productFilter, setProductFilter] = useState("");
+
+  const filteredBacklog = useMemo(() => {
+    const orderQ = orderFilter.trim().toLowerCase();
+    const productQ = productFilter.trim().toLowerCase();
+    if (!orderQ && !productQ) return backlog;
+
+    return backlog.filter((t) => {
+      const op = String(t.productionOrderCode || "").toLowerCase();
+      const productText = [
+        t.productCode,
+        t.productName,
+        ...(t.items || []).map((i) => `${i.productCode || ""} ${i.productName || ""}`),
+      ].join(" ").toLowerCase();
+
+      const matchOrder = !orderQ || op.includes(orderQ);
+      const matchProduct = !productQ || productText.includes(productQ);
+      return matchOrder && matchProduct;
+    });
+  }, [backlog, orderFilter, productFilter]);
 
   const openReprogram = (task) => {
     setModal({
@@ -84,57 +116,106 @@ export default function PendingTasksBacklog({ backlog, loading, numDesks, onRelo
             No hay tareas atrasadas ni sin fecha. Todo al día. ✔
           </div>
         ) : (
-          <Table size="sm" responsive>
-            <thead>
-              <tr>
-                <th>Tarea</th>
-                <th>OP</th>
-                <th>Productos</th>
-                <th className="text-center">Uds</th>
-                <th className="text-center">Horas base</th>
-                <th className="text-center">Fecha</th>
-                <th className="text-center">Mesa</th>
-                <th className="text-center">Atraso</th>
-                <th className="text-center">Troquel</th>
-                <th />
-              </tr>
-            </thead>
-            <tbody>
-              {backlog.map((t) => {
-                const late = daysLate(t.scheduledDate);
-                return (
-                  <tr key={t.id}>
-                    <td><Badge color="dark">{t.code}</Badge></td>
-                    <td>{t.productionOrderCode || "—"}</td>
-                    <td>{taskProductsSummary(t)}</td>
-                    <td className="text-center">{t.quantity ?? "—"}</td>
-                    <td className="text-center">{getTaskBaseHours(t).toFixed(2)}</td>
-                    <td className="text-center">
-                      {t.scheduledDate ? formatDateGt(t.scheduledDate) : <Badge color="secondary">Sin fecha</Badge>}
-                    </td>
-                    <td className="text-center">
-                      {t.desk != null ? `Mesa ${t.desk}` : <Badge color="warning">Sin mesa</Badge>}
-                    </td>
-                    <td className="text-center">
-                      {late == null ? <span className="text-muted">—</span>
-                        : late === 0 ? <span className="text-muted">Hoy</span>
-                        : <Badge color="danger">{late} día{late === 1 ? "" : "s"}</Badge>}
-                    </td>
-                    <td className="text-center">
-                      {t.dieCutReady
-                        ? <Badge color="success">Listo</Badge>
-                        : <Badge color="light" className="text-dark">Pendiente</Badge>}
-                    </td>
-                    <td className="text-right">
-                      <Button size="sm" color="primary" outline onClick={() => openReprogram(t)}>
-                        Reprogramar
-                      </Button>
-                    </td>
+          <>
+            <Row className="mb-3">
+              <Col md="4" sm="6" className="mb-2 mb-md-0">
+                <Input
+                  bsSize="sm"
+                  placeholder="Filtrar por OP (ej. OPK-10)"
+                  value={orderFilter}
+                  onChange={(e) => setOrderFilter(e.target.value)}
+                />
+              </Col>
+              <Col md="4" sm="6" className="mb-2 mb-md-0">
+                <Input
+                  bsSize="sm"
+                  placeholder="Filtrar por producto"
+                  value={productFilter}
+                  onChange={(e) => setProductFilter(e.target.value)}
+                />
+              </Col>
+              <Col md="4" className="d-flex align-items-center justify-content-md-end">
+                <small className="text-muted">
+                  {filteredBacklog.length} de {backlog.length} tarea{backlog.length === 1 ? "" : "s"}
+                </small>
+                {(orderFilter || productFilter) && (
+                  <Button
+                    size="sm"
+                    color="link"
+                    className="ml-2 p-0"
+                    onClick={() => { setOrderFilter(""); setProductFilter(""); }}
+                  >
+                    Limpiar
+                  </Button>
+                )}
+              </Col>
+            </Row>
+
+            {filteredBacklog.length === 0 ? (
+              <div className="text-muted text-center py-3">
+                Ninguna tarea coincide con el filtro.
+              </div>
+            ) : (
+              <Table size="sm" responsive>
+                <thead>
+                  <tr>
+                    <th>Tarea</th>
+                    <th>OP</th>
+                    <th>Productos</th>
+                    <th>Color</th>
+                    <th className="text-center">Uds</th>
+                    <th className="text-center">Horas base</th>
+                    <th className="text-center">Fecha</th>
+                    <th className="text-center">Mesa</th>
+                    <th className="text-center">Atraso</th>
+                    <th className="text-center">Troquel</th>
+                    <th />
                   </tr>
-                );
-              })}
-            </tbody>
-          </Table>
+                </thead>
+                <tbody>
+                  {filteredBacklog.map((t) => {
+                    const late = daysLate(t.scheduledDate);
+                    const colorLabel = taskColorSummary(t);
+                    return (
+                      <tr key={t.id}>
+                        <td><Badge color="dark">{t.code}</Badge></td>
+                        <td>{t.productionOrderCode || "—"}</td>
+                        <td>{taskProductsSummary(t)}</td>
+                        <td>
+                          {colorLabel
+                            ? <Badge color="dark" style={{ fontSize: 11 }}>{colorLabel}</Badge>
+                            : <span className="text-muted">—</span>}
+                        </td>
+                        <td className="text-center">{t.quantity ?? "—"}</td>
+                        <td className="text-center">{getTaskBaseHours(t).toFixed(2)}</td>
+                        <td className="text-center">
+                          {t.scheduledDate ? formatDateGt(t.scheduledDate) : <Badge color="secondary">Sin fecha</Badge>}
+                        </td>
+                        <td className="text-center">
+                          {t.desk != null ? `Mesa ${t.desk}` : <Badge color="warning">Sin mesa</Badge>}
+                        </td>
+                        <td className="text-center">
+                          {late == null ? <span className="text-muted">—</span>
+                            : late === 0 ? <span className="text-muted">Hoy</span>
+                            : <Badge color="danger">{late} día{late === 1 ? "" : "s"}</Badge>}
+                        </td>
+                        <td className="text-center">
+                          {t.dieCutReady
+                            ? <Badge color="success">Listo</Badge>
+                            : <Badge color="light" className="text-dark">Pendiente</Badge>}
+                        </td>
+                        <td className="text-right">
+                          <Button size="sm" color="primary" outline onClick={() => openReprogram(t)}>
+                            Reprogramar
+                          </Button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </Table>
+            )}
+          </>
         )}
       </CardBody>
 
