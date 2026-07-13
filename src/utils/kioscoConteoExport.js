@@ -62,14 +62,28 @@ const escape = (v) =>
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
 
-function colLayout(showKardex) {
+function colLayout(showKardex, includeVitrines = true) {
   const kardexCount = showKardex ? KARDEX_HEADERS.length : 0;
   const kardexStart = PRODUCT_COL_COUNT;
+  if (!includeVitrines) {
+    const colCount = PRODUCT_COL_COUNT + kardexCount;
+    return {
+      includeVitrines: false,
+      kardexCount,
+      kardexStart,
+      separatorCol: -1,
+      vitrineStart: colCount,
+      totalCol: -1,
+      diffCol: -1,
+      colCount,
+    };
+  }
   const separatorCol = kardexStart + kardexCount;
   const vitrineStart = separatorCol + 1;
   const totalCol = vitrineStart + COUNT_LOCATION_KEYS.length;
   const diffCol = totalCol + 1;
   return {
+    includeVitrines: true,
     kardexCount,
     kardexStart,
     separatorCol,
@@ -80,17 +94,24 @@ function colLayout(showKardex) {
   };
 }
 
-function buildHeaderRows(report) {
+function resolveExportOptions(report, options = {}) {
+  const showKardex = options.showKardex !== false;
+  const subcount = isSubcountReport(report);
+  const includeVitrines =
+    options.includeVitrines != null ? Boolean(options.includeVitrines) : !subcount;
+  return { showKardex, includeVitrines, subcount };
+}
+
+function buildHeaderRows(report, includeVitrines = true) {
   const subcount = isSubcountReport(report);
   const rows = [
-    [subcount ? "Subconteo — inventario sistema al corte" : "Conteo físico de inventario kiosco"],
+    [subcount ? "Inventario sistema al corte (sin vitrinas)" : "Conteo físico de inventario kiosco"],
     ["Kiosko", report.locationName || report.locationCode || "—"],
   ];
   if (subcount) {
-    rows.push(["Tipo", "Subconteo"]);
-    rows.push(["Corte sistema", report.asOfDate || "—"]);
+    rows.push(["Tipo", "Inventario a fecha"]);
+    rows.push(["Corte sistema (23:59)", report.asOfDate || "—"]);
     rows.push(["Kardex período", `${report.periodFrom || ""} a ${report.asOfDate || ""}`]);
-    rows.push(["Conteo físico", "Del conteo principal (mismas vitrinas)"]);
   }
   rows.push(
     ["Período sesión", `${report.periodFrom || ""} a ${report.periodTo || ""}`],
@@ -105,10 +126,10 @@ function buildHeaderRows(report) {
   return rows;
 }
 
-function buildTableHeaderCells(showKardex, report) {
+function buildTableHeaderCells(showKardex, report, includeVitrines = true) {
   const kardexHeaders = resolveKardexHeaders(report);
-  const { colCount } = colLayout(showKardex);
-  const cells = Array(colCount).fill("");
+  const layout = colLayout(showKardex, includeVitrines);
+  const cells = Array(layout.colCount).fill("");
   const productHeaders = ["Código", "Producto", "Color", "Talla"];
   productHeaders.forEach((label, index) => {
     cells[index] = label;
@@ -118,18 +139,20 @@ function buildTableHeaderCells(showKardex, report) {
       cells[PRODUCT_COL_COUNT + index] = col.label;
     });
   }
-  COUNT_LOCATION_KEYS.forEach((key, index) => {
-    cells[colLayout(showKardex).vitrineStart + index] = key;
-  });
-  const { totalCol, diffCol } = colLayout(showKardex);
-  cells[totalCol] = "Total físico";
-  cells[diffCol] = "Diferencia";
+  if (includeVitrines) {
+    COUNT_LOCATION_KEYS.forEach((key, index) => {
+      cells[layout.vitrineStart + index] = key;
+    });
+    cells[layout.totalCol] = "Total físico";
+    cells[layout.diffCol] = "Diferencia";
+  }
   return cells;
 }
 
-function buildDataRowCells(row, showKardex, report) {
+function buildDataRowCells(row, showKardex, report, includeVitrines = true) {
   const kardexHeaders = resolveKardexHeaders(report);
-  const { kardexStart, separatorCol, vitrineStart, totalCol, diffCol, colCount } = colLayout(showKardex);
+  const layout = colLayout(showKardex, includeVitrines);
+  const { kardexStart, separatorCol, vitrineStart, totalCol, diffCol, colCount } = layout;
   const cells = Array(colCount).fill("");
   cells[0] = row.productCode || "";
   cells[1] = row.productName || "";
@@ -140,20 +163,22 @@ function buildDataRowCells(row, showKardex, report) {
       cells[kardexStart + index] = row[col.key] ?? 0;
     });
   }
-  COUNT_LOCATION_KEYS.forEach((key, index) => {
-    cells[vitrineStart + index] = (row.counts || {})[key] ?? 0;
-  });
-  cells[totalCol] = row.total ?? 0;
-  cells[diffCol] = row.diferencia ?? 0;
-  cells[separatorCol] = "";
+  if (includeVitrines) {
+    COUNT_LOCATION_KEYS.forEach((key, index) => {
+      cells[vitrineStart + index] = (row.counts || {})[key] ?? 0;
+    });
+    cells[totalCol] = row.total ?? 0;
+    cells[diffCol] = row.diferencia ?? 0;
+    cells[separatorCol] = "";
+  }
   return cells;
 }
 
-function buildSubtotalCells(label, sub, showKardex, report) {
+function buildSubtotalCells(label, sub, showKardex, report, includeVitrines = true) {
   const cells = buildDataRowCells(
     {
-      productCode: label === "TOTAL GENERAL" ? label : "",
-      productName: label === "TOTAL GENERAL" ? "" : label,
+      productCode: label.startsWith("TOTAL") ? label : "",
+      productName: label.startsWith("TOTAL") ? "" : label,
       colorName: "",
       sizesSummary: "",
       counts: sub.counts,
@@ -162,9 +187,10 @@ function buildSubtotalCells(label, sub, showKardex, report) {
       ...sub,
     },
     showKardex,
-    report
+    report,
+    includeVitrines
   );
-  if (label === "TOTAL GENERAL") {
+  if (label.startsWith("TOTAL")) {
     cells[0] = label;
     cells[1] = "";
   } else {
@@ -176,40 +202,75 @@ function buildSubtotalCells(label, sub, showKardex, report) {
   return cells;
 }
 
-function buildSheetStructure(report, showKardex) {
-  const { colCount } = colLayout(showKardex);
+function ensureCategorySubtotals(report) {
+  const categories = (report.categories || []).map((cat) => {
+    if (cat.subtotal) return cat;
+    const rows = cat.rows || [];
+    return {
+      ...cat,
+      subtotal: {
+        inventarioInicial: rows.reduce((s, r) => s + Number(r.inventarioInicial || 0), 0),
+        comprasAjustes: rows.reduce((s, r) => s + Number(r.comprasAjustes || 0), 0),
+        anulacionCompras: rows.reduce((s, r) => s + Number(r.anulacionCompras || 0), 0),
+        entradas: rows.reduce((s, r) => s + Number(r.entradas || 0), 0),
+        ventas: rows.reduce((s, r) => s + Number(r.ventas || 0), 0),
+        anulacionVenta: rows.reduce((s, r) => s + Number(r.anulacionVenta || 0), 0),
+        salida: rows.reduce((s, r) => s + Number(r.salida || 0), 0),
+        inventarioFinal: rows.reduce((s, r) => s + Number(r.inventarioFinal || 0), 0),
+        counts: cat.subtotal?.counts,
+        total: rows.reduce((s, r) => s + Number(r.total || 0), 0),
+        diferencia: rows.reduce((s, r) => s + Number(r.diferencia || 0), 0),
+      },
+    };
+  });
+  return { ...report, categories };
+}
+
+function buildSheetStructure(report, showKardex, includeVitrines = true) {
+  const prepared = ensureCategorySubtotals(report);
+  const layout = colLayout(showKardex, includeVitrines);
+  const { colCount } = layout;
   const rows = [];
   const meta = [];
 
-  buildHeaderRows(report).forEach((row) => {
+  buildHeaderRows(prepared, includeVitrines).forEach((row) => {
     rows.push(row);
     meta.push({ type: "meta" });
   });
 
-  rows.push(buildTableHeaderCells(showKardex, report));
+  rows.push(buildTableHeaderCells(showKardex, prepared, includeVitrines));
   meta.push({ type: "main-header" });
 
-  (report.categories || []).forEach((cat) => {
+  (prepared.categories || []).forEach((cat) => {
     const titleRow = Array(colCount).fill("");
     titleRow[0] = cat.categoryName || "Sin categoría";
     rows.push(titleRow);
     meta.push({ type: "category-title" });
 
-    rows.push(buildTableHeaderCells(showKardex, report));
+    rows.push(buildTableHeaderCells(showKardex, prepared, includeVitrines));
     meta.push({ type: "category-headers" });
 
     (cat.rows || []).forEach((row, rowIndex) => {
-      rows.push(buildDataRowCells(row, showKardex, report));
+      rows.push(buildDataRowCells(row, showKardex, prepared, includeVitrines));
       meta.push({
         type: "data",
-        isAlert: Math.abs(row.diferencia ?? 0) >= DIFF_ALERT_THRESHOLD,
+        isAlert: includeVitrines && Math.abs(row.diferencia ?? 0) >= DIFF_ALERT_THRESHOLD,
         isZebra: rowIndex % 2 === 1,
         diferencia: row.diferencia ?? 0,
       });
     });
 
-    if (cat.subtotal) {
-      rows.push(buildSubtotalCells(formatConteoSubtotalLabel(cat.categoryName), cat.subtotal, showKardex, report));
+    const subtotal = cat.subtotal;
+    if (subtotal) {
+      rows.push(
+        buildSubtotalCells(
+          formatConteoSubtotalLabel(cat.categoryName),
+          subtotal,
+          showKardex,
+          prepared,
+          includeVitrines
+        )
+      );
       meta.push({ type: "subtotal" });
     }
 
@@ -217,12 +278,13 @@ function buildSheetStructure(report, showKardex) {
     meta.push({ type: "blank" });
   });
 
-  if (report.totalGeneral) {
-    rows.push(buildSubtotalCells("TOTAL GENERAL", report.totalGeneral, showKardex, report));
+  // Con vitrinas: TOTAL GENERAL global. Sin vitrinas (inventario a fecha): solo subtotales por categoría.
+  if (includeVitrines && prepared.totalGeneral) {
+    rows.push(buildSubtotalCells("TOTAL GENERAL", prepared.totalGeneral, showKardex, prepared, includeVitrines));
     meta.push({ type: "total-general" });
   }
 
-  return { rows, meta, layout: colLayout(showKardex) };
+  return { rows, meta, layout };
 }
 
 function ensureCell(ws, rowIdx, colIdx, value) {
@@ -245,19 +307,20 @@ function styleRowRange(ws, rowIdx, colCount, style) {
 }
 
 function isNumericCol(colIdx, layout) {
-  const { kardexStart, kardexCount, separatorCol, vitrineStart, totalCol, diffCol } = layout;
+  const { kardexStart, separatorCol, vitrineStart, diffCol, includeVitrines } = layout;
   if (colIdx < PRODUCT_COL_COUNT) return false;
-  if (colIdx === separatorCol) return false;
+  if (includeVitrines && colIdx === separatorCol) return false;
+  if (!includeVitrines) return colIdx >= kardexStart;
   if (colIdx >= kardexStart && colIdx < separatorCol) return true;
   if (colIdx >= vitrineStart && colIdx <= diffCol) return true;
   return false;
 }
 
 function borderWithSeparator(colIdx, layout, baseBorder = thinBorder) {
-  const { separatorCol, vitrineStart, kardexStart, kardexCount } = layout;
+  const { separatorCol, vitrineStart, kardexStart, kardexCount, includeVitrines } = layout;
   const lastKardexCol = kardexStart + kardexCount - 1;
   const border = { ...baseBorder };
-  if (colIdx === separatorCol) {
+  if (includeVitrines && colIdx === separatorCol) {
     return {
       ...border,
       left: thickBorderSide,
@@ -266,7 +329,7 @@ function borderWithSeparator(colIdx, layout, baseBorder = thinBorder) {
       bottom: border.bottom,
     };
   }
-  if (colIdx === vitrineStart) {
+  if (includeVitrines && colIdx === vitrineStart) {
     return { ...border, left: thickBorderSide };
   }
   if (kardexCount > 0 && colIdx === lastKardexCol) {
@@ -279,26 +342,26 @@ function borderWithSeparator(colIdx, layout, baseBorder = thinBorder) {
 }
 
 function applySheetLayout(ws, layout, merges) {
-  const { colCount, separatorCol, vitrineStart } = layout;
+  const { colCount, separatorCol, vitrineStart, includeVitrines } = layout;
   ws["!merges"] = merges;
   ws["!cols"] = Array.from({ length: colCount }, (_, colIdx) => {
-    if (colIdx === separatorCol) return { wch: 2 };
+    if (includeVitrines && colIdx === separatorCol) return { wch: 2 };
     if (colIdx === 1) return { wch: 28 };
-    if (colIdx >= vitrineStart && colIdx < layout.totalCol) return { wch: 6 };
-    if (colIdx >= PRODUCT_COL_COUNT && colIdx < separatorCol) return { wch: 9 };
-    if (colIdx === layout.totalCol || colIdx === layout.diffCol) return { wch: 10 };
+    if (includeVitrines && colIdx >= vitrineStart && colIdx < layout.totalCol) return { wch: 6 };
+    if (colIdx >= PRODUCT_COL_COUNT && (!includeVitrines || colIdx < separatorCol)) return { wch: 9 };
+    if (includeVitrines && (colIdx === layout.totalCol || colIdx === layout.diffCol)) return { wch: 10 };
     return { wch: 14 };
   });
 }
 
 function styleHeaderRow(ws, rowIdx, layout, { vitrineHighlight = false } = {}) {
-  const { colCount, separatorCol, vitrineStart, diffCol } = layout;
+  const { colCount, separatorCol, vitrineStart, diffCol, includeVitrines } = layout;
   for (let colIdx = 0; colIdx < colCount; colIdx += 1) {
     let fill = COLORS.tableHeaderBg;
-    if (vitrineHighlight && colIdx >= vitrineStart && colIdx <= diffCol) {
+    if (includeVitrines && vitrineHighlight && colIdx >= vitrineStart && colIdx <= diffCol) {
       fill = COLORS.vitrineHeaderBg;
     }
-    if (colIdx === separatorCol) {
+    if (includeVitrines && colIdx === separatorCol) {
       fill = COLORS.separatorBg;
     }
     styleCell(ws, rowIdx, colIdx, {
@@ -310,11 +373,11 @@ function styleHeaderRow(ws, rowIdx, layout, { vitrineHighlight = false } = {}) {
   }
 }
 
-function applyConteoSheetStyles(ws, report, showKardex) {
-  const { rows, meta, layout } = buildSheetStructure(report, showKardex);
-  const { colCount, separatorCol, vitrineStart, diffCol } = layout;
-  const headerOffset = buildHeaderRows(report).length;
-  const merges = [{ s: { r: 0, c: 0 }, e: { r: 0, c: colCount - 1 } }];
+function applyConteoSheetStyles(ws, report, showKardex, includeVitrines = true) {
+  const { rows, meta, layout } = buildSheetStructure(report, showKardex, includeVitrines);
+  const { colCount, separatorCol, diffCol, includeVitrines: withVitrines } = layout;
+  const headerOffset = buildHeaderRows(report, includeVitrines).length;
+  const merges = [{ s: { r: 0, c: 0 }, e: { r: 0, c: Math.max(colCount - 1, 0) } }];
 
   applySheetLayout(ws, layout, merges);
 
@@ -344,7 +407,7 @@ function applyConteoSheetStyles(ws, report, showKardex) {
   meta.slice(headerOffset).forEach((entry, offset) => {
     const currentRow = headerOffset + offset;
     if (entry.type === "main-header") {
-      styleHeaderRow(ws, currentRow, layout, { vitrineHighlight: true });
+      styleHeaderRow(ws, currentRow, layout, { vitrineHighlight: withVitrines });
       return;
     }
     if (entry.type === "category-title") {
@@ -358,7 +421,7 @@ function applyConteoSheetStyles(ws, report, showKardex) {
       return;
     }
     if (entry.type === "category-headers") {
-      styleHeaderRow(ws, currentRow, layout, { vitrineHighlight: true });
+      styleHeaderRow(ws, currentRow, layout, { vitrineHighlight: withVitrines });
       return;
     }
     if (entry.type === "data") {
@@ -367,13 +430,13 @@ function applyConteoSheetStyles(ws, report, showKardex) {
       for (let colIdx = 0; colIdx < colCount; colIdx += 1) {
         const isNumeric = isNumericCol(colIdx, layout);
         let fill = rowFill;
-        if (colIdx === separatorCol) fill = COLORS.separatorBg;
+        if (withVitrines && colIdx === separatorCol) fill = COLORS.separatorBg;
         styleCell(ws, currentRow, colIdx, {
           font: {
             name: "Arial",
             sz: 10,
-            bold: colIdx === diffCol,
-            color: { rgb: colIdx === diffCol ? diffColor : "111827" },
+            bold: withVitrines && colIdx === diffCol,
+            color: { rgb: withVitrines && colIdx === diffCol ? diffColor : "111827" },
           },
           alignment: {
             vertical: "center",
@@ -390,7 +453,7 @@ function applyConteoSheetStyles(ws, report, showKardex) {
       for (let colIdx = 0; colIdx < colCount; colIdx += 1) {
         const isNumeric = isNumericCol(colIdx, layout);
         let fill = COLORS.subtotalBg;
-        if (colIdx === separatorCol) fill = COLORS.separatorBg;
+        if (withVitrines && colIdx === separatorCol) fill = COLORS.separatorBg;
         styleCell(ws, currentRow, colIdx, {
           font: { name: "Arial", sz: 10, bold: true, color: { rgb: "111827" } },
           alignment: {
@@ -431,54 +494,64 @@ function applyConteoSheetStyles(ws, report, showKardex) {
   ws["!merges"] = merges;
 }
 
-export function exportConteoToExcel(report, { showKardex = true } = {}) {
-  const { rows } = buildSheetStructure(report, showKardex);
+export function exportConteoToExcel(report, options = {}) {
+  const { showKardex, includeVitrines } = resolveExportOptions(report, options);
+  const prepared = ensureCategorySubtotals(report);
+  const { rows } = buildSheetStructure(prepared, showKardex, includeVitrines);
   const ws = XLSX.utils.aoa_to_sheet(rows);
-  applyConteoSheetStyles(ws, report, showKardex);
+  applyConteoSheetStyles(ws, prepared, showKardex, includeVitrines);
 
   const wb = XLSX.utils.book_new();
-  const sheetName = isSubcountReport(report) ? "Subconteo" : "Conteo físico";
+  const sheetName = isSubcountReport(prepared)
+    ? "Inventario al corte"
+    : "Conteo físico";
   XLSX.utils.book_append_sheet(wb, ws, sheetName);
 
-  const loc = report.locationCode || "kiosko";
-  const suffix = isSubcountReport(report)
-    ? `Subconteo_${loc}_${report.asOfDate || ""}`
-    : `${loc}_${report.periodFrom || ""}_${report.periodTo || ""}`;
+  const loc = prepared.locationCode || "kiosko";
+  const suffix = isSubcountReport(prepared)
+    ? `Inventario_${loc}_${prepared.asOfDate || ""}`
+    : `${loc}_${prepared.periodFrom || ""}_${prepared.periodTo || ""}`;
   XLSX.writeFile(wb, `Conteo_Fisico_${suffix}.xlsx`);
 }
 
-export function exportConteoToPdf(report, { showKardex = true } = {}) {
+export function exportConteoToPdf(report, options = {}) {
   const win = window.open("", "_blank");
   if (!win) return;
 
-  const subcount = isSubcountReport(report);
+  const { showKardex, includeVitrines, subcount } = resolveExportOptions(report, options);
+  const prepared = ensureCategorySubtotals(report);
   const headerMeta = `
     <div class="meta-grid">
-      <div><span>Kiosko</span><strong>${escape(report.locationName || report.locationCode || "—")}</strong></div>
-      ${subcount ? `<div><span>Tipo</span><strong>Subconteo</strong></div>` : ""}
-      ${subcount ? `<div><span>Corte sistema</span><strong>${escape(report.asOfDate || "—")}</strong></div>` : ""}
-      <div><span>Período sesión</span><strong>${escape(report.periodFrom || "")} – ${escape(report.periodTo || "")}</strong></div>
-      ${subcount ? `<div class="full"><span>Conteo físico</span><strong>Del conteo principal (mismas vitrinas)</strong></div>` : ""}
-      <div><span>Estado</span><strong>${escape(report.status || "—")}</strong></div>
-      <div><span>Generado por</span><strong>${escape(report.generatedByName || "—")}</strong></div>
-      <div><span>Revisado por</span><strong>${escape(report.reviewedByName || "Pendiente")}</strong></div>
-      ${report.notes ? `<div class="full"><span>Notas</span><strong>${escape(report.notes)}</strong></div>` : ""}
+      <div><span>Kiosko</span><strong>${escape(prepared.locationName || prepared.locationCode || "—")}</strong></div>
+      ${subcount ? `<div><span>Tipo</span><strong>Inventario a fecha</strong></div>` : ""}
+      ${subcount ? `<div><span>Corte sistema (23:59)</span><strong>${escape(prepared.asOfDate || "—")}</strong></div>` : ""}
+      <div><span>Período sesión</span><strong>${escape(prepared.periodFrom || "")} – ${escape(prepared.periodTo || "")}</strong></div>
+      <div><span>Estado</span><strong>${escape(prepared.status || "—")}</strong></div>
+      <div><span>Generado por</span><strong>${escape(prepared.generatedByName || "—")}</strong></div>
+      <div><span>Revisado por</span><strong>${escape(prepared.reviewedByName || "Pendiente")}</strong></div>
+      ${prepared.notes ? `<div class="full"><span>Notas</span><strong>${escape(prepared.notes)}</strong></div>` : ""}
     </div>
   `;
 
-  const kardexHeaderList = resolveKardexHeaders(report);
+  const kardexHeaderList = resolveKardexHeaders(prepared);
   const kardexHeaders = showKardex
     ? kardexHeaderList.map((col) => `<th>${escape(col.label)}</th>`).join("")
     : "";
-  const countHeaders = COUNT_LOCATION_KEYS.map((k) => `<th>${escape(k)}</th>`).join("");
-  const colSpan = 4 + (showKardex ? kardexHeaderList.length : 0) + COUNT_LOCATION_KEYS.length + 2;
+  const countHeaders = includeVitrines
+    ? COUNT_LOCATION_KEYS.map((k) => `<th>${escape(k)}</th>`).join("")
+    : "";
+  const trailingHeaders = includeVitrines ? "<th>Total</th><th>Dif.</th>" : "";
+  const colSpan =
+    4
+    + (showKardex ? kardexHeaderList.length : 0)
+    + (includeVitrines ? COUNT_LOCATION_KEYS.length + 2 : 0);
 
   const theadHtml = `
     <tr>
       <th>Código</th><th>Producto</th><th>Color</th><th>Talla</th>
       ${kardexHeaders}
       ${countHeaders}
-      <th>Total</th><th>Dif.</th>
+      ${trailingHeaders}
     </tr>
   `;
 
@@ -486,9 +559,15 @@ export function exportConteoToPdf(report, { showKardex = true } = {}) {
     const kardexCells = showKardex
       ? kardexHeaderList.map((col) => `<td class="num">${row[col.key] ?? 0}</td>`).join("")
       : "";
-    const counts = COUNT_LOCATION_KEYS.map((k) => `<td class="num">${(row.counts || {})[k] ?? 0}</td>`).join("");
-    const difClass = (row.diferencia ?? 0) !== 0 ? "dif-bad" : "dif-ok";
-    const alertClass = Math.abs(row.diferencia ?? 0) >= DIFF_ALERT_THRESHOLD ? "alert-row" : "";
+    const counts = includeVitrines
+      ? COUNT_LOCATION_KEYS.map((k) => `<td class="num">${(row.counts || {})[k] ?? 0}</td>`).join("")
+      : "";
+    const trailing = includeVitrines
+      ? `<td class="num bold">${row.total ?? 0}</td>
+         <td class="num bold ${(row.diferencia ?? 0) !== 0 ? "dif-bad" : "dif-ok"}">${row.diferencia ?? 0}</td>`
+      : "";
+    const alertClass =
+      includeVitrines && Math.abs(row.diferencia ?? 0) >= DIFF_ALERT_THRESHOLD ? "alert-row" : "";
     return `<tr class="${alertClass}" style="${escape(style)}">
       <td>${escape(row.productCode || "")}</td>
       <td>${escape(row.productName || "")}</td>
@@ -496,27 +575,34 @@ export function exportConteoToPdf(report, { showKardex = true } = {}) {
       <td>${escape(row.sizeLabel || row.sizesSummary || "")}</td>
       ${kardexCells}
       ${counts}
-      <td class="num bold">${row.total ?? 0}</td>
-      <td class="num bold ${difClass}">${row.diferencia ?? 0}</td>
+      ${trailing}
     </tr>`;
   };
 
   let tbodyHtml = "";
-  (report.categories || []).forEach((cat) => {
+  (prepared.categories || []).forEach((cat) => {
     tbodyHtml += `<tr class="cat-header"><td colspan="${colSpan}">${escape(cat.categoryName || "Sin categoría")}</td></tr>`;
     (cat.rows || []).forEach((row) => {
       tbodyHtml += renderRow(row);
     });
     if (cat.subtotal) {
       tbodyHtml += renderRow(
-        { ...cat.subtotal, productCode: "", productName: formatConteoSubtotalLabel(cat.categoryName), colorName: "", sizesSummary: "" },
+        {
+          ...cat.subtotal,
+          productCode: "",
+          productName: formatConteoSubtotalLabel(cat.categoryName),
+          colorName: "",
+          sizesSummary: "",
+        },
         "font-weight:600;background:#f9fafb"
       );
     }
   });
 
-  const tg = report.totalGeneral;
-  const tfootHtml = tg ? `<tfoot>
+  const tg = prepared.totalGeneral;
+  const tfootHtml =
+    includeVitrines && tg
+      ? `<tfoot>
     <tr class="total-general">
       <td colspan="4">TOTAL GENERAL</td>
       ${showKardex ? kardexHeaderList.map((col) => `<td class="num">${tg[col.key] ?? 0}</td>`).join("") : ""}
@@ -524,11 +610,12 @@ export function exportConteoToPdf(report, { showKardex = true } = {}) {
       <td class="num bold">${tg.total ?? 0}</td>
       <td class="num bold ${(tg.diferencia ?? 0) !== 0 ? "dif-bad" : "dif-ok"}">${tg.diferencia ?? 0}</td>
     </tr>
-  </tfoot>` : "";
+  </tfoot>`
+      : "";
 
   win.document.write(`<!doctype html><html><head>
     <meta charset="utf-8"/>
-    <title>Conteo Físico — ${escape(report.locationName || "")}</title>
+    <title>${subcount ? "Inventario al corte" : "Conteo Físico"} — ${escape(prepared.locationName || "")}</title>
     <style>
       body { font-family: Arial, sans-serif; font-size: 11px; margin: 12px; color: #111; }
       h1 { font-size: 15px; margin: 0 0 8px; }
@@ -548,7 +635,7 @@ export function exportConteoToPdf(report, { showKardex = true } = {}) {
       @media print { body { margin: 6mm; } }
     </style>
   </head><body>
-    <h1>${subcount ? "Subconteo — inventario sistema al corte" : "Conteo Físico de Inventario"} — ${escape(report.locationName || report.locationCode || "")}</h1>
+    <h1>${subcount ? "Inventario sistema al corte (sin vitrinas)" : "Conteo Físico de Inventario"} — ${escape(prepared.locationName || prepared.locationCode || "")}</h1>
     ${headerMeta}
     <table>
       <thead>${theadHtml}</thead>

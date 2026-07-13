@@ -573,16 +573,16 @@ function KioskInventoryCountReport({ locationId }) {
         showError("No hay datos para exportar al corte.");
         return;
       }
-      const payload = {
+      const payload = buildConteoDisplayReport({
         ...data,
         reportType: data.reportType || "SUBCONTEO",
         asOfDate: data.asOfDate || subcountAsOf,
-      };
+      });
       if (format === "pdf") {
-        exportConteoToPdf(payload, { showKardex: true });
+        exportConteoToPdf(payload, { showKardex: true, includeVitrines: false });
         showSuccess(`PDF inventario al cierre del ${fmt(subcountAsOf)} listo.`);
       } else {
-        exportConteoToExcel(payload, { showKardex: true });
+        exportConteoToExcel(payload, { showKardex: true, includeVitrines: false });
         showSuccess(`Excel inventario al cierre del ${fmt(subcountAsOf)} descargado.`);
       }
     } catch (err) {
