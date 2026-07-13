@@ -110,7 +110,7 @@ function OrganizerItemRow({ order, item, inDraft, onAdd }) {
 }
 
 /**
- * Buscador de OPs con ítems pendientes (cantidad restante sin tarea).
+ * Buscador de OPs activas (con o sin cantidad restante).
  * Filtro OPL / Regulares / Todas + búsqueda por código o cliente.
  */
 export default function OrganizerOrderBrowser({
@@ -175,19 +175,25 @@ export default function OrganizerOrderBrowser({
             </Button>
           </Col>
           <Col className="text-right text-muted">
-            <small>{orders.length} órdenes con productos pendientes</small>
+            <small>
+              {orders.length} orden{orders.length === 1 ? "" : "es"}
+              {orders.some((o) => (o.items || []).some((i) => (i.remainingQuantity || 0) > 0))
+                ? ` · ${(orders.reduce((n, o) => n + (o.items || []).filter((i) => (i.remainingQuantity || 0) > 0).length, 0))} con restante`
+                : ""}
+            </small>
           </Col>
         </Row>
       </CardHeader>
       <CardBody style={{ maxHeight: "65vh", overflowY: "auto" }}>
         {orders.length === 0 && !loading && (
           <div className="text-muted text-center py-4">
-            No hay órdenes con productos pendientes de tarea para este filtro.
+            No hay órdenes activas para este filtro.
           </div>
         )}
         {orders.map((order) => {
           const expanded = expandedId === order.id;
-          const pendingCount = (order.items || []).length;
+          const itemCount = (order.items || []).length;
+          const remainingCount = (order.items || []).filter((i) => (i.remainingQuantity || 0) > 0).length;
           return (
             <div
               key={order.id}
@@ -211,7 +217,12 @@ export default function OrganizerOrderBrowser({
                   <span className="text-muted mr-2">{order.customerName}</span>
                 )}
                 <Badge color="light" className="text-dark mr-2">
-                  {pendingCount} producto{pendingCount === 1 ? "" : "s"} pendiente{pendingCount === 1 ? "" : "s"}
+                  {itemCount} producto{itemCount === 1 ? "" : "s"}
+                </Badge>
+                <Badge color={remainingCount > 0 ? "warning" : "secondary"} className="mr-2">
+                  {remainingCount > 0
+                    ? `${remainingCount} con restante`
+                    : "Sin restante (ya en tareas)"}
                 </Badge>
                 {order.deliveryDate && (
                   <small className="text-muted">Entrega: {formatDateGt(order.deliveryDate)}</small>

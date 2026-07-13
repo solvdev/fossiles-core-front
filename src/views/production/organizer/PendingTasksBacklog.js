@@ -98,8 +98,8 @@ function ColorCell({ label }) {
 }
 
 /**
- * Tareas PENDING que quedaron de días anteriores (fecha pasada o sin fecha,
- * con o sin mesa). Permite reprogramarlas a la fecha/mesa que se elija.
+ * Tareas PENDING atrasadas, sin fecha, o sin mesa (aunque la fecha sea hoy).
+ * Permite reprogramarlas a la fecha/mesa que se elija.
  */
 export default function PendingTasksBacklog({ backlog, loading, numDesks, onReload, onRescheduled }) {
   const [modal, setModal] = useState({ open: false, task: null, date: getTodayYmdGuatemala(), desk: "" });
@@ -168,7 +168,7 @@ export default function PendingTasksBacklog({ backlog, loading, numDesks, onRelo
         <div>
           <CardTitle tag="h5" className="mb-0">Tareas pendientes de días anteriores</CardTitle>
           <small className="text-muted">
-            PENDING con fecha vencida o sin fecha (con o sin mesa). Tómalas y asígnalas cuando quieras.
+            PENDING atrasadas, sin fecha, o sin mesa. Tómalas y asígnalas cuando quieras.
           </small>
         </div>
         <Button size="sm" color="info" outline onClick={onReload} disabled={loading}>
@@ -178,7 +178,7 @@ export default function PendingTasksBacklog({ backlog, loading, numDesks, onRelo
       <CardBody>
         {backlog.length === 0 && !loading ? (
           <div className="text-muted text-center py-4">
-            No hay tareas atrasadas ni sin fecha. Todo al día. ✔
+            No hay tareas atrasadas, sin fecha ni sin mesa. Todo al día. ✔
           </div>
         ) : (
           <>
