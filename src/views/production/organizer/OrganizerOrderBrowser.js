@@ -39,12 +39,21 @@ function formatSizes(sizes) {
   return Object.entries(sizes).map(([k, v]) => `${k}:${v}`).join(", ");
 }
 
+function formatAssignmentLine(a) {
+  const mesa = a.desk != null ? `Mesa ${a.desk}` : "Sin mesa";
+  const day = a.scheduledDate ? formatDateGt(a.scheduledDate) : "Sin día";
+  const qty = a.quantity != null ? ` · ${a.quantity} u` : "";
+  const code = a.taskCode ? ` · ${a.taskCode}` : "";
+  return `${mesa} · ${day}${qty}${code}`;
+}
+
 /** Fila de ítem con input de cantidad parcial y botón Agregar. */
 function OrganizerItemRow({ order, item, inDraft, onAdd }) {
   const [qty, setQty] = useState(item.remainingQuantity);
   const [extra, setExtra] = useState(false);
   const minutesPerUnit = Math.round((item.prdTimePerUnit || 0.1) * 60);
   const sizesText = formatSizes(item.sizes);
+  const assignments = item.assignments || [];
 
   return (
     <tr>
@@ -53,6 +62,18 @@ function OrganizerItemRow({ order, item, inDraft, onAdd }) {
         {item.colorName && <span className="text-muted"> · {item.colorName}</span>}
         {sizesText && (
           <div className="text-muted" style={{ fontSize: 11 }}>Tallas OP: {sizesText}</div>
+        )}
+        {assignments.length > 0 && (
+          <div style={{ fontSize: 11, marginTop: 4 }}>
+            {assignments.map((a, idx) => (
+              <div
+                key={a.taskId != null ? a.taskId : idx}
+                className="text-muted"
+              >
+                {formatAssignmentLine(a)}
+              </div>
+            ))}
+          </div>
         )}
       </td>
       <td className="text-center">{item.totalQuantity}</td>
