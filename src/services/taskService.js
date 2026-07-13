@@ -350,9 +350,15 @@ export const getBacklogTasks = async () => {
   return response.json();
 };
 
-/** "Limpiar mesas": libera mesa y fecha de todas las tareas PENDING (no toca en progreso/completadas). */
-export const clearAllDesks = async () => {
-  const response = await fetch(`${API_URL}/tasks/organizer/clear-desks`, {
+/**
+ * Libera mesa (y fecha) de tareas PENDING para reorganizar (no toca en progreso/completadas).
+ * @param {string} [date] YYYY-MM-DD — si se indica, "reinicia el día": solo libera mesa de
+ *   las PENDING programadas ese día (conserva su fecha). Sin fecha: reset completo (mesa+fecha
+ *   de TODAS las PENDING).
+ */
+export const clearAllDesks = async (date) => {
+  const query = date ? `?date=${encodeURIComponent(date)}` : '';
+  const response = await fetch(`${API_URL}/tasks/organizer/clear-desks${query}`, {
     method: 'POST',
     headers: headers()
   });

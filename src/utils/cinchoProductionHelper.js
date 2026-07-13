@@ -49,10 +49,15 @@ export function productNameContainsPulsera(name) {
   return normalizeForCinchoNameSearch(name).includes("pulsera");
 }
 
-/** Líneas del cuadro mesa cinchos: cinchos + pulseras. */
+/**
+ * Líneas del cuadro mesa cinchos para ENRUTAR PRODUCCIÓN (mesa cinchos vs. tarea normal):
+ * solo por nombre (cincho/pulsera). A diferencia de `isCinchoInventoryProductByCodeAndName`,
+ * NO usa el prefijo de código FOSS — ese prefijo es de marca/catálogo general y no implica
+ * por sí solo que el producto sea un cincho; usarlo aquí dejaba productos regulares con
+ * código FOSS-... fuera del Organizador de Tareas. No reemplaza el uso de FOSS en inventario.
+ */
 export function isMesaCinchosLineProduct(productCode, productName) {
-  return isCinchoInventoryProductByCodeAndName(productCode, productName)
-    || productNameContainsPulsera(productName);
+  return productNameContainsCincho(productName) || productNameContainsPulsera(productName);
 }
 
 /** OP con líneas cargadas: todas son cincho (p. ej. OPL solo cinchos) — no hay trabajo para el centro estándar. */

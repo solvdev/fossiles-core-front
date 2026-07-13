@@ -4,6 +4,7 @@ import {
   Row, Col, Card, CardBody, Nav, NavItem, NavLink, TabContent, TabPane, Badge, Button,
 } from "reactstrap";
 import classnames from "classnames";
+import { formatDateGt } from "utils/dateTimeHelper";
 import useTaskOrganizer from "./organizer/useTaskOrganizer";
 import OrganizerOrderBrowser from "./organizer/OrganizerOrderBrowser";
 import DraftTaskPanel from "./organizer/DraftTaskPanel";
@@ -127,7 +128,23 @@ export default function TaskOrganizer() {
         <TabPane tabId="board">
           <Card>
             <CardBody>
-              <div className="d-flex justify-content-end mb-2">
+              <div className="d-flex justify-content-end mb-2" style={{ gap: 8 }}>
+                <Button
+                  size="sm"
+                  color="warning"
+                  outline
+                  disabled={org.clearingDesks}
+                  onClick={() => {
+                    if (window.confirm(
+                      `Esto quita la mesa (conserva la fecha) de las tareas pendientes programadas el ${formatDateGt(org.boardDate)}. ` +
+                      "No toca tareas en progreso/completadas ni otras fechas. ¿Continuar?"
+                    )) {
+                      org.clearAllDesksAction(org.boardDate);
+                    }
+                  }}
+                >
+                  {org.clearingDesks ? "Reiniciando…" : `Reiniciar tareas del ${formatDateGt(org.boardDate)}`}
+                </Button>
                 <Button
                   size="sm"
                   color="danger"
@@ -142,7 +159,7 @@ export default function TaskOrganizer() {
                     }
                   }}
                 >
-                  {org.clearingDesks ? "Limpiando…" : "Limpiar mesas"}
+                  {org.clearingDesks ? "Limpiando…" : "Limpiar todas las mesas"}
                 </Button>
               </div>
               <RedistributeBoard
@@ -155,8 +172,9 @@ export default function TaskOrganizer() {
                   <>
                     <strong>Tablero de mesas</strong>: las tareas creadas sin mesa aparecen en
                     “Sin asignar”. Arrastra cada producto a la mesa donde se trabajará en la fecha elegida
-                    (solo días hábiles). Usa <strong>Limpiar mesas</strong> para liberar todas las asignaciones
-                    pendientes y reorganizar desde cero.
+                    (solo días hábiles). Usa <strong>Reiniciar tareas del día</strong> para liberar solo las
+                    mesas del día que estás viendo, o <strong>Limpiar todas las mesas</strong> para un reset
+                    completo de todas las tareas pendientes.
                   </>
                 }
               />

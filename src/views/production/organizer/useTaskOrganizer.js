@@ -76,11 +76,15 @@ export default function useTaskOrganizer() {
     }
   }, []);
 
-  /** "Limpiar mesas": libera mesa/fecha de todas las PENDING para reorganizar desde cero. */
-  const clearAllDesksAction = useCallback(async () => {
+  /**
+   * Libera mesas para reorganizar.
+   * @param {string} [date] si se indica, solo libera mesa de las tareas PENDING de ese
+   *   día (conserva su fecha); sin fecha, reset completo (mesa+fecha de todas las PENDING).
+   */
+  const clearAllDesksAction = useCallback(async (date) => {
     setClearingDesks(true);
     try {
-      const result = await clearAllDesks();
+      const result = await clearAllDesks(date);
       showSuccess(result?.message || "Mesas liberadas.");
       await Promise.all([loadTasks(), loadBacklog()]);
     } catch (err) {
