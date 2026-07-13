@@ -127,6 +127,24 @@ export default function TaskOrganizer() {
         <TabPane tabId="board">
           <Card>
             <CardBody>
+              <div className="d-flex justify-content-end mb-2">
+                <Button
+                  size="sm"
+                  color="danger"
+                  outline
+                  disabled={org.clearingDesks}
+                  onClick={() => {
+                    if (window.confirm(
+                      "Esto quita la mesa y la fecha de TODAS las tareas pendientes (no toca las que ya están en progreso o completadas). " +
+                      "Podrás volver a asignarlas desde cero. ¿Continuar?"
+                    )) {
+                      org.clearAllDesksAction();
+                    }
+                  }}
+                >
+                  {org.clearingDesks ? "Limpiando…" : "Limpiar mesas"}
+                </Button>
+              </div>
               <RedistributeBoard
                 tasks={org.tasks}
                 numDesks={org.numDesks}
@@ -136,7 +154,9 @@ export default function TaskOrganizer() {
                 introText={
                   <>
                     <strong>Tablero de mesas</strong>: las tareas creadas sin mesa aparecen en
-                    “Sin asignar”. Arrastra cada producto a la mesa donde se trabajará en la fecha elegida.
+                    “Sin asignar”. Arrastra cada producto a la mesa donde se trabajará en la fecha elegida
+                    (solo días hábiles). Usa <strong>Limpiar mesas</strong> para liberar todas las asignaciones
+                    pendientes y reorganizar desde cero.
                   </>
                 }
               />

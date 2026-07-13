@@ -4,7 +4,7 @@ import {
   Modal, ModalHeader, ModalBody, ModalFooter, FormGroup, Label, Input, Row, Col,
 } from "reactstrap";
 import { scheduleTask } from "services/taskService";
-import { formatDateGt, getTodayYmdGuatemala } from "utils/dateTimeHelper";
+import { formatDateGt, getTodayYmdGuatemala, isWeekendYmd } from "utils/dateTimeHelper";
 import { showSuccess, showError } from "utils/notificationHelper";
 import { getTaskBaseHours } from "utils/taskHoursHelper";
 
@@ -142,6 +142,10 @@ export default function PendingTasksBacklog({ backlog, loading, numDesks, onRelo
       showError("Seleccione la fecha.");
       return;
     }
+    if (isWeekendYmd(date)) {
+      showError("Solo se trabaja de lunes a viernes: elige una fecha entre semana.");
+      return;
+    }
     setSaving(true);
     try {
       await scheduleTask(task.id, {
@@ -152,7 +156,6 @@ export default function PendingTasksBacklog({ backlog, loading, numDesks, onRelo
       setModal({ open: false, task: null, date: getTodayYmdGuatemala(), desk: "" });
       if (onRescheduled) await onRescheduled();
     } catch (err) {
-      // El backend bloquea asignar mesa si falta troquelado — mostrar el mensaje tal cual.
       showError(err.message);
     } finally {
       setSaving(false);
@@ -291,7 +294,14 @@ export default function PendingTasksBacklog({ backlog, loading, numDesks, onRelo
                 <Input
                   type="date"
                   value={modal.date}
-                  onChange={(e) => setModal((m) => ({ ...m, date: e.target.value }))}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    if (isWeekendYmd(v)) {
+                      showError("Solo se trabaja de lunes a viernes: elige una fecha entre semana.");
+                      return;
+                    }
+                    setModal((m) => ({ ...m, date: v }));
+                  }}
                 />
               </FormGroup>
             </Col>
@@ -311,11 +321,6 @@ export default function PendingTasksBacklog({ backlog, loading, numDesks, onRelo
               </FormGroup>
             </Col>
           </Row>
-          {!modal.task?.dieCutReady && modal.desk && (
-            <div className="text-warning" style={{ fontSize: 12 }}>
-              Esta tarea aún no tiene troquelado listo: el sistema puede rechazar la asignación de mesa.
-            </div>
-          )}
         </ModalBody>
         <ModalFooter>
           <Button color="secondary" outline onClick={() => setModal((m) => ({ ...m, open: false }))} disabled={saving}>

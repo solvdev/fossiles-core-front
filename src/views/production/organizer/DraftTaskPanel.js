@@ -4,6 +4,8 @@ import {
   Input, FormGroup, Label, Row, Col,
 } from "reactstrap";
 import { MAX_HOURS_PER_DESK } from "utils/taskHoursHelper";
+import { isWeekendYmd } from "utils/dateTimeHelper";
+import { showError } from "utils/notificationHelper";
 
 function hoursLabel(hours) {
   const minutes = Math.round((hours || 0) * 60);
@@ -146,7 +148,14 @@ export default function DraftTaskPanel({
                 type="date"
                 bsSize="sm"
                 value={scheduledDate}
-                onChange={(e) => setScheduledDate(e.target.value)}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  if (isWeekendYmd(v)) {
+                    showError("Solo se trabaja de lunes a viernes: elige una fecha entre semana.");
+                    return;
+                  }
+                  setScheduledDate(v);
+                }}
               />
             </FormGroup>
           </Col>

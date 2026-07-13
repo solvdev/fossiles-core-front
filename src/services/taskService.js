@@ -350,3 +350,16 @@ export const getBacklogTasks = async () => {
   return response.json();
 };
 
+/** "Limpiar mesas": libera mesa y fecha de todas las tareas PENDING (no toca en progreso/completadas). */
+export const clearAllDesks = async () => {
+  const response = await fetch(`${API_URL}/tasks/organizer/clear-desks`, {
+    method: 'POST',
+    headers: headers()
+  });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ message: 'Error al limpiar mesas' }));
+    throw new Error(err.message || 'Error al limpiar mesas');
+  }
+  return response.json();
+};
+

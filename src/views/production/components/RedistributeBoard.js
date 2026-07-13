@@ -1,6 +1,8 @@
 import React, { useState, useMemo, useCallback } from "react";
 import { DndContext, DragOverlay, useDraggable, useDroppable, PointerSensor, useSensor, useSensors } from "@dnd-kit/core";
 import { Row, Col, Badge, Input, Label, FormGroup, Alert } from "reactstrap";
+import { isWeekendYmd } from "utils/dateTimeHelper";
+import { showError } from "utils/notificationHelper";
 
 /**
  * Tablero de mesas con drag & drop (extraído de TasksByTable para compartirlo
@@ -142,6 +144,10 @@ export default function RedistributeBoard({
     const targetDesk = to.startsWith("desk-") ? Number(to.slice(5)) : null;
     // Sin mesa: igual mantener la fecha del tablero para que los ítems queden en "Sin asignar" de ese día.
     const targetDate = date || null;
+    if (targetDesk && isWeekendYmd(targetDate)) {
+      showError("Solo se trabaja de lunes a viernes: elige una fecha entre semana antes de asignar mesa.");
+      return;
+    }
     await onMove({ taskItemId, targetDesk, targetDate });
   }, [date, findContainerForTaskItem, onMove]);
 

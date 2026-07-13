@@ -106,6 +106,15 @@ export const shiftYmdGuatemala = (ymd, daysDelta) => {
 
 export const getYesterdayYmdGuatemala = () => shiftYmdGuatemala(getTodayYmdGuatemala(), -1);
 
+/** true si la fecha YYYY-MM-DD cae en sábado o domingo (solo se trabaja lunes a viernes). */
+export const isWeekendYmd = (ymd) => {
+  if (!ymd) return false;
+  const [year, month, day] = String(ymd).slice(0, 10).split("-").map(Number);
+  if (!year || !month || !day) return false;
+  const dow = new Date(Date.UTC(year, month - 1, day, 12, 0, 0)).getUTCDay();
+  return dow === 0 || dow === 6;
+};
+
 /** Lunes de la semana actual en Guatemala (YYYY-MM-DD). */
 export const getWeekStartYmdGuatemala = () => {
   const today = getTodayYmdGuatemala();

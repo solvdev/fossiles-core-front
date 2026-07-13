@@ -4,10 +4,12 @@ import {
   getOrganizerOrders,
   createManualTask,
   getBacklogTasks,
+  clearAllDesks,
 } from "services/taskService";
+import { getProductionOrders } from "services/productionOrderService";
 import { getDeskCountForDate } from "services/deskCountService";
 import { buildTableCenterTasks } from "utils/cinchoProductionHelper";
-import { getTodayYmdGuatemala } from "utils/dateTimeHelper";
+import { getTodayYmdGuatemala, isWeekendYmd } from "utils/dateTimeHelper";
 import { showSuccess, showError } from "utils/notificationHelper";
 import { MAX_HOURS_PER_DESK } from "utils/taskHoursHelper";
 
@@ -31,8 +33,10 @@ export default function useTaskOrganizer() {
 
   // --- Tablero ---
   const [tasks, setTasks] = useState([]);
+  const [productionOrders, setProductionOrders] = useState([]);
   const [boardDate, setBoardDate] = useState(getTodayYmdGuatemala());
   const [numDesks, setNumDesks] = useState(12);
+  const [clearingDesks, setClearingDesks] = useState(false);
 
   // --- Backlog ---
   const [backlog, setBacklog] = useState([]);
@@ -52,8 +56,9 @@ export default function useTaskOrganizer() {
 
   const loadTasks = useCallback(async () => {
     try {
-      const data = await getTasks();
-      setTasks(buildTableCenterTasks(Array.isArray(data) ? data : []));
+      const [data, orders] = await Promise.all([getTasks(), getProductionOrders()]);
+      setProductionOrders(Array.isArray(orders) ? orders : []);
+      setTasks(buildTableCenterTasks(Array.isArray(data) ? data : [], orders));
     } catch (err) {
       showError(err.message);
     }
@@ -70,6 +75,20 @@ export default function useTaskOrganizer() {
       setLoadingBacklog(false);
     }
   }, []);
+
+  /** "Limpiar mesas": libera mesa/fecha de todas las PENDING para reorganizar desde cero. */
+  const clearAllDesksAction = useCallback(async () => {
+    setClearingDesks(true);
+    try {
+      const result = await clearAllDesks();
+      showSuccess(result?.message || "Mesas liberadas.");
+      await Promise.all([loadTasks(), loadBacklog()]);
+    } catch (err) {
+      showError(err.message);
+    } finally {
+      setClearingDesks(false);
+    }
+  }, [loadTasks, loadBacklog]);
 
   const loadDesksForDate = useCallback(async (dateYmd) => {
     try {
@@ -194,6 +213,10 @@ export default function useTaskOrganizer() {
       showError(`La carga base (${baseHours.toFixed(2)} h) excede las ${MAX_HOURS_PER_DESK} horas.`);
       return;
     }
+    if (isWeekendYmd(draftDate)) {
+      showError("Solo se trabaja de lunes a viernes: elige una fecha entre semana.");
+      return;
+    }
     setCreating(true);
     try {
       const created = await createManualTask({
@@ -234,7 +257,8 @@ export default function useTaskOrganizer() {
     draftDesk, setDraftDesk, draftDate, setDraftDate, draftObservations, setDraftObservations,
     createDraftTask, creating,
     // tablero
-    tasks, setTasks, boardDate, setBoardDate, numDesks, loadTasks,
+    tasks, setTasks, productionOrders, boardDate, setBoardDate, numDesks, loadTasks,
+    clearAllDesksAction, clearingDesks,
     // backlog
     backlog, loadingBacklog, loadBacklog,
   };
