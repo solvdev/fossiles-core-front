@@ -393,6 +393,7 @@ function KioskInventoryCountReport({ locationId }) {
   const [principalReport, setPrincipalReport] = useState(null);
   const [subcountAsOf, setSubcountAsOf] = useState("");
   const [loadingSubcount, setLoadingSubcount] = useState(false);
+  const [exportingCutoff, setExportingCutoff] = useState(false);
 
   const isSubcountView = report?.reportType === "SUBCONTEO";
   const kardexColumns = useMemo(() => resolveKardexColumns(isSubcountView), [isSubcountView]);
@@ -525,22 +526,28 @@ function KioskInventoryCountReport({ locationId }) {
     }
   };
 
-  const handleViewSubconteo = async () => {
-    if (!report?.id || !subcountAsOf) {
+  const resolvePrincipalForSubcount = () => {
+    const parentReport = report?.reportType === "SUBCONTEO" ? principalReport : report;
+    if (!parentReport?.id) {
+      showError("No hay un conteo principal cargado.");
+      return null;
+    }
+    if (!subcountAsOf) {
       showError("Selecciona la fecha de corte del inventario sistema.");
-      return;
+      return null;
     }
-    if (subcountAsOf < report.periodFrom || subcountAsOf > report.periodTo) {
+    if (subcountAsOf < parentReport.periodFrom || subcountAsOf > parentReport.periodTo) {
       showError("La fecha de corte debe estar dentro del período del conteo.");
-      return;
+      return null;
     }
+    return parentReport;
+  };
+
+  const handleViewSubconteo = async () => {
+    const parentReport = resolvePrincipalForSubcount();
+    if (!parentReport) return;
     try {
       setLoadingSubcount(true);
-      const parentReport = report.reportType === "SUBCONTEO" ? principalReport : report;
-      if (!parentReport?.id) {
-        showError("No hay un conteo principal cargado.");
-        return;
-      }
       setPrincipalReport(parentReport);
       const data = await getKioscoSubconteo(parentReport.id, subcountAsOf);
       setReport(data);
@@ -553,6 +560,35 @@ function KioskInventoryCountReport({ locationId }) {
       showError(err.message || "No se pudo generar el subconteo.");
     } finally {
       setLoadingSubcount(false);
+    }
+  };
+
+  const handleExportCutoff = async (format) => {
+    const parentReport = resolvePrincipalForSubcount();
+    if (!parentReport) return;
+    try {
+      setExportingCutoff(true);
+      const data = await getKioscoSubconteo(parentReport.id, subcountAsOf);
+      if (!data) {
+        showError("No hay datos para exportar al corte.");
+        return;
+      }
+      const payload = {
+        ...data,
+        reportType: data.reportType || "SUBCONTEO",
+        asOfDate: data.asOfDate || subcountAsOf,
+      };
+      if (format === "pdf") {
+        exportConteoToPdf(payload, { showKardex: true });
+        showSuccess(`PDF inventario al cierre del ${fmt(subcountAsOf)} listo.`);
+      } else {
+        exportConteoToExcel(payload, { showKardex: true });
+        showSuccess(`Excel inventario al cierre del ${fmt(subcountAsOf)} descargado.`);
+      }
+    } catch (err) {
+      showError(err.message || "No se pudo exportar el inventario al corte.");
+    } finally {
+      setExportingCutoff(false);
     }
   };
 
@@ -1093,8 +1129,9 @@ function KioskInventoryCountReport({ locationId }) {
             <Alert color="info" className="mb-3" style={{ fontSize: 12 }}>
               <div className="d-flex flex-wrap align-items-center justify-content-between" style={{ gap: 8 }}>
                 <div>
-                  <strong>Subconteo — inventario sistema al {fmt(report.asOfDate)}.</strong>{" "}
+                  <strong>Subconteo del {fmt(report.asOfDate)}.</strong>{" "}
                   Kardex del {fmt(report.periodFrom)} al {fmt(report.asOfDate)}. El conteo físico es el del conteo principal;
+                  la columna de inventario sistema refleja el saldo a esa fecha.
                   la diferencia compara ese físico contra el sistema al corte.
                   {principalReport && (
                     <Button color="link" className="p-0 ml-2" style={{ fontSize: 12 }} onClick={handleBackToPrincipal}>
@@ -1157,12 +1194,14 @@ function KioskInventoryCountReport({ locationId }) {
             </Col>
           </Row>
 
-          {/* ── Subconteo ── */}
+          {/* ── Subconteo / inventario a fecha ── */}
           {!isSubcountView && report && (
             <Row className="mb-3">
               <Col md="4">
                 <FormGroup className="mb-0">
-                  <Label style={{ fontSize: 12 }}>Corte inventario sistema (subconteo)</Label>
+                  <Label style={{ fontSize: 12 }}>
+                    Corte inventario sistema (cierre 23:59)
+                  </Label>
                   <Input
                     type="date"
                     value={subcountAsOf}
@@ -1170,18 +1209,42 @@ function KioskInventoryCountReport({ locationId }) {
                     max={report.periodTo || undefined}
                     onChange={(e) => setSubcountAsOf(e.target.value)}
                   />
+                  <small className="text-muted d-block mt-1" style={{ fontSize: 11 }}>
+                    Saldo del sistema hasta las 23:59 del día elegido (entradas, ventas y demás movimientos).
+                  </small>
                 </FormGroup>
               </Col>
-              <Col md="8" className="d-flex align-items-end">
+              <Col md="8" className="d-flex align-items-end flex-wrap" style={{ gap: 8 }}>
                 <Button
                   color="primary"
                   size="sm"
                   outline
                   onClick={() => void handleViewSubconteo()}
-                  disabled={loadingSubcount || !subcountAsOf}
+                  disabled={loadingSubcount || exportingCutoff || !subcountAsOf}
+                  title="Ver en pantalla el inventario sistema al cierre (23:59) del día elegido"
                 >
                   {loadingSubcount ? <Spinner size="sm" /> : "Ver subconteo al corte"}
                 </Button>
+                <ButtonGroup size="sm">
+                  <Button
+                    color="success"
+                    outline
+                    onClick={() => void handleExportCutoff("excel")}
+                    disabled={loadingSubcount || exportingCutoff || !subcountAsOf}
+                    title="Descargar Excel del inventario sistema al cierre (23:59) del día elegido"
+                  >
+                    {exportingCutoff ? <Spinner size="sm" /> : `⬇ Excel al ${subcountAsOf ? fmt(subcountAsOf) : "corte"}`}
+                  </Button>
+                  <Button
+                    color="success"
+                    outline
+                    onClick={() => void handleExportCutoff("pdf")}
+                    disabled={loadingSubcount || exportingCutoff || !subcountAsOf}
+                    title="Descargar PDF del inventario sistema al cierre (23:59) del día elegido"
+                  >
+                    {exportingCutoff ? <Spinner size="sm" /> : `🖨 PDF al ${subcountAsOf ? fmt(subcountAsOf) : "corte"}`}
+                  </Button>
+                </ButtonGroup>
               </Col>
             </Row>
           )}
