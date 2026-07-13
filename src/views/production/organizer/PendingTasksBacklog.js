@@ -26,13 +26,75 @@ function taskProductsSummary(task) {
 
 function taskColorSummary(task) {
   const items = task?.items || [];
-  const fromItems = [...new Set(items.map((i) => i.colorName).filter(Boolean))];
+  const fromItems = [...new Set(
+    items.map((i) => String(i.colorName || "").trim()).filter(Boolean)
+  )];
   if (fromItems.length > 0) {
     return fromItems.length > 1
       ? `${fromItems[0]} +${fromItems.length - 1}`
       : fromItems[0];
   }
-  return task?.colorName || null;
+  const top = String(task?.colorName || "").trim();
+  return top || null;
+}
+
+function colorSwatchHex(colorName) {
+  const key = String(colorName || "")
+    .normalize("NFD")
+    .replace(/\p{M}/gu, "")
+    .toLowerCase()
+    .trim();
+  if (!key) return "#94a3b8";
+  if (key.includes("negro") || key.includes("black")) return "#1f2937";
+  if (key.includes("blanco") || key.includes("white")) return "#f8fafc";
+  if (key.includes("cafe") || key.includes("brown")) return "#6f4e37";
+  if (key.includes("tostado")) return "#8b5a2b";
+  if (key.includes("whisky") || key.includes("whiskey")) return "#c4a035";
+  if (key.includes("miel") || key.includes("honey")) return "#d4a017";
+  if (key.includes("rojo") || key.includes("red")) return "#b91c1c";
+  if (key.includes("azul") || key.includes("blue")) return "#1d4ed8";
+  if (key.includes("verde") || key.includes("green")) return "#15803d";
+  if (key.includes("gris") || key.includes("gray") || key.includes("grey")) return "#6b7280";
+  if (key.includes("beige") || key.includes("arena")) return "#d2b48c";
+  if (key.includes("cognac") || key.includes("coñac") || key.includes("conac")) return "#9a3412";
+  return "#64748b";
+}
+
+function ColorCell({ label }) {
+  if (!label) {
+    return <span className="text-muted">—</span>;
+  }
+  const hex = colorSwatchHex(label);
+  const border = hex === "#f8fafc" ? "1px solid #cbd5e1" : "1px solid rgba(0,0,0,0.2)";
+  return (
+    <span className="d-inline-flex align-items-center" style={{ gap: 6 }}>
+      <span
+        title={label}
+        style={{
+          width: 14,
+          height: 14,
+          borderRadius: 3,
+          background: hex,
+          border,
+          flexShrink: 0,
+        }}
+      />
+      <span
+        style={{
+          fontSize: 12,
+          fontWeight: 600,
+          color: "#111827",
+          background: "#f1f5f9",
+          border: "1px solid #cbd5e1",
+          borderRadius: 4,
+          padding: "1px 8px",
+          lineHeight: 1.4,
+        }}
+      >
+        {label}
+      </span>
+    </span>
+  );
 }
 
 /**
@@ -182,9 +244,7 @@ export default function PendingTasksBacklog({ backlog, loading, numDesks, onRelo
                         <td>{t.productionOrderCode || "—"}</td>
                         <td>{taskProductsSummary(t)}</td>
                         <td>
-                          {colorLabel
-                            ? <Badge color="dark" style={{ fontSize: 11 }}>{colorLabel}</Badge>
-                            : <span className="text-muted">—</span>}
+                          <ColorCell label={colorLabel} />
                         </td>
                         <td className="text-center">{t.quantity ?? "—"}</td>
                         <td className="text-center">{getTaskBaseHours(t).toFixed(2)}</td>

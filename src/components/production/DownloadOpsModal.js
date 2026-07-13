@@ -26,6 +26,8 @@ import {
   sortProductionOrdersByCode,
 } from "utils/productionOrderBatchPrintHtml";
 import { isCinchoOrderType } from "utils/cinchoProductionHelper";
+import { projectOrdersToOrganizerDay } from "utils/organizerDayTasks";
+import { formatDateGt } from "utils/dateTimeHelper";
 
 const orderKey = (id) => String(id);
 
@@ -59,7 +61,7 @@ function matchesTypeFilter(order, typeFilter) {
   return classifyPrepareOrder(order) === typeFilter;
 }
 
-function DownloadOpsModal({ isOpen, toggle, orders, tasks }) {
+function DownloadOpsModal({ isOpen, toggle, orders, tasks, dayDeskTasks = null, workDateYmd = null }) {
   const [prefixFilter, setPrefixFilter] = useState("ALL");
   const [typeFilter, setTypeFilter] = useState("ALL");
   const [fromNum, setFromNum] = useState("");
@@ -69,7 +71,22 @@ function DownloadOpsModal({ isOpen, toggle, orders, tasks }) {
   const [includeSummaryBox, setIncludeSummaryBox] = useState(true);
   const [loadingAction, setLoadingAction] = useState(false);
 
-  const sortedOrders = useMemo(() => sortProductionOrdersByCode(orders), [orders]);
+  const scopeToOrganizerDay = Array.isArray(dayDeskTasks);
+  const dayOrderIdSet = useMemo(() => {
+    if (!scopeToOrganizerDay) return null;
+    return new Set(
+      dayDeskTasks
+        .map((t) => Number(t.productionOrderId))
+        .filter((id) => Number.isFinite(id))
+    );
+  }, [scopeToOrganizerDay, dayDeskTasks]);
+
+  const scopedOrders = useMemo(() => {
+    if (!dayOrderIdSet) return orders || [];
+    return (orders || []).filter((o) => dayOrderIdSet.has(Number(o.id)));
+  }, [orders, dayOrderIdSet]);
+
+  const sortedOrders = useMemo(() => sortProductionOrdersByCode(scopedOrders), [scopedOrders]);
 
   const prefixOptions = useMemo(() => {
     const set = new Set();
@@ -99,10 +116,18 @@ function DownloadOpsModal({ isOpen, toggle, orders, tasks }) {
     setTypeFilter("ALL");
     setFromNum("");
     setToNum("");
-    setSelectedIds({});
     setPrintOrientation("portrait");
     setIncludeSummaryBox(true);
-  }, [isOpen]);
+    if (scopeToOrganizerDay) {
+      const next = {};
+      sortedOrders.forEach((o) => {
+        next[orderKey(o.id)] = true;
+      });
+      setSelectedIds(next);
+    } else {
+      setSelectedIds({});
+    }
+  }, [isOpen, scopeToOrganizerDay, sortedOrders]);
 
   const selectedCount = Object.keys(selectedIds).filter((k) => selectedIds[k]).length;
   const visibleSelectedCount = filteredOrders.filter((o) => selectedIds[orderKey(o.id)]).length;
@@ -139,6 +164,9 @@ function DownloadOpsModal({ isOpen, toggle, orders, tasks }) {
         }
       })
     );
+    if (scopeToOrganizerDay) {
+      return projectOrdersToOrganizerDay(enriched, dayDeskTasks);
+    }
     return enriched;
   };
 
@@ -189,9 +217,20 @@ function DownloadOpsModal({ isOpen, toggle, orders, tasks }) {
       <ModalHeader toggle={toggle}>Descargar / imprimir OPs</ModalHeader>
       <ModalBody>
         <Alert color="light" className="py-2 mb-3">
-          Filtre por prefijo y rango, marque las OP y use <strong>Imprimir</strong>: un documento con tabla
-          <strong>consolidada</strong> (mismo código/color/talla entre órdenes se suma en una fila). El resumen de
-          clientes es opcional.
+          {scopeToOrganizerDay ? (
+            <>
+              Solo OPs con tareas del <strong>organizador</strong> para{" "}
+              <strong>{workDateYmd ? formatDateGt(workDateYmd) : "la fecha de trabajo"}</strong>.
+              Excel e impresión incluyen únicamente las líneas/cantidades asignadas a mesa ese día
+              (no la OP completa).
+            </>
+          ) : (
+            <>
+              Filtre por prefijo y rango, marque las OP y use <strong>Imprimir</strong>: un documento con tabla
+              <strong> consolidada</strong> (mismo código/color/talla entre órdenes se suma en una fila). El resumen de
+              clientes es opcional.
+            </>
+          )}
         </Alert>
 
         <div className="border rounded p-3 mb-3" style={{ backgroundColor: "#f8f9fa" }}>
@@ -329,7 +368,9 @@ function DownloadOpsModal({ isOpen, toggle, orders, tasks }) {
               {filteredOrders.length === 0 ? (
                 <tr>
                   <td colSpan={5} className="text-muted text-center py-4">
-                    No hay órdenes con ese prefijo/rango/tipo.
+                    {scopeToOrganizerDay
+                      ? "No hay OPs con tareas del organizador (mesa + fecha) para este día."
+                      : "No hay órdenes con ese prefijo/rango/tipo."}
                   </td>
                 </tr>
               ) : (

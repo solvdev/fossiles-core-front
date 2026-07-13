@@ -1,5 +1,6 @@
 import { escapeHtml, getPrintOrientationToolbarHtml } from "./productionOrderPrintHtml";
 import { formatDateGt } from "./dateTimeHelper";
+import * as XLSX from "xlsx-js-style";
 
 /** @param {{ rows: object[], colorColumns: { normKey: string, header: string }[], emptyMessage?: string|null, workDateYmd?: string, deskSupervisorLegend?: string }} model */
 export function buildProductionTasksSheetTableHtml(model) {
@@ -140,4 +141,52 @@ export function openProductionTasksSheetPrintWindow(model, title = "Hoja de tare
     </html>
   `);
   win.document.close();
+}
+
+/**
+ * Excel de la misma hoja de mesas (solo organizador de la fecha de trabajo).
+ * @param {{ rows: object[], colorColumns: { normKey: string, header: string }[], workDateYmd?: string, deskSupervisorLegend?: string, emptyMessage?: string|null }} model
+ */
+export function downloadProductionTasksSheetExcel(model, fileName) {
+  const { rows = [], colorColumns = [], workDateYmd, deskSupervisorLegend, emptyMessage } = model || {};
+  const headers = [
+    "Tipo",
+    "OP",
+    "Mesas",
+    "Estado",
+    "Artículo",
+    ...colorColumns.map((c) => c.header),
+    "Observaciones",
+  ];
+  const aoa = [headers];
+  if (!rows.length) {
+    aoa.push([emptyMessage || "Sin tareas del organizador para esta fecha."]);
+  } else {
+    rows.forEach((row) => {
+      aoa.push([
+        row.tipo || "",
+        row.ops || "",
+        row.mesas || "",
+        row.estado || "",
+        row.article || "",
+        ...colorColumns.map((col) => {
+          const v = Number(row.qtyByNormKey?.[col.normKey] || 0);
+          return v > 0 ? v : "";
+        }),
+        "",
+      ]);
+    });
+  }
+  if (deskSupervisorLegend) {
+    aoa.push([]);
+    aoa.push(["Encargados", deskSupervisorLegend]);
+  }
+  if (workDateYmd) {
+    aoa.push(["Fecha de trabajo", formatDateGt(workDateYmd)]);
+  }
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Mesas del día");
+  const stamp = String(workDateYmd || "dia").replace(/-/g, "");
+  XLSX.writeFile(wb, fileName || `hoja_mesas_${stamp}.xlsx`);
 }

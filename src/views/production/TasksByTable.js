@@ -48,8 +48,9 @@ import DownloadOpsModal, { mergeOrdersForDownload } from "components/production/
 import { taskSkipsMaterials } from "utils/materialRequirementHelper";
 import { formatDateGt, formatDateTimeGt, getTodayYmdGuatemala } from "utils/dateTimeHelper";
 import { formatProductionOrderSelectLabel } from "utils/productionOrderDisplayHelper";
-import { openProductionTasksSheetPrintWindow } from "utils/productionTasksSheetPrintHtml";
+import { openProductionTasksSheetPrintWindow, downloadProductionTasksSheetExcel } from "utils/productionTasksSheetPrintHtml";
 import { buildProductionTasksSheetPrintModel } from "utils/productionTasksSheetPrintData";
+import { getOrganizerDayDeskTasks, getOrganizerDayBoletaTasks } from "utils/organizerDayTasks";
 import { getDeskSupervisorsForDate, replaceDeskSupervisorsForDate } from "services/deskSupervisorService";
 import { getDeskCountForDate, replaceDeskCountForDate } from "services/deskCountService";
 import { deskDisplayLabel } from "utils/deskSupervisorDisplay";
@@ -661,14 +662,11 @@ function TasksByTable() {
   const openPrintBoletasForDate = (date) => {
     setPrintTaskId(null);
     setPrintSupervisorByDesk(supervisorMapForDate(date));
-    const desks = scheduleByDate[date] || {};
-    const ids = Object.values(desks)
-      .flat()
-      .filter((t) => t.status !== "CANCELLED" && t.status !== "COMPLETED")
+    const ids = getOrganizerDayBoletaTasks(tableCenterTasks, date)
       .map((t) => t.id)
       .filter(Boolean);
     if (!ids.length) {
-      showError("No hay tareas para imprimir en esta fecha.");
+      showError("No hay boletas del organizador (con mesa) para esta fecha.");
       return;
     }
     setPrintBatchTaskIds(ids);
@@ -853,17 +851,34 @@ function TasksByTable() {
     refreshCinchoDayStatusesForDates,
   ]);
 
+  const printWorkDateYmd = filterDate || getTodayYmdGuatemala();
+
+  const organizerDayDeskTasks = useMemo(
+    () => getOrganizerDayDeskTasks(tableCenterTasks, printWorkDateYmd),
+    [tableCenterTasks, printWorkDateYmd]
+  );
+
   const tasksSheetPrintModel = useMemo(() => {
-    const todayGt = getTodayYmdGuatemala();
-    return buildProductionTasksSheetPrintModel(tableCenterTasks, productionOrders, {
-      deskSupervisorByDesk: supervisorMapForDate(todayGt),
+    return buildProductionTasksSheetPrintModel(organizerDayDeskTasks, productionOrders, {
+      workDateYmd: printWorkDateYmd,
+      deskSupervisorByDesk: supervisorMapForDate(printWorkDateYmd),
       numDesksForLegend: workingDesksCount,
     });
-  }, [tableCenterTasks, productionOrders, supervisorMapForDate, workingDesksCount]);
+  }, [organizerDayDeskTasks, productionOrders, supervisorMapForDate, workingDesksCount, printWorkDateYmd]);
 
   const handlePrintTasksSheet = useCallback(() => {
-    openProductionTasksSheetPrintWindow(tasksSheetPrintModel, "Hoja de tareas (centro de producción)");
-  }, [tasksSheetPrintModel]);
+    openProductionTasksSheetPrintWindow(
+      tasksSheetPrintModel,
+      `Hoja de mesas — organizador ${formatDateGt(printWorkDateYmd)}`
+    );
+  }, [tasksSheetPrintModel, printWorkDateYmd]);
+
+  const handleExcelTasksSheet = useCallback(() => {
+    downloadProductionTasksSheetExcel(
+      tasksSheetPrintModel,
+      `hoja_mesas_${String(printWorkDateYmd).replace(/-/g, "")}.xlsx`
+    );
+  }, [tasksSheetPrintModel, printWorkDateYmd]);
 
   const supervisorMapForUi = useMemo(
     () => supervisorMapForDate(filterDate || getTodayYmdGuatemala()),
@@ -1321,7 +1336,7 @@ function TasksByTable() {
                     className="mb-0"
                     onClick={handlePrintTasksSheet}
                     disabled={loading}
-                    title="PDF del subconjunto actual (filtros aplicados)"
+                    title="PDF solo con tareas del organizador (mesa + fecha de trabajo)"
                   >
                     <i className="nc-icon nc-paper mr-1" />
                     Hoja PDF
@@ -1331,11 +1346,23 @@ function TasksByTable() {
                     outline
                     size="sm"
                     className="mb-0"
-                    onClick={() => setShowDownloadOpsModal(true)}
-                    disabled={loading || ordersForDownload.length === 0}
-                    title="Imprimir o descargar OPs seleccionadas (mismo formato que orden individual)"
+                    onClick={handleExcelTasksSheet}
+                    disabled={loading}
+                    title="Excel solo con tareas del organizador (mesa + fecha de trabajo)"
                   >
                     <i className="nc-icon nc-cloud-download-93 mr-1" />
+                    Hoja Excel
+                  </Button>
+                  <Button
+                    color="secondary"
+                    outline
+                    size="sm"
+                    className="mb-0"
+                    onClick={() => setShowDownloadOpsModal(true)}
+                    disabled={loading || organizerDayDeskTasks.length === 0}
+                    title="Imprimir/Excel de OPs solo con líneas del organizador del día"
+                  >
+                    <i className="nc-icon nc-single-copy-04 mr-1" />
                     Descargar OPs
                   </Button>
                 </div>
@@ -1788,7 +1815,7 @@ function TasksByTable() {
                                         className="ml-2"
                                         outline
                                         onClick={() => openPrintBoletasForDate(date)}
-                                        title="Imprimir todas las boletas de tarea del día"
+                                        title="Imprimir boletas del organizador (solo tareas con mesa de esta fecha)"
                                       >
                                         <i className="nc-icon nc-paper" /> Boletas del día
                                       </Button>
@@ -2133,7 +2160,9 @@ function TasksByTable() {
         isOpen={showDownloadOpsModal}
         toggle={() => setShowDownloadOpsModal(false)}
         orders={ordersForDownload}
-        tasks={tasks}
+        tasks={organizerDayDeskTasks}
+        dayDeskTasks={organizerDayDeskTasks}
+        workDateYmd={printWorkDateYmd}
       />
 
       {/* Print Ticket Modal */}

@@ -129,10 +129,14 @@ function hasAssignedDesk(task) {
 /**
  * @param {object[]} tasks
  * @param {object[]} productionOrders
- * @param {{ deskSupervisorByDesk?: Record<number|string, string>, numDesksForLegend?: number }} [options]
+ * @param {{
+ *   workDateYmd?: string,
+ *   deskSupervisorByDesk?: Record<number|string, string>,
+ *   numDesksForLegend?: number,
+ * }} [options]
  */
 export function buildProductionTasksSheetPrintModel(tasks, productionOrders, options = {}) {
-  const workDateYmd = getTodayYmdGuatemala();
+  const workDateYmd = String(options.workDateYmd || getTodayYmdGuatemala()).slice(0, 10);
   const deskSupervisorByDesk = options.deskSupervisorByDesk || {};
   const numDesksForLegend =
     options.numDesksForLegend && options.numDesksForLegend > 0
@@ -143,7 +147,7 @@ export function buildProductionTasksSheetPrintModel(tasks, productionOrders, opt
 
   const filtered = (tasks || []).filter((t) => {
     if (!t) return false;
-    if (t.scheduledDate !== workDateYmd) return false;
+    if (String(t.scheduledDate || "").slice(0, 10) !== workDateYmd) return false;
     if (!hasAssignedDesk(t)) return false;
     const st = String(t.status || "").toUpperCase();
     if (st !== "PENDING" && st !== "IN_PROGRESS") return false;
@@ -162,7 +166,7 @@ export function buildProductionTasksSheetPrintModel(tasks, productionOrders, opt
       rows: [],
       colorColumns: [],
       emptyMessage:
-        "No hay tareas pendientes o en proceso con mesa asignada para la fecha de trabajo de hoy.",
+        "No hay tareas del organizador pendientes o en proceso con mesa asignada para esta fecha.",
     };
   }
 
@@ -204,7 +208,7 @@ export function buildProductionTasksSheetPrintModel(tasks, productionOrders, opt
       rows: [],
       colorColumns: [],
       emptyMessage:
-        "No hay tareas pendientes o en proceso con mesa asignada para la fecha de trabajo de hoy (sin líneas de producto válidas).",
+        "No hay tareas del organizador con mesa para esta fecha (sin líneas de producto válidas).",
     };
   }
 
