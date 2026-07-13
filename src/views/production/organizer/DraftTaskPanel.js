@@ -3,7 +3,7 @@ import {
   Card, CardBody, CardHeader, CardTitle, Table, Badge, Button, Progress,
   Input, FormGroup, Label, Row, Col,
 } from "reactstrap";
-import { MAX_HOURS_PER_DESK } from "utils/taskHoursHelper";
+import { MAX_HOURS_PER_DESK, MAX_HOURS_PER_TASK_HARD_CAP } from "utils/taskHoursHelper";
 import { isWeekendYmd } from "utils/dateTimeHelper";
 import { showError } from "utils/notificationHelper";
 
@@ -24,6 +24,7 @@ export default function DraftTaskPanel({
   totalHours,
   baseOrder,
   overCapacity,
+  overIdeal,
   onRemove,
   onToggleExtra,
   onClear,
@@ -37,8 +38,9 @@ export default function DraftTaskPanel({
   observations,
   setObservations,
 }) {
-  const capacityPct = Math.min((baseHours / MAX_HOURS_PER_DESK) * 100, 100);
-  const capacityColor = overCapacity ? "danger" : baseHours > MAX_HOURS_PER_DESK * 0.85 ? "warning" : "success";
+  const capacityPct = Math.min((baseHours / MAX_HOURS_PER_TASK_HARD_CAP) * 100, 100);
+  const idealMarkerPct = (MAX_HOURS_PER_DESK / MAX_HOURS_PER_TASK_HARD_CAP) * 100;
+  const capacityColor = overCapacity ? "danger" : overIdeal ? "warning" : "success";
   const extraHours = Math.max(totalHours - baseHours, 0);
 
   return (
@@ -51,24 +53,41 @@ export default function DraftTaskPanel({
           )}
         </CardTitle>
         <small className="text-muted">
-          Suma productos hasta llenar las {MAX_HOURS_PER_DESK} horas. Los extras OPL van encima del cupo.
+          Ideal {MAX_HOURS_PER_DESK}h por tarea, máximo {MAX_HOURS_PER_TASK_HARD_CAP}h. Los extras OPL van encima.
         </small>
       </CardHeader>
       <CardBody>
         <div className="mb-1 d-flex justify-content-between">
           <small>
-            Carga base: <strong>{baseHours.toFixed(2)} h</strong> / {MAX_HOURS_PER_DESK} h
+            Carga base: <strong>{baseHours.toFixed(2)} h</strong> / ideal {MAX_HOURS_PER_DESK} h · máx {MAX_HOURS_PER_TASK_HARD_CAP} h
           </small>
           {extraHours > 0 && (
             <small className="text-muted">+ {extraHours.toFixed(2)} h extra OPL</small>
           )}
         </div>
-        <Progress color={capacityColor} value={capacityPct} className="mb-3" style={{ height: 10 }} />
-        {overCapacity && (
+        <div style={{ position: "relative" }}>
+          <Progress color={capacityColor} value={capacityPct} className="mb-3" style={{ height: 10 }} />
+          <div
+            title={`Ideal: ${MAX_HOURS_PER_DESK} h`}
+            style={{
+              position: "absolute",
+              left: `${idealMarkerPct}%`,
+              top: 0,
+              bottom: 12,
+              width: 2,
+              background: "rgba(0,0,0,0.35)",
+            }}
+          />
+        </div>
+        {overCapacity ? (
           <div className="text-danger mb-2" style={{ fontSize: 12 }}>
-            La carga base excede el cupo. Quite productos o márquelos como extra OPL.
+            La carga base excede el máximo de {MAX_HOURS_PER_TASK_HARD_CAP}h. Quite productos o márquelos como extra OPL.
           </div>
-        )}
+        ) : overIdeal ? (
+          <div className="text-warning mb-2" style={{ fontSize: 12 }}>
+            Por encima de lo ideal ({MAX_HOURS_PER_DESK}h) pero dentro del máximo permitido ({MAX_HOURS_PER_TASK_HARD_CAP}h).
+          </div>
+        ) : null}
 
         {lines.length === 0 ? (
           <div className="text-muted text-center py-4" style={{ fontSize: 13 }}>

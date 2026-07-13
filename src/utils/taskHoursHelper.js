@@ -6,6 +6,13 @@
 
 export const MAX_HOURS_PER_DESK = 4;
 
+/**
+ * Tope duro al crear una tarea manual en el Organizador: 4h es lo ideal, pero se
+ * permite hasta este límite para que el usuario decida cuánto mandar. Por encima
+ * de esto sí se bloquea (espejo de ProductionPlanningConstants.MAX_HOURS_PER_TASK_HARD_CAP).
+ */
+export const MAX_HOURS_PER_TASK_HARD_CAP = 5;
+
 /** Horas de los ítems extra (daySaleExtra) de una tarea. */
 export function getTaskExtraHours(task) {
   const items = task?.items || [];

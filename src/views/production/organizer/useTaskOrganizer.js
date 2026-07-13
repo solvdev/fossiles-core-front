@@ -11,7 +11,7 @@ import { getDeskCountForDate } from "services/deskCountService";
 import { buildTableCenterTasks } from "utils/cinchoProductionHelper";
 import { getTodayYmdGuatemala, isWeekendYmd } from "utils/dateTimeHelper";
 import { showSuccess, showError } from "utils/notificationHelper";
-import { MAX_HOURS_PER_DESK } from "utils/taskHoursHelper";
+import { MAX_HOURS_PER_DESK, MAX_HOURS_PER_TASK_HARD_CAP } from "utils/taskHoursHelper";
 
 /**
  * Estado del Organizador de Tareas: órdenes con restantes, tarea borrador
@@ -126,7 +126,10 @@ export default function useTaskOrganizer() {
       : null;
   }, [baseLines, draftLines]);
 
-  const overCapacity = baseHours > MAX_HOURS_PER_DESK + 1e-9;
+  /** Por encima de lo ideal (4h) pero todavía dentro del máximo permitido (5h): se deja crear. */
+  const overIdeal = baseHours > MAX_HOURS_PER_DESK + 1e-9;
+  /** Por encima del máximo permitido: se bloquea la creación. */
+  const overCapacity = baseHours > MAX_HOURS_PER_TASK_HARD_CAP + 1e-9;
 
   /**
    * Agrega un ítem al borrador.
@@ -214,7 +217,7 @@ export default function useTaskOrganizer() {
       return;
     }
     if (overCapacity) {
-      showError(`La carga base (${baseHours.toFixed(2)} h) excede las ${MAX_HOURS_PER_DESK} horas.`);
+      showError(`La carga base (${baseHours.toFixed(2)} h) excede el máximo de ${MAX_HOURS_PER_TASK_HARD_CAP} horas.`);
       return;
     }
     if (isWeekendYmd(draftDate)) {
@@ -256,7 +259,7 @@ export default function useTaskOrganizer() {
     // órdenes
     typeFilter, setTypeFilter, search, setSearch, orders, loadingOrders, loadOrders,
     // borrador
-    draftLines, baseLines, extraLines, baseHours, totalHours, baseOrder, overCapacity,
+    draftLines, baseLines, extraLines, baseHours, totalHours, baseOrder, overCapacity, overIdeal,
     draftItemIds, addDraftLine, removeDraftLine, toggleDraftLineExtra, clearDraft,
     draftDesk, setDraftDesk, draftDate, setDraftDate, draftObservations, setDraftObservations,
     createDraftTask, creating,

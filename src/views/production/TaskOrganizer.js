@@ -4,7 +4,8 @@ import {
   Row, Col, Card, CardBody, Nav, NavItem, NavLink, TabContent, TabPane, Badge, Button,
 } from "reactstrap";
 import classnames from "classnames";
-import { formatDateGt } from "utils/dateTimeHelper";
+import { formatDateGt, getTodayYmdGuatemala } from "utils/dateTimeHelper";
+import { showSuccess } from "utils/notificationHelper";
 import useTaskOrganizer from "./organizer/useTaskOrganizer";
 import OrganizerOrderBrowser from "./organizer/OrganizerOrderBrowser";
 import DraftTaskPanel from "./organizer/DraftTaskPanel";
@@ -26,6 +27,24 @@ export default function TaskOrganizer() {
   const unassignedCount = org.tasks.filter(
     (t) => t.status === "PENDING" && t.desk == null
   ).length;
+
+  /**
+   * Salta al tablero en la fecha de una tarea ya existente (mostrada como "asignación"
+   * en el buscador de OPs), para poder arrastrarla a una mesa. Sin esto, una tarea
+   * programada para otro día que hoy simplemente no aparece en el tablero (el filtro
+   * de fecha la oculta por completo), dando la impresión de que "no deja asignar".
+   */
+  const jumpToAssignment = (assignment) => {
+    const targetDate = assignment?.scheduledDate || getTodayYmdGuatemala();
+    org.setBoardDate(targetDate);
+    setActiveTab("board");
+    org.loadTasks();
+    showSuccess(
+      assignment?.desk != null
+        ? `Tarea ${assignment.taskCode || ""} ya está en Mesa ${assignment.desk} el ${formatDateGt(targetDate)}.`
+        : `Mostrando el tablero del ${formatDateGt(targetDate)}: arrastra la tarea ${assignment?.taskCode || ""} a una mesa.`
+    );
+  };
 
   return (
     <div className="content">
@@ -96,6 +115,7 @@ export default function TaskOrganizer() {
                 onReload={org.loadOrders}
                 draftItemIds={org.draftItemIds}
                 onAddLine={org.addDraftLine}
+                onJumpToAssignment={jumpToAssignment}
               />
             </Col>
             <Col lg="5" xl="4">
@@ -105,6 +125,7 @@ export default function TaskOrganizer() {
                 totalHours={org.totalHours}
                 baseOrder={org.baseOrder}
                 overCapacity={org.overCapacity}
+                overIdeal={org.overIdeal}
                 onRemove={org.removeDraftLine}
                 onToggleExtra={org.toggleDraftLineExtra}
                 onClear={org.clearDraft}

@@ -48,7 +48,7 @@ function formatAssignmentLine(a) {
 }
 
 /** Fila de ítem con input de cantidad parcial y botón Agregar. */
-function OrganizerItemRow({ order, item, inDraft, onAdd }) {
+function OrganizerItemRow({ order, item, inDraft, onAdd, onJumpToAssignment }) {
   const [qty, setQty] = useState(item.remainingQuantity);
   const [extra, setExtra] = useState(false);
   const minutesPerUnit = Math.round((item.prdTimePerUnit || 0.1) * 60);
@@ -66,11 +66,23 @@ function OrganizerItemRow({ order, item, inDraft, onAdd }) {
         {assignments.length > 0 && (
           <div style={{ fontSize: 11, marginTop: 4 }}>
             {assignments.map((a, idx) => (
-              <div
-                key={a.taskId != null ? a.taskId : idx}
-                className="text-muted"
-              >
-                {formatAssignmentLine(a)}
+              <div key={a.taskId != null ? a.taskId : idx}>
+                <button
+                  type="button"
+                  className="text-muted"
+                  onClick={() => onJumpToAssignment && onJumpToAssignment(a)}
+                  title="Ir al tablero en la fecha de esta tarea para asignarle mesa"
+                  style={{
+                    background: "none",
+                    border: "none",
+                    padding: 0,
+                    font: "inherit",
+                    textDecoration: "underline",
+                    cursor: "pointer",
+                  }}
+                >
+                  {formatAssignmentLine(a)} → ver en tablero
+                </button>
               </div>
             ))}
           </div>
@@ -144,6 +156,7 @@ export default function OrganizerOrderBrowser({
   onReload,
   draftItemIds,
   onAddLine,
+  onJumpToAssignment,
 }) {
   const [expandedId, setExpandedId] = useState(null);
 
@@ -272,6 +285,7 @@ export default function OrganizerOrderBrowser({
                         item={item}
                         inDraft={draftItemIds.has(item.productionOrderItemId)}
                         onAdd={onAddLine}
+                        onJumpToAssignment={onJumpToAssignment}
                       />
                     ))}
                   </tbody>
