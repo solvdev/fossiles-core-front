@@ -66,7 +66,7 @@ function PortfolioKindSelector({ kindTab, onSelect, totalsByKind, clientCount })
     {
       key: "OPC",
       title: "Cartera GCF",
-      subtitle: "Órdenes cinchos",
+      subtitle: "Cinchos y marcas",
       color: "#2c3e50",
       light: "#ecf0f1",
     },
