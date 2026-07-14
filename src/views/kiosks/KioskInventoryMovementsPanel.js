@@ -220,6 +220,7 @@ function KioskInventoryMovementsPanel({
                 <th>Origen → Destino</th>
                 <th>Producto</th>
                 <th>Color</th>
+                <th>Talla</th>
                 <th className="text-right">Cant.</th>
                 <th className="text-right">Antes</th>
                 <th className="text-right">Después</th>
@@ -246,6 +247,7 @@ function KioskInventoryMovementsPanel({
                       {movement.productName ? ` — ${movement.productName}` : ""}
                     </td>
                     <td>{movement.colorName || "—"}</td>
+                    <td>{movement.sizeKey || "—"}</td>
                     <td className="text-right">{getKioscoMovementSignedQuantity(movement)}</td>
                     <td className="text-right">{movement.stockBefore ?? "—"}</td>
                     <td className="text-right">{movement.stockAfter ?? "—"}</td>
