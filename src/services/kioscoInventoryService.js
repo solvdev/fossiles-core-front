@@ -101,6 +101,9 @@ export const registrarKioscoDevolucionCliente = async (locationId, payload) =>
 export const registrarKioscoTraslado = async (payload) =>
   apiRequest(`/kiosco-inventory/traslado`, { method: "POST", body: payload });
 
+export const lookupKioscoTrasladoBoleta = async (number) =>
+  apiRequest(`/kiosco-inventory/traslado/boleta?number=${encodeURIComponent(String(number || "").trim())}`);
+
 export const registrarKioscoMerma = async (locationId, payload) =>
   apiRequest(`/kiosco-inventory/${locationId}/merma`, { method: "POST", body: payload });
 

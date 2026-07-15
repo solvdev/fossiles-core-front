@@ -16,6 +16,7 @@ export const BULK_LINE_OPERATIONS = new Set([
   "VENTA",
   "DEVOLUCION_DEPOSITO",
   "MERMA",
+  "TRASLADO",
 ]);
 
 export function supportsBulkLines(operation) {
@@ -53,9 +54,27 @@ export function validateCommonStockForm({ locationId, productId, quantity }) {
 export function validateBulkLines(
   operation,
   lines,
-  { locationId, invoiceId, reason, physicalSlipNumber } = {}
+  {
+    locationId,
+    locationOriginId,
+    locationDestinationId,
+    invoiceId,
+    reason,
+    physicalSlipNumber,
+    lineNeedsSize,
+  } = {}
 ) {
-  if (!locationId) {
+  if (operation === "TRASLADO") {
+    if (!locationOriginId || !locationDestinationId) {
+      return "Debes seleccionar origen y destino.";
+    }
+    if (String(locationOriginId) === String(locationDestinationId)) {
+      return "Origen y destino deben ser distintos.";
+    }
+    if (!String(physicalSlipNumber || "").trim()) {
+      return "Debes indicar el número de boleta de traslado física.";
+    }
+  } else if (!locationId) {
     return "Debes seleccionar un kiosko.";
   }
   if (operation === "DEVOLUCION_DEPOSITO" && !String(physicalSlipNumber || "").trim()) {
@@ -73,6 +92,11 @@ export function validateBulkLines(
     }
     if (!isPositiveInteger(line.quantity)) {
       return `Línea ${lineNo}: la cantidad debe ser un entero mayor a cero.`;
+    }
+    const needsSize =
+      typeof lineNeedsSize === "function" ? lineNeedsSize(line) : false;
+    if (needsSize && !String(line.sizeKey || "").trim()) {
+      return `Línea ${lineNo}: indica la talla (FOSS / cincho).`;
     }
   }
   if (operation === "VENTA" && !invoiceId) {

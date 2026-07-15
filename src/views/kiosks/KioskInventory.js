@@ -37,6 +37,7 @@ import {
   registrarKioscoMerma,
   registrarKioscoCambio,
   registrarKioscoTraslado,
+  lookupKioscoTrasladoBoleta,
   registrarKioscoVenta,
 } from "services/kioscoInventoryService";
 import { isPackagingProductCode } from "utils/kioskPackagingHelper";
@@ -102,6 +103,10 @@ function KioskInventory() {
   const [activeTab, setActiveTab] = useState("INVENTARIO");
   const [stockViewFilter, setStockViewFilter] = useState("ALL");
   const [lineItems, setLineItems] = useState([createEmptyLineItem()]);
+  const [originStockRows, setOriginStockRows] = useState([]);
+  const [boletaLocked, setBoletaLocked] = useState(false);
+  const [lookingUpBoleta, setLookingUpBoleta] = useState(false);
+  const [boletaHint, setBoletaHint] = useState("");
   const [stockExploreProductId, setStockExploreProductId] = useState("");
   const [stockExploreColorId, setStockExploreColorId] = useState("");
   const [showAllStockRows, setShowAllStockRows] = useState(false);
@@ -256,6 +261,72 @@ function KioskInventory() {
   }, [selectedLocation]);
 
   useEffect(() => {
+    if (form.operation !== "TRASLADO") {
+      setOriginStockRows([]);
+      setBoletaLocked(false);
+      setBoletaHint("");
+      return;
+    }
+    if (!form.locationOriginId) {
+      setOriginStockRows([]);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const data = await getKioscoStock(Number(form.locationOriginId));
+        if (!cancelled) setOriginStockRows(Array.isArray(data) ? data : []);
+      } catch {
+        if (!cancelled) setOriginStockRows([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [form.operation, form.locationOriginId]);
+
+  useEffect(() => {
+    if (form.operation !== "TRASLADO") return;
+    setLineItems([createEmptyLineItem()]);
+  }, [form.operation]);
+
+  const handleLookupTrasladoBoleta = async () => {
+    const slip = String(form.physicalSlipNumber || "").trim();
+    if (!slip) {
+      showWarning("Escribe el número de boleta para buscar.");
+      return;
+    }
+    try {
+      setLookingUpBoleta(true);
+      const data = await lookupKioscoTrasladoBoleta(slip);
+      if (!data?.exists) {
+        setBoletaLocked(false);
+        setBoletaHint("Boleta nueva: puedes armar el traslado con uno o más productos.");
+        showSuccess("Boleta disponible (nueva).");
+        return;
+      }
+      if (data.locationOriginId != null) {
+        onFormChange("locationOriginId", String(data.locationOriginId));
+      }
+      if (data.locationDestinationId != null) {
+        onFormChange("locationDestinationId", String(data.locationDestinationId));
+      }
+      setBoletaLocked(true);
+      const n = (data.lines || []).length;
+      setBoletaHint(
+        `Boleta existente (${n} producto${n === 1 ? "" : "s"}). Origen/destino bloqueados — agrega solo lo que faltó.`
+      );
+      showSuccess("Boleta encontrada. Puedes añadir productos faltantes.");
+    } catch (err) {
+      setBoletaLocked(false);
+      setBoletaHint("");
+      showError(err.message || "No se pudo consultar la boleta.");
+    } finally {
+      setLookingUpBoleta(false);
+    }
+  };
+
+  useEffect(() => {
     if (!movementKioskId) {
       setMovements([]);
       return;
@@ -344,12 +415,19 @@ function KioskInventory() {
   const findStockRow = (productId, colorId) => {
     if (!productId) return null;
     const colorCandidate = colorId ? Number(colorId) : null;
-    return stockRows.find((row) => {
+    const rows = form.operation === "TRASLADO" ? originStockRows : stockRows;
+    return rows.find((row) => {
       const sameProduct = Number(row.productId) === Number(productId);
       const sameColor =
         colorCandidate == null ? row.colorId == null : Number(row.colorId) === colorCandidate;
       return sameProduct && sameColor;
     });
+  };
+
+  const resolveLineSizeOptions = (line) => {
+    const row = findStockRow(line.productId, line.colorId);
+    if (!row || !hasInventorySizeBreakdown(row.sizes)) return [];
+    return sortSizeKeys(Object.keys(row.sizes || {}));
   };
 
   const updateLineItem = (lineId, key, value) => {
@@ -375,9 +453,15 @@ function KioskInventory() {
     if (supportsBulkLines(form.operation)) {
       return validateBulkLines(form.operation, lineItems, {
         locationId: form.locationId,
+        locationOriginId: form.locationOriginId,
+        locationDestinationId: form.locationDestinationId,
         invoiceId: form.invoiceId,
         reason: form.reason,
         physicalSlipNumber: form.physicalSlipNumber,
+        lineNeedsSize: (line) => {
+          const row = findStockRow(line.productId, line.colorId);
+          return Boolean(row && hasInventorySizeBreakdown(row.sizes));
+        },
       });
     }
     if (form.operation === "DEVOLUCION_DEPOSITO") {
@@ -580,6 +664,21 @@ function KioskInventory() {
 
   const submitBulkOperation = async () => {
     const activeLines = lineItems.filter((line) => line.productId && line.quantity);
+    if (form.operation === "TRASLADO") {
+      const result = await registrarKioscoTraslado({
+        locationOriginId: Number(form.locationOriginId),
+        locationDestinationId: Number(form.locationDestinationId),
+        physicalSlipNumber: String(form.physicalSlipNumber || "").trim(),
+        userId: form.userId ? Number(form.userId) : null,
+        items: activeLines.map((line) => ({
+          productId: Number(line.productId),
+          colorId: line.colorId ? Number(line.colorId) : null,
+          quantity: Number(line.quantity),
+          sizeKey: String(line.sizeKey || "").trim() || null,
+        })),
+      });
+      return result;
+    }
     const locationId = Number(form.locationId);
     const errors = [];
     for (const line of activeLines) {
@@ -605,6 +704,7 @@ function KioskInventory() {
         await registrarKioscoMerma(locationId, payload);
       }
     }
+    return null;
   };
 
   const submitOperation = async () => {
@@ -615,8 +715,9 @@ function KioskInventory() {
     }
     try {
       setSubmitting(true);
+      let trasladoResult = null;
       if (supportsBulkLines(form.operation)) {
-        await submitBulkOperation();
+        trasladoResult = await submitBulkOperation();
       } else {
         const payload = buildPayload();
         if (form.operation === "ENTRADA") {
@@ -627,8 +728,6 @@ function KioskInventory() {
           await registrarKioscoDevolucionDeposito(Number(form.locationId), payload);
         } else if (form.operation === "DEVOLUCION_CLIENTE") {
           await registrarKioscoDevolucionCliente(Number(form.locationId), payload);
-        } else if (form.operation === "TRASLADO") {
-          await registrarKioscoTraslado(payload);
         } else if (form.operation === "MERMA") {
           await registrarKioscoMerma(Number(form.locationId), payload);
         } else if (form.operation === "AJUSTE") {
@@ -639,13 +738,30 @@ function KioskInventory() {
           await registrarKioscoCambio(Number(form.locationId), payload);
         }
       }
-      showSuccess(
-        supportsBulkLines(form.operation)
-          ? `${lineItems.filter((l) => l.productId && l.quantity).length} movimiento(s) registrado(s).`
-          : "Movimiento registrado correctamente."
-      );
+      const lineCount = lineItems.filter((l) => l.productId && l.quantity).length;
+      if (form.operation === "TRASLADO") {
+        showSuccess(
+          trasladoResult?.appended
+            ? `Productos agregados a la boleta ${trasladoResult.physicalSlipNumber || ""} (${lineCount}).`
+            : `Traslado registrado con ${lineCount} producto(s).`
+        );
+      } else {
+        showSuccess(
+          supportsBulkLines(form.operation)
+            ? `${lineCount} movimiento(s) registrado(s).`
+            : "Movimiento registrado correctamente."
+        );
+      }
       if (selectedLocation) {
         await refreshLocationData(selectedLocation);
+      }
+      if (form.operation === "TRASLADO" && form.locationOriginId) {
+        try {
+          const data = await getKioscoStock(Number(form.locationOriginId));
+          setOriginStockRows(Array.isArray(data) ? data : []);
+        } catch {
+          /* ignore */
+        }
       }
       if (movementKioskId) {
         await loadMovements(movementKioskId);
@@ -657,6 +773,8 @@ function KioskInventory() {
         locationOriginId: prev.locationOriginId,
         locationDestinationId: prev.locationDestinationId,
       }));
+      setBoletaLocked(false);
+      setBoletaHint("");
       if (supportsBulkLines(form.operation)) {
         setLineItems([createEmptyLineItem()]);
       }
@@ -812,6 +930,7 @@ function KioskInventory() {
                               options={kioskOptions}
                               placeholder="Buscar origen…"
                               emptyLabel="Selecciona origen"
+                              disabled={boletaLocked}
                             />
                           </FormGroup>
                           <FormGroup>
@@ -822,15 +941,39 @@ function KioskInventory() {
                               options={kioskOptions}
                               placeholder="Buscar destino…"
                               emptyLabel="Selecciona destino"
+                              disabled={boletaLocked}
                             />
                           </FormGroup>
                           <FormGroup>
                             <Label>Número de boleta de traslado (física)</Label>
-                            <Input
-                              value={form.physicalSlipNumber}
-                              onChange={(e) => onFormChange("physicalSlipNumber", e.target.value)}
-                              placeholder="Ej: BT-2026-0042"
-                            />
+                            <div className="d-flex" style={{ gap: 8 }}>
+                              <Input
+                                value={form.physicalSlipNumber}
+                                onChange={(e) => {
+                                  setBoletaLocked(false);
+                                  setBoletaHint("");
+                                  onFormChange("physicalSlipNumber", e.target.value);
+                                }}
+                                placeholder="Ej: BT-2026-0042"
+                              />
+                              <Button
+                                color="info"
+                                outline
+                                type="button"
+                                disabled={lookingUpBoleta || submitting}
+                                onClick={() => void handleLookupTrasladoBoleta()}
+                              >
+                                {lookingUpBoleta ? <Spinner size="sm" /> : "Buscar"}
+                              </Button>
+                            </div>
+                            <small className="text-muted d-block mt-1">
+                              Si la boleta ya existe, puedes buscarla y agregar productos faltantes (mismo origen/destino).
+                            </small>
+                            {boletaHint ? (
+                              <Alert color={boletaLocked ? "warning" : "info"} className="py-2 mt-2 mb-0">
+                                {boletaHint}
+                              </Alert>
+                            ) : null}
                           </FormGroup>
                         </>
                       ) : (
@@ -897,8 +1040,9 @@ function KioskInventory() {
                       ) : supportsBulkLines(form.operation) ? (
                         <>
                           <Alert color="info" className="py-2">
-                            Agrega varias líneas de producto. Todas se registran en un solo envío
-                            ({OPERATION_OPTIONS.find((o) => o.value === form.operation)?.label}).
+                            {form.operation === "TRASLADO"
+                              ? "Agrega uno o más productos (color y talla FOSS si aplica). Misma boleta = mismo traslado; puedes buscar una boleta ya guardada para completar faltantes."
+                              : `Agrega varias líneas de producto. Todas se registran en un solo envío (${OPERATION_OPTIONS.find((o) => o.value === form.operation)?.label}).`}
                           </Alert>
                           <div className="table-responsive">
                             <Table size="sm" className="kiosk-inv-line-table mb-2">
@@ -916,6 +1060,7 @@ function KioskInventory() {
                                   const lineStock = findStockRow(line.productId, line.colorId);
                                   const lineNeedsSize =
                                     lineStock && hasInventorySizeBreakdown(lineStock.sizes);
+                                  const sizeOptions = resolveLineSizeOptions(line);
                                   return (
                                     <tr key={line.id}>
                                       <td style={{ minWidth: 160 }}>
@@ -949,17 +1094,38 @@ function KioskInventory() {
                                           disabled={loadingCatalogs}
                                         />
                                       </td>
-                                      <td style={{ width: 72 }}>
-                                        <Input
-                                          type="text"
-                                          bsSize="sm"
-                                          value={line.sizeKey}
-                                          onChange={(e) =>
-                                            updateLineItem(line.id, "sizeKey", e.target.value)
-                                          }
-                                          placeholder={lineNeedsSize ? "Req." : "—"}
-                                          disabled={!lineNeedsSize}
-                                        />
+                                      <td style={{ width: 96 }}>
+                                        {lineNeedsSize && sizeOptions.length > 0 ? (
+                                          <Input
+                                            type="select"
+                                            bsSize="sm"
+                                            value={line.sizeKey}
+                                            onChange={(e) =>
+                                              updateLineItem(line.id, "sizeKey", e.target.value)
+                                            }
+                                          >
+                                            <option value="">Talla…</option>
+                                            {sizeOptions.map((size) => (
+                                              <option key={size} value={size}>
+                                                {size}
+                                                {lineStock?.sizes?.[size] != null
+                                                  ? ` (${lineStock.sizes[size]})`
+                                                  : ""}
+                                              </option>
+                                            ))}
+                                          </Input>
+                                        ) : (
+                                          <Input
+                                            type="text"
+                                            bsSize="sm"
+                                            value={line.sizeKey}
+                                            onChange={(e) =>
+                                              updateLineItem(line.id, "sizeKey", e.target.value)
+                                            }
+                                            placeholder={lineNeedsSize ? "Req." : "—"}
+                                            disabled={!lineNeedsSize}
+                                          />
+                                        )}
                                       </td>
                                       <td style={{ width: 72 }}>
                                         <Input
