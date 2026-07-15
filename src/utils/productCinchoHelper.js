@@ -52,9 +52,25 @@ export const productMatchesSearchFilter = (row, search) => {
 export const hasAssignedProductColor = (row) =>
   row?.colorId != null && String(row?.colorName || "").trim() !== "";
 
+const hasConteoKardexActivity = (row) => {
+  const n = (v) => Number(v || 0);
+  return n(row?.inventarioInicial) > 0
+    || n(row?.inventarioFinal) > 0
+    || n(row?.comprasAjustes) > 0
+    || n(row?.anulacionCompras) > 0
+    || n(row?.entradas) > 0
+    || n(row?.ventas) > 0
+    || n(row?.anulacionVenta) > 0
+    || n(row?.salida) > 0
+    || n(row?.total) > 0;
+};
+
 /** Empaques SUM- no llevan color; deben aparecer igual en conteo físico y listados de stock. */
 export const shouldShowInKioskPhysicalCount = (row) =>
-  hasAssignedProductColor(row) || row?.packaging === true || isPackagingProductCode(row?.productCode);
+  hasAssignedProductColor(row)
+  || row?.packaging === true
+  || isPackagingProductCode(row?.productCode)
+  || hasConteoKardexActivity(row);
 
 export const filterVisibleKioskStockRows = (rows) =>
   (rows || []).filter(shouldShowInKioskPhysicalCount);

@@ -578,11 +578,24 @@ function KioskInventoryCountReport({ locationId }) {
         reportType: data.reportType || "SUBCONTEO",
         asOfDate: data.asOfDate || subcountAsOf,
       });
+      const visibleCategories = (payload.categories || [])
+        .map((category) => {
+          const rows = (category.rows || []).filter(shouldShowInKioskPhysicalCount);
+          if (!rows.length) return null;
+          return { ...category, rows, subtotal: sumFilteredRows(rows) };
+        })
+        .filter(Boolean);
+      const allVisible = visibleCategories.flatMap((c) => c.rows);
+      const exportPayload = {
+        ...payload,
+        categories: visibleCategories,
+        totalGeneral: allVisible.length ? sumFilteredRows(allVisible) : payload.totalGeneral,
+      };
       if (format === "pdf") {
-        exportConteoToPdf(payload, { showKardex: true, includeVitrines: false });
+        exportConteoToPdf(exportPayload, { showKardex: true, includeVitrines: false });
         showSuccess(`PDF inventario al cierre del ${fmt(subcountAsOf)} listo.`);
       } else {
-        exportConteoToExcel(payload, { showKardex: true, includeVitrines: false });
+        exportConteoToExcel(exportPayload, { showKardex: true, includeVitrines: false });
         showSuccess(`Excel inventario al cierre del ${fmt(subcountAsOf)} descargado.`);
       }
     } catch (err) {

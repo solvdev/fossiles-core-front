@@ -52,6 +52,8 @@ const collectSizeKeys = (row) => {
   Object.values(row?.physicalSizesByLocation || {}).forEach((locSizes) => {
     Object.keys(locSizes || {}).forEach((size) => keys.add(size));
   });
+  // Tallas con kardex/envío aunque stock actual sea 0 (clave presente con qty 0).
+  if (row?.sizeLabel) keys.add(String(row.sizeLabel));
   return sortSizeKeys(keys);
 };
 
@@ -111,28 +113,45 @@ const expandCinchoRowBySizes = (row) => {
   if (!shouldExpandCinchoRow(row)) return [row];
 
   const sizeKeys = collectSizeKeys(row);
-  return sizeKeys.map((size, index) => {
+  return sizeKeys.map((size) => {
     const sysQty = Number(row.systemSizes?.[size] || 0);
     const counts = buildCountsForSize(row, size);
     const total = resolvePhysicalTotalForSize(row, size, counts);
     const inventarioFinal = sysQty;
+    // Fallback solo si el backend no envió sizeLabel. Preferir API expandida.
+    const netHint =
+      Number(row.comprasAjustes || 0)
+      - Number(row.anulacionCompras || 0)
+      + Number(row.entradas || 0)
+      - Number(row.ventas || 0)
+      + Number(row.anulacionVenta || 0)
+      - Number(row.salida || 0);
+    const onlyOneSize = sizeKeys.length === 1;
+    const entradas = onlyOneSize ? Number(row.entradas || 0) : 0;
+    const ventas = onlyOneSize ? Number(row.ventas || 0) : 0;
+    const comprasAjustes = onlyOneSize ? Number(row.comprasAjustes || 0) : 0;
+    const anulacionCompras = onlyOneSize ? Number(row.anulacionCompras || 0) : 0;
+    const anulacionVenta = onlyOneSize ? Number(row.anulacionVenta || 0) : 0;
+    const salida = onlyOneSize ? Number(row.salida || 0) : 0;
+    const sizeNet = onlyOneSize ? netHint : 0;
+    const inventarioInicial = Math.max(0, inventarioFinal - sizeNet);
 
     return {
       ...row,
       sizeLabel: size,
       sizesSummary: size,
       physicalSizesSummary: String(total),
-      systemSizes: sysQty > 0 ? { [size]: sysQty } : null,
+      systemSizes: { [size]: sysQty },
       physicalSizes:
         row.physicalSizes?.[size] != null ? { [size]: Number(row.physicalSizes[size]) } : null,
       physicalSizesByLocation: buildSingleSizeByLocation(row.physicalSizesByLocation, size),
-      inventarioInicial: index === 0 ? Number(row.inventarioInicial || 0) : 0,
-      comprasAjustes: index === 0 ? Number(row.comprasAjustes || 0) : 0,
-      anulacionCompras: index === 0 ? Number(row.anulacionCompras || 0) : 0,
-      entradas: index === 0 ? Number(row.entradas || 0) : 0,
-      ventas: index === 0 ? Number(row.ventas || 0) : 0,
-      anulacionVenta: index === 0 ? Number(row.anulacionVenta || 0) : 0,
-      salida: index === 0 ? Number(row.salida || 0) : 0,
+      inventarioInicial,
+      comprasAjustes,
+      anulacionCompras,
+      entradas,
+      ventas,
+      anulacionVenta,
+      salida,
       inventarioFinal,
       counts,
       total,
@@ -193,6 +212,8 @@ const resolveDisplayCategoryId = (key, row) => {
 /**
  * Reagrupa el reporte de conteo físico: Empaques aparte, billeteras por público,
  * cinchos con una fila por talla y color.
+ * Si el backend ya envió filas con sizeLabel, no se re-expanden (evita perder Ent. por talla
+ * y filas con Fin=0 que sí tuvieron movimiento/envío).
  */
 export function buildConteoDisplayReport(report) {
   if (!report?.categories?.length) return report;
@@ -203,7 +224,8 @@ export function buildConteoDisplayReport(report) {
     (category.rows || []).map((row) => resolveSourceCategory(row, category))
   );
 
-  const expandedRows = isSubcount
+  const alreadyExpandedBySize = flatRows.some((row) => Boolean(row?.sizeLabel));
+  const expandedRows = isSubcount || alreadyExpandedBySize
     ? flatRows
     : flatRows.flatMap((row) => expandCinchoRowBySizes(row));
 
