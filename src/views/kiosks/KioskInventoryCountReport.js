@@ -35,9 +35,7 @@ import { buildConteoDisplayReport, formatConteoSubtotalLabel } from "utils/kiosc
 import {
   CONTEO_COLOR_LEGEND_LEFT,
   CONTEO_COLOR_LEGEND_RIGHT,
-  CONTEO_COLUMN_HEADER_COLORS,
   hexCss,
-  headerTextColorForBg,
 } from "utils/kioscoConteoColorLegend";
 import { PRODUCT_AUDIENCE_OPTIONS, productMatchesAudienceFilter } from "utils/productAudienceHelper";
 import {
@@ -1522,14 +1520,7 @@ function KioskInventoryCountReport({ locationId }) {
                   <th colSpan={COUNT_LOCATION_KEYS.length} style={{ ...thStyle, background: "#dcfce7", textAlign: "center" }}>
                     Conteo físico por ubicación
                   </th>
-                  <th rowSpan={2} style={{
-                    ...thStyle,
-                    ...sumColStyle,
-                    background: hexCss(CONTEO_COLUMN_HEADER_COLORS.total),
-                    color: headerTextColorForBg(CONTEO_COLUMN_HEADER_COLORS.total),
-                    textAlign: "center",
-                    verticalAlign: "middle",
-                  }}>Total</th>
+                  <th rowSpan={2} style={{ ...thStyle, ...sumColStyle, background: "#fef9c3", textAlign: "center", verticalAlign: "middle" }}>Total</th>
                   <th rowSpan={2} style={{ ...thStyle, ...sumColStyle, background: "#fee2e2", textAlign: "center", verticalAlign: "middle" }}>Dif.</th>
                 </tr>
                 {/* Fila de columnas */}
@@ -1539,22 +1530,9 @@ function KioskInventoryCountReport({ locationId }) {
                   <th style={thStyle}>Talla</th>
                   <th style={thStyle}>Tipo</th>
                   <th style={thStyle}>Herraje</th>
-                  {showKardex && kardexColumns.map((col) => {
-                    const bg = CONTEO_COLUMN_HEADER_COLORS[col.key];
-                    return (
-                      <th
-                        key={col.key}
-                        style={{
-                          ...thStyle,
-                          background: bg ? hexCss(bg) : "#eef2ff",
-                          color: bg ? headerTextColorForBg(bg) : "#111827",
-                        }}
-                        title={col.title}
-                      >
-                        {col.label}
-                      </th>
-                    );
-                  })}
+                  {showKardex && kardexColumns.map((col) => (
+                    <th key={col.key} style={{ ...thStyle, background: "#eef2ff" }} title={col.title}>{col.label}</th>
+                  ))}
                   {COUNT_LOCATION_KEYS.map((k) => (
                     <th key={k} style={{ ...thStyle, ...locColStyle, background: "#f0fdf4" }}>{k}</th>
                   ))}

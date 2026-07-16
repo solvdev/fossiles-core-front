@@ -3,7 +3,6 @@ import { formatConteoSubtotalLabel } from "./kioscoConteoDisplay";
 import {
   CONTEO_COLOR_LEGEND_LEFT,
   CONTEO_COLOR_LEGEND_RIGHT,
-  CONTEO_COLUMN_HEADER_COLORS,
 } from "./kioscoConteoColorLegend";
 import { formatNowGt } from "./dateTimeHelper";
 
@@ -399,35 +398,18 @@ function applySheetLayout(ws, layout, merges) {
   });
 }
 
-function resolveHeaderFill(colIdx, layout, { vitrineHighlight = false, showKardex = true } = {}) {
-  const { separatorCol, vitrineStart, totalCol, diffCol, kardexStart, includeVitrines } = layout;
-  if (includeVitrines && colIdx === separatorCol) return { fill: COLORS.separatorBg, text: "111827" };
-  if (showKardex && colIdx >= kardexStart && colIdx < kardexStart + KARDEX_HEADERS.length) {
-    const key = KARDEX_HEADERS[colIdx - kardexStart]?.key;
-    const fill = CONTEO_COLUMN_HEADER_COLORS[key];
-    if (fill) {
-      const light = ["FFC000", "00B0F0", "5B9BD5", "F4A6C9", "92D050"].includes(fill);
-      return { fill, text: light ? "000000" : "FFFFFF" };
-    }
-  }
-  if (includeVitrines && colIdx === totalCol) {
-    return { fill: CONTEO_COLUMN_HEADER_COLORS.total, text: "000000" };
-  }
-  if (includeVitrines && colIdx === diffCol) {
-    return { fill: COLORS.tableHeaderBg, text: "111827" };
-  }
-  if (includeVitrines && vitrineHighlight && colIdx >= vitrineStart && colIdx < totalCol) {
-    return { fill: COLORS.vitrineHeaderBg, text: "111827" };
-  }
-  return { fill: COLORS.tableHeaderBg, text: "111827" };
-}
-
-function styleHeaderRow(ws, rowIdx, layout, { vitrineHighlight = false, showKardex = true } = {}) {
-  const { colCount } = layout;
+function styleHeaderRow(ws, rowIdx, layout, { vitrineHighlight = false } = {}) {
+  const { colCount, separatorCol, vitrineStart, diffCol, includeVitrines } = layout;
   for (let colIdx = 0; colIdx < colCount; colIdx += 1) {
-    const { fill, text } = resolveHeaderFill(colIdx, layout, { vitrineHighlight, showKardex });
+    let fill = COLORS.tableHeaderBg;
+    if (includeVitrines && vitrineHighlight && colIdx >= vitrineStart && colIdx <= diffCol) {
+      fill = COLORS.vitrineHeaderBg;
+    }
+    if (includeVitrines && colIdx === separatorCol) {
+      fill = COLORS.separatorBg;
+    }
     styleCell(ws, rowIdx, colIdx, {
-      font: { name: "Arial", sz: 10, bold: true, color: { rgb: text } },
+      font: { name: "Arial", sz: 10, bold: true, color: { rgb: "111827" } },
       alignment: { vertical: "center", horizontal: "center", wrapText: true },
       border: borderWithSeparator(colIdx, layout),
       fill: fillStyle(fill),
@@ -512,7 +494,7 @@ function applyConteoSheetStyles(ws, report, showKardex, includeVitrines = true) 
   meta.slice(headerOffset).forEach((entry, offset) => {
     const currentRow = headerOffset + offset;
     if (entry.type === "main-header") {
-      styleHeaderRow(ws, currentRow, layout, { vitrineHighlight: withVitrines, showKardex });
+      styleHeaderRow(ws, currentRow, layout, { vitrineHighlight: withVitrines });
       return;
     }
     if (entry.type === "category-title") {
@@ -526,7 +508,7 @@ function applyConteoSheetStyles(ws, report, showKardex, includeVitrines = true) 
       return;
     }
     if (entry.type === "category-headers") {
-      styleHeaderRow(ws, currentRow, layout, { vitrineHighlight: withVitrines, showKardex });
+      styleHeaderRow(ws, currentRow, layout, { vitrineHighlight: withVitrines });
       return;
     }
     if (entry.type === "data") {
@@ -670,18 +652,12 @@ export function exportConteoToPdf(report, options = {}) {
 
   const kardexHeaderList = resolveKardexHeaders(prepared);
   const kardexHeaders = showKardex
-    ? kardexHeaderList.map((col) => {
-      const bg = CONTEO_COLUMN_HEADER_COLORS[col.key];
-      const color = bg && ["FFC000", "00B0F0", "5B9BD5", "F4A6C9", "92D050"].includes(bg) ? "#000" : "#fff";
-      return `<th style="background:#${bg || "f3f4f6"};color:${bg ? color : "#111"}">${escape(col.label)}</th>`;
-    }).join("")
+    ? kardexHeaderList.map((col) => `<th>${escape(col.label)}</th>`).join("")
     : "";
   const countHeaders = includeVitrines
     ? COUNT_LOCATION_KEYS.map((k) => `<th>${escape(k)}</th>`).join("")
     : "";
-  const trailingHeaders = includeVitrines
-    ? `<th style="background:#${CONTEO_COLUMN_HEADER_COLORS.total};color:#000">Total</th><th>Dif.</th>`
-    : "";
+  const trailingHeaders = includeVitrines ? "<th>Total</th><th>Dif.</th>" : "";
   const colSpan =
     4
     + (showKardex ? kardexHeaderList.length : 0)
