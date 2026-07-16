@@ -17,6 +17,7 @@ import {
 import { getProducts, deleteProduct } from "services/productService";
 import { getProductCategories } from "services/productCategoryService";
 import { getProductAudienceLabel, PRODUCT_AUDIENCE_OPTIONS } from "utils/productAudienceHelper";
+import { formatCinchoClassification } from "utils/productCinchoHelper";
 import ProductsForm from "./ProductsForm";
 import ProductRecipeModal from "./ProductRecipeModal";
 import ConfirmModal from "components/ConfirmModal/ConfirmModal";
@@ -281,6 +282,7 @@ function ProductsList() {
                       <th>Nombre</th>
                       <th>Categoría</th>
                       <th>Línea</th>
+                      <th>Tipo cincho</th>
                       <th>Tiempo Prod.</th>
                       <th>Cuero (ft²)</th>
                       <th>Estado</th>
@@ -308,6 +310,7 @@ function ProductsList() {
                         <td>{product.name}</td>
                         <td>{getCategoryName(product.categoryId)}</td>
                         <td>{getProductAudienceLabel(product.audienceCategory)}</td>
+                        <td>{formatCinchoClassification(product)}</td>
                         <td>{product.prdTime ? `${product.prdTime} hrs` : "-"}</td>
                         <td>{product.leatherConsumption ? `${product.leatherConsumption}` : "-"}</td>
                         <td>{getStatusBadge(product.status)}</td>

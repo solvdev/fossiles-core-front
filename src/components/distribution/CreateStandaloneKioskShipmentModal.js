@@ -24,6 +24,7 @@ import { getProducts } from "services/productService";
 import { createStandaloneKioskShipment, previewDispatchStock } from "services/productDistributionService";
 import { isCinchoInventoryProductByCodeAndName } from "utils/cinchoProductionHelper";
 import { isPackagingProductCode } from "utils/kioskPackagingHelper";
+import { HARDWARE_CONDITION_OPTIONS } from "utils/productCinchoHelper";
 import { getDefaultShipmentDocumentDate } from "utils/prepareShipmentsOrderHelper";
 import { showError, showSuccess } from "utils/notificationHelper";
 
@@ -32,6 +33,7 @@ const emptyLine = () => ({
   productId: "",
   colorId: "",
   size: "",
+  hardwareCondition: "",
   quantity: 1,
   stockHint: "",
   stockLoading: false,
@@ -264,6 +266,7 @@ function CreateStandaloneKioskShipmentModal({ isOpen, toggle, onCreated }) {
         productId: Number(row.productId),
         colorId: row.colorId ? Number(row.colorId) : null,
         size: String(row.size || "").trim().toUpperCase(),
+        hardwareCondition: String(row.hardwareCondition || "").trim().toUpperCase() || null,
         quantity: Number(row.quantity) || 0,
         rowKey: row.key,
       }))
@@ -285,6 +288,11 @@ function CreateStandaloneKioskShipmentModal({ isOpen, toggle, onCreated }) {
       if (source && isLineCincho(source) && !row.size) {
         const product = getLineProduct(source);
         showError(`Indique talla para ${product?.code || "cincho"} — ${product?.name || "producto"}`);
+        return;
+      }
+      if (source && isLineCincho(source) && !row.hardwareCondition) {
+        const product = getLineProduct(source);
+        showError(`Indique herraje (nuevo/viejo) para ${product?.code || "cincho"}`);
         return;
       }
     }
@@ -362,6 +370,7 @@ function CreateStandaloneKioskShipmentModal({ isOpen, toggle, onCreated }) {
               <th>Producto</th>
               <th>Color</th>
               <th>Talla</th>
+              <th>Herraje</th>
               <th style={{ width: 90 }}>Cant.</th>
               <th>Stock PT/Dev.</th>
               <th style={{ width: 44 }} />
@@ -399,6 +408,28 @@ function CreateStandaloneKioskShipmentModal({ isOpen, toggle, onCreated }) {
                       placeholder={cincho ? "Ej: 34" : "Opcional"}
                       bsSize="sm"
                     />
+                  </td>
+                  <td style={{ minWidth: 120 }}>
+                    {cincho ? (
+                      <Input
+                        type="select"
+                        bsSize="sm"
+                        value={row.hardwareCondition || ""}
+                        disabled={!row.productId}
+                        onChange={(e) =>
+                          patchLine(row.key, { hardwareCondition: e.target.value || "" })
+                        }
+                      >
+                        <option value="">Seleccione…</option>
+                        {HARDWARE_CONDITION_OPTIONS.filter((opt) => opt.value).map((opt) => (
+                          <option key={opt.value} value={opt.value}>
+                            {opt.label}
+                          </option>
+                        ))}
+                      </Input>
+                    ) : (
+                      <span className="text-muted small">—</span>
+                    )}
                   </td>
                   <td>
                     <Input

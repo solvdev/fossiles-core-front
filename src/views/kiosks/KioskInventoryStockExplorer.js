@@ -7,6 +7,10 @@ import {
   hasInventorySizeBreakdown,
 } from "utils/inventoryVariantHelper";
 import { isPackagingProductCode } from "utils/kioskPackagingHelper";
+import {
+  formatCinchoClassification,
+  getHardwareConditionLabel,
+} from "utils/productCinchoHelper";
 import "./KioskInventory.css";
 
 function KioskInventoryStockExplorer({
@@ -139,6 +143,10 @@ function KioskInventoryStockExplorer({
                   ) : null}
                   <div className="text-muted small mt-1">
                     Color: {selectedVariant?.colorName || "—"}
+                    {" · "}
+                    Tipo: {formatCinchoClassification(selectedVariant || selectedProduct)}
+                    {" · "}
+                    Herraje: {getHardwareConditionLabel(selectedVariant?.hardwareCondition)}
                   </div>
                 </div>
                 <div className="text-right">
@@ -177,6 +185,8 @@ function KioskInventoryStockExplorer({
               <thead>
                 <tr>
                   <th>Color</th>
+                  <th>Tipo</th>
+                  <th>Herraje</th>
                   <th className="text-right">Stock</th>
                   <th className="text-right">Mínimo</th>
                   <th>Tallas</th>
@@ -190,6 +200,8 @@ function KioskInventoryStockExplorer({
                     onClick={() => onColorChange(row.colorId ? String(row.colorId) : "")}
                   >
                     <td>{row.colorName || "Sin color"}</td>
+                    <td className="small">{formatCinchoClassification(row)}</td>
+                    <td className="small">{getHardwareConditionLabel(row.hardwareCondition)}</td>
                     <td className="text-right font-weight-bold">{row.currentStock ?? 0}</td>
                     <td className="text-right">{row.minimumStock ?? 0}</td>
                     <td className="small text-muted">
@@ -244,6 +256,8 @@ function KioskInventoryStockExplorer({
                 <tr>
                   <th>Producto</th>
                   <th>Color</th>
+                  <th>Tipo</th>
+                  <th>Herraje</th>
                   <th className="text-right">Actual</th>
                   <th className="text-right">Mínimo</th>
                   <th>Estado</th>
@@ -261,6 +275,8 @@ function KioskInventoryStockExplorer({
                         ) : null}
                       </td>
                       <td>{row.colorName || "—"}</td>
+                      <td className="small">{formatCinchoClassification(row)}</td>
+                      <td className="small">{getHardwareConditionLabel(row.hardwareCondition)}</td>
                       <td className="text-right">{row.currentStock}</td>
                       <td className="text-right">{row.minimumStock}</td>
                       <td>

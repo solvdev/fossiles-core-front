@@ -12,10 +12,17 @@ export const CINCHO_TYPE_OPTIONS = [
   { value: "REVERSIBLE", label: "Reversible" },
 ];
 
+export const HARDWARE_CONDITION_OPTIONS = [
+  { value: "", label: "— Herraje" },
+  { value: "NUEVO", label: "Herraje nuevo" },
+  { value: "VIEJO", label: "Herraje viejo" },
+];
+
 export const CINCHO_FILTER_OPTIONS = [
   { value: "", label: "Todos" },
   { value: "CASUAL", label: "Casual" },
   { value: "REVERSIBLE", label: "Reversible" },
+  { value: "KIDS", label: "Niño" },
   { value: "NONE", label: "No cincho" },
 ];
 
@@ -25,10 +32,33 @@ export const normalizeCinchoType = (value) => {
   return "";
 };
 
+export const normalizeHardwareCondition = (value) => {
+  const v = String(value || "").trim().toUpperCase();
+  if (v === "NUEVO" || v === "NEW") return "NUEVO";
+  if (v === "VIEJO" || v === "OLD" || v === "ANTIGUO") return "VIEJO";
+  return "";
+};
+
 export const getCinchoTypeLabel = (value) => {
   const normalized = normalizeCinchoType(value);
   if (!normalized) return "—";
   return CINCHO_TYPE_OPTIONS.find((opt) => opt.value === normalized)?.label || normalized;
+};
+
+export const getHardwareConditionLabel = (value) => {
+  const normalized = normalizeHardwareCondition(value);
+  if (!normalized) return "—";
+  return HARDWARE_CONDITION_OPTIONS.find((opt) => opt.value === normalized)?.label || normalized;
+};
+
+/** Etiqueta corta: Casual / Reversible / Niño (combinable). */
+export const formatCinchoClassification = (row) => {
+  const type = normalizeCinchoType(row?.cinchoType);
+  const typeLabel = type ? getCinchoTypeLabel(type) : "";
+  const kids = Boolean(row?.cinchoForKids);
+  if (!typeLabel && !kids) return "—";
+  if (!typeLabel && kids) return "Niño";
+  return kids ? `${typeLabel} · Niño` : typeLabel;
 };
 
 export const isPackagingProductCode = (code) =>
@@ -38,6 +68,7 @@ export const productMatchesCinchoFilter = (row, cinchoFilter) => {
   if (!cinchoFilter) return true;
   const cincho = normalizeCinchoType(row?.cinchoType);
   if (cinchoFilter === "NONE") return !cincho;
+  if (cinchoFilter === "KIDS") return Boolean(row?.cinchoForKids);
   return cincho === cinchoFilter;
 };
 
@@ -115,8 +146,8 @@ export const isCinchoProductRow = (row) => {
 };
 
 export const resolveCinchoProductLabel = (row) => {
-  const type = normalizeCinchoType(row?.cinchoType);
-  if (type) return getCinchoTypeLabel(type);
+  const classified = formatCinchoClassification(row);
+  if (classified !== "—") return classified;
   if (isCinchoInventoryProductByCodeAndName(row?.productCode, row?.productName)) return "FOSS / Cincho";
   if (hasInventorySizeBreakdown(row?.systemSizes)) return "Por talla";
   return "—";

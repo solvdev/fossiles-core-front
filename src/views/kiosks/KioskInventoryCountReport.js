@@ -38,7 +38,9 @@ import {
   shouldShowInKioskPhysicalCount,
   isCinchoProductRow,
   isFossCinchoProductRow,
+  formatCinchoClassification,
   formatFossLocationSizeSummary,
+  getHardwareConditionLabel,
   productMatchesCinchoFilter,
   productMatchesSearchFilter,
   resolvePhysicalSizesSummary,
@@ -54,7 +56,7 @@ import CinchoCountDetailModal from "./CinchoCountDetailModal";
 const COUNT_LOCATION_KEYS = ["V1", "V2", "V3", "V4", "V5", "V6", "V7", "E", "BO"];
 const CINCHO_VITRINE_LOCATION = CINCHO_COUNT_LOCATION.VITRINE;
 const CINCHO_WAREHOUSE_LOCATION = CINCHO_COUNT_LOCATION.WAREHOUSE;
-const PRODUCT_INFO_COLS = 3;
+const PRODUCT_INFO_COLS = 5;
 const LOC_COL_WIDTH = 52;
 const SUM_COL_WIDTH = 56;
 
@@ -181,6 +183,8 @@ function CountTableColGroup({ showKardex, kardexColumns }) {
       <col />
       <col />
       <col />
+      <col style={{ width: 88 }} />
+      <col style={{ width: 88 }} />
       {showKardex && kardexColumns.map((col) => (
         <col key={col.key} style={{ width: LOC_COL_WIDTH }} />
       ))}
@@ -264,6 +268,12 @@ function DataRow({ row, showKardex, kardexColumns, counts, physicalSizes, physic
             {isFoss ? "Contar E/BO por talla" : "Contar por talla"}
           </Button>
         )}
+      </td>
+      <td style={{ fontSize: 11, color: "#374151", whiteSpace: "nowrap" }}>
+        {formatCinchoClassification(row)}
+      </td>
+      <td style={{ fontSize: 11, color: "#374151", whiteSpace: "nowrap" }}>
+        {getHardwareConditionLabel(row.hardwareCondition)}
       </td>
       {showKardex && kardexColumns.map((col) => (
         <td key={col.key} className="text-right" style={{ fontSize: 11, color: col.key === "inventarioFinal" ? "#111" : "#6b7280" }}>
@@ -1405,6 +1415,8 @@ function KioskInventoryCountReport({ locationId }) {
                   <th style={thStyle}>Producto / Código</th>
                   <th style={thStyle}>Color</th>
                   <th style={thStyle}>Talla</th>
+                  <th style={thStyle}>Tipo</th>
+                  <th style={thStyle}>Herraje</th>
                   {showKardex && kardexColumns.map((col) => (
                     <th key={col.key} style={{ ...thStyle, background: "#eef2ff" }} title={col.title}>{col.label}</th>
                   ))}

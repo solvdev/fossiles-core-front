@@ -405,6 +405,7 @@ function ProductDistributions() {
                   <td>${escapeHtml(product.productName || "Producto")}</td>
                   <td>${escapeHtml(product.colorName || "-")}</td>
                   <td>${escapeHtml(product.size || "-")}</td>
+                  <td>${escapeHtml(product.hardwareCondition || "-")}</td>
                   <td style="text-align:right;">${escapeHtml(formatQty(product.quantity))}</td>
                 </tr>
               `
@@ -450,11 +451,12 @@ function ProductDistributions() {
                     <th>Producto</th>
                     <th>Color</th>
                     <th>Talla</th>
+                    <th>Herraje</th>
                     <th>Cantidad</th>
                   </tr>
                 </thead>
                 <tbody>
-                  ${productRows || `<tr><td colspan="6">Sin productos</td></tr>`}
+                  ${productRows || `<tr><td colspan="7">Sin productos</td></tr>`}
                 </tbody>
               </table>
               <div class="packing-title">Empaques de la distribución</div>

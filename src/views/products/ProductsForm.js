@@ -25,6 +25,7 @@ function ProductsForm({ productId, isOpen, toggle, onSuccess }) {
     categoryId: "",
     audienceCategory: "UNISEX",
     cinchoType: "",
+    cinchoForKids: false,
     prdTime: "",
     salePrice: "",
     sellerPrice: "",
@@ -69,6 +70,7 @@ function ProductsForm({ productId, isOpen, toggle, onSuccess }) {
         categoryId: product.categoryId || "",
         audienceCategory: product.audienceCategory || "UNISEX",
         cinchoType: product.cinchoType || "",
+        cinchoForKids: Boolean(product.cinchoForKids),
         prdTime: product.prdTime || "",
         salePrice: product.salePrice || "",
         sellerPrice: product.sellerPrice || "",
@@ -90,6 +92,7 @@ function ProductsForm({ productId, isOpen, toggle, onSuccess }) {
       categoryId: "",
       audienceCategory: "UNISEX",
       cinchoType: "",
+      cinchoForKids: false,
       prdTime: "",
       salePrice: "",
       sellerPrice: "",
@@ -137,6 +140,7 @@ function ProductsForm({ productId, isOpen, toggle, onSuccess }) {
         categoryId: parseInt(formData.categoryId),
         audienceCategory: formData.audienceCategory || "UNISEX",
         cinchoType: formData.cinchoType || null,
+        cinchoForKids: Boolean(formData.cinchoType) && Boolean(formData.cinchoForKids),
         prdTime: formData.prdTime ? parseFloat(formData.prdTime) : null,
         salePrice: formData.salePrice ? parseFloat(formData.salePrice) : null,
         sellerPrice: formData.sellerPrice ? parseFloat(formData.sellerPrice) : null,
@@ -248,7 +252,13 @@ function ProductsForm({ productId, isOpen, toggle, onSuccess }) {
                   <Input
                     type="select"
                     value={formData.cinchoType}
-                    onChange={(e) => setFormData({ ...formData, cinchoType: e.target.value })}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        cinchoType: e.target.value,
+                        cinchoForKids: e.target.value ? formData.cinchoForKids : false,
+                      })
+                    }
                     disabled={loading}
                   >
                     {CINCHO_TYPE_OPTIONS.map((opt) => (
@@ -258,6 +268,21 @@ function ProductsForm({ productId, isOpen, toggle, onSuccess }) {
                     ))}
                   </Input>
                 </FormGroup>
+                {formData.cinchoType && (
+                  <FormGroup check className="mt-2">
+                    <Label check>
+                      <Input
+                        type="checkbox"
+                        checked={Boolean(formData.cinchoForKids)}
+                        onChange={(e) =>
+                          setFormData({ ...formData, cinchoForKids: e.target.checked })
+                        }
+                        disabled={loading}
+                      />{" "}
+                      Cincho de niño
+                    </Label>
+                  </FormGroup>
+                )}
               </Col>
             )}
           </Row>

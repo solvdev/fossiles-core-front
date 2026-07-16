@@ -38,6 +38,11 @@ import { getColors } from "services/colorService";
 import { getAuthHeader } from "services/authService";
 import { showError, showSuccess } from "utils/notificationHelper";
 import { formatDateGt } from "utils/dateTimeHelper";
+import {
+  HARDWARE_CONDITION_OPTIONS,
+  getHardwareConditionLabel,
+  normalizeHardwareCondition,
+} from "utils/productCinchoHelper";
 import QRCode from "qrcode";
 import { getPublicFrontBaseUrl, buildPtDispatchDistributionUrl } from "utils/ptDispatchQr";
 
@@ -219,9 +224,10 @@ function ProductDistributionDetail() {
   const [currentShipment, setCurrentShipment] = useState(null);
   const [editingShipmentId, setEditingShipmentId] = useState(null);
   const [inventory, setInventory] = useState([]);
-  const [shipmentProducts, setShipmentProducts] = useState({}); // {"productId:colorId:size": quantity}
+  const [shipmentProducts, setShipmentProducts] = useState({}); // {"productId:colorId:size:hw": quantity}
   const [shipmentColors, setShipmentColors] = useState({}); // {productId: colorId} -> color draft por fila
   const [shipmentSizes, setShipmentSizes] = useState({}); // {productId: sizeLabel} -> talla draft por fila CINCHO
+  const [shipmentHardware, setShipmentHardware] = useState({}); // {productId: NUEVO|VIEJO}
   const [quantityInputs, setQuantityInputs] = useState({}); // {productId: "string value"} -> cantidad draft por fila
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -253,19 +259,22 @@ function ProductDistributionDetail() {
   const normalizeShipmentSize = (sizeValue) => String(sizeValue || "").trim().toUpperCase();
   const normalizeShipmentColor = (colorId) =>
     colorId === null || colorId === undefined || colorId === "" ? "null" : String(parseInt(colorId, 10));
+  const normalizeShipmentHardware = (value) => normalizeHardwareCondition(value) || "";
 
-  const buildShipmentKey = (productId, colorId, sizeLabel = "") =>
-    `${parseInt(productId, 10)}:${normalizeShipmentColor(colorId)}:${normalizeShipmentSize(sizeLabel) || "nosize"}`;
+  const buildShipmentKey = (productId, colorId, sizeLabel = "", hardware = "") =>
+    `${parseInt(productId, 10)}:${normalizeShipmentColor(colorId)}:${normalizeShipmentSize(sizeLabel) || "nosize"}:${normalizeShipmentHardware(hardware) || "nohw"}`;
 
   const parseShipmentKey = (key) => {
     const parts = String(key).split(":");
-    const [productRaw, colorRaw, sizeRaw] = parts;
+    const [productRaw, colorRaw, sizeRaw, hardwareRaw] = parts;
     const normalizedColorRaw = colorRaw === undefined ? "null" : colorRaw;
     const normalizedSizeRaw = sizeRaw === undefined ? "nosize" : sizeRaw;
+    const normalizedHwRaw = hardwareRaw === undefined ? "nohw" : hardwareRaw;
     return {
       productId: parseInt(productRaw, 10),
       colorId: normalizedColorRaw === "null" ? null : parseInt(normalizedColorRaw, 10),
       size: normalizedSizeRaw === "nosize" ? "" : normalizedSizeRaw,
+      hardwareCondition: normalizedHwRaw === "nohw" ? "" : normalizeShipmentHardware(normalizedHwRaw),
     };
   };
 
@@ -601,14 +610,19 @@ function ProductDistributionDetail() {
       );
       const productsMap = {};
       (existingShipment.products || []).forEach(p => {
-        const key = buildShipmentKey(p.productId, p.colorId ?? null, p.size || "");
+        const key = buildShipmentKey(
+          p.productId,
+          p.colorId ?? null,
+          p.size || "",
+          p.hardwareCondition || ""
+        );
         productsMap[key] = Number((Number(productsMap[key] || 0) + Number(p.quantity || 0)).toFixed(3));
       });
       setShipmentProducts(productsMap);
       setQuantityInputs({});
       setShipmentColors({});
       setShipmentSizes({});
-      setShipmentSizes({});
+      setShipmentHardware({});
       setPackingSearch("");
       setPackingQuantityInput("");
       setPackingUnitPriceInput("");
@@ -629,6 +643,7 @@ function ProductDistributionDetail() {
       setShipmentProducts({});
       setShipmentColors({});
       setShipmentSizes({});
+      setShipmentHardware({});
       setQuantityInputs({});
       setPackingSearch("");
       setPackingQuantityInput("");
@@ -690,11 +705,21 @@ function ProductDistributionDetail() {
     const inventoryItem = inventory.find((item) => Number(item.productId) === Number(productId));
     const cinchoSelected = isCinchoProduct(inventoryItem?.productCode, inventoryItem?.productName);
     const sizeValue = normalizeShipmentSize(shipmentSizes[productId] || "");
+    const hardwareValue = normalizeShipmentHardware(shipmentHardware[productId] || "");
     if (cinchoSelected && !sizeValue) {
       showError("Para CINCHO debes indicar talla.");
       return;
     }
-    const key = buildShipmentKey(productId, colorId, cinchoSelected ? sizeValue : "");
+    if (cinchoSelected && !hardwareValue) {
+      showError("Para CINCHO debes indicar herraje (nuevo/viejo).");
+      return;
+    }
+    const key = buildShipmentKey(
+      productId,
+      colorId,
+      cinchoSelected ? sizeValue : "",
+      cinchoSelected ? hardwareValue : ""
+    );
 
     setShipmentProducts((prev) => ({
       ...prev,
@@ -764,7 +789,7 @@ function ProductDistributionDetail() {
     const lineEntries = Object.entries(shipmentProducts)
       .filter(([_, qty]) => qty > 0)
       .map(([lineKey, quantity]) => {
-        const { productId, colorId, size } = parseShipmentKey(lineKey);
+        const { productId, colorId, size, hardwareCondition } = parseShipmentKey(lineKey);
         const productMeta =
           inventory.find((item) => Number(item.productId) === Number(productId)) ||
           (currentShipment?.products || []).find((item) => Number(item.productId) === Number(productId)) ||
@@ -773,15 +798,28 @@ function ProductDistributionDetail() {
           productId,
           colorId,
           size: normalizeShipmentSize(size),
+          hardwareCondition: normalizeShipmentHardware(hardwareCondition) || null,
           quantity: parseFloat(quantity),
           isCincho: isCinchoProduct(productMeta.productCode, productMeta.productName),
         };
       });
 
+    for (const line of lineEntries) {
+      if (line.isCincho && !line.size) {
+        showError("Hay líneas de cincho sin talla. Corríjalas antes de guardar.");
+        return;
+      }
+      if (line.isCincho && !line.hardwareCondition) {
+        showError("Hay líneas de cincho sin herraje (nuevo/viejo). Corríjalas antes de guardar.");
+        return;
+      }
+    }
+
     const products = lineEntries.map((line) => ({
       productId: line.productId,
       colorId: line.colorId,
       size: line.size || "",
+      hardwareCondition: line.hardwareCondition,
       quantity: line.quantity,
     }));
     const packingItems = Object.entries(shipmentPacking)
@@ -1546,6 +1584,7 @@ function ProductDistributionDetail() {
                               <th>Stock Actual en Kiosko</th>
                               <th>Color</th>
                               <th>Talla</th>
+                              <th>Herraje</th>
                               <th>Stock devoluciones</th>
                               <th>Stock PT</th>
                               <th>Cantidad a Enviar</th>
@@ -1647,6 +1686,31 @@ function ProductDistributionDetail() {
                                       <small className="text-muted">N/A</small>
                                     )}
                                   </td>
+                                  <td>
+                                    {isCincho ? (
+                                      <Input
+                                        type="select"
+                                        value={shipmentHardware[item.productId] || ""}
+                                        onChange={(e) =>
+                                          setShipmentHardware((prev) => ({
+                                            ...prev,
+                                            [item.productId]: e.target.value || "",
+                                          }))
+                                        }
+                                        style={{ width: "140px" }}
+                                        bsSize="sm"
+                                      >
+                                        <option value="">Seleccione…</option>
+                                        {HARDWARE_CONDITION_OPTIONS.filter((opt) => opt.value).map((opt) => (
+                                          <option key={opt.value} value={opt.value}>
+                                            {opt.label}
+                                          </option>
+                                        ))}
+                                      </Input>
+                                    ) : (
+                                      <small className="text-muted">N/A</small>
+                                    )}
+                                  </td>
                                   <td>{renderHubCell("dev")}</td>
                                   <td>{renderHubCell("pt")}</td>
                                   <td>
@@ -1736,6 +1800,7 @@ function ProductDistributionDetail() {
                               <th>Producto</th>
                               <th>Color</th>
                               <th>Talla</th>
+                              <th>Herraje</th>
                               <th>Cantidad a Enviar</th>
                               <th>Acción</th>
                             </tr>
@@ -1744,7 +1809,7 @@ function ProductDistributionDetail() {
                             {Object.entries(shipmentProducts)
                               .filter(([_, qty]) => qty > 0)
                               .map(([lineKey, quantity]) => {
-                                const { productId, colorId, size } = parseShipmentKey(lineKey);
+                                const { productId, colorId, size, hardwareCondition } = parseShipmentKey(lineKey);
                                 const product = inventory.find(p => p.productId === parseInt(productId, 10));
                                 const color = colorId ? colors.find(c => c.id === parseInt(colorId)) : null;
                                 return (
@@ -1773,6 +1838,11 @@ function ProductDistributionDetail() {
                                           </Badge>
                                         )
                                         : <small className="text-muted">Sin talla</small>}
+                                    </td>
+                                    <td>
+                                      {hardwareCondition
+                                        ? <Badge color="secondary">{getHardwareConditionLabel(hardwareCondition)}</Badge>
+                                        : <small className="text-muted">—</small>}
                                     </td>
                                     <td>
                                       <Badge color="success" style={{ fontSize: "1em", padding: "0.5em" }}>

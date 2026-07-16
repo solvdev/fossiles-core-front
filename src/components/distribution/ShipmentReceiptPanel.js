@@ -487,8 +487,15 @@ export function ShipmentReceiptDetail({
                         <div className="small text-muted">{product.categoryName}</div>
                       ) : null}
                       {product.size ? (
-                        <Badge color="light" className="mt-1">
-                          {product.size}
+                        <Badge color="light" className="mt-1 mr-1">
+                          Talla {product.size}
+                        </Badge>
+                      ) : null}
+                      {product.hardwareCondition ? (
+                        <Badge color="secondary" className="mt-1">
+                          {String(product.hardwareCondition).toUpperCase() === "VIEJO"
+                            ? "Herraje viejo"
+                            : "Herraje nuevo"}
                         </Badge>
                       ) : null}
                     </div>
