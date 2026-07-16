@@ -280,9 +280,6 @@ function buildSheetStructure(report, showKardex, includeVitrines = true) {
     meta.push({ type: "meta" });
   });
 
-  rows.push(buildTableHeaderCells(showKardex, prepared, includeVitrines));
-  meta.push({ type: "main-header" });
-
   (prepared.categories || []).forEach((cat) => {
     const titleRow = Array(colCount).fill("");
     titleRow[0] = cat.categoryName || "Sin categoría";
@@ -493,10 +490,6 @@ function applyConteoSheetStyles(ws, report, showKardex, includeVitrines = true) 
 
   meta.slice(headerOffset).forEach((entry, offset) => {
     const currentRow = headerOffset + offset;
-    if (entry.type === "main-header") {
-      styleHeaderRow(ws, currentRow, layout, { vitrineHighlight: withVitrines });
-      return;
-    }
     if (entry.type === "category-title") {
       merges.push({ s: { r: currentRow, c: 0 }, e: { r: currentRow, c: colCount - 1 } });
       styleRowRange(ws, currentRow, colCount, {
