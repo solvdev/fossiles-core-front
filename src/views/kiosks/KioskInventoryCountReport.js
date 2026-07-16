@@ -32,6 +32,13 @@ import {
 import { formatDateGt, formatDateTimeGt } from "utils/dateTimeHelper";
 import { exportConteoToExcel, exportConteoToPdf } from "utils/kioscoConteoExport";
 import { buildConteoDisplayReport, formatConteoSubtotalLabel } from "utils/kioscoConteoDisplay";
+import {
+  CONTEO_COLOR_LEGEND_LEFT,
+  CONTEO_COLOR_LEGEND_RIGHT,
+  CONTEO_COLUMN_HEADER_COLORS,
+  hexCss,
+  headerTextColorForBg,
+} from "utils/kioscoConteoColorLegend";
 import { PRODUCT_AUDIENCE_OPTIONS, productMatchesAudienceFilter } from "utils/productAudienceHelper";
 import {
   CINCHO_FILTER_OPTIONS,
@@ -381,6 +388,50 @@ function DifferenceSummary({ totals, breakdown }) {
           <div style={{ fontSize: 11, color: "#6b7280" }}>{card.detail}</div>
         </div>
       ))}
+    </div>
+  );
+}
+
+function ColorLegendChip({ item }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 150 }}>
+      <span style={{ fontSize: 11, color: "#374151", fontWeight: 600, flex: 1 }}>{item.label}</span>
+      <span
+        title={item.label}
+        style={{
+          width: 28,
+          height: 16,
+          borderRadius: 3,
+          border: "1px solid #9ca3af",
+          background: hexCss(item.color),
+          flexShrink: 0,
+        }}
+      />
+    </div>
+  );
+}
+
+function ConteoColorLegend() {
+  return (
+    <div
+      style={{
+        display: "flex",
+        flexWrap: "wrap",
+        gap: "8px 20px",
+        marginLeft: "auto",
+        alignItems: "flex-start",
+      }}
+    >
+      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+        {CONTEO_COLOR_LEGEND_LEFT.map((item) => (
+          <ColorLegendChip key={item.label} item={item} />
+        ))}
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+        {CONTEO_COLOR_LEGEND_RIGHT.map((item) => (
+          <ColorLegendChip key={item.label} item={item} />
+        ))}
+      </div>
     </div>
   );
 }
@@ -1193,35 +1244,38 @@ function KioskInventoryCountReport({ locationId }) {
             borderRadius: 8,
             padding: "10px 14px",
             marginBottom: 14,
-            alignItems: "center",
+            alignItems: "flex-start",
           }}>
-            <Badge
-              color={statusMeta.color}
-              style={{ fontSize: 11, padding: "4px 8px" }}
-            >
-              {statusMeta.label}
-            </Badge>
-            <span style={{ fontSize: 12, color: "#374151" }}>
-              <strong>{report.periodFrom ? fmt(report.periodFrom) : "—"}</strong>
-              {" — "}
-              <strong>{report.periodTo ? fmt(report.periodTo) : "—"}</strong>
-            </span>
-            <span style={{ fontSize: 12, color: "#6b7280" }}>
-              Generado por <strong style={{ color: "#111" }}>{report.generatedByName || "—"}</strong>
-              {report.generatedAt && <> el {fmtDt(report.generatedAt)}</>}
-            </span>
-            {(report.status === "REVISADO" || isClosed) && (
-              <span style={{ fontSize: 12, color: "#6b7280" }}>
-                Revisado por <strong style={{ color: "#111" }}>{report.reviewedByName || "—"}</strong>
-                {report.reviewedAt && <> el {fmtDt(report.reviewedAt)}</>}
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "8px 20px", alignItems: "center", flex: "1 1 280px" }}>
+              <Badge
+                color={statusMeta.color}
+                style={{ fontSize: 11, padding: "4px 8px" }}
+              >
+                {statusMeta.label}
+              </Badge>
+              <span style={{ fontSize: 12, color: "#374151" }}>
+                <strong>{report.periodFrom ? fmt(report.periodFrom) : "—"}</strong>
+                {" — "}
+                <strong>{report.periodTo ? fmt(report.periodTo) : "—"}</strong>
               </span>
-            )}
-            {isClosed && (
               <span style={{ fontSize: 12, color: "#6b7280" }}>
-                Cerrado por <strong style={{ color: "#111" }}>{report.closedByName || "—"}</strong>
-                {report.closedAt && <> el {fmtDt(report.closedAt)}</>}
+                Generado por <strong style={{ color: "#111" }}>{report.generatedByName || "—"}</strong>
+                {report.generatedAt && <> el {fmtDt(report.generatedAt)}</>}
               </span>
-            )}
+              {(report.status === "REVISADO" || isClosed) && (
+                <span style={{ fontSize: 12, color: "#6b7280" }}>
+                  Revisado por <strong style={{ color: "#111" }}>{report.reviewedByName || "—"}</strong>
+                  {report.reviewedAt && <> el {fmtDt(report.reviewedAt)}</>}
+                </span>
+              )}
+              {isClosed && (
+                <span style={{ fontSize: 12, color: "#6b7280" }}>
+                  Cerrado por <strong style={{ color: "#111" }}>{report.closedByName || "—"}</strong>
+                  {report.closedAt && <> el {fmtDt(report.closedAt)}</>}
+                </span>
+              )}
+            </div>
+            <ConteoColorLegend />
           </div>
 
           {filteredCategories.length > 0 && (
@@ -1468,7 +1522,14 @@ function KioskInventoryCountReport({ locationId }) {
                   <th colSpan={COUNT_LOCATION_KEYS.length} style={{ ...thStyle, background: "#dcfce7", textAlign: "center" }}>
                     Conteo físico por ubicación
                   </th>
-                  <th rowSpan={2} style={{ ...thStyle, ...sumColStyle, background: "#fef9c3", textAlign: "center", verticalAlign: "middle" }}>Total</th>
+                  <th rowSpan={2} style={{
+                    ...thStyle,
+                    ...sumColStyle,
+                    background: hexCss(CONTEO_COLUMN_HEADER_COLORS.total),
+                    color: headerTextColorForBg(CONTEO_COLUMN_HEADER_COLORS.total),
+                    textAlign: "center",
+                    verticalAlign: "middle",
+                  }}>Total</th>
                   <th rowSpan={2} style={{ ...thStyle, ...sumColStyle, background: "#fee2e2", textAlign: "center", verticalAlign: "middle" }}>Dif.</th>
                 </tr>
                 {/* Fila de columnas */}
@@ -1478,9 +1539,22 @@ function KioskInventoryCountReport({ locationId }) {
                   <th style={thStyle}>Talla</th>
                   <th style={thStyle}>Tipo</th>
                   <th style={thStyle}>Herraje</th>
-                  {showKardex && kardexColumns.map((col) => (
-                    <th key={col.key} style={{ ...thStyle, background: "#eef2ff" }} title={col.title}>{col.label}</th>
-                  ))}
+                  {showKardex && kardexColumns.map((col) => {
+                    const bg = CONTEO_COLUMN_HEADER_COLORS[col.key];
+                    return (
+                      <th
+                        key={col.key}
+                        style={{
+                          ...thStyle,
+                          background: bg ? hexCss(bg) : "#eef2ff",
+                          color: bg ? headerTextColorForBg(bg) : "#111827",
+                        }}
+                        title={col.title}
+                      >
+                        {col.label}
+                      </th>
+                    );
+                  })}
                   {COUNT_LOCATION_KEYS.map((k) => (
                     <th key={k} style={{ ...thStyle, ...locColStyle, background: "#f0fdf4" }}>{k}</th>
                   ))}

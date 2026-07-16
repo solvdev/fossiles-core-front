@@ -187,10 +187,12 @@ const resolveDisplayCategoryKey = (row) => {
   }
   if (isCinchoProductRow(row)) {
     const categoryId = row.sourceCategoryId ?? "NONE";
-    const classification = row.cinchoForKids
-      ? "KIDS"
-      : normalizeCinchoType(row.cinchoType) || "UNCLASSIFIED";
-    return `BELT:${categoryId}:${classification}`;
+    if (row.cinchoForKids) {
+      return `BELT:${categoryId}:KIDS:KIDS`;
+    }
+    const classification = normalizeCinchoType(row.cinchoType) || "UNCLASSIFIED";
+    const audience = normalizeAudienceCategory(row.audienceCategory);
+    return `BELT:${categoryId}:${classification}:${audience}`;
   }
   const categoryName = row.sourceCategoryName || "";
   if (isWalletCategory(categoryName)) {
@@ -205,7 +207,7 @@ const resolveDisplayCategoryKey = (row) => {
 const resolveDisplayCategoryName = (key, row) => {
   if (PACKAGING_KEY === key) return "Empaques";
   if (key.startsWith("BELT:")) {
-    const classification = key.split(":")[2];
+    const [, , classification, audience] = key.split(":");
     const labels = {
       CASUAL: "Casual",
       REVERSIBLE: "Reversible",
@@ -213,7 +215,10 @@ const resolveDisplayCategoryName = (key, row) => {
       UNCLASSIFIED: "Sin clasificar",
     };
     const baseName = String(row.sourceCategoryName || "Cinchos").split(" — ")[0];
-    return `${baseName} — ${labels[classification] || "Sin clasificar"}`;
+    if (classification === "KIDS") {
+      return `${baseName} — Niño`;
+    }
+    return `${baseName} — ${getProductAudienceLabel(audience)} — ${labels[classification] || "Sin clasificar"}`;
   }
   if (key.startsWith("WALLET:")) {
     const audience = key.split(":")[2];
@@ -233,7 +238,8 @@ const resolveDisplayCategoryId = (key, row) => {
 
 /**
  * Reagrupa el reporte de conteo físico: empaques aparte, billeteras por público
- * y cinchos por Casual, Reversible o Niño, conservando filas por talla y color.
+ * y cinchos por Dama/Caballero/Unisex y Casual/Reversible; Niño queda aparte.
+ * Conserva las filas por talla y color.
  * Si el backend ya envió filas con sizeLabel, no se re-expanden (evita perder Ent. por talla
  * y filas con Fin=0 que sí tuvieron movimiento/envío).
  */

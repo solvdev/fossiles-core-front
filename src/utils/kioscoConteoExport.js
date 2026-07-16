@@ -1,5 +1,10 @@
 import * as XLSX from "xlsx-js-style";
 import { formatConteoSubtotalLabel } from "./kioscoConteoDisplay";
+import {
+  CONTEO_COLOR_LEGEND_LEFT,
+  CONTEO_COLOR_LEGEND_RIGHT,
+  CONTEO_COLUMN_HEADER_COLORS,
+} from "./kioscoConteoColorLegend";
 import { formatNowGt } from "./dateTimeHelper";
 
 const COUNT_LOCATION_KEYS = ["V1", "V2", "V3", "V4", "V5", "V6", "V7", "E", "BO"];
@@ -382,7 +387,9 @@ function borderWithSeparator(colIdx, layout, baseBorder = thinBorder) {
 function applySheetLayout(ws, layout, merges) {
   const { colCount, separatorCol, vitrineStart, includeVitrines } = layout;
   ws["!merges"] = merges;
-  ws["!cols"] = Array.from({ length: colCount }, (_, colIdx) => {
+  ws["!cols"] = Array.from({ length: Math.max(colCount, 9) }, (_, colIdx) => {
+    if (colIdx === 4 || colIdx === 7) return { wch: 24 };
+    if (colIdx === 5 || colIdx === 8) return { wch: 4 };
     if (includeVitrines && colIdx === separatorCol) return { wch: 2 };
     if (colIdx === 1) return { wch: 28 };
     if (includeVitrines && colIdx >= vitrineStart && colIdx < layout.totalCol) return { wch: 6 };
@@ -392,23 +399,81 @@ function applySheetLayout(ws, layout, merges) {
   });
 }
 
-function styleHeaderRow(ws, rowIdx, layout, { vitrineHighlight = false } = {}) {
-  const { colCount, separatorCol, vitrineStart, diffCol, includeVitrines } = layout;
+function resolveHeaderFill(colIdx, layout, { vitrineHighlight = false, showKardex = true } = {}) {
+  const { separatorCol, vitrineStart, totalCol, diffCol, kardexStart, includeVitrines } = layout;
+  if (includeVitrines && colIdx === separatorCol) return { fill: COLORS.separatorBg, text: "111827" };
+  if (showKardex && colIdx >= kardexStart && colIdx < kardexStart + KARDEX_HEADERS.length) {
+    const key = KARDEX_HEADERS[colIdx - kardexStart]?.key;
+    const fill = CONTEO_COLUMN_HEADER_COLORS[key];
+    if (fill) {
+      const light = ["FFC000", "00B0F0", "5B9BD5", "F4A6C9", "92D050"].includes(fill);
+      return { fill, text: light ? "000000" : "FFFFFF" };
+    }
+  }
+  if (includeVitrines && colIdx === totalCol) {
+    return { fill: CONTEO_COLUMN_HEADER_COLORS.total, text: "000000" };
+  }
+  if (includeVitrines && colIdx === diffCol) {
+    return { fill: COLORS.tableHeaderBg, text: "111827" };
+  }
+  if (includeVitrines && vitrineHighlight && colIdx >= vitrineStart && colIdx < totalCol) {
+    return { fill: COLORS.vitrineHeaderBg, text: "111827" };
+  }
+  return { fill: COLORS.tableHeaderBg, text: "111827" };
+}
+
+function styleHeaderRow(ws, rowIdx, layout, { vitrineHighlight = false, showKardex = true } = {}) {
+  const { colCount } = layout;
   for (let colIdx = 0; colIdx < colCount; colIdx += 1) {
-    let fill = COLORS.tableHeaderBg;
-    if (includeVitrines && vitrineHighlight && colIdx >= vitrineStart && colIdx <= diffCol) {
-      fill = COLORS.vitrineHeaderBg;
-    }
-    if (includeVitrines && colIdx === separatorCol) {
-      fill = COLORS.separatorBg;
-    }
+    const { fill, text } = resolveHeaderFill(colIdx, layout, { vitrineHighlight, showKardex });
     styleCell(ws, rowIdx, colIdx, {
-      font: { name: "Arial", sz: 10, bold: true, color: { rgb: "111827" } },
+      font: { name: "Arial", sz: 10, bold: true, color: { rgb: text } },
       alignment: { vertical: "center", horizontal: "center", wrapText: true },
       border: borderWithSeparator(colIdx, layout),
       fill: fillStyle(fill),
     });
   }
+}
+
+function paintColorLegend(ws, startRow = 1) {
+  const leftLabelCol = 4;
+  const leftSwatchCol = 5;
+  const rightLabelCol = 7;
+  const rightSwatchCol = 8;
+
+  const paintGroup = (items, labelCol, swatchCol) => {
+    items.forEach((item, index) => {
+      const rowIdx = startRow + index;
+      const labelRef = ensureCell(ws, rowIdx, labelCol, item.label);
+      ws[labelRef].v = item.label;
+      ws[labelRef].t = "s";
+      styleCell(ws, rowIdx, labelCol, {
+        font: { name: "Arial", sz: 9, bold: true, color: { rgb: "111827" } },
+        alignment: { vertical: "center", horizontal: "left" },
+        border: thinBorder,
+        fill: fillStyle("FFFFFF"),
+      });
+
+      const swatchRef = ensureCell(ws, rowIdx, swatchCol, "");
+      ws[swatchRef].v = "";
+      ws[swatchRef].t = "s";
+      styleCell(ws, rowIdx, swatchCol, {
+        font: { name: "Arial", sz: 9, bold: true, color: { rgb: item.textColor } },
+        alignment: { vertical: "center", horizontal: "center" },
+        border: thinBorder,
+        fill: fillStyle(item.color),
+      });
+    });
+  };
+
+  paintGroup(CONTEO_COLOR_LEGEND_LEFT, leftLabelCol, leftSwatchCol);
+  paintGroup(CONTEO_COLOR_LEGEND_RIGHT, rightLabelCol, rightSwatchCol);
+
+  const currentRef = ws["!ref"] || "A1";
+  const range = XLSX.utils.decode_range(currentRef);
+  range.e.c = Math.max(range.e.c, rightSwatchCol);
+  range.e.r = Math.max(range.e.r, startRow + Math.max(CONTEO_COLOR_LEGEND_LEFT.length, CONTEO_COLOR_LEGEND_RIGHT.length) - 1);
+  ws["!ref"] = XLSX.utils.encode_range(range);
 }
 
 function applyConteoSheetStyles(ws, report, showKardex, includeVitrines = true) {
@@ -442,10 +507,12 @@ function applyConteoSheetStyles(ws, report, showKardex, includeVitrines = true) 
     });
   }
 
+  paintColorLegend(ws, 1);
+
   meta.slice(headerOffset).forEach((entry, offset) => {
     const currentRow = headerOffset + offset;
     if (entry.type === "main-header") {
-      styleHeaderRow(ws, currentRow, layout, { vitrineHighlight: withVitrines });
+      styleHeaderRow(ws, currentRow, layout, { vitrineHighlight: withVitrines, showKardex });
       return;
     }
     if (entry.type === "category-title") {
@@ -459,7 +526,7 @@ function applyConteoSheetStyles(ws, report, showKardex, includeVitrines = true) 
       return;
     }
     if (entry.type === "category-headers") {
-      styleHeaderRow(ws, currentRow, layout, { vitrineHighlight: withVitrines });
+      styleHeaderRow(ws, currentRow, layout, { vitrineHighlight: withVitrines, showKardex });
       return;
     }
     if (entry.type === "data") {
@@ -565,27 +632,56 @@ export function exportConteoToPdf(report, options = {}) {
 
   const { showKardex, includeVitrines, subcount } = resolveExportOptions(report, options);
   const prepared = ensureCategorySubtotals(report);
+  const legendHtml = `
+    <div class="color-legend">
+      <div class="legend-col">
+        ${CONTEO_COLOR_LEGEND_LEFT.map((item) => `
+          <div class="legend-item">
+            <span>${escape(item.label)}</span>
+            <i style="background:#${item.color}"></i>
+          </div>
+        `).join("")}
+      </div>
+      <div class="legend-col">
+        ${CONTEO_COLOR_LEGEND_RIGHT.map((item) => `
+          <div class="legend-item">
+            <span>${escape(item.label)}</span>
+            <i style="background:#${item.color}"></i>
+          </div>
+        `).join("")}
+      </div>
+    </div>
+  `;
   const headerMeta = `
-    <div class="meta-grid">
-      <div><span>Kiosko</span><strong>${escape(prepared.locationName || prepared.locationCode || "—")}</strong></div>
-      ${subcount ? `<div><span>Tipo</span><strong>Inventario a fecha</strong></div>` : ""}
-      ${subcount ? `<div><span>Corte sistema (23:59)</span><strong>${escape(prepared.asOfDate || "—")}</strong></div>` : ""}
-      <div><span>Período sesión</span><strong>${escape(prepared.periodFrom || "")} – ${escape(prepared.periodTo || "")}</strong></div>
-      <div><span>Estado</span><strong>${escape(prepared.status || "—")}</strong></div>
-      <div><span>Generado por</span><strong>${escape(prepared.generatedByName || "—")}</strong></div>
-      <div><span>Revisado por</span><strong>${escape(prepared.reviewedByName || "Pendiente")}</strong></div>
-      ${prepared.notes ? `<div class="full"><span>Notas</span><strong>${escape(prepared.notes)}</strong></div>` : ""}
+    <div class="header-row">
+      <div class="meta-grid">
+        <div><span>Kiosko</span><strong>${escape(prepared.locationName || prepared.locationCode || "—")}</strong></div>
+        ${subcount ? `<div><span>Tipo</span><strong>Inventario a fecha</strong></div>` : ""}
+        ${subcount ? `<div><span>Corte sistema (23:59)</span><strong>${escape(prepared.asOfDate || "—")}</strong></div>` : ""}
+        <div><span>Período sesión</span><strong>${escape(prepared.periodFrom || "")} – ${escape(prepared.periodTo || "")}</strong></div>
+        <div><span>Estado</span><strong>${escape(prepared.status || "—")}</strong></div>
+        <div><span>Generado por</span><strong>${escape(prepared.generatedByName || "—")}</strong></div>
+        <div><span>Revisado por</span><strong>${escape(prepared.reviewedByName || "Pendiente")}</strong></div>
+        ${prepared.notes ? `<div class="full"><span>Notas</span><strong>${escape(prepared.notes)}</strong></div>` : ""}
+      </div>
+      ${legendHtml}
     </div>
   `;
 
   const kardexHeaderList = resolveKardexHeaders(prepared);
   const kardexHeaders = showKardex
-    ? kardexHeaderList.map((col) => `<th>${escape(col.label)}</th>`).join("")
+    ? kardexHeaderList.map((col) => {
+      const bg = CONTEO_COLUMN_HEADER_COLORS[col.key];
+      const color = bg && ["FFC000", "00B0F0", "5B9BD5", "F4A6C9", "92D050"].includes(bg) ? "#000" : "#fff";
+      return `<th style="background:#${bg || "f3f4f6"};color:${bg ? color : "#111"}">${escape(col.label)}</th>`;
+    }).join("")
     : "";
   const countHeaders = includeVitrines
     ? COUNT_LOCATION_KEYS.map((k) => `<th>${escape(k)}</th>`).join("")
     : "";
-  const trailingHeaders = includeVitrines ? "<th>Total</th><th>Dif.</th>" : "";
+  const trailingHeaders = includeVitrines
+    ? `<th style="background:#${CONTEO_COLUMN_HEADER_COLORS.total};color:#000">Total</th><th>Dif.</th>`
+    : "";
   const colSpan =
     4
     + (showKardex ? kardexHeaderList.length : 0)
@@ -681,9 +777,14 @@ export function exportConteoToPdf(report, options = {}) {
     <style>
       body { font-family: Arial, sans-serif; font-size: 11px; margin: 12px; color: #111; }
       h1 { font-size: 15px; margin: 0 0 8px; }
-      .meta-grid { display: flex; flex-wrap: wrap; gap: 8px 24px; margin-bottom: 12px; font-size: 11px; }
+      .meta-grid { display: flex; flex-wrap: wrap; gap: 8px 24px; font-size: 11px; flex: 1; }
       .meta-grid div span { display: block; color: #666; font-size: 10px; }
       .meta-grid div.full { width: 100%; }
+      .header-row { display: flex; flex-wrap: wrap; gap: 16px; justify-content: space-between; align-items: flex-start; margin-bottom: 12px; }
+      .color-legend { display: flex; gap: 18px; font-size: 10px; }
+      .legend-col { display: flex; flex-direction: column; gap: 3px; }
+      .legend-item { display: flex; align-items: center; gap: 6px; min-width: 150px; }
+      .legend-item i { width: 22px; height: 12px; border: 1px solid #9ca3af; display: inline-block; }
       table { width: 100%; border-collapse: collapse; font-size: 10px; }
       th, td { border: 1px solid #d1d5db; padding: 3px 5px; }
       th { background: #f3f4f6; font-weight: 700; text-align: center; }
