@@ -328,6 +328,63 @@ function SummaryRow({ label, row, showKardex, kardexColumns, bg = "#f3f4f6", tex
   );
 }
 
+function DifferenceSummary({ totals, breakdown }) {
+  if (!totals) return null;
+  const net = breakdown.sobrante - breakdown.faltante;
+  const cards = [
+    {
+      label: "Total sobrante",
+      value: `+${breakdown.sobrante}`,
+      detail: `${breakdown.conSobrante} producto${breakdown.conSobrante !== 1 ? "s" : ""} con físico > sistema`,
+      border: "#bbf7d0",
+      background: "#f0fdf4",
+      labelColor: "#15803d",
+      valueColor: "#16a34a",
+    },
+    {
+      label: "Total faltante",
+      value: `−${breakdown.faltante}`,
+      detail: `${breakdown.conFaltante} producto${breakdown.conFaltante !== 1 ? "s" : ""} con físico < sistema`,
+      border: "#fecaca",
+      background: "#fef2f2",
+      labelColor: "#b91c1c",
+      valueColor: "#dc2626",
+    },
+    {
+      label: "Neto (Dif. general)",
+      value: net > 0 ? `+${net}` : net,
+      detail: `Sobrante − faltante = ${net > 0 ? `+${net}` : net}`,
+      border: "#e5e7eb",
+      background: "#f9fafb",
+      labelColor: "#4b5563",
+      valueColor: diffColor(totals.diferencia ?? 0),
+    },
+  ];
+
+  return (
+    <div className="mb-3" style={{ display: "flex", flexWrap: "wrap", gap: 12, alignItems: "stretch" }}>
+      {cards.map((card) => (
+        <div
+          key={card.label}
+          style={{
+            flex: "1 1 200px",
+            border: `1px solid ${card.border}`,
+            background: card.background,
+            borderRadius: 8,
+            padding: "10px 14px",
+          }}
+        >
+          <div style={{ fontSize: 11, color: card.labelColor, fontWeight: 600 }}>{card.label}</div>
+          <div style={{ fontSize: 22, fontWeight: 700, color: card.valueColor, lineHeight: 1.2 }}>
+            {card.value}
+          </div>
+          <div style={{ fontSize: 11, color: "#6b7280" }}>{card.detail}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // ─── Grupo de categoría colapsable ────────────────────────────────────────────
 function CategoryGroup({ category, showKardex, kardexColumns, editedCounts, editedSizeCounts, editedSizeCountsByLocation, onCountChange, onOpenCinchoModal, disabled }) {
   const [collapsed, setCollapsed] = useState(false);
@@ -1167,6 +1224,10 @@ function KioskInventoryCountReport({ locationId }) {
             )}
           </div>
 
+          {filteredCategories.length > 0 && (
+            <DifferenceSummary totals={filteredTotalGeneral} breakdown={diffBreakdown} />
+          )}
+
           {showDiffBanner && (
             <Alert color="danger" className="mb-3" style={{ fontSize: 12 }}>
               <strong>⚠ {alertRows.length} producto{alertRows.length !== 1 ? "s" : ""} con diferencia ≥ {DIFF_ALERT_THRESHOLD} unidades.</strong>{" "}
@@ -1464,82 +1525,6 @@ function KioskInventoryCountReport({ locationId }) {
               )}
             </table>
           </div>
-
-          {/* ── Resumen sobrante / faltante ── */}
-          {filteredTotalGeneral && filteredCategories.length > 0 && (
-            <div
-              style={{
-                marginTop: 10,
-                display: "flex",
-                flexWrap: "wrap",
-                gap: 12,
-                alignItems: "stretch",
-              }}
-            >
-              <div
-                style={{
-                  flex: "1 1 200px",
-                  border: "1px solid #bbf7d0",
-                  background: "#f0fdf4",
-                  borderRadius: 8,
-                  padding: "10px 14px",
-                }}
-              >
-                <div style={{ fontSize: 11, color: "#15803d", fontWeight: 600 }}>Total sobrante</div>
-                <div style={{ fontSize: 22, fontWeight: 700, color: "#16a34a", lineHeight: 1.2 }}>
-                  +{diffBreakdown.sobrante}
-                </div>
-                <div style={{ fontSize: 11, color: "#6b7280" }}>
-                  {diffBreakdown.conSobrante} producto{diffBreakdown.conSobrante !== 1 ? "s" : ""} con físico &gt; sistema
-                </div>
-              </div>
-              <div
-                style={{
-                  flex: "1 1 200px",
-                  border: "1px solid #fecaca",
-                  background: "#fef2f2",
-                  borderRadius: 8,
-                  padding: "10px 14px",
-                }}
-              >
-                <div style={{ fontSize: 11, color: "#b91c1c", fontWeight: 600 }}>Total faltante</div>
-                <div style={{ fontSize: 22, fontWeight: 700, color: "#dc2626", lineHeight: 1.2 }}>
-                  −{diffBreakdown.faltante}
-                </div>
-                <div style={{ fontSize: 11, color: "#6b7280" }}>
-                  {diffBreakdown.conFaltante} producto{diffBreakdown.conFaltante !== 1 ? "s" : ""} con físico &lt; sistema
-                </div>
-              </div>
-              <div
-                style={{
-                  flex: "1 1 200px",
-                  border: "1px solid #e5e7eb",
-                  background: "#f9fafb",
-                  borderRadius: 8,
-                  padding: "10px 14px",
-                }}
-              >
-                <div style={{ fontSize: 11, color: "#4b5563", fontWeight: 600 }}>Neto (Dif. general)</div>
-                <div
-                  style={{
-                    fontSize: 22,
-                    fontWeight: 700,
-                    color: diffColor(filteredTotalGeneral.diferencia ?? 0),
-                    lineHeight: 1.2,
-                  }}
-                >
-                  {(filteredTotalGeneral.diferencia ?? 0) > 0
-                    ? `+${filteredTotalGeneral.diferencia}`
-                    : filteredTotalGeneral.diferencia ?? 0}
-                </div>
-                <div style={{ fontSize: 11, color: "#6b7280" }}>
-                  Sobrante − faltante = {(diffBreakdown.sobrante - diffBreakdown.faltante) > 0
-                    ? `+${diffBreakdown.sobrante - diffBreakdown.faltante}`
-                    : diffBreakdown.sobrante - diffBreakdown.faltante}
-                </div>
-              </div>
-            </div>
-          )}
 
           {/* ── Leyenda ── */}
           <div style={{ marginTop: 10, fontSize: 11, color: "#6b7280", display: "flex", gap: 16, flexWrap: "wrap" }}>

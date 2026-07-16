@@ -3,6 +3,7 @@ import {
   isCinchoProductRow,
   isFossCinchoProductRow,
   isPackagingProductCode,
+  normalizeCinchoType,
   sortSizeKeys,
 } from "utils/productCinchoHelper";
 
@@ -184,6 +185,13 @@ const resolveDisplayCategoryKey = (row) => {
   if (row.packaging || isPackagingProductCode(row.productCode)) {
     return PACKAGING_KEY;
   }
+  if (isCinchoProductRow(row)) {
+    const categoryId = row.sourceCategoryId ?? "NONE";
+    const classification = row.cinchoForKids
+      ? "KIDS"
+      : normalizeCinchoType(row.cinchoType) || "UNCLASSIFIED";
+    return `BELT:${categoryId}:${classification}`;
+  }
   const categoryName = row.sourceCategoryName || "";
   if (isWalletCategory(categoryName)) {
     const audience = normalizeAudienceCategory(row.audienceCategory);
@@ -196,6 +204,17 @@ const resolveDisplayCategoryKey = (row) => {
 
 const resolveDisplayCategoryName = (key, row) => {
   if (PACKAGING_KEY === key) return "Empaques";
+  if (key.startsWith("BELT:")) {
+    const classification = key.split(":")[2];
+    const labels = {
+      CASUAL: "Casual",
+      REVERSIBLE: "Reversible",
+      KIDS: "Niño",
+      UNCLASSIFIED: "Sin clasificar",
+    };
+    const baseName = String(row.sourceCategoryName || "Cinchos").split(" — ")[0];
+    return `${baseName} — ${labels[classification] || "Sin clasificar"}`;
+  }
   if (key.startsWith("WALLET:")) {
     const audience = key.split(":")[2];
     const baseName = String(row.sourceCategoryName || "Billeteras").split(" — ")[0];
@@ -206,13 +225,15 @@ const resolveDisplayCategoryName = (key, row) => {
 
 const resolveDisplayCategoryId = (key, row) => {
   if (PACKAGING_KEY === key || key === "CAT:NONE") return null;
-  if (key.startsWith("WALLET:")) return row.sourceCategoryId ?? null;
+  if (key.startsWith("WALLET:") || key.startsWith("BELT:")) {
+    return row.sourceCategoryId ?? null;
+  }
   return row.sourceCategoryId ?? null;
 };
 
 /**
- * Reagrupa el reporte de conteo físico: Empaques aparte, billeteras por público,
- * cinchos con una fila por talla y color.
+ * Reagrupa el reporte de conteo físico: empaques aparte, billeteras por público
+ * y cinchos por Casual, Reversible o Niño, conservando filas por talla y color.
  * Si el backend ya envió filas con sizeLabel, no se re-expanden (evita perder Ent. por talla
  * y filas con Fin=0 que sí tuvieron movimiento/envío).
  */

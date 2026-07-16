@@ -113,8 +113,26 @@ function resolveExportOptions(report, options = {}) {
   return { showKardex, includeVitrines, subcount };
 }
 
+function calculateDifferenceBreakdown(report) {
+  return (report.categories || [])
+    .flatMap((category) => category.rows || [])
+    .reduce(
+      (summary, row) => {
+        const difference = Number(row.diferencia || 0);
+        if (difference > 0) {
+          summary.surplus += difference;
+        } else if (difference < 0) {
+          summary.shortage += Math.abs(difference);
+        }
+        return summary;
+      },
+      { surplus: 0, shortage: 0 }
+    );
+}
+
 function buildHeaderRows(report, includeVitrines = true) {
   const subcount = isSubcountReport(report);
+  const difference = calculateDifferenceBreakdown(report);
   const rows = [
     [subcount ? "Inventario sistema al corte (sin vitrinas)" : "Conteo físico de inventario kiosco"],
     ["Kiosko", report.locationName || report.locationCode || "—"],
@@ -131,9 +149,16 @@ function buildHeaderRows(report, includeVitrines = true) {
     ["Generado el", report.generatedAt ? String(report.generatedAt).slice(0, 19).replace("T", " ") : "—"],
     ["Revisado por", report.reviewedByName || "Pendiente"],
     ["Notas", report.notes || ""],
-    ["Exportado", formatNowGt()],
-    []
+    ["Exportado", formatNowGt()]
   );
+  if (includeVitrines) {
+    rows.push(
+      ["Total sobrante", difference.surplus],
+      ["Total faltante", difference.shortage],
+      ["Neto (sobrante - faltante)", difference.surplus - difference.shortage]
+    );
+  }
+  rows.push([]);
   return rows;
 }
 
