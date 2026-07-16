@@ -466,18 +466,27 @@ function KioskInventoryCountReport({ locationId }) {
   const filteredTotalGeneral = useMemo(() => {
     const allRows = filteredCategories.flatMap((c) => c.rows);
     if (allRows.length === 0) return null;
-    const rowsWithLiveTotals = allRows.map((row) => {
-      const counts = editedCounts[rowKey(row)] || row.counts || {};
-      const total = rowTotal(counts);
-      return {
-        ...row,
-        counts,
-        total,
-        diferencia: rowDiff(row, counts),
-      };
+    return sumFilteredRows(allRows);
+  }, [filteredCategories]);
+
+  const diffBreakdown = useMemo(() => {
+    const allRows = filteredCategories.flatMap((c) => c.rows);
+    let sobrante = 0;
+    let faltante = 0;
+    let conSobrante = 0;
+    let conFaltante = 0;
+    allRows.forEach((row) => {
+      const d = Number(row.diferencia || 0);
+      if (d > 0) {
+        sobrante += d;
+        conSobrante += 1;
+      } else if (d < 0) {
+        faltante += -d;
+        conFaltante += 1;
+      }
     });
-    return sumFilteredRows(rowsWithLiveTotals);
-  }, [filteredCategories, editedCounts]);
+    return { sobrante, faltante, conSobrante, conFaltante };
+  }, [filteredCategories]);
 
   const loadHistorial = useCallback(async (locId) => {
     if (!locId) {
@@ -1443,6 +1452,82 @@ function KioskInventoryCountReport({ locationId }) {
               )}
             </table>
           </div>
+
+          {/* ── Resumen sobrante / faltante ── */}
+          {filteredTotalGeneral && filteredCategories.length > 0 && (
+            <div
+              style={{
+                marginTop: 10,
+                display: "flex",
+                flexWrap: "wrap",
+                gap: 12,
+                alignItems: "stretch",
+              }}
+            >
+              <div
+                style={{
+                  flex: "1 1 200px",
+                  border: "1px solid #bbf7d0",
+                  background: "#f0fdf4",
+                  borderRadius: 8,
+                  padding: "10px 14px",
+                }}
+              >
+                <div style={{ fontSize: 11, color: "#15803d", fontWeight: 600 }}>Total sobrante</div>
+                <div style={{ fontSize: 22, fontWeight: 700, color: "#16a34a", lineHeight: 1.2 }}>
+                  +{diffBreakdown.sobrante}
+                </div>
+                <div style={{ fontSize: 11, color: "#6b7280" }}>
+                  {diffBreakdown.conSobrante} producto{diffBreakdown.conSobrante !== 1 ? "s" : ""} con físico &gt; sistema
+                </div>
+              </div>
+              <div
+                style={{
+                  flex: "1 1 200px",
+                  border: "1px solid #fecaca",
+                  background: "#fef2f2",
+                  borderRadius: 8,
+                  padding: "10px 14px",
+                }}
+              >
+                <div style={{ fontSize: 11, color: "#b91c1c", fontWeight: 600 }}>Total faltante</div>
+                <div style={{ fontSize: 22, fontWeight: 700, color: "#dc2626", lineHeight: 1.2 }}>
+                  −{diffBreakdown.faltante}
+                </div>
+                <div style={{ fontSize: 11, color: "#6b7280" }}>
+                  {diffBreakdown.conFaltante} producto{diffBreakdown.conFaltante !== 1 ? "s" : ""} con físico &lt; sistema
+                </div>
+              </div>
+              <div
+                style={{
+                  flex: "1 1 200px",
+                  border: "1px solid #e5e7eb",
+                  background: "#f9fafb",
+                  borderRadius: 8,
+                  padding: "10px 14px",
+                }}
+              >
+                <div style={{ fontSize: 11, color: "#4b5563", fontWeight: 600 }}>Neto (Dif. general)</div>
+                <div
+                  style={{
+                    fontSize: 22,
+                    fontWeight: 700,
+                    color: diffColor(filteredTotalGeneral.diferencia ?? 0),
+                    lineHeight: 1.2,
+                  }}
+                >
+                  {(filteredTotalGeneral.diferencia ?? 0) > 0
+                    ? `+${filteredTotalGeneral.diferencia}`
+                    : filteredTotalGeneral.diferencia ?? 0}
+                </div>
+                <div style={{ fontSize: 11, color: "#6b7280" }}>
+                  Sobrante − faltante = {(diffBreakdown.sobrante - diffBreakdown.faltante) > 0
+                    ? `+${diffBreakdown.sobrante - diffBreakdown.faltante}`
+                    : diffBreakdown.sobrante - diffBreakdown.faltante}
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* ── Leyenda ── */}
           <div style={{ marginTop: 10, fontSize: 11, color: "#6b7280", display: "flex", gap: 16, flexWrap: "wrap" }}>
