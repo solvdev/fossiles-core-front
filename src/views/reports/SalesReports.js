@@ -22,12 +22,14 @@ import {
   Table,
 } from "reactstrap";
 import classnames from "classnames";
+import Select from "react-select";
 import { useAuth } from "contexts/AuthContext";
 import {
   getGeneralKioskDisbursements,
   getGeneralKioskReport,
   getGeneralKioskSalesDetail,
 } from "services/kioskPosService";
+import { getLocations } from "services/locationService";
 import {
   formatDateGt,
   formatDateTimeGt,
@@ -85,6 +87,15 @@ const TABS = {
   CASH_CLOSURES: "CASH_CLOSURES",
 };
 
+const ALL_KIOSKS_OPTION = { value: "", label: "Todos los kioskos" };
+
+const isKioskLocation = (location) => {
+  const categoria = String(location?.categoria || "").toUpperCase();
+  const name = String(location?.name || "").toUpperCase();
+  const code = String(location?.code || "").toUpperCase();
+  return categoria.includes("KIOS") || name.includes("KIOS") || code.startsWith("K");
+};
+
 function resolveUserFullName(user) {
   if (!user) return "";
   const composed = [user.firstName, user.lastName].filter(Boolean).join(" ").trim();
@@ -121,7 +132,8 @@ function SalesReports() {
   const [salesDetail, setSalesDetail] = useState([]);
   const [disbursements, setDisbursements] = useState([]);
   const [exportMode, setExportMode] = useState("consolidated");
-  const [kioskCatalog, setKioskCatalog] = useState([]);
+  const [kioskLocations, setKioskLocations] = useState([]);
+  const [loadingKiosks, setLoadingKiosks] = useState(false);
 
   const generatedByName = useMemo(() => resolveUserFullName(user), [user]);
   const isDisbursements = reportType === REPORT_TYPES.DISBURSEMENTS;
@@ -137,59 +149,45 @@ function SalesReports() {
     [disbursements]
   );
 
-  const kioskOptions = useMemo(() => {
-    const map = new Map();
-    (kioskCatalog || []).forEach((row) => {
-      if (row?.kioskId == null) return;
-      map.set(String(row.kioskId), {
-        kioskId: row.kioskId,
-        kioskName: row.kioskName || `Kiosko ${row.kioskId}`,
-      });
-    });
-    (report?.kiosks || []).forEach((row) => {
-      if (row?.kioskId == null) return;
-      map.set(String(row.kioskId), {
-        kioskId: row.kioskId,
-        kioskName: row.kioskName || `Kiosko ${row.kioskId}`,
-      });
-    });
-    (salesDetail || []).forEach((sale) => {
-      if (sale?.kioskId == null) return;
-      if (!map.has(String(sale.kioskId))) {
-        map.set(String(sale.kioskId), {
-          kioskId: sale.kioskId,
-          kioskName: sale.kioskName || `Kiosko ${sale.kioskId}`,
-        });
-      }
-    });
-    (disbursements || []).forEach((row) => {
-      if (row?.kioskLocationId == null) return;
-      if (!map.has(String(row.kioskLocationId))) {
-        map.set(String(row.kioskLocationId), {
-          kioskId: row.kioskLocationId,
-          kioskName: row.kioskName || `Kiosko ${row.kioskLocationId}`,
-        });
-      }
-    });
-    return [...map.values()].sort((a, b) =>
-      String(a.kioskName).localeCompare(String(b.kioskName), "es")
-    );
-  }, [kioskCatalog, report, salesDetail, disbursements]);
+  const kioskSelectOptions = useMemo(() => {
+    const options = (kioskLocations || [])
+      .map((loc) => ({
+        value: String(loc.id),
+        label: loc.code ? `${loc.name} (${loc.code})` : loc.name || `Kiosko ${loc.id}`,
+      }))
+      .sort((a, b) => String(a.label).localeCompare(String(b.label), "es"));
+    return [ALL_KIOSKS_OPTION, ...options];
+  }, [kioskLocations]);
 
-  const mergeKioskCatalog = useCallback((list) => {
-    if (!Array.isArray(list) || !list.length) return;
-    setKioskCatalog((prev) => {
-      const map = new Map((prev || []).map((k) => [String(k.kioskId), k]));
-      list.forEach((row) => {
-        const id = row?.kioskId ?? row?.kioskLocationId;
-        if (id == null) return;
-        map.set(String(id), {
-          kioskId: id,
-          kioskName: row.kioskName || row.kioskCode || `Kiosko ${id}`,
-        });
-      });
-      return [...map.values()];
-    });
+  const selectedKioskOption = useMemo(
+    () =>
+      kioskSelectOptions.find((opt) => String(opt.value) === String(selectedKioskId || "")) ||
+      ALL_KIOSKS_OPTION,
+    [kioskSelectOptions, selectedKioskId]
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadKiosks = async () => {
+      try {
+        setLoadingKiosks(true);
+        const locations = await getLocations();
+        if (cancelled) return;
+        const kiosks = (locations || []).filter(isKioskLocation);
+        setKioskLocations(kiosks);
+      } catch (err) {
+        if (!cancelled) {
+          setKioskLocations([]);
+          showError(err.message || "No se pudieron cargar los kioskos.");
+        }
+      } finally {
+        if (!cancelled) setLoadingKiosks(false);
+      }
+    };
+    loadKiosks();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const applyQuickRange = (from, to, mode = "range") => {
@@ -242,7 +240,6 @@ function SalesReports() {
         setDisbursements(list);
         setSalesDetail([]);
         setReport(null);
-        mergeKioskCatalog(list);
         return;
       }
 
@@ -265,8 +262,6 @@ function SalesReports() {
       const list = Array.isArray(sales) ? sales : [];
       setSalesDetail(list);
       setDisbursements([]);
-      mergeKioskCatalog(summary?.kiosks || []);
-      mergeKioskCatalog(list);
     } catch (err) {
       setError(err.message || "No se pudo generar el reporte.");
       setSalesDetail([]);
@@ -274,15 +269,7 @@ function SalesReports() {
     } finally {
       setLoading(false);
     }
-  }, [
-    startDate,
-    endDate,
-    dateFilterMode,
-    today,
-    reportType,
-    selectedKioskId,
-    mergeKioskCatalog,
-  ]);
+  }, [startDate, endDate, dateFilterMode, today, reportType, selectedKioskId]);
 
   useEffect(() => {
     if (activeTab !== TABS.SALES) return;
@@ -332,8 +319,11 @@ function SalesReports() {
 
   const resolveExportKioskName = (salesOrRows) => {
     if (selectedKioskId) {
-      const match = kioskOptions.find((k) => String(k.kioskId) === String(selectedKioskId));
-      if (match?.kioskName) return match.kioskName;
+      const match = kioskLocations.find((k) => String(k.id) === String(selectedKioskId));
+      if (match?.name) return match.name;
+      if (selectedKioskOption?.label && selectedKioskOption.value) {
+        return selectedKioskOption.label;
+      }
     }
     const names = [...new Set((salesOrRows || []).map((s) => s.kioskName).filter(Boolean))];
     if (names.length === 1) return names[0];
@@ -581,19 +571,19 @@ function SalesReports() {
                   </Col>
                 )}
                 <Col md="3">
-                  <Label>Kiosko (opcional)</Label>
-                  <Input
-                    type="select"
-                    value={selectedKioskId}
-                    onChange={(e) => setSelectedKioskId(e.target.value)}
-                  >
-                    <option value="">Todos</option>
-                    {kioskOptions.map((row) => (
-                      <option key={row.kioskId} value={row.kioskId}>
-                        {row.kioskName}
-                      </option>
-                    ))}
-                  </Input>
+                  <Label>Kiosko</Label>
+                  <Select
+                    className="react-select"
+                    classNamePrefix="react-select"
+                    placeholder={loadingKiosks ? "Cargando kioskos..." : "Buscar kiosko..."}
+                    isClearable
+                    isSearchable
+                    isLoading={loadingKiosks}
+                    options={kioskSelectOptions}
+                    value={selectedKioskOption}
+                    onChange={(selected) => setSelectedKioskId(selected?.value || "")}
+                    noOptionsMessage={() => "No hay kioskos"}
+                  />
                 </Col>
                 {activeTab === TABS.SALES && (
                   <Col md="2" className="d-flex align-items-end">
@@ -677,7 +667,6 @@ function SalesReports() {
                   startDate={startDate}
                   endDate={effectiveEnd}
                   kioskLocationId={selectedKioskId}
-                  onRowsLoaded={mergeKioskCatalog}
                 />
               )}
 

@@ -10,7 +10,7 @@ import { showError, showSuccess } from "utils/notificationHelper";
 import { formatCurrency } from "views/kiosks/pos/posUtils";
 import PosCashCloseReportModal from "views/kiosks/pos/PosCashCloseReportModal";
 
-function SalesReportsCashClosuresPanel({ startDate, endDate, kioskLocationId, onRowsLoaded }) {
+function SalesReportsCashClosuresPanel({ startDate, endDate, kioskLocationId }) {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(false);
   const [busySessionId, setBusySessionId] = useState(null);
@@ -29,26 +29,14 @@ function SalesReportsCashClosuresPanel({ startDate, endDate, kioskLocationId, on
         to,
         kioskLocationId ? Number(kioskLocationId) : null
       );
-      const list = Array.isArray(data) ? data : [];
-      setRows(list);
-      if (onRowsLoaded) {
-        onRowsLoaded(
-          list.map((row) => ({
-            kioskId: row.kioskLocationId,
-            kioskLocationId: row.kioskLocationId,
-            kioskName: row.kioskName,
-            kioskCode: row.kioskCode,
-          }))
-        );
-      }
+      setRows(Array.isArray(data) ? data : []);
     } catch (err) {
       setRows([]);
-      if (onRowsLoaded) onRowsLoaded([]);
       showError(err.message || "No se pudo cargar el historial de cierres.");
     } finally {
       setLoading(false);
     }
-  }, [startDate, endDate, kioskLocationId, onRowsLoaded]);
+  }, [startDate, endDate, kioskLocationId]);
 
   useEffect(() => {
     loadHistory();
