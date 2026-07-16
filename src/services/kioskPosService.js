@@ -126,20 +126,37 @@ export const getKioskManagerDashboard = async (kioskLocationId) => {
   return parseJson(response, "No se pudo cargar el resumen del kiosko.");
 };
 
-export const getGeneralKioskReport = async (startDate, endDate) => {
+export const getGeneralKioskReport = async (startDate, endDate, paymentKind) => {
   const response = await fetch(
-    `${API_URL}/kiosk-pos/reports/general${toQuery({ startDate, endDate })}`,
+    `${API_URL}/kiosk-pos/reports/general${toQuery({ startDate, endDate, paymentKind })}`,
     { headers: headers() }
   );
   return parseJson(response, "No se pudo cargar el reporte general de kioskos.");
 };
 
-export const getGeneralKioskSalesDetail = async (startDate, endDate, kioskLocationId) => {
+export const getGeneralKioskSalesDetail = async (startDate, endDate, kioskLocationId, paymentKind) => {
   const response = await fetch(
-    `${API_URL}/kiosk-pos/reports/general/sales${toQuery({ startDate, endDate, kioskLocationId })}`,
+    `${API_URL}/kiosk-pos/reports/general/sales${toQuery({
+      startDate,
+      endDate,
+      kioskLocationId,
+      paymentKind,
+    })}`,
     { headers: headers() }
   );
   return parseJson(response, "No se pudieron cargar las ventas para exportar.");
+};
+
+export const getGeneralKioskDisbursements = async (startDate, endDate, kioskLocationId) => {
+  const response = await fetch(
+    `${API_URL}/kiosk-pos/reports/general/disbursements${toQuery({
+      startDate,
+      endDate,
+      kioskLocationId,
+    })}`,
+    { headers: headers() }
+  );
+  return parseJson(response, "No se pudieron cargar los desembolsos.");
 };
 
 export const getCurrentCashSession = async (kioskLocationId) => {
