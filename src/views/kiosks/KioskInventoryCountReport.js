@@ -135,8 +135,16 @@ const rowTotal = (counts) => COUNT_LOCATION_KEYS.reduce((s, k) => s + Number(cou
 const rowDiff = (row, counts) => rowTotal(counts) - Number(row.inventarioFinal || 0);
 
 const diffColor = (diferencia) => {
-  if (diferencia === 0) return "#16a34a";
-  return diferencia > 0 ? "#16a34a" : "#dc2626";
+  const n = Number(diferencia || 0);
+  if (n === 0) return "#111827";
+  return n > 0 ? "#16a34a" : "#dc2626";
+};
+
+/** Fondo de alerta: verde si sobrante, rojo si faltante. */
+const diffAlertBackground = (diferencia) => {
+  const n = Number(diferencia || 0);
+  if (Math.abs(n) < DIFF_ALERT_THRESHOLD) return undefined;
+  return n > 0 ? "#f0fdf4" : "#fef2f2";
 };
 
 const sumFilteredRows = (rows) => {
@@ -146,6 +154,7 @@ const sumFilteredRows = (rows) => {
   });
   const sumField = (key) => rows.reduce((s, r) => s + Number(r[key] || 0), 0);
   const total = rows.reduce((s, r) => s + Number(r.total || 0), 0);
+  const inventarioFinal = sumField("inventarioFinal");
   return {
     inventarioInicial: sumField("inventarioInicial"),
     comprasAjustes: sumField("comprasAjustes"),
@@ -154,10 +163,11 @@ const sumFilteredRows = (rows) => {
     ventas: sumField("ventas"),
     anulacionVenta: sumField("anulacionVenta"),
     salida: sumField("salida"),
-    inventarioFinal: sumField("inventarioFinal"),
+    inventarioFinal,
     counts: totalCounts,
     total,
-    diferencia: sumField("diferencia"),
+    // Siempre Total − Fin (no sumar diferencias viejas del API).
+    diferencia: total - inventarioFinal,
   };
 };
 
@@ -212,7 +222,6 @@ function CountCell({ value, onChange, disabled }) {
 function DataRow({ row, showKardex, kardexColumns, counts, physicalSizes, physicalSizesByLocation, onCountChange, onOpenCinchoModal, disabled }) {
   const total = rowTotal(counts);
   const diferencia = rowDiff(row, counts);
-  const isAlert = Math.abs(diferencia) >= DIFF_ALERT_THRESHOLD;
   const isCincho = isCinchoProductRow(row);
   const isFoss = isFossCinchoProductRow(row);
   const isExpandedSizeRow = !!row.sizeLabel;
@@ -276,7 +285,7 @@ function DataRow({ row, showKardex, kardexColumns, counts, physicalSizes, physic
         fontWeight: 700,
         fontSize: 12,
         color: diffColor(diferencia),
-        background: isAlert ? "#fef2f2" : undefined,
+        background: diffAlertBackground(diferencia),
       }}>
         {diferencia !== 0 && <span style={{ marginRight: 2 }}>{diferencia > 0 ? "▲" : "▼"}</span>}
         {diferencia > 0 ? `+${diferencia}` : diferencia}
@@ -422,10 +431,20 @@ function KioskInventoryCountReport({ locationId }) {
             && productMatchesCinchoFilter(row, cinchoFilter)
         );
         if (rows.length === 0) return null;
-        return { ...category, rows, subtotal: sumFilteredRows(rows) };
+        const rowsWithLiveTotals = rows.map((row) => {
+          const counts = editedCounts[rowKey(row)] || row.counts || {};
+          const total = rowTotal(counts);
+          return {
+            ...row,
+            counts,
+            total,
+            diferencia: rowDiff(row, counts),
+          };
+        });
+        return { ...category, rows: rowsWithLiveTotals, subtotal: sumFilteredRows(rowsWithLiveTotals) };
       })
       .filter(Boolean);
-  }, [displayReport, debouncedSearch, audienceFilter, cinchoFilter]);
+  }, [displayReport, debouncedSearch, audienceFilter, cinchoFilter, editedCounts]);
 
   const allReportRows = useMemo(
     () => (displayReport?.categories || []).flatMap((category) => category.rows),
@@ -1427,10 +1446,16 @@ function KioskInventoryCountReport({ locationId }) {
 
           {/* ── Leyenda ── */}
           <div style={{ marginTop: 10, fontSize: 11, color: "#6b7280", display: "flex", gap: 16, flexWrap: "wrap" }}>
-            <span><span style={{ color: "#16a34a", fontWeight: 700 }}>▲ 0</span> Sin diferencia</span>
-            <span><span style={{ color: "#16a34a", fontWeight: 700 }}>▲ +n</span> Sobrante (más físico que sistema)</span>
-            <span><span style={{ color: "#dc2626", fontWeight: 700 }}>▼ −n</span> Faltante (menos físico que sistema)</span>
-            <span style={{ background: "#fef2f2", padding: "1px 4px" }}>Fondo rojo: |diferencia| ≥ {DIFF_ALERT_THRESHOLD} unidades</span>
+            <span><span style={{ color: "#111827", fontWeight: 700 }}>0</span> Sin diferencia</span>
+            <span>
+              <span style={{ color: "#16a34a", fontWeight: 700, background: "#f0fdf4", padding: "1px 4px" }}>▲ +n</span>{" "}
+              Sobrante (físico &gt; sistema)
+            </span>
+            <span>
+              <span style={{ color: "#dc2626", fontWeight: 700, background: "#fef2f2", padding: "1px 4px" }}>▼ −n</span>{" "}
+              Faltante (físico &lt; sistema)
+            </span>
+            <span>Fondo solo si |diferencia| ≥ {DIFF_ALERT_THRESHOLD}</span>
             <span>Haz clic en el nombre de categoría para colapsar/expandir</span>
             {!showKardex && <span>Kardex oculto en pantalla — actívalo con &quot;Mostrar Kardex&quot; (Excel/PDF siempre lo incluyen)</span>}
             <span>FOSS cinchos: una fila por talla y color — edite E (vitrina) y BO (bodega). Otros cinchos: edite E por talla.</span>

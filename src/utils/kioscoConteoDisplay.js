@@ -25,6 +25,7 @@ export const sumDisplayRows = (rows) => {
   });
   const sumField = (field) => rows.reduce((sum, row) => sum + Number(row[field] || 0), 0);
   const total = rows.reduce((sum, row) => sum + Number(row.total || 0), 0);
+  const inventarioFinal = sumField("inventarioFinal");
   return {
     inventarioInicial: sumField("inventarioInicial"),
     comprasAjustes: sumField("comprasAjustes"),
@@ -33,10 +34,10 @@ export const sumDisplayRows = (rows) => {
     ventas: sumField("ventas"),
     anulacionVenta: sumField("anulacionVenta"),
     salida: sumField("salida"),
-    inventarioFinal: sumField("inventarioFinal"),
+    inventarioFinal,
     counts: totalCounts,
     total,
-    diferencia: sumField("diferencia"),
+    diferencia: total - inventarioFinal,
   };
 };
 

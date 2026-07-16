@@ -25,7 +25,7 @@ const COLORS = {
 };
 
 const diffColorRgb = (diferencia) => {
-  if (Number(diferencia || 0) === 0) return COLORS.diffOk;
+  if (Number(diferencia || 0) === 0) return "111827";
   return Number(diferencia) > 0 ? COLORS.diffOk : COLORS.diffBad;
 };
 
@@ -230,7 +230,9 @@ function ensureCategorySubtotals(report) {
         inventarioFinal: rows.reduce((s, r) => s + Number(r.inventarioFinal || 0), 0),
         counts: cat.subtotal?.counts,
         total: rows.reduce((s, r) => s + Number(r.total || 0), 0),
-        diferencia: rows.reduce((s, r) => s + Number(r.diferencia || 0), 0),
+        diferencia:
+          rows.reduce((s, r) => s + Number(r.total || 0), 0)
+          - rows.reduce((s, r) => s + Number(r.inventarioFinal || 0), 0),
       },
     };
   });
@@ -436,7 +438,10 @@ function applyConteoSheetStyles(ws, report, showKardex, includeVitrines = true) 
       return;
     }
     if (entry.type === "data") {
-      const rowFill = entry.isAlert ? COLORS.alertBg : entry.isZebra ? COLORS.zebraBg : "FFFFFF";
+      const absDiff = Math.abs(Number(entry.diferencia || 0));
+      const isAlert = withVitrines && absDiff >= DIFF_ALERT_THRESHOLD;
+      const alertFill = Number(entry.diferencia || 0) > 0 ? "F0FDF4" : COLORS.alertBg;
+      const rowFill = isAlert ? alertFill : entry.isZebra ? COLORS.zebraBg : "FFFFFF";
       const diffColor = diffColorRgb(entry.diferencia);
       for (let colIdx = 0; colIdx < colCount; colIdx += 1) {
         const isNumeric = isNumericCol(colIdx, layout);
@@ -581,14 +586,19 @@ export function exportConteoToPdf(report, options = {}) {
       ? `<td class="num bold">${row.total ?? 0}</td>
          <td class="num bold ${
            Number(row.diferencia || 0) === 0
-             ? "dif-ok"
+             ? "dif-zero"
              : Number(row.diferencia) > 0
                ? "dif-ok"
                : "dif-bad"
          }">${escape(String(formatDiffValue(row.diferencia ?? 0)))}</td>`
       : "";
+    const absDiff = Math.abs(Number(row.diferencia || 0));
     const alertClass =
-      includeVitrines && Math.abs(row.diferencia ?? 0) >= DIFF_ALERT_THRESHOLD ? "alert-row" : "";
+      includeVitrines && absDiff >= DIFF_ALERT_THRESHOLD
+        ? Number(row.diferencia || 0) > 0
+          ? "alert-row-surplus"
+          : "alert-row"
+        : "";
     return `<tr class="${alertClass}" style="${escape(style)}">
       <td>${escape(row.productCode || "")}</td>
       <td>${escape(row.productName || "")}</td>
@@ -631,7 +641,7 @@ export function exportConteoToPdf(report, options = {}) {
       <td class="num bold">${tg.total ?? 0}</td>
       <td class="num bold ${
         Number(tg.diferencia || 0) === 0
-          ? "dif-ok"
+          ? "dif-zero"
           : Number(tg.diferencia) > 0
             ? "dif-ok"
             : "dif-bad"
@@ -658,7 +668,9 @@ export function exportConteoToPdf(report, options = {}) {
       .total-general td { background: #1f2937; color: #fff; font-weight: 700; }
       .dif-bad { color: #dc2626; }
       .dif-ok { color: #16a34a; }
+      .dif-zero { color: #111827; }
       .alert-row td { background: #fef2f2; }
+      .alert-row-surplus td { background: #f0fdf4; }
       @media print { body { margin: 6mm; } }
     </style>
   </head><body>
