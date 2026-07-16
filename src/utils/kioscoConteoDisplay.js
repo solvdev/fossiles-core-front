@@ -155,7 +155,7 @@ const expandCinchoRowBySizes = (row) => {
       inventarioFinal,
       counts,
       total,
-      diferencia: inventarioFinal - total,
+      diferencia: total - inventarioFinal,
     };
   });
 };

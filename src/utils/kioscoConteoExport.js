@@ -24,6 +24,17 @@ const COLORS = {
   zebraBg: "FAFAFA",
 };
 
+const diffColorRgb = (diferencia) => {
+  if (Number(diferencia || 0) === 0) return COLORS.diffOk;
+  return Number(diferencia) > 0 ? COLORS.diffOk : COLORS.diffBad;
+};
+
+const formatDiffValue = (diferencia) => {
+  const n = Number(diferencia || 0);
+  if (n > 0) return `+${n}`;
+  return n;
+};
+
 const thinBorder = {
   top: { style: "thin", color: { rgb: COLORS.border } },
   right: { style: "thin", color: { rgb: COLORS.border } },
@@ -168,7 +179,7 @@ function buildDataRowCells(row, showKardex, report, includeVitrines = true) {
       cells[vitrineStart + index] = (row.counts || {})[key] ?? 0;
     });
     cells[totalCol] = row.total ?? 0;
-    cells[diffCol] = row.diferencia ?? 0;
+    cells[diffCol] = formatDiffValue(row.diferencia ?? 0);
     cells[separatorCol] = "";
   }
   return cells;
@@ -426,7 +437,7 @@ function applyConteoSheetStyles(ws, report, showKardex, includeVitrines = true) 
     }
     if (entry.type === "data") {
       const rowFill = entry.isAlert ? COLORS.alertBg : entry.isZebra ? COLORS.zebraBg : "FFFFFF";
-      const diffColor = entry.diferencia !== 0 ? COLORS.diffBad : COLORS.diffOk;
+      const diffColor = diffColorRgb(entry.diferencia);
       for (let colIdx = 0; colIdx < colCount; colIdx += 1) {
         const isNumeric = isNumericCol(colIdx, layout);
         let fill = rowFill;
@@ -470,7 +481,11 @@ function applyConteoSheetStyles(ws, report, showKardex, includeVitrines = true) 
     if (entry.type === "total-general") {
       merges.push({ s: { r: currentRow, c: 0 }, e: { r: currentRow, c: 2 } });
       const totalDiff = report.totalGeneral?.diferencia ?? 0;
-      const totalDiffColor = totalDiff !== 0 ? "FCA5A5" : "86EFAC";
+      const totalDiffColor = Number(totalDiff) === 0
+        ? "86EFAC"
+        : Number(totalDiff) > 0
+          ? "86EFAC"
+          : "FCA5A5";
       for (let colIdx = 0; colIdx < colCount; colIdx += 1) {
         const isNumeric = isNumericCol(colIdx, layout);
         styleCell(ws, currentRow, colIdx, {
@@ -564,7 +579,13 @@ export function exportConteoToPdf(report, options = {}) {
       : "";
     const trailing = includeVitrines
       ? `<td class="num bold">${row.total ?? 0}</td>
-         <td class="num bold ${(row.diferencia ?? 0) !== 0 ? "dif-bad" : "dif-ok"}">${row.diferencia ?? 0}</td>`
+         <td class="num bold ${
+           Number(row.diferencia || 0) === 0
+             ? "dif-ok"
+             : Number(row.diferencia) > 0
+               ? "dif-ok"
+               : "dif-bad"
+         }">${escape(String(formatDiffValue(row.diferencia ?? 0)))}</td>`
       : "";
     const alertClass =
       includeVitrines && Math.abs(row.diferencia ?? 0) >= DIFF_ALERT_THRESHOLD ? "alert-row" : "";
@@ -608,7 +629,13 @@ export function exportConteoToPdf(report, options = {}) {
       ${showKardex ? kardexHeaderList.map((col) => `<td class="num">${tg[col.key] ?? 0}</td>`).join("") : ""}
       ${COUNT_LOCATION_KEYS.map((k) => `<td class="num">${(tg.counts || {})[k] ?? 0}</td>`).join("")}
       <td class="num bold">${tg.total ?? 0}</td>
-      <td class="num bold ${(tg.diferencia ?? 0) !== 0 ? "dif-bad" : "dif-ok"}">${tg.diferencia ?? 0}</td>
+      <td class="num bold ${
+        Number(tg.diferencia || 0) === 0
+          ? "dif-ok"
+          : Number(tg.diferencia) > 0
+            ? "dif-ok"
+            : "dif-bad"
+      }">${escape(String(formatDiffValue(tg.diferencia ?? 0)))}</td>
     </tr>
   </tfoot>`
       : "";

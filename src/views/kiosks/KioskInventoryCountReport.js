@@ -132,7 +132,12 @@ const applyFossLocationSizesToCounts = (byLocation, existingPartial, baseCounts)
 };
 
 const rowTotal = (counts) => COUNT_LOCATION_KEYS.reduce((s, k) => s + Number(counts[k] || 0), 0);
-const rowDiff = (row, counts) => row.inventarioFinal - rowTotal(counts);
+const rowDiff = (row, counts) => rowTotal(counts) - Number(row.inventarioFinal || 0);
+
+const diffColor = (diferencia) => {
+  if (diferencia === 0) return "#16a34a";
+  return diferencia > 0 ? "#16a34a" : "#dc2626";
+};
 
 const sumFilteredRows = (rows) => {
   const totalCounts = {};
@@ -270,11 +275,11 @@ function DataRow({ row, showKardex, kardexColumns, counts, physicalSizes, physic
         ...sumColStyle,
         fontWeight: 700,
         fontSize: 12,
-        color: diferencia === 0 ? "#16a34a" : "#dc2626",
+        color: diffColor(diferencia),
         background: isAlert ? "#fef2f2" : undefined,
       }}>
         {diferencia !== 0 && <span style={{ marginRight: 2 }}>{diferencia > 0 ? "▲" : "▼"}</span>}
-        {diferencia}
+        {diferencia > 0 ? `+${diferencia}` : diferencia}
       </td>
     </tr>
   );
@@ -296,9 +301,9 @@ function SummaryRow({ label, row, showKardex, kardexColumns, bg = "#f3f4f6", tex
       <td style={{
         ...style,
         ...sumColStyle,
-        color: (row.diferencia ?? 0) !== 0 ? "#dc2626" : "#16a34a",
+        color: diffColor(row.diferencia ?? 0),
       }}>
-        {row.diferencia}
+        {(row.diferencia ?? 0) > 0 ? `+${row.diferencia}` : row.diferencia}
       </td>
     </tr>
   );
@@ -1145,7 +1150,7 @@ function KioskInventoryCountReport({ locationId }) {
                   <strong>Subconteo del {fmt(report.asOfDate)}.</strong>{" "}
                   Kardex del {fmt(report.periodFrom)} al {fmt(report.asOfDate)}. El conteo físico es el del conteo principal;
                   la columna de inventario sistema refleja el saldo a esa fecha.
-                  la diferencia compara ese físico contra el sistema al corte.
+                  la diferencia es físico − sistema (+ sobrante, − faltante).
                   {principalReport && (
                     <Button color="link" className="p-0 ml-2" style={{ fontSize: 12 }} onClick={handleBackToPrincipal}>
                       Volver al conteo principal
@@ -1423,8 +1428,9 @@ function KioskInventoryCountReport({ locationId }) {
           {/* ── Leyenda ── */}
           <div style={{ marginTop: 10, fontSize: 11, color: "#6b7280", display: "flex", gap: 16, flexWrap: "wrap" }}>
             <span><span style={{ color: "#16a34a", fontWeight: 700 }}>▲ 0</span> Sin diferencia</span>
-            <span><span style={{ color: "#dc2626", fontWeight: 700 }}>▲/▼ n</span> Sistema vs. físico</span>
-            <span style={{ background: "#fef2f2", padding: "1px 4px" }}>Fondo rojo: diferencia ≥ {DIFF_ALERT_THRESHOLD} unidades</span>
+            <span><span style={{ color: "#16a34a", fontWeight: 700 }}>▲ +n</span> Sobrante (más físico que sistema)</span>
+            <span><span style={{ color: "#dc2626", fontWeight: 700 }}>▼ −n</span> Faltante (menos físico que sistema)</span>
+            <span style={{ background: "#fef2f2", padding: "1px 4px" }}>Fondo rojo: |diferencia| ≥ {DIFF_ALERT_THRESHOLD} unidades</span>
             <span>Haz clic en el nombre de categoría para colapsar/expandir</span>
             {!showKardex && <span>Kardex oculto en pantalla — actívalo con &quot;Mostrar Kardex&quot; (Excel/PDF siempre lo incluyen)</span>}
             <span>FOSS cinchos: una fila por talla y color — edite E (vitrina) y BO (bodega). Otros cinchos: edite E por talla.</span>
