@@ -215,6 +215,8 @@ const CSV_SELLER_MAP = {
   "anthony": "Anthony Ixcajo",
   "eduardo": "Eduardo Ramirez",
   "mariana": "Mariana",
+  "luisa": "Luisa Marquez",
+  "marquez": "Luisa Marquez",
 };
 
 const DAY_NAMES = ["DOMINGO", "LUNES", "MARTES", "MIERCOLES", "MIÉRCOLES", "JUEVES", "VIERNES", "SABADO", "SÁBADO"];

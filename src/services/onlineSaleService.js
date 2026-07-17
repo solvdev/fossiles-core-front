@@ -258,7 +258,8 @@ export const PAYMENT_METHODS = [
 
 export const SALESPERSONS = [
   { value: 'Anthony Ixcajo', label: 'Anthony Ixcajo' },
-  { value: 'Eduardo Ramirez', label: 'Eduardo Ramirez' }
+  { value: 'Eduardo Ramirez', label: 'Eduardo Ramirez' },
+  { value: 'Luisa Marquez', label: 'Luisa Marquez' },
 ];
 
 export const SOCIAL_NETWORKS = [
