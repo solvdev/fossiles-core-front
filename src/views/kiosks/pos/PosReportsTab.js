@@ -975,7 +975,6 @@ function PosReportsTab({
           <Table responsive className="kiosk-pos-sales-table mt-3">
             <thead className="text-primary">
               <tr>
-                <th>Codigo Venta</th>
                 <th>No. Factura</th>
                 <th>Tarjeta</th>
                 <th>Monto</th>
@@ -986,7 +985,7 @@ function PosReportsTab({
             <tbody>
               {vouchersLoading && (
                 <tr>
-                  <td colSpan="6" className="text-center text-muted">
+                  <td colSpan="5" className="text-center text-muted">
                     <Spinner size="sm" className="mr-1" /> Cargando vouchers…
                   </td>
                 </tr>
@@ -994,7 +993,6 @@ function PosReportsTab({
               {!vouchersLoading &&
                 voucherRows.map((row) => (
                   <tr key={`voucher-${row.id}`}>
-                    <td>{row.saleCode || row.saleId || "—"}</td>
                     <td>{row.invoiceNumber || "—"}</td>
                     <td>{row.cardBrand || "VISA"}</td>
                     <td>{formatCurrency(row.amount)}</td>
@@ -1004,14 +1002,14 @@ function PosReportsTab({
                 ))}
               {!vouchersLoading && voucherRows.length === 0 && (
                 <tr>
-                  <td colSpan="6" className="text-center text-muted">
+                  <td colSpan="5" className="text-center text-muted">
                     No hay ventas con tarjeta para el filtro seleccionado.
                   </td>
                 </tr>
               )}
               {!vouchersLoading && voucherRows.length > 0 && (
                 <tr>
-                  <td colSpan="3" className="font-weight-bold">
+                  <td colSpan="2" className="font-weight-bold">
                     Total
                   </td>
                   <td className="font-weight-bold">{formatCurrency(vouchersTotal)}</td>

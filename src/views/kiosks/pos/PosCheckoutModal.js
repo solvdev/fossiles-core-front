@@ -9,6 +9,8 @@ import {
   formatQty,
   isValidGuatemalaNit,
   normalizeNit,
+  POS_CARD_BRANDS,
+  DEFAULT_POS_CARD_BRAND,
 } from "./posUtils";
 
 const QUICK_CASH = [50, 100, 200, 500];
@@ -42,6 +44,7 @@ function PosCheckoutModal({
   const [cardAmount, setCardAmount] = useState("");
   const [cardAuthNumber, setCardAuthNumber] = useState("");
   const [cardLast4, setCardLast4] = useState("");
+  const [cardBrand, setCardBrand] = useState(DEFAULT_POS_CARD_BRAND);
   const [notesOpen, setNotesOpen] = useState(false);
   const [customerTaxId, setCustomerTaxId] = useState("CF");
   const [customerName, setCustomerName] = useState("CONSUMIDOR FINAL");
@@ -56,6 +59,7 @@ function PosCheckoutModal({
     setCardAmount("");
     setCardAuthNumber("");
     setCardLast4("");
+    setCardBrand(DEFAULT_POS_CARD_BRAND);
     setNotesOpen(Boolean(notes));
     setCustomerTaxId("CF");
     setCustomerName("CONSUMIDOR FINAL");
@@ -116,7 +120,8 @@ function PosCheckoutModal({
   const requiresCardData =
     paymentMethod === "TARJETA" || (paymentMethod === "MIXTO" && Number(cardAmount || 0) > 0);
   const cardDataIncomplete =
-    requiresCardData && (!cardAuthNumber.trim() || !/^\d{4}$/.test(cardLast4.trim()));
+    requiresCardData
+    && (!cardAuthNumber.trim() || !/^\d{4}$/.test(cardLast4.trim()) || !cardBrand.trim());
 
   const promotionOptions = useMemo(
     () =>
@@ -155,6 +160,7 @@ function PosCheckoutModal({
       cardAmount: cardAmount ? Number(cardAmount) : null,
       cardAuthNumber: requiresCardData ? cardAuthNumber.trim() : null,
       cardLast4: requiresCardData ? cardLast4.trim() : null,
+      cardBrand: requiresCardData ? cardBrand.trim() : null,
       promotionId: selectedPromotionId || null,
       notes: notes || null,
       comments: comments || null,
@@ -354,6 +360,21 @@ function PosCheckoutModal({
           <div className="kiosk-pos-checkout-section">
             <div className="kiosk-pos-mixto-grid">
               <div>
+                <Label className="kiosk-pos-label">Marca de tarjeta</Label>
+                <Input
+                  type="select"
+                  className="kiosk-pos-input-lg"
+                  value={cardBrand}
+                  onChange={(e) => setCardBrand(e.target.value)}
+                >
+                  {POS_CARD_BRANDS.map((brand) => (
+                    <option key={brand.value} value={brand.value}>
+                      {brand.label}
+                    </option>
+                  ))}
+                </Input>
+              </div>
+              <div>
                 <Label className="kiosk-pos-label">Número de autorización</Label>
                 <Input
                   className="kiosk-pos-input-lg"
@@ -415,6 +436,21 @@ function PosCheckoutModal({
               </div>
               {requiresCardData && (
                 <>
+                  <div>
+                    <Label className="kiosk-pos-label">Marca de tarjeta</Label>
+                    <Input
+                      type="select"
+                      className="kiosk-pos-input-lg"
+                      value={cardBrand}
+                      onChange={(e) => setCardBrand(e.target.value)}
+                    >
+                      {POS_CARD_BRANDS.map((brand) => (
+                        <option key={brand.value} value={brand.value}>
+                          {brand.label}
+                        </option>
+                      ))}
+                    </Input>
+                  </div>
                   <div>
                     <Label className="kiosk-pos-label">Número de autorización</Label>
                     <Input
@@ -484,7 +520,7 @@ function PosCheckoutModal({
           <p className="kiosk-pos-confirm-hint">El monto recibido no cubre el total</p>
         )}
         {!cashInsufficient && cardDataIncomplete && (
-          <p className="kiosk-pos-confirm-hint">Indica autorización y últimos 4 dígitos de la tarjeta</p>
+          <p className="kiosk-pos-confirm-hint">Indica marca, autorización y últimos 4 dígitos de la tarjeta</p>
         )}
       </div>
     </Modal>

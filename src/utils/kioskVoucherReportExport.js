@@ -4,6 +4,7 @@ import {
   formatDisbursementPeriodLine,
   formatGeneratedByLine,
 } from "./kioskDisbursementReportExport";
+import { applyKioskReportTableStyles } from "./kioskReportExcelStyle";
 
 const moneyFmt = '"Q"#,##0.00';
 
@@ -58,7 +59,6 @@ const sortRows = (rows) =>
   });
 
 const TABLE_HEADERS = [
-  "Codigo Venta",
   "No. Factura",
   "Tarjeta",
   "Monto",
@@ -95,7 +95,6 @@ export const exportKioskVouchersToExcel = ({
 
   list.forEach((row) => {
     aoa.push([
-      row.saleCode || row.saleId || "—",
       row.invoiceNumber || "—",
       row.cardBrand || "VISA",
       Number(row.amount || 0),
@@ -105,11 +104,10 @@ export const exportKioskVouchersToExcel = ({
   });
 
   aoa.push([]);
-  aoa.push(["Total", "", "", total, "", ""]);
+  aoa.push(["Total", "", total, "", ""]);
 
   const ws = XLSX.utils.aoa_to_sheet(aoa);
   ws["!cols"] = [
-    { wch: 12 },
     { wch: 14 },
     { wch: 10 },
     { wch: 12 },
@@ -117,14 +115,14 @@ export const exportKioskVouchersToExcel = ({
     { wch: 20 },
   ];
 
-  const dataStartRow = 6;
-  for (let r = dataStartRow; r < dataStartRow + list.length; r += 1) {
-    const addr = XLSX.utils.encode_cell({ r, c: 3 });
-    if (ws[addr]) ws[addr].z = moneyFmt;
-  }
+  const headerRow = 5;
+  const dataStartRow = headerRow + 1;
   const totalRow = dataStartRow + list.length + 1;
-  const totalAddr = XLSX.utils.encode_cell({ r: totalRow, c: 3 });
-  if (ws[totalAddr]) ws[totalAddr].z = moneyFmt;
+  applyKioskReportTableStyles(ws, headerRow, list.length, TABLE_HEADERS.length, {
+    totalRow,
+    moneyFmt,
+    numCols: [2],
+  });
 
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, "Vouchers");
@@ -150,7 +148,6 @@ export const exportKioskVouchersToPdf = ({
     .map(
       (row) => `
     <tr>
-      <td class="nowrap">${escapeHtml(row.saleCode || row.saleId || "—")}</td>
       <td class="nowrap">${escapeHtml(row.invoiceNumber || "—")}</td>
       <td>${escapeHtml(row.cardBrand || "VISA")}</td>
       <td class="num">${escapeHtml(formatMoneyQ(row.amount))}</td>
@@ -193,10 +190,10 @@ export const exportKioskVouchersToPdf = ({
       </tr>
     </thead>
     <tbody>
-      ${bodyRows || `<tr><td colspan="6">Sin transacciones con tarjeta en el período</td></tr>`}
+      ${bodyRows || `<tr><td colspan="5">Sin transacciones con tarjeta en el período</td></tr>`}
       <tr class="total">
         <td>Total</td>
-        <td colspan="2"></td>
+        <td></td>
         <td class="num">${escapeHtml(formatMoneyQ(total))}</td>
         <td colspan="2"></td>
       </tr>

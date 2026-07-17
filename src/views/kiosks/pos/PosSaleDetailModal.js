@@ -19,7 +19,7 @@ import EditTaxInvoiceFelModal from "components/accounting/EditTaxInvoiceFelModal
 import { useAuth } from "contexts/AuthContext";
 import { canEditTaxInvoiceFel } from "utils/taxInvoiceEditHelper";
 import { showError, showSuccess } from "utils/notificationHelper";
-import { formatCurrency, formatQty, getSaleInternalNumber, isDepositApplicable, isSalePendingDeposit } from "./posUtils";
+import { formatCurrency, formatQty, getSaleInternalNumber, isDepositApplicable, isSalePendingDeposit, POS_CARD_BRANDS, DEFAULT_POS_CARD_BRAND } from "./posUtils";
 
 const formatDateTime = (value) => formatDateTimeGt(value);
 
@@ -64,6 +64,7 @@ function PosSaleDetailModal({
   const [cardAmount, setCardAmount] = useState("");
   const [cardAuthNumber, setCardAuthNumber] = useState("");
   const [cardLast4, setCardLast4] = useState("");
+  const [cardBrand, setCardBrand] = useState(DEFAULT_POS_CARD_BRAND);
   const [savingPayment, setSavingPayment] = useState(false);
   const [voidReason, setVoidReason] = useState("");
   const [voidConfirmOpen, setVoidConfirmOpen] = useState(false);
@@ -79,6 +80,7 @@ function PosSaleDetailModal({
     setCardAmount(sale.cardAmount != null ? String(sale.cardAmount) : "");
     setCardAuthNumber(sale.cardAuthNumber || "");
     setCardLast4(sale.cardLast4 || "");
+    setCardBrand(sale.cardBrand || DEFAULT_POS_CARD_BRAND);
     setDepositSlipNumber(sale.depositSlipNumber || "");
     setEditingPayment(false);
   }, [sale?.id, sale?.paymentMethod, sale?.depositSlipNumber]);
@@ -101,7 +103,8 @@ function PosSaleDetailModal({
   const requiresCardData =
     paymentMethod === "TARJETA" || (paymentMethod === "MIXTO" && Number(cardAmount || 0) > 0);
   const cardDataIncomplete =
-    requiresCardData && (!cardAuthNumber.trim() || !/^\d{4}$/.test(cardLast4.trim()));
+    requiresCardData
+    && (!cardAuthNumber.trim() || !/^\d{4}$/.test(cardLast4.trim()) || !cardBrand.trim());
 
   const handleRegisterDeposit = async () => {
     if (!sale?.id || !depositSlipNumber.trim()) {
@@ -157,7 +160,7 @@ function PosSaleDetailModal({
   const handleSavePayment = async () => {
     if (!sale?.id) return;
     if (cardDataIncomplete) {
-      showError("Indica autorización y últimos 4 dígitos de la tarjeta.");
+      showError("Indica marca, autorización y últimos 4 dígitos de la tarjeta.");
       return;
     }
     try {
@@ -171,6 +174,7 @@ function PosSaleDetailModal({
           cardAmount: cardAmount !== "" ? Number(cardAmount) : null,
           cardAuthNumber: requiresCardData ? cardAuthNumber.trim() : null,
           cardLast4: requiresCardData ? cardLast4.trim() : null,
+          cardBrand: requiresCardData ? cardBrand.trim() : null,
         },
         kioskLocationId ? Number(kioskLocationId) : undefined
       );
@@ -252,10 +256,12 @@ function PosSaleDetailModal({
                 <div className="kiosk-pos-detail-label">Forma de pago</div>
                 <div>
                   {paymentLabel(sale.paymentMethod)}
-                  {(sale.cardAuthNumber || sale.cardLast4) && (
+                  {(sale.cardBrand || sale.cardAuthNumber || sale.cardLast4) && (
                     <>
                       <br />
                       <span className="text-muted">
+                        {sale.cardBrand ? `${sale.cardBrand}` : ""}
+                        {sale.cardBrand && (sale.cardAuthNumber || sale.cardLast4) ? " · " : ""}
                         {sale.cardAuthNumber ? `Aut. ${sale.cardAuthNumber}` : ""}
                         {sale.cardAuthNumber && sale.cardLast4 ? " · " : ""}
                         {sale.cardLast4 ? `**** ${sale.cardLast4}` : ""}
@@ -363,7 +369,21 @@ function PosSaleDetailModal({
                     )}
                     {requiresCardData && (
                       <div className="row">
-                        <div className="col-md-6">
+                        <div className="col-md-4">
+                          <Label className="kiosk-pos-label">Marca de tarjeta</Label>
+                          <Input
+                            type="select"
+                            value={cardBrand}
+                            onChange={(e) => setCardBrand(e.target.value)}
+                          >
+                            {POS_CARD_BRANDS.map((brand) => (
+                              <option key={brand.value} value={brand.value}>
+                                {brand.label}
+                              </option>
+                            ))}
+                          </Input>
+                        </div>
+                        <div className="col-md-4">
                           <Label className="kiosk-pos-label">Número de autorización</Label>
                           <Input
                             value={cardAuthNumber}
@@ -371,7 +391,7 @@ function PosSaleDetailModal({
                             placeholder="Ej: 123456"
                           />
                         </div>
-                        <div className="col-md-6">
+                        <div className="col-md-4">
                           <Label className="kiosk-pos-label">Últimos 4 dígitos</Label>
                           <Input
                             value={cardLast4}
@@ -385,7 +405,7 @@ function PosSaleDetailModal({
                     )}
                     {cardDataIncomplete && (
                       <p className="text-danger small mt-1 mb-0">
-                        Indica autorización y últimos 4 dígitos de la tarjeta.
+                        Indica marca, autorización y últimos 4 dígitos de la tarjeta.
                       </p>
                     )}
                     <div className="mt-2">

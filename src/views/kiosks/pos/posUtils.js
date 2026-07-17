@@ -13,6 +13,14 @@ export const POS_CATALOG_VIEWS = [
   { value: "PACKAGING", label: "Empaques" },
 ];
 
+export const POS_CARD_BRANDS = [
+  { value: "VISA", label: "VISA" },
+  { value: "MC", label: "Mastercard (MC)" },
+  { value: "AMEX", label: "AMEX" },
+];
+
+export const DEFAULT_POS_CARD_BRAND = "VISA";
+
 export const POS_CATEGORY_ORDER = [
   "Billeteras",
   "Bolsos dama",

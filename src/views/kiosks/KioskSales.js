@@ -445,6 +445,7 @@ function KioskSales() {
         cardAmount: checkoutData.cardAmount,
         cardAuthNumber: checkoutData.cardAuthNumber,
         cardLast4: checkoutData.cardLast4,
+        cardBrand: checkoutData.cardBrand,
         notes: checkoutData.notes,
         comments: checkoutData.comments,
         promotionId: promoPayload.promotionId,

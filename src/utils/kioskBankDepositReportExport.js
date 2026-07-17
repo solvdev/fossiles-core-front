@@ -4,6 +4,7 @@ import {
   formatDisbursementPeriodLine,
   formatGeneratedByLine,
 } from "./kioskDisbursementReportExport";
+import { applyKioskReportTableStyles } from "./kioskReportExcelStyle";
 
 const moneyFmt = '"Q"#,##0.00';
 
@@ -121,14 +122,14 @@ export const exportKioskBankDepositsToExcel = ({
     { wch: 26 },
   ];
 
-  const dataStartRow = 7;
-  for (let r = dataStartRow; r < dataStartRow + list.length; r += 1) {
-    const addr = XLSX.utils.encode_cell({ r, c: 3 });
-    if (ws[addr]) ws[addr].z = moneyFmt;
-  }
+  const headerRow = 6;
+  const dataStartRow = headerRow + 1;
   const totalRow = dataStartRow + list.length + 1;
-  const totalAddr = XLSX.utils.encode_cell({ r: totalRow, c: 3 });
-  if (ws[totalAddr]) ws[totalAddr].z = moneyFmt;
+  applyKioskReportTableStyles(ws, headerRow, list.length, TABLE_HEADERS.length, {
+    totalRow,
+    moneyFmt,
+    numCols: [3],
+  });
 
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, "Depósitos");

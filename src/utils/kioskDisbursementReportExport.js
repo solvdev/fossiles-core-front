@@ -1,5 +1,6 @@
 import * as XLSX from "xlsx-js-style";
 import { formatNowGt } from "./dateTimeHelper";
+import { applyKioskReportTableStyles } from "./kioskReportExcelStyle";
 
 const moneyFmt = '"Q"#,##0.00';
 
@@ -118,14 +119,14 @@ export const exportKioskDisbursementsToExcel = ({
   const ws = XLSX.utils.aoa_to_sheet(aoa);
   ws["!cols"] = [{ wch: 5 }, { wch: 28 }, { wch: 22 }, { wch: 48 }, { wch: 20 }, { wch: 12 }];
 
-  const dataStartRow = 5;
-  for (let r = dataStartRow; r < dataStartRow + list.length; r += 1) {
-    const addr = XLSX.utils.encode_cell({ r, c: 5 });
-    if (ws[addr]) ws[addr].z = moneyFmt;
-  }
+  const headerRow = 4;
+  const dataStartRow = headerRow + 1;
   const totalRow = dataStartRow + list.length + 1;
-  const totalAddr = XLSX.utils.encode_cell({ r: totalRow, c: 5 });
-  if (ws[totalAddr]) ws[totalAddr].z = moneyFmt;
+  applyKioskReportTableStyles(ws, headerRow, list.length, TABLE_HEADERS.length, {
+    totalRow,
+    moneyFmt,
+    numCols: [0, 5],
+  });
 
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, "Desembolsos");
