@@ -512,6 +512,27 @@ export const getSaleCashAmount = (sale) => {
   return 0;
 };
 
+export const getSaleCardAmount = (sale) => {
+  if (!sale) return 0;
+  const method = normalizeSalePaymentMethod(sale.paymentMethod);
+  const total = Number(sale.totalAmount ?? 0);
+  if (method === "TARJETA" || method === "TRANSFERENCIA") {
+    const card = Number(sale.cardAmount ?? 0);
+    return card > 0 ? Math.min(card, total) : total;
+  }
+  if (method === "MIXTO") {
+    const cash = Number(sale.cashAmount ?? 0);
+    const card = Number(sale.cardAmount ?? 0);
+    if (card > 0) {
+      return Math.min(card, Math.max(total - cash, 0));
+    }
+    if (cash > 0) {
+      return Math.max(total - cash, 0);
+    }
+  }
+  return 0;
+};
+
 export const isDepositApplicable = (sale) => {
   if (!sale) return false;
   if (String(sale.status || "").toUpperCase() === "VOID") return false;

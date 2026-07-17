@@ -70,7 +70,7 @@ import {
   formatMainSheetCountLabel,
 } from "utils/kioskMainSheetReportExport";
 import { showError, showSuccess, showWarning } from "utils/notificationHelper";
-import { formatCurrency, formatQty, getSaleInternalNumber } from "views/kiosks/pos/posUtils";
+import { formatCurrency, formatQty, getSaleInternalNumber, getSaleCardAmount } from "views/kiosks/pos/posUtils";
 import "../kiosks/KioskSales.css";
 import SalesReportsCashClosuresPanel from "./SalesReportsCashClosuresPanel";
 
@@ -98,7 +98,7 @@ const REPORT_TYPE_OPTIONS = [
   {
     value: REPORT_TYPES.CARD,
     label: "Ventas por tarjeta",
-    hint: "Solo ventas pagadas 100% con tarjeta.",
+    hint: "Tarjeta 100% y la parte con tarjeta de ventas mixtas (misma lógica que TARJETAS en hoja principal).",
   },
   {
     value: REPORT_TYPES.DISBURSEMENTS,
@@ -193,7 +193,11 @@ function SalesReports() {
 
   const periodLabel = formatPeriodLabel(startDate, endDate);
 
-  const salesSummary = useMemo(() => buildKioskReportSummary(salesDetail), [salesDetail]);
+  const isCardReport = reportType === REPORT_TYPES.CARD;
+  const salesSummary = useMemo(
+    () => buildKioskReportSummary(salesDetail, isCardReport ? { amountField: "card" } : {}),
+    [salesDetail, isCardReport]
+  );
 
   const disbursementsTotal = useMemo(
     () => (disbursements || []).reduce((sum, row) => sum + Number(row?.amount || 0), 0),
@@ -1185,7 +1189,7 @@ function SalesReports() {
                           <td>{sale.soldByName || sale.soldByUsername || "—"}</td>
                           <td>{sale.paymentMethod || "—"}</td>
                           <td>{formatQty(sale.totalItems)}</td>
-                          <td>{formatCurrency(sale.totalAmount)}</td>
+                          <td>{formatCurrency(isCardReport ? getSaleCardAmount(sale) : sale.totalAmount)}</td>
                         </tr>
                       ))}
                       {salesDetail.length === 0 && (

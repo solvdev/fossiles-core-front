@@ -117,6 +117,10 @@ function KioskMainSheetReportPreview({ report, physicalCountSession }) {
             <span>TARJETAS</span>
             <strong>{formatMoney(report.cardsTotal)}</strong>
           </div>
+          <p className="small text-muted mb-2">
+            Incluye tarjeta 100% y la parte con tarjeta de ventas mixtas. Debe coincidir con el reporte
+            &quot;Ventas por tarjeta&quot; o &quot;Voucher&quot; del mismo kiosko y fechas del corte.
+          </p>
           <div className="kiosk-main-sheet-summary-row highlight">
             <span>DEPOSITOS</span>
             <strong>{formatMoney(report.depositsTotal)}</strong>
