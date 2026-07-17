@@ -1,10 +1,17 @@
-import React from "react";
+import React, { useEffect, useMemo, useState } from "react";
+import { Button, FormGroup, Input, Label, Spinner } from "reactstrap";
 import {
   formatMainSheetCountLabel,
   formatMainSheetDailyDate,
   formatMainSheetShortDate,
   groupDailySalesByMonth,
 } from "utils/kioskMainSheetReportExport";
+import {
+  formatMainSheetCertifiedAt,
+  formatMainSheetSalesRange,
+  MAIN_SHEET_REVIEWERS,
+} from "utils/kioskMainSheetReviewers";
+import { certifyKioskMainSheetReport } from "services/kioskPosService";
 import { formatDateGt } from "utils/dateTimeHelper";
 
 const formatMoney = (value) => {
@@ -23,7 +30,46 @@ const kioskTitle = (report) => {
   return `REPORTE DE VENTAS KIOSCO ${name}`;
 };
 
-function KioskMainSheetReportPreview({ report, physicalCountSession }) {
+function KioskMainSheetReportPreview({ report, physicalCountSession, onReportChange, showCertificationForm = true }) {
+  const [certifiedBy, setCertifiedBy] = useState("");
+  const [reviewedBy, setReviewedBy] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [certError, setCertError] = useState("");
+
+  useEffect(() => {
+    setCertifiedBy(report?.mainSheetCertifiedBy || "");
+    setReviewedBy(report?.mainSheetReviewedBy || "");
+    setCertError("");
+  }, [report?.physicalCountId, report?.mainSheetCertifiedBy, report?.mainSheetReviewedBy]);
+
+  const salesRangeLabel = useMemo(
+    () => formatMainSheetSalesRange(report?.periodFrom, report?.periodTo),
+    [report?.periodFrom, report?.periodTo]
+  );
+
+  const isCertified = Boolean(report?.mainSheetCertifiedBy && report?.mainSheetReviewedBy);
+
+  const handleCertify = async () => {
+    if (!report?.physicalCountId) return;
+    if (!certifiedBy || !reviewedBy) {
+      setCertError("Selecciona ambos revisores de la lista.");
+      return;
+    }
+    setSaving(true);
+    setCertError("");
+    try {
+      const updated = await certifyKioskMainSheetReport(report.physicalCountId, {
+        certifiedBy,
+        reviewedBy,
+      });
+      if (onReportChange) onReportChange(updated);
+    } catch (err) {
+      setCertError(err.message || "No se pudo guardar la certificación.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
   if (!report) {
     return (
       <div className="text-muted text-center py-4">
@@ -138,6 +184,85 @@ function KioskMainSheetReportPreview({ report, physicalCountSession }) {
             <strong>{formatDifference(report.difference)}</strong>
           </div>
         </div>
+      </div>
+
+      <div className="kiosk-main-sheet-certification mt-4">
+        <div className="kiosk-main-sheet-certification-grid">
+          <div className="kiosk-main-sheet-cert-row">
+            <span>REVISADO Y CERTIFICADO POR:</span>
+            <strong>{report.mainSheetCertifiedBy || "—"}</strong>
+          </div>
+          <div className="kiosk-main-sheet-cert-row">
+            <span>INVENTARIO DIGITAL:</span>
+            <strong>{formatMainSheetCertifiedAt(report.mainSheetCertifiedAt)}</strong>
+          </div>
+          <div className="kiosk-main-sheet-cert-row">
+            <span>REVISADO POR:</span>
+            <strong>{report.mainSheetReviewedBy || "—"}</strong>
+          </div>
+          <div className="kiosk-main-sheet-cert-row">
+            <span>VENTAS DEL:</span>
+            <strong>{salesRangeLabel}</strong>
+          </div>
+        </div>
+
+        {showCertificationForm && (
+          <div className="kiosk-main-sheet-cert-form mt-3">
+            <div className="row">
+              <div className="col-md-4">
+                <FormGroup>
+                  <Label for="mainSheetCertifiedBy">Revisado y certificado por</Label>
+                  <Input
+                    id="mainSheetCertifiedBy"
+                    type="select"
+                    value={certifiedBy}
+                    onChange={(e) => setCertifiedBy(e.target.value)}
+                    disabled={saving}
+                  >
+                    <option value="">Seleccionar…</option>
+                    {MAIN_SHEET_REVIEWERS.map((name) => (
+                      <option key={name} value={name}>{name}</option>
+                    ))}
+                  </Input>
+                </FormGroup>
+              </div>
+              <div className="col-md-4">
+                <FormGroup>
+                  <Label for="mainSheetReviewedBy">Revisado por</Label>
+                  <Input
+                    id="mainSheetReviewedBy"
+                    type="select"
+                    value={reviewedBy}
+                    onChange={(e) => setReviewedBy(e.target.value)}
+                    disabled={saving}
+                  >
+                    <option value="">Seleccionar…</option>
+                    {MAIN_SHEET_REVIEWERS.map((name) => (
+                      <option key={name} value={name}>{name}</option>
+                    ))}
+                  </Input>
+                </FormGroup>
+              </div>
+              <div className="col-md-4 d-flex align-items-end">
+                <Button
+                  color="primary"
+                  onClick={handleCertify}
+                  disabled={saving || !report.physicalCountId}
+                  block
+                >
+                  {saving ? (
+                    <>
+                      <Spinner size="sm" className="mr-1" /> Guardando…
+                    </>
+                  ) : (
+                    isCertified ? "Actualizar certificación" : "Marcar como revisado y certificado"
+                  )}
+                </Button>
+              </div>
+            </div>
+            {certError && <div className="text-danger small">{certError}</div>}
+          </div>
+        )}
       </div>
     </div>
   );

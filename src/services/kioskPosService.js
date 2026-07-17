@@ -191,6 +191,18 @@ export const getKioskMainSheetReport = async (physicalCountId) => {
   return parseJson(response, "No se pudo cargar la hoja principal.");
 };
 
+export const certifyKioskMainSheetReport = async (physicalCountId, { certifiedBy, reviewedBy }) => {
+  const response = await fetch(
+    `${API_URL}/kiosk-pos/reports/main-sheet/certify${toQuery({ physicalCountId })}`,
+    {
+      method: "POST",
+      headers: headers(),
+      body: JSON.stringify({ certifiedBy, reviewedBy }),
+    }
+  );
+  return parseJson(response, "No se pudo certificar la hoja principal.");
+};
+
 export const getCurrentCashSession = async (kioskLocationId) => {
   const response = await fetch(
     `${API_URL}/kiosk-pos/cash-session/current${toQuery({ kioskLocationId })}`,

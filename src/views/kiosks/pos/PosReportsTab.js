@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Button, Card, CardBody, CardHeader, CardTitle, Col, Input, Label, Row, Spinner, Table } from "reactstrap";
 import KioskMainSheetReportPreview from "components/kiosks/KioskMainSheetReportPreview";
+import "../KioskSales.css";
 import { getGeneralKioskBankDeposits, getGeneralKioskDisbursements, getGeneralKioskVouchers, getKioskMainSheetReport, getKioskSaleById } from "services/kioskPosService";
 import { getKioscoConteoHistorial } from "services/kioscoInventoryService";
 import {
@@ -858,6 +859,7 @@ function PosReportsTab({
                 <KioskMainSheetReportPreview
                   report={mainSheetReport}
                   physicalCountSession={selectedPhysicalCountSession}
+                  onReportChange={setMainSheetReport}
                 />
               )}
             </div>

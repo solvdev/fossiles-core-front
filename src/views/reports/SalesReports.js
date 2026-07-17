@@ -1101,6 +1101,7 @@ function SalesReports() {
                     <KioskMainSheetReportPreview
                       report={mainSheetReport}
                       physicalCountSession={selectedPhysicalCountSession}
+                      onReportChange={setMainSheetReport}
                     />
                   )}
                 </div>

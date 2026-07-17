@@ -1398,6 +1398,42 @@
   background: #b4c6e7;
 }
 
+.kiosk-main-sheet-certification {
+  border-top: 2px solid #000;
+  padding-top: 16px;
+}
+
+.kiosk-main-sheet-certification-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 8px 24px;
+}
+
+.kiosk-main-sheet-cert-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 12px;
+  align-items: center;
+  font-size: 0.9rem;
+}
+
+.kiosk-main-sheet-cert-row span {
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.kiosk-main-sheet-cert-row strong {
+  text-align: right;
+  min-width: 140px;
+}
+
+.kiosk-main-sheet-cert-form {
+  background: #f8fafc;
+  border: 1px solid #dbeafe;
+  border-radius: 8px;
+  padding: 12px 16px;
+}
+
 @media (max-width: 991px) {
   .kiosk-main-sheet-layout {
     grid-template-columns: 1fr;

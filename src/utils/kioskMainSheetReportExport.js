@@ -1,5 +1,9 @@
 import * as XLSX from "xlsx-js-style";
 import { formatNowGt } from "./dateTimeHelper";
+import {
+  formatMainSheetCertifiedAt,
+  formatMainSheetSalesRange,
+} from "./kioskMainSheetReviewers";
 
 const moneyFmt = '"Q"#,##0.00';
 const yellowFill = { fgColor: { rgb: "FFFF00" } };
@@ -230,6 +234,12 @@ export const exportKioskMainSheetToExcel = ({ report }) => {
     { money: Math.abs(Number(report.difference || 0)) >= 0.005, highlight: true }
   );
 
+  const certStart = summaryStart + 14;
+  writeLabelValue(certStart, "REVISADO Y CERTIFICADO POR", report.mainSheetCertifiedBy || "—", { highlight: false });
+  writeLabelValue(certStart + 1, "INVENTARIO DIGITAL", formatMainSheetCertifiedAt(report.mainSheetCertifiedAt), { highlight: false });
+  writeLabelValue(certStart + 2, "REVISADO POR", report.mainSheetReviewedBy || "—", { highlight: false });
+  writeLabelValue(certStart + 3, "VENTAS DEL", formatMainSheetSalesRange(report.periodFrom, report.periodTo), { highlight: false });
+
   refreshWorksheetRange(ws);
 
   const wb = XLSX.utils.book_new();
@@ -284,6 +294,10 @@ export const exportKioskMainSheetToPdf = ({ report }) => {
     .summary-row .label { font-weight: bold; }
     .summary-row .value { text-align: right; font-weight: bold; border: 2px solid #000; background: #ffff00; padding: 4px 6px; min-height: 18px; }
     .summary-row.plain .value { background: #fff; border: 1px solid #000; font-weight: normal; }
+    .cert-block { margin-top: 24px; border-top: 2px solid #000; padding-top: 12px; }
+    .cert-row { display: grid; grid-template-columns: 1fr 180px; gap: 8px; margin: 4px 0; align-items: center; }
+    .cert-row .label { font-weight: bold; text-transform: uppercase; font-size: 10pt; }
+    .cert-row .value { text-align: right; font-weight: bold; border: 1px solid #000; padding: 4px 6px; }
     @media print { body { margin: 8mm; } }
   </style>
 </head>
@@ -317,6 +331,12 @@ export const exportKioskMainSheetToPdf = ({ report }) => {
       <div class="summary-row"><div class="label">TOTAL</div><div class="value">${escapeHtml(formatMoneyDisplay(report.reconciledTotal))}</div></div>
       <div class="summary-row"><div class="label">DIFERENCIA</div><div class="value">${escapeHtml(formatDifferenceDisplay(report.difference))}</div></div>
     </div>
+  </div>
+  <div class="cert-block">
+    <div class="cert-row"><div class="label">REVISADO Y CERTIFICADO POR:</div><div class="value">${escapeHtml(report.mainSheetCertifiedBy || "—")}</div></div>
+    <div class="cert-row"><div class="label">INVENTARIO DIGITAL:</div><div class="value">${escapeHtml(formatMainSheetCertifiedAt(report.mainSheetCertifiedAt))}</div></div>
+    <div class="cert-row"><div class="label">REVISADO POR:</div><div class="value">${escapeHtml(report.mainSheetReviewedBy || "—")}</div></div>
+    <div class="cert-row"><div class="label">VENTAS DEL:</div><div class="value">${escapeHtml(formatMainSheetSalesRange(report.periodFrom, report.periodTo))}</div></div>
   </div>
   <script>window.onload = function () { window.print(); };</script>
 </body>
