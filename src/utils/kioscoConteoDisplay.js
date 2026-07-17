@@ -31,9 +31,18 @@ export const resolveLivePhysicalTotal = (row, counts, physicalSizes, physicalSiz
   return COUNT_LOCATION_KEYS.reduce((sum, key) => sum + Number((counts || {})[key] || 0), 0);
 };
 
+export const computeDiferenciaConteo = (total, inventarioFinal, salidaDevolucion = 0) => {
+  const raw = Number(total || 0) - Number(inventarioFinal || 0);
+  if (raw <= 0) return raw;
+  return Math.max(0, raw - Math.max(0, Number(salidaDevolucion || 0)));
+};
+
 export const resolveLiveRowDiff = (row, counts, physicalSizes, physicalSizesByLocation) =>
-  resolveLivePhysicalTotal(row, counts, physicalSizes, physicalSizesByLocation)
-  - Number(row.inventarioFinal || 0);
+  computeDiferenciaConteo(
+    resolveLivePhysicalTotal(row, counts, physicalSizes, physicalSizesByLocation),
+    row.inventarioFinal,
+    row.salidaDevolucion
+  );
 
 const normalizeDisplayRowTotals = (row) => {
   const total = resolveLivePhysicalTotal(
@@ -46,7 +55,7 @@ const normalizeDisplayRowTotals = (row) => {
   return {
     ...row,
     total,
-    diferencia: total - inventarioFinal,
+    diferencia: computeDiferenciaConteo(total, inventarioFinal, row.salidaDevolucion),
   };
 };
 
@@ -76,10 +85,11 @@ export const sumDisplayRows = (rows) => {
     ventas: sumField("ventas"),
     anulacionVenta: sumField("anulacionVenta"),
     salida: sumField("salida"),
+    salidaDevolucion: sumField("salidaDevolucion"),
     inventarioFinal,
     counts: totalCounts,
     total,
-    diferencia: total - inventarioFinal,
+    diferencia: computeDiferenciaConteo(total, inventarioFinal, sumField("salidaDevolucion")),
   };
 };
 
@@ -176,6 +186,7 @@ const expandCinchoRowBySizes = (row) => {
     const anulacionCompras = onlyOneSize ? Number(row.anulacionCompras || 0) : 0;
     const anulacionVenta = onlyOneSize ? Number(row.anulacionVenta || 0) : 0;
     const salida = onlyOneSize ? Number(row.salida || 0) : 0;
+    const salidaDevolucion = onlyOneSize ? Number(row.salidaDevolucion || 0) : 0;
     const sizeNet = onlyOneSize ? netHint : 0;
     const inventarioInicial = Math.max(0, inventarioFinal - sizeNet);
 
@@ -195,10 +206,11 @@ const expandCinchoRowBySizes = (row) => {
       ventas,
       anulacionVenta,
       salida,
+      salidaDevolucion,
       inventarioFinal,
       counts,
       total,
-      diferencia: total - inventarioFinal,
+      diferencia: computeDiferenciaConteo(total, inventarioFinal, salidaDevolucion),
     };
   });
 };

@@ -31,7 +31,7 @@ import {
 } from "services/kioscoInventoryService";
 import { formatDateGt, formatDateTimeGt } from "utils/dateTimeHelper";
 import { exportConteoToExcel, exportConteoToPdf } from "utils/kioscoConteoExport";
-import { buildConteoDisplayReport, formatConteoSubtotalLabel, resolveLivePhysicalTotal, resolveLiveRowDiff } from "utils/kioscoConteoDisplay";
+import { buildConteoDisplayReport, computeDiferenciaConteo, formatConteoSubtotalLabel, resolveLivePhysicalTotal, resolveLiveRowDiff } from "utils/kioscoConteoDisplay";
 import {
   CONTEO_COLOR_LEGEND_LEFT,
   CONTEO_COLOR_LEGEND_RIGHT,
@@ -152,7 +152,7 @@ const withLiveRowTotals = (row, editedCounts, editedSizeCounts, editedSizeCounts
     ...row,
     counts,
     total,
-    diferencia: total - Number(row.inventarioFinal || 0),
+    diferencia: computeDiferenciaConteo(total, Number(row.inventarioFinal || 0), row.salidaDevolucion),
   };
 };
 
@@ -203,11 +203,11 @@ const sumFilteredRows = (rows) => {
     ventas: sumField("ventas"),
     anulacionVenta: sumField("anulacionVenta"),
     salida: sumField("salida"),
+    salidaDevolucion: sumField("salidaDevolucion"),
     inventarioFinal,
     counts: totalCounts,
     total,
-    // Siempre Total − Fin (no sumar diferencias viejas del API).
-    diferencia: total - inventarioFinal,
+    diferencia: computeDiferenciaConteo(total, inventarioFinal, sumField("salidaDevolucion")),
   };
 };
 
@@ -308,7 +308,7 @@ function DataRow({
   disabled,
 }) {
   const total = resolveLivePhysicalTotal(row, counts, physicalSizes, physicalSizesByLocation);
-  const diferencia = total - Number(row.inventarioFinal || 0);
+  const diferencia = computeDiferenciaConteo(total, Number(row.inventarioFinal || 0), row.salidaDevolucion);
   const isCincho = isCinchoProductRow(row);
   const isFoss = isFossCinchoProductRow(row);
   const isExpandedSizeRow = !!row.sizeLabel;
