@@ -15,7 +15,7 @@ import {
   completeKioskSimpleReturn,
   lookupKioskSale,
 } from "services/kioskExchangeService";
-import { getKioscoStock, registrarKioscoDevolucionDeposito } from "services/kioscoInventoryService";
+import { getKioscoConteoHistorial, registrarKioscoDevolucionDeposito } from "services/kioscoInventoryService";
 import { filterVisibleKioskStockRows } from "utils/productCinchoHelper";
 import {
   buildKioskReturnSlipPrintHtml,
@@ -34,7 +34,7 @@ const RETURN_TYPE_DEPOSIT = "DEPOSIT";
 
 const stockRowKey = (row) => `${row.productId}-${row.colorId || ""}`;
 
-function SimpleReturnWizard({ isOpen, onClose, kioskLocationId, onCompleted }) {
+function SimpleReturnWizard({ isOpen, onClose, kioskLocationId, physicalCountId, onCompleted }) {
   const [returnType, setReturnType] = useState(RETURN_TYPE_DEPOSIT);
   const [step, setStep] = useState(1);
   const [saleQuery, setSaleQuery] = useState("");
@@ -51,6 +51,8 @@ function SimpleReturnWizard({ isOpen, onClose, kioskLocationId, onCompleted }) {
   const [selectedSize, setSelectedSize] = useState("");
   const [lineQty, setLineQty] = useState("1");
   const [depositLines, setDepositLines] = useState([]);
+  const [linkedCountId, setLinkedCountId] = useState("");
+  const [draftCounts, setDraftCounts] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -71,8 +73,28 @@ function SimpleReturnWizard({ isOpen, onClose, kioskLocationId, onCompleted }) {
     setSelectedSize("");
     setLineQty("1");
     setDepositLines([]);
+    setLinkedCountId(physicalCountId ? String(physicalCountId) : "");
+    setDraftCounts([]);
     setError("");
   };
+
+  useEffect(() => {
+    if (!isOpen || !kioskLocationId) return;
+    void getKioscoConteoHistorial(kioskLocationId)
+      .then((rows) => {
+        const openCounts = (Array.isArray(rows) ? rows : []).filter((row) => {
+          const status = String(row.status || "").toUpperCase();
+          return status === "DRAFT" || status === "CONTADO";
+        });
+        setDraftCounts(openCounts);
+        if (physicalCountId) {
+          setLinkedCountId(String(physicalCountId));
+        } else if (openCounts.length === 1) {
+          setLinkedCountId(String(openCounts[0].id));
+        }
+      })
+      .catch(() => setDraftCounts([]));
+  }, [isOpen, kioskLocationId, physicalCountId]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -197,6 +219,35 @@ function SimpleReturnWizard({ isOpen, onClose, kioskLocationId, onCompleted }) {
     setDepositLines((prev) => prev.filter((line) => line.lineKey !== lineKey));
   };
 
+  const resolvedPhysicalCountId = linkedCountId ? Number(linkedCountId) : null;
+
+  const renderCountSelector = () => {
+    if (draftCounts.length === 0) {
+      return (
+        <p className="text-muted" style={{ fontSize: 13 }}>
+          No hay conteo físico abierto. La devolución a bodega contará por fecha del movimiento.
+        </p>
+      );
+    }
+    return (
+      <FormGroup>
+        <Label>Conteo físico (Salidas del corte)</Label>
+        <Input
+          type="select"
+          value={linkedCountId}
+          onChange={(e) => setLinkedCountId(e.target.value)}
+        >
+          <option value="">Sin asociar — solo por fecha</option>
+          {draftCounts.map((count) => (
+            <option key={count.id} value={String(count.id)}>
+              {count.periodFrom} → {count.periodTo} ({count.status || "DRAFT"})
+            </option>
+          ))}
+        </Input>
+      </FormGroup>
+    );
+  };
+
   const handleSubmitClient = async () => {
     setError("");
     if (!selectedItem) {
@@ -222,6 +273,7 @@ function SimpleReturnWizard({ isOpen, onClose, kioskLocationId, onCompleted }) {
         physicalSlipNumber: physicalSlipNumber.trim(),
         reason: reason.trim(),
         observations: observations.trim() || null,
+        physicalCountId: resolvedPhysicalCountId,
       });
       openExchangeSlipPrintWindow(buildKioskReturnSlipPrintHtml(slip));
       onCompleted?.(slip);
@@ -259,6 +311,7 @@ function SimpleReturnWizard({ isOpen, onClose, kioskLocationId, onCompleted }) {
           sizeKey: line.size || null,
           physicalSlipNumber: slipNo,
           reason: reasonText,
+          physicalCountId: resolvedPhysicalCountId,
         });
       }
       onCompleted?.();
@@ -386,6 +439,7 @@ function SimpleReturnWizard({ isOpen, onClose, kioskLocationId, onCompleted }) {
               <Label>Observaciones</Label>
               <Input type="textarea" value={observations} onChange={(e) => setObservations(e.target.value)} />
             </FormGroup>
+            {renderCountSelector()}
           </>
         )}
 
@@ -486,6 +540,7 @@ function SimpleReturnWizard({ isOpen, onClose, kioskLocationId, onCompleted }) {
               <Label>Motivo</Label>
               <Input value={reason} onChange={(e) => setReason(e.target.value)} />
             </FormGroup>
+            {renderCountSelector()}
           </>
         )}
       </ModalBody>

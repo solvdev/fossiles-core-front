@@ -29,7 +29,9 @@ import {
   authorizeKioskExchange,
   listKioskExchanges,
   listPendingAuthorizations,
+  listPendingReintegros,
   rejectKioskExchange,
+  reintegrateKioskReturn,
 } from "services/kioskExchangeService";
 import { getKioscoMovimientos } from "services/kioscoInventoryService";
 import { formatDateTimeGt } from "utils/dateTimeHelper";
@@ -57,6 +59,8 @@ const statusBadge = (status) => {
   const normalized = String(status || "").toUpperCase();
   if (normalized === "COMPLETED") return "success";
   if (normalized === "PENDING_AUTHORIZATION") return "warning";
+  if (normalized === "PENDING_REINTEGRO") return "info";
+  if (normalized === "REINTEGRATED") return "success";
   if (normalized === "REJECTED") return "danger";
   return "secondary";
 };
@@ -64,6 +68,8 @@ const statusBadge = (status) => {
 const statusLabel = (status) => {
   const normalized = String(status || "").toUpperCase();
   if (normalized === "PENDING_AUTHORIZATION") return "Pendiente autorización";
+  if (normalized === "PENDING_REINTEGRO") return "Pendiente reintegro";
+  if (normalized === "REINTEGRATED") return "Reintegrado a bodega";
   if (normalized === "COMPLETED") return "Completado";
   if (normalized === "REJECTED") return "Rechazado";
   return status || "—";
@@ -80,6 +86,7 @@ function KioskReturns() {
   const [returns, setReturns] = useState([]);
   const [depositReturns, setDepositReturns] = useState([]);
   const [pendingAuthorizations, setPendingAuthorizations] = useState([]);
+  const [pendingReintegros, setPendingReintegros] = useState([]);
   const [loading, setLoading] = useState(false);
   const [actionId, setActionId] = useState(null);
   const [error, setError] = useState("");
@@ -128,9 +135,10 @@ function KioskReturns() {
       setLoading(true);
       setError("");
       const kioskLocationId = kioskId || undefined;
-      const [exchangeRows, authorizationRows, depositRows] = await Promise.all([
+      const [exchangeRows, authorizationRows, reintegroRows, depositRows] = await Promise.all([
         listKioskExchanges(kioskLocationId),
         canAuthorizeExchanges ? listPendingAuthorizations(kioskLocationId) : Promise.resolve([]),
+        listPendingReintegros(kioskLocationId),
         loadDepositReturns(kioskId, kioskList),
       ]);
       const allRows = Array.isArray(exchangeRows) ? exchangeRows : [];
@@ -138,6 +146,7 @@ function KioskReturns() {
       setReturns(allRows.filter((row) => String(row.slipType || "").toUpperCase() === "RETURN"));
       setDepositReturns(Array.isArray(depositRows) ? depositRows : []);
       setPendingAuthorizations(Array.isArray(authorizationRows) ? authorizationRows : []);
+      setPendingReintegros(Array.isArray(reintegroRows) ? reintegroRows : []);
     } catch (err) {
       setError(err.message || "Error al cargar devoluciones y boletas.");
     } finally {
@@ -152,6 +161,18 @@ function KioskReturns() {
   useEffect(() => {
     void loadData(selectedKiosk, locations);
   }, [selectedKiosk, locations]);
+
+  const handleReintegrate = async (slip) => {
+    try {
+      setActionId(slip.id);
+      await reintegrateKioskReturn(slip.id, selectedKiosk || slip.kioskLocationId);
+      await loadData();
+    } catch (err) {
+      setError(err.message || "No se pudo reintegrar la devolución.");
+    } finally {
+      setActionId(null);
+    }
+  };
 
   const handleAuthorize = async (slip) => {
     try {
@@ -276,6 +297,16 @@ function KioskReturns() {
                     style={{ cursor: "pointer" }}
                   >
                     Devoluciones de cliente
+                  </NavLink>
+                </NavItem>
+                <NavItem>
+                  <NavLink
+                    className={activeTab === "REINTEGROS" ? "active" : ""}
+                    onClick={() => setActiveTab("REINTEGROS")}
+                    style={{ cursor: "pointer" }}
+                  >
+                    Pendientes reintegro
+                    {pendingReintegros.length > 0 ? ` (${pendingReintegros.length})` : ""}
                   </NavLink>
                 </NavItem>
                 {canAuthorizeExchanges && (
@@ -414,6 +445,51 @@ function KioskReturns() {
                             <td className="text-right">
                               <Button color="default" size="sm" className="mr-1" onClick={() => handlePrintReturn(row)}>
                                 Imprimir
+                              </Button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </Table>
+                  )}
+                </TabPane>
+
+                <TabPane tabId="REINTEGROS">
+                  {loading ? (
+                    <p>Cargando...</p>
+                  ) : pendingReintegros.length === 0 ? (
+                    <p>
+                      No hay devoluciones pendientes de reintegro a bodega.
+                      {" "}Al registrar una devolución de cliente apta, confirma aquí la salida del kiosko para que aparezca en <strong>Sal.</strong> del conteo.
+                    </p>
+                  ) : (
+                    <Table responsive>
+                      <thead className="text-primary">
+                        <tr>
+                          <th>No.</th>
+                          <th>Kiosko</th>
+                          <th>Producto</th>
+                          <th>Cant.</th>
+                          <th>Motivo</th>
+                          <th className="text-right">Acciones</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {pendingReintegros.map((row) => (
+                          <tr key={row.id}>
+                            <td>{row.slipNumber}</td>
+                            <td>{row.kioskName}</td>
+                            <td>{row.returnedProductName}</td>
+                            <td>{formatQty(row.returnedQuantity)}</td>
+                            <td>{row.reason || "—"}</td>
+                            <td className="text-right">
+                              <Button
+                                color="success"
+                                size="sm"
+                                disabled={actionId === row.id}
+                                onClick={() => void handleReintegrate(row)}
+                              >
+                                {actionId === row.id ? "..." : "Reintegrar a bodega"}
                               </Button>
                             </td>
                           </tr>
