@@ -64,6 +64,8 @@ const CINCHO_WAREHOUSE_LOCATION = CINCHO_COUNT_LOCATION.WAREHOUSE;
 const PRODUCT_INFO_COLS = 5;
 const LOC_COL_WIDTH = 52;
 const SUM_COL_WIDTH = 56;
+const OBS_COL_MIN_WIDTH = 140;
+const TRAILING_DATA_COLS = 3;
 
 const locColStyle = {
   width: LOC_COL_WIDTH,
@@ -164,6 +166,14 @@ const resolveRowDiffForEdit = (row, editedCounts, editedSizeCounts, editedSizeCo
   );
 };
 
+const resolveRowObservation = (row, editedObservations) => {
+  const rKey = rowKey(row);
+  if (Object.prototype.hasOwnProperty.call(editedObservations, rKey)) {
+    return editedObservations[rKey];
+  }
+  return row.observation || "";
+};
+
 const diffColor = (diferencia) => {
   const n = Number(diferencia || 0);
   if (n === 0) return "#111827";
@@ -221,6 +231,7 @@ function CountTableColGroup({ showKardex, kardexColumns }) {
       ))}
       <col style={{ width: SUM_COL_WIDTH }} />
       <col style={{ width: SUM_COL_WIDTH }} />
+      <col style={{ minWidth: OBS_COL_MIN_WIDTH }} />
     </colgroup>
   );
 }
@@ -250,8 +261,52 @@ function CountCell({ value, onChange, disabled }) {
   );
 }
 
+// ─── Celda de observación (solo filas con diferencia) ─────────────────────────
+function ObservationCell({ value, onChange, disabled, show }) {
+  if (!show) {
+    return <span style={{ color: "#d1d5db" }}>—</span>;
+  }
+  if (disabled) {
+    return (
+      <span style={{ fontSize: 11, color: value ? "#374151" : "#9ca3af", whiteSpace: "pre-wrap" }}>
+        {value || "—"}
+      </span>
+    );
+  }
+  return (
+    <input
+      type="text"
+      value={value ?? ""}
+      onChange={(e) => onChange(e.target.value)}
+      placeholder="Motivo / nota"
+      style={{
+        width: "100%",
+        minWidth: OBS_COL_MIN_WIDTH - 8,
+        padding: "2px 6px",
+        fontSize: 11,
+        border: "1px solid #d1d5db",
+        borderRadius: 4,
+        background: value ? "#fffbeb" : "#fff",
+        boxSizing: "border-box",
+      }}
+    />
+  );
+}
+
 // ─── Fila de datos ────────────────────────────────────────────────────────────
-function DataRow({ row, showKardex, kardexColumns, counts, physicalSizes, physicalSizesByLocation, onCountChange, onOpenCinchoModal, disabled }) {
+function DataRow({
+  row,
+  showKardex,
+  kardexColumns,
+  counts,
+  physicalSizes,
+  physicalSizesByLocation,
+  observation,
+  onCountChange,
+  onObservationChange,
+  onOpenCinchoModal,
+  disabled,
+}) {
   const total = resolveLivePhysicalTotal(row, counts, physicalSizes, physicalSizesByLocation);
   const diferencia = total - Number(row.inventarioFinal || 0);
   const isCincho = isCinchoProductRow(row);
@@ -328,6 +383,14 @@ function DataRow({ row, showKardex, kardexColumns, counts, physicalSizes, physic
         {diferencia !== 0 && <span style={{ marginRight: 2 }}>{diferencia > 0 ? "▲" : "▼"}</span>}
         {diferencia > 0 ? `+${diferencia}` : diferencia}
       </td>
+      <td style={{ fontSize: 11, padding: "2px 4px", verticalAlign: "middle" }}>
+        <ObservationCell
+          value={observation}
+          onChange={onObservationChange}
+          disabled={disabled}
+          show={diferencia !== 0}
+        />
+      </td>
     </tr>
   );
 }
@@ -355,6 +418,7 @@ function SummaryRow({ label, row, showKardex, kardexColumns, bg = "#f3f4f6", tex
         )}
         {(row.diferencia ?? 0) > 0 ? `+${row.diferencia}` : row.diferencia ?? 0}
       </td>
+      <td style={{ ...style, fontSize: 11 }} />
     </tr>
   );
 }
@@ -461,7 +525,19 @@ function ConteoColorLegend() {
 }
 
 // ─── Grupo de categoría colapsable ────────────────────────────────────────────
-function CategoryGroup({ category, showKardex, kardexColumns, editedCounts, editedSizeCounts, editedSizeCountsByLocation, onCountChange, onOpenCinchoModal, disabled }) {
+function CategoryGroup({
+  category,
+  showKardex,
+  kardexColumns,
+  editedCounts,
+  editedSizeCounts,
+  editedSizeCountsByLocation,
+  editedObservations,
+  onCountChange,
+  onObservationChange,
+  onOpenCinchoModal,
+  disabled,
+}) {
   const [collapsed, setCollapsed] = useState(false);
   const hasDiff = category.rows.some((row) => {
     const rKey = rowKey(row);
@@ -480,7 +556,7 @@ function CategoryGroup({ category, showKardex, kardexColumns, editedCounts, edit
         onClick={() => setCollapsed((v) => !v)}
       >
         <td
-          colSpan={PRODUCT_INFO_COLS + (showKardex ? kardexColumns.length : 0) + COUNT_LOCATION_KEYS.length + 2}
+          colSpan={PRODUCT_INFO_COLS + (showKardex ? kardexColumns.length : 0) + COUNT_LOCATION_KEYS.length + TRAILING_DATA_COLS}
           style={{ fontWeight: 700, fontSize: 12, padding: "5px 8px" }}
         >
           <span style={{ marginRight: 6 }}>{collapsed ? "▶" : "▼"}</span>
@@ -500,6 +576,7 @@ function CategoryGroup({ category, showKardex, kardexColumns, editedCounts, edit
             const counts = editedCounts[rKey] || row.counts || {};
             const physicalSizes = editedSizeCounts[rKey] ?? row.physicalSizes;
             const physicalSizesByLocation = editedSizeCountsByLocation[rKey] ?? row.physicalSizesByLocation;
+            const observation = resolveRowObservation(row, editedObservations);
             return (
               <DataRow
                 key={rKey}
@@ -509,7 +586,9 @@ function CategoryGroup({ category, showKardex, kardexColumns, editedCounts, edit
                 counts={counts}
                 physicalSizes={physicalSizes}
                 physicalSizesByLocation={physicalSizesByLocation}
+                observation={observation}
                 onCountChange={(locKey, v) => onCountChange(rKey, locKey, v)}
+                onObservationChange={(v) => onObservationChange(rKey, v)}
                 onOpenCinchoModal={onOpenCinchoModal}
                 disabled={disabled}
               />
@@ -544,6 +623,7 @@ function KioskInventoryCountReport({ locationId }) {
   const [showKardex, setShowKardex] = useState(false);
   const [editedSizeCounts, setEditedSizeCounts] = useState({});
   const [editedSizeCountsByLocation, setEditedSizeCountsByLocation] = useState({});
+  const [editedObservations, setEditedObservations] = useState({});
   const [cinchoModalProductId, setCinchoModalProductId] = useState(null);
   const [historial, setHistorial] = useState([]);
   const [loadingHistorial, setLoadingHistorial] = useState(false);
@@ -655,6 +735,7 @@ function KioskInventoryCountReport({ locationId }) {
     setEditedCounts({});
     setEditedSizeCounts({});
     setEditedSizeCountsByLocation({});
+    setEditedObservations({});
   }, [locationId, loadHistorial]);
 
   const openReport = (data, { isPrincipal = true } = {}) => {
@@ -668,6 +749,7 @@ function KioskInventoryCountReport({ locationId }) {
     setEditedCounts({});
     setEditedSizeCounts({});
     setEditedSizeCountsByLocation({});
+    setEditedObservations({});
     setReviewNotes(data.notes || "");
     setShowReviewBox(false);
     setCinchoModalProductId(null);
@@ -730,6 +812,7 @@ function KioskInventoryCountReport({ locationId }) {
       setEditedCounts({});
       setEditedSizeCounts({});
       setEditedSizeCountsByLocation({});
+      setEditedObservations({});
       setCinchoModalProductId(null);
       setShowKardex(true);
     } catch (err) {
@@ -787,6 +870,7 @@ function KioskInventoryCountReport({ locationId }) {
     setEditedCounts({});
     setEditedSizeCounts({});
     setEditedSizeCountsByLocation({});
+    setEditedObservations({});
     setCinchoModalProductId(null);
   };
 
@@ -800,6 +884,33 @@ function KioskInventoryCountReport({ locationId }) {
         [rKey]: { ...baseCounts, ...(existingRow || {}), [locKey]: value },
       };
     });
+  };
+
+  const handleObservationChange = (rKey, value) => {
+    setEditedObservations((prev) => ({ ...prev, [rKey]: value }));
+  };
+
+  const appendObservationFields = (item, groupRows, sample) => {
+    const hasSizeRows = groupRows.some((r) => r.sizeLabel);
+    if (!hasSizeRows) {
+      const rKey = rowKey(sample);
+      if (Object.prototype.hasOwnProperty.call(editedObservations, rKey)) {
+        item.observation = editedObservations[rKey];
+      }
+      return item;
+    }
+    const sizeObservations = {};
+    groupRows.forEach((row) => {
+      if (!row.sizeLabel) return;
+      const rKey = rowKey(row);
+      if (Object.prototype.hasOwnProperty.call(editedObservations, rKey)) {
+        sizeObservations[row.sizeLabel] = editedObservations[rKey];
+      }
+    });
+    if (Object.keys(sizeObservations).length > 0) {
+      item.sizeObservations = sizeObservations;
+    }
+    return item;
   };
 
   const handleApplyCinchoModal = ({
@@ -844,6 +955,7 @@ function KioskInventoryCountReport({ locationId }) {
     Object.keys(editedCounts).forEach(markDirty);
     Object.keys(editedSizeCounts).forEach(markDirty);
     Object.keys(editedSizeCountsByLocation).forEach(markDirty);
+    Object.keys(editedObservations).forEach(markDirty);
     if (dirtyPersistKeys.size === 0) return null;
 
     const rowsByPersist = new Map();
@@ -879,7 +991,7 @@ function KioskInventoryCountReport({ locationId }) {
         if (Object.prototype.hasOwnProperty.call(editedSizeCountsByLocation, rKey)) {
           item.physicalSizesByLocation = editedSizeCountsByLocation[rKey];
         }
-        return item;
+        return appendObservationFields(item, groupRows, sample);
       }
 
       const foss = isFossCinchoProductRow(sample);
@@ -930,7 +1042,7 @@ function KioskInventoryCountReport({ locationId }) {
       if (foss) {
         item.physicalSizesByLocation = byLocation;
       }
-      return item;
+      return appendObservationFields(item, groupRows, sample);
     }).filter(Boolean);
   };
 
@@ -938,13 +1050,14 @@ function KioskInventoryCountReport({ locationId }) {
     setEditedCounts({});
     setEditedSizeCounts({});
     setEditedSizeCountsByLocation({});
+    setEditedObservations({});
   };
 
   const handleSave = async () => {
     if (!report) return;
     const items = buildDirtyItemsPayload();
     if (!items?.length) {
-      showError("No hay cambios de conteo para guardar.");
+      showError("No hay cambios para guardar.");
       return;
     }
     try {
@@ -1077,7 +1190,7 @@ function KioskInventoryCountReport({ locationId }) {
     }
   };
 
-  const totalCols = PRODUCT_INFO_COLS + (showKardex ? kardexColumns.length : 0) + COUNT_LOCATION_KEYS.length + 2;
+  const totalCols = PRODUCT_INFO_COLS + (showKardex ? kardexColumns.length : 0) + COUNT_LOCATION_KEYS.length + TRAILING_DATA_COLS;
   const isClosed = report?.status === "CERRADO";
   const isDraft = report?.status === "DRAFT";
   const isCountLocked = !isDraft || isSubcountView;
@@ -1085,14 +1198,21 @@ function KioskInventoryCountReport({ locationId }) {
   const exportReport = useMemo(() => {
     if (!displayReport) return null;
     if (!filteredCategories.length) return displayReport;
-    const categories = filteredCategories;
+    const categories = filteredCategories.map((category) => ({
+      ...category,
+      rows: category.rows.map((row) => {
+        const rKey = rowKey(row);
+        if (!Object.prototype.hasOwnProperty.call(editedObservations, rKey)) return row;
+        return { ...row, observation: editedObservations[rKey] };
+      }),
+    }));
     const allRows = categories.flatMap((category) => category.rows);
     return {
       ...displayReport,
       categories,
       totalGeneral: allRows.length ? sumFilteredRows(allRows) : displayReport.totalGeneral,
     };
-  }, [displayReport, filteredCategories]);
+  }, [displayReport, filteredCategories, editedObservations]);
 
   const excelExportPayload = useMemo(() => {
     const data = exportReport || displayReport;
@@ -1551,6 +1671,7 @@ function KioskInventoryCountReport({ locationId }) {
                   </th>
                   <th rowSpan={2} style={{ ...thStyle, ...sumColStyle, background: "#fef9c3", textAlign: "center", verticalAlign: "middle" }}>Total</th>
                   <th rowSpan={2} style={{ ...thStyle, ...sumColStyle, background: "#fee2e2", textAlign: "center", verticalAlign: "middle" }}>Dif.</th>
+                  <th rowSpan={2} style={{ ...thStyle, background: "#fffbeb", textAlign: "center", verticalAlign: "middle", minWidth: OBS_COL_MIN_WIDTH }}>Observaciones</th>
                 </tr>
                 {/* Fila de columnas */}
                 <tr style={{ background: "#f9fafb" }}>
@@ -1584,7 +1705,9 @@ function KioskInventoryCountReport({ locationId }) {
                       editedCounts={editedCounts}
                       editedSizeCounts={editedSizeCounts}
                       editedSizeCountsByLocation={editedSizeCountsByLocation}
+                      editedObservations={editedObservations}
                       onCountChange={handleCountChange}
+                      onObservationChange={handleObservationChange}
                       onOpenCinchoModal={setCinchoModalProductId}
                       disabled={isCountLocked}
                     />
@@ -1619,6 +1742,7 @@ function KioskInventoryCountReport({ locationId }) {
               Faltante (físico &lt; sistema)
             </span>
             <span>Fondo solo si |diferencia| ≥ {DIFF_ALERT_THRESHOLD}</span>
+            <span>Observaciones: solo en filas con sobrante o faltante</span>
             <span>Haz clic en el nombre de categoría para colapsar/expandir</span>
             {!showKardex && <span>Kardex oculto en pantalla — actívalo con &quot;Mostrar Kardex&quot; (Excel/PDF siempre lo incluyen)</span>}
             <span>FOSS cinchos: una fila por talla y color — edite E (vitrina) y BO (bodega). Otros cinchos: edite E por talla.</span>

@@ -97,6 +97,7 @@ function colLayout(showKardex, includeVitrines = true) {
   const vitrineStart = separatorCol + 1;
   const totalCol = vitrineStart + COUNT_LOCATION_KEYS.length;
   const diffCol = totalCol + 1;
+  const obsCol = diffCol + 1;
   return {
     includeVitrines: true,
     kardexCount,
@@ -105,7 +106,8 @@ function colLayout(showKardex, includeVitrines = true) {
     vitrineStart,
     totalCol,
     diffCol,
-    colCount: diffCol + 1,
+    obsCol,
+    colCount: obsCol + 1,
   };
 }
 
@@ -185,6 +187,7 @@ function buildTableHeaderCells(showKardex, report, includeVitrines = true) {
     });
     cells[layout.totalCol] = "Total físico";
     cells[layout.diffCol] = "Diferencia";
+    cells[layout.obsCol] = "Observaciones";
   }
   return cells;
 }
@@ -192,7 +195,7 @@ function buildTableHeaderCells(showKardex, report, includeVitrines = true) {
 function buildDataRowCells(row, showKardex, report, includeVitrines = true) {
   const kardexHeaders = resolveKardexHeaders(report);
   const layout = colLayout(showKardex, includeVitrines);
-  const { kardexStart, separatorCol, vitrineStart, totalCol, diffCol, colCount } = layout;
+  const { kardexStart, separatorCol, vitrineStart, totalCol, diffCol, obsCol, colCount } = layout;
   const cells = Array(colCount).fill("");
   cells[0] = row.productCode || "";
   cells[1] = row.productName || "";
@@ -209,6 +212,7 @@ function buildDataRowCells(row, showKardex, report, includeVitrines = true) {
     });
     cells[totalCol] = row.total ?? 0;
     cells[diffCol] = formatDiffValue(row.diferencia ?? 0);
+    cells[obsCol] = Number(row.diferencia || 0) !== 0 ? (row.observation || "") : "";
     cells[separatorCol] = "";
   }
   return cells;
@@ -346,9 +350,10 @@ function styleRowRange(ws, rowIdx, colCount, style) {
 }
 
 function isNumericCol(colIdx, layout) {
-  const { kardexStart, separatorCol, vitrineStart, diffCol, includeVitrines } = layout;
+  const { kardexStart, separatorCol, vitrineStart, diffCol, obsCol, includeVitrines } = layout;
   if (colIdx < PRODUCT_COL_COUNT) return false;
   if (includeVitrines && colIdx === separatorCol) return false;
+  if (includeVitrines && colIdx === obsCol) return false;
   if (!includeVitrines) return colIdx >= kardexStart;
   if (colIdx >= kardexStart && colIdx < separatorCol) return true;
   if (colIdx >= vitrineStart && colIdx <= diffCol) return true;
@@ -391,16 +396,20 @@ function applySheetLayout(ws, layout, merges) {
     if (includeVitrines && colIdx >= vitrineStart && colIdx < layout.totalCol) return { wch: 6 };
     if (colIdx >= PRODUCT_COL_COUNT && (!includeVitrines || colIdx < separatorCol)) return { wch: 9 };
     if (includeVitrines && (colIdx === layout.totalCol || colIdx === layout.diffCol)) return { wch: 10 };
+    if (includeVitrines && colIdx === layout.obsCol) return { wch: 28 };
     return { wch: 14 };
   });
 }
 
 function styleHeaderRow(ws, rowIdx, layout, { vitrineHighlight = false } = {}) {
-  const { colCount, separatorCol, vitrineStart, diffCol, includeVitrines } = layout;
+  const { colCount, separatorCol, vitrineStart, diffCol, obsCol, includeVitrines } = layout;
   for (let colIdx = 0; colIdx < colCount; colIdx += 1) {
     let fill = COLORS.tableHeaderBg;
     if (includeVitrines && vitrineHighlight && colIdx >= vitrineStart && colIdx <= diffCol) {
       fill = COLORS.vitrineHeaderBg;
+    }
+    if (includeVitrines && colIdx === obsCol) {
+      fill = "FFFBEB";
     }
     if (includeVitrines && colIdx === separatorCol) {
       fill = COLORS.separatorBg;
@@ -524,7 +533,7 @@ function applyConteoSheetStyles(ws, report, showKardex, includeVitrines = true) 
           alignment: {
             vertical: "center",
             horizontal: isNumeric ? "right" : "left",
-            wrapText: colIdx === 1,
+            wrapText: colIdx === 1 || colIdx === layout.obsCol,
           },
           border: borderWithSeparator(colIdx, layout),
           fill: fillStyle(fill),
@@ -650,11 +659,11 @@ export function exportConteoToPdf(report, options = {}) {
   const countHeaders = includeVitrines
     ? COUNT_LOCATION_KEYS.map((k) => `<th>${escape(k)}</th>`).join("")
     : "";
-  const trailingHeaders = includeVitrines ? "<th>Total</th><th>Dif.</th>" : "";
+  const trailingHeaders = includeVitrines ? "<th>Total</th><th>Dif.</th><th>Observaciones</th>" : "";
   const colSpan =
     4
     + (showKardex ? kardexHeaderList.length : 0)
-    + (includeVitrines ? COUNT_LOCATION_KEYS.length + 2 : 0);
+    + (includeVitrines ? COUNT_LOCATION_KEYS.length + 3 : 0);
 
   const theadHtml = `
     <tr>
@@ -680,7 +689,8 @@ export function exportConteoToPdf(report, options = {}) {
              : Number(row.diferencia) > 0
                ? "dif-ok"
                : "dif-bad"
-         }">${escape(String(formatDiffValue(row.diferencia ?? 0)))}</td>`
+         }">${escape(String(formatDiffValue(row.diferencia ?? 0)))}</td>
+         <td>${Number(row.diferencia || 0) !== 0 ? escape(row.observation || "") : ""}</td>`
       : "";
     const absDiff = Math.abs(Number(row.diferencia || 0));
     const alertClass =
