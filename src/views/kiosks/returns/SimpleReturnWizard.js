@@ -15,7 +15,7 @@ import {
   completeKioskSimpleReturn,
   lookupKioskSale,
 } from "services/kioskExchangeService";
-import { getKioscoConteoHistorial, registrarKioscoDevolucionDeposito } from "services/kioscoInventoryService";
+import { getKioscoConteoHistorial, getKioscoStock, registrarKioscoDevolucionDeposito } from "services/kioscoInventoryService";
 import { filterVisibleKioskStockRows } from "utils/productCinchoHelper";
 import {
   buildKioskReturnSlipPrintHtml,
