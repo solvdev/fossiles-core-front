@@ -855,8 +855,7 @@ function SalesReports() {
                 ) : isMainSheet ? (
                   <>
                     <strong>Hoja principal</strong> por kiosko y corte de conteo físico. El rango de
-                    fechas coincide con el corte seleccionado. La nota inferior del reporte se completa
-                    manualmente fuera del sistema.
+                    fechas coincide con el corte seleccionado.
                   </>
                 ) : (
                   <>

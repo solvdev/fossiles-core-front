@@ -74,6 +74,7 @@ export const groupDailySalesByMonth = (dailySales = []) => {
       currentKey = monthKey;
       groups.push({
         type: "month",
+        key: monthKey,
         label: MONTHS_ES[date.getMonth()] || "",
         monthTotal: 0,
         rows: [],
@@ -108,7 +109,7 @@ const buildLeftTableRows = (report) => {
     ["Etiquetas de fila", "Suma de Total Facturado"],
   ];
   groups.forEach((group) => {
-    rows.push([group.label, ""]);
+    rows.push([group.label, Number(group.monthTotal || 0)]);
     group.rows.forEach((item) => {
       rows.push([
         formatMainSheetDailyDate(item.saleDate),
@@ -127,10 +128,15 @@ export const exportKioskMainSheetToExcel = ({ report }) => {
   ws["!cols"] = [{ wch: 18 }, { wch: 20 }, { wch: 3 }, { wch: 18 }, { wch: 4 }, { wch: 18 }];
 
   leftRows.forEach((row, index) => {
+    const isHeader = index === 0;
+    const isTotalGeneral = row[0] === "Total general";
+    const isDayRow = /^\d{2}\/\d{2}\/\d{4}$/.test(String(row[0]));
+    const isMonthRow = !isHeader && !isTotalGeneral && !isDayRow && typeof row[1] === "number";
+    const isBold = isHeader || isTotalGeneral || isMonthRow;
     setCell(ws, index + 1, 0, {
       t: "s",
       v: row[0] ?? "",
-      s: { font: index === 0 || row[0] === "Total general" ? boldFont : fontBase, border: thinBorder },
+      s: { font: isBold ? boldFont : fontBase, border: thinBorder },
     });
     const isMoney = index > 0 && typeof row[1] === "number";
     setCell(ws, index + 1, 1, {
@@ -138,9 +144,9 @@ export const exportKioskMainSheetToExcel = ({ report }) => {
       v: isMoney ? row[1] : row[1] ?? "",
       z: isMoney ? moneyFmt : undefined,
       s: {
-        font: index === 0 || row[0] === "Total general" ? boldFont : fontBase,
+        font: isBold ? boldFont : fontBase,
         border: thinBorder,
-        fill: row[0] === "Total general" ? blueFill : undefined,
+        fill: isTotalGeneral ? blueFill : undefined,
         alignment: { horizontal: isMoney ? "right" : "left" },
       },
     });
@@ -161,7 +167,6 @@ export const exportKioskMainSheetToExcel = ({ report }) => {
   setCell(ws, summaryStart, 5, { t: "s", v: "", s: { border: thickBorder } });
   ws["!merges"] = [
     { s: { r: summaryStart, c: 3 }, e: { r: summaryStart, c: 5 } },
-    { s: { r: summaryStart + 16, c: 3 }, e: { r: summaryStart + 20, c: 5 } },
   ];
 
   const writeLabelValue = (row, label, value, { money = false, highlight = true } = {}) => {
@@ -201,16 +206,6 @@ export const exportKioskMainSheetToExcel = ({ report }) => {
     { money: Math.abs(Number(report.difference || 0)) >= 0.005, highlight: true }
   );
 
-  for (let r = summaryStart + 16; r <= summaryStart + 20; r += 1) {
-    for (let c = 3; c <= 5; c += 1) {
-      setCell(ws, r, c, {
-        t: "s",
-        v: "",
-        s: { border: thickBorder, alignment: { wrapText: true, vertical: "top" } },
-      });
-    }
-  }
-
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, "Hoja Principal");
   const kiosk = String(report.kioskCode || report.kioskId || "kiosko").replace(/[^\w-]+/g, "_");
@@ -227,7 +222,7 @@ export const exportKioskMainSheetToPdf = ({ report }) => {
   const groups = groupDailySalesByMonth(report.dailySales);
   const leftRows = groups
     .map((group) => {
-      const monthRow = `<tr class="month"><td>${escapeHtml(group.label)}</td><td></td></tr>`;
+      const monthRow = `<tr class="month"><td>${escapeHtml(group.label)}</td><td class="num">${escapeHtml(formatMoneyDisplay(group.monthTotal))}</td></tr>`;
       const dayRows = group.rows
         .map(
           (item) => `
@@ -263,7 +258,6 @@ export const exportKioskMainSheetToPdf = ({ report }) => {
     .summary-row .label { font-weight: bold; }
     .summary-row .value { text-align: right; font-weight: bold; border: 2px solid #000; background: #ffff00; padding: 4px 6px; min-height: 18px; }
     .summary-row.plain .value { background: #fff; border: 1px solid #000; font-weight: normal; }
-    .note-box { margin-top: 18px; min-height: 90px; border: 2px solid #000; }
     @media print { body { margin: 8mm; } }
   </style>
 </head>
@@ -296,7 +290,6 @@ export const exportKioskMainSheetToPdf = ({ report }) => {
       <div class="summary-row"><div class="label">GASTOS</div><div class="value">${escapeHtml(formatMoneyDisplay(report.expensesTotal))}</div></div>
       <div class="summary-row"><div class="label">TOTAL</div><div class="value">${escapeHtml(formatMoneyDisplay(report.reconciledTotal))}</div></div>
       <div class="summary-row"><div class="label">DIFERENCIA</div><div class="value">${escapeHtml(formatDifferenceDisplay(report.difference))}</div></div>
-      <div class="note-box"></div>
     </div>
   </div>
   <script>window.onload = function () { window.print(); };</script>

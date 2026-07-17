@@ -1394,12 +1394,6 @@
   font-weight: 700;
 }
 
-.kiosk-main-sheet-note-box {
-  margin-top: 16px;
-  min-height: 90px;
-  border: 2px solid #000;
-}
-
 .kiosk-main-sheet-total-row td {
   background: #b4c6e7;
 }

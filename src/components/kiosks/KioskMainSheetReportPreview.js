@@ -57,10 +57,10 @@ function KioskMainSheetReportPreview({ report, physicalCountSession }) {
             </thead>
             <tbody>
               {monthGroups.map((group) => (
-                <React.Fragment key={group.label}>
+                <React.Fragment key={group.key || group.label}>
                   <tr className="table-active font-weight-bold">
                     <td>{group.label}</td>
-                    <td />
+                    <td className="text-right">{formatMoney(group.monthTotal)}</td>
                   </tr>
                   {group.rows.map((row) => (
                     <tr key={row.saleDate}>
@@ -132,11 +132,6 @@ function KioskMainSheetReportPreview({ report, physicalCountSession }) {
           <div className="kiosk-main-sheet-summary-row highlight">
             <span>DIFERENCIA</span>
             <strong>{formatDifference(report.difference)}</strong>
-          </div>
-
-          <div className="kiosk-main-sheet-note-box" aria-hidden="true" />
-          <div className="small text-muted mt-2">
-            El recuadro inferior se completa manualmente fuera del sistema.
           </div>
         </div>
       </div>
