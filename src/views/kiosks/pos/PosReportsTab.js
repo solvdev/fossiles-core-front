@@ -1,6 +1,6 @@
 import React, { useCallback, useMemo, useState } from "react";
 import { Button, Card, CardBody, CardHeader, CardTitle, Col, Input, Label, Row, Spinner, Table } from "reactstrap";
-import { getGeneralKioskDisbursements, getKioskSaleById } from "services/kioskPosService";
+import { getGeneralKioskBankDeposits, getGeneralKioskDisbursements, getGeneralKioskVouchers, getKioskSaleById } from "services/kioskPosService";
 import {
   formatDateGt,
   formatDateTimeGt,
@@ -20,6 +20,16 @@ import {
   exportKioskDisbursementsToPdf,
   formatDisbursementDateTime,
 } from "utils/kioskDisbursementReportExport";
+import {
+  exportKioskBankDepositsToExcel,
+  exportKioskBankDepositsToPdf,
+  formatBankDepositDateTime,
+} from "utils/kioskBankDepositReportExport";
+import {
+  exportKioskVouchersToExcel,
+  exportKioskVouchersToPdf,
+  formatVoucherDateTime,
+} from "utils/kioskVoucherReportExport";
 import { showError, showSuccess, showWarning } from "utils/notificationHelper";
 import PosSaleDetailModal from "./PosSaleDetailModal";
 import PosVoidSaleModal from "./PosVoidSaleModal";
@@ -28,6 +38,8 @@ import { formatCurrency, formatQty, getSaleInternalNumber, isSalePendingDeposit 
 const REPORT_TYPES = {
   SALES: "SALES",
   DISBURSEMENTS: "DISBURSEMENTS",
+  BANK_DEPOSITS: "BANK_DEPOSITS",
+  VOUCHERS: "VOUCHERS",
 };
 
 const sortDisbursementRows = (rows) =>
@@ -37,6 +49,29 @@ const sortDisbursementRows = (rows) =>
     if (ta !== tb) return ta - tb;
     return Number(a?.id || 0) - Number(b?.id || 0);
   });
+
+const sortBankDepositRows = (rows) =>
+  [...(rows || [])].sort((a, b) => {
+    const ta = new Date(a?.recordedAt || 0).getTime() || 0;
+    const tb = new Date(b?.recordedAt || 0).getTime() || 0;
+    if (ta !== tb) return ta - tb;
+    return Number(a?.id || 0) - Number(b?.id || 0);
+  });
+
+const sortVoucherRows = (rows) =>
+  [...(rows || [])].sort((a, b) => {
+    const ta = new Date(a?.soldAt || 0).getTime() || 0;
+    const tb = new Date(b?.soldAt || 0).getTime() || 0;
+    if (ta !== tb) return ta - tb;
+    return Number(a?.id || 0) - Number(b?.id || 0);
+  });
+
+const reportTypeTitle = (type) => {
+  if (type === REPORT_TYPES.DISBURSEMENTS) return "Reporte de desembolsos";
+  if (type === REPORT_TYPES.BANK_DEPOSITS) return "Reporte de movimientos bancarios";
+  if (type === REPORT_TYPES.VOUCHERS) return "Reporte de voucher";
+  return "Reportes de ventas";
+};
 
 const formatPeriodLabel = (startDate, endDate) => {
   const from = startDate || "";
@@ -78,8 +113,15 @@ function PosReportsTab({
   const [reportType, setReportType] = useState(REPORT_TYPES.SALES);
   const [disbursements, setDisbursements] = useState([]);
   const [disbursementsLoading, setDisbursementsLoading] = useState(false);
+  const [bankDepositReport, setBankDepositReport] = useState(null);
+  const [bankDepositsLoading, setBankDepositsLoading] = useState(false);
+  const [voucherReport, setVoucherReport] = useState(null);
+  const [vouchersLoading, setVouchersLoading] = useState(false);
 
+  const isSales = reportType === REPORT_TYPES.SALES;
   const isDisbursements = reportType === REPORT_TYPES.DISBURSEMENTS;
+  const isBankDeposits = reportType === REPORT_TYPES.BANK_DEPOSITS;
+  const isVouchers = reportType === REPORT_TYPES.VOUCHERS;
 
   const sortedDisbursements = useMemo(
     () => sortDisbursementRows(disbursements),
@@ -90,6 +132,31 @@ function PosReportsTab({
     () => sortedDisbursements.reduce((sum, row) => sum + Number(row?.amount || 0), 0),
     [sortedDisbursements]
   );
+
+  const bankDepositRows = useMemo(
+    () => sortBankDepositRows(bankDepositReport?.rows),
+    [bankDepositReport]
+  );
+
+  const bankDepositsTotal = useMemo(
+    () => bankDepositRows.reduce((sum, row) => sum + Number(row?.amount || 0), 0),
+    [bankDepositRows]
+  );
+
+  const voucherRows = useMemo(
+    () => sortVoucherRows(voucherReport?.rows),
+    [voucherReport]
+  );
+
+  const vouchersTotal = useMemo(
+    () => voucherRows.reduce((sum, row) => sum + Number(row?.amount || 0), 0),
+    [voucherRows]
+  );
+
+  const alternateReportLoading =
+    (isDisbursements && disbursementsLoading)
+    || (isBankDeposits && bankDepositsLoading)
+    || (isVouchers && vouchersLoading);
 
   const filteredSales = (sales || []).filter((sale) => {
     if (depositFilter !== "PENDING") return true;
@@ -129,23 +196,89 @@ function PosReportsTab({
     [startDate, endDate, kioskLocationId]
   );
 
+  const loadBankDeposits = useCallback(
+    async (from = startDate, to = endDate) => {
+      const effectiveFrom = from || to;
+      const effectiveTo = to || from;
+      if (!effectiveFrom || !kioskLocationId) {
+        setBankDepositReport(null);
+        return;
+      }
+      try {
+        setBankDepositsLoading(true);
+        const report = await getGeneralKioskBankDeposits(
+          effectiveFrom,
+          effectiveTo,
+          Number(kioskLocationId)
+        );
+        setBankDepositReport(report || null);
+      } catch (err) {
+        setBankDepositReport(null);
+        showError(err.message || "No se pudieron cargar los depósitos bancarios.");
+      } finally {
+        setBankDepositsLoading(false);
+      }
+    },
+    [startDate, endDate, kioskLocationId]
+  );
+
+  const loadVouchers = useCallback(
+    async (from = startDate, to = endDate) => {
+      const effectiveFrom = from || to;
+      const effectiveTo = to || from;
+      if (!effectiveFrom || !kioskLocationId) {
+        setVoucherReport(null);
+        return;
+      }
+      try {
+        setVouchersLoading(true);
+        const report = await getGeneralKioskVouchers(
+          effectiveFrom,
+          effectiveTo,
+          Number(kioskLocationId)
+        );
+        setVoucherReport(report || null);
+      } catch (err) {
+        setVoucherReport(null);
+        showError(err.message || "No se pudieron cargar los vouchers de tarjeta.");
+      } finally {
+        setVouchersLoading(false);
+      }
+    },
+    [startDate, endDate, kioskLocationId]
+  );
+
   const applyFilters = useCallback(
     async (from = startDate, to = endDate) => {
       if (isDisbursements) {
         await loadDisbursements(from, to);
         return;
       }
+      if (isBankDeposits) {
+        await loadBankDeposits(from, to);
+        return;
+      }
+      if (isVouchers) {
+        await loadVouchers(from, to);
+        return;
+      }
       if (onApplyFilters) {
         await onApplyFilters(from, to);
       }
     },
-    [isDisbursements, loadDisbursements, onApplyFilters, startDate, endDate]
+    [isDisbursements, isBankDeposits, isVouchers, loadDisbursements, loadBankDeposits, loadVouchers, onApplyFilters, startDate, endDate]
   );
 
   const handleReportTypeChange = (value) => {
     setReportType(value);
     if (value === REPORT_TYPES.DISBURSEMENTS && startDate) {
       loadDisbursements(startDate, endDate || startDate);
+    }
+    if (value === REPORT_TYPES.BANK_DEPOSITS && startDate) {
+      loadBankDeposits(startDate, endDate || startDate);
+    }
+    if (value === REPORT_TYPES.VOUCHERS && startDate) {
+      loadVouchers(startDate, endDate || startDate);
     }
   };
 
@@ -201,6 +334,44 @@ function PosReportsTab({
       }
       return;
     }
+    if (isBankDeposits) {
+      if (!bankDepositRows.length) {
+        showWarning("No hay depósitos bancarios para exportar con el filtro actual.");
+        return;
+      }
+      try {
+        exportKioskBankDepositsToExcel({
+          report: bankDepositReport,
+          rows: bankDepositRows,
+          startDate,
+          endDate,
+          generatedByName,
+        });
+        showSuccess("Excel de movimientos bancarios descargado correctamente.");
+      } catch (err) {
+        showError(err.message || "No se pudo generar el Excel.");
+      }
+      return;
+    }
+    if (isVouchers) {
+      if (!voucherRows.length) {
+        showWarning("No hay vouchers de tarjeta para exportar con el filtro actual.");
+        return;
+      }
+      try {
+        exportKioskVouchersToExcel({
+          report: voucherReport,
+          rows: voucherRows,
+          startDate,
+          endDate,
+          generatedByName,
+        });
+        showSuccess("Excel de voucher descargado correctamente.");
+      } catch (err) {
+        showError(err.message || "No se pudo generar el Excel.");
+      }
+      return;
+    }
     if (!filteredSales.length) {
       showWarning("No hay ventas para exportar con el filtro actual.");
       return;
@@ -247,6 +418,44 @@ function PosReportsTab({
         return;
       }
       showSuccess("PDF de desembolsos listo para imprimir o guardar.");
+      return;
+    }
+    if (isBankDeposits) {
+      if (!bankDepositRows.length) {
+        showWarning("No hay depósitos bancarios para exportar con el filtro actual.");
+        return;
+      }
+      const opened = exportKioskBankDepositsToPdf({
+        report: bankDepositReport,
+        rows: bankDepositRows,
+        startDate,
+        endDate,
+        generatedByName,
+      });
+      if (opened === false) {
+        showWarning("Permite ventanas emergentes para descargar el PDF.");
+        return;
+      }
+      showSuccess("PDF de movimientos bancarios listo para imprimir o guardar.");
+      return;
+    }
+    if (isVouchers) {
+      if (!voucherRows.length) {
+        showWarning("No hay vouchers de tarjeta para exportar con el filtro actual.");
+        return;
+      }
+      const opened = exportKioskVouchersToPdf({
+        report: voucherReport,
+        rows: voucherRows,
+        startDate,
+        endDate,
+        generatedByName,
+      });
+      if (opened === false) {
+        showWarning("Permite ventanas emergentes para descargar el PDF.");
+        return;
+      }
+      showSuccess("PDF de voucher listo para imprimir o guardar.");
       return;
     }
     if (!filteredSales.length) {
@@ -300,10 +509,10 @@ function PosReportsTab({
       <Card className="kiosk-pos-block">
         <CardHeader className="d-flex flex-wrap align-items-center justify-content-between">
           <CardTitle tag="h5" className="mb-0">
-            {isDisbursements ? "Reporte de desembolsos" : "Reportes de ventas"}
+            {reportTypeTitle(reportType)}
           </CardTitle>
           <div className="kiosk-pos-report-export-actions mt-2 mt-md-0 d-flex flex-wrap align-items-center">
-            {!isDisbursements && startDate && endDate && startDate !== endDate && (
+            {isSales && startDate && endDate && startDate !== endDate && (
               <Input
                 type="select"
                 bsSize="sm"
@@ -336,6 +545,8 @@ function PosReportsTab({
               >
                 <option value={REPORT_TYPES.SALES}>Ventas</option>
                 <option value={REPORT_TYPES.DISBURSEMENTS}>Desembolsos</option>
+                <option value={REPORT_TYPES.BANK_DEPOSITS}>Depósitos bancarios</option>
+                <option value={REPORT_TYPES.VOUCHERS}>Voucher (tarjeta)</option>
               </Input>
             </Col>
             <Col md="2">
@@ -375,9 +586,9 @@ function PosReportsTab({
                 color="primary"
                 className="kiosk-pos-btn-lg"
                 onClick={() => applyFilters()}
-                disabled={isDisbursements && disbursementsLoading}
+                disabled={alternateReportLoading}
               >
-                {isDisbursements && disbursementsLoading ? (
+                {alternateReportLoading ? (
                   <>
                     <Spinner size="sm" className="mr-1" /> Cargando…
                   </>
@@ -386,7 +597,7 @@ function PosReportsTab({
                 )}
               </Button>
             </Col>
-            {!isDisbursements && (
+            {isSales && (
             <Col md="2">
               <Label className="kiosk-pos-label">Boleta depósito</Label>
               <Input
@@ -454,15 +665,40 @@ function PosReportsTab({
             {" · "}
             {isDisbursements
               ? `${sortedDisbursements.length} desembolso(s) · total ${formatCurrency(disbursementsTotal)}`
+              : isBankDeposits
+              ? `${bankDepositRows.length} depósito(s) · total ${formatCurrency(bankDepositsTotal)}`
+              : isVouchers
+              ? `${voucherRows.length} voucher(s) · total ${formatCurrency(vouchersTotal)}`
               : `${filteredSales.length} venta(s) en pantalla. Excel/PDF usan este período${
                   startDate && endDate && startDate !== endDate
                     ? ` · modo: ${exportMode === "byDay" ? "una hoja por día" : "consolidado con FECHA:"}`
                     : ""
                 }.`}
-            {isDisbursements && kioskName ? ` · ${kioskName}` : ""}
+            {(isDisbursements || isBankDeposits || isVouchers) && kioskName ? ` · ${kioskName}` : ""}
           </p>
 
-          {!isDisbursements && (
+          {!isSales && (
+            <p className="text-muted small mb-0">
+              Usa <strong>Día exacto</strong>, <strong>Rango</strong> o los accesos rápidos (Hoy, Ayer, Esta semana, Este mes).
+              Los registros se ordenan cronológicamente dentro del período.
+            </p>
+          )}
+
+          {isBankDeposits && bankDepositReport?.accountNumber && (
+            <p className="text-muted small mb-0">
+              Cuenta: <strong>{bankDepositReport.accountNumber}</strong>
+              {bankDepositReport.accountName ? ` · ${bankDepositReport.accountName}` : ""}
+              {bankDepositReport.bankName ? ` · ${bankDepositReport.bankName}` : ""}
+            </p>
+          )}
+
+          {isVouchers && (voucherReport?.kioskName || kioskName) && (
+            <p className="text-muted small mb-0">
+              Bodega: <strong>{voucherReport?.kioskName || kioskName}</strong>
+            </p>
+          )}
+
+          {isSales && (
           <>
           <Row className="mt-3">
             <Col md="12">
@@ -674,6 +910,112 @@ function PosReportsTab({
                     Total
                   </td>
                   <td className="font-weight-bold">{formatCurrency(disbursementsTotal)}</td>
+                </tr>
+              )}
+            </tbody>
+          </Table>
+          )}
+
+          {isBankDeposits && (
+          <Table responsive className="kiosk-pos-sales-table mt-3">
+            <thead className="text-primary">
+              <tr>
+                <th>Cuenta</th>
+                <th>Banco</th>
+                <th>No. Documento</th>
+                <th>Monto</th>
+                <th>Usuario</th>
+                <th>Descripción</th>
+                <th>Fecha</th>
+                <th>Bodega</th>
+              </tr>
+            </thead>
+            <tbody>
+              {bankDepositsLoading && (
+                <tr>
+                  <td colSpan="8" className="text-center text-muted">
+                    <Spinner size="sm" className="mr-1" /> Cargando depósitos…
+                  </td>
+                </tr>
+              )}
+              {!bankDepositsLoading &&
+                bankDepositRows.map((row) => (
+                  <tr key={`bank-deposit-${row.id}`}>
+                    <td>{row.accountNumber || bankDepositReport?.accountNumber || "—"}</td>
+                    <td>{row.bankName || bankDepositReport?.bankName || "—"}</td>
+                    <td>{row.documentNumber || "—"}</td>
+                    <td>{formatCurrency(row.amount)}</td>
+                    <td>{row.userName || "—"}</td>
+                    <td>{row.description || "—"}</td>
+                    <td>{formatBankDepositDateTime(row.recordedAt)}</td>
+                    <td>{row.kioskName || kioskName || "—"}</td>
+                  </tr>
+                ))}
+              {!bankDepositsLoading && bankDepositRows.length === 0 && (
+                <tr>
+                  <td colSpan="8" className="text-center text-muted">
+                    No hay depósitos registrados para el filtro seleccionado.
+                  </td>
+                </tr>
+              )}
+              {!bankDepositsLoading && bankDepositRows.length > 0 && (
+                <tr>
+                  <td colSpan="3" className="font-weight-bold">
+                    Total
+                  </td>
+                  <td className="font-weight-bold">{formatCurrency(bankDepositsTotal)}</td>
+                  <td colSpan="4" />
+                </tr>
+              )}
+            </tbody>
+          </Table>
+          )}
+
+          {isVouchers && (
+          <Table responsive className="kiosk-pos-sales-table mt-3">
+            <thead className="text-primary">
+              <tr>
+                <th>Codigo Venta</th>
+                <th>No. Factura</th>
+                <th>Tarjeta</th>
+                <th>Monto</th>
+                <th>Descripcion</th>
+                <th>Fecha</th>
+              </tr>
+            </thead>
+            <tbody>
+              {vouchersLoading && (
+                <tr>
+                  <td colSpan="6" className="text-center text-muted">
+                    <Spinner size="sm" className="mr-1" /> Cargando vouchers…
+                  </td>
+                </tr>
+              )}
+              {!vouchersLoading &&
+                voucherRows.map((row) => (
+                  <tr key={`voucher-${row.id}`}>
+                    <td>{row.saleCode || row.saleId || "—"}</td>
+                    <td>{row.invoiceNumber || "—"}</td>
+                    <td>{row.cardBrand || "VISA"}</td>
+                    <td>{formatCurrency(row.amount)}</td>
+                    <td>{row.description || "—"}</td>
+                    <td>{formatVoucherDateTime(row.soldAt)}</td>
+                  </tr>
+                ))}
+              {!vouchersLoading && voucherRows.length === 0 && (
+                <tr>
+                  <td colSpan="6" className="text-center text-muted">
+                    No hay ventas con tarjeta para el filtro seleccionado.
+                  </td>
+                </tr>
+              )}
+              {!vouchersLoading && voucherRows.length > 0 && (
+                <tr>
+                  <td colSpan="3" className="font-weight-bold">
+                    Total
+                  </td>
+                  <td className="font-weight-bold">{formatCurrency(vouchersTotal)}</td>
+                  <td colSpan="2" />
                 </tr>
               )}
             </tbody>

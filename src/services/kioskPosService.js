@@ -159,6 +159,30 @@ export const getGeneralKioskDisbursements = async (startDate, endDate, kioskLoca
   return parseJson(response, "No se pudieron cargar los desembolsos.");
 };
 
+export const getGeneralKioskBankDeposits = async (startDate, endDate, kioskLocationId) => {
+  const response = await fetch(
+    `${API_URL}/kiosk-pos/reports/general/bank-deposits${toQuery({
+      startDate,
+      endDate,
+      kioskLocationId,
+    })}`,
+    { headers: headers() }
+  );
+  return parseJson(response, "No se pudieron cargar los depósitos bancarios.");
+};
+
+export const getGeneralKioskVouchers = async (startDate, endDate, kioskLocationId) => {
+  const response = await fetch(
+    `${API_URL}/kiosk-pos/reports/general/vouchers${toQuery({
+      startDate,
+      endDate,
+      kioskLocationId,
+    })}`,
+    { headers: headers() }
+  );
+  return parseJson(response, "No se pudieron cargar los vouchers de tarjeta.");
+};
+
 export const getCurrentCashSession = async (kioskLocationId) => {
   const response = await fetch(
     `${API_URL}/kiosk-pos/cash-session/current${toQuery({ kioskLocationId })}`,
