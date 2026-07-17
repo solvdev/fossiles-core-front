@@ -191,13 +191,13 @@ export const getKioskMainSheetReport = async (physicalCountId) => {
   return parseJson(response, "No se pudo cargar la hoja principal.");
 };
 
-export const certifyKioskMainSheetReport = async (physicalCountId, { certifiedBy, reviewedBy }) => {
+export const certifyKioskMainSheetReport = async (physicalCountId, payload) => {
   const response = await fetch(
     `${API_URL}/kiosk-pos/reports/main-sheet/certify${toQuery({ physicalCountId })}`,
     {
       method: "POST",
       headers: headers(),
-      body: JSON.stringify({ certifiedBy, reviewedBy }),
+      body: JSON.stringify(payload),
     }
   );
   return parseJson(response, "No se pudo certificar la hoja principal.");

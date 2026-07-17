@@ -5,14 +5,6 @@ export const MAIN_SHEET_REVIEWERS = [
   "FATIMA ZACARIAS",
 ];
 
-export const formatMainSheetSalesRange = (periodFrom, periodTo) => {
-  const from = formatShort(periodFrom);
-  const to = formatShort(periodTo);
-  if (from === "—" && to === "—") return "—";
-  if (from === to) return from;
-  return `${from} al ${to}`;
-};
-
 const parseYmd = (value) => {
   if (!value) return null;
   const text = String(value).trim();
@@ -24,21 +16,49 @@ const parseYmd = (value) => {
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 };
 
+export const toInputDate = (value) => {
+  if (!value) return "";
+  const text = String(value).trim();
+  const match = text.match(/^(\d{4}-\d{2}-\d{2})/);
+  return match ? match[1] : "";
+};
+
 const formatShort = (value) => {
   const date = parseYmd(value);
   if (!date) return "—";
   return `${date.getDate()}/${date.getMonth() + 1}/${date.getFullYear()}`;
 };
 
-export const formatMainSheetCertifiedAt = (value) => {
-  if (!value) return "—";
-  const text = String(value).trim();
-  const isoMatch = text.match(/^(\d{4})-(\d{2})-(\d{2})/);
-  if (isoMatch) {
-    const [, y, m, d] = isoMatch;
-    return `${Number(d)}/${Number(m)}/${y}`;
-  }
-  const parsed = new Date(text);
-  if (Number.isNaN(parsed.getTime())) return "—";
-  return `${parsed.getDate()}/${parsed.getMonth() + 1}/${parsed.getFullYear()}`;
+export const formatMainSheetDateRange = (from, to) => {
+  const fromLabel = formatShort(from);
+  const toLabel = formatShort(to);
+  if (fromLabel === "—" && toLabel === "—") return "—";
+  if (fromLabel === toLabel) return fromLabel;
+  return `${fromLabel} al ${toLabel}`;
+};
+
+export const formatMainSheetSalesRange = (periodFrom, periodTo) =>
+  formatMainSheetDateRange(periodFrom, periodTo);
+
+export const resolveMainSheetInventoryRange = (report) => ({
+  from: report?.mainSheetInventoryFrom || report?.periodFrom,
+  to: report?.mainSheetInventoryTo || report?.periodTo,
+});
+
+export const resolveMainSheetSalesCertRange = (report) => ({
+  from: report?.mainSheetSalesFrom || report?.periodFrom,
+  to: report?.mainSheetSalesTo || report?.periodTo,
+});
+
+export const formatMainSheetCertifiedAt = (value) => formatShort(value);
+
+export const buildMainSheetCertificationHeader = (report) => {
+  const inventory = resolveMainSheetInventoryRange(report);
+  const sales = resolveMainSheetSalesCertRange(report);
+  return {
+    certifiedBy: report?.mainSheetCertifiedBy || "—",
+    reviewedBy: report?.mainSheetReviewedBy || "—",
+    inventoryRange: formatMainSheetDateRange(inventory.from, inventory.to),
+    salesRange: formatMainSheetDateRange(sales.from, sales.to),
+  };
 };
