@@ -45,10 +45,41 @@ jobs:
         id: ssh_setup
         run: |
           set -euo pipefail
+          if [ -z "${{ secrets.SSH_PRIVATE_KEY }}" ]; then
+            echo "ERROR: Falta el secret SSH_PRIVATE_KEY en GitHub (Settings → Secrets)."
+            exit 1
+          fi
+          if [ -z "${{ secrets.FRONT_HOST }}" ]; then
+            echo "ERROR: Falta el secret FRONT_HOST en GitHub."
+            exit 1
+          fi
+          if [ -z "${{ secrets.SSH_USER }}" ]; then
+            echo "ERROR: Falta el secret SSH_USER en GitHub."
+            exit 1
+          fi
           mkdir -p ~/.ssh
-          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
+          chmod 700 ~/.ssh
+          printf '%s\n' "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
-          ssh-keyscan -H ${{ secrets.FRONT_HOST }} >> ~/.ssh/known_hosts
+          if ! ssh-keygen -lf ~/.ssh/deploy_key >/dev/null 2>&1; then
+            echo "ERROR: SSH_PRIVATE_KEY no parece una clave privada válida (revisa saltos de línea al pegar el secret)."
+            exit 1
+          fi
+          echo "Obteniendo host key de ${{ secrets.FRONT_HOST }} ..."
+          SCAN_LOG="$(mktemp)"
+          if ! ssh-keyscan -T 20 -H "${{ secrets.FRONT_HOST }}" > "$SCAN_LOG" 2>&1; then
+            cat "$SCAN_LOG" | tee -a /tmp/deploy.log
+            echo "ERROR: ssh-keyscan no pudo contactar a FRONT_HOST."
+            echo "Verifica: host correcto, DNS, firewall (IPs de GitHub Actions) y que el servidor esté encendido."
+            exit 1
+          fi
+          if [ ! -s "$SCAN_LOG" ]; then
+            cat "$SCAN_LOG" | tee -a /tmp/deploy.log || true
+            echo "ERROR: ssh-keyscan no devolvió ninguna clave de host."
+            exit 1
+          fi
+          cat "$SCAN_LOG" >> ~/.ssh/known_hosts
+          rm -f "$SCAN_LOG"
           echo "SSH key lista" | tee -a /tmp/deploy.log
 
       - name: Sincronizar build al servidor (rsync, solo deltas)
@@ -158,6 +189,7 @@ jobs:
               --arg err "$ERR_LOG" \
               --arg install "$INSTALL_OUT" \
               --arg build "$BUILD_OUT" \
+              --arg ssh "$SSH_OUT" \
               --arg transfer "$TRANSFER_OUT" \
               --arg reload "$RELOAD_OUT" \
               '{embeds: [{
@@ -167,7 +199,7 @@ jobs:
                   {name: "Paso que falló", value: $paso, inline: true},
                   {name: "Autor", value: $autor, inline: true},
                   {name: "Commit", value: ("[`" + $commit + "`](" + $commiturl + ")"), inline: false},
-                  {name: "Outcomes", value: ("install=" + $install + " · build=" + $build + " · transfer=" + $transfer + " · reload=" + $reload), inline: false},
+                  {name: "Outcomes", value: ("install=" + $install + " · build=" + $build + " · ssh=" + $ssh + " · transfer=" + $transfer + " · reload=" + $reload), inline: false},
                   {name: "Error", value: ("```\n" + ($err | .[0:900]) + "\n```"), inline: false}
                 ],
                 timestamp: (now | todate)
