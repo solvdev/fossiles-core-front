@@ -1343,6 +1343,73 @@
   background: #f0fdf4;
 }
 
+.kiosk-main-sheet-preview {
+  overflow-x: auto;
+}
+
+.kiosk-main-sheet-layout {
+  display: grid;
+  grid-template-columns: minmax(280px, 1fr) minmax(320px, 1fr);
+  gap: 24px;
+  align-items: start;
+}
+
+.kiosk-main-sheet-title {
+  text-align: center;
+  font-weight: 700;
+  font-size: 1rem;
+  border: 2px solid #000;
+  padding: 8px 10px;
+  margin-bottom: 10px;
+}
+
+.kiosk-main-sheet-summary-row {
+  display: grid;
+  grid-template-columns: 1fr 140px;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 4px;
+}
+
+.kiosk-main-sheet-summary-row span {
+  font-weight: 700;
+}
+
+.kiosk-main-sheet-summary-row strong {
+  display: block;
+  text-align: right;
+  border: 2px solid #000;
+  padding: 4px 8px;
+  min-height: 28px;
+}
+
+.kiosk-main-sheet-summary-row.plain strong {
+  background: #fff;
+  border-width: 1px;
+  font-weight: 600;
+}
+
+.kiosk-main-sheet-summary-row.highlight strong {
+  background: #ffff00;
+  font-weight: 700;
+}
+
+.kiosk-main-sheet-note-box {
+  margin-top: 16px;
+  min-height: 90px;
+  border: 2px solid #000;
+}
+
+.kiosk-main-sheet-total-row td {
+  background: #b4c6e7;
+}
+
+@media (max-width: 991px) {
+  .kiosk-main-sheet-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
 .kiosk-pos-sale-detail-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));

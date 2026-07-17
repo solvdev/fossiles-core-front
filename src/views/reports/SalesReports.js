@@ -24,13 +24,16 @@ import {
 import classnames from "classnames";
 import Select from "react-select";
 import { useAuth } from "contexts/AuthContext";
+import KioskMainSheetReportPreview from "components/kiosks/KioskMainSheetReportPreview";
 import {
   getGeneralKioskBankDeposits,
   getGeneralKioskDisbursements,
   getGeneralKioskVouchers,
   getGeneralKioskReport,
   getGeneralKioskSalesDetail,
+  getKioskMainSheetReport,
 } from "services/kioskPosService";
+import { getKioscoConteoHistorial } from "services/kioscoInventoryService";
 import { getLocations } from "services/locationService";
 import {
   formatDateGt,
@@ -61,8 +64,14 @@ import {
   exportKioskSalesToPdf,
   formatSaleItemsSummary,
 } from "utils/kioskPosReportExport";
+import {
+  exportKioskMainSheetToExcel,
+  exportKioskMainSheetToPdf,
+  formatMainSheetCountLabel,
+} from "utils/kioskMainSheetReportExport";
 import { showError, showSuccess, showWarning } from "utils/notificationHelper";
 import { formatCurrency, formatQty, getSaleInternalNumber } from "views/kiosks/pos/posUtils";
+import "../kiosks/KioskSales.css";
 import SalesReportsCashClosuresPanel from "./SalesReportsCashClosuresPanel";
 
 const REPORT_TYPES = {
@@ -72,6 +81,7 @@ const REPORT_TYPES = {
   DISBURSEMENTS: "DISBURSEMENTS",
   BANK_DEPOSITS: "BANK_DEPOSITS",
   VOUCHERS: "VOUCHERS",
+  MAIN_SHEET: "MAIN_SHEET",
 };
 
 const REPORT_TYPE_OPTIONS = [
@@ -104,6 +114,11 @@ const REPORT_TYPE_OPTIONS = [
     value: REPORT_TYPES.VOUCHERS,
     label: "Voucher (tarjeta)",
     hint: "Ventas pagadas con tarjeta: factura, marca, voucher, monto y fecha.",
+  },
+  {
+    value: REPORT_TYPES.MAIN_SHEET,
+    label: "Hoja principal",
+    hint: "Resumen por corte de conteo físico: ventas diarias, tarjetas, depósitos, gastos y cuadre.",
   },
 ];
 
@@ -161,12 +176,18 @@ function SalesReports() {
   const [exportMode, setExportMode] = useState("consolidated");
   const [kioskLocations, setKioskLocations] = useState([]);
   const [loadingKiosks, setLoadingKiosks] = useState(false);
+  const [physicalCountSessions, setPhysicalCountSessions] = useState([]);
+  const [physicalCountsLoading, setPhysicalCountsLoading] = useState(false);
+  const [selectedPhysicalCountId, setSelectedPhysicalCountId] = useState("");
+  const [mainSheetReport, setMainSheetReport] = useState(null);
+  const [mainSheetLoading, setMainSheetLoading] = useState(false);
 
   const generatedByName = useMemo(() => resolveUserFullName(user), [user]);
   const isDisbursements = reportType === REPORT_TYPES.DISBURSEMENTS;
   const isBankDeposits = reportType === REPORT_TYPES.BANK_DEPOSITS;
   const isVouchers = reportType === REPORT_TYPES.VOUCHERS;
-  const isSalesReport = !isDisbursements && !isBankDeposits && !isVouchers;
+  const isMainSheet = reportType === REPORT_TYPES.MAIN_SHEET;
+  const isSalesReport = !isDisbursements && !isBankDeposits && !isVouchers && !isMainSheet;
   const paymentKindParam =
     reportType === REPORT_TYPES.CASH || reportType === REPORT_TYPES.CARD ? reportType : undefined;
 
@@ -233,6 +254,11 @@ function SalesReports() {
     [kioskSelectOptions, selectedKioskId]
   );
 
+  const selectedPhysicalCountSession = useMemo(
+    () => physicalCountSessions.find((item) => String(item.id) === String(selectedPhysicalCountId)) || null,
+    [physicalCountSessions, selectedPhysicalCountId]
+  );
+
   useEffect(() => {
     let cancelled = false;
     const loadKiosks = async () => {
@@ -256,6 +282,61 @@ function SalesReports() {
       cancelled = true;
     };
   }, []);
+
+  const loadPhysicalCountSessions = useCallback(async () => {
+    if (!selectedKioskId) {
+      setPhysicalCountSessions([]);
+      setSelectedPhysicalCountId("");
+      setMainSheetReport(null);
+      return;
+    }
+    try {
+      setPhysicalCountsLoading(true);
+      const sessions = await getKioscoConteoHistorial(Number(selectedKioskId));
+      const list = Array.isArray(sessions) ? sessions : [];
+      setPhysicalCountSessions(list);
+      if (list.length) {
+        setSelectedPhysicalCountId(String(list[0].id));
+      } else {
+        setSelectedPhysicalCountId("");
+        setMainSheetReport(null);
+      }
+    } catch (err) {
+      setPhysicalCountSessions([]);
+      setSelectedPhysicalCountId("");
+      setMainSheetReport(null);
+      showError(err.message || "No se pudieron cargar los cortes de conteo físico.");
+    } finally {
+      setPhysicalCountsLoading(false);
+    }
+  }, [selectedKioskId]);
+
+  useEffect(() => {
+    if (activeTab !== TABS.SALES || !isMainSheet) return;
+    loadPhysicalCountSessions();
+  }, [activeTab, isMainSheet, loadPhysicalCountSessions]);
+
+  const loadMainSheet = useCallback(async (countId = selectedPhysicalCountId) => {
+    if (!countId) {
+      setMainSheetReport(null);
+      return;
+    }
+    if (!selectedKioskId) {
+      showWarning("Selecciona un kiosko para generar la hoja principal.");
+      return;
+    }
+    try {
+      setMainSheetLoading(true);
+      setError("");
+      const report = await getKioskMainSheetReport(Number(countId));
+      setMainSheetReport(report || null);
+    } catch (err) {
+      setMainSheetReport(null);
+      setError(err.message || "No se pudo cargar la hoja principal.");
+    } finally {
+      setMainSheetLoading(false);
+    }
+  }, [selectedPhysicalCountId, selectedKioskId]);
 
   const applyQuickRange = (from, to, mode = "range") => {
     setDateFilterMode(mode);
@@ -285,6 +366,7 @@ function SalesReports() {
   const confirmReportType = () => {
     setReportType(pendingReportType);
     setError("");
+    setMainSheetReport(null);
     setModalOpen(false);
   };
 
@@ -374,8 +456,9 @@ function SalesReports() {
 
   useEffect(() => {
     if (activeTab !== TABS.SALES) return;
+    if (isMainSheet) return;
     generateSalesReport();
-  }, [activeTab, startDate, endDate, dateFilterMode, selectedKioskId, reportType, generateSalesReport]);
+  }, [activeTab, startDate, endDate, dateFilterMode, selectedKioskId, reportType, generateSalesReport, isMainSheet]);
 
   const loadSalesForExport = async () => {
     const from = startDate || today;
@@ -480,6 +563,16 @@ function SalesReports() {
   const handleExportExcel = async () => {
     setExporting(true);
     try {
+      if (isMainSheet) {
+        if (!mainSheetReport) {
+          showWarning("Genera la vista previa antes de exportar.");
+          return;
+        }
+        exportKioskMainSheetToExcel({ report: mainSheetReport });
+        showSuccess("Excel de hoja principal descargado correctamente.");
+        return;
+      }
+
       if (isDisbursements) {
         const payload = await loadDisbursementsForExport();
         if (!payload) return;
@@ -548,6 +641,20 @@ function SalesReports() {
   const handleExportPdf = async () => {
     setExporting(true);
     try {
+      if (isMainSheet) {
+        if (!mainSheetReport) {
+          showWarning("Genera la vista previa antes de exportar.");
+          return;
+        }
+        const opened = exportKioskMainSheetToPdf({ report: mainSheetReport });
+        if (opened === false) {
+          showWarning("Permite ventanas emergentes para imprimir o guardar el PDF.");
+          return;
+        }
+        showSuccess("PDF de hoja principal listo para imprimir o guardar.");
+        return;
+      }
+
       if (isDisbursements) {
         const payload = await loadDisbursementsForExport();
         if (!payload) return;
@@ -745,6 +852,12 @@ function SalesReports() {
                     Reporte de <strong>voucher</strong>: ventas con tarjeta (factura, marca,
                     voucher, monto y fecha). Filtra por día, rango o mes con los accesos rápidos.
                   </>
+                ) : isMainSheet ? (
+                  <>
+                    <strong>Hoja principal</strong> por kiosko y corte de conteo físico. El rango de
+                    fechas coincide con el corte seleccionado. La nota inferior del reporte se completa
+                    manualmente fuera del sistema.
+                  </>
                 ) : (
                   <>
                     Mismo formato de <strong>REPORTE DE VENTAS</strong> del POS (factura interna, X
@@ -755,6 +868,69 @@ function SalesReports() {
               </Alert>
 
               <Row className="mb-2 align-items-end">
+                {isMainSheet ? (
+                  <>
+                    <Col md="3">
+                      <Label>Kiosko</Label>
+                      <Select
+                        className="react-select"
+                        classNamePrefix="react-select"
+                        placeholder={loadingKiosks ? "Cargando kioskos..." : "Buscar kiosko..."}
+                        isClearable
+                        isSearchable
+                        isLoading={loadingKiosks}
+                        options={kioskSelectOptions}
+                        value={selectedKioskOption?.value ? selectedKioskOption : null}
+                        onChange={(selected) => {
+                          setSelectedKioskId(selected?.value || "");
+                          setMainSheetReport(null);
+                        }}
+                        noOptionsMessage={() => "No hay kioskos"}
+                      />
+                    </Col>
+                    <Col md="5">
+                      <Label>Corte de conteo físico</Label>
+                      <Input
+                        type="select"
+                        value={selectedPhysicalCountId}
+                        onChange={(e) => {
+                          setSelectedPhysicalCountId(e.target.value);
+                          setMainSheetReport(null);
+                        }}
+                        disabled={physicalCountsLoading || !physicalCountSessions.length || !selectedKioskId}
+                      >
+                        {!selectedKioskId && <option value="">Selecciona un kiosko</option>}
+                        {selectedKioskId && !physicalCountSessions.length && (
+                          <option value="">Sin cortes registrados</option>
+                        )}
+                        {physicalCountSessions.map((session) => (
+                          <option key={session.id} value={session.id}>
+                            {formatMainSheetCountLabel(session)}
+                          </option>
+                        ))}
+                      </Input>
+                    </Col>
+                    <Col md="2" className="d-flex align-items-end">
+                      <Button
+                        color="primary"
+                        className="btn-round"
+                        onClick={() => loadMainSheet()}
+                        disabled={mainSheetLoading || physicalCountsLoading || !selectedPhysicalCountId}
+                      >
+                        {mainSheetLoading ? (
+                          <>
+                            <Spinner size="sm" className="mr-1" /> Cargando…
+                          </>
+                        ) : (
+                          <>
+                            <i className="nc-icon nc-zoom-split" /> Vista previa
+                          </>
+                        )}
+                      </Button>
+                    </Col>
+                  </>
+                ) : (
+                  <>
                 <Col md="2">
                   <Label>Tipo de filtro</Label>
                   <Input
@@ -812,8 +988,11 @@ function SalesReports() {
                     </Button>
                   </Col>
                 )}
+                  </>
+                )}
               </Row>
 
+              {!isMainSheet && (
               <div className="d-flex flex-wrap mb-3">
                 <Button
                   color="default"
@@ -860,8 +1039,31 @@ function SalesReports() {
                   Este mes
                 </Button>
               </div>
+              )}
 
               <p className="text-muted small mb-3">
+                {isMainSheet ? (
+                  <>
+                    Corte seleccionado:{" "}
+                    <strong>
+                      {selectedPhysicalCountSession
+                        ? formatMainSheetCountLabel(selectedPhysicalCountSession)
+                        : "—"}
+                    </strong>
+                    {mainSheetReport ? (
+                      <>
+                        {" · "}
+                        Total vendido {formatCurrency(mainSheetReport.totalSold)}
+                        {" · "}
+                        Diferencia{" "}
+                        {Math.abs(Number(mainSheetReport.difference || 0)) < 0.005
+                          ? "Q -"
+                          : formatCurrency(mainSheetReport.difference)}
+                      </>
+                    ) : null}
+                  </>
+                ) : (
+                  <>
                 Período activo: <strong>{periodLabel}</strong>
                 {activeTab === TABS.SALES && isSalesReport && (
                   <>
@@ -874,6 +1076,8 @@ function SalesReports() {
                       : ""}
                   </>
                 )}
+                  </>
+                )}
               </p>
 
               {activeTab === TABS.CASH_CLOSURES && (
@@ -884,7 +1088,22 @@ function SalesReports() {
                 />
               )}
 
-              {activeTab === TABS.SALES && loading && (
+              {activeTab === TABS.SALES && isMainSheet && (
+                <div className="mb-3">
+                  {mainSheetLoading ? (
+                    <div className="text-center text-muted py-4">
+                      <Spinner color="primary" size="sm" className="mr-1" /> Generando hoja principal…
+                    </div>
+                  ) : (
+                    <KioskMainSheetReportPreview
+                      report={mainSheetReport}
+                      physicalCountSession={selectedPhysicalCountSession}
+                    />
+                  )}
+                </div>
+              )}
+
+              {activeTab === TABS.SALES && loading && !isMainSheet && (
                 <div className="text-center py-4">
                   <Spinner color="primary" />
                 </div>

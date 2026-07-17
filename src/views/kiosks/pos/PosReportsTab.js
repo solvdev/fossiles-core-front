@@ -1,6 +1,8 @@
-import React, { useCallback, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Button, Card, CardBody, CardHeader, CardTitle, Col, Input, Label, Row, Spinner, Table } from "reactstrap";
-import { getGeneralKioskBankDeposits, getGeneralKioskDisbursements, getGeneralKioskVouchers, getKioskSaleById } from "services/kioskPosService";
+import KioskMainSheetReportPreview from "components/kiosks/KioskMainSheetReportPreview";
+import { getGeneralKioskBankDeposits, getGeneralKioskDisbursements, getGeneralKioskVouchers, getKioskMainSheetReport, getKioskSaleById } from "services/kioskPosService";
+import { getKioscoConteoHistorial } from "services/kioscoInventoryService";
 import {
   formatDateGt,
   formatDateTimeGt,
@@ -30,6 +32,11 @@ import {
   exportKioskVouchersToPdf,
   formatVoucherDateTime,
 } from "utils/kioskVoucherReportExport";
+import {
+  exportKioskMainSheetToExcel,
+  exportKioskMainSheetToPdf,
+  formatMainSheetCountLabel,
+} from "utils/kioskMainSheetReportExport";
 import { showError, showSuccess, showWarning } from "utils/notificationHelper";
 import PosSaleDetailModal from "./PosSaleDetailModal";
 import PosVoidSaleModal from "./PosVoidSaleModal";
@@ -40,6 +47,7 @@ const REPORT_TYPES = {
   DISBURSEMENTS: "DISBURSEMENTS",
   BANK_DEPOSITS: "BANK_DEPOSITS",
   VOUCHERS: "VOUCHERS",
+  MAIN_SHEET: "MAIN_SHEET",
 };
 
 const sortDisbursementRows = (rows) =>
@@ -70,6 +78,7 @@ const reportTypeTitle = (type) => {
   if (type === REPORT_TYPES.DISBURSEMENTS) return "Reporte de desembolsos";
   if (type === REPORT_TYPES.BANK_DEPOSITS) return "Reporte de movimientos bancarios";
   if (type === REPORT_TYPES.VOUCHERS) return "Reporte de voucher";
+  if (type === REPORT_TYPES.MAIN_SHEET) return "Hoja principal";
   return "Reportes de ventas";
 };
 
@@ -117,11 +126,17 @@ function PosReportsTab({
   const [bankDepositsLoading, setBankDepositsLoading] = useState(false);
   const [voucherReport, setVoucherReport] = useState(null);
   const [vouchersLoading, setVouchersLoading] = useState(false);
+  const [physicalCountSessions, setPhysicalCountSessions] = useState([]);
+  const [physicalCountsLoading, setPhysicalCountsLoading] = useState(false);
+  const [selectedPhysicalCountId, setSelectedPhysicalCountId] = useState("");
+  const [mainSheetReport, setMainSheetReport] = useState(null);
+  const [mainSheetLoading, setMainSheetLoading] = useState(false);
 
   const isSales = reportType === REPORT_TYPES.SALES;
   const isDisbursements = reportType === REPORT_TYPES.DISBURSEMENTS;
   const isBankDeposits = reportType === REPORT_TYPES.BANK_DEPOSITS;
   const isVouchers = reportType === REPORT_TYPES.VOUCHERS;
+  const isMainSheet = reportType === REPORT_TYPES.MAIN_SHEET;
 
   const sortedDisbursements = useMemo(
     () => sortDisbursementRows(disbursements),
@@ -156,7 +171,13 @@ function PosReportsTab({
   const alternateReportLoading =
     (isDisbursements && disbursementsLoading)
     || (isBankDeposits && bankDepositsLoading)
-    || (isVouchers && vouchersLoading);
+    || (isVouchers && vouchersLoading)
+    || (isMainSheet && (mainSheetLoading || physicalCountsLoading));
+
+  const selectedPhysicalCountSession = useMemo(
+    () => physicalCountSessions.find((item) => String(item.id) === String(selectedPhysicalCountId)) || null,
+    [physicalCountSessions, selectedPhysicalCountId]
+  );
 
   const filteredSales = (sales || []).filter((sale) => {
     if (depositFilter !== "PENDING") return true;
@@ -169,6 +190,55 @@ function PosReportsTab({
   );
 
   const periodLabel = formatPeriodLabel(startDate, endDate);
+
+  const loadPhysicalCountSessions = useCallback(async () => {
+    if (!kioskLocationId) {
+      setPhysicalCountSessions([]);
+      setSelectedPhysicalCountId("");
+      return;
+    }
+    try {
+      setPhysicalCountsLoading(true);
+      const sessions = await getKioscoConteoHistorial(Number(kioskLocationId));
+      const list = Array.isArray(sessions) ? sessions : [];
+      setPhysicalCountSessions(list);
+      if (list.length) {
+        setSelectedPhysicalCountId(String(list[0].id));
+      } else {
+        setSelectedPhysicalCountId("");
+        setMainSheetReport(null);
+      }
+    } catch (err) {
+      setPhysicalCountSessions([]);
+      setSelectedPhysicalCountId("");
+      showError(err.message || "No se pudieron cargar los cortes de conteo físico.");
+    } finally {
+      setPhysicalCountsLoading(false);
+    }
+  }, [kioskLocationId]);
+
+  useEffect(() => {
+    if (isMainSheet) {
+      loadPhysicalCountSessions();
+    }
+  }, [isMainSheet, loadPhysicalCountSessions]);
+
+  const loadMainSheet = useCallback(async (countId = selectedPhysicalCountId) => {
+    if (!countId) {
+      setMainSheetReport(null);
+      return;
+    }
+    try {
+      setMainSheetLoading(true);
+      const report = await getKioskMainSheetReport(Number(countId));
+      setMainSheetReport(report || null);
+    } catch (err) {
+      setMainSheetReport(null);
+      showError(err.message || "No se pudo cargar la hoja principal.");
+    } finally {
+      setMainSheetLoading(false);
+    }
+  }, [selectedPhysicalCountId]);
 
   const loadDisbursements = useCallback(
     async (from = startDate, to = endDate) => {
@@ -250,6 +320,10 @@ function PosReportsTab({
 
   const applyFilters = useCallback(
     async (from = startDate, to = endDate) => {
+      if (isMainSheet) {
+        await loadMainSheet();
+        return;
+      }
       if (isDisbursements) {
         await loadDisbursements(from, to);
         return;
@@ -266,11 +340,15 @@ function PosReportsTab({
         await onApplyFilters(from, to);
       }
     },
-    [isDisbursements, isBankDeposits, isVouchers, loadDisbursements, loadBankDeposits, loadVouchers, onApplyFilters, startDate, endDate]
+    [isMainSheet, isDisbursements, isBankDeposits, isVouchers, loadMainSheet, loadDisbursements, loadBankDeposits, loadVouchers, onApplyFilters, startDate, endDate]
   );
 
   const handleReportTypeChange = (value) => {
     setReportType(value);
+    if (value === REPORT_TYPES.MAIN_SHEET) {
+      loadPhysicalCountSessions();
+      return;
+    }
     if (value === REPORT_TYPES.DISBURSEMENTS && startDate) {
       loadDisbursements(startDate, endDate || startDate);
     }
@@ -312,6 +390,19 @@ function PosReportsTab({
   };
 
   const handleExportExcel = () => {
+    if (isMainSheet) {
+      if (!mainSheetReport) {
+        showWarning("Genera la vista previa antes de exportar.");
+        return;
+      }
+      try {
+        exportKioskMainSheetToExcel({ report: mainSheetReport });
+        showSuccess("Excel de hoja principal descargado correctamente.");
+      } catch (err) {
+        showError(err.message || "No se pudo generar el Excel.");
+      }
+      return;
+    }
     if (!startDate && !endDate) {
       showWarning("Selecciona al menos una fecha antes de exportar.");
       return;
@@ -398,6 +489,19 @@ function PosReportsTab({
   };
 
   const handleExportPdf = () => {
+    if (isMainSheet) {
+      if (!mainSheetReport) {
+        showWarning("Genera la vista previa antes de exportar.");
+        return;
+      }
+      const opened = exportKioskMainSheetToPdf({ report: mainSheetReport });
+      if (opened === false) {
+        showWarning("Permite ventanas emergentes para descargar el PDF.");
+        return;
+      }
+      showSuccess("PDF de hoja principal listo para imprimir o guardar.");
+      return;
+    }
     if (!startDate && !endDate) {
       showWarning("Selecciona al menos una fecha antes de exportar.");
       return;
@@ -547,8 +651,52 @@ function PosReportsTab({
                 <option value={REPORT_TYPES.DISBURSEMENTS}>Desembolsos</option>
                 <option value={REPORT_TYPES.BANK_DEPOSITS}>Depósitos bancarios</option>
                 <option value={REPORT_TYPES.VOUCHERS}>Voucher (tarjeta)</option>
+                <option value={REPORT_TYPES.MAIN_SHEET}>Hoja principal</option>
               </Input>
             </Col>
+            {isMainSheet ? (
+              <>
+                <Col md="5">
+                  <Label className="kiosk-pos-label">Corte de conteo físico</Label>
+                  <Input
+                    className="kiosk-pos-input-lg"
+                    type="select"
+                    value={selectedPhysicalCountId}
+                    onChange={(e) => {
+                      setSelectedPhysicalCountId(e.target.value);
+                      setMainSheetReport(null);
+                    }}
+                    disabled={physicalCountsLoading || !physicalCountSessions.length}
+                  >
+                    {!physicalCountSessions.length && (
+                      <option value="">Sin cortes registrados</option>
+                    )}
+                    {physicalCountSessions.map((session) => (
+                      <option key={session.id} value={session.id}>
+                        {formatMainSheetCountLabel(session)}
+                      </option>
+                    ))}
+                  </Input>
+                </Col>
+                <Col md="2" className="d-flex align-items-end mt-2 mt-md-0">
+                  <Button
+                    color="primary"
+                    className="kiosk-pos-btn-lg"
+                    onClick={() => loadMainSheet()}
+                    disabled={alternateReportLoading || !selectedPhysicalCountId}
+                  >
+                    {mainSheetLoading ? (
+                      <>
+                        <Spinner size="sm" className="mr-1" /> Cargando…
+                      </>
+                    ) : (
+                      "Vista previa"
+                    )}
+                  </Button>
+                </Col>
+              </>
+            ) : (
+              <>
             <Col md="2">
               <Label className="kiosk-pos-label">Tipo de filtro</Label>
               <Input
@@ -611,8 +759,11 @@ function PosReportsTab({
               </Input>
             </Col>
             )}
+              </>
+            )}
           </Row>
 
+          {!isMainSheet && (
           <div className="d-flex flex-wrap mt-2 kiosk-pos-report-quick-filters">
             <Button
               color="default"
@@ -659,8 +810,26 @@ function PosReportsTab({
               Este mes
             </Button>
           </div>
+          )}
 
           <p className="text-muted small mt-2 mb-0">
+            {isMainSheet ? (
+              <>
+                Corte seleccionado:{" "}
+                <strong>{selectedPhysicalCountSession ? formatMainSheetCountLabel(selectedPhysicalCountSession) : "—"}</strong>
+                {mainSheetReport ? (
+                  <>
+                    {" · "}
+                    Total vendido {formatCurrency(mainSheetReport.totalSold)}
+                    {" · "}
+                    Diferencia {Math.abs(Number(mainSheetReport.difference || 0)) < 0.005
+                      ? "Q -"
+                      : formatCurrency(mainSheetReport.difference)}
+                  </>
+                ) : null}
+              </>
+            ) : (
+              <>
             Período activo: <strong>{periodLabel}</strong>
             {" · "}
             {isDisbursements
@@ -675,9 +844,26 @@ function PosReportsTab({
                     : ""
                 }.`}
             {(isDisbursements || isBankDeposits || isVouchers) && kioskName ? ` · ${kioskName}` : ""}
+              </>
+            )}
           </p>
 
-          {!isSales && (
+          {isMainSheet && (
+            <div className="mt-3">
+              {mainSheetLoading ? (
+                <div className="text-center text-muted py-4">
+                  <Spinner size="sm" className="mr-1" /> Generando hoja principal…
+                </div>
+              ) : (
+                <KioskMainSheetReportPreview
+                  report={mainSheetReport}
+                  physicalCountSession={selectedPhysicalCountSession}
+                />
+              )}
+            </div>
+          )}
+
+          {!isSales && !isMainSheet && (
             <p className="text-muted small mb-0">
               Usa <strong>Día exacto</strong>, <strong>Rango</strong> o los accesos rápidos (Hoy, Ayer, Esta semana, Este mes).
               Los registros se ordenan cronológicamente dentro del período.

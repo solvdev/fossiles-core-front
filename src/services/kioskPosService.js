@@ -183,6 +183,14 @@ export const getGeneralKioskVouchers = async (startDate, endDate, kioskLocationI
   return parseJson(response, "No se pudieron cargar los vouchers de tarjeta.");
 };
 
+export const getKioskMainSheetReport = async (physicalCountId) => {
+  const response = await fetch(
+    `${API_URL}/kiosk-pos/reports/main-sheet${toQuery({ physicalCountId })}`,
+    { headers: headers() }
+  );
+  return parseJson(response, "No se pudo cargar la hoja principal.");
+};
+
 export const getCurrentCashSession = async (kioskLocationId) => {
   const response = await fetch(
     `${API_URL}/kiosk-pos/cash-session/current${toQuery({ kioskLocationId })}`,
