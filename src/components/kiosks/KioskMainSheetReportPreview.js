@@ -189,7 +189,7 @@ function KioskMainSheetReportPreview({ report, physicalCountSession, onReportCha
       <div className="kiosk-main-sheet-certification mt-4">
         <div className="kiosk-main-sheet-certification-grid">
           <div className="kiosk-main-sheet-cert-row">
-            <span>REVISADO Y CERTIFICADO POR:</span>
+            <span>REVISADO POR:</span>
             <strong>{report.mainSheetCertifiedBy || "—"}</strong>
           </div>
           <div className="kiosk-main-sheet-cert-row">
