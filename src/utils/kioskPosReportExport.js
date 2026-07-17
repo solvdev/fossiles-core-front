@@ -74,6 +74,53 @@ const formatMoneyQ = (value) => {
   return `Q${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 };
 
+const roundMoney = (value) => Math.round(Number(value || 0) * 100) / 100;
+
+/** Montos cobrados por línea (descuento de la venta repartido proporcionalmente). */
+export const buildSaleItemExportLines = (sale) => {
+  const items = sale?.items || [];
+  if (!items.length) return [];
+
+  const lineSubtotals = items.map((row) => {
+    const rowQty = Number(row?.quantity || 0);
+    const stored = Number(row?.lineTotal ?? 0);
+    if (stored > 0) return stored;
+    return roundMoney(Number(row?.unitPrice || 0) * rowQty);
+  });
+
+  const saleSubtotal =
+    Number(sale?.subtotal ?? 0) > 0
+      ? Number(sale.subtotal)
+      : lineSubtotals.reduce((sum, amount) => sum + amount, 0);
+
+  const saleTotal = Number(sale?.totalAmount ?? saleSubtotal);
+  const hasDiscount = saleSubtotal > 0 && Math.abs(saleSubtotal - saleTotal) > 0.004;
+
+  let allocated = 0;
+  return items.map((item, index) => {
+    const qty = Number(item?.quantity || 0);
+    let lineTotal = lineSubtotals[index];
+
+    if (hasDiscount) {
+      if (items.length === 1) {
+        lineTotal = saleTotal;
+      } else if (index === items.length - 1) {
+        lineTotal = roundMoney(saleTotal - allocated);
+      } else {
+        lineTotal = roundMoney((lineSubtotals[index] / saleSubtotal) * saleTotal);
+        allocated += lineTotal;
+      }
+    }
+
+    return {
+      item,
+      qty,
+      unit: qty > 0 ? roundMoney(lineTotal / qty) : lineTotal,
+      lineTotal,
+    };
+  });
+};
+
 const resolveItemName = (item) => {
   const name = String(item?.productName || "Producto").trim();
   return name.startsWith("*") ? name : `* ${name}`;
@@ -259,10 +306,7 @@ const buildReportRows = (sales, options = {}) => {
       pos: "",
     });
 
-    (sale.items || []).forEach((item) => {
-      const qty = Number(item.quantity || 0);
-      const unit = Number(item.unitPrice || 0);
-      const lineTotal = qty * unit;
+    buildSaleItemExportLines(sale).forEach(({ item, qty, unit, lineTotal }) => {
       totalQty += qty;
       totalAmount += lineTotal;
       rows.push({
