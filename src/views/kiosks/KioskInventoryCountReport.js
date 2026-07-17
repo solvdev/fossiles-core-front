@@ -31,7 +31,7 @@ import {
 } from "services/kioscoInventoryService";
 import { formatDateGt, formatDateTimeGt } from "utils/dateTimeHelper";
 import { exportConteoToExcel, exportConteoToPdf } from "utils/kioscoConteoExport";
-import { buildConteoDisplayReport, formatConteoSubtotalLabel } from "utils/kioscoConteoDisplay";
+import { buildConteoDisplayReport, formatConteoSubtotalLabel, resolveLivePhysicalTotal, resolveLiveRowDiff } from "utils/kioscoConteoDisplay";
 import {
   CONTEO_COLOR_LEGEND_LEFT,
   CONTEO_COLOR_LEGEND_RIGHT,
@@ -139,7 +139,30 @@ const applyFossLocationSizesToCounts = (byLocation, existingPartial, baseCounts)
 };
 
 const rowTotal = (counts) => COUNT_LOCATION_KEYS.reduce((s, k) => s + Number(counts[k] || 0), 0);
-const rowDiff = (row, counts) => rowTotal(counts) - Number(row.inventarioFinal || 0);
+
+const withLiveRowTotals = (row, editedCounts, editedSizeCounts, editedSizeCountsByLocation) => {
+  const rKey = rowKey(row);
+  const counts = editedCounts[rKey] || row.counts || {};
+  const physicalSizes = editedSizeCounts[rKey] ?? row.physicalSizes;
+  const physicalSizesByLocation = editedSizeCountsByLocation[rKey] ?? row.physicalSizesByLocation;
+  const total = resolveLivePhysicalTotal(row, counts, physicalSizes, physicalSizesByLocation);
+  return {
+    ...row,
+    counts,
+    total,
+    diferencia: total - Number(row.inventarioFinal || 0),
+  };
+};
+
+const resolveRowDiffForEdit = (row, editedCounts, editedSizeCounts, editedSizeCountsByLocation) => {
+  const rKey = rowKey(row);
+  return resolveLiveRowDiff(
+    row,
+    editedCounts[rKey] || row.counts || {},
+    editedSizeCounts[rKey] ?? row.physicalSizes,
+    editedSizeCountsByLocation[rKey] ?? row.physicalSizesByLocation
+  );
+};
 
 const diffColor = (diferencia) => {
   const n = Number(diferencia || 0);
@@ -229,8 +252,8 @@ function CountCell({ value, onChange, disabled }) {
 
 // ─── Fila de datos ────────────────────────────────────────────────────────────
 function DataRow({ row, showKardex, kardexColumns, counts, physicalSizes, physicalSizesByLocation, onCountChange, onOpenCinchoModal, disabled }) {
-  const total = rowTotal(counts);
-  const diferencia = rowDiff(row, counts);
+  const total = resolveLivePhysicalTotal(row, counts, physicalSizes, physicalSizesByLocation);
+  const diferencia = total - Number(row.inventarioFinal || 0);
   const isCincho = isCinchoProductRow(row);
   const isFoss = isFossCinchoProductRow(row);
   const isExpandedSizeRow = !!row.sizeLabel;
@@ -327,7 +350,10 @@ function SummaryRow({ label, row, showKardex, kardexColumns, bg = "#f3f4f6", tex
         ...sumColStyle,
         color: diffColor(row.diferencia ?? 0),
       }}>
-        {(row.diferencia ?? 0) > 0 ? `+${row.diferencia}` : row.diferencia}
+        {(row.diferencia ?? 0) !== 0 && (
+          <span style={{ marginRight: 2 }}>{row.diferencia > 0 ? "▲" : "▼"}</span>
+        )}
+        {(row.diferencia ?? 0) > 0 ? `+${row.diferencia}` : row.diferencia ?? 0}
       </td>
     </tr>
   );
@@ -437,7 +463,15 @@ function ConteoColorLegend() {
 // ─── Grupo de categoría colapsable ────────────────────────────────────────────
 function CategoryGroup({ category, showKardex, kardexColumns, editedCounts, editedSizeCounts, editedSizeCountsByLocation, onCountChange, onOpenCinchoModal, disabled }) {
   const [collapsed, setCollapsed] = useState(false);
-  const hasDiff = category.rows.some((r) => rowDiff(r, editedCounts[rowKey(r)] || r.counts || {}) !== 0);
+  const hasDiff = category.rows.some((row) => {
+    const rKey = rowKey(row);
+    return resolveLiveRowDiff(
+      row,
+      editedCounts[rKey] || row.counts || {},
+      editedSizeCounts[rKey] ?? row.physicalSizes,
+      editedSizeCountsByLocation[rKey] ?? row.physicalSizesByLocation
+    ) !== 0;
+  });
 
   return (
     <>
@@ -547,20 +581,13 @@ function KioskInventoryCountReport({ locationId }) {
             && productMatchesCinchoFilter(row, cinchoFilter)
         );
         if (rows.length === 0) return null;
-        const rowsWithLiveTotals = rows.map((row) => {
-          const counts = editedCounts[rowKey(row)] || row.counts || {};
-          const total = rowTotal(counts);
-          return {
-            ...row,
-            counts,
-            total,
-            diferencia: rowDiff(row, counts),
-          };
-        });
+        const rowsWithLiveTotals = rows.map((row) =>
+          withLiveRowTotals(row, editedCounts, editedSizeCounts, editedSizeCountsByLocation)
+        );
         return { ...category, rows: rowsWithLiveTotals, subtotal: sumFilteredRows(rowsWithLiveTotals) };
       })
       .filter(Boolean);
-  }, [displayReport, debouncedSearch, audienceFilter, cinchoFilter, editedCounts]);
+  }, [displayReport, debouncedSearch, audienceFilter, cinchoFilter, editedCounts, editedSizeCounts, editedSizeCountsByLocation]);
 
   const allReportRows = useMemo(
     () => (displayReport?.categories || []).flatMap((category) => category.rows),
@@ -979,7 +1006,9 @@ function KioskInventoryCountReport({ locationId }) {
 
   const handleClose = async () => {
     if (!report) return;
-    const pendingDiff = pendingRows.some((r) => Math.abs(rowDiff(r, editedCounts[rowKey(r)] || r.counts || {})) >= DIFF_ALERT_THRESHOLD);
+    const pendingDiff = pendingRows.some(
+      (r) => Math.abs(resolveRowDiffForEdit(r, editedCounts, editedSizeCounts, editedSizeCountsByLocation)) >= DIFF_ALERT_THRESHOLD
+    );
     if (pendingDiff) {
       const confirmed = window.confirm(
         "Este conteo aún tiene diferencias sin resolver. Los ajustes deben registrarse manualmente en " +
@@ -1094,7 +1123,7 @@ function KioskInventoryCountReport({ locationId }) {
 
   const pendingRows = filteredCategories.flatMap((c) => c.rows);
   const alertRows = pendingRows.filter(
-    (r) => Math.abs(rowDiff(r, editedCounts[rowKey(r)] || r.counts || {})) >= DIFF_ALERT_THRESHOLD
+    (r) => Math.abs(resolveRowDiffForEdit(r, editedCounts, editedSizeCounts, editedSizeCountsByLocation)) >= DIFF_ALERT_THRESHOLD
   );
   const showDiffBanner = report?.status === "REVISADO" && alertRows.length > 0;
 

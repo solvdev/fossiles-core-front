@@ -10,6 +10,46 @@ import {
 const COUNT_LOCATION_KEYS = ["V1", "V2", "V3", "V4", "V5", "V6", "V7", "E", "BO"];
 const PACKAGING_KEY = "PACKAGING";
 
+export const sumSizeMap = (sizes) =>
+  Object.values(sizes || {}).reduce((sum, value) => sum + Number(value || 0), 0);
+
+export const sumFossPhysicalByLocation = (byLocation) => {
+  if (!byLocation) return 0;
+  return ["E", "BO"].reduce((sum, loc) => sum + sumSizeMap(byLocation[loc]), 0);
+};
+
+/** Total físico contado: prioriza tallas FOSS/cincho; si no, suma ubicaciones V1…BO. */
+export const resolveLivePhysicalTotal = (row, counts, physicalSizes, physicalSizesByLocation) => {
+  if (isFossCinchoProductRow(row)) {
+    const fossTotal = sumFossPhysicalByLocation(physicalSizesByLocation);
+    if (fossTotal > 0) return fossTotal;
+  }
+  if (isCinchoProductRow(row) && physicalSizes) {
+    const sizeTotal = sumSizeMap(physicalSizes);
+    if (sizeTotal > 0) return sizeTotal;
+  }
+  return COUNT_LOCATION_KEYS.reduce((sum, key) => sum + Number((counts || {})[key] || 0), 0);
+};
+
+export const resolveLiveRowDiff = (row, counts, physicalSizes, physicalSizesByLocation) =>
+  resolveLivePhysicalTotal(row, counts, physicalSizes, physicalSizesByLocation)
+  - Number(row.inventarioFinal || 0);
+
+const normalizeDisplayRowTotals = (row) => {
+  const total = resolveLivePhysicalTotal(
+    row,
+    row.counts,
+    row.physicalSizes,
+    row.physicalSizesByLocation
+  );
+  const inventarioFinal = Number(row.inventarioFinal || 0);
+  return {
+    ...row,
+    total,
+    diferencia: total - inventarioFinal,
+  };
+};
+
 /** Etiqueta de subtotal: "Subtotal — EMPAQUES" (nombre de categoría en mayúsculas). */
 export function formatConteoSubtotalLabel(categoryName) {
   const part = String(categoryName || "").trim().toUpperCase();
@@ -27,6 +67,7 @@ export const sumDisplayRows = (rows) => {
   const sumField = (field) => rows.reduce((sum, row) => sum + Number(row[field] || 0), 0);
   const total = rows.reduce((sum, row) => sum + Number(row.total || 0), 0);
   const inventarioFinal = sumField("inventarioFinal");
+  // Diferencia = Σ físico − Σ sistema (positivos y negativos se compensan).
   return {
     inventarioInicial: sumField("inventarioInicial"),
     comprasAjustes: sumField("comprasAjustes"),
@@ -253,9 +294,10 @@ export function buildConteoDisplayReport(report) {
   );
 
   const alreadyExpandedBySize = flatRows.some((row) => Boolean(row?.sizeLabel));
-  const expandedRows = isSubcount || alreadyExpandedBySize
+  const expandedRows = (isSubcount || alreadyExpandedBySize
     ? flatRows
-    : flatRows.flatMap((row) => expandCinchoRowBySizes(row));
+    : flatRows.flatMap((row) => expandCinchoRowBySizes(row))
+  ).map(normalizeDisplayRowTotals);
 
   const rowsByKey = new Map();
   const namesByKey = new Map();

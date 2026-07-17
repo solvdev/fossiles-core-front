@@ -98,6 +98,29 @@ const setCell = (ws, r, c, cell) => {
   ws[XLSX.utils.encode_cell({ r, c })] = cell;
 };
 
+const refreshWorksheetRange = (ws) => {
+  const cellAddrs = Object.keys(ws).filter((key) => !key.startsWith("!"));
+  if (!cellAddrs.length) {
+    ws["!ref"] = "A1:A1";
+    return;
+  }
+  let minRow = Infinity;
+  let minCol = Infinity;
+  let maxRow = 0;
+  let maxCol = 0;
+  cellAddrs.forEach((addr) => {
+    const { r, c } = XLSX.utils.decode_cell(addr);
+    minRow = Math.min(minRow, r);
+    minCol = Math.min(minCol, c);
+    maxRow = Math.max(maxRow, r);
+    maxCol = Math.max(maxCol, c);
+  });
+  ws["!ref"] = XLSX.utils.encode_range({
+    s: { r: minRow, c: minCol },
+    e: { r: maxRow, c: maxCol },
+  });
+};
+
 const kioskTitle = (report) => {
   const name = String(report?.kioskName || report?.kioskCode || "KIOSKO").trim().toUpperCase();
   return `REPORTE DE VENTAS KIOSCO ${name}`;
@@ -128,18 +151,19 @@ export const exportKioskMainSheetToExcel = ({ report }) => {
   ws["!cols"] = [{ wch: 18 }, { wch: 20 }, { wch: 3 }, { wch: 18 }, { wch: 4 }, { wch: 18 }];
 
   leftRows.forEach((row, index) => {
+    const rowIndex = index;
     const isHeader = index === 0;
     const isTotalGeneral = row[0] === "Total general";
     const isDayRow = /^\d{2}\/\d{2}\/\d{4}$/.test(String(row[0]));
     const isMonthRow = !isHeader && !isTotalGeneral && !isDayRow && typeof row[1] === "number";
     const isBold = isHeader || isTotalGeneral || isMonthRow;
-    setCell(ws, index + 1, 0, {
+    setCell(ws, rowIndex, 0, {
       t: "s",
       v: row[0] ?? "",
       s: { font: isBold ? boldFont : fontBase, border: thinBorder },
     });
     const isMoney = index > 0 && typeof row[1] === "number";
-    setCell(ws, index + 1, 1, {
+    setCell(ws, rowIndex, 1, {
       t: isMoney ? "n" : "s",
       v: isMoney ? row[1] : row[1] ?? "",
       z: isMoney ? moneyFmt : undefined,
@@ -205,6 +229,8 @@ export const exportKioskMainSheetToExcel = ({ report }) => {
     Math.abs(Number(report.difference || 0)) < 0.005 ? "Q -" : Number(report.difference || 0),
     { money: Math.abs(Number(report.difference || 0)) >= 0.005, highlight: true }
   );
+
+  refreshWorksheetRange(ws);
 
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, "Hoja Principal");
