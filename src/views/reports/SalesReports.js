@@ -41,6 +41,7 @@ import {
 import {
   exportKioskDisbursementsToExcel,
   exportKioskDisbursementsToPdf,
+  formatDisbursementDateTime,
 } from "utils/kioskDisbursementReportExport";
 import {
   buildKioskReportSummary,
@@ -77,7 +78,7 @@ const REPORT_TYPE_OPTIONS = [
   },
   {
     value: REPORT_TYPES.DISBURSEMENTS,
-    label: "Desembolsos (caja chica)",
+    label: "Desembolsos",
     hint: "Gastos registrados por el encargado del kiosko desde la caja.",
   },
 ];
@@ -148,6 +149,15 @@ function SalesReports() {
     () => (disbursements || []).reduce((sum, row) => sum + Number(row?.amount || 0), 0),
     [disbursements]
   );
+
+  const sortedDisbursements = useMemo(() => {
+    return [...(disbursements || [])].sort((a, b) => {
+      const ta = new Date(a?.createdAt || 0).getTime() || 0;
+      const tb = new Date(b?.createdAt || 0).getTime() || 0;
+      if (ta !== tb) return ta - tb;
+      return Number(a?.id || 0) - Number(b?.id || 0);
+    });
+  }, [disbursements]);
 
   const kioskSelectOptions = useMemo(() => {
     const options = (kioskLocations || [])
@@ -346,7 +356,6 @@ function SalesReports() {
           rows: payload.rows,
           startDate: payload.from,
           endDate: payload.to,
-          kioskName: resolveExportKioskName(payload.rows),
           generatedByName,
         });
         showSuccess("Excel de desembolsos descargado correctamente.");
@@ -387,7 +396,6 @@ function SalesReports() {
           rows: payload.rows,
           startDate: payload.from,
           endDate: payload.to,
-          kioskName: resolveExportKioskName(payload.rows),
           generatedByName,
         });
         if (opened === false) {
@@ -773,7 +781,7 @@ function SalesReports() {
                   <Row className="mb-3">
                     <Col md="4">
                       <Card body>
-                        <strong>Total desembolsos:</strong> {disbursements.length}
+                        <strong>Total desembolsos:</strong> {sortedDisbursements.length}
                       </Card>
                     </Col>
                     <Col md="4">
@@ -785,28 +793,38 @@ function SalesReports() {
                   <Table responsive>
                     <thead className="text-primary">
                       <tr>
-                        <th>Fecha</th>
-                        <th>Kiosko</th>
+                        <th>#</th>
+                        <th>Bodega</th>
+                        <th>Usuario</th>
                         <th>Descripción</th>
+                        <th>Fecha/Hora</th>
                         <th>Monto</th>
-                        <th>Registrado por</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {disbursements.map((row) => (
+                      {sortedDisbursements.map((row, index) => (
                         <tr key={`disbursement-${row.id}`}>
-                          <td>{formatDateTimeGt(row.createdAt)}</td>
-                          <td>{row.kioskName}</td>
-                          <td>{row.description}</td>
-                          <td>{formatCurrency(row.amount)}</td>
+                          <td>{index + 1}</td>
+                          <td>{row.kioskName || "—"}</td>
                           <td>{row.createdByName || "—"}</td>
+                          <td>{row.description || "—"}</td>
+                          <td>{formatDisbursementDateTime(row.createdAt)}</td>
+                          <td>{formatCurrency(row.amount)}</td>
                         </tr>
                       ))}
-                      {disbursements.length === 0 && (
+                      {sortedDisbursements.length === 0 && (
                         <tr>
-                          <td colSpan="5" className="text-center text-muted">
+                          <td colSpan="6" className="text-center text-muted">
                             No hay desembolsos en el período seleccionado
                           </td>
+                        </tr>
+                      )}
+                      {sortedDisbursements.length > 0 && (
+                        <tr>
+                          <td colSpan="5" className="text-right font-weight-bold">
+                            Total
+                          </td>
+                          <td className="font-weight-bold">{formatCurrency(disbursementsTotal)}</td>
                         </tr>
                       )}
                     </tbody>

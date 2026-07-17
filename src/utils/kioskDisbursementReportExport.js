@@ -1,7 +1,65 @@
 import * as XLSX from "xlsx-js-style";
-import { formatDateGt, formatDateTimeGt, formatNowGt } from "./dateTimeHelper";
+import { formatNowGt } from "./dateTimeHelper";
 
 const moneyFmt = '"Q"#,##0.00';
+
+const toGtDate = (value) => {
+  if (!value) return null;
+  if (value instanceof Date && !Number.isNaN(value.getTime())) return value;
+  const text = String(value).trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) {
+    const [y, m, d] = text.split("-").map(Number);
+    return new Date(Date.UTC(y, m - 1, d, 12, 0, 0));
+  }
+  const parsed = new Date(text);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+};
+
+/** dd-MM-yyyy HH:mm (estilo reporte legacy). */
+export const formatDisbursementDateTime = (value) => {
+  const date = toGtDate(value);
+  if (!date) return "—";
+  const parts = new Intl.DateTimeFormat("es-GT", {
+    timeZone: "America/Guatemala",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).formatToParts(date);
+  const get = (type) => parts.find((p) => p.type === type)?.value || "";
+  return `${get("day")}-${get("month")}-${get("year")} ${get("hour")}:${get("minute")}:${get("second")}`;
+};
+
+const formatDateOnlyLegacy = (ymd) => {
+  const date = toGtDate(ymd);
+  if (!date) return "";
+  const parts = new Intl.DateTimeFormat("es-GT", {
+    timeZone: "America/Guatemala",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date);
+  const get = (type) => parts.find((p) => p.type === type)?.value || "";
+  return `${get("day")}-${get("month")}-${get("year")}`;
+};
+
+export const formatDisbursementPeriodLine = (startDate, endDate) => {
+  const from = startDate || endDate || "";
+  const to = endDate || from;
+  if (!from) return "Sin período";
+  const fromLabel = `${formatDateOnlyLegacy(from)} 00:00`;
+  const toLabel = from === to ? `${formatDateOnlyLegacy(to)} 23:59` : `${formatDateOnlyLegacy(to)} 23:59`;
+  return `${fromLabel} AL ${toLabel}`;
+};
+
+export const formatGeneratedByLine = (generatedByName) => {
+  const name = String(generatedByName || "").trim().toUpperCase() || "USUARIO";
+  const when = formatDisbursementDateTime(new Date());
+  return `${name} EL ${when}`;
+};
 
 const formatMoneyQ = (value) => {
   const n = Number(value || 0);
@@ -15,93 +73,85 @@ const escapeHtml = (value) =>
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
 
-const formatPeriodLabel = (startDate, endDate) => {
-  const from = startDate || endDate || "";
-  const to = endDate || from;
-  if (!from) return "Sin período";
-  if (from === to) return formatDateGt(from);
-  return `${formatDateGt(from)} — ${formatDateGt(to)}`;
-};
+const resolveBodegaLabel = (row) => row?.kioskName || row?.kioskCode || "—";
 
-const formatGeneratedByLine = (generatedByName) => {
-  const name = String(generatedByName || "").trim().toUpperCase() || "USUARIO";
-  const when = formatDateTimeGt(new Date())
-    .replace(/\//g, "-")
-    .replace(/,\s*/g, " ")
-    .replace(/\s*a\.?\s*m\.?/gi, "")
-    .replace(/\s*p\.?\s*m\.?/gi, "")
-    .replace(/\s+/g, " ")
-    .trim();
-  return `${name} EL ${when}`;
-};
+const sortRows = (rows) =>
+  [...(rows || [])].sort((a, b) => {
+    const ta = toGtDate(a?.createdAt)?.getTime() || 0;
+    const tb = toGtDate(b?.createdAt)?.getTime() || 0;
+    if (ta !== tb) return ta - tb;
+    return Number(a?.id || 0) - Number(b?.id || 0);
+  });
+
+const TABLE_HEADERS = ["#", "Bodega", "Usuario", "Descripción", "Fecha/Hora", "Monto"];
 
 export const exportKioskDisbursementsToExcel = ({
   rows,
   startDate,
   endDate,
-  kioskName,
   generatedByName,
 }) => {
-  const list = Array.isArray(rows) ? rows : [];
+  const list = sortRows(rows);
   const total = list.reduce((sum, row) => sum + Number(row?.amount || 0), 0);
   const aoa = [
-    ["REPORTE DE DESEMBOLSOS (CAJA CHICA)"],
-    [`KIOSKO: ${kioskName || "TODOS LOS KIOSKOS"}`],
-    [`PERÍODO: ${formatPeriodLabel(startDate, endDate)}`],
+    ["REPORTE DE DESEMBOLSOS"],
+    [`FECHA: ${formatDisbursementPeriodLine(startDate, endDate)}`],
     [`GENERADO POR: ${formatGeneratedByLine(generatedByName)}`],
     [],
-    ["Fecha", "Kiosko", "Descripción", "Monto", "Registrado por", "Sesión caja"],
+    TABLE_HEADERS,
   ];
 
-  list.forEach((row) => {
+  list.forEach((row, index) => {
     aoa.push([
-      formatDateTimeGt(row.createdAt),
-      row.kioskName || "—",
-      row.description || "—",
-      Number(row.amount || 0),
+      index + 1,
+      resolveBodegaLabel(row),
       row.createdByName || "—",
-      row.cashSessionId != null ? String(row.cashSessionId) : "—",
+      row.description || "—",
+      formatDisbursementDateTime(row.createdAt),
+      Number(row.amount || 0),
     ]);
   });
 
   aoa.push([]);
-  aoa.push(["TOTAL", "", "", total, "", ""]);
+  aoa.push(["", "", "", "", "Total", total]);
 
   const ws = XLSX.utils.aoa_to_sheet(aoa);
-  ws["!cols"] = [{ wch: 20 }, { wch: 28 }, { wch: 45 }, { wch: 14 }, { wch: 28 }, { wch: 12 }];
+  ws["!cols"] = [{ wch: 5 }, { wch: 28 }, { wch: 22 }, { wch: 48 }, { wch: 20 }, { wch: 12 }];
 
-  for (let r = 6; r < 6 + list.length; r += 1) {
-    const addr = XLSX.utils.encode_cell({ r, c: 3 });
+  const dataStartRow = 5;
+  for (let r = dataStartRow; r < dataStartRow + list.length; r += 1) {
+    const addr = XLSX.utils.encode_cell({ r, c: 5 });
     if (ws[addr]) ws[addr].z = moneyFmt;
   }
-  const totalAddr = XLSX.utils.encode_cell({ r: 7 + list.length, c: 3 });
+  const totalRow = dataStartRow + list.length + 1;
+  const totalAddr = XLSX.utils.encode_cell({ r: totalRow, c: 5 });
   if (ws[totalAddr]) ws[totalAddr].z = moneyFmt;
 
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, "Desembolsos");
   const from = startDate || "inicio";
   const to = endDate || from;
-  XLSX.writeFile(wb, `desembolsos_kiosko_${from}_${to}_${formatNowGt().replace(/[:\s]/g, "")}.xlsx`);
+  XLSX.writeFile(wb, `Reporte_Desembolsos_${from}_${to}_${formatNowGt().replace(/[:\s]/g, "")}.xlsx`);
 };
 
 export const exportKioskDisbursementsToPdf = ({
   rows,
   startDate,
   endDate,
-  kioskName,
   generatedByName,
 }) => {
-  const list = Array.isArray(rows) ? rows : [];
+  const list = sortRows(rows);
   const total = list.reduce((sum, row) => sum + Number(row?.amount || 0), 0);
   const bodyRows = list
     .map(
-      (row) => `
+      (row, index) => `
     <tr>
-      <td>${escapeHtml(formatDateTimeGt(row.createdAt))}</td>
-      <td>${escapeHtml(row.kioskName || "—")}</td>
-      <td>${escapeHtml(row.description || "—")}</td>
-      <td class="num">${escapeHtml(formatMoneyQ(row.amount))}</td>
+      <td class="num">${index + 1}</td>
+      <td>${escapeHtml(resolveBodegaLabel(row))}</td>
       <td>${escapeHtml(row.createdByName || "—")}</td>
+      <td>${escapeHtml(row.description || "—")}</td>
+      <td class="nowrap">${escapeHtml(formatDisbursementDateTime(row.createdAt))}</td>
+      <td class="num">${escapeHtml(formatMoneyQ(row.amount))}</td>
     </tr>`
     )
     .join("");
@@ -116,37 +166,32 @@ export const exportKioskDisbursementsToPdf = ({
   <title>REPORTE DE DESEMBOLSOS</title>
   <style>
     body { font-family: Calibri, Arial, sans-serif; font-size: 11pt; color: #000; margin: 16px; }
-    .title { text-align: center; font-size: 16pt; font-weight: bold; margin-bottom: 10px; }
-    .meta { margin: 2px 0; }
-    table { width: 100%; border-collapse: collapse; margin-top: 14px; }
-    th, td { border: 1px solid #222; padding: 4px 6px; vertical-align: top; }
-    th { background: #f0f0f0; text-align: left; }
+    .title { text-align: center; font-size: 14pt; font-weight: bold; margin-bottom: 8px; }
+    .meta { margin: 2px 0; font-size: 11pt; }
+    table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+    th, td { border: 1px solid #000; padding: 3px 5px; vertical-align: top; }
+    th { background: #d9d9d9; text-align: center; font-weight: bold; }
     td.num, th.num { text-align: right; white-space: nowrap; }
+    td.nowrap { white-space: nowrap; }
     tr.total td { font-weight: bold; }
-    @media print { body { margin: 0; } }
+    @media print { body { margin: 8mm; } }
   </style>
 </head>
 <body>
-  <div class="title">REPORTE DE DESEMBOLSOS (CAJA CHICA)</div>
-  <div class="meta"><strong>KIOSKO:</strong> ${escapeHtml(kioskName || "TODOS LOS KIOSKOS")}</div>
-  <div class="meta"><strong>PERÍODO:</strong> ${escapeHtml(formatPeriodLabel(startDate, endDate))}</div>
+  <div class="title">REPORTE DE DESEMBOLSOS</div>
+  <div class="meta"><strong>FECHA:</strong> ${escapeHtml(formatDisbursementPeriodLine(startDate, endDate))}</div>
   <div class="meta"><strong>GENERADO POR:</strong> ${escapeHtml(formatGeneratedByLine(generatedByName))}</div>
   <table>
     <thead>
       <tr>
-        <th>Fecha</th>
-        <th>Kiosko</th>
-        <th>Descripción</th>
-        <th class="num">Monto</th>
-        <th>Registrado por</th>
+        ${TABLE_HEADERS.map((h) => `<th class="${h === "Monto" || h === "#" ? "num" : ""}">${escapeHtml(h)}</th>`).join("")}
       </tr>
     </thead>
     <tbody>
-      ${bodyRows || `<tr><td colspan="5">Sin desembolsos en el período</td></tr>`}
+      ${bodyRows || `<tr><td colspan="6">Sin desembolsos en el período</td></tr>`}
       <tr class="total">
-        <td colspan="3" style="text-align:right">TOTAL</td>
+        <td colspan="5" style="text-align:right">Total</td>
         <td class="num">${escapeHtml(formatMoneyQ(total))}</td>
-        <td></td>
       </tr>
     </tbody>
   </table>

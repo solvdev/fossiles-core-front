@@ -1,6 +1,6 @@
-import React, { useMemo, useState } from "react";
-import { Button, Card, CardBody, CardHeader, CardTitle, Col, Input, Label, Row, Table } from "reactstrap";
-import { getKioskSaleById } from "services/kioskPosService";
+import React, { useCallback, useMemo, useState } from "react";
+import { Button, Card, CardBody, CardHeader, CardTitle, Col, Input, Label, Row, Spinner, Table } from "reactstrap";
+import { getGeneralKioskDisbursements, getKioskSaleById } from "services/kioskPosService";
 import {
   formatDateGt,
   formatDateTimeGt,
@@ -15,10 +15,28 @@ import {
   exportKioskSalesToPdf,
   formatSaleItemsSummary,
 } from "utils/kioskPosReportExport";
+import {
+  exportKioskDisbursementsToExcel,
+  exportKioskDisbursementsToPdf,
+  formatDisbursementDateTime,
+} from "utils/kioskDisbursementReportExport";
 import { showError, showSuccess, showWarning } from "utils/notificationHelper";
 import PosSaleDetailModal from "./PosSaleDetailModal";
 import PosVoidSaleModal from "./PosVoidSaleModal";
 import { formatCurrency, formatQty, getSaleInternalNumber, isSalePendingDeposit } from "./posUtils";
+
+const REPORT_TYPES = {
+  SALES: "SALES",
+  DISBURSEMENTS: "DISBURSEMENTS",
+};
+
+const sortDisbursementRows = (rows) =>
+  [...(rows || [])].sort((a, b) => {
+    const ta = new Date(a?.createdAt || 0).getTime() || 0;
+    const tb = new Date(b?.createdAt || 0).getTime() || 0;
+    if (ta !== tb) return ta - tb;
+    return Number(a?.id || 0) - Number(b?.id || 0);
+  });
 
 const formatPeriodLabel = (startDate, endDate) => {
   const from = startDate || "";
@@ -57,6 +75,21 @@ function PosReportsTab({
   const [depositFilter, setDepositFilter] = useState("ALL");
   const [dateFilterMode, setDateFilterMode] = useState("single");
   const [exportMode, setExportMode] = useState("consolidated"); // consolidated | byDay
+  const [reportType, setReportType] = useState(REPORT_TYPES.SALES);
+  const [disbursements, setDisbursements] = useState([]);
+  const [disbursementsLoading, setDisbursementsLoading] = useState(false);
+
+  const isDisbursements = reportType === REPORT_TYPES.DISBURSEMENTS;
+
+  const sortedDisbursements = useMemo(
+    () => sortDisbursementRows(disbursements),
+    [disbursements]
+  );
+
+  const disbursementsTotal = useMemo(
+    () => sortedDisbursements.reduce((sum, row) => sum + Number(row?.amount || 0), 0),
+    [sortedDisbursements]
+  );
 
   const filteredSales = (sales || []).filter((sale) => {
     if (depositFilter !== "PENDING") return true;
@@ -70,13 +103,57 @@ function PosReportsTab({
 
   const periodLabel = formatPeriodLabel(startDate, endDate);
 
+  const loadDisbursements = useCallback(
+    async (from = startDate, to = endDate) => {
+      const effectiveFrom = from || to;
+      const effectiveTo = to || from;
+      if (!effectiveFrom || !kioskLocationId) {
+        setDisbursements([]);
+        return;
+      }
+      try {
+        setDisbursementsLoading(true);
+        const rows = await getGeneralKioskDisbursements(
+          effectiveFrom,
+          effectiveTo,
+          Number(kioskLocationId)
+        );
+        setDisbursements(Array.isArray(rows) ? rows : []);
+      } catch (err) {
+        setDisbursements([]);
+        showError(err.message || "No se pudieron cargar los desembolsos.");
+      } finally {
+        setDisbursementsLoading(false);
+      }
+    },
+    [startDate, endDate, kioskLocationId]
+  );
+
+  const applyFilters = useCallback(
+    async (from = startDate, to = endDate) => {
+      if (isDisbursements) {
+        await loadDisbursements(from, to);
+        return;
+      }
+      if (onApplyFilters) {
+        await onApplyFilters(from, to);
+      }
+    },
+    [isDisbursements, loadDisbursements, onApplyFilters, startDate, endDate]
+  );
+
+  const handleReportTypeChange = (value) => {
+    setReportType(value);
+    if (value === REPORT_TYPES.DISBURSEMENTS && startDate) {
+      loadDisbursements(startDate, endDate || startDate);
+    }
+  };
+
   const applyQuickRange = (from, to, mode = "range") => {
     setDateFilterMode(mode);
     onStartDateChange(from);
     onEndDateChange(to);
-    if (onApplyFilters) {
-      onApplyFilters(from, to);
-    }
+    applyFilters(from, to);
   };
 
   const handleStartDateChange = (value) => {
@@ -104,6 +181,24 @@ function PosReportsTab({
   const handleExportExcel = () => {
     if (!startDate && !endDate) {
       showWarning("Selecciona al menos una fecha antes de exportar.");
+      return;
+    }
+    if (isDisbursements) {
+      if (!sortedDisbursements.length) {
+        showWarning("No hay desembolsos para exportar con el filtro actual.");
+        return;
+      }
+      try {
+        exportKioskDisbursementsToExcel({
+          rows: sortedDisbursements,
+          startDate,
+          endDate,
+          generatedByName,
+        });
+        showSuccess("Excel de desembolsos descargado correctamente.");
+      } catch (err) {
+        showError(err.message || "No se pudo generar el Excel.");
+      }
       return;
     }
     if (!filteredSales.length) {
@@ -134,6 +229,24 @@ function PosReportsTab({
   const handleExportPdf = () => {
     if (!startDate && !endDate) {
       showWarning("Selecciona al menos una fecha antes de exportar.");
+      return;
+    }
+    if (isDisbursements) {
+      if (!sortedDisbursements.length) {
+        showWarning("No hay desembolsos para exportar con el filtro actual.");
+        return;
+      }
+      const opened = exportKioskDisbursementsToPdf({
+        rows: sortedDisbursements,
+        startDate,
+        endDate,
+        generatedByName,
+      });
+      if (opened === false) {
+        showWarning("Permite ventanas emergentes para descargar el PDF.");
+        return;
+      }
+      showSuccess("PDF de desembolsos listo para imprimir o guardar.");
       return;
     }
     if (!filteredSales.length) {
@@ -187,10 +300,10 @@ function PosReportsTab({
       <Card className="kiosk-pos-block">
         <CardHeader className="d-flex flex-wrap align-items-center justify-content-between">
           <CardTitle tag="h5" className="mb-0">
-            Reportes de ventas
+            {isDisbursements ? "Reporte de desembolsos" : "Reportes de ventas"}
           </CardTitle>
           <div className="kiosk-pos-report-export-actions mt-2 mt-md-0 d-flex flex-wrap align-items-center">
-            {startDate && endDate && startDate !== endDate && (
+            {!isDisbursements && startDate && endDate && startDate !== endDate && (
               <Input
                 type="select"
                 bsSize="sm"
@@ -213,6 +326,18 @@ function PosReportsTab({
         </CardHeader>
         <CardBody>
           <Row className="align-items-end">
+            <Col md="2">
+              <Label className="kiosk-pos-label">Tipo de reporte</Label>
+              <Input
+                className="kiosk-pos-input-lg"
+                type="select"
+                value={reportType}
+                onChange={(e) => handleReportTypeChange(e.target.value)}
+              >
+                <option value={REPORT_TYPES.SALES}>Ventas</option>
+                <option value={REPORT_TYPES.DISBURSEMENTS}>Desembolsos</option>
+              </Input>
+            </Col>
             <Col md="2">
               <Label className="kiosk-pos-label">Tipo de filtro</Label>
               <Input
@@ -249,11 +374,19 @@ function PosReportsTab({
               <Button
                 color="primary"
                 className="kiosk-pos-btn-lg"
-                onClick={() => onApplyFilters()}
+                onClick={() => applyFilters()}
+                disabled={isDisbursements && disbursementsLoading}
               >
-                Aplicar filtro
+                {isDisbursements && disbursementsLoading ? (
+                  <>
+                    <Spinner size="sm" className="mr-1" /> Cargando…
+                  </>
+                ) : (
+                  "Aplicar filtro"
+                )}
               </Button>
             </Col>
+            {!isDisbursements && (
             <Col md="2">
               <Label className="kiosk-pos-label">Boleta depósito</Label>
               <Input
@@ -266,6 +399,7 @@ function PosReportsTab({
                 <option value="PENDING">Pendientes</option>
               </Input>
             </Col>
+            )}
           </Row>
 
           <div className="d-flex flex-wrap mt-2 kiosk-pos-report-quick-filters">
@@ -318,14 +452,18 @@ function PosReportsTab({
           <p className="text-muted small mt-2 mb-0">
             Período activo: <strong>{periodLabel}</strong>
             {" · "}
-            {filteredSales.length} venta(s) en pantalla. Excel/PDF usan este período
-            {startDate && endDate && startDate !== endDate
-              ? ` · modo: ${exportMode === "byDay" ? "una hoja por día" : "consolidado con FECHA:"}`
-              : ""}
-            .
-
+            {isDisbursements
+              ? `${sortedDisbursements.length} desembolso(s) · total ${formatCurrency(disbursementsTotal)}`
+              : `${filteredSales.length} venta(s) en pantalla. Excel/PDF usan este período${
+                  startDate && endDate && startDate !== endDate
+                    ? ` · modo: ${exportMode === "byDay" ? "una hoja por día" : "consolidado con FECHA:"}`
+                    : ""
+                }.`}
+            {isDisbursements && kioskName ? ` · ${kioskName}` : ""}
           </p>
 
+          {!isDisbursements && (
+          <>
           <Row className="mt-3">
             <Col md="12">
               <Card body className="kiosk-pos-report-card">
@@ -489,6 +627,58 @@ function PosReportsTab({
               )}
             </tbody>
           </Table>
+          </>
+          )}
+
+          {isDisbursements && (
+          <Table responsive className="kiosk-pos-sales-table mt-3">
+            <thead className="text-primary">
+              <tr>
+                <th>#</th>
+                <th>Bodega</th>
+                <th>Usuario</th>
+                <th>Descripción</th>
+                <th>Fecha/Hora</th>
+                <th>Monto</th>
+              </tr>
+            </thead>
+            <tbody>
+              {disbursementsLoading && (
+                <tr>
+                  <td colSpan="6" className="text-center text-muted">
+                    <Spinner size="sm" className="mr-1" /> Cargando desembolsos…
+                  </td>
+                </tr>
+              )}
+              {!disbursementsLoading &&
+                sortedDisbursements.map((row, index) => (
+                  <tr key={`disbursement-${row.id}`}>
+                    <td>{index + 1}</td>
+                    <td>{row.kioskName || kioskName || "—"}</td>
+                    <td>{row.createdByName || "—"}</td>
+                    <td>{row.description || "—"}</td>
+                    <td>{formatDisbursementDateTime(row.createdAt)}</td>
+                    <td>{formatCurrency(row.amount)}</td>
+                  </tr>
+                ))}
+              {!disbursementsLoading && sortedDisbursements.length === 0 && (
+                <tr>
+                  <td colSpan="6" className="text-center text-muted">
+                    No hay desembolsos para el filtro seleccionado.
+                  </td>
+                </tr>
+              )}
+              {!disbursementsLoading && sortedDisbursements.length > 0 && (
+                <tr>
+                  <td colSpan="5" className="text-right font-weight-bold">
+                    Total
+                  </td>
+                  <td className="font-weight-bold">{formatCurrency(disbursementsTotal)}</td>
+                </tr>
+              )}
+            </tbody>
+          </Table>
+          )}
         </CardBody>
       </Card>
 
