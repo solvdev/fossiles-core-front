@@ -339,7 +339,7 @@ function DataRow({
   const isFoss = isFossCinchoProductRow(row);
   const isExpandedSizeRow = !!row.sizeLabel;
   const rKey = rowKey(row);
-  const useHardwareModal = isCincho && !isExpandedSizeRow && !isFoss && rowUsesHardwareCountMode({
+  const useHardwareModal = !isExpandedSizeRow && !isFoss && rowUsesHardwareCountMode({
     hardwareLocationCounts: editedHardwareLocationCounts?.[rKey] ?? row.hardwareLocationCounts,
     counts,
     physicalSizes,
@@ -2014,7 +2014,8 @@ function KioskInventoryCountReport({ locationId, internalMode = false }) {
             {internalMode ? (
               <>
                 <span>Registra cuántas unidades hay en cada vitrina (V1–V7, E, BO).</span>
-                <span>Los cinchos pueden abrir modal de tallas o herraje NUEVO/VIEJO.</span>
+                <span>Al tocar una vitrina se abre el modal de herraje NUEVO/VIEJO.</span>
+                <span>Los cinchos FOSS usan el modal de tallas; otros cinchos pueden contar por talla.</span>
                 <span>Exporta a Excel para compartir o archivar el conteo del día.</span>
               </>
             ) : (
@@ -2032,6 +2033,7 @@ function KioskInventoryCountReport({ locationId, internalMode = false }) {
             <span>Observaciones: solo en filas con sobrante o faltante</span>
             <span>Haz clic en el nombre de categoría para colapsar/expandir</span>
             {!showKardex && <span>Kardex oculto en pantalla — actívalo con &quot;Mostrar Kardex&quot; (Excel/PDF siempre lo incluyen)</span>}
+            <span>Al tocar una celda de vitrina (V1–V7, E, BO) se abre el modal herraje NUEVO/VIEJO.</span>
             <span>FOSS cinchos: una fila por talla y color — edite E (vitrina) y BO (bodega). Otros cinchos: edite E por talla.</span>
               </>
             )}

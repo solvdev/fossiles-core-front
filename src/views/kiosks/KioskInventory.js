@@ -788,8 +788,8 @@ function KioskInventory() {
   const handleInitializeInventory = async () => {
     const targetLocationId = selectedLocation ? Number(selectedLocation) : null;
     const confirmationMessage = targetLocationId
-      ? "¿Inicializar inventario para este kiosko? Se crearán los productos faltantes en 0."
-      : "¿Inicializar inventario para TODOS los kioskos? Se crearán los productos faltantes en 0.";
+      ? "¿Inicializar inventario para este kiosko? Se crearán las variantes faltantes (por color y tallas de cincho) en 0."
+      : "¿Inicializar inventario para TODOS los kioskos? Se crearán las variantes faltantes (por color y tallas de cincho) en 0.";
     if (!window.confirm(confirmationMessage)) {
       return;
     }
