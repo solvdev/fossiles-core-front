@@ -269,9 +269,7 @@ function ensureCategorySubtotals(report) {
         inventarioFinal: rows.reduce((s, r) => s + Number(r.inventarioFinal || 0), 0),
         counts: cat.subtotal?.counts,
         total: rows.reduce((s, r) => s + Number(r.total || 0), 0),
-        diferencia:
-          rows.reduce((s, r) => s + Number(r.total || 0), 0)
-          - rows.reduce((s, r) => s + Number(r.inventarioFinal || 0), 0),
+        diferencia: rows.reduce((s, r) => s + Number(r.diferencia || 0), 0),
       },
     };
   });

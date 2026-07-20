@@ -76,7 +76,7 @@ export const sumDisplayRows = (rows) => {
   const sumField = (field) => rows.reduce((sum, row) => sum + Number(row[field] || 0), 0);
   const total = rows.reduce((sum, row) => sum + Number(row.total || 0), 0);
   const inventarioFinal = sumField("inventarioFinal");
-  // Diferencia = Σ físico − Σ sistema (positivos y negativos se compensan).
+  // Sumar diffs de fila: computeDiferenciaConteo no es lineal al agregar salidaDevolucion.
   return {
     inventarioInicial: sumField("inventarioInicial"),
     comprasAjustes: sumField("comprasAjustes"),
@@ -89,7 +89,7 @@ export const sumDisplayRows = (rows) => {
     inventarioFinal,
     counts: totalCounts,
     total,
-    diferencia: computeDiferenciaConteo(total, inventarioFinal, sumField("salidaDevolucion")),
+    diferencia: rows.reduce((sum, row) => sum + Number(row.diferencia || 0), 0),
   };
 };
 
