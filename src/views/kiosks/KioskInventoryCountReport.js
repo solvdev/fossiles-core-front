@@ -39,7 +39,15 @@ import {
 } from "services/kioskPosService";
 import { formatDateGt, formatDateTimeGt } from "utils/dateTimeHelper";
 import { exportConteoToExcel, exportConteoToPdf } from "utils/kioscoConteoExport";
-import { buildConteoDisplayReport, computeDiferenciaConteo, formatConteoSubtotalLabel, resolveLivePhysicalTotal, resolveLiveRowDiff } from "utils/kioscoConteoDisplay";
+import {
+  buildConteoDisplayReport,
+  computeDiferenciaConteo,
+  formatConteoDiffArrow,
+  formatConteoDiffDisplay,
+  formatConteoSubtotalLabel,
+  resolveLivePhysicalTotal,
+  resolveLiveRowDiff,
+} from "utils/kioscoConteoDisplay";
 import {
   applySyncItemsToReport,
   AUTO_SAVE_INTERVAL_MS,
@@ -457,6 +465,8 @@ function DataRow({
     }
     return locKey !== CINCHO_VITRINE_LOCATION;
   };
+  const diffArrow = formatConteoDiffArrow(diferencia);
+  const diffLabel = formatConteoDiffDisplay(diferencia);
   return (
     <tr>
       <td style={{ fontSize: 12 }}>
@@ -525,8 +535,8 @@ function DataRow({
             color: diffColor(diferencia),
             background: diffAlertBackground(diferencia),
           }}>
-            {diferencia !== 0 && <span style={{ marginRight: 2 }}>{diferencia > 0 ? "▲" : "▼"}</span>}
-            {diferencia > 0 ? `+${diferencia}` : diferencia}
+            {diffArrow && <span style={{ marginRight: 2 }}>{diffArrow}</span>}
+            {diffLabel}
           </td>
           <td style={{ fontSize: 11, padding: "2px 4px", verticalAlign: "middle" }}>
             <ObservationCell
@@ -545,6 +555,8 @@ function DataRow({
 // ─── Fila de subtotal / total ─────────────────────────────────────────────────
 function SummaryRow({ label, row, showKardex, kardexColumns, bg = "#f3f4f6", textColor = "#111", bold = false, vitrineOnlyView = false }) {
   const style = { background: bg, fontSize: 11, fontWeight: bold ? 700 : 600, color: textColor };
+  const diffArrow = formatConteoDiffArrow(row.diferencia);
+  const diffLabel = formatConteoDiffDisplay(row.diferencia ?? 0);
   return (
     <tr style={style}>
       <td colSpan={PRODUCT_INFO_COLS} style={style}>{label}</td>
@@ -562,10 +574,8 @@ function SummaryRow({ label, row, showKardex, kardexColumns, bg = "#f3f4f6", tex
             ...sumColStyle,
             color: diffColor(row.diferencia ?? 0),
           }}>
-            {(row.diferencia ?? 0) !== 0 && (
-              <span style={{ marginRight: 2 }}>{row.diferencia > 0 ? "▲" : "▼"}</span>
-            )}
-            {(row.diferencia ?? 0) > 0 ? `+${row.diferencia}` : row.diferencia ?? 0}
+            {diffArrow && <span style={{ marginRight: 2 }}>{diffArrow}</span>}
+            {diffLabel}
           </td>
           <td style={{ ...style, fontSize: 11 }} />
         </>
@@ -580,7 +590,7 @@ function DifferenceSummary({ totals, breakdown }) {
   const cards = [
     {
       label: "Total sobrante",
-      value: `+${breakdown.sobrante}`,
+      value: formatConteoDiffDisplay(breakdown.sobrante),
       detail: `${breakdown.conSobrante} producto${breakdown.conSobrante !== 1 ? "s" : ""} con físico > sistema`,
       border: "#bbf7d0",
       background: "#f0fdf4",
@@ -598,8 +608,8 @@ function DifferenceSummary({ totals, breakdown }) {
     },
     {
       label: "Neto (Dif. general)",
-      value: net > 0 ? `+${net}` : net,
-      detail: `Sobrante − faltante = ${net > 0 ? `+${net}` : net}`,
+      value: formatConteoDiffDisplay(net),
+      detail: `Sobrante − faltante = ${formatConteoDiffDisplay(net)}`,
       border: "#e5e7eb",
       background: "#f9fafb",
       labelColor: "#4b5563",
@@ -2293,8 +2303,8 @@ function KioskInventoryCountReport({ locationId, internalMode = false }) {
               <>
             <span><span style={{ color: "#111827", fontWeight: 700 }}>0</span> Sin diferencia</span>
             <span>
-              <span style={{ color: "#16a34a", fontWeight: 700, background: "#f0fdf4", padding: "1px 4px" }}>▲ +n</span>{" "}
-              Sobrante (físico &gt; sistema)
+              <span style={{ color: "#16a34a", fontWeight: 700, background: "#f0fdf4", padding: "1px 4px" }}>n</span>{" "}
+              Sobrante (físico &gt; sistema, número en verde)
             </span>
             <span>
               <span style={{ color: "#dc2626", fontWeight: 700, background: "#fef2f2", padding: "1px 4px" }}>▼ −n</span>{" "}

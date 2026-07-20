@@ -37,6 +37,16 @@ export const computeDiferenciaConteo = (total, inventarioFinal, salidaDevolucion
   return Math.max(0, raw - Math.max(0, Number(salidaDevolucion || 0)));
 };
 
+/** Sobrante: solo el número (verde en UI). Faltante: conserva el signo −. */
+export const formatConteoDiffDisplay = (diferencia) => String(Number(diferencia || 0));
+
+/** Indicador visual: solo faltante lleva ▼; sobrante va sin prefijo. */
+export const formatConteoDiffArrow = (diferencia) => {
+  const n = Number(diferencia || 0);
+  if (n < 0) return "▼";
+  return null;
+};
+
 export const resolveLiveRowDiff = (row, counts, physicalSizes, physicalSizesByLocation) =>
   computeDiferenciaConteo(
     resolveLivePhysicalTotal(row, counts, physicalSizes, physicalSizesByLocation),

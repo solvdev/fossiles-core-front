@@ -35,11 +35,7 @@ const diffColorRgb = (diferencia) => {
   return Number(diferencia) > 0 ? COLORS.diffOk : COLORS.diffBad;
 };
 
-const formatDiffValue = (diferencia) => {
-  const n = Number(diferencia || 0);
-  if (n > 0) return `+${n}`;
-  return n;
-};
+const formatDiffValue = (diferencia) => String(Number(diferencia || 0));
 
 const thinBorder = {
   top: { style: "thin", color: { rgb: COLORS.border } },
@@ -507,11 +503,11 @@ function paintDifferenceSummary(ws, report, startRow = 1) {
   const labelCol = 2;
   const valueCol = 3;
   const items = [
-    { label: "Total sobrante", value: `+${difference.surplus}`, color: COLORS.diffOk },
+    { label: "Total sobrante", value: String(difference.surplus), color: COLORS.diffOk },
     { label: "Total faltante", value: `−${difference.shortage}`, color: COLORS.diffBad },
     {
       label: "Neto (sobrante − faltante)",
-      value: net > 0 ? `+${net}` : String(net),
+      value: net > 0 ? String(net) : String(net),
       color: net === 0 ? "111827" : net > 0 ? COLORS.diffOk : COLORS.diffBad,
     },
   ];
