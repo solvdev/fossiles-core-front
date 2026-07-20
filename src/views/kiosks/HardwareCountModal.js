@@ -41,7 +41,6 @@ function HardwareCountModal({
       },
       total,
     });
-    toggle();
   };
 
   const nuevoLabel = HARDWARE_CONDITION_OPTIONS.find((o) => o.value === "NUEVO")?.label || "Herraje nuevo";

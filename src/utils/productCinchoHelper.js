@@ -62,18 +62,28 @@ export const formatInventarioFinalByHardware = (byHardware) => {
 };
 
 export const formatHardwareLocationSummary = (hardwareLocationCounts) => {
-  if (!hardwareLocationCounts) return "";
+  const { NUEVO, VIEJO } = sumHardwareLocationByCondition(hardwareLocationCounts);
+  const parts = [];
+  if (NUEVO > 0) parts.push(`NUEVO ${NUEVO}`);
+  if (VIEJO > 0) parts.push(`VIEJO ${VIEJO}`);
+  return parts.join(" · ");
+};
+
+/** Totales físicos NUEVO/VIEJO sumando todas las vitrinas del conteo. */
+export const sumHardwareLocationByCondition = (hardwareLocationCounts) => {
   let nuevo = 0;
   let viejo = 0;
-  Object.values(hardwareLocationCounts).forEach((locMap) => {
+  Object.values(hardwareLocationCounts || {}).forEach((locMap) => {
     nuevo += Number(locMap?.NUEVO || 0);
     viejo += Number(locMap?.VIEJO || 0);
   });
-  const parts = [];
-  if (nuevo > 0) parts.push(`NUEVO ${nuevo}`);
-  if (viejo > 0) parts.push(`VIEJO ${viejo}`);
-  return parts.join(" · ");
+  return { NUEVO: nuevo, VIEJO: viejo };
 };
+
+export const sumInventarioFinalByHardware = (byHardware) => ({
+  NUEVO: Number(byHardware?.NUEVO || 0),
+  VIEJO: Number(byHardware?.VIEJO || 0),
+});
 
 const hasHardwareLocationCounts = (hardwareLocationCounts) =>
   Boolean(

@@ -52,7 +52,6 @@ import {
   isFossCinchoProductRow,
   formatCinchoClassification,
   formatFossLocationSizeSummary,
-  formatInventarioFinalByHardware,
   getHardwareConditionLabel,
   rowUsesHardwareCountMode,
   productMatchesCinchoFilter,
@@ -62,6 +61,8 @@ import {
   rowKey,
   persistKey,
   sumSizeCounts,
+  sumHardwareLocationByCondition,
+  sumInventarioFinalByHardware,
   CINCHO_COUNT_LOCATION,
 } from "utils/productCinchoHelper";
 import { showError, showSuccess } from "utils/notificationHelper";
@@ -238,7 +239,7 @@ function CountTableColGroup({ showKardex, kardexColumns, vitrineOnlyView = false
       <col />
       <col />
       <col style={{ width: 88 }} />
-      <col style={{ width: 88 }} />
+      <col style={{ width: 108 }} />
       {showKardex && kardexColumns.map((col) => (
         <col key={col.key} style={{ width: LOC_COL_WIDTH }} />
       ))}
@@ -258,6 +259,35 @@ function CountTableColGroup({ showKardex, kardexColumns, vitrineOnlyView = false
 
 // ─── Celda de conteo editable ─────────────────────────────────────────────────
 function CountCell({ value, onChange, disabled, onOpen, readOnly }) {
+  const cellStyle = {
+    width: "100%",
+    maxWidth: LOC_COL_WIDTH - 8,
+    padding: "2px 4px",
+    fontSize: 12,
+    textAlign: "right",
+    border: "1px solid #d1d5db",
+    borderRadius: 4,
+    background: disabled ? "#f3f4f6" : value > 0 ? "#f0fdf4" : "#fff",
+    boxSizing: "border-box",
+  };
+
+  if (readOnly && onOpen) {
+    return (
+      <button
+        type="button"
+        onClick={onOpen}
+        disabled={disabled}
+        style={{
+          ...cellStyle,
+          cursor: disabled ? "not-allowed" : "pointer",
+          display: "block",
+        }}
+      >
+        {value ?? 0}
+      </button>
+    );
+  }
+
   return (
     <input
       type="number"
@@ -269,18 +299,79 @@ function CountCell({ value, onChange, disabled, onOpen, readOnly }) {
       onClick={onOpen}
       readOnly={readOnly}
       disabled={disabled}
-      style={{
-        width: "100%",
-        maxWidth: LOC_COL_WIDTH - 8,
-        padding: "2px 4px",
-        fontSize: 12,
-        textAlign: "right",
-        border: "1px solid #d1d5db",
-        borderRadius: 4,
-        background: disabled ? "#f3f4f6" : value > 0 ? "#f0fdf4" : "#fff",
-        boxSizing: "border-box",
-      }}
+      style={cellStyle}
     />
+  );
+}
+
+function HardwareQtyChips({ nuevo, viejo }) {
+  return (
+    <span style={{ display: "inline-flex", gap: 3, marginLeft: 3, verticalAlign: "middle" }}>
+      <span
+        title="Herraje nuevo"
+        style={{
+          fontSize: 10,
+          fontWeight: 700,
+          color: "#4338ca",
+          background: "#eef2ff",
+          padding: "1px 5px",
+          borderRadius: 4,
+          lineHeight: 1.2,
+        }}
+      >
+        N {Number(nuevo || 0)}
+      </span>
+      <span
+        title="Herraje viejo"
+        style={{
+          fontSize: 10,
+          fontWeight: 700,
+          color: "#b45309",
+          background: "#fffbeb",
+          padding: "1px 5px",
+          borderRadius: 4,
+          lineHeight: 1.2,
+        }}
+      >
+        V {Number(viejo || 0)}
+      </span>
+    </span>
+  );
+}
+
+/** Desglose N/V: sistema (kardex) vs físico (conteo por vitrina). */
+function HardwareSplitSummaryCell({ row, hardwareLocationCounts, useHardwareSplit, vitrineOnlyView }) {
+  if (!useHardwareSplit) {
+    const label = getHardwareConditionLabel(row.hardwareCondition);
+    return <span>{label !== "—" ? label : "—"}</span>;
+  }
+
+  const system = sumInventarioFinalByHardware(row.inventarioFinalByHardware);
+  const physical = sumHardwareLocationByCondition(hardwareLocationCounts);
+  const hasSystem = system.NUEVO > 0 || system.VIEJO > 0 || row.inventarioFinalByHardware;
+  const hasPhysical = physical.NUEVO > 0 || physical.VIEJO > 0;
+
+  return (
+    <div style={{ fontSize: 10, lineHeight: 1.45, minWidth: 96 }}>
+      {!vitrineOnlyView && (
+        <div style={{ whiteSpace: "nowrap" }}>
+          <span style={{ color: "#6b7280", fontWeight: 600 }}>Sist.</span>
+          {hasSystem || row.inventarioFinal != null ? (
+            <HardwareQtyChips nuevo={system.NUEVO} viejo={system.VIEJO} />
+          ) : (
+            <span style={{ color: "#9ca3af", marginLeft: 4 }}>—</span>
+          )}
+        </div>
+      )}
+      <div style={{ whiteSpace: "nowrap" }}>
+        <span style={{ color: "#6b7280", fontWeight: 600 }}>Fís.</span>
+        {hasPhysical ? (
+          <HardwareQtyChips nuevo={physical.NUEVO} viejo={physical.VIEJO} />
+        ) : (
+          <span style={{ color: "#9ca3af", marginLeft: 4 }}>—</span>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -388,21 +479,17 @@ function DataRow({
       <td style={{ fontSize: 11, color: "#374151", whiteSpace: "nowrap" }}>
         {formatCinchoClassification(row)}
       </td>
-      <td style={{ fontSize: 11, color: "#374151", whiteSpace: "nowrap" }}>
-        {getHardwareConditionLabel(row.hardwareCondition)}
+      <td style={{ fontSize: 11, color: "#374151", verticalAlign: "middle" }}>
+        <HardwareSplitSummaryCell
+          row={row}
+          hardwareLocationCounts={editedHardwareLocationCounts?.[rKey] ?? row.hardwareLocationCounts}
+          useHardwareSplit={useHardwareModal}
+          vitrineOnlyView={vitrineOnlyView}
+        />
       </td>
       {showKardex && kardexColumns.map((col) => (
         <td key={col.key} className="text-right" style={{ fontSize: 11, color: col.key === "inventarioFinal" ? "#111" : "#6b7280" }}>
-          {col.key === "inventarioFinal" && row.inventarioFinalByHardware && useHardwareModal ? (
-            <div>
-              <div>{row[col.key]}</div>
-              <div style={{ fontSize: 9, color: "#6366f1", whiteSpace: "nowrap" }}>
-                {formatInventarioFinalByHardware(row.inventarioFinalByHardware)}
-              </div>
-            </div>
-          ) : (
-            row[col.key]
-          )}
+          {row[col.key]}
         </td>
       ))}
       {COUNT_LOCATION_KEYS.map((locKey) => (
@@ -1081,6 +1168,13 @@ function KioskInventoryCountReport({ locationId, internalMode = false }) {
     });
   };
 
+  const closeHardwareModal = () => {
+    if (document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
+    setHardwareModal(null);
+  };
+
   const handleApplyHardwareModal = ({ locationKey, hardwareCounts, total }) => {
     if (!hardwareModal?.rowKey) return;
     const rKey = hardwareModal.rowKey;
@@ -1099,7 +1193,7 @@ function KioskInventoryCountReport({ locationId, internalMode = false }) {
       synced[locationKey] = total;
       return { ...prev, [rKey]: synced };
     });
-    setHardwareModal(null);
+    closeHardwareModal();
   };
 
   const buildDirtyItemsPayload = () => {
@@ -1954,7 +2048,10 @@ function KioskInventoryCountReport({ locationId, internalMode = false }) {
                   <th style={thStyle}>Color</th>
                   <th style={thStyle}>Talla</th>
                   <th style={thStyle}>Tipo</th>
-                  <th style={thStyle}>Herraje</th>
+                  <th style={{ ...thStyle, minWidth: 96 }} title="Herraje nuevo (N) y viejo (V) — sistema y conteo físico">
+                    Herraje
+                    <div style={{ fontWeight: 400, fontSize: 9, color: "#6b7280" }}>N · V</div>
+                  </th>
                   {tableShowKardex && kardexColumns.map((col) => (
                     <th key={col.key} style={{ ...thStyle, background: "#eef2ff" }} title={col.title}>{col.label}</th>
                   ))}
@@ -2043,7 +2140,7 @@ function KioskInventoryCountReport({ locationId, internalMode = false }) {
 
       <HardwareCountModal
         isOpen={hardwareModal != null}
-        toggle={() => setHardwareModal(null)}
+        toggle={closeHardwareModal}
         productLabel={hardwareModal?.productLabel}
         locationKey={hardwareModal?.locationKey}
         initialCounts={hardwareModal?.initialCounts}
