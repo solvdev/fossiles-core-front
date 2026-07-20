@@ -90,29 +90,46 @@ function formatProductLabel(row) {
   return hardware ? `${base} · ${hardware}` : base;
 }
 
-function colLayout(showKardex, includeVitrines = true) {
+function colLayout(showKardex, includeVitrines = true, vitrineOnly = false) {
   const kardexCount = showKardex ? KARDEX_HEADERS.length : 0;
   const kardexStart = PRODUCT_COL_COUNT;
   if (!includeVitrines) {
     const colCount = PRODUCT_COL_COUNT + kardexCount;
     return {
       includeVitrines: false,
+      vitrineOnly,
       kardexCount,
       kardexStart,
       separatorCol: -1,
       vitrineStart: colCount,
       totalCol: -1,
       diffCol: -1,
+      obsCol: -1,
       colCount,
     };
   }
   const separatorCol = kardexStart + kardexCount;
   const vitrineStart = separatorCol + 1;
   const totalCol = vitrineStart + COUNT_LOCATION_KEYS.length;
+  if (vitrineOnly) {
+    return {
+      includeVitrines: true,
+      vitrineOnly: true,
+      kardexCount,
+      kardexStart,
+      separatorCol,
+      vitrineStart,
+      totalCol,
+      diffCol: -1,
+      obsCol: -1,
+      colCount: totalCol + 1,
+    };
+  }
   const diffCol = totalCol + 1;
   const obsCol = diffCol + 1;
   return {
     includeVitrines: true,
+    vitrineOnly: false,
     kardexCount,
     kardexStart,
     separatorCol,
@@ -124,12 +141,15 @@ function colLayout(showKardex, includeVitrines = true) {
   };
 }
 
+const isInternalCountReport = (report) => report?.reportType === "INTERNO_ENCARGADA";
+
 function resolveExportOptions(report, options = {}) {
-  const showKardex = options.showKardex !== false;
+  const vitrineOnly = options.vitrineOnly === true || isInternalCountReport(report);
+  const showKardex = vitrineOnly ? false : options.showKardex !== false;
   const subcount = isSubcountReport(report);
   const includeVitrines =
     options.includeVitrines != null ? Boolean(options.includeVitrines) : !subcount;
-  return { showKardex, includeVitrines, subcount };
+  return { showKardex, includeVitrines, subcount, vitrineOnly };
 }
 
 function calculateDifferenceBreakdown(report) {
@@ -149,7 +169,20 @@ function calculateDifferenceBreakdown(report) {
     );
 }
 
-function buildHeaderRows(report, includeVitrines = true) {
+function buildHeaderRows(report, includeVitrines = true, vitrineOnly = false) {
+  if (vitrineOnly) {
+    const rows = [
+      ["Conteo interno encargada — por vitrina"],
+      ["Kiosko", report.locationName || report.locationCode || "—"],
+      ["Fecha", report.periodFrom || report.asOfDate || "—"],
+      ["Estado", report.status || "—"],
+      ["Encargada", report.generatedByName || "—"],
+      ["Notas", report.notes || ""],
+      ["Exportado", formatNowGt()],
+    ];
+    rows.push([]);
+    return rows;
+  }
   const subcount = isSubcountReport(report);
   const rows = [
     [subcount ? "Inventario sistema al corte (sin vitrinas)" : "Conteo físico de inventario kiosco"],
@@ -174,9 +207,9 @@ function buildHeaderRows(report, includeVitrines = true) {
 }
 
 /** Encabezado fijo: Código + Producto + kardex (hasta el separador). */
-function buildKardexHeaderCells(showKardex, report, includeVitrines = true) {
+function buildKardexHeaderCells(showKardex, report, includeVitrines = true, vitrineOnly = false) {
   const kardexHeaders = resolveKardexHeaders(report);
-  const layout = colLayout(showKardex, includeVitrines);
+  const layout = colLayout(showKardex, includeVitrines, vitrineOnly);
   const cells = Array(layout.colCount).fill("");
   cells[0] = "Código";
   cells[1] = "Producto";
@@ -192,22 +225,24 @@ function buildKardexHeaderCells(showKardex, report, includeVitrines = true) {
 }
 
 /** Encabezados de vitrinas (por categoría). */
-function buildVitrineHeaderCells(showKardex, report) {
-  const layout = colLayout(showKardex, true);
+function buildVitrineHeaderCells(showKardex, report, vitrineOnly = false) {
+  const layout = colLayout(showKardex, true, vitrineOnly);
   const cells = Array(layout.colCount).fill("");
   COUNT_LOCATION_KEYS.forEach((key, index) => {
     cells[layout.vitrineStart + index] = key;
   });
   cells[layout.totalCol] = "Total físico";
-  cells[layout.diffCol] = "Diferencia";
-  cells[layout.obsCol] = "Observaciones";
+  if (!vitrineOnly) {
+    cells[layout.diffCol] = "Diferencia";
+    cells[layout.obsCol] = "Observaciones";
+  }
   cells[layout.separatorCol] = "";
   return cells;
 }
 
-function buildDataRowCells(row, showKardex, report, includeVitrines = true) {
+function buildDataRowCells(row, showKardex, report, includeVitrines = true, vitrineOnly = false) {
   const kardexHeaders = resolveKardexHeaders(report);
-  const layout = colLayout(showKardex, includeVitrines);
+  const layout = colLayout(showKardex, includeVitrines, vitrineOnly);
   const { kardexStart, separatorCol, vitrineStart, totalCol, diffCol, obsCol, colCount } = layout;
   const cells = Array(colCount).fill("");
   cells[0] = row.productCode || "";
@@ -222,14 +257,16 @@ function buildDataRowCells(row, showKardex, report, includeVitrines = true) {
       cells[vitrineStart + index] = (row.counts || {})[key] ?? 0;
     });
     cells[totalCol] = row.total ?? 0;
-    cells[diffCol] = formatDiffValue(row.diferencia ?? 0);
-    cells[obsCol] = Number(row.diferencia || 0) !== 0 ? (row.observation || "") : "";
+    if (!vitrineOnly) {
+      cells[diffCol] = formatDiffValue(row.diferencia ?? 0);
+      cells[obsCol] = Number(row.diferencia || 0) !== 0 ? (row.observation || "") : "";
+    }
     cells[separatorCol] = "";
   }
   return cells;
 }
 
-function buildSubtotalCells(label, sub, showKardex, report, includeVitrines = true) {
+function buildSubtotalCells(label, sub, showKardex, report, includeVitrines = true, vitrineOnly = false) {
   const cells = buildDataRowCells(
     {
       productCode: label.startsWith("TOTAL") ? label : "",
@@ -243,7 +280,8 @@ function buildSubtotalCells(label, sub, showKardex, report, includeVitrines = tr
     },
     showKardex,
     report,
-    includeVitrines
+    includeVitrines,
+    vitrineOnly
   );
   if (label.startsWith("TOTAL")) {
     cells[0] = label;
@@ -279,20 +317,20 @@ function ensureCategorySubtotals(report) {
   return { ...report, categories };
 }
 
-function buildSheetStructure(report, showKardex, includeVitrines = true) {
+function buildSheetStructure(report, showKardex, includeVitrines = true, vitrineOnly = false) {
   const prepared = ensureCategorySubtotals(report);
-  const layout = colLayout(showKardex, includeVitrines);
+  const layout = colLayout(showKardex, includeVitrines, vitrineOnly);
   const { colCount } = layout;
   const rows = [];
   const meta = [];
 
-  buildHeaderRows(prepared, includeVitrines).forEach((row) => {
+  buildHeaderRows(prepared, includeVitrines, vitrineOnly).forEach((row) => {
     rows.push(row);
     meta.push({ type: "meta" });
   });
 
   // Encabezado único de kardex (congelado arriba); vitrinas van por categoría.
-  rows.push(buildKardexHeaderCells(showKardex, prepared, includeVitrines));
+  rows.push(buildKardexHeaderCells(showKardex, prepared, includeVitrines, vitrineOnly));
   meta.push({ type: "kardex-headers" });
 
   (prepared.categories || []).forEach((cat) => {
@@ -302,15 +340,15 @@ function buildSheetStructure(report, showKardex, includeVitrines = true) {
     meta.push({ type: "category-title" });
 
     if (includeVitrines) {
-      rows.push(buildVitrineHeaderCells(showKardex, prepared));
+      rows.push(buildVitrineHeaderCells(showKardex, prepared, vitrineOnly));
       meta.push({ type: "vitrine-headers" });
     }
 
     (cat.rows || []).forEach((row, rowIndex) => {
-      rows.push(buildDataRowCells(row, showKardex, prepared, includeVitrines));
+      rows.push(buildDataRowCells(row, showKardex, prepared, includeVitrines, vitrineOnly));
       meta.push({
         type: "data",
-        isAlert: includeVitrines && Math.abs(row.diferencia ?? 0) >= DIFF_ALERT_THRESHOLD,
+        isAlert: !vitrineOnly && includeVitrines && Math.abs(row.diferencia ?? 0) >= DIFF_ALERT_THRESHOLD,
         isZebra: rowIndex % 2 === 1,
         diferencia: row.diferencia ?? 0,
       });
@@ -324,7 +362,8 @@ function buildSheetStructure(report, showKardex, includeVitrines = true) {
           subtotal,
           showKardex,
           prepared,
-          includeVitrines
+          includeVitrines,
+          vitrineOnly
         )
       );
       meta.push({ type: "subtotal" });
@@ -334,9 +373,8 @@ function buildSheetStructure(report, showKardex, includeVitrines = true) {
     meta.push({ type: "blank" });
   });
 
-  // Con vitrinas: TOTAL GENERAL global. Sin vitrinas (inventario a fecha): solo subtotales por categoría.
   if (includeVitrines && prepared.totalGeneral) {
-    rows.push(buildSubtotalCells("TOTAL GENERAL", prepared.totalGeneral, showKardex, prepared, includeVitrines));
+    rows.push(buildSubtotalCells("TOTAL GENERAL", prepared.totalGeneral, showKardex, prepared, includeVitrines, vitrineOnly));
     meta.push({ type: "total-general" });
   }
 
@@ -363,13 +401,14 @@ function styleRowRange(ws, rowIdx, colCount, style) {
 }
 
 function isNumericCol(colIdx, layout) {
-  const { kardexStart, separatorCol, vitrineStart, diffCol, obsCol, includeVitrines } = layout;
+  const { kardexStart, separatorCol, vitrineStart, totalCol, diffCol, obsCol, includeVitrines } = layout;
   if (colIdx < PRODUCT_COL_COUNT) return false;
   if (includeVitrines && colIdx === separatorCol) return false;
-  if (includeVitrines && colIdx === obsCol) return false;
+  if (includeVitrines && obsCol >= 0 && colIdx === obsCol) return false;
   if (!includeVitrines) return colIdx >= kardexStart;
   if (colIdx >= kardexStart && colIdx < separatorCol) return true;
-  if (colIdx >= vitrineStart && colIdx <= diffCol) return true;
+  const lastCountCol = layout.vitrineOnly ? totalCol : diffCol;
+  if (colIdx >= vitrineStart && colIdx <= lastCountCol) return true;
   return false;
 }
 
@@ -548,10 +587,10 @@ function paintColorLegend(ws, startRow = 1) {
   ws["!ref"] = XLSX.utils.encode_range(range);
 }
 
-function applyConteoSheetStyles(ws, report, showKardex, includeVitrines = true) {
-  const { meta, layout } = buildSheetStructure(report, showKardex, includeVitrines);
+function applyConteoSheetStyles(ws, report, showKardex, includeVitrines = true, vitrineOnly = false) {
+  const { meta, layout } = buildSheetStructure(report, showKardex, includeVitrines, vitrineOnly);
   const { colCount, separatorCol, diffCol, includeVitrines: withVitrines } = layout;
-  const headerOffset = buildHeaderRows(report, includeVitrines).length;
+  const headerOffset = buildHeaderRows(report, includeVitrines, vitrineOnly).length;
   const merges = [{ s: { r: 0, c: 0 }, e: { r: 0, c: Math.max(colCount - 1, 0) } }];
   const kardexHeaderRow = headerOffset;
 
@@ -580,10 +619,12 @@ function applyConteoSheetStyles(ws, report, showKardex, includeVitrines = true) 
     });
   }
 
-  if (includeVitrines) {
+  if (includeVitrines && !vitrineOnly) {
     paintDifferenceSummary(ws, report, 1);
   }
-  paintColorLegend(ws, 1);
+  if (!vitrineOnly) {
+    paintColorLegend(ws, 1);
+  }
 
   meta.slice(headerOffset).forEach((entry, offset) => {
     const currentRow = headerOffset + offset;
@@ -607,7 +648,7 @@ function applyConteoSheetStyles(ws, report, showKardex, includeVitrines = true) 
     }
     if (entry.type === "data") {
       const absDiff = Math.abs(Number(entry.diferencia || 0));
-      const isAlert = withVitrines && absDiff >= DIFF_ALERT_THRESHOLD;
+      const isAlert = !vitrineOnly && withVitrines && absDiff >= DIFF_ALERT_THRESHOLD;
       const alertFill = Number(entry.diferencia || 0) > 0 ? "F0FDF4" : COLORS.alertBg;
       const rowFill = isAlert ? alertFill : entry.isZebra ? COLORS.zebraBg : "FFFFFF";
       const diffColor = diffColorRgb(entry.diferencia);
@@ -619,8 +660,8 @@ function applyConteoSheetStyles(ws, report, showKardex, includeVitrines = true) 
           font: {
             name: "Arial",
             sz: 10,
-            bold: withVitrines && colIdx === diffCol,
-            color: { rgb: withVitrines && colIdx === diffCol ? diffColor : "111827" },
+            bold: !vitrineOnly && withVitrines && colIdx === diffCol,
+            color: { rgb: !vitrineOnly && withVitrines && colIdx === diffCol ? diffColor : "111827" },
           },
           alignment: {
             vertical: "center",
@@ -694,23 +735,27 @@ function applyConteoSheetStyles(ws, report, showKardex, includeVitrines = true) 
 }
 
 export function exportConteoToExcel(report, options = {}) {
-  const { showKardex, includeVitrines } = resolveExportOptions(report, options);
+  const { showKardex, includeVitrines, vitrineOnly } = resolveExportOptions(report, options);
   const prepared = ensureCategorySubtotals(report);
-  const { rows } = buildSheetStructure(prepared, showKardex, includeVitrines);
+  const { rows } = buildSheetStructure(prepared, showKardex, includeVitrines, vitrineOnly);
   const ws = XLSX.utils.aoa_to_sheet(rows);
-  applyConteoSheetStyles(ws, prepared, showKardex, includeVitrines);
+  applyConteoSheetStyles(ws, prepared, showKardex, includeVitrines, vitrineOnly);
 
   const wb = XLSX.utils.book_new();
-  const sheetName = isSubcountReport(prepared)
-    ? "Inventario al corte"
-    : "Conteo físico";
+  const sheetName = vitrineOnly
+    ? "Conteo interno"
+    : isSubcountReport(prepared)
+      ? "Inventario al corte"
+      : "Conteo físico";
   XLSX.utils.book_append_sheet(wb, ws, sheetName);
 
   const loc = prepared.locationCode || "kiosko";
-  const suffix = isSubcountReport(prepared)
-    ? `Inventario_${loc}_${prepared.asOfDate || ""}`
-    : `${loc}_${prepared.periodFrom || ""}_${prepared.periodTo || ""}`;
-  XLSX.writeFile(wb, `Conteo_Fisico_${suffix}.xlsx`);
+  const suffix = vitrineOnly
+    ? `Interno_${loc}_${prepared.periodFrom || prepared.asOfDate || ""}`
+    : isSubcountReport(prepared)
+      ? `Inventario_${loc}_${prepared.asOfDate || ""}`
+      : `${loc}_${prepared.periodFrom || ""}_${prepared.periodTo || ""}`;
+  XLSX.writeFile(wb, vitrineOnly ? `Conteo_Interno_${suffix}.xlsx` : `Conteo_Fisico_${suffix}.xlsx`);
 }
 
 export function exportConteoToPdf(report, options = {}) {
