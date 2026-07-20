@@ -29,6 +29,13 @@ import {
   startKioscoConteo,
   terminarKioscoConteo,
 } from "services/kioscoInventoryService";
+import {
+  getInternalCountReport,
+  listInternalCountHistory,
+  saveInternalCountItems,
+  saveInternalCountSnapshot,
+  startInternalCount,
+} from "services/kioskPosService";
 import { formatDateGt, formatDateTimeGt } from "utils/dateTimeHelper";
 import { exportConteoToExcel, exportConteoToPdf } from "utils/kioscoConteoExport";
 import { buildConteoDisplayReport, computeDiferenciaConteo, formatConteoSubtotalLabel, resolveLivePhysicalTotal, resolveLiveRowDiff } from "utils/kioscoConteoDisplay";
@@ -45,7 +52,9 @@ import {
   isFossCinchoProductRow,
   formatCinchoClassification,
   formatFossLocationSizeSummary,
+  formatInventarioFinalByHardware,
   getHardwareConditionLabel,
+  rowUsesHardwareCountMode,
   productMatchesCinchoFilter,
   productMatchesSearchFilter,
   resolvePhysicalSizesSummary,
@@ -57,6 +66,10 @@ import {
 } from "utils/productCinchoHelper";
 import { showError, showSuccess } from "utils/notificationHelper";
 import CinchoCountDetailModal from "./CinchoCountDetailModal";
+import HardwareCountModal, {
+  buildHardwareLocationCounts,
+  syncCountsFromHardware,
+} from "./HardwareCountModal";
 
 const COUNT_LOCATION_KEYS = ["V1", "V2", "V3", "V4", "V5", "V6", "V7", "E", "BO"];
 const CINCHO_VITRINE_LOCATION = CINCHO_COUNT_LOCATION.VITRINE;
@@ -87,7 +100,8 @@ const sumColStyle = {
  * KioscoInventoryCountService.DIFF_ALERT_THRESHOLD en el backend. */
 const DIFF_ALERT_THRESHOLD = 3;
 
-function conteoStatusMeta(status) {
+function conteoStatusMeta(status, internalMode = false) {
+  if (internalMode && status === "SAVED") return { label: "Guardado", color: "success" };
   if (status === "CERRADO") return { label: "🔒 Cerrado", color: "secondary" };
   if (status === "REVISADO") return { label: "✓ Revisado", color: "success" };
   if (status === "CONTADO") return { label: "✓ Contado", color: "info" };
@@ -238,7 +252,7 @@ function CountTableColGroup({ showKardex, kardexColumns }) {
 }
 
 // ─── Celda de conteo editable ─────────────────────────────────────────────────
-function CountCell({ value, onChange, disabled }) {
+function CountCell({ value, onChange, disabled, onOpen, readOnly }) {
   return (
     <input
       type="number"
@@ -246,6 +260,9 @@ function CountCell({ value, onChange, disabled }) {
       step="1"
       value={value ?? 0}
       onChange={(e) => onChange(e.target.value === "" ? 0 : Number(e.target.value))}
+      onFocus={onOpen}
+      onClick={onOpen}
+      readOnly={readOnly}
       disabled={disabled}
       style={{
         width: "100%",
@@ -306,13 +323,22 @@ function DataRow({
   onCountChange,
   onObservationChange,
   onOpenCinchoModal,
+  onOpenHardwareModal,
   disabled,
+  editedHardwareLocationCounts,
 }) {
   const total = resolveLivePhysicalTotal(row, counts, physicalSizes, physicalSizesByLocation);
   const diferencia = computeDiferenciaConteo(total, Number(row.inventarioFinal || 0), row.salidaDevolucion);
   const isCincho = isCinchoProductRow(row);
   const isFoss = isFossCinchoProductRow(row);
   const isExpandedSizeRow = !!row.sizeLabel;
+  const rKey = rowKey(row);
+  const useHardwareModal = isCincho && !isExpandedSizeRow && !isFoss && rowUsesHardwareCountMode({
+    hardwareLocationCounts: editedHardwareLocationCounts?.[rKey] ?? row.hardwareLocationCounts,
+    counts,
+    physicalSizes,
+    physicalSizesByLocation,
+  });
   const physicalSummary = !isExpandedSizeRow && isFoss && physicalSizesByLocation
     ? formatFossLocationSizeSummary(physicalSizesByLocation)
     : !isExpandedSizeRow ? resolvePhysicalSizesSummary({ ...row, physicalSizes }) : "";
@@ -361,7 +387,16 @@ function DataRow({
       </td>
       {showKardex && kardexColumns.map((col) => (
         <td key={col.key} className="text-right" style={{ fontSize: 11, color: col.key === "inventarioFinal" ? "#111" : "#6b7280" }}>
-          {row[col.key]}
+          {col.key === "inventarioFinal" && row.inventarioFinalByHardware && useHardwareModal ? (
+            <div>
+              <div>{row[col.key]}</div>
+              <div style={{ fontSize: 9, color: "#6366f1", whiteSpace: "nowrap" }}>
+                {formatInventarioFinalByHardware(row.inventarioFinalByHardware)}
+              </div>
+            </div>
+          ) : (
+            row[col.key]
+          )}
         </td>
       ))}
       {COUNT_LOCATION_KEYS.map((locKey) => (
@@ -370,6 +405,12 @@ function DataRow({
             value={counts[locKey]}
             onChange={(v) => onCountChange(locKey, v)}
             disabled={disabled || countLocationDisabled(locKey)}
+            readOnly={useHardwareModal && !countLocationDisabled(locKey)}
+            onOpen={
+              useHardwareModal && !disabled && !countLocationDisabled(locKey)
+                ? () => onOpenHardwareModal(locKey)
+                : undefined
+            }
           />
         </td>
       ))}
@@ -533,10 +574,12 @@ function CategoryGroup({
   editedCounts,
   editedSizeCounts,
   editedSizeCountsByLocation,
+  editedHardwareLocationCounts,
   editedObservations,
   onCountChange,
   onObservationChange,
   onOpenCinchoModal,
+  onOpenHardwareModal,
   disabled,
 }) {
   const [collapsed, setCollapsed] = useState(false);
@@ -591,7 +634,9 @@ function CategoryGroup({
                 onCountChange={(locKey, v) => onCountChange(rKey, locKey, v)}
                 onObservationChange={(v) => onObservationChange(rKey, v)}
                 onOpenCinchoModal={onOpenCinchoModal}
+                onOpenHardwareModal={(locKey) => onOpenHardwareModal(rKey, locKey, row)}
                 disabled={disabled}
+                editedHardwareLocationCounts={editedHardwareLocationCounts}
               />
             );
           })}
@@ -608,7 +653,7 @@ function CategoryGroup({
 }
 
 // ─── Componente principal ─────────────────────────────────────────────────────
-function KioskInventoryCountReport({ locationId }) {
+function KioskInventoryCountReport({ locationId, internalMode = false }) {
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [report, setReport] = useState(null);
@@ -625,6 +670,8 @@ function KioskInventoryCountReport({ locationId }) {
   const [editedSizeCounts, setEditedSizeCounts] = useState({});
   const [editedSizeCountsByLocation, setEditedSizeCountsByLocation] = useState({});
   const [editedObservations, setEditedObservations] = useState({});
+  const [editedHardwareLocationCounts, setEditedHardwareLocationCounts] = useState({});
+  const [hardwareModal, setHardwareModal] = useState(null);
   const [cinchoModalProductId, setCinchoModalProductId] = useState(null);
   const [historial, setHistorial] = useState([]);
   const [loadingHistorial, setLoadingHistorial] = useState(false);
@@ -639,6 +686,12 @@ function KioskInventoryCountReport({ locationId }) {
   const [subcountAsOf, setSubcountAsOf] = useState("");
   const [loadingSubcount, setLoadingSubcount] = useState(false);
   const [exportingCutoff, setExportingCutoff] = useState(false);
+  const [savingSnapshot, setSavingSnapshot] = useState(false);
+  const [internalNotes, setInternalNotes] = useState("");
+
+  useEffect(() => {
+    if (internalMode) setShowKardex(true);
+  }, [internalMode]);
 
   const isSubcountView = report?.reportType === "SUBCONTEO";
   const kardexColumns = useMemo(() => resolveKardexColumns(isSubcountView), [isSubcountView]);
@@ -687,6 +740,27 @@ function KioskInventoryCountReport({ locationId }) {
     [cinchoModalRows]
   );
 
+  const cinchoModalHardwareSplit = useMemo(() => {
+    if (!cinchoModalRows.length) return true;
+    const parentRows = cinchoModalRows.filter((row) => !row.sizeLabel);
+    const rowsToCheck = parentRows.length ? parentRows : cinchoModalRows;
+    return rowsToCheck.every((row) => {
+      const key = rowKey(row);
+      return rowUsesHardwareCountMode({
+        hardwareLocationCounts: editedHardwareLocationCounts[key] ?? row.hardwareLocationCounts,
+        counts: editedCounts[key] ?? row.counts,
+        physicalSizes: editedSizeCounts[key] ?? row.physicalSizes,
+        physicalSizesByLocation: editedSizeCountsByLocation[key] ?? row.physicalSizesByLocation,
+      });
+    });
+  }, [
+    cinchoModalRows,
+    editedHardwareLocationCounts,
+    editedCounts,
+    editedSizeCounts,
+    editedSizeCountsByLocation,
+  ]);
+
   const filteredTotalGeneral = useMemo(() => {
     const allRows = filteredCategories.flatMap((c) => c.rows);
     if (allRows.length === 0) return null;
@@ -719,25 +793,30 @@ function KioskInventoryCountReport({ locationId }) {
     }
     try {
       setLoadingHistorial(true);
-      const data = await getKioscoConteoHistorial(Number(locId));
+      const data = internalMode
+        ? await listInternalCountHistory(Number(locId))
+        : await getKioscoConteoHistorial(Number(locId));
       setHistorial(data || []);
     } catch {
       setHistorial([]);
     } finally {
       setLoadingHistorial(false);
     }
-  }, []);
+  }, [internalMode]);
 
   useEffect(() => {
     void loadHistorial(locationId);
-    setReport(null);
-    setPrincipalReport(null);
-    setSubcountAsOf("");
+    if (!internalMode) {
+      setReport(null);
+      setPrincipalReport(null);
+      setSubcountAsOf("");
+    }
     setEditedCounts({});
     setEditedSizeCounts({});
     setEditedSizeCountsByLocation({});
+    setEditedHardwareLocationCounts({});
     setEditedObservations({});
-  }, [locationId, loadHistorial]);
+  }, [locationId, loadHistorial, internalMode]);
 
   const openReport = (data, { isPrincipal = true } = {}) => {
     setReport(data);
@@ -750,11 +829,28 @@ function KioskInventoryCountReport({ locationId }) {
     setEditedCounts({});
     setEditedSizeCounts({});
     setEditedSizeCountsByLocation({});
+    setEditedHardwareLocationCounts({});
     setEditedObservations({});
     setReviewNotes(data.notes || "");
     setShowReviewBox(false);
     setCinchoModalProductId(null);
   };
+
+  useEffect(() => {
+    if (!internalMode || !locationId) return;
+    const loadDraft = async () => {
+      try {
+        setLoading(true);
+        const data = await startInternalCount(Number(locationId));
+        openReport(data);
+      } catch (err) {
+        showError(err.message || "No se pudo cargar el conteo interno.");
+      } finally {
+        setLoading(false);
+      }
+    };
+    void loadDraft();
+  }, [internalMode, locationId]);
 
   const handleOpen = async () => {
     if (!locationId || !from || !to) {
@@ -776,8 +872,10 @@ function KioskInventoryCountReport({ locationId }) {
   const handleLoadSession = async (countId) => {
     try {
       setLoading(true);
-      const data = await getKioscoConteoReport(countId);
-      openReport(data, { isPrincipal: true });
+      const data = internalMode
+        ? await getInternalCountReport(countId)
+        : await getKioscoConteoReport(countId);
+      openReport(data, { isPrincipal: !internalMode });
     } catch (err) {
       showError(err.message || "No se pudo cargar el conteo.");
     } finally {
@@ -813,6 +911,7 @@ function KioskInventoryCountReport({ locationId }) {
       setEditedCounts({});
       setEditedSizeCounts({});
       setEditedSizeCountsByLocation({});
+    setEditedHardwareLocationCounts({});
       setEditedObservations({});
       setCinchoModalProductId(null);
       setShowKardex(true);
@@ -871,6 +970,7 @@ function KioskInventoryCountReport({ locationId }) {
     setEditedCounts({});
     setEditedSizeCounts({});
     setEditedSizeCountsByLocation({});
+    setEditedHardwareLocationCounts({});
     setEditedObservations({});
     setCinchoModalProductId(null);
   };
@@ -918,11 +1018,15 @@ function KioskInventoryCountReport({ locationId }) {
     fossMode,
     sizeCountsByRowKey,
     sizeCountsByLocationByRowKey,
+    hardwareLocationCountsByRowKey,
     applyToVitrine,
   }) => {
     setEditedSizeCounts((prev) => ({ ...prev, ...sizeCountsByRowKey }));
     if (fossMode && sizeCountsByLocationByRowKey) {
       setEditedSizeCountsByLocation((prev) => ({ ...prev, ...sizeCountsByLocationByRowKey }));
+    }
+    if (hardwareLocationCountsByRowKey) {
+      setEditedHardwareLocationCounts((prev) => ({ ...prev, ...hardwareLocationCountsByRowKey }));
     }
 
     const shouldApplyLocations = fossMode || applyToVitrine;
@@ -938,6 +1042,11 @@ function KioskInventoryCountReport({ locationId }) {
             prev[rKey],
             baseRow?.counts || {}
           );
+        } else if (hardwareLocationCountsByRowKey?.[rKey]) {
+          next[rKey] = syncCountsFromHardware(
+            prev[rKey] || baseRow?.counts || {},
+            hardwareLocationCountsByRowKey[rKey]
+          );
         } else {
           const sizeTotal = sumSizeCounts(sizes);
           next[rKey] = applySizeTotalToLocations(sizeTotal, prev[rKey], baseRow?.counts || {});
@@ -945,6 +1054,36 @@ function KioskInventoryCountReport({ locationId }) {
       });
       return next;
     });
+  };
+
+  const handleOpenHardwareModal = (rKey, locationKey, row) => {
+    setHardwareModal({
+      rowKey: rKey,
+      locationKey,
+      productLabel: `${row.productCode || ""} ${row.productName || ""}`.trim(),
+      initialCounts: (editedHardwareLocationCounts[rKey] || row.hardwareLocationCounts || {})[locationKey],
+    });
+  };
+
+  const handleApplyHardwareModal = ({ locationKey, hardwareCounts, total }) => {
+    if (!hardwareModal?.rowKey) return;
+    const rKey = hardwareModal.rowKey;
+    setEditedHardwareLocationCounts((prev) => {
+      const merged = buildHardwareLocationCounts(prev[rKey] || {}, locationKey, hardwareCounts);
+      return { ...prev, [rKey]: merged };
+    });
+    setEditedCounts((prev) => {
+      const baseRow = allReportRows.find((r) => rowKey(r) === rKey);
+      const nextLocCounts = buildHardwareLocationCounts(
+        editedHardwareLocationCounts[rKey] || baseRow?.hardwareLocationCounts || {},
+        locationKey,
+        hardwareCounts
+      );
+      const synced = syncCountsFromHardware(prev[rKey] || baseRow?.counts || {}, nextLocCounts);
+      synced[locationKey] = total;
+      return { ...prev, [rKey]: synced };
+    });
+    setHardwareModal(null);
   };
 
   const buildDirtyItemsPayload = () => {
@@ -956,6 +1095,7 @@ function KioskInventoryCountReport({ locationId }) {
     Object.keys(editedCounts).forEach(markDirty);
     Object.keys(editedSizeCounts).forEach(markDirty);
     Object.keys(editedSizeCountsByLocation).forEach(markDirty);
+    Object.keys(editedHardwareLocationCounts).forEach(markDirty);
     Object.keys(editedObservations).forEach(markDirty);
     if (dirtyPersistKeys.size === 0) return null;
 
@@ -978,7 +1118,13 @@ function KioskInventoryCountReport({ locationId }) {
           productId: sample.productId,
           colorId: sample.colorId || null,
         };
-        if (editedCounts[rKey]) {
+        if (Object.prototype.hasOwnProperty.call(editedHardwareLocationCounts, rKey)) {
+          item.hardwareLocationCounts = editedHardwareLocationCounts[rKey];
+          item.counts = syncCountsFromHardware(
+            editedCounts[rKey] || sample.counts || {},
+            editedHardwareLocationCounts[rKey]
+          );
+        } else if (editedCounts[rKey]) {
           item.counts = editedCounts[rKey];
         } else if (
           Object.prototype.hasOwnProperty.call(editedSizeCounts, rKey)
@@ -1043,6 +1189,11 @@ function KioskInventoryCountReport({ locationId }) {
       if (foss) {
         item.physicalSizesByLocation = byLocation;
       }
+      const parentKey = rowKey(sample);
+      if (Object.prototype.hasOwnProperty.call(editedHardwareLocationCounts, parentKey)) {
+        item.hardwareLocationCounts = editedHardwareLocationCounts[parentKey];
+        item.counts = syncCountsFromHardware(parentCounts, editedHardwareLocationCounts[parentKey]);
+      }
       return appendObservationFields(item, groupRows, sample);
     }).filter(Boolean);
   };
@@ -1051,6 +1202,7 @@ function KioskInventoryCountReport({ locationId }) {
     setEditedCounts({});
     setEditedSizeCounts({});
     setEditedSizeCountsByLocation({});
+    setEditedHardwareLocationCounts({});
     setEditedObservations({});
   };
 
@@ -1063,15 +1215,40 @@ function KioskInventoryCountReport({ locationId }) {
     }
     try {
       setSaving(true);
-      const data = await saveKioscoConteoItems(report.id, items);
+      const data = internalMode
+        ? await saveInternalCountItems(report.id, items)
+        : await saveKioscoConteoItems(report.id, items);
       setReport(data);
       clearEditedCounts();
-      await loadHistorial(locationId);
-      showSuccess("Conteo guardado correctamente.");
+      if (!internalMode) {
+        await loadHistorial(locationId);
+      }
+      showSuccess(internalMode ? "Conteo interno guardado." : "Conteo guardado correctamente.");
     } catch (err) {
       showError(err.message || "No se pudo guardar el conteo.");
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleSaveInternalSnapshot = async () => {
+    if (!report || !internalMode) return;
+    const items = buildDirtyItemsPayload();
+    try {
+      setSavingSnapshot(true);
+      if (items?.length) {
+        const saved = await saveInternalCountItems(report.id, items);
+        setReport(saved);
+        clearEditedCounts();
+      }
+      const data = await saveInternalCountSnapshot(report.id, internalNotes);
+      setReport(data);
+      await loadHistorial(locationId);
+      showSuccess("Snapshot del conteo interno guardado.");
+    } catch (err) {
+      showError(err.message || "No se pudo guardar el snapshot.");
+    } finally {
+      setSavingSnapshot(false);
     }
   };
 
@@ -1193,9 +1370,11 @@ function KioskInventoryCountReport({ locationId }) {
 
   const totalCols = PRODUCT_INFO_COLS + (showKardex ? kardexColumns.length : 0) + COUNT_LOCATION_KEYS.length + TRAILING_DATA_COLS;
   const isClosed = report?.status === "CERRADO";
-  const isDraft = report?.status === "DRAFT";
-  const isCountLocked = !isDraft || isSubcountView;
-  const statusMeta = conteoStatusMeta(report?.status);
+  const isDraft = internalMode ? report?.status === "DRAFT" : report?.status === "DRAFT";
+  const isCountLocked = internalMode
+    ? report?.status === "SAVED"
+    : (!isDraft || isSubcountView);
+  const statusMeta = conteoStatusMeta(report?.status, internalMode);
   const exportReport = useMemo(() => {
     if (!displayReport) return null;
     if (!filteredCategories.length) return displayReport;
@@ -1246,11 +1425,18 @@ function KioskInventoryCountReport({ locationId }) {
   const alertRows = pendingRows.filter(
     (r) => Math.abs(resolveRowDiffForEdit(r, editedCounts, editedSizeCounts, editedSizeCountsByLocation)) >= DIFF_ALERT_THRESHOLD
   );
-  const showDiffBanner = report?.status === "REVISADO" && alertRows.length > 0;
+  const showDiffBanner = !internalMode && report?.status === "REVISADO" && alertRows.length > 0;
 
   return (
     <div>
-      {/* ── Controles de apertura ── */}
+      {internalMode && (
+        <Alert color="info" className="mb-3" style={{ fontSize: 13 }}>
+          <strong>Mi conteo — control interno.</strong> Este registro es para la encargada del kiosko y{" "}
+          <strong>no reemplaza</strong> el conteo oficial de supervisión.
+        </Alert>
+      )}
+
+      {!internalMode && (
       <Row className="mb-3">
         <Col md="3">
           <FormGroup>
@@ -1270,13 +1456,17 @@ function KioskInventoryCountReport({ locationId }) {
           </Button>
         </Col>
       </Row>
+      )}
 
       {/* ── Historial de sesiones ── */}
       {locationId && (
         <div style={{ marginBottom: 20 }}>
           <div className="d-flex align-items-center justify-content-between mb-2">
-            <strong style={{ fontSize: 13 }}>Sesiones de conteo existentes</strong>
+            <strong style={{ fontSize: 13 }}>
+              {internalMode ? "Historial de conteos internos" : "Sesiones de conteo existentes"}
+            </strong>
             <div className="d-flex align-items-center" style={{ gap: 12 }}>
+              {!internalMode && (
               <Button
                 color="link"
                 size="sm"
@@ -1285,6 +1475,7 @@ function KioskInventoryCountReport({ locationId }) {
               >
                 ✉ Destinatarios de alertas
               </Button>
+              )}
               <Button
                 color="link"
                 size="sm"
@@ -1300,18 +1491,20 @@ function KioskInventoryCountReport({ locationId }) {
             <div className="text-center py-2"><Spinner size="sm" /> Cargando historial...</div>
           ) : historial.length === 0 ? (
             <Alert color="light" className="border mb-0 kiosk-inv-hint-alert" style={{ fontSize: 12 }}>
-              No hay sesiones registradas para este kiosko. Crea la primera con el formulario de arriba.
+              {internalMode
+                ? "Aún no hay snapshots guardados. Usa «Guardar snapshot» cuando termines tu conteo del día."
+                : "No hay sesiones registradas para este kiosko. Crea la primera con el formulario de arriba."}
             </Alert>
           ) : (
             <div style={{ overflowX: "auto" }}>
               <Table size="sm" bordered responsive style={{ fontSize: 12, marginBottom: 0 }}>
                 <thead style={{ background: "#f3f4f6" }}>
                   <tr>
-                    <th>Período</th>
+                    <th>{internalMode ? "Fecha" : "Período"}</th>
                     <th>Estado</th>
-                    <th>Generado por</th>
-                    <th>Fecha creación</th>
-                    <th>Revisado por</th>
+                    <th>{internalMode ? "Encargada" : "Generado por"}</th>
+                    <th>{internalMode ? "Guardado el" : "Fecha creación"}</th>
+                    {!internalMode && <th>Revisado por</th>}
                     <th>Notas</th>
                     <th></th>
                   </tr>
@@ -1319,7 +1512,8 @@ function KioskInventoryCountReport({ locationId }) {
                 <tbody>
                   {historial.map((s) => {
                     const isActive = report && report.id === s.id;
-                    const hasPendingDiff = s.status === "REVISADO" && (s.maxAbsDiff ?? 0) >= DIFF_ALERT_THRESHOLD;
+                    const hasPendingDiff = !internalMode && s.status === "REVISADO" && (s.maxAbsDiff ?? 0) >= DIFF_ALERT_THRESHOLD;
+                    const sessionDate = internalMode ? s.countDate : null;
                     return (
                       <tr
                         key={s.id}
@@ -1329,14 +1523,16 @@ function KioskInventoryCountReport({ locationId }) {
                         }}
                       >
                         <td style={{ whiteSpace: "nowrap", fontWeight: isActive ? 700 : 400 }}>
-                          {fmt(s.periodFrom)} — {fmt(s.periodTo)}
+                          {internalMode
+                            ? fmt(sessionDate || s.periodFrom)
+                            : <>{fmt(s.periodFrom)} — {fmt(s.periodTo)}</>}
                         </td>
                         <td>
                           <Badge
-                            color={conteoStatusMeta(s.status).color}
+                            color={conteoStatusMeta(s.status, internalMode).color}
                             style={{ fontSize: 10 }}
                           >
-                            {conteoStatusMeta(s.status).label}
+                            {conteoStatusMeta(s.status, internalMode).label}
                           </Badge>
                           {hasPendingDiff && (
                             <Badge color="danger" style={{ fontSize: 10, marginLeft: 4 }} title="Diferencia sin resolver">
@@ -1344,11 +1540,13 @@ function KioskInventoryCountReport({ locationId }) {
                             </Badge>
                           )}
                         </td>
-                        <td>{s.generatedByName || "—"}</td>
+                        <td>{(internalMode ? s.createdByName : s.generatedByName) || "—"}</td>
                         <td style={{ whiteSpace: "nowrap", color: "#6b7280" }}>
-                          {s.generatedAt ? fmtDt(s.generatedAt) : "—"}
+                          {internalMode
+                            ? (s.savedAt ? fmtDt(s.savedAt) : "—")
+                            : (s.generatedAt ? fmtDt(s.generatedAt) : "—")}
                         </td>
-                        <td>{s.reviewedByName || "—"}</td>
+                        {!internalMode && <td>{s.reviewedByName || "—"}</td>}
                         <td style={{ maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "#6b7280" }}>
                           {s.notes || "—"}
                         </td>
@@ -1376,9 +1574,13 @@ function KioskInventoryCountReport({ locationId }) {
 
       {!report ? (
         <Alert color="light" className="border kiosk-inv-hint-alert">
-          {locationId
-            ? <>Selecciona el rango de fechas y presiona <strong>Abrir conteo</strong> para crear uno nuevo, o carga uno existente de arriba.</>
-            : <>Selecciona un <strong>kiosko</strong> arriba para ver y gestionar los conteos físicos.</>}
+          {internalMode ? (
+            loading ? "Cargando conteo interno..." : "No se pudo cargar el conteo interno."
+          ) : locationId ? (
+            <>Selecciona el rango de fechas y presiona <strong>Abrir conteo</strong> para crear uno nuevo, o carga uno existente de arriba.</>
+          ) : (
+            <>Selecciona un <strong>kiosko</strong> arriba para ver y gestionar los conteos físicos.</>
+          )}
         </Alert>
       ) : (
         <>
@@ -1514,7 +1716,7 @@ function KioskInventoryCountReport({ locationId }) {
           </Row>
 
           {/* ── Subconteo / inventario a fecha ── */}
-          {!isSubcountView && report && (
+          {!internalMode && !isSubcountView && report && (
             <Row className="mb-3">
               <Col md="4">
                 <FormGroup className="mb-0">
@@ -1579,9 +1781,19 @@ function KioskInventoryCountReport({ locationId }) {
                 )}
                 {isDraft && !isSubcountView && (
                   <>
-                    <Button color="success" size="sm" onClick={() => void handleSave()} disabled={saving || finalizing}>
-                      {saving ? <Spinner size="sm" /> : "💾 Guardar conteo"}
+                    <Button color="success" size="sm" onClick={() => void handleSave()} disabled={saving || finalizing || savingSnapshot}>
+                      {saving ? <Spinner size="sm" /> : internalMode ? "💾 Guardar borrador" : "💾 Guardar conteo"}
                     </Button>
+                    {internalMode ? (
+                      <Button
+                        color="primary"
+                        size="sm"
+                        onClick={() => void handleSaveInternalSnapshot()}
+                        disabled={saving || savingSnapshot || isCountLocked}
+                      >
+                        {savingSnapshot ? <Spinner size="sm" /> : "📌 Guardar snapshot del día"}
+                      </Button>
+                    ) : (
                     <Button
                       color="warning"
                       size="sm"
@@ -1590,14 +1802,15 @@ function KioskInventoryCountReport({ locationId }) {
                     >
                       {finalizing ? <Spinner size="sm" /> : "✓ Terminar conteo físico"}
                     </Button>
+                    )}
                   </>
                 )}
-                {report.status === "CONTADO" && !isSubcountView && (
+                {!internalMode && report.status === "CONTADO" && !isSubcountView && (
                   <Button color="info" size="sm" outline onClick={() => setShowReviewBox((v) => !v)} disabled={saving}>
                     ✔ Marcar como revisado
                   </Button>
                 )}
-                {report.status === "REVISADO" && !isSubcountView && (
+                {!internalMode && report.status === "REVISADO" && !isSubcountView && (
                   <Button color="danger" size="sm" outline onClick={() => void handleClose()} disabled={closing}>
                     {closing ? <Spinner size="sm" /> : "🔒 Cerrar conteo"}
                   </Button>
@@ -1623,20 +1836,43 @@ function KioskInventoryCountReport({ locationId }) {
             </Col>
           </Row>
 
-          {report.status === "CONTADO" && (
+          {internalMode && isDraft && (
+            <Row className="mb-3">
+              <Col md="6">
+                <FormGroup className="mb-0">
+                  <Label style={{ fontSize: 12 }}>Notas del snapshot (opcional)</Label>
+                  <Input
+                    type="textarea"
+                    rows={2}
+                    value={internalNotes}
+                    onChange={(e) => setInternalNotes(e.target.value)}
+                    placeholder="Ej. turno tarde, vitrina E revisada..."
+                  />
+                </FormGroup>
+              </Col>
+            </Row>
+          )}
+
+          {internalMode && report?.status === "SAVED" && (
+            <Alert color="secondary" className="mb-3" style={{ fontSize: 12 }}>
+              Snapshot guardado — solo lectura. Abre el borrador de hoy para un nuevo conteo del día.
+            </Alert>
+          )}
+
+          {!internalMode && report.status === "CONTADO" && (
             <Alert color="info" className="mb-3" style={{ fontSize: 12 }}>
               Conteo físico terminado. Las vitrinas están bloqueadas; un supervisor puede marcarlo como revisado.
             </Alert>
           )}
 
-          {isClosed && (
+          {!internalMode && isClosed && (
             <Alert color="secondary" className="mb-3" style={{ fontSize: 12 }}>
               Este conteo está cerrado y es de solo lectura. Puedes exportarlo, pero no editarlo.
             </Alert>
           )}
 
           {/* ── Panel de revisión ── */}
-          {showReviewBox && (
+          {!internalMode && showReviewBox && (
             <div style={{ background: "#f0f9ff", border: "1px solid #bae6fd", borderRadius: 8, padding: 14, marginBottom: 14 }}>
               <FormGroup className="mb-2">
                 <Label style={{ fontWeight: 600, fontSize: 13 }}>Notas / áreas para corregir</Label>
@@ -1706,10 +1942,12 @@ function KioskInventoryCountReport({ locationId }) {
                       editedCounts={editedCounts}
                       editedSizeCounts={editedSizeCounts}
                       editedSizeCountsByLocation={editedSizeCountsByLocation}
+                      editedHardwareLocationCounts={editedHardwareLocationCounts}
                       editedObservations={editedObservations}
                       onCountChange={handleCountChange}
                       onObservationChange={handleObservationChange}
                       onOpenCinchoModal={setCinchoModalProductId}
+                      onOpenHardwareModal={handleOpenHardwareModal}
                       disabled={isCountLocked}
                     />
                   ))
@@ -1751,10 +1989,21 @@ function KioskInventoryCountReport({ locationId }) {
         </>
       )}
 
+      <HardwareCountModal
+        isOpen={hardwareModal != null}
+        toggle={() => setHardwareModal(null)}
+        productLabel={hardwareModal?.productLabel}
+        locationKey={hardwareModal?.locationKey}
+        initialCounts={hardwareModal?.initialCounts}
+        onApply={handleApplyHardwareModal}
+        disabled={isCountLocked}
+      />
+
       <CinchoCountDetailModal
         isOpen={cinchoModalProductId != null}
         toggle={() => setCinchoModalProductId(null)}
         fossMode={cinchoModalFossMode}
+        hardwareSplitEnabled={cinchoModalHardwareSplit}
         productRows={cinchoModalRows.map((row) => ({
           ...row,
           physicalSizes: editedSizeCounts[rowKey(row)] ?? row.physicalSizes,

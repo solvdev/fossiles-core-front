@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import {
   Button,
+  ButtonGroup,
   CustomInput,
   Modal,
   ModalBody,
@@ -10,6 +11,7 @@ import {
 } from "reactstrap";
 import {
   CINCHO_COUNT_LOCATION,
+  HARDWARE_CONDITION_OPTIONS,
   buildFossLocationSizeDraft,
   collectSizeKeysForRows,
   formatSystemSizesText,
@@ -29,6 +31,21 @@ const inputStyle = {
 
 const vitrineRowStyle = { background: "#f0fdf4" };
 const warehouseRowStyle = { background: "#fff7ed" };
+const HARDWARE_KEYS = ["NUEVO", "VIEJO"];
+
+function emptyLocationDraft() {
+  return {
+    [CINCHO_COUNT_LOCATION.VITRINE]: {},
+    [CINCHO_COUNT_LOCATION.WAREHOUSE]: {},
+  };
+}
+
+function emptyHardwareDraft() {
+  return {
+    NUEVO: emptyLocationDraft(),
+    VIEJO: emptyLocationDraft(),
+  };
+}
 
 function SizeCountRow({ label, rowStyle, sizeKeys, sizes, disabled, onChange, total, bold = false }) {
   return (
@@ -56,10 +73,39 @@ function SizeCountRow({ label, rowStyle, sizeKeys, sizes, disabled, onChange, to
   );
 }
 
+const pickPositive = (sizes) =>
+  Object.fromEntries(Object.entries(sizes || {}).filter(([, qty]) => Number(qty) > 0));
+
+const mergeSizeMaps = (...maps) => {
+  const merged = {};
+  maps.forEach((map) => {
+    Object.entries(map || {}).forEach(([size, qty]) => {
+      merged[size] = Number(merged[size] || 0) + Number(qty || 0);
+    });
+  });
+  return merged;
+};
+
+const buildHardwareLocationCountsFromDraft = (byHardware) => {
+  const out = {};
+  HARDWARE_KEYS.forEach((hw) => {
+    const draft = byHardware?.[hw] || emptyLocationDraft();
+    [CINCHO_COUNT_LOCATION.VITRINE, CINCHO_COUNT_LOCATION.WAREHOUSE].forEach((locKey) => {
+      const total = sumSizeCounts(draft[locKey]);
+      if (total > 0) {
+        if (!out[locKey]) out[locKey] = {};
+        out[locKey][hw] = total;
+      }
+    });
+  });
+  return Object.keys(out).length ? out : null;
+};
+
 function CinchoCountDetailModal({
   isOpen,
   toggle,
   fossMode,
+  hardwareSplitEnabled = true,
   productRows,
   rowKey,
   editedSizeCounts,
@@ -70,23 +116,43 @@ function CinchoCountDetailModal({
 }) {
   const [simpleDraftByRow, setSimpleDraftByRow] = useState({});
   const [fossDraftByRow, setFossDraftByRow] = useState({});
+  const [fossDraftByHardware, setFossDraftByHardware] = useState({});
+  const [activeHardware, setActiveHardware] = useState("NUEVO");
   const [applyToVitrine, setApplyToVitrine] = useState(true);
+  const useFossHardwareSplit = fossMode && hardwareSplitEnabled;
 
   const sizeKeys = useMemo(() => collectSizeKeysForRows(productRows), [productRows]);
 
   useEffect(() => {
     if (!isOpen || !productRows?.length) return;
     if (fossMode) {
-      const next = {};
-      productRows.forEach((row) => {
-        const key = rowKey(row);
-        next[key] = buildFossLocationSizeDraft(
-          row,
-          editedSizeCountsByLocation[key],
-          editedSizeCounts[key]
-        );
-      });
-      setFossDraftByRow(next);
+      if (hardwareSplitEnabled) {
+        const nextHardware = {};
+        productRows.forEach((row) => {
+          const key = rowKey(row);
+          nextHardware[key] = {
+            NUEVO: buildFossLocationSizeDraft(
+              row,
+              editedSizeCountsByLocation[key],
+              editedSizeCounts[key]
+            ),
+            VIEJO: emptyLocationDraft(),
+          };
+        });
+        setFossDraftByHardware(nextHardware);
+        setActiveHardware("NUEVO");
+      } else {
+        const next = {};
+        productRows.forEach((row) => {
+          const key = rowKey(row);
+          next[key] = buildFossLocationSizeDraft(
+            row,
+            editedSizeCountsByLocation[key],
+            editedSizeCounts[key]
+          );
+        });
+        setFossDraftByRow(next);
+      }
     } else {
       const next = {};
       productRows.forEach((row) => {
@@ -99,7 +165,7 @@ function CinchoCountDetailModal({
       setSimpleDraftByRow(next);
       setApplyToVitrine(true);
     }
-  }, [isOpen, productRows, editedSizeCounts, editedSizeCountsByLocation, fossMode, rowKey]);
+  }, [isOpen, productRows, editedSizeCounts, editedSizeCountsByLocation, fossMode, hardwareSplitEnabled, rowKey]);
 
   if (!productRows?.length) return null;
 
@@ -113,7 +179,36 @@ function CinchoCountDetailModal({
     const boCount = Number(counts[CINCHO_COUNT_LOCATION.WAREHOUSE] || 0);
 
     if (fossMode) {
-      const byLocation = fossDraftByRow[key] || emptyDraft();
+      if (useFossHardwareSplit) {
+        const byHardware = fossDraftByHardware[key] || emptyHardwareDraft();
+        const mergedByLocation = {
+          [CINCHO_COUNT_LOCATION.VITRINE]: mergeSizeMaps(
+            byHardware.NUEVO?.[CINCHO_COUNT_LOCATION.VITRINE],
+            byHardware.VIEJO?.[CINCHO_COUNT_LOCATION.VITRINE]
+          ),
+          [CINCHO_COUNT_LOCATION.WAREHOUSE]: mergeSizeMaps(
+            byHardware.NUEVO?.[CINCHO_COUNT_LOCATION.WAREHOUSE],
+            byHardware.VIEJO?.[CINCHO_COUNT_LOCATION.WAREHOUSE]
+          ),
+        };
+        const sizeTotal = sumSizeCounts(mergeFossLocationSizeTotals(mergedByLocation));
+        const vitrineTotal = sumSizeCounts(mergedByLocation[CINCHO_COUNT_LOCATION.VITRINE]);
+        const warehouseTotal = sumSizeCounts(mergedByLocation[CINCHO_COUNT_LOCATION.WAREHOUSE]);
+        return {
+          key,
+          row,
+          byHardware,
+          mergedByLocation,
+          sizeTotal,
+          vitrineTotal,
+          warehouseTotal,
+          locationTotal,
+          eCount,
+          boCount,
+        };
+      }
+
+      const byLocation = fossDraftByRow[key] || emptyLocationDraft();
       const sizeTotal = sumSizeCounts(mergeFossLocationSizeTotals(byLocation));
       const vitrineTotal = sumSizeCounts(byLocation[CINCHO_COUNT_LOCATION.VITRINE]);
       const warehouseTotal = sumSizeCounts(byLocation[CINCHO_COUNT_LOCATION.WAREHOUSE]);
@@ -135,13 +230,6 @@ function CinchoCountDetailModal({
     return { key, row, sizes, sizeTotal, locationTotal };
   });
 
-  function emptyDraft() {
-    return {
-      [CINCHO_COUNT_LOCATION.VITRINE]: {},
-      [CINCHO_COUNT_LOCATION.WAREHOUSE]: {},
-    };
-  }
-
   const handleSimpleSizeChange = (rKey, size, rawValue) => {
     const value = rawValue === "" ? 0 : Math.max(0, Number(rawValue) || 0);
     setSimpleDraftByRow((prev) => ({
@@ -150,10 +238,28 @@ function CinchoCountDetailModal({
     }));
   };
 
-  const handleFossSizeChange = (rKey, locationKey, size, rawValue) => {
+  const handleFossSizeChange = (rKey, hardwareKey, locationKey, size, rawValue) => {
+    const value = rawValue === "" ? 0 : Math.max(0, Number(rawValue) || 0);
+    setFossDraftByHardware((prev) => {
+      const current = prev[rKey] || emptyHardwareDraft();
+      const hwDraft = current[hardwareKey] || emptyLocationDraft();
+      return {
+        ...prev,
+        [rKey]: {
+          ...current,
+          [hardwareKey]: {
+            ...hwDraft,
+            [locationKey]: { ...(hwDraft[locationKey] || {}), [size]: value },
+          },
+        },
+      };
+    });
+  };
+
+  const handleFossLegacySizeChange = (rKey, locationKey, size, rawValue) => {
     const value = rawValue === "" ? 0 : Math.max(0, Number(rawValue) || 0);
     setFossDraftByRow((prev) => {
-      const current = prev[rKey] || emptyDraft();
+      const current = prev[rKey] || emptyLocationDraft();
       return {
         ...prev,
         [rKey]: {
@@ -168,15 +274,35 @@ function CinchoCountDetailModal({
     if (fossMode) {
       const sizeCountsByRowKey = {};
       const sizeCountsByLocationByRowKey = {};
-      rowSummaries.forEach(({ key, byLocation }) => {
-        const cleanedLocation = {
-          [CINCHO_COUNT_LOCATION.VITRINE]: pickPositive(byLocation[CINCHO_COUNT_LOCATION.VITRINE]),
-          [CINCHO_COUNT_LOCATION.WAREHOUSE]: pickPositive(byLocation[CINCHO_COUNT_LOCATION.WAREHOUSE]),
-        };
-        sizeCountsByLocationByRowKey[key] = cleanedLocation;
-        sizeCountsByRowKey[key] = mergeFossLocationSizeTotals(cleanedLocation);
+      const hardwareLocationCountsByRowKey = {};
+      rowSummaries.forEach((summary) => {
+        const { key } = summary;
+        if (useFossHardwareSplit) {
+          const cleanedLocation = {
+            [CINCHO_COUNT_LOCATION.VITRINE]: pickPositive(summary.mergedByLocation[CINCHO_COUNT_LOCATION.VITRINE]),
+            [CINCHO_COUNT_LOCATION.WAREHOUSE]: pickPositive(summary.mergedByLocation[CINCHO_COUNT_LOCATION.WAREHOUSE]),
+          };
+          sizeCountsByLocationByRowKey[key] = cleanedLocation;
+          sizeCountsByRowKey[key] = mergeFossLocationSizeTotals(cleanedLocation);
+          const hardwareCounts = buildHardwareLocationCountsFromDraft(summary.byHardware);
+          if (hardwareCounts) {
+            hardwareLocationCountsByRowKey[key] = hardwareCounts;
+          }
+        } else {
+          const cleanedLocation = {
+            [CINCHO_COUNT_LOCATION.VITRINE]: pickPositive(summary.byLocation[CINCHO_COUNT_LOCATION.VITRINE]),
+            [CINCHO_COUNT_LOCATION.WAREHOUSE]: pickPositive(summary.byLocation[CINCHO_COUNT_LOCATION.WAREHOUSE]),
+          };
+          sizeCountsByLocationByRowKey[key] = cleanedLocation;
+          sizeCountsByRowKey[key] = mergeFossLocationSizeTotals(cleanedLocation);
+        }
       });
-      onApply({ fossMode: true, sizeCountsByRowKey, sizeCountsByLocationByRowKey });
+      onApply({
+        fossMode: true,
+        sizeCountsByRowKey,
+        sizeCountsByLocationByRowKey,
+        hardwareLocationCountsByRowKey: useFossHardwareSplit ? hardwareLocationCountsByRowKey : undefined,
+      });
     } else {
       const sizeCountsByRowKey = {};
       rowSummaries.forEach(({ key, sizes }) => {
@@ -187,15 +313,19 @@ function CinchoCountDetailModal({
     toggle();
   };
 
-  const pickPositive = (sizes) =>
-    Object.fromEntries(Object.entries(sizes || {}).filter(([, qty]) => Number(qty) > 0));
+  const hardwareLabel = (value) =>
+    HARDWARE_CONDITION_OPTIONS.find((opt) => opt.value === value)?.label || value;
 
   return (
     <Modal isOpen={isOpen} toggle={toggle} size="lg">
       <ModalHeader toggle={toggle}>
         Conteo por talla — {sample.productCode} {sample.productName}
         <div style={{ fontSize: 12, fontWeight: 400, color: "#6b7280", marginTop: 4 }}>
-          {fossMode ? "FOSS · Vitrina (E) y bodega (BO)" : resolveCinchoProductLabel(sample)}
+          {fossMode
+            ? (useFossHardwareSplit
+              ? "FOSS · Vitrina (E) y bodega (BO) · herraje NUEVO/VIEJO"
+              : "FOSS · Vitrina (E) y bodega (BO)")
+            : resolveCinchoProductLabel(sample)}
           {" · "}
           {productRows.length} color{productRows.length !== 1 ? "es" : ""}
         </div>
@@ -203,9 +333,28 @@ function CinchoCountDetailModal({
       <ModalBody>
         <p style={{ fontSize: 12, color: "#4b5563", marginBottom: 12 }}>
           {fossMode
-            ? "Cuenta por color y talla cuántos hay en vitrina (E) y cuántos en bodega (BO). Lo normal es que estén en E; registra BO solo si hay unidades en bodega."
+            ? (useFossHardwareSplit
+              ? "Cuenta por herraje, color y talla en vitrina (E) y bodega (BO). Usa las pestañas para separar herraje nuevo y viejo."
+              : "Cuenta por color y talla cuántos hay en vitrina (E) y cuántos en bodega (BO). Conteo anterior sin desglose de herraje.")
             : "Registra cuántas unidades hay de cada talla por color. El total se puede aplicar a la vitrina (E)."}
         </p>
+
+        {useFossHardwareSplit && (
+          <div className="mb-3">
+            <ButtonGroup size="sm">
+              {HARDWARE_KEYS.map((hw) => (
+                <Button
+                  key={hw}
+                  color={activeHardware === hw ? "primary" : "secondary"}
+                  outline={activeHardware !== hw}
+                  onClick={() => setActiveHardware(hw)}
+                >
+                  {hardwareLabel(hw)}
+                </Button>
+              ))}
+            </ButtonGroup>
+          </div>
+        )}
 
         {sizeKeys.length === 0 ? (
           <p style={{ fontSize: 13, color: "#6b7280" }}>
@@ -216,6 +365,9 @@ function CinchoCountDetailModal({
             const summary = rowSummaries.find((item) => item.key === rowKey(row));
             const systemSizes = row.systemSizes || {};
             const key = rowKey(row);
+            const activeDraft = useFossHardwareSplit
+              ? summary?.byHardware?.[activeHardware] || emptyLocationDraft()
+              : null;
 
             return (
               <div key={key} style={{ marginBottom: 18 }}>
@@ -244,6 +396,49 @@ function CinchoCountDetailModal({
                         total={sumSizeCounts(systemSizes)}
                       />
                       {fossMode ? (
+                        useFossHardwareSplit ? (
+                        <>
+                          <SizeCountRow
+                            label={`Vitrina E (${hardwareLabel(activeHardware)})`}
+                            rowStyle={vitrineRowStyle}
+                            sizeKeys={sizeKeys}
+                            sizes={activeDraft?.[CINCHO_COUNT_LOCATION.VITRINE] || {}}
+                            disabled={disabled}
+                            onChange={(size, value) => handleFossSizeChange(
+                              key,
+                              activeHardware,
+                              CINCHO_COUNT_LOCATION.VITRINE,
+                              size,
+                              value
+                            )}
+                            total={sumSizeCounts(activeDraft?.[CINCHO_COUNT_LOCATION.VITRINE])}
+                            bold
+                          />
+                          <SizeCountRow
+                            label={`Bodega BO (${hardwareLabel(activeHardware)})`}
+                            rowStyle={warehouseRowStyle}
+                            sizeKeys={sizeKeys}
+                            sizes={activeDraft?.[CINCHO_COUNT_LOCATION.WAREHOUSE] || {}}
+                            disabled={disabled}
+                            onChange={(size, value) => handleFossSizeChange(
+                              key,
+                              activeHardware,
+                              CINCHO_COUNT_LOCATION.WAREHOUSE,
+                              size,
+                              value
+                            )}
+                            total={sumSizeCounts(activeDraft?.[CINCHO_COUNT_LOCATION.WAREHOUSE])}
+                            bold
+                          />
+                          <SizeCountRow
+                            label="Total físico (ambos herrajes)"
+                            sizeKeys={sizeKeys}
+                            sizes={mergeFossLocationSizeTotals(summary?.mergedByLocation)}
+                            total={summary?.sizeTotal ?? 0}
+                            bold
+                          />
+                        </>
+                        ) : (
                         <>
                           <SizeCountRow
                             label="Vitrina E"
@@ -251,7 +446,7 @@ function CinchoCountDetailModal({
                             sizeKeys={sizeKeys}
                             sizes={summary?.byLocation?.[CINCHO_COUNT_LOCATION.VITRINE] || {}}
                             disabled={disabled}
-                            onChange={(size, value) => handleFossSizeChange(
+                            onChange={(size, value) => handleFossLegacySizeChange(
                               key,
                               CINCHO_COUNT_LOCATION.VITRINE,
                               size,
@@ -266,7 +461,7 @@ function CinchoCountDetailModal({
                             sizeKeys={sizeKeys}
                             sizes={summary?.byLocation?.[CINCHO_COUNT_LOCATION.WAREHOUSE] || {}}
                             disabled={disabled}
-                            onChange={(size, value) => handleFossSizeChange(
+                            onChange={(size, value) => handleFossLegacySizeChange(
                               key,
                               CINCHO_COUNT_LOCATION.WAREHOUSE,
                               size,
@@ -283,6 +478,7 @@ function CinchoCountDetailModal({
                             bold
                           />
                         </>
+                        )
                       ) : (
                         <SizeCountRow
                           label="Físico"
@@ -332,7 +528,12 @@ function CinchoCountDetailModal({
             </div>
           </>
         )}
-        {fossMode && (
+        {fossMode && useFossHardwareSplit && (
+          <div style={{ fontSize: 11, color: "#6b7280", marginTop: 6 }}>
+            Al aplicar, las columnas E y BO se actualizan con el total por color y se guarda el desglose NUEVO/VIEJO por ubicación.
+          </div>
+        )}
+        {fossMode && !useFossHardwareSplit && (
           <div style={{ fontSize: 11, color: "#6b7280", marginTop: 6 }}>
             Al aplicar, las columnas E y BO de la grilla se actualizan con estos totales por color.
           </div>

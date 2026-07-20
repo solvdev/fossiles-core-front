@@ -19,6 +19,7 @@ import { formatInventorySizesLine } from "utils/inventoryVariantHelper";
 import { filterVisibleKioskStockRows } from "utils/productCinchoHelper";
 import { showError } from "utils/notificationHelper";
 import { formatQty } from "./posUtils";
+import KioskInventoryCountReport from "../KioskInventoryCountReport";
 
 const safeText = (value) => String(value || "").trim();
 const safeNumber = (value) => {
@@ -137,6 +138,7 @@ const mergeInventoryRows = (kioscoRows, legacyRows) => {
 };
 
 function PosInventoryTab({ kioskLocationId, kioskName, active }) {
+  const [inventoryView, setInventoryView] = useState("STOCK");
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState("");
@@ -163,10 +165,10 @@ function PosInventoryTab({ kioskLocationId, kioskName, active }) {
   }, [kioskLocationId]);
 
   useEffect(() => {
-    if (active !== false) {
+    if (active !== false && inventoryView === "STOCK") {
       loadInventory();
     }
-  }, [active, loadInventory]);
+  }, [active, inventoryView, loadInventory]);
 
   const products = useMemo(() => buildProducts(rows), [rows]);
   const query = useMemo(() => normalize(search), [search]);
@@ -219,6 +221,28 @@ function PosInventoryTab({ kioskLocationId, kioskName, active }) {
 
   return (
     <div className="kiosk-pos-inventory-tab">
+      <div className="d-flex flex-wrap mb-3" style={{ gap: 8 }}>
+        <Button
+          size="sm"
+          color={inventoryView === "STOCK" ? "primary" : "secondary"}
+          outline={inventoryView !== "STOCK"}
+          onClick={() => setInventoryView("STOCK")}
+        >
+          Consulta de stock
+        </Button>
+        <Button
+          size="sm"
+          color={inventoryView === "MI_CONTEO" ? "primary" : "secondary"}
+          outline={inventoryView !== "MI_CONTEO"}
+          onClick={() => setInventoryView("MI_CONTEO")}
+        >
+          Mi conteo
+        </Button>
+      </div>
+
+      {inventoryView === "MI_CONTEO" ? (
+        <KioskInventoryCountReport locationId={kioskLocationId} internalMode />
+      ) : (
       <Card className="kiosk-pos-block">
         <CardHeader className="d-flex flex-wrap align-items-center justify-content-between">
           <div>
@@ -361,6 +385,7 @@ function PosInventoryTab({ kioskLocationId, kioskName, active }) {
           )}
         </CardBody>
       </Card>
+      )}
     </div>
   );
 }

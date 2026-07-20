@@ -1,5 +1,6 @@
 import * as XLSX from "xlsx-js-style";
 import { formatConteoSubtotalLabel } from "./kioscoConteoDisplay";
+import { formatHardwareLocationSummary } from "./productCinchoHelper";
 import {
   CONTEO_COLOR_LEGEND_LEFT,
   CONTEO_COLOR_LEGEND_RIGHT,
@@ -84,7 +85,9 @@ function formatProductLabel(row) {
   const colorRaw = String(row?.colorName || "").trim();
   const color = colorRaw && colorRaw !== "—" ? colorRaw : "";
   const size = String(row?.sizeLabel || row?.sizesSummary || "").trim();
-  return [name, color, size].filter(Boolean).join("  ");
+  const hardware = formatHardwareLocationSummary(row?.hardwareLocationCounts);
+  const base = [name, color, size].filter(Boolean).join("  ");
+  return hardware ? `${base} · ${hardware}` : base;
 }
 
 function colLayout(showKardex, includeVitrines = true) {

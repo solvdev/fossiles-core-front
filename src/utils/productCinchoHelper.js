@@ -51,6 +51,64 @@ export const getHardwareConditionLabel = (value) => {
   return HARDWARE_CONDITION_OPTIONS.find((opt) => opt.value === normalized)?.label || normalized;
 };
 
+export const formatInventarioFinalByHardware = (byHardware) => {
+  if (!byHardware) return "";
+  const parts = [];
+  const nuevo = Number(byHardware.NUEVO || 0);
+  const viejo = Number(byHardware.VIEJO || 0);
+  if (nuevo > 0) parts.push(`NUEVO ${nuevo}`);
+  if (viejo > 0) parts.push(`VIEJO ${viejo}`);
+  return parts.join(" · ");
+};
+
+export const formatHardwareLocationSummary = (hardwareLocationCounts) => {
+  if (!hardwareLocationCounts) return "";
+  let nuevo = 0;
+  let viejo = 0;
+  Object.values(hardwareLocationCounts).forEach((locMap) => {
+    nuevo += Number(locMap?.NUEVO || 0);
+    viejo += Number(locMap?.VIEJO || 0);
+  });
+  const parts = [];
+  if (nuevo > 0) parts.push(`NUEVO ${nuevo}`);
+  if (viejo > 0) parts.push(`VIEJO ${viejo}`);
+  return parts.join(" · ");
+};
+
+const hasHardwareLocationCounts = (hardwareLocationCounts) =>
+  Boolean(
+    hardwareLocationCounts
+    && Object.values(hardwareLocationCounts).some(
+      (loc) => loc && Object.values(loc).some((qty) => Number(qty || 0) > 0)
+    )
+  );
+
+const hasLegacyLocationCounts = (counts) =>
+  Boolean(counts && Object.values(counts).some((qty) => Number(qty || 0) > 0));
+
+const hasLegacySizeCounts = (physicalSizes, physicalSizesByLocation) => {
+  if (physicalSizes && Object.values(physicalSizes).some((qty) => Number(qty || 0) > 0)) {
+    return true;
+  }
+  if (!physicalSizesByLocation) return false;
+  return Object.values(physicalSizesByLocation).some(
+    (locSizes) => locSizes && Object.values(locSizes).some((qty) => Number(qty || 0) > 0)
+  );
+};
+
+/** Conteos guardados sin desglose NUEVO/VIEJO siguen en modo simple; filas nuevas usan herraje. */
+export const rowUsesHardwareCountMode = ({
+  hardwareLocationCounts,
+  counts,
+  physicalSizes,
+  physicalSizesByLocation,
+} = {}) => {
+  if (hasHardwareLocationCounts(hardwareLocationCounts)) return true;
+  if (hasLegacyLocationCounts(counts)) return false;
+  if (hasLegacySizeCounts(physicalSizes, physicalSizesByLocation)) return false;
+  return true;
+};
+
 /** Etiqueta corta: Casual / Reversible / Niño (combinable). */
 export const formatCinchoClassification = (row) => {
   const type = normalizeCinchoType(row?.cinchoType);

@@ -371,3 +371,43 @@ export const getPendingDepositSummary = async (kioskLocationId) => {
   );
   return parseJson(response, "No se pudo cargar el resumen de depósitos pendientes.");
 };
+
+export const startInternalCount = async (kioskLocationId, countDate) => {
+  const response = await fetch(
+    `${API_URL}/kiosk-pos/${kioskLocationId}/conteo-interno${toQuery({ countDate })}`,
+    { method: "POST", headers: headers() }
+  );
+  return parseJson(response, "No se pudo iniciar el conteo interno.");
+};
+
+export const getInternalCountReport = async (internalCountId) => {
+  const response = await fetch(`${API_URL}/kiosk-pos/conteo-interno/${internalCountId}`, {
+    headers: headers(),
+  });
+  return parseJson(response, "No se pudo cargar el conteo interno.");
+};
+
+export const saveInternalCountItems = async (internalCountId, items) => {
+  const response = await fetch(`${API_URL}/kiosk-pos/conteo-interno/${internalCountId}/items`, {
+    method: "PUT",
+    headers: headers(),
+    body: JSON.stringify(items),
+  });
+  return parseJson(response, "No se pudo guardar el conteo interno.");
+};
+
+export const saveInternalCountSnapshot = async (internalCountId, notes) => {
+  const response = await fetch(
+    `${API_URL}/kiosk-pos/conteo-interno/${internalCountId}/guardar${toQuery({ notes })}`,
+    { method: "POST", headers: headers() }
+  );
+  return parseJson(response, "No se pudo guardar el snapshot del conteo interno.");
+};
+
+export const listInternalCountHistory = async (kioskLocationId) => {
+  const response = await fetch(
+    `${API_URL}/kiosk-pos/${kioskLocationId}/conteo-interno/historial`,
+    { headers: headers() }
+  );
+  return parseJson(response, "No se pudo cargar el historial de conteos internos.");
+};
