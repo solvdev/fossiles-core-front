@@ -7,7 +7,8 @@ import {
 import { formatNowGt } from "./dateTimeHelper";
 
 const COUNT_LOCATION_KEYS = ["V1", "V2", "V3", "V4", "V5", "V6", "V7", "E", "BO"];
-const PRODUCT_COL_COUNT = 4;
+/** Código + Producto (nombre · color · talla en una sola columna). */
+const PRODUCT_COL_COUNT = 2;
 const DIFF_ALERT_THRESHOLD = 3;
 
 const COLORS = {
@@ -76,6 +77,15 @@ const escape = (v) =>
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
+
+/** Nombre + color + talla en una celda para filtrar fácil en Excel. */
+function formatProductLabel(row) {
+  const name = String(row?.productName || "").trim();
+  const colorRaw = String(row?.colorName || "").trim();
+  const color = colorRaw && colorRaw !== "—" ? colorRaw : "";
+  const size = String(row?.sizeLabel || row?.sizesSummary || "").trim();
+  return [name, color, size].filter(Boolean).join(" · ");
+}
 
 function colLayout(showKardex, includeVitrines = true) {
   const kardexCount = showKardex ? KARDEX_HEADERS.length : 0;
@@ -168,27 +178,35 @@ function buildHeaderRows(report, includeVitrines = true) {
   return rows;
 }
 
-function buildTableHeaderCells(showKardex, report, includeVitrines = true) {
+/** Encabezado fijo: Código + Producto + kardex (hasta el separador). */
+function buildKardexHeaderCells(showKardex, report, includeVitrines = true) {
   const kardexHeaders = resolveKardexHeaders(report);
   const layout = colLayout(showKardex, includeVitrines);
   const cells = Array(layout.colCount).fill("");
-  const productHeaders = ["Código", "Producto", "Color", "Talla"];
-  productHeaders.forEach((label, index) => {
-    cells[index] = label;
-  });
+  cells[0] = "Código";
+  cells[1] = "Producto";
   if (showKardex) {
     kardexHeaders.forEach((col, index) => {
       cells[PRODUCT_COL_COUNT + index] = col.label;
     });
   }
   if (includeVitrines) {
-    COUNT_LOCATION_KEYS.forEach((key, index) => {
-      cells[layout.vitrineStart + index] = key;
-    });
-    cells[layout.totalCol] = "Total físico";
-    cells[layout.diffCol] = "Diferencia";
-    cells[layout.obsCol] = "Observaciones";
+    cells[layout.separatorCol] = "";
   }
+  return cells;
+}
+
+/** Encabezados de vitrinas (por categoría). */
+function buildVitrineHeaderCells(showKardex, report) {
+  const layout = colLayout(showKardex, true);
+  const cells = Array(layout.colCount).fill("");
+  COUNT_LOCATION_KEYS.forEach((key, index) => {
+    cells[layout.vitrineStart + index] = key;
+  });
+  cells[layout.totalCol] = "Total físico";
+  cells[layout.diffCol] = "Diferencia";
+  cells[layout.obsCol] = "Observaciones";
+  cells[layout.separatorCol] = "";
   return cells;
 }
 
@@ -198,9 +216,7 @@ function buildDataRowCells(row, showKardex, report, includeVitrines = true) {
   const { kardexStart, separatorCol, vitrineStart, totalCol, diffCol, obsCol, colCount } = layout;
   const cells = Array(colCount).fill("");
   cells[0] = row.productCode || "";
-  cells[1] = row.productName || "";
-  cells[2] = row.colorName || "—";
-  cells[3] = row.sizeLabel || row.sizesSummary || "";
+  cells[1] = formatProductLabel(row);
   if (showKardex) {
     kardexHeaders.forEach((col, index) => {
       cells[kardexStart + index] = row[col.key] ?? 0;
@@ -241,8 +257,6 @@ function buildSubtotalCells(label, sub, showKardex, report, includeVitrines = tr
     cells[0] = "";
     cells[1] = label;
   }
-  cells[2] = "";
-  cells[3] = "";
   return cells;
 }
 
@@ -284,14 +298,20 @@ function buildSheetStructure(report, showKardex, includeVitrines = true) {
     meta.push({ type: "meta" });
   });
 
+  // Encabezado único de kardex (congelado arriba); vitrinas van por categoría.
+  rows.push(buildKardexHeaderCells(showKardex, prepared, includeVitrines));
+  meta.push({ type: "kardex-headers" });
+
   (prepared.categories || []).forEach((cat) => {
     const titleRow = Array(colCount).fill("");
     titleRow[0] = cat.categoryName || "Sin categoría";
     rows.push(titleRow);
     meta.push({ type: "category-title" });
 
-    rows.push(buildTableHeaderCells(showKardex, prepared, includeVitrines));
-    meta.push({ type: "category-headers" });
+    if (includeVitrines) {
+      rows.push(buildVitrineHeaderCells(showKardex, prepared));
+      meta.push({ type: "vitrine-headers" });
+    }
 
     (cat.rows || []).forEach((row, rowIndex) => {
       rows.push(buildDataRowCells(row, showKardex, prepared, includeVitrines));
@@ -392,7 +412,8 @@ function applySheetLayout(ws, layout, merges) {
     if (colIdx === 4 || colIdx === 7) return { wch: 24 };
     if (colIdx === 5 || colIdx === 8) return { wch: 4 };
     if (includeVitrines && colIdx === separatorCol) return { wch: 2 };
-    if (colIdx === 1) return { wch: 28 };
+    if (colIdx === 0) return { wch: 14 };
+    if (colIdx === 1) return { wch: 44 };
     if (includeVitrines && colIdx >= vitrineStart && colIdx < layout.totalCol) return { wch: 6 };
     if (colIdx >= PRODUCT_COL_COUNT && (!includeVitrines || colIdx < separatorCol)) return { wch: 9 };
     if (includeVitrines && (colIdx === layout.totalCol || colIdx === layout.diffCol)) return { wch: 10 };
@@ -401,21 +422,44 @@ function applySheetLayout(ws, layout, merges) {
   });
 }
 
-function styleHeaderRow(ws, rowIdx, layout, { vitrineHighlight = false } = {}) {
-  const { colCount, separatorCol, vitrineStart, diffCol, obsCol, includeVitrines } = layout;
+function styleKardexHeaderRow(ws, rowIdx, layout) {
+  const { colCount, separatorCol, kardexStart, kardexCount, includeVitrines } = layout;
+  const lastKardexCol = kardexCount > 0 ? kardexStart + kardexCount - 1 : PRODUCT_COL_COUNT - 1;
   for (let colIdx = 0; colIdx < colCount; colIdx += 1) {
-    let fill = COLORS.tableHeaderBg;
-    if (includeVitrines && vitrineHighlight && colIdx >= vitrineStart && colIdx <= diffCol) {
-      fill = COLORS.vitrineHeaderBg;
-    }
-    if (includeVitrines && colIdx === obsCol) {
-      fill = "FFFBEB";
-    }
+    const inKardexBlock = colIdx <= lastKardexCol;
+    let fill = inKardexBlock ? COLORS.tableHeaderBg : "FFFFFF";
     if (includeVitrines && colIdx === separatorCol) {
       fill = COLORS.separatorBg;
     }
     styleCell(ws, rowIdx, colIdx, {
-      font: { name: "Arial", sz: 10, bold: true, color: { rgb: "111827" } },
+      font: {
+        name: "Arial",
+        sz: 10,
+        bold: inKardexBlock,
+        color: { rgb: inKardexBlock ? "111827" : "9CA3AF" },
+      },
+      alignment: { vertical: "center", horizontal: "center", wrapText: true },
+      border: borderWithSeparator(colIdx, layout),
+      fill: fillStyle(fill),
+    });
+  }
+}
+
+function styleVitrineHeaderRow(ws, rowIdx, layout) {
+  const { colCount, separatorCol, vitrineStart, diffCol, obsCol } = layout;
+  for (let colIdx = 0; colIdx < colCount; colIdx += 1) {
+    const inVitrineBlock = colIdx >= vitrineStart && colIdx <= obsCol;
+    let fill = "FFFFFF";
+    if (colIdx === separatorCol) fill = COLORS.separatorBg;
+    else if (colIdx === obsCol) fill = "FFFBEB";
+    else if (inVitrineBlock && colIdx <= diffCol) fill = COLORS.vitrineHeaderBg;
+    styleCell(ws, rowIdx, colIdx, {
+      font: {
+        name: "Arial",
+        sz: 10,
+        bold: inVitrineBlock,
+        color: { rgb: inVitrineBlock ? "111827" : "9CA3AF" },
+      },
       alignment: { vertical: "center", horizontal: "center", wrapText: true },
       border: borderWithSeparator(colIdx, layout),
       fill: fillStyle(fill),
@@ -465,10 +509,11 @@ function paintColorLegend(ws, startRow = 1) {
 }
 
 function applyConteoSheetStyles(ws, report, showKardex, includeVitrines = true) {
-  const { rows, meta, layout } = buildSheetStructure(report, showKardex, includeVitrines);
+  const { meta, layout } = buildSheetStructure(report, showKardex, includeVitrines);
   const { colCount, separatorCol, diffCol, includeVitrines: withVitrines } = layout;
   const headerOffset = buildHeaderRows(report, includeVitrines).length;
   const merges = [{ s: { r: 0, c: 0 }, e: { r: 0, c: Math.max(colCount - 1, 0) } }];
+  const kardexHeaderRow = headerOffset;
 
   applySheetLayout(ws, layout, merges);
 
@@ -499,6 +544,14 @@ function applyConteoSheetStyles(ws, report, showKardex, includeVitrines = true) 
 
   meta.slice(headerOffset).forEach((entry, offset) => {
     const currentRow = headerOffset + offset;
+    if (entry.type === "kardex-headers") {
+      styleKardexHeaderRow(ws, currentRow, layout);
+      return;
+    }
+    if (entry.type === "vitrine-headers") {
+      styleVitrineHeaderRow(ws, currentRow, layout);
+      return;
+    }
     if (entry.type === "category-title") {
       merges.push({ s: { r: currentRow, c: 0 }, e: { r: currentRow, c: colCount - 1 } });
       styleRowRange(ws, currentRow, colCount, {
@@ -507,10 +560,6 @@ function applyConteoSheetStyles(ws, report, showKardex, includeVitrines = true) 
         border: thinBorder,
         fill: fillStyle(COLORS.categoryBg),
       });
-      return;
-    }
-    if (entry.type === "category-headers") {
-      styleHeaderRow(ws, currentRow, layout, { vitrineHighlight: withVitrines });
       return;
     }
     if (entry.type === "data") {
@@ -560,7 +609,7 @@ function applyConteoSheetStyles(ws, report, showKardex, includeVitrines = true) 
       return;
     }
     if (entry.type === "total-general") {
-      merges.push({ s: { r: currentRow, c: 0 }, e: { r: currentRow, c: 2 } });
+      merges.push({ s: { r: currentRow, c: 0 }, e: { r: currentRow, c: Math.max(PRODUCT_COL_COUNT - 1, 0) } });
       const totalDiff = report.totalGeneral?.diferencia ?? 0;
       const totalDiffColor = Number(totalDiff) === 0
         ? "86EFAC"
@@ -578,7 +627,7 @@ function applyConteoSheetStyles(ws, report, showKardex, includeVitrines = true) 
           },
           alignment: {
             vertical: "center",
-            horizontal: colIdx < 3 ? "left" : isNumeric ? "right" : "left",
+            horizontal: colIdx < PRODUCT_COL_COUNT ? "left" : isNumeric ? "right" : "left",
           },
           border: borderWithSeparator(colIdx, layout),
           fill: fillStyle(COLORS.totalBg),
@@ -588,6 +637,17 @@ function applyConteoSheetStyles(ws, report, showKardex, includeVitrines = true) 
   });
 
   ws["!merges"] = merges;
+
+  // Congela filas de meta + encabezado kardex; al scroll horizontal deja fijos Código/Producto.
+  ws["!views"] = [
+    {
+      state: "frozen",
+      xSplit: PRODUCT_COL_COUNT,
+      ySplit: kardexHeaderRow + 1,
+      topLeftCell: XLSX.utils.encode_cell({ r: kardexHeaderRow + 1, c: PRODUCT_COL_COUNT }),
+      activePane: "bottomRight",
+    },
+  ];
 }
 
 export function exportConteoToExcel(report, options = {}) {
