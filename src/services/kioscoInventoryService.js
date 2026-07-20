@@ -59,6 +59,13 @@ export const getKioscoSubconteo = async (countId, asOf) =>
 export const saveKioscoConteoItems = async (countId, items) =>
   apiRequest(`/kiosco-inventory/conteo-fisico/${countId}/items`, { method: "PUT", body: items });
 
+export const pollKioscoConteoLiveSession = async (countId, since) => {
+  const params = new URLSearchParams();
+  if (since) params.set("since", since);
+  const suffix = params.toString() ? `?${params.toString()}` : "";
+  return apiRequest(`/kiosco-inventory/conteo-fisico/${countId}/live-session${suffix}`, { method: "POST" });
+};
+
 export const terminarKioscoConteo = async (countId) =>
   apiRequest(`/kiosco-inventory/conteo-fisico/${countId}/terminar`, { method: "POST" });
 

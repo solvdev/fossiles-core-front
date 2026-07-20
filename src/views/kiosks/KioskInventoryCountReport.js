@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
   Badge,
@@ -26,6 +26,7 @@ import {
   removeKioscoNotificationRecipient,
   revisarKioscoConteo,
   saveKioscoConteoItems,
+  pollKioscoConteoLiveSession,
   startKioscoConteo,
   terminarKioscoConteo,
 } from "services/kioscoInventoryService";
@@ -39,6 +40,13 @@ import {
 import { formatDateGt, formatDateTimeGt } from "utils/dateTimeHelper";
 import { exportConteoToExcel, exportConteoToPdf } from "utils/kioscoConteoExport";
 import { buildConteoDisplayReport, computeDiferenciaConteo, formatConteoSubtotalLabel, resolveLivePhysicalTotal, resolveLiveRowDiff } from "utils/kioscoConteoDisplay";
+import {
+  applySyncItemsToReport,
+  AUTO_SAVE_INTERVAL_MS,
+  collectDirtyPersistKeys,
+  formatSyncSince,
+  LIVE_SESSION_INTERVAL_MS,
+} from "utils/kioscoConteoSync";
 import {
   CONTEO_COLOR_LEGEND_LEFT,
   CONTEO_COLOR_LEGEND_RIGHT,
@@ -771,7 +779,7 @@ function KioskInventoryCountReport({ locationId, internalMode = false }) {
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [audienceFilter, setAudienceFilter] = useState("");
   const [cinchoFilter, setCinchoFilter] = useState("");
-  const [showKardex, setShowKardex] = useState(false);
+  const [showKardex, setShowKardex] = useState(() => !internalMode);
   const [editedSizeCounts, setEditedSizeCounts] = useState({});
   const [editedSizeCountsByLocation, setEditedSizeCountsByLocation] = useState({});
   const [editedObservations, setEditedObservations] = useState({});
@@ -793,6 +801,12 @@ function KioskInventoryCountReport({ locationId, internalMode = false }) {
   const [exportingCutoff, setExportingCutoff] = useState(false);
   const [savingSnapshot, setSavingSnapshot] = useState(false);
   const [internalNotes, setInternalNotes] = useState("");
+  const [liveParticipants, setLiveParticipants] = useState([]);
+  const [autoSaveStatus, setAutoSaveStatus] = useState("idle");
+  const [lastAutoSaveAt, setLastAutoSaveAt] = useState(null);
+  const [remoteSyncNotice, setRemoteSyncNotice] = useState("");
+  const lastSyncSinceRef = useRef(null);
+  const autoSavingRef = useRef(false);
 
   const isSubcountView = report?.reportType === "SUBCONTEO";
   const tableShowKardex = internalMode ? false : showKardex;
@@ -923,6 +937,10 @@ function KioskInventoryCountReport({ locationId, internalMode = false }) {
 
   const openReport = (data, { isPrincipal = true } = {}) => {
     setReport(data);
+    lastSyncSinceRef.current = new Date();
+    setLiveParticipants([]);
+    setAutoSaveStatus("idle");
+    setRemoteSyncNotice("");
     if (isPrincipal && data?.reportType !== "SUBCONTEO") {
       setPrincipalReport(data);
       if (data?.periodFrom) {
@@ -1316,6 +1334,113 @@ function KioskInventoryCountReport({ locationId, internalMode = false }) {
     setEditedObservations({});
   };
 
+  const performAutoSave = useCallback(async () => {
+    if (!report || internalMode || report.status !== "DRAFT" || isSubcountView) return;
+    if (autoSavingRef.current || saving || finalizing) return;
+    const items = buildDirtyItemsPayload();
+    if (!items?.length) return;
+    try {
+      autoSavingRef.current = true;
+      setAutoSaveStatus("saving");
+      const data = await saveKioscoConteoItems(report.id, items);
+      setReport(data);
+      clearEditedCounts();
+      lastSyncSinceRef.current = new Date();
+      setLastAutoSaveAt(new Date());
+      setAutoSaveStatus("saved");
+    } catch {
+      setAutoSaveStatus("error");
+    } finally {
+      autoSavingRef.current = false;
+    }
+  }, [
+    report,
+    internalMode,
+    isSubcountView,
+    saving,
+    finalizing,
+    editedCounts,
+    editedSizeCounts,
+    editedSizeCountsByLocation,
+    editedHardwareLocationCounts,
+    editedObservations,
+    allReportRows,
+  ]);
+
+  const pollLiveCollaboration = useCallback(async () => {
+    if (!report?.id || internalMode || report.status !== "DRAFT" || isSubcountView) return;
+    try {
+      const since = formatSyncSince(lastSyncSinceRef.current);
+      const data = await pollKioscoConteoLiveSession(report.id, since);
+      setLiveParticipants(data.participants || []);
+      if (data.serverTime) {
+        lastSyncSinceRef.current = new Date(data.serverTime);
+      }
+      if (data.items?.length) {
+        const dirtyKeys = collectDirtyPersistKeys(
+          editedCounts,
+          editedSizeCounts,
+          editedSizeCountsByLocation,
+          editedHardwareLocationCounts,
+          editedObservations,
+          allReportRows
+        );
+        const { report: mergedReport, mergedCount, mergedBy } = applySyncItemsToReport(
+          report,
+          data.items,
+          dirtyKeys
+        );
+        if (mergedCount > 0) {
+          setReport(mergedReport);
+          const who = mergedBy || "Otra persona";
+          setRemoteSyncNotice(`${who} actualizó ${mergedCount} producto${mergedCount !== 1 ? "s" : ""}`);
+        }
+      }
+    } catch {
+      // Polling silencioso — no interrumpe el conteo.
+    }
+  }, [
+    report,
+    internalMode,
+    isSubcountView,
+    editedCounts,
+    editedSizeCounts,
+    editedSizeCountsByLocation,
+    editedHardwareLocationCounts,
+    editedObservations,
+    allReportRows,
+  ]);
+
+  useEffect(() => {
+    if (internalMode || !report?.id || report.status !== "DRAFT" || isSubcountView) {
+      setLiveParticipants([]);
+      return undefined;
+    }
+    if (!lastSyncSinceRef.current) {
+      lastSyncSinceRef.current = new Date();
+    }
+    void pollLiveCollaboration();
+    const liveTimer = setInterval(() => void pollLiveCollaboration(), LIVE_SESSION_INTERVAL_MS);
+    const saveTimer = setInterval(() => void performAutoSave(), AUTO_SAVE_INTERVAL_MS);
+    return () => {
+      clearInterval(liveTimer);
+      clearInterval(saveTimer);
+    };
+  }, [
+    internalMode,
+    report?.id,
+    report?.status,
+    isSubcountView,
+    pollLiveCollaboration,
+    performAutoSave,
+  ]);
+
+  useEffect(() => {
+    if (!remoteSyncNotice) return undefined;
+    const timer = setTimeout(() => setRemoteSyncNotice(""), 6000);
+    return () => clearTimeout(timer);
+  }, [remoteSyncNotice]);
+
   const handleSave = async () => {
     if (!report) return;
     const items = buildDirtyItemsPayload();
@@ -1331,6 +1456,7 @@ function KioskInventoryCountReport({ locationId, internalMode = false }) {
       setReport(data);
       clearEditedCounts();
       if (!internalMode) {
+        lastSyncSinceRef.current = new Date();
         await loadHistorial(locationId);
       }
       showSuccess(internalMode ? "Conteo interno guardado." : "Conteo guardado correctamente.");
@@ -1521,7 +1647,7 @@ function KioskInventoryCountReport({ locationId, internalMode = false }) {
       return;
     }
     exportConteoToExcel(excelExportPayload, {
-      showKardex: false,
+      showKardex: !internalMode,
       includeVitrines: true,
       vitrineOnly: internalMode,
     });
@@ -1751,6 +1877,54 @@ function KioskInventoryCountReport({ locationId, internalMode = false }) {
             </div>
             {!internalMode && <ConteoColorLegend />}
           </div>
+
+          {!internalMode && isDraft && !isSubcountView && (
+            <Alert color="light" className="border mb-3 py-2" style={{ fontSize: 12 }}>
+              <div className="d-flex flex-wrap align-items-center" style={{ gap: 10 }}>
+                <strong style={{ color: "#374151" }}>Sesión en vivo</strong>
+                {liveParticipants.length > 0 ? (
+                  liveParticipants.map((p) => (
+                    <Badge
+                      key={p.userId}
+                      color={p.self ? "primary" : "secondary"}
+                      style={{ fontSize: 11 }}
+                    >
+                      {p.self ? "Tú" : (p.userName || "Usuario")}
+                    </Badge>
+                  ))
+                ) : (
+                  <span style={{ color: "#6b7280" }}>Conectando…</span>
+                )}
+                <span style={{ color: "#9ca3af" }}>|</span>
+                {autoSaveStatus === "saving" && (
+                  <span style={{ color: "#6b7280" }}>
+                    <Spinner size="sm" className="mr-1" /> Auto-guardando…
+                  </span>
+                )}
+                {autoSaveStatus === "saved" && lastAutoSaveAt && (
+                  <span style={{ color: "#15803d" }}>
+                    Auto-guardado {formatDateTimeGt(lastAutoSaveAt)}
+                  </span>
+                )}
+                {autoSaveStatus === "error" && (
+                  <span style={{ color: "#b91c1c" }}>Error en auto-guardado — usa Guardar conteo</span>
+                )}
+                {autoSaveStatus === "idle" && (
+                  <span style={{ color: "#6b7280" }}>Auto-guardado cada 45 s</span>
+                )}
+              </div>
+              <div style={{ marginTop: 6, color: "#6b7280", fontSize: 11 }}>
+                Dos personas pueden contar el mismo borrador: los cambios se sincronizan cada 30 s.
+                No editen la misma celda a la vez; divide vitrinas o categorías si puedes.
+              </div>
+            </Alert>
+          )}
+
+          {remoteSyncNotice && (
+            <Alert color="info" className="py-2 mb-3" style={{ fontSize: 12 }}>
+              {remoteSyncNotice}
+            </Alert>
+          )}
 
           {!internalMode && filteredCategories.length > 0 && (
             <DifferenceSummary totals={filteredTotalGeneral} breakdown={diffBreakdown} />
@@ -2129,7 +2303,7 @@ function KioskInventoryCountReport({ locationId, internalMode = false }) {
             <span>Fondo solo si |diferencia| ≥ {DIFF_ALERT_THRESHOLD}</span>
             <span>Observaciones: solo en filas con sobrante o faltante</span>
             <span>Haz clic en el nombre de categoría para colapsar/expandir</span>
-            {!showKardex && <span>Kardex oculto en pantalla — actívalo con &quot;Mostrar Kardex&quot; (Excel/PDF siempre lo incluyen)</span>}
+            {!tableShowKardex && <span>Kardex oculto en pantalla — actívalo con &quot;Mostrar Kardex&quot; (Excel/PDF oficiales lo incluyen)</span>}
             <span>Al tocar una celda de vitrina (V1–V7, E, BO) se abre el modal herraje NUEVO/VIEJO.</span>
             <span>FOSS cinchos: una fila por talla y color — edite E (vitrina) y BO (bodega). Otros cinchos: edite E por talla.</span>
               </>
