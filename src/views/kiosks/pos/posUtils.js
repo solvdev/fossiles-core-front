@@ -324,6 +324,39 @@ export const QUICK_PERCENT_PROMOS = [
   { id: "__percent_20", name: "Descuento 20%", discountType: "PERCENT", discountValue: 20, isQuickPercent: true },
 ];
 
+/** Descuento base POS sobre precio original (mínimo). Promos mayores lo reemplazan, no se apilan. */
+export const DEFAULT_POS_DISCOUNT_PERCENT = 10;
+export const DEFAULT_POS_DISCOUNT_NAME = "Descuento 10%";
+
+const roundPosMoney = (value) => Math.round(Number(value || 0) * 100) / 100;
+
+export const calculateDefaultPosDiscount = (cartLines) => {
+  const eligibleSubtotal = filterDiscountEligibleCartLines(cartLines).reduce(
+    (sum, line) => sum + Number(line.quantity || 0) * Number(line.unitPrice || 0),
+    0
+  );
+  return roundPosMoney((eligibleSubtotal * DEFAULT_POS_DISCOUNT_PERCENT) / 100);
+};
+
+const applyDefaultPosDiscountFloor = ({
+  discount,
+  autoApplied,
+  promotionName,
+  promotionId,
+  cartLines,
+}) => {
+  const defaultDiscount = calculateDefaultPosDiscount(cartLines);
+  if (defaultDiscount <= 0 || discount >= defaultDiscount) {
+    return { discount, autoApplied, promotionName, promotionId };
+  }
+  return {
+    discount: defaultDiscount,
+    autoApplied: true,
+    promotionName: DEFAULT_POS_DISCOUNT_NAME,
+    promotionId: null,
+  };
+};
+
 export const mergePosPromotions = (promotions) => [
   ...QUICK_PERCENT_PROMOS,
   ...(promotions || []).filter(
@@ -375,10 +408,6 @@ export const filterDiscountEligibleCartLines = (cartLines) =>
 
 export const estimateAutoPromotionDiscount = (cartLines, activePromotions, subtotal = 0) => {
   const promos = activePromotions || [];
-  if (!promos.length) {
-    return { discount: 0, autoApplied: false, promotionName: null, promotionId: null };
-  }
-
   const cartSubtotal =
     subtotal > 0
       ? subtotal
@@ -386,6 +415,16 @@ export const estimateAutoPromotionDiscount = (cartLines, activePromotions, subto
           (sum, line) => sum + Number(line.quantity || 0) * Number(line.unitPrice || 0),
           0
         );
+
+  if (!promos.length) {
+    const defaultDiscount = calculateDefaultPosDiscount(cartLines);
+    return {
+      discount: defaultDiscount,
+      autoApplied: defaultDiscount > 0,
+      promotionName: defaultDiscount > 0 ? DEFAULT_POS_DISCOUNT_NAME : null,
+      promotionId: null,
+    };
+  }
 
   let bestDiscount = 0;
   let promotionName = null;
@@ -419,16 +458,13 @@ export const estimateAutoPromotionDiscount = (cartLines, activePromotions, subto
       }
     });
 
-  if (bestDiscount <= 0) {
-    return { discount: 0, autoApplied: false, promotionName: null, promotionId: null };
-  }
-
-  return {
+  return applyDefaultPosDiscountFloor({
     discount: Math.min(cartSubtotal, bestDiscount),
-    autoApplied: true,
+    autoApplied: bestDiscount > 0,
     promotionName,
     promotionId,
-  };
+    cartLines,
+  });
 };
 
 export const estimatePromotionDiscount = (subtotal, promotion, cartLines) => {
@@ -475,6 +511,28 @@ export const estimatePromotionDiscount = (subtotal, promotion, cartLines) => {
     return Math.min(subtotal, (eligibleSubtotal * value) / 100);
   }
   return Math.min(subtotal, value);
+};
+
+/** Descuento efectivo del carrito: promo/manual/auto vs mínimo 10% sobre precio original. */
+export const resolveCartDiscount = (cartLines, { selectedPromotion, promotions, subtotal } = {}) => {
+  const cartSubtotal =
+    subtotal ??
+    (cartLines || []).reduce(
+      (sum, line) => sum + Number(line.quantity || 0) * Number(line.unitPrice || 0),
+      0
+    );
+
+  if (selectedPromotion) {
+    return applyDefaultPosDiscountFloor({
+      discount: estimatePromotionDiscount(cartSubtotal, selectedPromotion, cartLines),
+      autoApplied: false,
+      promotionName: selectedPromotion.name || null,
+      promotionId: selectedPromotion.id ?? null,
+      cartLines,
+    });
+  }
+
+  return estimateAutoPromotionDiscount(cartLines, promotions, cartSubtotal);
 };
 
 export const normalizeSalePaymentMethod = (value) => {

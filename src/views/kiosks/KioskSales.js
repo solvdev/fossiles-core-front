@@ -51,8 +51,7 @@ import { useAuth } from "contexts/AuthContext";
 import FilterableSelect from "components/distribution/FilterableSelect";
 import {
   colorLineKeyFor,
-  estimateAutoPromotionDiscount,
-  estimatePromotionDiscount,
+  resolveCartDiscount,
   formatCurrency,
   formatQty,
   lineKeyFor,
@@ -360,26 +359,19 @@ function KioskSales() {
       return acc;
     }, { items: 0, total: 0 });
 
-    if (selectedPromotion) {
-      const discount = estimatePromotionDiscount(subtotal.total, selectedPromotion, cart);
-      return {
-        items: subtotal.items,
-        total: subtotal.total,
-        discount,
-        estimated: Math.max(0, subtotal.total - discount),
-        autoApplied: false,
-        promotionName: selectedPromotion.name || null,
-      };
-    }
+    const resolved = resolveCartDiscount(cart, {
+      selectedPromotion,
+      promotions,
+      subtotal: subtotal.total,
+    });
 
-    const auto = estimateAutoPromotionDiscount(cart, promotions, subtotal.total);
     return {
       items: subtotal.items,
       total: subtotal.total,
-      discount: auto.discount,
-      estimated: Math.max(0, subtotal.total - auto.discount),
-      autoApplied: auto.autoApplied,
-      promotionName: auto.promotionName,
+      discount: resolved.discount,
+      estimated: Math.max(0, subtotal.total - resolved.discount),
+      autoApplied: resolved.autoApplied,
+      promotionName: resolved.promotionName,
     };
   }, [cart, selectedPromotion, promotions]);
 

@@ -1,5 +1,6 @@
 import * as XLSX from "xlsx-js-style";
 import { formatDateGt, formatDateTimeGt, formatNowGt, getSaleYmdGuatemala } from "./dateTimeHelper";
+import { isPackagingProductCode } from "./kioskPackagingHelper";
 
 const getSaleInternalNumber = (sale) =>
   sale?.internalNumber || sale?.invoice?.internalNumber || "";
@@ -76,7 +77,10 @@ const formatMoneyQ = (value) => {
 
 const roundMoney = (value) => Math.round(Number(value || 0) * 100) / 100;
 
-/** Montos cobrados por línea (descuento de la venta repartido proporcionalmente). */
+const isPackagingSaleItem = (item) =>
+  Boolean(item?.isPackaging) || isPackagingProductCode(item?.productCode);
+
+/** Montos cobrados por línea (descuento repartido solo entre productos elegibles; SUM- sin descuento). */
 export const buildSaleItemExportLines = (sale) => {
   const items = sale?.items || [];
   if (!items.length) return [];
@@ -96,18 +100,45 @@ export const buildSaleItemExportLines = (sale) => {
   const saleTotal = Number(sale?.totalAmount ?? saleSubtotal);
   const hasDiscount = saleSubtotal > 0 && Math.abs(saleSubtotal - saleTotal) > 0.004;
 
+  const packagingIndexes = new Set();
+  let packagingSubtotal = 0;
+  items.forEach((item, index) => {
+    if (isPackagingSaleItem(item)) {
+      packagingIndexes.add(index);
+      packagingSubtotal += lineSubtotals[index];
+    }
+  });
+
+  const eligibleIndexes = items
+    .map((_, index) => index)
+    .filter((index) => !packagingIndexes.has(index));
+
+  const eligibleSubtotal = eligibleIndexes.reduce(
+    (sum, index) => sum + lineSubtotals[index],
+    0
+  );
+
+  const eligibleSaleTotal = hasDiscount
+    ? roundMoney(Math.max(0, saleTotal - packagingSubtotal))
+    : eligibleSubtotal;
+
   let allocated = 0;
+  let eligibleAllocatedCount = 0;
+
   return items.map((item, index) => {
     const qty = Number(item?.quantity || 0);
     let lineTotal = lineSubtotals[index];
 
-    if (hasDiscount) {
-      if (items.length === 1) {
-        lineTotal = saleTotal;
-      } else if (index === items.length - 1) {
-        lineTotal = roundMoney(saleTotal - allocated);
+    if (hasDiscount && !packagingIndexes.has(index) && eligibleSubtotal > 0) {
+      eligibleAllocatedCount += 1;
+      const isLastEligible = eligibleAllocatedCount === eligibleIndexes.length;
+
+      if (eligibleIndexes.length === 1) {
+        lineTotal = eligibleSaleTotal;
+      } else if (isLastEligible) {
+        lineTotal = roundMoney(eligibleSaleTotal - allocated);
       } else {
-        lineTotal = roundMoney((lineSubtotals[index] / saleSubtotal) * saleTotal);
+        lineTotal = roundMoney((lineSubtotals[index] / eligibleSubtotal) * eligibleSaleTotal);
         allocated += lineTotal;
       }
     }
