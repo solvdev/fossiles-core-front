@@ -84,7 +84,7 @@ function formatProductLabel(row) {
   const colorRaw = String(row?.colorName || "").trim();
   const color = colorRaw && colorRaw !== "—" ? colorRaw : "";
   const size = String(row?.sizeLabel || row?.sizesSummary || "").trim();
-  return [name, color, size].filter(Boolean).join(" · ");
+  return [name, color, size].filter(Boolean).join("  ");
 }
 
 function colLayout(showKardex, includeVitrines = true) {
@@ -148,7 +148,6 @@ function calculateDifferenceBreakdown(report) {
 
 function buildHeaderRows(report, includeVitrines = true) {
   const subcount = isSubcountReport(report);
-  const difference = calculateDifferenceBreakdown(report);
   const rows = [
     [subcount ? "Inventario sistema al corte (sin vitrinas)" : "Conteo físico de inventario kiosco"],
     ["Kiosko", report.locationName || report.locationCode || "—"],
@@ -167,13 +166,6 @@ function buildHeaderRows(report, includeVitrines = true) {
     ["Notas", report.notes || ""],
     ["Exportado", formatNowGt()]
   );
-  if (includeVitrines) {
-    rows.push(
-      ["Total sobrante", difference.surplus],
-      ["Total faltante", difference.shortage],
-      ["Neto (sobrante - faltante)", difference.surplus - difference.shortage]
-    );
-  }
   rows.push([]);
   return rows;
 }
@@ -409,6 +401,8 @@ function applySheetLayout(ws, layout, merges) {
   const { colCount, separatorCol, vitrineStart, includeVitrines } = layout;
   ws["!merges"] = merges;
   ws["!cols"] = Array.from({ length: Math.max(colCount, 9) }, (_, colIdx) => {
+    if (colIdx === 2) return { wch: 26 };
+    if (colIdx === 3) return { wch: 10 };
     if (colIdx === 4 || colIdx === 7) return { wch: 24 };
     if (colIdx === 5 || colIdx === 8) return { wch: 4 };
     if (includeVitrines && colIdx === separatorCol) return { wch: 2 };
@@ -465,6 +459,51 @@ function styleVitrineHeaderRow(ws, rowIdx, layout) {
       fill: fillStyle(fill),
     });
   }
+}
+
+function paintDifferenceSummary(ws, report, startRow = 1) {
+  const difference = calculateDifferenceBreakdown(report);
+  const net = difference.surplus - difference.shortage;
+  const labelCol = 2;
+  const valueCol = 3;
+  const items = [
+    { label: "Total sobrante", value: `+${difference.surplus}`, color: COLORS.diffOk },
+    { label: "Total faltante", value: `−${difference.shortage}`, color: COLORS.diffBad },
+    {
+      label: "Neto (sobrante − faltante)",
+      value: net > 0 ? `+${net}` : String(net),
+      color: net === 0 ? "111827" : net > 0 ? COLORS.diffOk : COLORS.diffBad,
+    },
+  ];
+
+  items.forEach((item, index) => {
+    const rowIdx = startRow + index;
+    const labelRef = ensureCell(ws, rowIdx, labelCol, item.label);
+    ws[labelRef].v = item.label;
+    ws[labelRef].t = "s";
+    styleCell(ws, rowIdx, labelCol, {
+      font: { name: "Arial", sz: 9, bold: true, color: { rgb: "374151" } },
+      alignment: { vertical: "center", horizontal: "left" },
+      border: thinBorder,
+      fill: fillStyle(COLORS.metaBg),
+    });
+
+    const valueRef = ensureCell(ws, rowIdx, valueCol, item.value);
+    ws[valueRef].v = item.value;
+    ws[valueRef].t = "s";
+    styleCell(ws, rowIdx, valueCol, {
+      font: { name: "Arial", sz: 10, bold: true, color: { rgb: item.color } },
+      alignment: { vertical: "center", horizontal: "right" },
+      border: thinBorder,
+      fill: fillStyle("FFFFFF"),
+    });
+  });
+
+  const currentRef = ws["!ref"] || "A1";
+  const range = XLSX.utils.decode_range(currentRef);
+  range.e.c = Math.max(range.e.c, valueCol);
+  range.e.r = Math.max(range.e.r, startRow + items.length - 1);
+  ws["!ref"] = XLSX.utils.encode_range(range);
 }
 
 function paintColorLegend(ws, startRow = 1) {
@@ -540,6 +579,9 @@ function applyConteoSheetStyles(ws, report, showKardex, includeVitrines = true) 
     });
   }
 
+  if (includeVitrines) {
+    paintDifferenceSummary(ws, report, 1);
+  }
   paintColorLegend(ws, 1);
 
   meta.slice(headerOffset).forEach((entry, offset) => {
