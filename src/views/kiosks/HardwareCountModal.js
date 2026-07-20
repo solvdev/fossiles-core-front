@@ -11,6 +11,35 @@ const counterStyle = {
   borderRadius: 6,
 };
 
+const normalizeQty = (value) => {
+  const n = parseInt(String(value ?? "").trim(), 10);
+  return Number.isFinite(n) && n >= 0 ? n : 0;
+};
+
+function QtyCounterInput({ value, onChange, disabled }) {
+  return (
+    <input
+      type="number"
+      min="0"
+      step="1"
+      inputMode="numeric"
+      value={value}
+      disabled={disabled}
+      onFocus={(e) => e.target.select()}
+      onChange={(e) => {
+        const next = e.target.value;
+        if (next === "" || /^\d+$/.test(next)) {
+          onChange(next);
+        }
+      }}
+      onBlur={() => {
+        onChange(String(normalizeQty(value)));
+      }}
+      style={counterStyle}
+    />
+  );
+}
+
 function HardwareCountModal({
   isOpen,
   toggle,
@@ -20,24 +49,26 @@ function HardwareCountModal({
   onApply,
   disabled,
 }) {
-  const [nuevo, setNuevo] = useState(0);
-  const [viejo, setViejo] = useState(0);
+  const [nuevoDraft, setNuevoDraft] = useState("0");
+  const [viejoDraft, setViejoDraft] = useState("0");
 
   useEffect(() => {
     if (!isOpen) return;
     const source = initialCounts || {};
-    setNuevo(Number(source.NUEVO || 0));
-    setViejo(Number(source.VIEJO || 0));
+    setNuevoDraft(String(normalizeQty(source.NUEVO)));
+    setViejoDraft(String(normalizeQty(source.VIEJO)));
   }, [isOpen, initialCounts, locationKey]);
 
-  const total = Number(nuevo || 0) + Number(viejo || 0);
+  const nuevo = normalizeQty(nuevoDraft);
+  const viejo = normalizeQty(viejoDraft);
+  const total = nuevo + viejo;
 
   const handleApply = () => {
     onApply({
       locationKey,
       hardwareCounts: {
-        NUEVO: Math.max(0, Number(nuevo || 0)),
-        VIEJO: Math.max(0, Number(viejo || 0)),
+        NUEVO: nuevo,
+        VIEJO: viejo,
       },
       total,
     });
@@ -55,27 +86,11 @@ function HardwareCountModal({
         <div className="d-flex flex-column" style={{ gap: 14 }}>
           <div className="d-flex align-items-center justify-content-between">
             <span style={{ fontWeight: 600 }}>{nuevoLabel}</span>
-            <input
-              type="number"
-              min="0"
-              step="1"
-              value={nuevo}
-              disabled={disabled}
-              onChange={(e) => setNuevo(e.target.value)}
-              style={counterStyle}
-            />
+            <QtyCounterInput value={nuevoDraft} onChange={setNuevoDraft} disabled={disabled} />
           </div>
           <div className="d-flex align-items-center justify-content-between">
             <span style={{ fontWeight: 600 }}>{viejoLabel}</span>
-            <input
-              type="number"
-              min="0"
-              step="1"
-              value={viejo}
-              disabled={disabled}
-              onChange={(e) => setViejo(e.target.value)}
-              style={counterStyle}
-            />
+            <QtyCounterInput value={viejoDraft} onChange={setViejoDraft} disabled={disabled} />
           </div>
           <div className="d-flex align-items-center justify-content-between pt-2 border-top">
             <span style={{ fontWeight: 700 }}>Total ubicación</span>

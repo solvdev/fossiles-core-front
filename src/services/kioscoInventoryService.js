@@ -13,8 +13,9 @@ async function apiRequest(path, { method = "GET", body } = {}) {
   });
 
   if (!response.ok) {
-    const errorData = await response.json().catch(() => ({ message: "Error en operación de inventario kiosko" }));
-    throw new Error(errorData.message || "Error en operación de inventario kiosko");
+    const errorData = await response.json().catch(() => ({}));
+    const detail = errorData.message || errorData.error || errorData.detail;
+    throw new Error(detail || `Error en inventario kiosko (${response.status})`);
   }
 
   if (response.status === 204) {
