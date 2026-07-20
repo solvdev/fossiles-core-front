@@ -93,6 +93,9 @@ const hasHardwareLocationCounts = (hardwareLocationCounts) =>
     )
   );
 
+export const reportHasHardwareSplitData = (rows) =>
+  (rows || []).some((row) => hasHardwareLocationCounts(row?.hardwareLocationCounts));
+
 const hasLegacyLocationCounts = (counts) =>
   Boolean(counts && Object.values(counts).some((qty) => Number(qty || 0) > 0));
 

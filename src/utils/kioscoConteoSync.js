@@ -1,5 +1,5 @@
 import {
-  computeDiferenciaConteo,
+  computeConteoRowDiferencia,
   resolveLivePhysicalTotal,
   sumDisplayRows,
 } from "utils/kioscoConteoDisplay";
@@ -78,7 +78,7 @@ function mergeRowFromSyncItem(row, item) {
   return {
     ...merged,
     total,
-    diferencia: computeDiferenciaConteo(total, merged.inventarioFinal, merged.salidaDevolucion),
+    diferencia: computeConteoRowDiferencia(total, merged),
   };
 }
 

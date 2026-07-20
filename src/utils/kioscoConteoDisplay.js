@@ -37,6 +37,15 @@ export const computeDiferenciaConteo = (total, inventarioFinal, salidaDevolucion
   return Math.max(0, raw - Math.max(0, Number(salidaDevolucion || 0)));
 };
 
+/** Empaques SUM-: no aplican ajuste por devolución a bodega en la columna Dif. */
+export const resolveSalidaDevolucionForDiff = (row) => {
+  if (row?.packaging || isPackagingProductCode(row?.productCode)) return 0;
+  return Number(row?.salidaDevolucion || 0);
+};
+
+export const computeConteoRowDiferencia = (total, row) =>
+  computeDiferenciaConteo(total, row?.inventarioFinal, resolveSalidaDevolucionForDiff(row));
+
 /** Sobrante: solo el número (verde en UI). Faltante: conserva el signo −. */
 export const formatConteoDiffDisplay = (diferencia) => String(Number(diferencia || 0));
 
@@ -48,10 +57,9 @@ export const formatConteoDiffArrow = (diferencia) => {
 };
 
 export const resolveLiveRowDiff = (row, counts, physicalSizes, physicalSizesByLocation) =>
-  computeDiferenciaConteo(
+  computeConteoRowDiferencia(
     resolveLivePhysicalTotal(row, counts, physicalSizes, physicalSizesByLocation),
-    row.inventarioFinal,
-    row.salidaDevolucion
+    row
   );
 
 const normalizeDisplayRowTotals = (row) => {
@@ -65,7 +73,7 @@ const normalizeDisplayRowTotals = (row) => {
   return {
     ...row,
     total,
-    diferencia: computeDiferenciaConteo(total, inventarioFinal, row.salidaDevolucion),
+    diferencia: computeConteoRowDiferencia(total, row),
   };
 };
 
@@ -220,7 +228,7 @@ const expandCinchoRowBySizes = (row) => {
       inventarioFinal,
       counts,
       total,
-      diferencia: computeDiferenciaConteo(total, inventarioFinal, salidaDevolucion),
+      diferencia: computeConteoRowDiferencia(total, row),
     };
   });
 };

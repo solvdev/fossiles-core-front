@@ -41,7 +41,7 @@ import { formatDateGt, formatDateTimeGt } from "utils/dateTimeHelper";
 import { exportConteoToExcel, exportConteoToPdf } from "utils/kioscoConteoExport";
 import {
   buildConteoDisplayReport,
-  computeDiferenciaConteo,
+  computeConteoRowDiferencia,
   formatConteoDiffArrow,
   formatConteoDiffDisplay,
   formatConteoSubtotalLabel,
@@ -72,6 +72,7 @@ import {
   rowUsesHardwareCountMode,
   productMatchesCinchoFilter,
   productMatchesSearchFilter,
+  reportHasHardwareSplitData,
   resolvePhysicalSizesSummary,
   resolveSizesSummary,
   rowKey,
@@ -184,7 +185,7 @@ const withLiveRowTotals = (row, editedCounts, editedSizeCounts, editedSizeCounts
     ...row,
     counts,
     total,
-    diferencia: computeDiferenciaConteo(total, Number(row.inventarioFinal || 0), row.salidaDevolucion),
+    diferencia: computeConteoRowDiferencia(total, row),
   };
 };
 
@@ -439,19 +440,23 @@ function DataRow({
   disabled,
   editedHardwareLocationCounts,
   vitrineOnlyView = false,
+  hardwareSplitEnabled = false,
 }) {
   const total = resolveLivePhysicalTotal(row, counts, physicalSizes, physicalSizesByLocation);
-  const diferencia = computeDiferenciaConteo(total, Number(row.inventarioFinal || 0), row.salidaDevolucion);
+  const diferencia = computeConteoRowDiferencia(total, row);
   const isCincho = isCinchoProductRow(row);
   const isFoss = isFossCinchoProductRow(row);
   const isExpandedSizeRow = !!row.sizeLabel;
   const rKey = rowKey(row);
-  const useHardwareModal = !isExpandedSizeRow && !isFoss && rowUsesHardwareCountMode({
-    hardwareLocationCounts: editedHardwareLocationCounts?.[rKey] ?? row.hardwareLocationCounts,
-    counts,
-    physicalSizes,
-    physicalSizesByLocation,
-  });
+  const useHardwareModal = hardwareSplitEnabled
+    && !isExpandedSizeRow
+    && !isFoss
+    && rowUsesHardwareCountMode({
+      hardwareLocationCounts: editedHardwareLocationCounts?.[rKey] ?? row.hardwareLocationCounts,
+      counts,
+      physicalSizes,
+      physicalSizesByLocation,
+    });
   const physicalSummary = !isExpandedSizeRow && isFoss && physicalSizesByLocation
     ? formatFossLocationSizeSummary(physicalSizesByLocation)
     : !isExpandedSizeRow ? resolvePhysicalSizesSummary({ ...row, physicalSizes }) : "";
@@ -498,12 +503,16 @@ function DataRow({
         {formatCinchoClassification(row)}
       </td>
       <td style={{ fontSize: 11, color: "#374151", verticalAlign: "middle" }}>
-        <HardwareSplitSummaryCell
-          row={row}
-          hardwareLocationCounts={editedHardwareLocationCounts?.[rKey] ?? row.hardwareLocationCounts}
-          useHardwareSplit={useHardwareModal}
-          vitrineOnlyView={vitrineOnlyView}
-        />
+        {hardwareSplitEnabled ? (
+          <HardwareSplitSummaryCell
+            row={row}
+            hardwareLocationCounts={editedHardwareLocationCounts?.[rKey] ?? row.hardwareLocationCounts}
+            useHardwareSplit={useHardwareModal}
+            vitrineOnlyView={vitrineOnlyView}
+          />
+        ) : (
+          <span style={{ color: "#9ca3af" }}>—</span>
+        )}
       </td>
       {showKardex && kardexColumns.map((col) => (
         <td key={col.key} className="text-right" style={{ fontSize: 11, color: col.key === "inventarioFinal" ? "#111" : "#6b7280" }}>
@@ -701,6 +710,7 @@ function CategoryGroup({
   onOpenHardwareModal,
   disabled,
   vitrineOnlyView = false,
+  hardwareSplitEnabled = false,
 }) {
   const [collapsed, setCollapsed] = useState(false);
   const trailingCols = vitrineOnlyView ? INTERNAL_TRAILING_DATA_COLS : TRAILING_DATA_COLS;
@@ -759,6 +769,7 @@ function CategoryGroup({
                 disabled={disabled}
                 editedHardwareLocationCounts={editedHardwareLocationCounts}
                 vitrineOnlyView={vitrineOnlyView}
+                hardwareSplitEnabled={hardwareSplitEnabled}
               />
             );
           })}
@@ -815,6 +826,7 @@ function KioskInventoryCountReport({ locationId, internalMode = false }) {
   const [autoSaveStatus, setAutoSaveStatus] = useState("idle");
   const [lastAutoSaveAt, setLastAutoSaveAt] = useState(null);
   const [remoteSyncNotice, setRemoteSyncNotice] = useState("");
+  const [hardwareSplitEnabled, setHardwareSplitEnabled] = useState(false);
   const lastSyncSinceRef = useRef(null);
   const autoSavingRef = useRef(false);
 
@@ -855,6 +867,11 @@ function KioskInventoryCountReport({ locationId, internalMode = false }) {
     [displayReport]
   );
 
+  useEffect(() => {
+    if (!report?.id || internalMode) return;
+    setHardwareSplitEnabled(reportHasHardwareSplitData(allReportRows));
+  }, [report?.id, internalMode, allReportRows]);
+
   const cinchoModalRows = useMemo(() => {
     if (!cinchoModalProductId) return [];
     return allReportRows.filter(
@@ -868,7 +885,7 @@ function KioskInventoryCountReport({ locationId, internalMode = false }) {
   );
 
   const cinchoModalHardwareSplit = useMemo(() => {
-    if (!cinchoModalRows.length) return true;
+    if (!hardwareSplitEnabled || !cinchoModalRows.length) return false;
     const parentRows = cinchoModalRows.filter((row) => !row.sizeLabel);
     const rowsToCheck = parentRows.length ? parentRows : cinchoModalRows;
     return rowsToCheck.every((row) => {
@@ -886,6 +903,7 @@ function KioskInventoryCountReport({ locationId, internalMode = false }) {
     editedCounts,
     editedSizeCounts,
     editedSizeCountsByLocation,
+    hardwareSplitEnabled,
   ]);
 
   const filteredTotalGeneral = useMemo(() => {
@@ -2019,6 +2037,22 @@ function KioskInventoryCountReport({ locationId, internalMode = false }) {
                     {opt.label === "Todos" ? "Cinchos: Todos" : opt.label}
                   </Button>
                 ))}
+                {!internalMode && (
+                  <>
+                    <span style={{ width: 1, background: "#d1d5db", margin: "0 4px" }} />
+                    <FormGroup check inline className="mb-0 ml-1">
+                      <Label check style={{ fontSize: 12, userSelect: "none", cursor: "pointer" }}>
+                        <Input
+                          type="checkbox"
+                          checked={hardwareSplitEnabled}
+                          onChange={(e) => setHardwareSplitEnabled(e.target.checked)}
+                          style={{ marginTop: 2 }}
+                        />
+                        {" "}Desglose herraje N/V
+                      </Label>
+                    </FormGroup>
+                  </>
+                )}
               </div>
             </Col>
           </Row>
@@ -2269,6 +2303,7 @@ function KioskInventoryCountReport({ locationId, internalMode = false }) {
                       onOpenHardwareModal={handleOpenHardwareModal}
                       disabled={isCountLocked}
                       vitrineOnlyView={internalMode}
+                      hardwareSplitEnabled={hardwareSplitEnabled && !internalMode}
                     />
                   ))
                 )}
