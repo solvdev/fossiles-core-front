@@ -19,7 +19,8 @@ import {
   Spinner,
   Table,
 } from "reactstrap";
-import { ProductSelector } from "components/catalog/FilterableCatalogSelectors";
+import { ColorSelector, ProductSelector } from "components/catalog/FilterableCatalogSelectors";
+import { FilterableSelect } from "components/distribution/FilterableSelect";
 import {
   applyKioscoOpeningInventory,
   getKioscoOpeningInventory,
@@ -27,10 +28,15 @@ import {
   saveKioscoOpeningInventoryItems,
   startKioscoOpeningInventory,
 } from "services/kioscoInventoryService";
+import { isCinchoInventoryProduct, isFossCinchosProductCode } from "utils/cinchoProductionHelper";
 import { isPackagingProductCode } from "utils/kioskPackagingHelper";
-import { isFossCinchosProductCode } from "utils/cinchoProductionHelper";
 import { formatDateTimeGt } from "utils/dateTimeHelper";
-import { sortSizeKeys, sumSizeCounts } from "utils/productCinchoHelper";
+import {
+  HARDWARE_CONDITION_OPTIONS,
+  getHardwareConditionLabel,
+  sortSizeKeys,
+  sumSizeCounts,
+} from "utils/productCinchoHelper";
 import { showSuccess, showWarning } from "utils/notificationHelper";
 import "./KioskInventory.css";
 
@@ -43,13 +49,23 @@ function resolveDefaultCinchoSizes(product) {
   return product?.cinchoForKids ? KIDS_CINCHO_SIZES : ADULT_CINCHO_SIZES;
 }
 
-function itemKey(productId, colorId) {
-  return `${productId}:${colorId ?? ""}`;
+function itemKey(productId, colorId, hardwareCondition) {
+  return `${productId}:${colorId ?? ""}:${hardwareCondition || "NUEVO"}`;
 }
 
 function normalizeQty(value) {
   const n = parseInt(String(value ?? "").trim(), 10);
   return Number.isFinite(n) && n >= 0 ? n : 0;
+}
+
+function productNeedsSizeBreakdown(product) {
+  return isFossCinchosProductCode(product?.code) || isCinchoInventoryProduct(product);
+}
+
+function productNeedsHardware(product, stockVariants) {
+  if (!product || isPackagingProductCode(product.code)) return false;
+  if (isCinchoInventoryProduct(product)) return true;
+  return (stockVariants || []).some((row) => row.hardwareCondition);
 }
 
 function OpeningInventorySizeModal({ isOpen, toggle, productLabel, sizeKeys, initialSizes, onApply, disabled }) {
@@ -130,6 +146,7 @@ function OpeningInventorySizeModal({ isOpen, toggle, productLabel, sizeKeys, ini
 function KioskOpeningInventoryTab({
   locationId,
   products,
+  colors,
   stockRows,
   loadingStock,
   onRefreshStock,
@@ -145,6 +162,7 @@ function KioskOpeningInventoryTab({
 
   const [explorerProductId, setExplorerProductId] = useState("");
   const [explorerColorId, setExplorerColorId] = useState("");
+  const [hardwareDraft, setHardwareDraft] = useState("NUEVO");
   const [quantityDraft, setQuantityDraft] = useState("");
   const [sizeModalOpen, setSizeModalOpen] = useState(false);
   const [pendingSizes, setPendingSizes] = useState(null);
@@ -158,20 +176,53 @@ function KioskOpeningInventoryTab({
   );
 
   const isPackaging = isPackagingProductCode(selectedProduct?.code);
-  const isFoss = isFossCinchosProductCode(selectedProduct?.code);
+  const needsSizes = productNeedsSizeBreakdown(selectedProduct);
 
   const productVariants = useMemo(() => {
     if (!explorerProductId) return [];
     return (stockRows || []).filter((row) => Number(row.productId) === Number(explorerProductId));
   }, [stockRows, explorerProductId]);
 
+  const needsHardware = productNeedsHardware(selectedProduct, productVariants);
+
+  const colorOptionsFromStock = useMemo(() => {
+    const seen = new Map();
+    productVariants.forEach((row) => {
+      if (row.colorId == null) return;
+      if (!seen.has(row.colorId)) {
+        seen.set(row.colorId, {
+          id: row.colorId,
+          name: row.colorName || `Color ${row.colorId}`,
+          stock: row.currentStock ?? 0,
+        });
+      }
+    });
+    return Array.from(seen.values());
+  }, [productVariants]);
+
   const selectedVariant = useMemo(() => {
     if (!productVariants.length) return null;
+    const hw = needsHardware ? hardwareDraft : null;
+    const matches = productVariants.filter((row) => {
+      const sameColor = explorerColorId
+        ? Number(row.colorId) === Number(explorerColorId)
+        : productVariants.length === 1;
+      const sameHw = !hw || String(row.hardwareCondition || "NUEVO").toUpperCase() === hw;
+      return sameColor && sameHw;
+    });
+    if (matches.length) return matches[0];
     if (explorerColorId) {
-      return productVariants.find((row) => Number(row.colorId) === Number(explorerColorId)) || productVariants[0];
+      return productVariants.find((row) => Number(row.colorId) === Number(explorerColorId)) || null;
     }
     return productVariants.length === 1 ? productVariants[0] : null;
-  }, [productVariants, explorerColorId]);
+  }, [productVariants, explorerColorId, hardwareDraft, needsHardware]);
+
+  useEffect(() => {
+    if (!selectedProduct) return;
+    if (productVariants.length === 1 && productVariants[0].colorId != null) {
+      setExplorerColorId(String(productVariants[0].colorId));
+    }
+  }, [selectedProduct, productVariants]);
 
   const loadSession = useCallback(async () => {
     if (!locationId) {
@@ -218,9 +269,10 @@ function KioskOpeningInventoryTab({
     }
   };
 
-  const buildUpsertPayload = (productId, colorId, quantity, sizes) => ({
+  const buildUpsertPayload = (productId, colorId, quantity, sizes, hardwareCondition) => ({
     productId: Number(productId),
     colorId: colorId != null && colorId !== "" ? Number(colorId) : null,
+    hardwareCondition: hardwareCondition || "NUEVO",
     quantity: normalizeQty(quantity),
     sizes: sizes && Object.keys(sizes).length > 0 ? sizes : undefined,
   });
@@ -235,15 +287,15 @@ function KioskOpeningInventoryTab({
 
   const handleAddItem = async () => {
     if (!selectedProduct || readOnly) return;
-    if (!isPackaging && !explorerColorId && productVariants.length > 1) {
+    if (!isPackaging && !explorerColorId) {
       showWarning("Selecciona un color antes de agregar.");
       return;
     }
-    const colorId = isPackaging ? null : (explorerColorId || productVariants[0]?.colorId || null);
+    const colorId = isPackaging ? null : explorerColorId;
     let quantity = normalizeQty(quantityDraft);
     let sizes = pendingSizes;
 
-    if (isFoss) {
+    if (needsSizes) {
       if (!sizes) {
         setSizeModalOpen(true);
         return;
@@ -251,7 +303,7 @@ function KioskOpeningInventoryTab({
       quantity = sumSizeCounts(sizes);
     }
 
-    if (quantity <= 0 && (!sizes || sumSizeCounts(sizes) <= 0)) {
+    if (quantity <= 0) {
       showWarning("Indica una cantidad mayor a cero.");
       return;
     }
@@ -259,7 +311,13 @@ function KioskOpeningInventoryTab({
     setSaving(true);
     setError("");
     try {
-      await persistItem(buildUpsertPayload(selectedProduct.id, colorId, quantity, sizes));
+      await persistItem(buildUpsertPayload(
+        selectedProduct.id,
+        colorId,
+        quantity,
+        sizes,
+        needsHardware ? hardwareDraft : "NUEVO"
+      ));
       setQuantityDraft("");
       setPendingSizes(null);
       showSuccess("Ítem guardado en el borrador.");
@@ -278,6 +336,7 @@ function KioskOpeningInventoryTab({
       await persistItem({
         productId: row.productId,
         colorId: row.colorId ?? null,
+        hardwareCondition: row.hardwareCondition || "NUEVO",
         quantity: 0,
       });
       showSuccess("Ítem eliminado del borrador.");
@@ -325,6 +384,24 @@ function KioskOpeningInventoryTab({
     setSizeModalOpen(false);
   };
 
+  const hardwareOptions = useMemo(
+    () =>
+      HARDWARE_CONDITION_OPTIONS.map((opt) => ({
+        value: opt.value,
+        label: opt.label,
+        searchText: opt.label,
+      })),
+    []
+  );
+
+  const fossSizeKeys = useMemo(() => {
+    if (!needsSizes || !selectedProduct) return [];
+    const keys = new Set(resolveDefaultCinchoSizes(selectedProduct));
+    Object.keys(selectedVariant?.sizes || {}).forEach((k) => keys.add(k));
+    Object.keys(pendingSizes || {}).forEach((k) => keys.add(k));
+    return sortSizeKeys(keys);
+  }, [needsSizes, selectedProduct, selectedVariant, pendingSizes]);
+
   const statusBanner = () => {
     if (!locationId) {
       return (
@@ -357,11 +434,6 @@ function KioskOpeningInventoryTab({
       </Alert>
     );
   };
-
-  const fossSizeKeys = useMemo(() => {
-    if (!isFoss || !selectedProduct) return [];
-    return sortSizeKeys(resolveDefaultCinchoSizes(selectedProduct));
-  }, [isFoss, selectedProduct]);
 
   return (
     <div className="kiosk-opening-inventory-tab">
@@ -405,6 +477,7 @@ function KioskOpeningInventoryTab({
                         onChange={(product) => {
                           setExplorerProductId(product ? String(product.id) : "");
                           setExplorerColorId("");
+                          setHardwareDraft("NUEVO");
                           setQuantityDraft("");
                           setPendingSizes(null);
                         }}
@@ -418,39 +491,62 @@ function KioskOpeningInventoryTab({
                         Cargando stock…
                       </div>
                     ) : null}
-                    {selectedProduct && productVariants.length > 1 ? (
+                    {selectedProduct && !isPackaging ? (
                       <FormGroup className="mb-2">
-                        <Label className="mb-1">Color / variante</Label>
-                        <div>
-                          {productVariants.map((row) => {
-                            const active = explorerColorId && Number(row.colorId) === Number(explorerColorId);
-                            return (
-                              <Badge
-                                key={row.id || `${row.productId}-${row.colorId}`}
-                                color={active ? "primary" : "secondary"}
-                                className={`kiosk-inv-color-pill ${active ? "active" : ""}`}
-                                onClick={() => setExplorerColorId(row.colorId ? String(row.colorId) : "")}
-                                style={{ cursor: "pointer" }}
-                              >
-                                {row.colorName || "Sin color"} · stock {row.currentStock ?? 0}
-                              </Badge>
-                            );
-                          })}
-                        </div>
+                        <Label className="mb-1">Color</Label>
+                        {colorOptionsFromStock.length > 1 ? (
+                          <div className="mb-2">
+                            {colorOptionsFromStock.map((opt) => {
+                              const active = Number(explorerColorId) === Number(opt.id);
+                              return (
+                                <Badge
+                                  key={opt.id}
+                                  color={active ? "primary" : "secondary"}
+                                  className={`kiosk-inv-color-pill ${active ? "active" : ""}`}
+                                  onClick={() => setExplorerColorId(String(opt.id))}
+                                  style={{ cursor: "pointer" }}
+                                >
+                                  {opt.name} · stock {opt.stock}
+                                </Badge>
+                              );
+                            })}
+                          </div>
+                        ) : null}
+                        <ColorSelector
+                          colors={colors}
+                          value={explorerColorId}
+                          onChange={(color) => setExplorerColorId(color ? String(color.id) : "")}
+                          placeholder="Buscar color…"
+                          disabled={saving}
+                        />
                       </FormGroup>
                     ) : null}
-                    {selectedProduct && productVariants.length === 0 ? (
-                      <Alert color="warning" className="py-2 mb-2">
-                        Este producto no tiene fila de stock en el kiosko. Use «Generar inventario» primero
-                        {isPackaging ? " (empaques SUM- incluidos)." : "."}
+                    {selectedProduct && needsHardware ? (
+                      <FormGroup className="mb-2">
+                        <Label className="mb-1">Herraje</Label>
+                        <FilterableSelect
+                          value={hardwareDraft}
+                          onChange={setHardwareDraft}
+                          options={hardwareOptions}
+                          placeholder="Buscar herraje…"
+                          allowEmpty={false}
+                          disabled={saving}
+                        />
+                      </FormGroup>
+                    ) : null}
+                    {selectedProduct && productVariants.length === 0 && !isPackaging ? (
+                      <Alert color="light" className="py-2 mb-2 border">
+                        Sin fila de stock aún — puede capturar igual si el producto ya está en catálogo.
+                        Si falta en el kiosko, use «Generar inventario en kioskos» arriba.
                       </Alert>
                     ) : null}
                     {selectedVariant ? (
                       <div className="text-muted small mb-2">
-                        Stock actual en kiosko: <strong>{selectedVariant.currentStock ?? 0}</strong>
+                        Stock actual ({getHardwareConditionLabel(selectedVariant.hardwareCondition)}):{" "}
+                        <strong>{selectedVariant.currentStock ?? 0}</strong>
                       </div>
                     ) : null}
-                    {selectedProduct && !isFoss ? (
+                    {selectedProduct && !needsSizes ? (
                       <FormGroup className="mb-2">
                         <Label className="mb-1">Cantidad real</Label>
                         <Input
@@ -463,10 +559,10 @@ function KioskOpeningInventoryTab({
                         />
                       </FormGroup>
                     ) : null}
-                    {selectedProduct && isFoss ? (
+                    {selectedProduct && needsSizes ? (
                       <div className="mb-2">
                         <div className="d-flex align-items-center justify-content-between mb-1">
-                          <Label className="mb-0">Cantidad por talla (FOSS)</Label>
+                          <Label className="mb-0">Cantidad por talla (cincho)</Label>
                           <strong>{normalizeQty(quantityDraft) || sumSizeCounts(pendingSizes || {})}</strong>
                         </div>
                         <Button
@@ -474,7 +570,7 @@ function KioskOpeningInventoryTab({
                           outline
                           size="sm"
                           onClick={() => setSizeModalOpen(true)}
-                          disabled={saving || (!explorerColorId && productVariants.length > 1)}
+                          disabled={saving || (!isPackaging && !explorerColorId)}
                         >
                           {pendingSizes ? "Editar tallas" : "Capturar tallas"}
                         </Button>
@@ -547,6 +643,7 @@ function KioskOpeningInventoryTab({
                         <tr>
                           <th>Producto</th>
                           <th>Color</th>
+                          <th>Herraje</th>
                           <th>Tallas</th>
                           <th className="text-right">Cant.</th>
                           {!readOnly ? <th /> : null}
@@ -554,7 +651,7 @@ function KioskOpeningInventoryTab({
                       </thead>
                       <tbody>
                         {report.items.map((row) => (
-                          <tr key={itemKey(row.productId, row.colorId)}>
+                          <tr key={itemKey(row.productId, row.colorId, row.hardwareCondition)}>
                             <td>
                               <div>{row.productCode}</div>
                               <small className="text-muted">{row.productName}</small>
@@ -562,7 +659,8 @@ function KioskOpeningInventoryTab({
                                 <Badge color="secondary" className="ml-1">Empaque</Badge>
                               ) : null}
                             </td>
-                            <td>{row.colorName || (row.packaging ? "—" : "—")}</td>
+                            <td>{row.colorName || "—"}</td>
+                            <td><small>{row.hardwareLabel || getHardwareConditionLabel(row.hardwareCondition)}</small></td>
                             <td><small>{row.sizesSummary || "—"}</small></td>
                             <td className="text-right">{row.quantity ?? 0}</td>
                             {!readOnly ? (
@@ -595,7 +693,7 @@ function KioskOpeningInventoryTab({
         toggle={() => setSizeModalOpen(false)}
         productLabel={selectedProduct ? `${selectedProduct.code} — ${selectedProduct.name}` : ""}
         sizeKeys={fossSizeKeys}
-        initialSizes={pendingSizes || {}}
+        initialSizes={pendingSizes || selectedVariant?.sizes || {}}
         onApply={handleSizeModalApply}
         disabled={saving}
       />

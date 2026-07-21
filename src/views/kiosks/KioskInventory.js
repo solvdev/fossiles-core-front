@@ -1547,6 +1547,7 @@ function KioskInventory() {
                 <KioskOpeningInventoryTab
                   locationId={selectedLocation}
                   products={products}
+                  colors={colors}
                   stockRows={stockRows}
                   loadingStock={loadingData}
                   onRefreshStock={() =>
