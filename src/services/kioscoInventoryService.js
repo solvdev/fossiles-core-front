@@ -141,3 +141,27 @@ export const reconcileKioscoShipmentEntries = async (locationId) =>
 
 export const previewKioscoShipmentEntriesReconcile = async (locationId) =>
   apiRequest(`/kiosco-inventory/${locationId}/reconcile-shipment-entries/preview`);
+
+export const getKioscoOpeningInventoryStatus = async (locationId) =>
+  apiRequest(`/kiosco-inventory/${locationId}/inventario-inicial/estado`);
+
+export const startKioscoOpeningInventory = async (locationId) =>
+  apiRequest(`/kiosco-inventory/${locationId}/inventario-inicial`, { method: "POST" });
+
+export const getKioscoOpeningInventory = async (openingInventoryId) =>
+  apiRequest(`/kiosco-inventory/inventario-inicial/${openingInventoryId}`);
+
+export const saveKioscoOpeningInventoryItems = async (openingInventoryId, items) =>
+  apiRequest(`/kiosco-inventory/inventario-inicial/${openingInventoryId}/items`, {
+    method: "PUT",
+    body: items,
+  });
+
+export const applyKioscoOpeningInventory = async (openingInventoryId, payload = {}) =>
+  apiRequest(`/kiosco-inventory/inventario-inicial/${openingInventoryId}/aplicar`, {
+    method: "POST",
+    body: payload,
+  });
+
+export const getKioscoOpeningInventoryHistorial = async (locationId) =>
+  apiRequest(`/kiosco-inventory/${locationId}/inventario-inicial/historial`);

@@ -22,6 +22,7 @@ import { ColorSelector, ProductSelector } from "components/catalog/FilterableCat
 import { FilterableSelect } from "components/distribution/FilterableSelect";
 import { getLocations } from "services/locationService";
 import KioskInventoryCountReport from "./KioskInventoryCountReport";
+import KioskOpeningInventoryTab from "./KioskOpeningInventoryTab";
 import { getProducts } from "services/productService";
 import { getColors } from "services/colorService";
 import {
@@ -856,6 +857,18 @@ function KioskInventory() {
                     Conteo físico
                   </NavLink>
                 </NavItem>
+                <NavItem>
+                  <NavLink
+                    href="#"
+                    className={activeTab === "INVENTARIO_INICIAL" ? "active" : ""}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      setActiveTab("INVENTARIO_INICIAL");
+                    }}
+                  >
+                    Inventario inicial
+                  </NavLink>
+                </NavItem>
               </Nav>
             </CardHeader>
             <CardBody>
@@ -1528,6 +1541,20 @@ function KioskInventory() {
 
               {activeTab === "CONTEO" && (
                 <KioskInventoryCountReport locationId={selectedLocation} />
+              )}
+
+              {activeTab === "INVENTARIO_INICIAL" && (
+                <KioskOpeningInventoryTab
+                  locationId={selectedLocation}
+                  products={products}
+                  stockRows={stockRows}
+                  loadingStock={loadingData}
+                  onRefreshStock={() =>
+                    selectedLocation ? refreshLocationData(selectedLocation) : Promise.resolve()
+                  }
+                  onInitializeInventory={() => void handleInitializeInventory()}
+                  initializingStock={initializingStock}
+                />
               )}
             </CardBody>
           </Card>
