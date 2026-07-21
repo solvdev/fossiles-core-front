@@ -906,7 +906,7 @@ function PosReportsTab({
                 <Card body className="kiosk-pos-report-card border-warning">
                   <h6 className="mb-2">Cuadre de caja (turno abierto)</h6>
                   <div className="small">
-                    Fondo Q300 + efectivo ventas ({formatCurrency(cashSession.cashSalesTotal || 0)})
+                    Fondo {formatCurrency(cashSession.openingAmount ?? 300)} + efectivo ventas ({formatCurrency(cashSession.cashSalesTotal || 0)})
                     − gastos ({formatCurrency(cashSession.cashExpensesTotal || 0)})
                     = <strong>{formatCurrency(cashSession.expectedCash || 0)}</strong> esperado en caja
                   </div>

@@ -30,6 +30,7 @@ function LocationsForm({ locationId, isOpen, toggle, onSuccess }) {
     felMunicipio: "",
     felDepartamento: "",
     posTestMode: false,
+    posOpeningCashAmount: "300",
     internalSeriesCode: "",
   });
   const [users, setUsers] = useState([]);
@@ -85,6 +86,7 @@ function LocationsForm({ locationId, isOpen, toggle, onSuccess }) {
         felMunicipio: location.felMunicipio || "",
         felDepartamento: location.felDepartamento || "",
         posTestMode: Boolean(location.posTestMode),
+        posOpeningCashAmount: location.posOpeningCashAmount != null ? String(location.posOpeningCashAmount) : "300",
         internalSeriesCode: location.internalSeriesCode || "",
       });
     } catch (err) {
@@ -109,6 +111,7 @@ function LocationsForm({ locationId, isOpen, toggle, onSuccess }) {
       felMunicipio: "",
       felDepartamento: "",
       posTestMode: false,
+      posOpeningCashAmount: "300",
       internalSeriesCode: "",
     });
     setErrors({});
@@ -138,6 +141,7 @@ function LocationsForm({ locationId, isOpen, toggle, onSuccess }) {
         felMunicipio: formData.felMunicipio.trim() || null,
         felDepartamento: formData.felDepartamento.trim() || null,
         posTestMode: Boolean(formData.posTestMode),
+        posOpeningCashAmount: Number(formData.posOpeningCashAmount || 300),
         internalSeriesCode: formData.internalSeriesCode.trim() || null,
       };
       if (locationId) {
@@ -283,6 +287,23 @@ function LocationsForm({ locationId, isOpen, toggle, onSuccess }) {
               conservan su marca de prueba y no suman en reportes corporativos, pero sí en el resumen del kiosko.
             </small>
           </FormGroup>
+          <Row>
+            <Col md="4">
+              <FormGroup>
+                <Label>Fondo inicial de caja (Q)</Label>
+                <Input
+                  type="number"
+                  min="0.01"
+                  step="0.01"
+                  value={formData.posOpeningCashAmount}
+                  onChange={(e) => setFormData({ ...formData, posOpeningCashAmount: e.target.value })}
+                />
+                <small className="text-muted d-block mt-1">
+                  Efectivo base al abrir caja en este kiosko. Default Q300. No modifica cajas ya abiertas.
+                </small>
+              </FormGroup>
+            </Col>
+          </Row>
           <hr />
           <h6 className="text-muted mb-3">Facturación electrónica (FEL)</h6>
           <Row>

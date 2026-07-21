@@ -647,6 +647,15 @@ function KioskSales() {
     return context.kioskCode || "";
   }, [context, selectedKioskId]);
 
+  const selectedKioskOpeningCash = useMemo(() => {
+    if (!context) return 300;
+    if (context.admin && Array.isArray(context.kiosks)) {
+      const match = context.kiosks.find((k) => String(k.kioskId) === String(selectedKioskId));
+      if (match?.posOpeningCashAmount != null) return Number(match.posOpeningCashAmount);
+    }
+    return Number(context.posOpeningCashAmount ?? 300);
+  }, [context, selectedKioskId]);
+
   const tabItems = useMemo(() => {
     const items = [
       { id: "RESUMEN", label: "Resumen" },
@@ -755,7 +764,7 @@ function KioskSales() {
                     <>
                       {!cashSessionOpen && !cashSessionLoading && (
                         <Alert color="warning" className="mb-3">
-                          Debes <strong>abrir caja</strong> (pestaña Caja, fondo Q300) antes de registrar ventas.
+                          Debes <strong>abrir caja</strong> (pestaña Caja, fondo {formatCurrency(selectedKioskOpeningCash)}) antes de registrar ventas.
                         </Alert>
                       )}
                       {lastSale ? (
@@ -893,6 +902,7 @@ function KioskSales() {
                       cashSession={cashSession}
                       kioskLocationId={selectedKioskId || context?.kioskId}
                       kioskName={selectedKioskName || context?.kioskName}
+                      posOpeningCashAmount={selectedKioskOpeningCash}
                       loading={cashSessionLoading}
                       pendingDepositSummary={pendingDepositSummary}
                       onSessionChange={async () => {

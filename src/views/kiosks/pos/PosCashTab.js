@@ -142,7 +142,7 @@ function PosCashCloseModal({ isOpen, session, onClose, onClosed, pendingDepositS
   );
 }
 
-function PosCashTab({ cashSession, kioskLocationId, kioskName, onSessionChange, loading, pendingDepositSummary }) {
+function PosCashTab({ cashSession, kioskLocationId, kioskName, posOpeningCashAmount = 300, onSessionChange, loading, pendingDepositSummary }) {
   const [opening, setOpening] = useState(false);
   const [closeOpen, setCloseOpen] = useState(false);
   const [expenseAmount, setExpenseAmount] = useState("");
@@ -155,11 +155,13 @@ function PosCashTab({ cashSession, kioskLocationId, kioskName, onSessionChange, 
   const pendingCount = Number(pendingDepositSummary?.pendingCount || 0);
   const expenses = cashSession?.expenses || [];
 
+  const configuredOpening = Number(posOpeningCashAmount ?? 300);
+
   const handleOpen = async () => {
     try {
       setOpening(true);
       await openCashSession(kioskLocationId);
-      showSuccess("Caja abierta con fondo Q300.");
+      showSuccess(`Caja abierta con fondo ${formatCurrency(configuredOpening)}.`);
       await onSessionChange();
     } catch (err) {
       showError(err.message || "No se pudo abrir la caja.");
@@ -226,11 +228,11 @@ function PosCashTab({ cashSession, kioskLocationId, kioskName, onSessionChange, 
               <h5 className="mb-2">Abrir caja</h5>
               <p className="text-muted">
                 {kioskName
-                  ? `Antes de vender en ${kioskName}, abre caja con fondo inicial de Q300.`
-                  : "Abre caja con fondo inicial de Q300 antes de registrar ventas."}
+                  ? `Antes de vender en ${kioskName}, abre caja con fondo inicial de ${formatCurrency(configuredOpening)}.`
+                  : `Abre caja con fondo inicial de ${formatCurrency(configuredOpening)} antes de registrar ventas.`}
               </p>
               <Button color="success" className="kiosk-pos-btn-lg" onClick={handleOpen} disabled={opening}>
-                {opening ? <Spinner size="sm" /> : "Abrir caja — Q300"}
+                {opening ? <Spinner size="sm" /> : `Abrir caja — ${formatCurrency(configuredOpening)}`}
               </Button>
             </>
           ) : (
@@ -245,7 +247,7 @@ function PosCashTab({ cashSession, kioskLocationId, kioskName, onSessionChange, 
                 <div>
                   <h5 className="mb-1">Caja abierta</h5>
                   <div className="text-muted small">
-                    Desde {formatDateTime(cashSession.openedAt)} · Fondo Q300
+                    Desde {formatDateTime(cashSession.openedAt)} · Fondo {formatCurrency(cashSession.openingAmount ?? configuredOpening)}
                   </div>
                 </div>
                 <Button color="danger" outline onClick={() => setCloseOpen(true)}>
