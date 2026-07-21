@@ -1,9 +1,9 @@
 import { isCinchoInventoryProductByCodeAndName, isFossCinchosProductCode } from "utils/cinchoProductionHelper";
 import { hasInventorySizeBreakdown } from "utils/inventoryVariantHelper";
 
-export const ADULT_CINCHO_SIZES = ["32", "34", "36", "38", "40", "42"];
-/** Niño: 16–28 por pares. */
-export const KIDS_CINCHO_SIZES = ["16", "18", "20", "22", "24", "26", "28"];
+export const ADULT_CINCHO_SIZES = ["30", "32", "34", "36", "38", "40", "42"];
+/** Niño: 16–30 por pares. */
+export const KIDS_CINCHO_SIZES = ["16", "18", "20", "22", "24", "26", "28", "30"];
 
 export const resolveCinchoSizesForProduct = (product) =>
   product?.cinchoForKids ? KIDS_CINCHO_SIZES : ADULT_CINCHO_SIZES;
