@@ -62,12 +62,6 @@ function productNeedsSizeBreakdown(product) {
   return isFossCinchosProductCode(product?.code) || isCinchoInventoryProduct(product);
 }
 
-function productNeedsHardware(product, stockVariants) {
-  if (!product || isPackagingProductCode(product.code)) return false;
-  if (isCinchoInventoryProduct(product)) return true;
-  return (stockVariants || []).some((row) => row.hardwareCondition);
-}
-
 function OpeningInventorySizeModal({ isOpen, toggle, productLabel, sizeKeys, initialSizes, onApply, disabled }) {
   const [draft, setDraft] = useState({});
 
@@ -183,7 +177,7 @@ function KioskOpeningInventoryTab({
     return (stockRows || []).filter((row) => Number(row.productId) === Number(explorerProductId));
   }, [stockRows, explorerProductId]);
 
-  const needsHardware = productNeedsHardware(selectedProduct, productVariants);
+  const showHardware = selectedProduct && !isPackaging;
 
   const colorOptionsFromStock = useMemo(() => {
     const seen = new Map();
@@ -202,7 +196,7 @@ function KioskOpeningInventoryTab({
 
   const selectedVariant = useMemo(() => {
     if (!productVariants.length) return null;
-    const hw = needsHardware ? hardwareDraft : null;
+    const hw = showHardware ? hardwareDraft : null;
     const matches = productVariants.filter((row) => {
       const sameColor = explorerColorId
         ? Number(row.colorId) === Number(explorerColorId)
@@ -215,7 +209,7 @@ function KioskOpeningInventoryTab({
       return productVariants.find((row) => Number(row.colorId) === Number(explorerColorId)) || null;
     }
     return productVariants.length === 1 ? productVariants[0] : null;
-  }, [productVariants, explorerColorId, hardwareDraft, needsHardware]);
+  }, [productVariants, explorerColorId, hardwareDraft, showHardware]);
 
   useEffect(() => {
     if (!selectedProduct) return;
@@ -316,7 +310,7 @@ function KioskOpeningInventoryTab({
         colorId,
         quantity,
         sizes,
-        needsHardware ? hardwareDraft : "NUEVO"
+        showHardware ? hardwareDraft : "NUEVO"
       ));
       setQuantityDraft("");
       setPendingSizes(null);
@@ -521,7 +515,7 @@ function KioskOpeningInventoryTab({
                         />
                       </FormGroup>
                     ) : null}
-                    {selectedProduct && needsHardware ? (
+                    {showHardware ? (
                       <FormGroup className="mb-2">
                         <Label className="mb-1">Herraje</Label>
                         <FilterableSelect
