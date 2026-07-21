@@ -206,8 +206,8 @@ function PosCatalogPanel({
         {filteredInventory.length === 0 && (
           <Alert color="warning" className="mb-3">
             {isPackagingView
-              ? "No hay empaques SUM- configurados o visibles con los filtros actuales."
-              : "No hay productos con los filtros actuales."}
+              ? "No hay empaques SUM- con stock en el kiosko."
+              : "No hay productos con stock disponible para los filtros actuales."}
           </Alert>
         )}
 

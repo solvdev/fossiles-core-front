@@ -97,6 +97,8 @@ export const posVariantStockQty = (variant) => {
   return Number(variant?.quantity || 0);
 };
 
+export const posVariantHasStock = (variant) => posVariantStockQty(variant) > 0;
+
 export const getColorSwatch = (colorName) => {
   const name = String(colorName || "").trim();
   if (POS_COLOR_SWATCHES[name]) return POS_COLOR_SWATCHES[name];
@@ -132,6 +134,7 @@ export const itemMatchesColor = (item, colorFilter) => {
 export const buildCategoryOptions = (inventory) => {
   const inventoryCategories = new Map();
   (inventory || []).forEach((item) => {
+    if (!posVariantHasStock(item)) return;
     if (item.categoryId == null || !item.categoryName) return;
     const norm = normalizePosLabel(item.categoryName);
     if (!inventoryCategories.has(norm)) {
@@ -179,6 +182,7 @@ export const buildCategoryOptions = (inventory) => {
 export const buildColorOptions = (inventory) => {
   const availableNorms = new Set();
   (inventory || []).forEach((item) => {
+    if (!posVariantHasStock(item)) return;
     const name = String(item.colorName || "").trim();
     if (name) availableNorms.add(normalizePosLabel(name));
   });
@@ -195,6 +199,7 @@ export const buildColorOptions = (inventory) => {
 export const filterPosInventory = (inventory, { search, categoryFilter, colorFilter, audienceFilter, catalogView }) => {
   const query = normalizePosLabel(search);
   return (inventory || []).filter((item) => {
+    if (!posVariantHasStock(item)) return false;
     const isPackaging = isPackagingProductCode(item.productCode);
     if (catalogView === "PACKAGING" && !isPackaging) return false;
     if (catalogView === "PRODUCTS" && isPackaging) return false;
@@ -216,9 +221,11 @@ export const filterPosInventory = (inventory, { search, categoryFilter, colorFil
 };
 
 export const sortPackagingInventory = (items) =>
-  [...(items || [])].sort((a, b) =>
-    String(a.productCode || "").localeCompare(String(b.productCode || ""), "es", { numeric: true })
-  );
+  [...(items || [])]
+    .filter((item) => posVariantHasStock(item))
+    .sort((a, b) =>
+      String(a.productCode || "").localeCompare(String(b.productCode || ""), "es", { numeric: true })
+    );
 
 export const sortVariantsByColor = (variants) => {
   const colorIndex = (name) => {
@@ -237,6 +244,7 @@ export const sortVariantsByColor = (variants) => {
 export const groupInventoryByProduct = (items) => {
   const groups = new Map();
   (items || []).forEach((item) => {
+    if (!posVariantHasStock(item)) return;
     const productId = item.productId;
     if (!groups.has(productId)) {
       groups.set(productId, {
@@ -252,10 +260,12 @@ export const groupInventoryByProduct = (items) => {
     }
     groups.get(productId).variants.push(item);
   });
-  return Array.from(groups.values()).map((group) => ({
-    ...group,
-    variants: sortVariantsByColor(group.variants),
-  }));
+  return Array.from(groups.values())
+    .map((group) => ({
+      ...group,
+      variants: sortVariantsByColor(group.variants),
+    }))
+    .filter((group) => group.variants.length > 0);
 };
 
 export const resolveImageUrl = (rawValue) => {
