@@ -43,12 +43,16 @@ function PosSuccessScreen({ sale, onNewSale }) {
     <Card className="kiosk-pos-block kiosk-pos-success">
       <CardBody className="text-center py-5">
         <h3 className="text-success mb-3">Venta registrada</h3>
-        <p className="kiosk-pos-success-number mb-2">{sale.saleNumber}</p>
-        {internalNumber && (
-          <p className="mb-2 text-muted">
-            No. interno: <strong>{internalNumber}</strong>
-          </p>
-        )}
+        {internalNumber ? (
+          <>
+            <p className="text-muted small mb-1">No. control interno (FEL)</p>
+            <p className="kiosk-pos-success-number mb-2">
+              <strong>{internalNumber}</strong>
+            </p>
+          </>
+        ) : null}
+        <p className="text-muted small mb-1">Venta POS</p>
+        <p className="mb-2">{sale.saleNumber}</p>
         <p className="mb-1">
           Total cobrado: <strong>{formatCurrency(sale.totalAmount)}</strong>
         </p>
@@ -83,7 +87,12 @@ function PosSuccessScreen({ sale, onNewSale }) {
             )}
             {(felSerie || felNumero) && (
               <p className="mb-2 small">
-                <strong>Serie / Número:</strong> {felSerie || "—"} / {felNumero || "—"}
+                <strong>Serie / Número SAT:</strong> {felSerie || "—"} / {felNumero || "—"}
+              </p>
+            )}
+            {internalNumber && (
+              <p className="mb-2 small">
+                <strong>No. control:</strong> {internalNumber}
               </p>
             )}
             {(canDownloadFelReport || canDownloadXml) && (
