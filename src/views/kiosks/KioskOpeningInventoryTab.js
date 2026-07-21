@@ -32,8 +32,9 @@ import { isCinchoInventoryProduct, isFossCinchosProductCode } from "utils/cincho
 import { isPackagingProductCode } from "utils/kioskPackagingHelper";
 import { formatDateTimeGt } from "utils/dateTimeHelper";
 import {
-  HARDWARE_CONDITION_OPTIONS,
   getHardwareConditionLabel,
+  HARDWARE_CONDITION_OPTIONS,
+  resolveCinchoSizesForProduct,
   sortSizeKeys,
   sumSizeCounts,
 } from "utils/productCinchoHelper";
@@ -41,13 +42,6 @@ import { showSuccess, showWarning } from "utils/notificationHelper";
 import "./KioskInventory.css";
 
 const OPENING_REASON = "Inventario inicial - migración";
-
-const ADULT_CINCHO_SIZES = ["32", "34", "36", "38", "40", "42"];
-const KIDS_CINCHO_SIZES = ["18", "20", "22", "24", "26", "28"];
-
-function resolveDefaultCinchoSizes(product) {
-  return product?.cinchoForKids ? KIDS_CINCHO_SIZES : ADULT_CINCHO_SIZES;
-}
 
 function itemKey(productId, colorId, hardwareCondition) {
   return `${productId}:${colorId ?? ""}:${hardwareCondition || "NUEVO"}`;
@@ -390,7 +384,7 @@ function KioskOpeningInventoryTab({
 
   const fossSizeKeys = useMemo(() => {
     if (!needsSizes || !selectedProduct) return [];
-    const keys = new Set(resolveDefaultCinchoSizes(selectedProduct));
+    const keys = new Set(resolveCinchoSizesForProduct(selectedProduct));
     Object.keys(selectedVariant?.sizes || {}).forEach((k) => keys.add(k));
     Object.keys(pendingSizes || {}).forEach((k) => keys.add(k));
     return sortSizeKeys(keys);

@@ -1,6 +1,13 @@
 import { isCinchoInventoryProductByCodeAndName, isFossCinchosProductCode } from "utils/cinchoProductionHelper";
 import { hasInventorySizeBreakdown } from "utils/inventoryVariantHelper";
 
+export const ADULT_CINCHO_SIZES = ["32", "34", "36", "38", "40", "42"];
+/** Niño: 16–28 por pares. */
+export const KIDS_CINCHO_SIZES = ["16", "18", "20", "22", "24", "26", "28"];
+
+export const resolveCinchoSizesForProduct = (product) =>
+  product?.cinchoForKids ? KIDS_CINCHO_SIZES : ADULT_CINCHO_SIZES;
+
 export const CINCHO_COUNT_LOCATION = {
   VITRINE: "E",
   WAREHOUSE: "BO",
@@ -238,6 +245,9 @@ export const sumSizeCounts = (sizes) =>
 export const collectSizeKeysForRows = (rows) => {
   const keys = new Set();
   (rows || []).forEach((row) => {
+    if (isCinchoProductRow(row) || isFossCinchoProductRow(row)) {
+      resolveCinchoSizesForProduct(row).forEach((size) => keys.add(size));
+    }
     Object.keys(row?.systemSizes || {}).forEach((size) => keys.add(size));
     Object.keys(row?.physicalSizes || {}).forEach((size) => keys.add(size));
     Object.values(row?.physicalSizesByLocation || {}).forEach((locSizes) => {
