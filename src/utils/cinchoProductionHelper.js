@@ -1,3 +1,5 @@
+import { isPackagingProductCode } from "utils/kioskPackagingHelper";
+
 /** Tipos de orden que usan rejilla por tallas (mismo criterio que el formulario de OP). */
 export const CINCHO_ORDER_TYPES = ["CINCHOS", "CINCHOS_FOSSILES", "CINCHOS_MARCAS"];
 
@@ -33,13 +35,16 @@ export function productNameContainsCincho(name) {
 
 /** Ajustes / inventario por talla: FOSS por código u otro cincho identificado por nombre. */
 export function isCinchoInventoryProduct(product) {
-  return !!(
-    product &&
-    (isFossCinchosProductCode(product.code) || productNameContainsCincho(product.name))
-  );
+  if (!product || isPackagingProductCode(product.code)) {
+    return false;
+  }
+  return isFossCinchosProductCode(product.code) || productNameContainsCincho(product.name);
 }
 
 export function isCinchoInventoryProductByCodeAndName(productCode, productName) {
+  if (isPackagingProductCode(productCode)) {
+    return false;
+  }
   return isFossCinchosProductCode(productCode) || productNameContainsCincho(productName);
 }
 

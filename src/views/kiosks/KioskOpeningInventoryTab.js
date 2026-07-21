@@ -53,7 +53,10 @@ function normalizeQty(value) {
 }
 
 function productNeedsSizeBreakdown(product) {
-  return isFossCinchosProductCode(product?.code) || isCinchoInventoryProduct(product);
+  if (!product || isPackagingProductCode(product.code)) {
+    return false;
+  }
+  return isFossCinchosProductCode(product.code) || isCinchoInventoryProduct(product);
 }
 
 function OpeningInventorySizeModal({ isOpen, toggle, productLabel, sizeKeys, initialSizes, onApply, disabled }) {
