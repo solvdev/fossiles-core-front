@@ -393,6 +393,11 @@
   border-color: #fcd34d;
 }
 
+.kiosk-pos-variant-chip.hardware-viejo {
+  border-color: #d97706;
+  background: #fffbeb;
+}
+
 .kiosk-pos-variant-chip.disabled {
   opacity: 0.55;
   cursor: not-allowed;

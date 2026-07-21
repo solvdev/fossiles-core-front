@@ -50,11 +50,12 @@ import PosInventoryTab from "./pos/PosInventoryTab";
 import { useAuth } from "contexts/AuthContext";
 import FilterableSelect from "components/distribution/FilterableSelect";
 import {
-  colorLineKeyFor,
+  variantLineKeyFor,
   resolveCartDiscount,
   formatCurrency,
   formatQty,
   lineKeyFor,
+  normalizePosHardwareCondition,
   posVariantNeedsSizePick,
   posVariantSizeEntries,
   mergePosPromotions,
@@ -62,6 +63,7 @@ import {
   resolveSelectedPromotion,
   saleNeedsFelCertification,
 } from "./pos/posUtils";
+import { getHardwareConditionLabel } from "utils/productCinchoHelper";
 import "./KioskSales.css";
 
 function KioskSales() {
@@ -253,7 +255,12 @@ function KioskSales() {
       return;
     }
 
-    const key = lineKeyFor(inventoryItem.productId, inventoryItem.colorId, size);
+    const key = lineKeyFor(
+      inventoryItem.productId,
+      inventoryItem.colorId,
+      size,
+      inventoryItem.hardwareCondition
+    );
     const sizeEntry = size
       ? posVariantSizeEntries(inventoryItem).find((entry) => entry.size === size)
       : null;
@@ -285,6 +292,8 @@ function KioskSales() {
           productName: inventoryItem.productName,
           colorId: inventoryItem.colorId,
           colorName: inventoryItem.colorName,
+          hardwareCondition: normalizePosHardwareCondition(inventoryItem.hardwareCondition),
+          hardwareLabel: inventoryItem.hardwareLabel || getHardwareConditionLabel(inventoryItem.hardwareCondition),
           size: size || null,
           audienceCategory: inventoryItem.audienceCategory || "UNISEX",
           categoryId: inventoryItem.categoryId ?? null,
@@ -322,8 +331,8 @@ function KioskSales() {
   const cartQtyByColorKey = useMemo(() => {
     const map = {};
     cart.forEach((line) => {
-      const colorKey = colorLineKeyFor(line.productId, line.colorId);
-      map[colorKey] = (map[colorKey] || 0) + Number(line.quantity || 0);
+      const variantKey = variantLineKeyFor(line.productId, line.colorId, line.hardwareCondition);
+      map[variantKey] = (map[variantKey] || 0) + Number(line.quantity || 0);
     });
     return map;
   }, [cart]);
@@ -335,6 +344,8 @@ function KioskSales() {
       if (
         line.productId === cinchoPickVariant.productId &&
         (line.colorId || null) === (cinchoPickVariant.colorId || null) &&
+        normalizePosHardwareCondition(line.hardwareCondition)
+          === normalizePosHardwareCondition(cinchoPickVariant.hardwareCondition) &&
         line.size
       ) {
         map[line.size] = Number(line.quantity || 0);
@@ -448,6 +459,7 @@ function KioskSales() {
           productId: line.productId,
           colorId: line.colorId || null,
           size: line.size || null,
+          hardwareCondition: line.hardwareCondition || "NUEVO",
           quantity: Number(line.quantity || 0),
         })),
       });
@@ -608,9 +620,11 @@ function KioskSales() {
   const availabilityOptions = useMemo(
     () =>
       (context?.inventory || []).map((item) => ({
-        value: lineKeyFor(item.productId, item.colorId),
-        label: `${item.productCode} - ${item.productName} (${item.colorName || "Sin color"})`,
-        searchText: `${item.productCode} ${item.productName} ${item.colorName || ""}`,
+        value: lineKeyFor(item.productId, item.colorId, null, item.hardwareCondition),
+        label: `${item.productCode} - ${item.productName} (${item.colorName || "Sin color"}${
+          item.hardwareLabel ? ` · ${item.hardwareLabel}` : ""
+        })`,
+        searchText: `${item.productCode} ${item.productName} ${item.colorName || ""} ${item.hardwareLabel || ""}`,
       })),
     [context?.inventory]
   );

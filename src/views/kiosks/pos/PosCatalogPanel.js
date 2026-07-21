@@ -12,8 +12,10 @@ import {
   POS_COLOR_SWATCHES,
   posVariantNeedsSizePick,
   posVariantStockQty,
+  posVariantChipLabel,
+  normalizePosHardwareCondition,
   resolveImageUrl,
-  colorLineKeyFor,
+  variantLineKeyFor,
   sortPackagingInventory,
 } from "./posUtils";
 import { PRODUCT_AUDIENCE_OPTIONS } from "utils/productAudienceHelper";
@@ -214,8 +216,8 @@ function PosCatalogPanel({
         {isPackagingView ? (
           <div className="kiosk-pos-packaging-grid">
             {packagingItems.map((item) => {
-              const colorKey = colorLineKeyFor(item.productId, item.colorId);
-              const qtyInCart = cartQtyByColorKey[colorKey] || 0;
+              const variantKey = variantLineKeyFor(item.productId, item.colorId, item.hardwareCondition);
+              const qtyInCart = cartQtyByColorKey[variantKey] || 0;
               const stock = posVariantStockQty(item);
               const outOfStock = stock <= 0;
               const stockLow = stock > 0 && stock <= 3;
@@ -223,7 +225,7 @@ function PosCatalogPanel({
 
               return (
                 <button
-                  key={colorKey}
+                  key={variantKey}
                   type="button"
                   className={`kiosk-pos-packaging-card ${outOfStock ? "disabled" : ""}`}
                   onClick={outOfStock ? undefined : () => onAddProduct(item)}
@@ -270,22 +272,31 @@ function PosCatalogPanel({
                   <div className="kiosk-pos-item-price">{formatCurrency(group.suggestedUnitPrice)}</div>
                   <div className="kiosk-pos-variant-chips">
                     {group.variants.map((variant) => {
-                      const colorKey = colorLineKeyFor(variant.productId, variant.colorId);
+                      const variantKey = variantLineKeyFor(
+                        variant.productId,
+                        variant.colorId,
+                        variant.hardwareCondition
+                      );
                       const needsSize = posVariantNeedsSizePick(variant);
-                      const qtyInCart = cartQtyByColorKey[colorKey] || 0;
+                      const qtyInCart = cartQtyByColorKey[variantKey] || 0;
                       const stock = posVariantStockQty(variant);
                       const stockLow = stock <= 3;
                       const outOfStock = stock <= 0;
-                      const colorName = String(variant.colorName || "").trim() || "Sin color";
-                      const swatch = getColorSwatch(colorName);
+                      const chipLabel = posVariantChipLabel(variant, group.variants);
+                      const swatch = getColorSwatch(variant.colorName);
+                      const hardwareHint = variant.hardwareLabel || "";
 
                       return (
                         <button
-                          key={colorKey}
+                          key={variantKey}
                           type="button"
                           className={`kiosk-pos-variant-chip ${needsSize ? "needs-size" : ""} ${
                             stockLow ? "low-stock" : ""
-                          } ${outOfStock ? "disabled" : ""}`}
+                          } ${outOfStock ? "disabled" : ""} ${
+                            normalizePosHardwareCondition(variant.hardwareCondition) === "VIEJO"
+                              ? "hardware-viejo"
+                              : ""
+                          }`}
                           onClick={
                             outOfStock
                               ? undefined
@@ -293,15 +304,17 @@ function PosCatalogPanel({
                                   needsSize ? onPickSizedVariant(variant) : onAddProduct(variant)
                           }
                           disabled={outOfStock}
-                          title={`${colorName} · Stock: ${formatQty(stock)}${
-                            needsSize ? " · Toca para elegir talla" : ""
-                          }${outOfStock ? " · Sin stock para venta" : ""}`}
+                          title={`${chipLabel} · Stock: ${formatQty(stock)}${
+                            hardwareHint ? ` · ${hardwareHint}` : ""
+                          }${needsSize ? " · Toca para elegir talla" : ""}${
+                            outOfStock ? " · Sin stock para venta" : ""
+                          }`}
                         >
                           {qtyInCart > 0 && (
                             <span className="kiosk-pos-qty-badge">{formatQty(qtyInCart)}</span>
                           )}
                           <span className="kiosk-pos-color-dot" style={{ backgroundColor: swatch }} />
-                          <span className="kiosk-pos-variant-chip-label">{colorName}</span>
+                          <span className="kiosk-pos-variant-chip-label">{chipLabel}</span>
                           <span className="kiosk-pos-variant-chip-stock">
                             {needsSize ? "Talla" : formatQty(stock)}
                           </span>

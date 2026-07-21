@@ -49,6 +49,7 @@ function PosCartPanel({
                   </div>
                   <div className="kiosk-pos-item-sub">
                     {line.productCode} · {line.colorName || "Sin color"}
+                    {line.hardwareLabel && line.hardwareLabel !== "—" ? ` · ${line.hardwareLabel}` : ""}
                     {line.size ? ` · Talla ${line.size}` : ""}
                   </div>
                 </div>

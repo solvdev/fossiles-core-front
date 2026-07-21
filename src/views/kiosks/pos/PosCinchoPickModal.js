@@ -44,6 +44,9 @@ function PosCinchoPickModal({ isOpen, variant, cartQtyBySize, onPickSize, onClos
               <div className="kiosk-pos-cincho-pick-color">
                 <span className="kiosk-pos-color-dot" style={{ backgroundColor: swatch }} />
                 {colorName}
+                {variant.hardwareLabel && variant.hardwareLabel !== "—"
+                  ? ` · ${variant.hardwareLabel}`
+                  : ""}
               </div>
             </div>
           </div>

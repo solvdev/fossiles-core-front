@@ -6,7 +6,7 @@ import {
 } from "utils/productAudienceHelper";
 import { hasInventorySizeBreakdown } from "utils/inventoryVariantHelper";
 import { isPackagingProductCode } from "utils/kioskPackagingHelper";
-import { shouldShowInKioskPhysicalCount } from "utils/productCinchoHelper";
+import { normalizeHardwareCondition, shouldShowInKioskPhysicalCount } from "utils/productCinchoHelper";
 
 export const POS_CATALOG_VIEWS = [
   { value: "PRODUCTS", label: "Productos" },
@@ -64,13 +64,22 @@ export const POS_COLOR_SWATCHES = {
 export const formatCurrency = (value) => `Q ${Number(value || 0).toFixed(2)}`;
 export const formatQty = (value) => Number(value || 0).toFixed(2);
 
-export const lineKeyFor = (productId, colorId, size) => {
-  const base = `${productId}:${colorId || "none"}`;
+export const normalizePosHardwareCondition = (value) =>
+  normalizeHardwareCondition(value) || "NUEVO";
+
+export const lineKeyFor = (productId, colorId, size, hardwareCondition) => {
+  const hw = normalizePosHardwareCondition(hardwareCondition);
+  const base = `${productId}:${colorId ?? "none"}:${hw}`;
   const normalizedSize = String(size || "").trim();
   return normalizedSize ? `${base}:${normalizedSize}` : base;
 };
 
-export const colorLineKeyFor = (productId, colorId) => lineKeyFor(productId, colorId);
+export const variantLineKeyFor = (productId, colorId, hardwareCondition) =>
+  lineKeyFor(productId, colorId, null, hardwareCondition);
+
+/** @deprecated Use variantLineKeyFor — incluye herraje NUEVO/VIEJO. */
+export const colorLineKeyFor = (productId, colorId, hardwareCondition) =>
+  variantLineKeyFor(productId, colorId, hardwareCondition);
 
 export const sortPosSizeKeys = (keys) =>
   [...(keys || [])].sort((a, b) => {
@@ -98,6 +107,25 @@ export const posVariantStockQty = (variant) => {
 };
 
 export const posVariantHasStock = (variant) => posVariantStockQty(variant) > 0;
+
+/** Etiqueta del chip cuando hay más de un herraje para el mismo color. */
+export const posVariantChipLabel = (variant, variantsInProduct = []) => {
+  const colorName = String(variant?.colorName || "").trim() || "Sin color";
+  if (isPackagingProductCode(variant?.productCode)) {
+    return colorName;
+  }
+  const sameColor = (variantsInProduct || []).filter(
+    (row) => (row?.colorId ?? null) === (variant?.colorId ?? null) && posVariantHasStock(row)
+  );
+  const hardwareValues = new Set(
+    sameColor.map((row) => normalizePosHardwareCondition(row?.hardwareCondition))
+  );
+  if (hardwareValues.size <= 1) {
+    return colorName;
+  }
+  const hw = normalizePosHardwareCondition(variant?.hardwareCondition);
+  return `${colorName} · ${hw === "VIEJO" ? "Viejo" : "Nuevo"}`;
+};
 
 export const getColorSwatch = (colorName) => {
   const name = String(colorName || "").trim();
