@@ -84,7 +84,7 @@ const sortRows = (rows) =>
     return Number(a?.id || 0) - Number(b?.id || 0);
   });
 
-const TABLE_HEADERS = ["#", "Bodega", "Usuario", "Descripción", "Fecha/Hora", "Monto"];
+const TABLE_HEADERS = ["#", "Bodega", "Usuario", "Venta", "Descripción", "Fecha/Hora", "Monto"];
 
 export const exportKioskDisbursementsToExcel = ({
   rows,
@@ -107,6 +107,9 @@ export const exportKioskDisbursementsToExcel = ({
       index + 1,
       resolveBodegaLabel(row),
       row.createdByName || "—",
+      row.kioskSaleId
+        ? row.internalNumber || row.saleNumber || `#${row.kioskSaleId}`
+        : "General",
       row.description || "—",
       formatDisbursementDateTime(row.createdAt),
       Number(row.amount || 0),
@@ -114,10 +117,10 @@ export const exportKioskDisbursementsToExcel = ({
   });
 
   aoa.push([]);
-  aoa.push(["", "", "", "", "Total", total]);
+  aoa.push(["", "", "", "", "", "Total", total]);
 
   const ws = XLSX.utils.aoa_to_sheet(aoa);
-  ws["!cols"] = [{ wch: 5 }, { wch: 28 }, { wch: 22 }, { wch: 48 }, { wch: 20 }, { wch: 12 }];
+  ws["!cols"] = [{ wch: 5 }, { wch: 28 }, { wch: 22 }, { wch: 16 }, { wch: 48 }, { wch: 20 }, { wch: 12 }];
 
   const headerRow = 4;
   const dataStartRow = headerRow + 1;
@@ -125,7 +128,7 @@ export const exportKioskDisbursementsToExcel = ({
   applyKioskReportTableStyles(ws, headerRow, list.length, TABLE_HEADERS.length, {
     totalRow,
     moneyFmt,
-    numCols: [0, 5],
+    numCols: [0, 6],
   });
 
   const wb = XLSX.utils.book_new();
@@ -150,6 +153,11 @@ export const exportKioskDisbursementsToPdf = ({
       <td class="num">${index + 1}</td>
       <td>${escapeHtml(resolveBodegaLabel(row))}</td>
       <td>${escapeHtml(row.createdByName || "—")}</td>
+      <td>${escapeHtml(
+        row.kioskSaleId
+          ? row.internalNumber || row.saleNumber || `#${row.kioskSaleId}`
+          : "General"
+      )}</td>
       <td>${escapeHtml(row.description || "—")}</td>
       <td class="nowrap">${escapeHtml(formatDisbursementDateTime(row.createdAt))}</td>
       <td class="num">${escapeHtml(formatMoneyQ(row.amount))}</td>
@@ -189,9 +197,9 @@ export const exportKioskDisbursementsToPdf = ({
       </tr>
     </thead>
     <tbody>
-      ${bodyRows || `<tr><td colspan="6">Sin desembolsos en el período</td></tr>`}
+      ${bodyRows || `<tr><td colspan="7">Sin desembolsos en el período</td></tr>`}
       <tr class="total">
-        <td colspan="5" style="text-align:right">Total</td>
+        <td colspan="6" style="text-align:right">Total</td>
         <td class="num">${escapeHtml(formatMoneyQ(total))}</td>
       </tr>
     </tbody>

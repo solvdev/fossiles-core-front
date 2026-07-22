@@ -62,6 +62,7 @@ import {
   parseCheckoutPromotionPayload,
   resolveSelectedPromotion,
   saleNeedsFelCertification,
+  isDepositApplicable,
 } from "./pos/posUtils";
 import { getHardwareConditionLabel } from "utils/productCinchoHelper";
 import "./KioskSales.css";
@@ -172,6 +173,14 @@ function KioskSales() {
 
   const cashSessionOpen =
     cashSession && String(cashSession.status || "").toUpperCase() === "OPEN";
+
+  const sessionSales = useMemo(() => {
+    if (!cashSession?.id) return [];
+    return (sales || []).filter(
+      (sale) =>
+        Number(sale.cashSessionId) === Number(cashSession.id) && isDepositApplicable(sale)
+    );
+  }, [sales, cashSession?.id]);
 
   const loadReportData = async (kioskLocationId, fromDate, toDate) => {
     const from = fromDate || getTodayYmdGuatemala();
@@ -903,11 +912,14 @@ function KioskSales() {
                       kioskLocationId={selectedKioskId || context?.kioskId}
                       kioskName={selectedKioskName || context?.kioskName}
                       posOpeningCashAmount={selectedKioskOpeningCash}
+                      sessionSales={sessionSales}
                       loading={cashSessionLoading}
                       pendingDepositSummary={pendingDepositSummary}
                       onSessionChange={async () => {
-                        await loadCashSession(selectedKioskId || context?.kioskId);
-                        await loadPendingDepositSummary(selectedKioskId || context?.kioskId);
+                        const locationId = selectedKioskId || context?.kioskId;
+                        await loadCashSession(locationId);
+                        await loadPendingDepositSummary(locationId);
+                        await loadReportData(locationId, startDate, endDate);
                       }}
                     />
                   )}

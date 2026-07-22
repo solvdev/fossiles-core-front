@@ -12,14 +12,14 @@ import {
   Table,
   Alert,
 } from "reactstrap";
-import { registerDepositSlip, updateKioskSalePayment, voidKioskSale } from "services/kioskPosService";
+import { registerDepositSlip, addCashSessionExpense, updateKioskSalePayment, voidKioskSale, getKioskSaleById } from "services/kioskPosService";
 import { formatDateTimeGt } from "utils/dateTimeHelper";
 import { downloadTaxInvoiceCertifiedXml, openFelInvoiceReport } from "services/taxInvoiceService";
 import EditTaxInvoiceFelModal from "components/accounting/EditTaxInvoiceFelModal";
 import { useAuth } from "contexts/AuthContext";
 import { canEditTaxInvoiceFel } from "utils/taxInvoiceEditHelper";
 import { showError, showSuccess } from "utils/notificationHelper";
-import { formatCurrency, formatQty, getSaleInternalNumber, isDepositApplicable, isSalePendingDeposit, POS_CARD_BRANDS, DEFAULT_POS_CARD_BRAND } from "./posUtils";
+import { formatCurrency, formatQty, getSaleInternalNumber, getSaleGrossDepositAmount, getSaleNetDepositAmount, isDepositApplicable, isSalePendingDeposit, POS_CARD_BRANDS, DEFAULT_POS_CARD_BRAND } from "./posUtils";
 
 const formatDateTime = (value) => formatDateTimeGt(value);
 
@@ -71,6 +71,9 @@ function PosSaleDetailModal({
   const [voiding, setVoiding] = useState(false);
   const [depositSlipNumber, setDepositSlipNumber] = useState("");
   const [savingDeposit, setSavingDeposit] = useState(false);
+  const [disbursementAmount, setDisbursementAmount] = useState("");
+  const [disbursementDescription, setDisbursementDescription] = useState("");
+  const [savingDisbursement, setSavingDisbursement] = useState(false);
 
   useEffect(() => {
     if (!sale) return;
@@ -100,6 +103,16 @@ function PosSaleDetailModal({
       Number(sale.cashSessionId) === Number(cashSession?.id));
   const depositApplicable = isDepositApplicable(sale);
   const pendingDeposit = isSalePendingDeposit(sale);
+  const grossDepositAmount = getSaleGrossDepositAmount(sale);
+  const disbursementsTotal = Number(sale?.disbursementsTotal ?? 0);
+  const netDepositAmount = getSaleNetDepositAmount(sale);
+  const saleDisbursements = Array.isArray(sale?.disbursements) ? sale.disbursements : [];
+  const canManageDisbursements =
+    Boolean(cashSessionOpen) &&
+    !isVoid &&
+    depositApplicable &&
+    cashSession?.id &&
+    Number(sale?.cashSessionId) === Number(cashSession.id);
   const requiresCardData =
     paymentMethod === "TARJETA" || (paymentMethod === "MIXTO" && Number(cardAmount || 0) > 0);
   const cardDataIncomplete =
@@ -109,6 +122,10 @@ function PosSaleDetailModal({
   const handleRegisterDeposit = async () => {
     if (!sale?.id || !depositSlipNumber.trim()) {
       showError("Indica el número de boleta de depósito.");
+      return;
+    }
+    if (netDepositAmount <= 0) {
+      showError("Esta venta no requiere boleta: el efectivo fue totalmente desembolsado.");
       return;
     }
     try {
@@ -124,6 +141,46 @@ function PosSaleDetailModal({
       showError(err.message || "No se pudo registrar la boleta de depósito.");
     } finally {
       setSavingDeposit(false);
+    }
+  };
+
+  const handleAddDisbursement = async () => {
+    if (!cashSession?.id || !sale?.id) return;
+    const amount = Number(disbursementAmount);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      showError("Ingresa un monto válido para el desembolso.");
+      return;
+    }
+    if (!disbursementDescription.trim()) {
+      showError("Describe para qué fue el desembolso.");
+      return;
+    }
+    try {
+      setSavingDisbursement(true);
+      await addCashSessionExpense(cashSession.id, {
+        amount,
+        description: disbursementDescription.trim(),
+        kioskSaleId: sale.id,
+      });
+      setDisbursementAmount("");
+      setDisbursementDescription("");
+      showSuccess("Desembolso registrado.");
+      let updated = sale;
+      try {
+        updated = await getKioskSaleById(
+          sale.id,
+          kioskLocationId ? Number(kioskLocationId) : undefined
+        );
+      } catch (_) {
+        /* mantener venta actual si falla la recarga */
+      }
+      if (onSaleUpdated) {
+        await onSaleUpdated(updated);
+      }
+    } catch (err) {
+      showError(err.message || "No se pudo registrar el desembolso.");
+    } finally {
+      setSavingDisbursement(false);
     }
   };
 
@@ -427,6 +484,71 @@ function PosSaleDetailModal({
               </div>
             )}
 
+            {depositApplicable && (
+              <div className="kiosk-pos-sale-detail-disbursements mb-3 p-3 bg-light rounded">
+                <strong className="d-block mb-2">Desembolsos de esta venta</strong>
+                <div className="small mb-2">
+                  Efectivo: <strong>{formatCurrency(grossDepositAmount)}</strong>
+                  {" · "}
+                  Desembolsos: <strong>{formatCurrency(disbursementsTotal)}</strong>
+                  {" · "}
+                  A depositar: <strong>{formatCurrency(netDepositAmount)}</strong>
+                </div>
+                {saleDisbursements.length > 0 && (
+                  <Table responsive size="sm" className="mb-2">
+                    <thead>
+                      <tr>
+                        <th>Hora</th>
+                        <th>Descripción</th>
+                        <th className="text-right">Monto</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {saleDisbursements.map((row) => (
+                        <tr key={row.id || `${row.createdAt}-${row.amount}`}>
+                          <td>{formatDateTime(row.createdAt)}</td>
+                          <td>{row.description || "—"}</td>
+                          <td className="text-right">{formatCurrency(row.amount)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </Table>
+                )}
+                {canManageDisbursements ? (
+                  <div className="d-flex flex-wrap align-items-end" style={{ gap: 12 }}>
+                    <div style={{ minWidth: 120 }}>
+                      <Label className="kiosk-pos-label mb-1">Monto</Label>
+                      <Input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={disbursementAmount}
+                        onChange={(e) => setDisbursementAmount(e.target.value)}
+                        placeholder="0.00"
+                      />
+                    </div>
+                    <div style={{ flex: 1, minWidth: 180 }}>
+                      <Label className="kiosk-pos-label mb-1">Descripción</Label>
+                      <Input
+                        value={disbursementDescription}
+                        onChange={(e) => setDisbursementDescription(e.target.value)}
+                        placeholder="Ej. compra de insumo"
+                      />
+                    </div>
+                    <Button color="warning" outline size="sm" onClick={handleAddDisbursement} disabled={savingDisbursement}>
+                      {savingDisbursement ? <Spinner size="sm" /> : "Agregar desembolso"}
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="small text-muted mb-0">
+                    {saleDisbursements.length === 0
+                      ? "Sin desembolsos ligados a esta venta."
+                      : "Solo puedes agregar desembolsos mientras la caja de la venta sigue abierta."}
+                  </div>
+                )}
+              </div>
+            )}
+
             <div
               className={`kiosk-pos-sale-detail-deposit mb-3 p-3 rounded${
                 pendingDeposit ? " kiosk-pos-sale-detail-deposit-pending" : " bg-light"
@@ -438,9 +560,13 @@ function PosSaleDetailModal({
                   <Badge color="success" className="kiosk-pos-deposit-state-badge">
                     Aplica · Registrada
                   </Badge>
-                ) : depositApplicable ? (
+                ) : pendingDeposit ? (
                   <Badge color="warning" className="kiosk-pos-deposit-state-badge">
                     Aplica · Pendiente
+                  </Badge>
+                ) : depositApplicable ? (
+                  <Badge color="secondary" className="kiosk-pos-deposit-state-badge">
+                    Sin depósito
                   </Badge>
                 ) : (
                   <Badge color="secondary" className="kiosk-pos-deposit-state-badge">
@@ -448,9 +574,21 @@ function PosSaleDetailModal({
                   </Badge>
                 )}
               </div>
-              {depositApplicable && (
+              {depositApplicable && pendingDeposit && (
                 <Alert color="warning" className="py-2 mb-2">
                   Esta venta incluye efectivo y aún no tiene boleta de depósito registrada.
+                  Depósito neto: <strong>{formatCurrency(netDepositAmount)}</strong>
+                  {disbursementsTotal > 0 && (
+                    <span className="d-block small mt-1 mb-0 text-muted">
+                      Efectivo {formatCurrency(grossDepositAmount)} − desembolsos{" "}
+                      {formatCurrency(disbursementsTotal)}
+                    </span>
+                  )}
+                </Alert>
+              )}
+              {depositApplicable && !pendingDeposit && netDepositAmount <= 0 && !sale.depositSlipNumber && (
+                <Alert color="info" className="py-2 mb-2">
+                  El efectivo de esta venta fue totalmente desembolsado. No requiere boleta de depósito.
                 </Alert>
               )}
               {sale.depositSlipNumber ? (
@@ -465,7 +603,7 @@ function PosSaleDetailModal({
                     </div>
                   )}
                 </>
-              ) : depositApplicable ? (
+              ) : depositApplicable && pendingDeposit ? (
                 <>
                   <Label className="kiosk-pos-label">Número de boleta</Label>
                   <Input

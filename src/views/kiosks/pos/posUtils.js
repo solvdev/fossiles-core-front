@@ -639,5 +639,32 @@ export const isDepositApplicable = (sale) => {
 
 export const isSalePendingDeposit = (sale) => {
   if (!sale || sale.depositSlipNumber) return false;
-  return isDepositApplicable(sale);
+  if (!isDepositApplicable(sale)) return false;
+  return getSaleNetDepositAmount(sale) > 0;
+};
+
+/** Efectivo bruto sujeto a depósito (API o cálculo local). */
+export const getSaleGrossDepositAmount = (sale) => {
+  if (sale?.cashAmountForDeposit != null) {
+    return Number(sale.cashAmountForDeposit) || 0;
+  }
+  return getSaleCashAmount(sale);
+};
+
+/** Monto neto a depositar después de desembolsos ligados a la venta. */
+export const getSaleNetDepositAmount = (sale) => {
+  if (sale?.netDepositAmount != null) {
+    return Math.max(Number(sale.netDepositAmount) || 0, 0);
+  }
+  const gross = getSaleGrossDepositAmount(sale);
+  const disbursements = Number(sale?.disbursementsTotal ?? 0);
+  return Math.max(gross - disbursements, 0);
+};
+
+export const formatSaleDepositReference = (sale) => {
+  const internal = getSaleInternalNumber(sale);
+  if (internal) return internal;
+  if (sale?.saleNumber) return sale.saleNumber;
+  if (sale?.id) return `#${sale.id}`;
+  return "—";
 };

@@ -61,7 +61,9 @@ const TABLE_HEADERS = [
   "Cuenta",
   "Banco",
   "No. Documento",
-  "Monto",
+  "Efectivo",
+  "Desembolsos",
+  "Depósito neto",
   "Usuario",
   "Descripción",
   "Fecha",
@@ -99,6 +101,8 @@ export const exportKioskBankDepositsToExcel = ({
       row.accountNumber || meta.accountNumber,
       row.bankName || meta.bankName,
       row.documentNumber || "—",
+      Number(row.grossCashAmount ?? row.amount ?? 0),
+      Number(row.disbursementsTotal ?? 0),
       Number(row.amount || 0),
       row.userName || "—",
       row.description || "—",
@@ -108,13 +112,15 @@ export const exportKioskBankDepositsToExcel = ({
   });
 
   aoa.push([]);
-  aoa.push(["Total", "", "", total, "", "", "", ""]);
+  aoa.push(["Total", "", "", "", "", total, "", "", "", ""]);
 
   const ws = XLSX.utils.aoa_to_sheet(aoa);
   ws["!cols"] = [
     { wch: 16 },
     { wch: 22 },
     { wch: 14 },
+    { wch: 12 },
+    { wch: 12 },
     { wch: 12 },
     { wch: 20 },
     { wch: 36 },
@@ -128,7 +134,7 @@ export const exportKioskBankDepositsToExcel = ({
   applyKioskReportTableStyles(ws, headerRow, list.length, TABLE_HEADERS.length, {
     totalRow,
     moneyFmt,
-    numCols: [3],
+    numCols: [3, 4, 5],
   });
 
   const wb = XLSX.utils.book_new();
@@ -158,6 +164,8 @@ export const exportKioskBankDepositsToPdf = ({
       <td class="nowrap">${escapeHtml(row.accountNumber || meta.accountNumber)}</td>
       <td>${escapeHtml(row.bankName || meta.bankName)}</td>
       <td class="nowrap">${escapeHtml(row.documentNumber || "—")}</td>
+      <td class="num">${escapeHtml(formatMoneyQ(row.grossCashAmount ?? row.amount))}</td>
+      <td class="num">${escapeHtml(formatMoneyQ(row.disbursementsTotal ?? 0))}</td>
       <td class="num">${escapeHtml(formatMoneyQ(row.amount))}</td>
       <td>${escapeHtml(row.userName || "—")}</td>
       <td>${escapeHtml(row.description || "—")}</td>
@@ -197,14 +205,16 @@ export const exportKioskBankDepositsToPdf = ({
   <table>
     <thead>
       <tr>
-        ${TABLE_HEADERS.map((h) => `<th class="${h === "Monto" ? "num" : ""}">${escapeHtml(h)}</th>`).join("")}
+        ${TABLE_HEADERS.map((h) => `<th class="${["Efectivo", "Desembolsos", "Depósito neto"].includes(h) ? "num" : ""}">${escapeHtml(h)}</th>`).join("")}
       </tr>
     </thead>
     <tbody>
-      ${bodyRows || `<tr><td colspan="8">Sin depósitos en el período</td></tr>`}
+      ${bodyRows || `<tr><td colspan="10">Sin depósitos en el período</td></tr>`}
       <tr class="total">
         <td>Total</td>
         <td colspan="2"></td>
+        <td></td>
+        <td></td>
         <td class="num">${escapeHtml(formatMoneyQ(total))}</td>
         <td colspan="4"></td>
       </tr>

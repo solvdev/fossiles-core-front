@@ -1225,6 +1225,7 @@ function SalesReports() {
                         <th>#</th>
                         <th>Bodega</th>
                         <th>Usuario</th>
+                        <th>Venta</th>
                         <th>Descripción</th>
                         <th>Fecha/Hora</th>
                         <th>Monto</th>
@@ -1236,6 +1237,11 @@ function SalesReports() {
                           <td>{index + 1}</td>
                           <td>{row.kioskName || "—"}</td>
                           <td>{row.createdByName || "—"}</td>
+                          <td>
+                            {row.kioskSaleId
+                              ? row.internalNumber || row.saleNumber || `#${row.kioskSaleId}`
+                              : "General"}
+                          </td>
                           <td>{row.description || "—"}</td>
                           <td>{formatDisbursementDateTime(row.createdAt)}</td>
                           <td>{formatCurrency(row.amount)}</td>
@@ -1243,14 +1249,14 @@ function SalesReports() {
                       ))}
                       {sortedDisbursements.length === 0 && (
                         <tr>
-                          <td colSpan="6" className="text-center text-muted">
+                          <td colSpan="7" className="text-center text-muted">
                             No hay desembolsos en el período seleccionado
                           </td>
                         </tr>
                       )}
                       {sortedDisbursements.length > 0 && (
                         <tr>
-                          <td colSpan="5" className="text-right font-weight-bold">
+                          <td colSpan="6" className="text-right font-weight-bold">
                             Total
                           </td>
                           <td className="font-weight-bold">{formatCurrency(disbursementsTotal)}</td>
@@ -1292,7 +1298,9 @@ function SalesReports() {
                         <th>Cuenta</th>
                         <th>Banco</th>
                         <th>No. Documento</th>
-                        <th>Monto</th>
+                        <th>Efectivo</th>
+                        <th>Desembolsos</th>
+                        <th>Depósito neto</th>
                         <th>Usuario</th>
                         <th>Descripción</th>
                         <th>Fecha</th>
@@ -1305,6 +1313,8 @@ function SalesReports() {
                           <td>{row.accountNumber || bankDepositReport?.accountNumber || "—"}</td>
                           <td>{row.bankName || bankDepositReport?.bankName || "—"}</td>
                           <td>{row.documentNumber || "—"}</td>
+                          <td>{formatCurrency(row.grossCashAmount ?? row.amount)}</td>
+                          <td>{formatCurrency(row.disbursementsTotal ?? 0)}</td>
                           <td>{formatCurrency(row.amount)}</td>
                           <td>{row.userName || "—"}</td>
                           <td>{row.description || "—"}</td>
@@ -1314,7 +1324,7 @@ function SalesReports() {
                       ))}
                       {bankDepositRows.length === 0 && (
                         <tr>
-                          <td colSpan="8" className="text-center text-muted">
+                          <td colSpan="10" className="text-center text-muted">
                             No hay depósitos bancarios en el período seleccionado
                           </td>
                         </tr>
@@ -1324,6 +1334,8 @@ function SalesReports() {
                           <td colSpan="3" className="font-weight-bold">
                             Total
                           </td>
+                          <td />
+                          <td />
                           <td className="font-weight-bold">{formatCurrency(bankDepositsTotal)}</td>
                           <td colSpan="4" />
                         </tr>

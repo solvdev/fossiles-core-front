@@ -21,7 +21,7 @@ import {
 } from "services/kioskPosService";
 import { formatDateTimeGt } from "utils/dateTimeHelper";
 import { showError, showSuccess } from "utils/notificationHelper";
-import { formatCurrency } from "./posUtils";
+import { formatCurrency, formatSaleDepositReference, isDepositApplicable } from "./posUtils";
 import PosCashCloseReportModal from "./PosCashCloseReportModal";
 
 const formatDateTime = (value) => formatDateTimeGt(value);
@@ -142,11 +142,21 @@ function PosCashCloseModal({ isOpen, session, onClose, onClosed, pendingDepositS
   );
 }
 
-function PosCashTab({ cashSession, kioskLocationId, kioskName, posOpeningCashAmount = 300, onSessionChange, loading, pendingDepositSummary }) {
+function PosCashTab({
+  cashSession,
+  kioskLocationId,
+  kioskName,
+  posOpeningCashAmount = 300,
+  sessionSales = [],
+  onSessionChange,
+  loading,
+  pendingDepositSummary,
+}) {
   const [opening, setOpening] = useState(false);
   const [closeOpen, setCloseOpen] = useState(false);
   const [expenseAmount, setExpenseAmount] = useState("");
   const [expenseDescription, setExpenseDescription] = useState("");
+  const [linkedSaleId, setLinkedSaleId] = useState("");
   const [expenseSaving, setExpenseSaving] = useState(false);
   const [reportModalOpen, setReportModalOpen] = useState(false);
   const [reportLoading, setReportLoading] = useState(false);
@@ -201,9 +211,11 @@ function PosCashTab({ cashSession, kioskLocationId, kioskName, posOpeningCashAmo
       await addCashSessionExpense(cashSession.id, {
         amount,
         description: expenseDescription.trim(),
+        kioskSaleId: linkedSaleId ? Number(linkedSaleId) : undefined,
       });
       setExpenseAmount("");
       setExpenseDescription("");
+      setLinkedSaleId("");
       showSuccess("Gasto registrado.");
       await onSessionChange();
     } catch (err) {
@@ -266,9 +278,27 @@ function PosCashTab({ cashSession, kioskLocationId, kioskName, posOpeningCashAmo
               <div className="border rounded p-3 mb-0">
                 <h6 className="mb-2">Registrar desembolso (gasto de efectivo)</h6>
                 <p className="text-muted small mb-2">
-                  Dinero que sale de la caja por un gasto operativo del turno (taxi, compras menores, etc.).
+                  Gasto del turno. Opcionalmente liga el desembolso a una venta en efectivo del día para
+                  descontarlo del depósito de esa venta.
                 </p>
                 <div className="d-flex flex-wrap align-items-end" style={{ gap: 12 }}>
+                  {sessionSales.length > 0 && (
+                    <div style={{ minWidth: 220 }}>
+                      <Label className="kiosk-pos-label mb-1">Venta (opcional)</Label>
+                      <Input
+                        type="select"
+                        value={linkedSaleId}
+                        onChange={(e) => setLinkedSaleId(e.target.value)}
+                      >
+                        <option value="">General de caja</option>
+                        {sessionSales.map((sale) => (
+                          <option key={sale.id} value={sale.id}>
+                            {formatSaleDepositReference(sale)} · {formatCurrency(sale.totalAmount)}
+                          </option>
+                        ))}
+                      </Input>
+                    </div>
+                  )}
                   <div style={{ minWidth: 120 }}>
                     <Label className="kiosk-pos-label mb-1">Monto</Label>
                     <Input
@@ -298,6 +328,7 @@ function PosCashTab({ cashSession, kioskLocationId, kioskName, posOpeningCashAmo
                     <thead>
                       <tr>
                         <th>Hora</th>
+                        <th>Venta</th>
                         <th>Descripción</th>
                         <th className="text-right">Monto</th>
                       </tr>
@@ -306,6 +337,11 @@ function PosCashTab({ cashSession, kioskLocationId, kioskName, posOpeningCashAmo
                       {expenses.map((expense) => (
                         <tr key={expense.id}>
                           <td>{formatDateTime(expense.createdAt)}</td>
+                          <td>
+                            {expense.kioskSaleId
+                              ? expense.internalNumber || expense.saleNumber || `#${expense.kioskSaleId}`
+                              : "General"}
+                          </td>
                           <td>{expense.description}</td>
                           <td className="text-right">{formatCurrency(expense.amount)}</td>
                         </tr>
@@ -313,7 +349,7 @@ function PosCashTab({ cashSession, kioskLocationId, kioskName, posOpeningCashAmo
                     </tbody>
                     <tfoot>
                       <tr>
-                        <th colSpan="2">Total gastos</th>
+                        <th colSpan="3">Total gastos</th>
                         <th className="text-right">
                           {formatCurrency(cashSession.cashExpensesTotal || 0)}
                         </th>

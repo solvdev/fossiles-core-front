@@ -1061,6 +1061,7 @@ function PosReportsTab({
                 <th>#</th>
                 <th>Bodega</th>
                 <th>Usuario</th>
+                <th>Venta</th>
                 <th>Descripción</th>
                 <th>Fecha/Hora</th>
                 <th>Monto</th>
@@ -1069,7 +1070,7 @@ function PosReportsTab({
             <tbody>
               {disbursementsLoading && (
                 <tr>
-                  <td colSpan="6" className="text-center text-muted">
+                  <td colSpan="7" className="text-center text-muted">
                     <Spinner size="sm" className="mr-1" /> Cargando desembolsos…
                   </td>
                 </tr>
@@ -1080,6 +1081,11 @@ function PosReportsTab({
                     <td>{index + 1}</td>
                     <td>{row.kioskName || kioskName || "—"}</td>
                     <td>{row.createdByName || "—"}</td>
+                    <td>
+                      {row.kioskSaleId
+                        ? row.internalNumber || row.saleNumber || `#${row.kioskSaleId}`
+                        : "General"}
+                    </td>
                     <td>{row.description || "—"}</td>
                     <td>{formatDisbursementDateTime(row.createdAt)}</td>
                     <td>{formatCurrency(row.amount)}</td>
@@ -1087,14 +1093,14 @@ function PosReportsTab({
                 ))}
               {!disbursementsLoading && sortedDisbursements.length === 0 && (
                 <tr>
-                  <td colSpan="6" className="text-center text-muted">
+                  <td colSpan="7" className="text-center text-muted">
                     No hay desembolsos para el filtro seleccionado.
                   </td>
                 </tr>
               )}
               {!disbursementsLoading && sortedDisbursements.length > 0 && (
                 <tr>
-                  <td colSpan="5" className="text-right font-weight-bold">
+                  <td colSpan="6" className="text-right font-weight-bold">
                     Total
                   </td>
                   <td className="font-weight-bold">{formatCurrency(disbursementsTotal)}</td>
@@ -1111,7 +1117,9 @@ function PosReportsTab({
                 <th>Cuenta</th>
                 <th>Banco</th>
                 <th>No. Documento</th>
-                <th>Monto</th>
+                <th>Efectivo</th>
+                <th>Desembolsos</th>
+                <th>Depósito neto</th>
                 <th>Usuario</th>
                 <th>Descripción</th>
                 <th>Fecha</th>
@@ -1121,7 +1129,7 @@ function PosReportsTab({
             <tbody>
               {bankDepositsLoading && (
                 <tr>
-                  <td colSpan="8" className="text-center text-muted">
+                  <td colSpan="10" className="text-center text-muted">
                     <Spinner size="sm" className="mr-1" /> Cargando depósitos…
                   </td>
                 </tr>
@@ -1132,6 +1140,8 @@ function PosReportsTab({
                     <td>{row.accountNumber || bankDepositReport?.accountNumber || "—"}</td>
                     <td>{row.bankName || bankDepositReport?.bankName || "—"}</td>
                     <td>{row.documentNumber || "—"}</td>
+                    <td>{formatCurrency(row.grossCashAmount ?? row.amount)}</td>
+                    <td>{formatCurrency(row.disbursementsTotal ?? 0)}</td>
                     <td>{formatCurrency(row.amount)}</td>
                     <td>{row.userName || "—"}</td>
                     <td>{row.description || "—"}</td>
@@ -1141,7 +1151,7 @@ function PosReportsTab({
                 ))}
               {!bankDepositsLoading && bankDepositRows.length === 0 && (
                 <tr>
-                  <td colSpan="8" className="text-center text-muted">
+                  <td colSpan="10" className="text-center text-muted">
                     No hay depósitos registrados para el filtro seleccionado.
                   </td>
                 </tr>
@@ -1151,6 +1161,8 @@ function PosReportsTab({
                   <td colSpan="3" className="font-weight-bold">
                     Total
                   </td>
+                  <td />
+                  <td />
                   <td className="font-weight-bold">{formatCurrency(bankDepositsTotal)}</td>
                   <td colSpan="4" />
                 </tr>
