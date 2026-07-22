@@ -14,6 +14,8 @@ const COUNT_LOCATION_KEYS = ["V1", "V2", "V3", "V4", "V5", "V6", "V7", "E", "BO"
 /** Código + Producto (nombre · color · talla en una sola columna). */
 const PRODUCT_COL_COUNT = 2;
 const DIFF_ALERT_THRESHOLD = 3;
+/** Filas vacías entre categorías para que Ctrl+↓ no salte a todo el archivo. */
+const BLANK_ROWS_BETWEEN_CATEGORIES = 2;
 
 const COLORS = {
   border: "D1D5DB",
@@ -362,8 +364,10 @@ function buildSheetStructure(report, showKardex, includeVitrines = true, vitrine
       meta.push({ type: "subtotal" });
     }
 
-    rows.push(Array(colCount).fill(""));
-    meta.push({ type: "blank" });
+    for (let i = 0; i < BLANK_ROWS_BETWEEN_CATEGORIES; i += 1) {
+      rows.push(buildCategoryGapRow(colCount));
+      meta.push({ type: "blank" });
+    }
   });
 
   if (includeVitrines && prepared.totalGeneral) {
@@ -372,6 +376,17 @@ function buildSheetStructure(report, showKardex, includeVitrines = true, vitrine
   }
 
   return { rows, meta, layout };
+}
+
+/** Fila sin celdas (null) para romper regiones de datos en Excel. */
+function buildCategoryGapRow(colCount) {
+  return Array(colCount).fill(null);
+}
+
+function clearWorksheetRowCells(ws, rowIdx, colCount) {
+  for (let colIdx = 0; colIdx < colCount; colIdx += 1) {
+    delete ws[XLSX.utils.encode_cell({ r: rowIdx, c: colIdx })];
+  }
 }
 
 function ensureCell(ws, rowIdx, colIdx, value) {
@@ -630,13 +645,25 @@ function applyConteoSheetStyles(ws, report, showKardex, includeVitrines = true, 
       return;
     }
     if (entry.type === "category-title") {
-      merges.push({ s: { r: currentRow, c: 0 }, e: { r: currentRow, c: colCount - 1 } });
-      styleRowRange(ws, currentRow, colCount, {
+      const titleStyle = {
         font: { name: "Arial", sz: 10, bold: true, color: { rgb: "111827" } },
         alignment: { vertical: "center", horizontal: "left" },
         border: thinBorder,
         fill: fillStyle(COLORS.categoryBg),
-      });
+      };
+      styleCell(ws, currentRow, 0, titleStyle);
+      styleCell(ws, currentRow, 1, titleStyle);
+      if (withVitrines && separatorCol >= 0) {
+        styleCell(ws, currentRow, separatorCol, {
+          ...titleStyle,
+          fill: fillStyle(COLORS.separatorBg),
+          border: borderWithSeparator(separatorCol, layout),
+        });
+      }
+      return;
+    }
+    if (entry.type === "blank") {
+      clearWorksheetRowCells(ws, currentRow, colCount);
       return;
     }
     if (entry.type === "data") {
@@ -686,7 +713,6 @@ function applyConteoSheetStyles(ws, report, showKardex, includeVitrines = true, 
       return;
     }
     if (entry.type === "total-general") {
-      merges.push({ s: { r: currentRow, c: 0 }, e: { r: currentRow, c: Math.max(PRODUCT_COL_COUNT - 1, 0) } });
       const totalDiff = report.totalGeneral?.diferencia ?? 0;
       const totalDiffColor = Number(totalDiff) === 0
         ? "86EFAC"
