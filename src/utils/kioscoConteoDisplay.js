@@ -84,6 +84,10 @@ export function formatConteoSubtotalLabel(categoryName) {
   return part ? `Subtotal — ${part}` : "Subtotal";
 }
 
+/** Colapsa espacios múltiples y recorta extremos. */
+export const normalizeConteoLabelSpaces = (text) =>
+  String(text ?? "").replace(/\s+/g, " ").trim();
+
 /** Inicial(es) de color: NEGRO → N, negro/cafe → NC. */
 export function formatConteoColorInitials(colorName) {
   const raw = String(colorName || "").trim();
@@ -102,23 +106,26 @@ export function formatConteoColorInitials(colorName) {
 
 /**
  * Etiqueta compacta para Excel/PDF de conteo físico:
- * nombre completo + inicial de color + T{talla} (cinchos) + NV (herraje nuevo).
+ * nombre + código + inicial de color + T{talla} (cinchos) + NV (herraje nuevo).
  */
 export function formatConteoExportProductLabel(row) {
-  const name = String(row?.productName || "").trim();
+  const parts = [normalizeConteoLabelSpaces(row?.productName)];
+  const code = normalizeConteoLabelSpaces(row?.productCode);
+  if (code) parts.push(code);
+
   const colorInit = formatConteoColorInitials(row?.colorName);
-  let label = [name, colorInit].filter(Boolean).join(" ");
+  if (colorInit) parts.push(colorInit);
 
   const size = String(row?.sizeLabel || "").trim();
   if (size && (isCinchoProductRow(row) || isFossCinchoProductRow(row))) {
-    label = `${label} T${size}`.trim();
+    parts.push(`T${size}`);
   }
 
   if (normalizeHardwareCondition(row?.hardwareCondition) === "NUEVO") {
-    label = `${label} NV`.trim();
+    parts.push("NV");
   }
 
-  return label;
+  return normalizeConteoLabelSpaces(parts.filter(Boolean).join(" "));
 }
 
 const rowTotal = (counts) =>

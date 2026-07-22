@@ -78,7 +78,7 @@ const escape = (v) =>
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
 
-/** Nombre compacto: producto + color (inicial) + T{talla} + NV. */
+/** Nombre compacto: producto + código + color (inicial) + T{talla} + NV. */
 function formatProductLabel(row) {
   return formatConteoExportProductLabel(row);
 }
