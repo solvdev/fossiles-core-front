@@ -104,21 +104,36 @@ export function formatConteoColorInitials(colorName) {
   return first ? first.toUpperCase() : "";
 }
 
+const isWalletCategory = (name) => {
+  if (!name || name === "Empaques") return false;
+  return String(name).toUpperCase().includes("BILLETERA");
+};
+
+const isConteoWalletRow = (row) =>
+  isWalletCategory(row?.sourceCategoryName) || isWalletCategory(row?.productCategoryName);
+
 /**
- * Etiqueta compacta para Excel/PDF de conteo físico:
- * nombre + código + inicial de color + T{talla} (cinchos) + NV (herraje nuevo).
+ * Etiqueta compacta para Excel/PDF de conteo físico.
+ * Billeteras: nombre + código + color + NV (herraje nuevo).
+ * Demás productos: nombre + color + T{talla} (cinchos) + NV (herraje nuevo).
  */
 export function formatConteoExportProductLabel(row) {
   const parts = [normalizeConteoLabelSpaces(row?.productName)];
-  const code = normalizeConteoLabelSpaces(row?.productCode);
-  if (code) parts.push(code);
+  const isWallet = isConteoWalletRow(row);
+
+  if (isWallet) {
+    const code = normalizeConteoLabelSpaces(row?.productCode);
+    if (code) parts.push(code);
+  }
 
   const colorInit = formatConteoColorInitials(row?.colorName);
   if (colorInit) parts.push(colorInit);
 
-  const size = String(row?.sizeLabel || "").trim();
-  if (size && (isCinchoProductRow(row) || isFossCinchoProductRow(row))) {
-    parts.push(`T${size}`);
+  if (!isWallet) {
+    const size = String(row?.sizeLabel || "").trim();
+    if (size && (isCinchoProductRow(row) || isFossCinchoProductRow(row))) {
+      parts.push(`T${size}`);
+    }
   }
 
   if (normalizeHardwareCondition(row?.hardwareCondition) === "NUEVO") {
@@ -154,11 +169,6 @@ export const sumDisplayRows = (rows) => {
     total,
     diferencia: rows.reduce((sum, row) => sum + Number(row.diferencia || 0), 0),
   };
-};
-
-const isWalletCategory = (name) => {
-  if (!name || name === "Empaques") return false;
-  return String(name).toUpperCase().includes("BILLETERA");
 };
 
 const collectSizeKeys = (row) => {
