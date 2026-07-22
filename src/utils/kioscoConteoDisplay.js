@@ -4,6 +4,7 @@ import {
   isFossCinchoProductRow,
   isPackagingProductCode,
   normalizeCinchoType,
+  normalizeHardwareCondition,
   sortSizeKeys,
 } from "utils/productCinchoHelper";
 
@@ -81,6 +82,43 @@ const normalizeDisplayRowTotals = (row) => {
 export function formatConteoSubtotalLabel(categoryName) {
   const part = String(categoryName || "").trim().toUpperCase();
   return part ? `Subtotal — ${part}` : "Subtotal";
+}
+
+/** Inicial(es) de color: NEGRO → N, negro/cafe → NC. */
+export function formatConteoColorInitials(colorName) {
+  const raw = String(colorName || "").trim();
+  if (!raw || raw === "—") return "";
+  const parts = raw.split("/").map((part) => part.trim()).filter(Boolean);
+  if (parts.length > 1) {
+    return parts
+      .map((part) => part.replace(/^[^A-Za-zÁÉÍÓÚÜÑáéíóúüñ]+/, "").charAt(0))
+      .filter(Boolean)
+      .join("")
+      .toUpperCase();
+  }
+  const first = raw.replace(/^[^A-Za-zÁÉÍÓÚÜÑáéíóúüñ]+/, "").charAt(0);
+  return first ? first.toUpperCase() : "";
+}
+
+/**
+ * Etiqueta compacta para Excel/PDF de conteo físico:
+ * nombre completo + inicial de color + T{talla} (cinchos) + NV (herraje nuevo).
+ */
+export function formatConteoExportProductLabel(row) {
+  const name = String(row?.productName || "").trim();
+  const colorInit = formatConteoColorInitials(row?.colorName);
+  let label = [name, colorInit].filter(Boolean).join(" ");
+
+  const size = String(row?.sizeLabel || "").trim();
+  if (size && (isCinchoProductRow(row) || isFossCinchoProductRow(row))) {
+    label = `${label} T${size}`.trim();
+  }
+
+  if (normalizeHardwareCondition(row?.hardwareCondition) === "NUEVO") {
+    label = `${label} NV`.trim();
+  }
+
+  return label;
 }
 
 const rowTotal = (counts) =>

@@ -1,6 +1,9 @@
 import * as XLSX from "xlsx-js-style";
-import { formatConteoSubtotalLabel } from "./kioscoConteoDisplay";
-import { formatHardwareLocationSummary } from "./productCinchoHelper";
+import {
+  formatConteoColorInitials,
+  formatConteoExportProductLabel,
+  formatConteoSubtotalLabel,
+} from "./kioscoConteoDisplay";
 import {
   CONTEO_COLOR_LEGEND_LEFT,
   CONTEO_COLOR_LEGEND_RIGHT,
@@ -75,15 +78,9 @@ const escape = (v) =>
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
 
-/** Nombre + color + talla en una celda para filtrar fácil en Excel. */
+/** Nombre compacto: producto + color (inicial) + T{talla} + NV. */
 function formatProductLabel(row) {
-  const name = String(row?.productName || "").trim();
-  const colorRaw = String(row?.colorName || "").trim();
-  const color = colorRaw && colorRaw !== "—" ? colorRaw : "";
-  const size = String(row?.sizeLabel || row?.sizesSummary || "").trim();
-  const hardware = formatHardwareLocationSummary(row?.hardwareLocationCounts);
-  const base = [name, color, size].filter(Boolean).join("  ");
-  return hardware ? `${base} · ${hardware}` : base;
+  return formatConteoExportProductLabel(row);
 }
 
 function colLayout(showKardex, includeVitrines = true, vitrineOnly = false) {
@@ -843,11 +840,14 @@ export function exportConteoToPdf(report, options = {}) {
           ? "alert-row-surplus"
           : "alert-row"
         : "";
+    const compactLabel = formatConteoExportProductLabel(row);
+    const colorInitial = formatConteoColorInitials(row.colorName) || "—";
+    const sizeCell = row.sizeLabel || row.sizesSummary || "";
     return `<tr class="${alertClass}" style="${escape(style)}">
       <td>${escape(row.productCode || "")}</td>
-      <td>${escape(row.productName || "")}</td>
-      <td>${escape(row.colorName || "—")}</td>
-      <td>${escape(row.sizeLabel || row.sizesSummary || "")}</td>
+      <td>${escape(compactLabel || row.productName || "")}</td>
+      <td>${escape(colorInitial)}</td>
+      <td>${escape(sizeCell)}</td>
       ${kardexCells}
       ${counts}
       ${trailing}
