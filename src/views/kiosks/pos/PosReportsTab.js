@@ -41,7 +41,7 @@ import {
 import { showError, showSuccess, showWarning } from "utils/notificationHelper";
 import PosSaleDetailModal from "./PosSaleDetailModal";
 import PosVoidSaleModal from "./PosVoidSaleModal";
-import { formatCurrency, formatQty, getSaleInternalNumber, isSalePendingDeposit } from "./posUtils";
+import { formatCurrency, formatQty, getSaleInternalNumber, isSalePendingDeposit, formatSaleCardPaymentDetail } from "./posUtils";
 
 const REPORT_TYPES = {
   SALES: "SALES",
@@ -992,14 +992,10 @@ function PosReportsTab({
                     <td>{sale.soldByName || sale.soldByUsername || "—"}</td>
                     <td>
                       {sale.paymentMethod || "-"}
-                      {(sale.cardAuthNumber || sale.cardLast4) && (
+                      {formatSaleCardPaymentDetail(sale) && (
                         <>
                           <br />
-                          <span className="text-muted small">
-                            {sale.cardAuthNumber ? `Aut. ${sale.cardAuthNumber}` : ""}
-                            {sale.cardAuthNumber && sale.cardLast4 ? " · " : ""}
-                            {sale.cardLast4 ? `**** ${sale.cardLast4}` : ""}
-                          </span>
+                          <span className="text-muted small">{formatSaleCardPaymentDetail(sale)}</span>
                         </>
                       )}
                     </td>

@@ -19,7 +19,7 @@ import EditTaxInvoiceFelModal from "components/accounting/EditTaxInvoiceFelModal
 import { useAuth } from "contexts/AuthContext";
 import { canEditTaxInvoiceFel } from "utils/taxInvoiceEditHelper";
 import { showError, showSuccess } from "utils/notificationHelper";
-import { formatCurrency, formatQty, getSaleInternalNumber, getSaleGrossDepositAmount, getSaleNetDepositAmount, isDepositApplicable, isSalePendingDeposit, POS_CARD_BRANDS, DEFAULT_POS_CARD_BRAND } from "./posUtils";
+import { formatCurrency, formatQty, getSaleInternalNumber, getSaleGrossDepositAmount, getSaleNetDepositAmount, isDepositApplicable, isSalePendingDeposit, POS_CARD_BRANDS, DEFAULT_POS_CARD_BRAND, formatSaleCardPaymentDetail } from "./posUtils";
 
 const formatDateTime = (value) => formatDateTimeGt(value);
 
@@ -313,16 +313,10 @@ function PosSaleDetailModal({
                 <div className="kiosk-pos-detail-label">Forma de pago</div>
                 <div>
                   {paymentLabel(sale.paymentMethod)}
-                  {(sale.cardBrand || sale.cardAuthNumber || sale.cardLast4) && (
+                  {formatSaleCardPaymentDetail(sale) && (
                     <>
                       <br />
-                      <span className="text-muted">
-                        {sale.cardBrand ? `${sale.cardBrand}` : ""}
-                        {sale.cardBrand && (sale.cardAuthNumber || sale.cardLast4) ? " · " : ""}
-                        {sale.cardAuthNumber ? `Aut. ${sale.cardAuthNumber}` : ""}
-                        {sale.cardAuthNumber && sale.cardLast4 ? " · " : ""}
-                        {sale.cardLast4 ? `**** ${sale.cardLast4}` : ""}
-                      </span>
+                      <span className="text-muted">{formatSaleCardPaymentDetail(sale)}</span>
                     </>
                   )}
                 </div>

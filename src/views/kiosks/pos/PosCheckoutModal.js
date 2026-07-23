@@ -45,6 +45,12 @@ function PosCheckoutModal({
   const [cardAuthNumber, setCardAuthNumber] = useState("");
   const [cardLast4, setCardLast4] = useState("");
   const [cardBrand, setCardBrand] = useState(DEFAULT_POS_CARD_BRAND);
+  const [splitTwoCards, setSplitTwoCards] = useState(false);
+  const [card1Amount, setCard1Amount] = useState("");
+  const [card2Amount, setCard2Amount] = useState("");
+  const [card2AuthNumber, setCard2AuthNumber] = useState("");
+  const [card2Last4, setCard2Last4] = useState("");
+  const [card2Brand, setCard2Brand] = useState(DEFAULT_POS_CARD_BRAND);
   const [notesOpen, setNotesOpen] = useState(false);
   const [customerTaxId, setCustomerTaxId] = useState("CF");
   const [customerName, setCustomerName] = useState("CONSUMIDOR FINAL");
@@ -60,6 +66,12 @@ function PosCheckoutModal({
     setCardAuthNumber("");
     setCardLast4("");
     setCardBrand(DEFAULT_POS_CARD_BRAND);
+    setSplitTwoCards(false);
+    setCard1Amount("");
+    setCard2Amount("");
+    setCard2AuthNumber("");
+    setCard2Last4("");
+    setCard2Brand(DEFAULT_POS_CARD_BRAND);
     setNotesOpen(Boolean(notes));
     setCustomerTaxId("CF");
     setCustomerName("CONSUMIDOR FINAL");
@@ -119,9 +131,22 @@ function PosCheckoutModal({
 
   const requiresCardData =
     paymentMethod === "TARJETA" || (paymentMethod === "MIXTO" && Number(cardAmount || 0) > 0);
-  const cardDataIncomplete =
+  const card1DataIncomplete =
     requiresCardData
     && (!cardAuthNumber.trim() || !/^\d{4}$/.test(cardLast4.trim()) || !cardBrand.trim());
+  const splitAmountsInvalid =
+    paymentMethod === "TARJETA"
+    && splitTwoCards
+    && (
+      Number(card1Amount || 0) <= 0
+      || Number(card2Amount || 0) <= 0
+      || Math.abs(Number(card1Amount || 0) + Number(card2Amount || 0) - Number(estimatedTotal || 0)) > 0.009
+    );
+  const card2DataIncomplete =
+    paymentMethod === "TARJETA"
+    && splitTwoCards
+    && (!card2AuthNumber.trim() || !/^\d{4}$/.test(card2Last4.trim()) || !card2Brand.trim());
+  const cardDataIncomplete = card1DataIncomplete || card2DataIncomplete;
 
   const promotionOptions = useMemo(
     () =>
@@ -141,7 +166,13 @@ function PosCheckoutModal({
     normalizeNit(customerTaxId) !== "CF" && !String(customerName || "").trim();
 
   const canConfirm =
-    !saving && !cashInsufficient && !nitInvalid && !invoiceIncomplete && !taxLookupLoading && !cardDataIncomplete;
+    !saving
+    && !cashInsufficient
+    && !nitInvalid
+    && !invoiceIncomplete
+    && !taxLookupLoading
+    && !cardDataIncomplete
+    && !splitAmountsInvalid;
 
   const setExact = () => setAmountReceived(String(Number(estimatedTotal || 0).toFixed(2)));
 
@@ -157,10 +188,23 @@ function PosCheckoutModal({
       paymentMethod,
       amountReceived: amountReceived ? Number(amountReceived) : null,
       cashAmount: cashAmount ? Number(cashAmount) : null,
-      cardAmount: cardAmount ? Number(cardAmount) : null,
+      cardAmount:
+        paymentMethod === "TARJETA" && splitTwoCards
+          ? Number(card1Amount)
+          : cardAmount
+            ? Number(cardAmount)
+            : null,
       cardAuthNumber: requiresCardData ? cardAuthNumber.trim() : null,
       cardLast4: requiresCardData ? cardLast4.trim() : null,
       cardBrand: requiresCardData ? cardBrand.trim() : null,
+      card2Amount:
+        paymentMethod === "TARJETA" && splitTwoCards ? Number(card2Amount) : null,
+      card2AuthNumber:
+        paymentMethod === "TARJETA" && splitTwoCards ? card2AuthNumber.trim() : null,
+      card2Last4:
+        paymentMethod === "TARJETA" && splitTwoCards ? card2Last4.trim() : null,
+      card2Brand:
+        paymentMethod === "TARJETA" && splitTwoCards ? card2Brand.trim() : null,
       promotionId: selectedPromotionId || null,
       notes: notes || null,
       comments: comments || null,
@@ -310,7 +354,12 @@ function PosCheckoutModal({
                 key={method.value}
                 type="button"
                 className={`kiosk-pos-payment-tab ${paymentMethod === method.value ? "active" : ""}`}
-                onClick={() => setPaymentMethod(method.value)}
+                onClick={() => {
+                  setPaymentMethod(method.value);
+                  if (method.value !== "TARJETA") {
+                    setSplitTwoCards(false);
+                  }
+                }}
               >
                 {method.label}
               </button>
@@ -358,6 +407,63 @@ function PosCheckoutModal({
 
         {paymentMethod === "TARJETA" && (
           <div className="kiosk-pos-checkout-section">
+            <div className="custom-control custom-checkbox mb-3">
+              <Input
+                type="checkbox"
+                id="pos-split-two-cards"
+                checked={splitTwoCards}
+                onChange={(e) => {
+                  const checked = e.target.checked;
+                  setSplitTwoCards(checked);
+                  if (checked) {
+                    setCard1Amount("");
+                    setCard2Amount("");
+                  }
+                }}
+              />
+              <Label className="custom-control-label" for="pos-split-two-cards">
+                Dividir pago en dos tarjetas
+              </Label>
+            </div>
+
+            {splitTwoCards && (
+              <div className="kiosk-pos-mixto-grid mb-3">
+                <div>
+                  <Label className="kiosk-pos-label">Monto tarjeta 1</Label>
+                  <Input
+                    className="kiosk-pos-input-lg"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={card1Amount}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      setCard1Amount(value);
+                      const first = Number(value || 0);
+                      const total = Number(estimatedTotal || 0);
+                      if (first > 0 && total > first) {
+                        setCard2Amount(String((total - first).toFixed(2)));
+                      } else if (!value) {
+                        setCard2Amount("");
+                      }
+                    }}
+                  />
+                </div>
+                <div>
+                  <Label className="kiosk-pos-label">Monto tarjeta 2</Label>
+                  <Input
+                    className="kiosk-pos-input-lg"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={card2Amount}
+                    onChange={(e) => setCard2Amount(e.target.value)}
+                  />
+                </div>
+              </div>
+            )}
+
+            <div className="kiosk-pos-label mb-2">{splitTwoCards ? "Tarjeta 1" : "Datos de tarjeta"}</div>
             <div className="kiosk-pos-mixto-grid">
               <div>
                 <Label className="kiosk-pos-label">Marca de tarjeta</Label>
@@ -395,6 +501,49 @@ function PosCheckoutModal({
                 />
               </div>
             </div>
+
+            {splitTwoCards && (
+              <>
+                <div className="kiosk-pos-label mb-2 mt-3">Tarjeta 2</div>
+                <div className="kiosk-pos-mixto-grid">
+                  <div>
+                    <Label className="kiosk-pos-label">Marca de tarjeta</Label>
+                    <Input
+                      type="select"
+                      className="kiosk-pos-input-lg"
+                      value={card2Brand}
+                      onChange={(e) => setCard2Brand(e.target.value)}
+                    >
+                      {POS_CARD_BRANDS.map((brand) => (
+                        <option key={`card2-${brand.value}`} value={brand.value}>
+                          {brand.label}
+                        </option>
+                      ))}
+                    </Input>
+                  </div>
+                  <div>
+                    <Label className="kiosk-pos-label">Número de autorización</Label>
+                    <Input
+                      className="kiosk-pos-input-lg"
+                      value={card2AuthNumber}
+                      onChange={(e) => setCard2AuthNumber(e.target.value)}
+                      placeholder="Ej: 654321"
+                    />
+                  </div>
+                  <div>
+                    <Label className="kiosk-pos-label">Últimos 4 dígitos de la tarjeta</Label>
+                    <Input
+                      className="kiosk-pos-input-lg"
+                      value={card2Last4}
+                      onChange={(e) => setCard2Last4(e.target.value.replace(/\D/g, "").slice(0, 4))}
+                      placeholder="0000"
+                      maxLength={4}
+                      inputMode="numeric"
+                    />
+                  </div>
+                </div>
+              </>
+            )}
           </div>
         )}
 
@@ -520,7 +669,12 @@ function PosCheckoutModal({
           <p className="kiosk-pos-confirm-hint">El monto recibido no cubre el total</p>
         )}
         {!cashInsufficient && cardDataIncomplete && (
-          <p className="kiosk-pos-confirm-hint">Indica marca, autorización y últimos 4 dígitos de la tarjeta</p>
+          <p className="kiosk-pos-confirm-hint">Indica marca, autorización y últimos 4 dígitos de la(s) tarjeta(s)</p>
+        )}
+        {!cashInsufficient && !cardDataIncomplete && splitAmountsInvalid && (
+          <p className="kiosk-pos-confirm-hint">
+            Los montos de las dos tarjetas deben sumar el total ({formatCurrency(estimatedTotal)})
+          </p>
         )}
       </div>
     </Modal>

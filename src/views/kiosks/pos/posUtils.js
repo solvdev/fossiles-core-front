@@ -613,7 +613,11 @@ export const getSaleCardAmount = (sale) => {
   const method = normalizeSalePaymentMethod(sale.paymentMethod);
   const total = Number(sale.totalAmount ?? 0);
   if (method === "TARJETA" || method === "TRANSFERENCIA") {
+    const card2 = Number(sale.card2Amount ?? 0);
     const card = Number(sale.cardAmount ?? 0);
+    if (card2 > 0) {
+      return Math.min(card + card2, total);
+    }
     return card > 0 ? Math.min(card, total) : total;
   }
   if (method === "MIXTO") {
@@ -667,4 +671,40 @@ export const formatSaleDepositReference = (sale) => {
   if (sale?.saleNumber) return sale.saleNumber;
   if (sale?.id) return `#${sale.id}`;
   return "—";
+};
+
+export const hasSplitCardPayment = (sale) => Number(sale?.card2Amount ?? 0) > 0;
+
+const formatSingleCardDetail = (brand, authNumber, last4, amount) => {
+  const parts = [];
+  if (brand) parts.push(String(brand));
+  if (authNumber) parts.push(`Aut. ${authNumber}`);
+  if (last4) parts.push(`**** ${last4}`);
+  if (amount != null && Number(amount) > 0) {
+    parts.push(formatCurrency(amount));
+  }
+  return parts.join(" · ");
+};
+
+export const formatSaleCardPaymentDetail = (sale) => {
+  if (!sale) return "";
+  const card1 = formatSingleCardDetail(
+    sale.cardBrand,
+    sale.cardAuthNumber,
+    sale.cardLast4,
+    hasSplitCardPayment(sale) ? sale.cardAmount : null
+  );
+  if (!hasSplitCardPayment(sale)) {
+    return card1;
+  }
+  const card2 = formatSingleCardDetail(
+    sale.card2Brand,
+    sale.card2AuthNumber,
+    sale.card2Last4,
+    sale.card2Amount
+  );
+  const lines = [];
+  if (card1) lines.push(`Tarjeta 1: ${card1}`);
+  if (card2) lines.push(`Tarjeta 2: ${card2}`);
+  return lines.join(" | ");
 };
