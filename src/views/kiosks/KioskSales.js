@@ -443,7 +443,9 @@ function KioskSales() {
     }
     try {
       setSaving(true);
-      const promoPayload = parseCheckoutPromotionPayload(checkoutData.promotionId ?? selectedPromotionId);
+      const promoPayload = checkoutData.chargeWithoutDiscount
+        ? { promotionId: null, manualDiscountPercent: null }
+        : parseCheckoutPromotionPayload(checkoutData.promotionId ?? selectedPromotionId);
       const sale = await createKioskPosSale({
         kioskLocationId: selectedKioskId ? Number(selectedKioskId) : null,
         customerTaxId: normalizedTaxId,
@@ -466,6 +468,7 @@ function KioskSales() {
         comments: checkoutData.comments,
         promotionId: promoPayload.promotionId,
         manualDiscountPercent: promoPayload.manualDiscountPercent,
+        chargeWithoutDiscount: Boolean(checkoutData.chargeWithoutDiscount),
         requestInvoice: true,
         saleDate: today,
         items: cart.map((line) => ({

@@ -51,6 +51,7 @@ function PosCheckoutModal({
   const [card2AuthNumber, setCard2AuthNumber] = useState("");
   const [card2Last4, setCard2Last4] = useState("");
   const [card2Brand, setCard2Brand] = useState(DEFAULT_POS_CARD_BRAND);
+  const [chargeWithoutDiscount, setChargeWithoutDiscount] = useState(false);
   const [notesOpen, setNotesOpen] = useState(false);
   const [customerTaxId, setCustomerTaxId] = useState("CF");
   const [customerName, setCustomerName] = useState("CONSUMIDOR FINAL");
@@ -72,6 +73,7 @@ function PosCheckoutModal({
     setCard2AuthNumber("");
     setCard2Last4("");
     setCard2Brand(DEFAULT_POS_CARD_BRAND);
+    setChargeWithoutDiscount(false);
     setNotesOpen(Boolean(notes));
     setCustomerTaxId("CF");
     setCustomerName("CONSUMIDOR FINAL");
@@ -114,9 +116,14 @@ function PosCheckoutModal({
     }
   };
 
+  const checkoutDiscount = chargeWithoutDiscount ? 0 : Number(estimatedDiscount || 0);
+  const checkoutTotal = chargeWithoutDiscount
+    ? Number(estimatedSubtotal || 0)
+    : Number(estimatedTotal || 0);
+
   const changePreview = useMemo(() => {
     if (paymentMethod !== "EFECTIVO" && paymentMethod !== "MIXTO") return 0;
-    const total = Number(estimatedTotal || 0);
+    const total = checkoutTotal;
     if (paymentMethod === "MIXTO") {
       const cash = Number(cashAmount || 0);
       const received = Number(amountReceived || cash);
@@ -124,10 +131,10 @@ function PosCheckoutModal({
     }
     const received = Number(amountReceived || 0);
     return Math.max(0, received - total);
-  }, [paymentMethod, amountReceived, cashAmount, estimatedTotal]);
+  }, [paymentMethod, amountReceived, cashAmount, checkoutTotal]);
 
   const cashInsufficient =
-    paymentMethod === "EFECTIVO" && Number(amountReceived || 0) < Number(estimatedTotal || 0);
+    paymentMethod === "EFECTIVO" && Number(amountReceived || 0) < checkoutTotal;
 
   const requiresCardData =
     paymentMethod === "TARJETA" || (paymentMethod === "MIXTO" && Number(cardAmount || 0) > 0);
@@ -140,7 +147,7 @@ function PosCheckoutModal({
     && (
       Number(card1Amount || 0) <= 0
       || Number(card2Amount || 0) <= 0
-      || Math.abs(Number(card1Amount || 0) + Number(card2Amount || 0) - Number(estimatedTotal || 0)) > 0.009
+      || Math.abs(Number(card1Amount || 0) + Number(card2Amount || 0) - checkoutTotal) > 0.009
     );
   const card2DataIncomplete =
     paymentMethod === "TARJETA"
@@ -174,7 +181,7 @@ function PosCheckoutModal({
     && !cardDataIncomplete
     && !splitAmountsInvalid;
 
-  const setExact = () => setAmountReceived(String(Number(estimatedTotal || 0).toFixed(2)));
+  const setExact = () => setAmountReceived(String(checkoutTotal.toFixed(2)));
 
   const addCash = (value) => {
     const current = Number(amountReceived || 0);
@@ -205,7 +212,8 @@ function PosCheckoutModal({
         paymentMethod === "TARJETA" && splitTwoCards ? card2Last4.trim() : null,
       card2Brand:
         paymentMethod === "TARJETA" && splitTwoCards ? card2Brand.trim() : null,
-      promotionId: selectedPromotionId || null,
+      promotionId: chargeWithoutDiscount ? null : (selectedPromotionId || null),
+      chargeWithoutDiscount,
       notes: notes || null,
       comments: comments || null,
       customerTaxId: normalizedTaxId,
@@ -237,15 +245,32 @@ function PosCheckoutModal({
             <div className="kiosk-pos-metric-value">{formatQty(cartItemCount)}</div>
             <div className="kiosk-pos-metric-label">ítems</div>
           </div>
-          {estimatedDiscount > 0 && (
+          {checkoutDiscount > 0 && (
             <div className="kiosk-pos-metric">
               <div className="kiosk-pos-metric-value strikethrough">{formatCurrency(estimatedSubtotal)}</div>
               <div className="kiosk-pos-metric-label">subtotal</div>
             </div>
           )}
           <div className="kiosk-pos-metric">
-            <div className="kiosk-pos-metric-value primary">{formatCurrency(estimatedTotal)}</div>
+            <div className="kiosk-pos-metric-value primary">{formatCurrency(checkoutTotal)}</div>
             <div className="kiosk-pos-metric-label">total a cobrar</div>
+          </div>
+        </div>
+
+        <div className="kiosk-pos-checkout-section">
+          <div className="custom-control custom-checkbox mb-0">
+            <Input
+              type="checkbox"
+              id="pos-charge-without-discount"
+              checked={chargeWithoutDiscount}
+              onChange={(e) => setChargeWithoutDiscount(e.target.checked)}
+            />
+            <Label className="custom-control-label" for="pos-charge-without-discount">
+              Cobrar sin descuento (precio normal)
+            </Label>
+          </div>
+          <div className="text-muted small mt-1">
+            Ignora el 10% automático y promociones; cobra el subtotal de catálogo.
           </div>
         </div>
 
@@ -308,13 +333,14 @@ function PosCheckoutModal({
           </div>
         </div>
 
-        <div className="kiosk-pos-checkout-section">
+        <div className={`kiosk-pos-checkout-section ${chargeWithoutDiscount ? "opacity-50" : ""}`}>
           <Label className="kiosk-pos-label">Promoción</Label>
           <div className="d-flex flex-wrap mb-2" style={{ gap: 8 }}>
             <button
               type="button"
               className={`kiosk-pos-quick-btn ${selectedPromotionId === "__percent_10" ? "kiosk-pos-quick-exact" : ""}`}
               onClick={() => onPromotionChange(selectedPromotionId === "__percent_10" ? "" : "__percent_10")}
+              disabled={chargeWithoutDiscount}
             >
               10% OFF
             </button>
@@ -322,6 +348,7 @@ function PosCheckoutModal({
               type="button"
               className={`kiosk-pos-quick-btn ${selectedPromotionId === "__percent_15" ? "kiosk-pos-quick-exact" : ""}`}
               onClick={() => onPromotionChange(selectedPromotionId === "__percent_15" ? "" : "__percent_15")}
+              disabled={chargeWithoutDiscount}
             >
               15% OFF
             </button>
@@ -329,6 +356,7 @@ function PosCheckoutModal({
               type="button"
               className={`kiosk-pos-quick-btn ${selectedPromotionId === "__percent_20" ? "kiosk-pos-quick-exact" : ""}`}
               onClick={() => onPromotionChange(selectedPromotionId === "__percent_20" ? "" : "__percent_20")}
+              disabled={chargeWithoutDiscount}
             >
               20% OFF
             </button>
@@ -340,9 +368,13 @@ function PosCheckoutModal({
             placeholder="Buscar promoción..."
             emptyLabel="Sin promoción"
             inputClassName="kiosk-pos-promo-select"
+            disabled={chargeWithoutDiscount}
           />
-          {estimatedDiscount > 0 && (
-            <div className="kiosk-pos-promo-discount">Descuento aplicado: -{formatCurrency(estimatedDiscount)}</div>
+          {checkoutDiscount > 0 && (
+            <div className="kiosk-pos-promo-discount">Descuento aplicado: -{formatCurrency(checkoutDiscount)}</div>
+          )}
+          {chargeWithoutDiscount && estimatedSubtotal > 0 && (
+            <div className="kiosk-pos-promo-discount">Precio normal: {formatCurrency(estimatedSubtotal)}</div>
           )}
         </div>
 
@@ -440,7 +472,7 @@ function PosCheckoutModal({
                       const value = e.target.value;
                       setCard1Amount(value);
                       const first = Number(value || 0);
-                      const total = Number(estimatedTotal || 0);
+                      const total = checkoutTotal;
                       if (first > 0 && total > first) {
                         setCard2Amount(String((total - first).toFixed(2)));
                       } else if (!value) {
@@ -660,7 +692,7 @@ function PosCheckoutModal({
           onClick={handleConfirm}
           disabled={!canConfirm}
         >
-          {saving ? "Procesando..." : `Confirmar ${formatCurrency(estimatedTotal)}`}
+          {saving ? "Procesando..." : `Confirmar ${formatCurrency(checkoutTotal)}`}
         </button>
         <button type="button" className="kiosk-pos-btn-cancel" onClick={onClose} disabled={saving}>
           Cancelar
@@ -673,7 +705,7 @@ function PosCheckoutModal({
         )}
         {!cashInsufficient && !cardDataIncomplete && splitAmountsInvalid && (
           <p className="kiosk-pos-confirm-hint">
-            Los montos de las dos tarjetas deben sumar el total ({formatCurrency(estimatedTotal)})
+            Los montos de las dos tarjetas deben sumar el total ({formatCurrency(checkoutTotal)})
           </p>
         )}
       </div>

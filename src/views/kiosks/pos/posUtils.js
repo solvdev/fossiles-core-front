@@ -552,7 +552,15 @@ export const estimatePromotionDiscount = (subtotal, promotion, cartLines) => {
 };
 
 /** Descuento efectivo del carrito: promo/manual/auto vs mínimo 10% sobre precio original. */
-export const resolveCartDiscount = (cartLines, { selectedPromotion, promotions, subtotal } = {}) => {
+export const resolveCartDiscount = (cartLines, { selectedPromotion, promotions, subtotal, chargeWithoutDiscount } = {}) => {
+  if (chargeWithoutDiscount) {
+    return {
+      discount: 0,
+      autoApplied: false,
+      promotionName: null,
+      promotionId: null,
+    };
+  }
   const cartSubtotal =
     subtotal ??
     (cartLines || []).reduce(
