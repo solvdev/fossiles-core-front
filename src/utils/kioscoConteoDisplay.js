@@ -96,35 +96,54 @@ const isWalletCategory = (name) => {
 const isConteoWalletRow = (row) =>
   isWalletCategory(row?.sourceCategoryName) || isWalletCategory(row?.productCategoryName);
 
-/** Nombre de color completo para Excel/PDF de conteo (sin abreviar). */
+/**
+ * Nombre de producto para Excel/PDF cuando Color y Talla van en columnas propias.
+ * Incluye NV (herraje nuevo) si aplica.
+ */
+export function formatConteoExportProductName(row) {
+  const parts = [normalizeConteoLabelSpaces(row?.productName)];
+  if (normalizeHardwareCondition(row?.hardwareCondition) === "NUEVO") {
+    parts.push("NV");
+  }
+  return normalizeConteoLabelSpaces(parts.filter(Boolean).join(" "));
+}
+
+/** Color completo para export (sin abreviar). */
 export function formatConteoExportColorName(colorName) {
   const raw = normalizeConteoLabelSpaces(colorName);
   if (!raw || raw === "—") return "";
   return raw;
 }
 
+/** Talla para export de cinchos (sizeLabel o sizesSummary). */
+export function formatConteoExportSizeLabel(row) {
+  const size = String(row?.sizeLabel || row?.sizesSummary || "").trim();
+  if (!size || size === "—") return "";
+  if (!(isCinchoProductRow(row) || isFossCinchoProductRow(row))) {
+    // Si hay talla explícita en la fila, mostrarla aunque el detector falle.
+    if (row?.sizeLabel) return size;
+    return "";
+  }
+  return size;
+}
+
 /**
- * Etiqueta compacta para Excel/PDF de conteo físico.
- * Billeteras: nombre + código + color + NV (herraje nuevo).
- * Demás productos: nombre + color + T{talla} (cinchos) + NV (herraje nuevo).
+ * Etiqueta compacta (una sola celda): nombre + código + color + T{talla} + NV.
+ * Billeteras y cinchos usan el mismo orden; la talla solo aplica a cinchos.
  */
 export function formatConteoExportProductLabel(row) {
   const parts = [normalizeConteoLabelSpaces(row?.productName)];
   const isWallet = isConteoWalletRow(row);
 
-  if (isWallet) {
-    const code = normalizeConteoLabelSpaces(row?.productCode);
-    if (code) parts.push(code);
-  }
+  const code = normalizeConteoLabelSpaces(row?.productCode);
+  if (code) parts.push(code);
 
   const colorLabel = formatConteoExportColorName(row?.colorName);
   if (colorLabel) parts.push(colorLabel);
 
   if (!isWallet) {
-    const size = String(row?.sizeLabel || "").trim();
-    if (size && (isCinchoProductRow(row) || isFossCinchoProductRow(row))) {
-      parts.push(`T${size}`);
-    }
+    const size = formatConteoExportSizeLabel(row);
+    if (size) parts.push(`T${size}`);
   }
 
   if (normalizeHardwareCondition(row?.hardwareCondition) === "NUEVO") {
