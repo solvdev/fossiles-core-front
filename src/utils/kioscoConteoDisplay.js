@@ -129,19 +129,24 @@ export function formatConteoExportSizeLabel(row) {
 
 /**
  * Etiqueta compacta para Excel/PDF (una sola celda):
- * nombre + código + color + T{talla} (cinchos) + NV.
+ * - Billeteras: nombre + código + color + NV
+ * - Cinchos: nombre + código + color + T{talla} + NV
+ * - Demás: nombre + color + NV (sin código en Producto)
  */
 export function formatConteoExportProductLabel(row) {
   const parts = [normalizeConteoLabelSpaces(row?.productName)];
+  const isWallet = isConteoWalletRow(row);
+  const isCincho = isCinchoProductRow(row) || isFossCinchoProductRow(row);
 
-  const code = normalizeConteoLabelSpaces(row?.productCode);
-  if (code) parts.push(code);
+  if (isWallet || isCincho) {
+    const code = normalizeConteoLabelSpaces(row?.productCode);
+    if (code) parts.push(code);
+  }
 
   const colorLabel = formatConteoExportColorName(row?.colorName);
   if (colorLabel) parts.push(colorLabel);
 
-  const isWallet = isConteoWalletRow(row);
-  if (!isWallet) {
+  if (isCincho) {
     const size = formatConteoExportSizeLabel(row);
     if (size) parts.push(`T${size}`);
   }
