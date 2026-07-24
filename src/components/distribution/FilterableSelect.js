@@ -1,18 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Input } from "reactstrap";
-
-const dropdownStyle = {
-  position: "absolute",
-  zIndex: 1050,
-  background: "#fff",
-  border: "1px solid #ddd",
-  borderRadius: 4,
-  maxHeight: 260,
-  overflowY: "auto",
-  width: "100%",
-  minWidth: 180,
-  boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
-};
+import { AnchoredDropdownMenu } from "components/common/AnchoredDropdownMenu";
 
 function useClickOutside(ref, onClose) {
   useEffect(() => {
@@ -81,36 +69,35 @@ export function FilterableSelect({
           setSearch("");
         }}
       />
-      {open && !disabled && (
-        <div style={dropdownStyle}>
-          {allowEmpty && (
+      <AnchoredDropdownMenu anchorRef={ref} open={open && !disabled} minWidth={220} maxHeight={280}>
+        {allowEmpty && (
+          <div
+            style={{ padding: "8px 12px", cursor: "pointer", fontSize: 13, color: "#666" }}
+            onMouseDown={() => pick("")}
+          >
+            {emptyLabel}
+          </div>
+        )}
+        {filtered.length === 0 ? (
+          <div style={{ padding: 8, color: "#999", fontSize: 12 }}>Sin resultados</div>
+        ) : (
+          filtered.map((o) => (
             <div
-              style={{ padding: "6px 10px", cursor: "pointer", fontSize: 13, color: "#666" }}
-              onMouseDown={() => pick("")}
+              key={o.value}
+              style={{
+                padding: "8px 12px",
+                cursor: "pointer",
+                fontSize: 13,
+                lineHeight: 1.35,
+                background: String(o.value) === stringValue ? "#e3f2fd" : "transparent",
+              }}
+              onMouseDown={() => pick(o.value)}
             >
-              {emptyLabel}
+              {o.label}
             </div>
-          )}
-          {filtered.length === 0 ? (
-            <div style={{ padding: 8, color: "#999", fontSize: 12 }}>Sin resultados</div>
-          ) : (
-            filtered.map((o) => (
-              <div
-                key={o.value}
-                style={{
-                  padding: "6px 10px",
-                  cursor: "pointer",
-                  fontSize: 13,
-                  background: String(o.value) === stringValue ? "#e3f2fd" : "transparent",
-                }}
-                onMouseDown={() => pick(o.value)}
-              >
-                {o.label}
-              </div>
-            ))
-          )}
-        </div>
-      )}
+          ))
+        )}
+      </AnchoredDropdownMenu>
     </div>
   );
 }

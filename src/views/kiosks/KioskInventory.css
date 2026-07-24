@@ -43,6 +43,19 @@
   border-bottom: 1px solid #e2e8f0;
 }
 
+.kiosk-inv-movement-card .card-body {
+  overflow: visible;
+}
+
+.kiosk-inv-line-table-wrap {
+  overflow-x: auto;
+  overflow-y: visible;
+}
+
+.kiosk-inv-line-table td {
+  overflow: visible;
+}
+
 .kiosk-inv-line-table th {
   font-size: 0.72rem;
   text-transform: uppercase;

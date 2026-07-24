@@ -1,21 +1,9 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useRef, useState } from "react";
 import { Input } from "reactstrap";
-
-const dropdownStyle = {
-  position: "absolute",
-  zIndex: 1050,
-  background: "#fff",
-  border: "1px solid #ddd",
-  borderRadius: 4,
-  maxHeight: 220,
-  overflowY: "auto",
-  width: "100%",
-  minWidth: 220,
-  boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
-};
+import { AnchoredDropdownMenu } from "components/common/AnchoredDropdownMenu";
 
 function useClickOutside(ref, onClose) {
-  useEffect(() => {
+  React.useEffect(() => {
     const handleClick = (e) => {
       if (ref.current && !ref.current.contains(e.target)) onClose();
     };
@@ -24,10 +12,14 @@ function useClickOutside(ref, onClose) {
   }, [ref, onClose]);
 }
 
-function FilterableDropdown({ open, filtered, emptyLabel, renderItem, onSelect }) {
-  if (!open) return null;
+function FilterableDropdown({ anchorRef, open, filtered, emptyLabel, renderItem, onSelect, minWidth, maxHeight }) {
   return (
-    <div style={dropdownStyle}>
+    <AnchoredDropdownMenu
+      anchorRef={anchorRef}
+      open={open}
+      minWidth={minWidth}
+      maxHeight={maxHeight}
+    >
       {filtered.length === 0 ? (
         <div style={{ padding: 8, color: "#999", fontSize: 12 }}>{emptyLabel}</div>
       ) : (
@@ -35,9 +27,10 @@ function FilterableDropdown({ open, filtered, emptyLabel, renderItem, onSelect }
           <div
             key={item.key}
             style={{
-              padding: "6px 10px",
+              padding: "8px 12px",
               cursor: "pointer",
               fontSize: 13,
+              lineHeight: 1.35,
               background: item.selected ? "#e3f2fd" : "transparent",
             }}
             onMouseDown={() => onSelect(item.value)}
@@ -46,7 +39,7 @@ function FilterableDropdown({ open, filtered, emptyLabel, renderItem, onSelect }
           </div>
         ))
       )}
-    </div>
+    </AnchoredDropdownMenu>
   );
 }
 
@@ -104,9 +97,12 @@ export function ProductSelector({
         bsSize="sm"
       />
       <FilterableDropdown
+        anchorRef={ref}
         open={open && !disabled}
         filtered={filtered}
         emptyLabel="Sin resultados"
+        minWidth={320}
+        maxHeight={320}
         onSelect={(product) => {
           onChange(product);
           setOpen(false);
@@ -172,6 +168,7 @@ export function ColorSelector({
         bsSize="sm"
       />
       <FilterableDropdown
+        anchorRef={ref}
         open={open && !disabled}
         filtered={[
           ...(!search.trim()
@@ -180,6 +177,8 @@ export function ColorSelector({
           ...filtered,
         ]}
         emptyLabel="Sin resultados"
+        minWidth={200}
+        maxHeight={260}
         onSelect={(color) => {
           onChange(color);
           setOpen(false);

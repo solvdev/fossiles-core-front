@@ -1057,7 +1057,7 @@ function KioskInventory() {
                               ? "Agrega uno o más productos (color y talla FOSS si aplica). Misma boleta = mismo traslado; puedes buscar una boleta ya guardada para completar faltantes."
                               : `Agrega varias líneas de producto. Todas se registran en un solo envío (${OPERATION_OPTIONS.find((o) => o.value === form.operation)?.label}).`}
                           </Alert>
-                          <div className="table-responsive">
+                          <div className="kiosk-inv-line-table-wrap">
                             <Table size="sm" className="kiosk-inv-line-table mb-2">
                               <thead>
                                 <tr>
@@ -1076,7 +1076,7 @@ function KioskInventory() {
                                   const sizeOptions = resolveLineSizeOptions(line);
                                   return (
                                     <tr key={line.id}>
-                                      <td style={{ minWidth: 160 }}>
+                                      <td style={{ minWidth: 220 }}>
                                         <ProductSelector
                                           products={products}
                                           value={line.productId}
