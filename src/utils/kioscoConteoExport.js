@@ -1,8 +1,6 @@
 import * as XLSX from "xlsx-js-style";
 import {
-  formatConteoExportColorName,
-  formatConteoExportProductName,
-  formatConteoExportSizeLabel,
+  formatConteoExportProductLabel,
   formatConteoSubtotalLabel,
 } from "./kioscoConteoDisplay";
 import {
@@ -12,8 +10,8 @@ import {
 import { formatNowGt } from "./dateTimeHelper";
 
 const COUNT_LOCATION_KEYS = ["V1", "V2", "V3", "V4", "V5", "V6", "V7", "E", "BO"];
-/** Código + Producto + Color + Talla. */
-const PRODUCT_COL_COUNT = 4;
+/** Código + Producto (nombre · código · color · talla en una sola columna). */
+const PRODUCT_COL_COUNT = 2;
 const DIFF_ALERT_THRESHOLD = 3;
 /** Filas vacías entre categorías para que Ctrl+↓ no salte a todo el archivo. */
 const BLANK_ROWS_BETWEEN_CATEGORIES = 2;
@@ -81,17 +79,9 @@ const escape = (v) =>
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
 
-/** Producto: nombre (+ NV). Color y talla van en columnas propias. */
+/** Producto: nombre + código + color + T{talla} + NV (todo en una celda). */
 function formatProductLabel(row) {
-  return formatConteoExportProductName(row);
-}
-
-function formatProductColor(row) {
-  return formatConteoExportColorName(row?.colorName);
-}
-
-function formatProductSize(row) {
-  return formatConteoExportSizeLabel(row);
+  return formatConteoExportProductLabel(row);
 }
 
 function colLayout(showKardex, includeVitrines = true, vitrineOnly = false) {
@@ -210,15 +200,13 @@ function buildHeaderRows(report, includeVitrines = true, vitrineOnly = false) {
   return rows;
 }
 
-/** Encabezado fijo: Código + Producto + Color + Talla + kardex (hasta el separador). */
+/** Encabezado fijo: Código + Producto + kardex (hasta el separador). */
 function buildKardexHeaderCells(showKardex, report, includeVitrines = true, vitrineOnly = false) {
   const kardexHeaders = resolveKardexHeaders(report);
   const layout = colLayout(showKardex, includeVitrines, vitrineOnly);
   const cells = Array(layout.colCount).fill("");
   cells[0] = "Código";
   cells[1] = "Producto";
-  cells[2] = "Color";
-  cells[3] = "Talla";
   if (showKardex) {
     kardexHeaders.forEach((col, index) => {
       cells[PRODUCT_COL_COUNT + index] = col.label;
@@ -253,8 +241,6 @@ function buildDataRowCells(row, showKardex, report, includeVitrines = true, vitr
   const cells = Array(colCount).fill("");
   cells[0] = row.productCode || "";
   cells[1] = formatProductLabel(row);
-  cells[2] = formatProductColor(row);
-  cells[3] = formatProductSize(row);
   if (showKardex) {
     kardexHeaders.forEach((col, index) => {
       cells[kardexStart + index] = row[col.key] ?? 0;
@@ -294,13 +280,9 @@ function buildSubtotalCells(label, sub, showKardex, report, includeVitrines = tr
   if (label.startsWith("TOTAL")) {
     cells[0] = label;
     cells[1] = "";
-    cells[2] = "";
-    cells[3] = "";
   } else {
     cells[0] = "";
     cells[1] = label;
-    cells[2] = "";
-    cells[3] = "";
   }
   return cells;
 }
@@ -466,13 +448,13 @@ function applySheetLayout(ws, layout, merges) {
   const { colCount, separatorCol, vitrineStart, includeVitrines } = layout;
   ws["!merges"] = merges;
   ws["!cols"] = Array.from({ length: Math.max(colCount, 9) }, (_, colIdx) => {
-    if (colIdx === 0) return { wch: 14 };
-    if (colIdx === 1) return { wch: 36 };
-    if (colIdx === 2) return { wch: 18 };
+    if (colIdx === 2) return { wch: 26 };
     if (colIdx === 3) return { wch: 10 };
     if (colIdx === 4 || colIdx === 7) return { wch: 24 };
     if (colIdx === 5 || colIdx === 8) return { wch: 4 };
     if (includeVitrines && colIdx === separatorCol) return { wch: 2 };
+    if (colIdx === 0) return { wch: 14 };
+    if (colIdx === 1) return { wch: 52 };
     if (includeVitrines && colIdx >= vitrineStart && colIdx < layout.totalCol) return { wch: 6 };
     if (colIdx >= PRODUCT_COL_COUNT && (!includeVitrines || colIdx < separatorCol)) return { wch: 9 };
     if (includeVitrines && (colIdx === layout.totalCol || colIdx === layout.diffCol)) return { wch: 10 };
@@ -758,7 +740,7 @@ function applyConteoSheetStyles(ws, report, showKardex, includeVitrines = true, 
 
   ws["!merges"] = merges;
 
-  // Congela filas de meta + encabezado kardex; al scroll horizontal deja fijos Código/Producto/Color/Talla.
+  // Congela filas de meta + encabezado kardex; al scroll horizontal deja fijos Código/Producto.
   ws["!views"] = [
     {
       state: "frozen",
@@ -845,13 +827,13 @@ export function exportConteoToPdf(report, options = {}) {
     : "";
   const trailingHeaders = includeVitrines ? "<th>Total</th><th>Dif.</th><th>Observaciones</th>" : "";
   const colSpan =
-    4
+    2
     + (showKardex ? kardexHeaderList.length : 0)
     + (includeVitrines ? COUNT_LOCATION_KEYS.length + 3 : 0);
 
   const theadHtml = `
     <tr>
-      <th>Código</th><th>Producto</th><th>Color</th><th>Talla</th>
+      <th>Código</th><th>Producto</th>
       ${kardexHeaders}
       ${countHeaders}
       ${trailingHeaders}
@@ -883,14 +865,10 @@ export function exportConteoToPdf(report, options = {}) {
           ? "alert-row-surplus"
           : "alert-row"
         : "";
-    const compactLabel = formatConteoExportProductName(row);
-    const colorLabel = formatConteoExportColorName(row.colorName) || "—";
-    const sizeCell = formatConteoExportSizeLabel(row) || row.sizesSummary || "";
+    const compactLabel = formatConteoExportProductLabel(row);
     return `<tr class="${alertClass}" style="${escape(style)}">
       <td>${escape(row.productCode || "")}</td>
       <td>${escape(compactLabel || row.productName || "")}</td>
-      <td>${escape(colorLabel)}</td>
-      <td>${escape(sizeCell)}</td>
       ${kardexCells}
       ${counts}
       ${trailing}

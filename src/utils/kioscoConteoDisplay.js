@@ -128,12 +128,11 @@ export function formatConteoExportSizeLabel(row) {
 }
 
 /**
- * Etiqueta compacta (una sola celda): nombre + código + color + T{talla} + NV.
- * Billeteras y cinchos usan el mismo orden; la talla solo aplica a cinchos.
+ * Etiqueta compacta para Excel/PDF (una sola celda):
+ * nombre + código + color + T{talla} (cinchos) + NV.
  */
 export function formatConteoExportProductLabel(row) {
   const parts = [normalizeConteoLabelSpaces(row?.productName)];
-  const isWallet = isConteoWalletRow(row);
 
   const code = normalizeConteoLabelSpaces(row?.productCode);
   if (code) parts.push(code);
@@ -141,6 +140,7 @@ export function formatConteoExportProductLabel(row) {
   const colorLabel = formatConteoExportColorName(row?.colorName);
   if (colorLabel) parts.push(colorLabel);
 
+  const isWallet = isConteoWalletRow(row);
   if (!isWallet) {
     const size = formatConteoExportSizeLabel(row);
     if (size) parts.push(`T${size}`);
