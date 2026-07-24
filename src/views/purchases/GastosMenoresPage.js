@@ -240,6 +240,7 @@ function GastosMenoresPage() {
     authorizerName: "Gilberto Minas",
     companyAmount: "",
     messengerAmount: "",
+    reimbursementAmount: "",
     initialAmountGiven: "",
     returnedAmount: "",
     reimbursementStatus: "NO_APLICA",
@@ -370,124 +371,72 @@ function GastosMenoresPage() {
   };
 
   const handleFormChange = (field, value) => {
-    setFormData({ ...formData, [field]: value });
-    // Limpiar error del campo
     if (formErrors[field]) {
       setFormErrors({ ...formErrors, [field]: null });
     }
 
-    // Si cambia el método de pago inicial, ajustar reembolso y cálculos
-    if (field === "initialPaymentMethod") {
-      if (value === "EMPRESA") {
-        // Si la empresa paga, calcular el vuelto a recibir
-        const total = parseFloat(formData.totalAmount) || 0;
-        const initialGiven = parseFloat(formData.initialAmountGiven) || 0;
-        const vuelto = initialGiven > 0 && total > 0 ? initialGiven - total : 0;
+    setFormData((prev) => {
+      const next = { ...prev, [field]: value };
 
-        setFormData((prev) => ({
-          ...prev,
-          initialPaymentMethod: value,
-          reimbursementStatus: "NO_APLICA",
-          messengerAmount: vuelto > 0 ? vuelto.toFixed(2) : "",
-          companyAmount: total > 0 ? total.toString() : "",
-        }));
-      } else if (value === "MENSAJERO") {
-        setFormData((prev) => ({
-          ...prev,
-          initialPaymentMethod: value,
-          reimbursementStatus: "PENDIENTE",
-          messengerAmount: prev.totalAmount || "",
-          companyAmount: "",
-          initialAmountGiven: "",
-          returnedAmount: "",
-        }));
-      }
-    }
-
-    // Si cambia el total y el método de pago es EMPRESA, actualizar companyAmount y vuelto
-    if (field === "totalAmount" && formData.initialPaymentMethod === "EMPRESA") {
-      const total = parseFloat(value) || 0;
-      const initialGiven = parseFloat(formData.initialAmountGiven) || 0;
-      const vuelto = initialGiven > 0 && total > 0 ? initialGiven - total : 0;
-
-      setFormData((prev) => ({
-        ...prev,
-        totalAmount: value,
-        companyAmount: total > 0 ? total.toString() : "",
-        messengerAmount: vuelto > 0 ? vuelto.toFixed(2) : "",
-      }));
-    }
-
-    // Calcular automáticamente el monto faltante
-    if (field === "totalAmount" || field === "companyAmount" || field === "messengerAmount") {
-      const total = parseFloat(formData.totalAmount) || 0;
-      const company = parseFloat(field === "companyAmount" ? value : formData.companyAmount) || 0;
-      const messenger = parseFloat(field === "messengerAmount" ? value : formData.messengerAmount) || 0;
-
-      if (field === "totalAmount") {
-        // Si cambia el total, ajustar el mensajero si es necesario
-        if (formData.initialPaymentMethod === "MENSAJERO") {
-          setFormData((prev) => ({
-            ...prev,
-            totalAmount: value,
-            messengerAmount: (total - company).toString(),
-          }));
+      if (field === "initialPaymentMethod") {
+        if (value === "EMPRESA") {
+          const total = parseFloat(prev.totalAmount) || 0;
+          const initialGiven = parseFloat(prev.initialAmountGiven) || 0;
+          const vuelto = initialGiven > 0 && total > 0 ? initialGiven - total : 0;
+          next.reimbursementStatus = "NO_APLICA";
+          next.reimbursementAmount = "";
+          next.messengerAmount = "";
+          next.returnedAmount = vuelto > 0 ? vuelto.toFixed(2) : "";
+          next.companyAmount = total > 0 ? total.toString() : "";
+        } else if (value === "MENSAJERO") {
+          next.reimbursementStatus = "PENDIENTE";
+          next.reimbursementAmount = prev.totalAmount || "";
+          next.messengerAmount = prev.totalAmount || "";
+          next.companyAmount = "";
+          next.initialAmountGiven = "";
+          next.returnedAmount = "";
         }
-      } else if (field === "companyAmount") {
-        // Si cambia el monto de empresa, ajustar el mensajero
-        setFormData((prev) => ({
-          ...prev,
-          companyAmount: value,
-          messengerAmount: (total - company).toString(),
-        }));
-      } else if (field === "messengerAmount") {
-        // Si cambia el monto del mensajero, ajustar el de empresa
-        setFormData((prev) => ({
-          ...prev,
-          messengerAmount: value,
-          companyAmount: (total - messenger).toString(),
-        }));
+        return next;
       }
-    }
 
-    // Calcular automáticamente el monto devuelto (caja chica) y vuelto a recibir
-    if (field === "initialAmountGiven" || field === "totalAmount") {
-      const initialGiven = parseFloat(field === "initialAmountGiven" ? value : formData.initialAmountGiven) || 0;
-      const total = parseFloat(field === "totalAmount" ? value : formData.totalAmount) || 0;
+      const method = field === "initialPaymentMethod" ? value : prev.initialPaymentMethod;
+      const total = parseFloat(field === "totalAmount" ? value : next.totalAmount) || 0;
+      const company = parseFloat(field === "companyAmount" ? value : next.companyAmount) || 0;
+      const reimbursement = parseFloat(
+        field === "reimbursementAmount" || field === "messengerAmount"
+          ? value
+          : (next.reimbursementAmount || next.messengerAmount)
+      ) || 0;
+      const initialGiven = parseFloat(field === "initialAmountGiven" ? value : next.initialAmountGiven) || 0;
 
-      if (initialGiven > 0 && total > 0) {
-        const calculatedReturned = initialGiven - total;
-        if (calculatedReturned >= 0) {
-          setFormData((prev) => {
-            const newData = {
-              ...prev,
-              [field]: value,
-              returnedAmount: calculatedReturned.toFixed(2),
-            };
-            // Si la empresa paga, el vuelto a recibir es el mismo que el monto devuelto
-            if (prev.initialPaymentMethod === "EMPRESA") {
-              newData.messengerAmount = calculatedReturned.toFixed(2);
-              newData.companyAmount = total.toString();
-            }
-            return newData;
-          });
-        } else {
-          setFormData((prev) => ({
-            ...prev,
-            [field]: value,
-            returnedAmount: "",
-            messengerAmount: prev.initialPaymentMethod === "EMPRESA" ? "" : prev.messengerAmount,
-          }));
+      if (method === "EMPRESA") {
+        if (field === "totalAmount" || field === "initialAmountGiven") {
+          next.companyAmount = total > 0 ? total.toString() : "";
+          if (initialGiven > 0 && total > 0) {
+            const vuelto = initialGiven - total;
+            next.returnedAmount = vuelto >= 0 ? vuelto.toFixed(2) : "";
+          } else {
+            next.returnedAmount = "";
+          }
+          next.reimbursementAmount = "";
+          next.messengerAmount = "";
         }
-      } else if (field === "initialAmountGiven" && initialGiven === 0) {
-        setFormData((prev) => ({
-          ...prev,
-          initialAmountGiven: value,
-          returnedAmount: "",
-          messengerAmount: prev.initialPaymentMethod === "EMPRESA" ? "" : prev.messengerAmount,
-        }));
+      } else {
+        if (field === "totalAmount") {
+          next.reimbursementAmount = Math.max(0, total - company).toFixed(2);
+          next.messengerAmount = next.reimbursementAmount;
+        } else if (field === "companyAmount") {
+          next.reimbursementAmount = Math.max(0, total - company).toFixed(2);
+          next.messengerAmount = next.reimbursementAmount;
+        } else if (field === "reimbursementAmount" || field === "messengerAmount") {
+          next.reimbursementAmount = value;
+          next.messengerAmount = value;
+          next.companyAmount = Math.max(0, total - reimbursement).toFixed(2);
+        }
       }
-    }
+
+      return next;
+    });
   };
 
   const validateForm = () => {
@@ -521,19 +470,16 @@ function GastosMenoresPage() {
     // Validar montos según el método de pago
     const total = parseFloat(formData.totalAmount) || 0;
     const company = parseFloat(formData.companyAmount) || 0;
-    const messenger = parseFloat(formData.messengerAmount) || 0;
+    const reimbursement = parseFloat(formData.reimbursementAmount || formData.messengerAmount) || 0;
 
     if (formData.initialPaymentMethod === "EMPRESA") {
-      // Cuando la empresa paga: companyAmount debe ser igual a totalAmount
-      // messengerAmount es el vuelto a recibir (no se suma al total)
       if (Math.abs(company - total) > 0.01) {
         errors.companyAmount = `El monto empresa (${company.toFixed(2)}) debe ser igual al monto total (${total.toFixed(2)}) cuando la empresa paga`;
       }
     } else {
-      // Cuando el mensajero paga: companyAmount + messengerAmount = totalAmount
-      const sum = company + messenger;
+      const sum = company + reimbursement;
       if (Math.abs(sum - total) > 0.01) {
-        errors.totalAmount = `La suma de monto empresa (${company.toFixed(2)}) y monto mensajero (${messenger.toFixed(2)}) debe ser igual al monto total (${total.toFixed(2)})`;
+        errors.totalAmount = `La suma de monto empresa (${company.toFixed(2)}) y monto a reembolsar (${reimbursement.toFixed(2)}) debe ser igual al monto total (${total.toFixed(2)})`;
       }
     }
 
@@ -585,16 +531,18 @@ function GastosMenoresPage() {
       // Preparar datos según el método de pago
       const total = parseFloat(formData.totalAmount);
       let companyAmount = 0;
-      let messengerAmount = 0;
+      let reimbursementAmount = 0;
+      let returnedAmount = null;
+      let initialAmountGiven = null;
 
       if (formData.initialPaymentMethod === "EMPRESA") {
-        // Cuando la empresa paga: companyAmount = totalAmount, messengerAmount = vuelto
         companyAmount = total;
-        messengerAmount = parseFloat(formData.messengerAmount) || 0; // Vuelto a recibir
+        reimbursementAmount = 0;
+        initialAmountGiven = formData.initialAmountGiven ? parseFloat(formData.initialAmountGiven) : null;
+        returnedAmount = formData.returnedAmount ? parseFloat(formData.returnedAmount) : 0;
       } else {
-        // Cuando el mensajero paga: companyAmount + messengerAmount = totalAmount
         companyAmount = parseFloat(formData.companyAmount) || 0;
-        messengerAmount = parseFloat(formData.messengerAmount) || 0;
+        reimbursementAmount = parseFloat(formData.reimbursementAmount || formData.messengerAmount) || 0;
       }
 
       const expenseData = {
@@ -606,9 +554,10 @@ function GastosMenoresPage() {
         purchaserName: formData.purchaserName,
         authorizerName: formData.authorizerName || null,
         companyAmount: companyAmount,
-        messengerAmount: messengerAmount,
-        initialAmountGiven: formData.initialAmountGiven ? parseFloat(formData.initialAmountGiven) : null,
-        returnedAmount: formData.returnedAmount ? parseFloat(formData.returnedAmount) : null,
+        reimbursementAmount: reimbursementAmount,
+        messengerAmount: formData.initialPaymentMethod === "EMPRESA" ? (returnedAmount || 0) : reimbursementAmount,
+        initialAmountGiven: initialAmountGiven,
+        returnedAmount: returnedAmount,
         reimbursementStatus: formData.reimbursementStatus,
         reimbursementDate: formData.reimbursementDate || null,
         reimbursementPaymentMethod: formData.reimbursementPaymentMethod || null,
@@ -655,6 +604,12 @@ function GastosMenoresPage() {
   };
 
   const populateExpenseFormFromExpense = (expense) => {
+    const reimbursementAmt = expense.reimbursementAmount ?? (
+      expense.initialPaymentMethod === "MENSAJERO" ? expense.messengerAmount : 0
+    );
+    const returnedAmt = expense.returnedAmount ?? (
+      expense.initialPaymentMethod === "EMPRESA" ? expense.messengerAmount : 0
+    );
     setFormData({
       invoiceNumber: expense.invoiceNumber || "",
       purchaseDate: expense.purchaseDate || new Date().toISOString().split("T")[0],
@@ -664,9 +619,10 @@ function GastosMenoresPage() {
       purchaserName: expense.purchaserName || "Mensajero",
       authorizerName: expense.authorizerName || "Contabilidad",
       companyAmount: expense.companyAmount?.toString() || "",
-      messengerAmount: expense.messengerAmount?.toString() || "",
+      messengerAmount: reimbursementAmt?.toString() || "",
+      reimbursementAmount: reimbursementAmt?.toString() || "",
       initialAmountGiven: expense.initialAmountGiven?.toString() || "",
-      returnedAmount: expense.returnedAmount?.toString() || "",
+      returnedAmount: returnedAmt?.toString() || "",
       reimbursementStatus: expense.reimbursementStatus || "NO_APLICA",
       reimbursementDate: expense.reimbursementDate || "",
       reimbursementPaymentMethod: expense.reimbursementPaymentMethod || "",
@@ -781,17 +737,37 @@ function GastosMenoresPage() {
     }));
   };
 
+  const getExpenseReimbursementAmount = (expense) => {
+    if (expense == null) return 0;
+    if (expense.reimbursementAmount != null) return parseFloat(expense.reimbursementAmount) || 0;
+    if (expense.initialPaymentMethod === "MENSAJERO") return parseFloat(expense.messengerAmount) || 0;
+    return 0;
+  };
+
   const handleSaveAdjustments = async () => {
     try {
       setSavingAdjustments(true);
       const pendingExpenses = purchaseExpenses.filter(e => e.reimbursementStatus === "PENDIENTE");
+      const availableChange = Math.max(0, parseFloat(selectedPurchaseNumber?.netBalance ?? selectedPurchaseNumber?.rawBalance ?? 0));
+      const totalNegativeAdjustments = pendingExpenses.reduce((sum, expense) => {
+        const adjustment = reimbursementAdjustments[expense.id];
+        const adjustmentValue = adjustment && adjustment !== "" ? parseFloat(adjustment) : (parseFloat(expense.reimbursementAdjustment) || 0);
+        return sum + (adjustmentValue < 0 ? Math.abs(adjustmentValue) : 0);
+      }, 0);
 
-      // Guardar ajustes para cada factura pendiente
+      if (totalNegativeAdjustments > availableChange + 0.01) {
+        showError(
+          `Los ajustes negativos (Q ${totalNegativeAdjustments.toFixed(2)}) exceden el vuelto disponible de la orden (Q ${availableChange.toFixed(2)}).`
+        );
+        setSavingAdjustments(false);
+        return;
+      }
+
       const updatePromises = pendingExpenses.map(expense => {
         const adjustment = reimbursementAdjustments[expense.id];
         const adjustmentValue = adjustment && adjustment !== "" ? parseFloat(adjustment) : null;
+        const reimbursementAmount = getExpenseReimbursementAmount(expense);
 
-        // Obtener los datos actuales de la factura
         return updateMinorExpense(expense.id, {
           invoiceNumber: expense.invoiceNumber,
           purchaseDate: expense.purchaseDate,
@@ -801,7 +777,8 @@ function GastosMenoresPage() {
           purchaserName: expense.purchaserName,
           authorizerName: expense.authorizerName,
           companyAmount: expense.companyAmount,
-          messengerAmount: expense.messengerAmount,
+          reimbursementAmount: reimbursementAmount,
+          messengerAmount: reimbursementAmount,
           initialAmountGiven: expense.initialAmountGiven,
           returnedAmount: expense.returnedAmount,
           reimbursementStatus: expense.reimbursementStatus,
@@ -1119,8 +1096,9 @@ function GastosMenoresPage() {
       totalAmount: estimatedTotal.toFixed(2),
       purchaserName: "Mensajero",
       authorizerName: "Contabilidad",
-      companyAmount: "",
+      companyAmount: estimatedTotal.toFixed(2),
       messengerAmount: "",
+      reimbursementAmount: "",
       initialAmountGiven: "",
       returnedAmount: "",
       reimbursementStatus: "NO_APLICA",
@@ -1179,6 +1157,7 @@ function GastosMenoresPage() {
       authorizerName: "Contabilidad",
       companyAmount: "",
       messengerAmount: "",
+      reimbursementAmount: "",
       initialAmountGiven: "",
       returnedAmount: "",
       reimbursementStatus: "NO_APLICA",
@@ -1230,7 +1209,7 @@ function GastosMenoresPage() {
       "Autorizador": expense.authorizerName || "N/A",
       "Autorizador": expense.authorizerName || "N/A",
       "Monto Empresa": expense.companyAmount?.toFixed(2) || "0.00",
-      "Monto Mensajero": expense.messengerAmount?.toFixed(2) || "0.00",
+      "Monto a Reembolsar": getExpenseReimbursementAmount(expense).toFixed(2),
       "Monto Inicial Dado (Caja Chica)": expense.initialAmountGiven?.toFixed(2) || "0.00",
       "Monto Devuelto": expense.returnedAmount?.toFixed(2) || "0.00",
       "Estado Reembolso": expense.reimbursementStatus || "N/A",
@@ -2448,14 +2427,23 @@ function GastosMenoresPage() {
                   <Label>
                     {formData.initialPaymentMethod === "EMPRESA"
                       ? "Vuelto a Recibir del Mensajero"
-                      : "Monto Por Pagar al Mensajero"}
+                      : "Monto a Reembolsar al Mensajero"}
                   </Label>
                   <Input
                     type="number"
                     step="0.01"
                     min="0"
-                    value={formData.messengerAmount}
-                    onChange={(e) => handleFormChange("messengerAmount", e.target.value)}
+                    value={
+                      formData.initialPaymentMethod === "EMPRESA"
+                        ? formData.returnedAmount
+                        : (formData.reimbursementAmount || formData.messengerAmount)
+                    }
+                    onChange={(e) =>
+                      handleFormChange(
+                        formData.initialPaymentMethod === "EMPRESA" ? "returnedAmount" : "reimbursementAmount",
+                        e.target.value
+                      )
+                    }
                     disabled={formData.initialPaymentMethod === "EMPRESA"}
                     placeholder={formData.initialPaymentMethod === "EMPRESA" ? "Se calcula automáticamente" : ""}
                   />
@@ -2845,7 +2833,8 @@ function GastosMenoresPage() {
                               Vuelto a Recibir del Mensajero
                             </label>
                             <p style={{ fontSize: "1.1rem", fontWeight: "600", color: "#ffc107", margin: 0 }}>
-                              Q {selectedExpense.messengerAmount?.toFixed(2) || "0.00"}
+                              Q {(selectedExpense.returnedAmount ?? selectedExpense.messengerAmount)?.toFixed?.(2)
+                                || Number(selectedExpense.returnedAmount ?? selectedExpense.messengerAmount ?? 0).toFixed(2)}
                             </p>
                           </div>
                         </div>
@@ -2856,10 +2845,15 @@ function GastosMenoresPage() {
                           <i className="nc-icon nc-money-coins mr-2 mt-1" style={{ color: "#dc3545", fontSize: "1rem" }} />
                           <div style={{ flex: 1 }}>
                             <label style={{ fontSize: "0.875rem", fontWeight: "600", color: "#6c757d", marginBottom: "0.25rem", display: "block" }}>
-                              Monto Por Pagar al Mensajero
+                              Monto a Reembolsar al Mensajero
                             </label>
                             <p style={{ fontSize: "1.1rem", fontWeight: "600", color: "#dc3545", margin: 0 }}>
-                              Q {selectedExpense.messengerAmount?.toFixed(2) || "0.00"}
+                              Q {Number(
+                                selectedExpense.reimbursementAmount
+                                  ?? selectedExpense.adjustedReimbursementAmount
+                                  ?? selectedExpense.messengerAmount
+                                  ?? 0
+                              ).toFixed(2)}
                             </p>
                           </div>
                         </div>
@@ -3941,7 +3935,10 @@ function GastosMenoresPage() {
                             <strong>Total Pagado por Mensajero:</strong>
                           </div>
                           <span style={{ fontSize: "1.1rem", fontWeight: "600", color: "#ffc107" }}>
-                            Q {purchaseExpenses.reduce((sum, exp) => sum + (parseFloat(exp.messengerAmount) || 0), 0).toFixed(2)}
+                            Q {purchaseExpenses
+                              .filter((exp) => exp.initialPaymentMethod === "MENSAJERO")
+                              .reduce((sum, exp) => sum + getExpenseReimbursementAmount(exp), 0)
+                              .toFixed(2)}
                           </span>
                         </div>
                       </Col>
@@ -3963,7 +3960,10 @@ function GastosMenoresPage() {
                             <strong>Total Vuelto Recibido:</strong>
                           </div>
                           <span style={{ fontSize: "1.1rem", fontWeight: "600", color: "#fd7e14" }}>
-                            Q {purchaseExpenses.reduce((sum, exp) => sum + (parseFloat(exp.returnedAmount) || 0), 0).toFixed(2)}
+                            Q {purchaseExpenses
+                              .filter((exp) => exp.initialPaymentMethod === "EMPRESA")
+                              .reduce((sum, exp) => sum + (parseFloat(exp.returnedAmount) || 0), 0)
+                              .toFixed(2)}
                           </span>
                         </div>
                       </Col>
@@ -3991,7 +3991,7 @@ function GastosMenoresPage() {
                             Q {purchaseExpenses
                               .filter(e => e.reimbursementStatus === "PENDIENTE")
                               .reduce((sum, exp) => {
-                                const original = parseFloat(exp.messengerAmount) || 0;
+                                const original = getExpenseReimbursementAmount(exp);
                                 const adjustment = reimbursementAdjustments[exp.id];
                                 const adjustmentValue = adjustment && adjustment !== "" ? parseFloat(adjustment) : (parseFloat(exp.reimbursementAdjustment) || 0);
                                 return sum + Math.max(0, original + adjustmentValue);
@@ -4007,7 +4007,7 @@ function GastosMenoresPage() {
                             {purchaseExpenses.filter(e => e.reimbursementStatus === "PAGADO").length} factura(s) -
                             Q {purchaseExpenses
                               .filter(e => e.reimbursementStatus === "PAGADO")
-                              .reduce((sum, exp) => sum + (parseFloat(exp.messengerAmount) || 0), 0)
+                              .reduce((sum, exp) => sum + getExpenseReimbursementAmount(exp), 0)
                               .toFixed(2)}
                           </Badge>
                         </div>
@@ -4030,7 +4030,7 @@ function GastosMenoresPage() {
                           Q {purchaseExpenses
                             .filter(e => e.reimbursementStatus === "PENDIENTE")
                             .reduce((sum, exp) => {
-                              const original = parseFloat(exp.messengerAmount) || 0;
+                              const original = getExpenseReimbursementAmount(exp);
                               const adjustment = reimbursementAdjustments[exp.id];
                               const adjustmentValue = adjustment && adjustment !== "" ? parseFloat(adjustment) : (parseFloat(exp.reimbursementAdjustment) || 0);
                               return sum + Math.max(0, original + adjustmentValue);
@@ -4061,9 +4061,9 @@ function GastosMenoresPage() {
                     {(() => {
                       const totalAssigned = parseFloat(selectedPurchaseNumber.totalAmount || 0);
                       const totalSpent = purchaseExpenses.reduce((sum, exp) => sum + (parseFloat(exp.totalAmount) || 0), 0);
-                      const availableChange = totalAssigned - totalSpent;
+                      const availableChange = Math.max(0, parseFloat(selectedPurchaseNumber.netBalance ?? (totalAssigned - totalSpent)));
                       const pendingReimbursements = purchaseExpenses.filter(e => e.reimbursementStatus === "PENDIENTE");
-                      const totalPendingOriginal = pendingReimbursements.reduce((sum, exp) => sum + (parseFloat(exp.messengerAmount) || 0), 0);
+                      const totalPendingOriginal = pendingReimbursements.reduce((sum, exp) => sum + getExpenseReimbursementAmount(exp), 0);
                       const totalAdjustments = pendingReimbursements.reduce((sum, exp) => {
                         const adj = reimbursementAdjustments[exp.id];
                         return sum + (adj && adj !== "" ? parseFloat(adj) : (parseFloat(exp.reimbursementAdjustment) || 0));
@@ -4174,7 +4174,7 @@ function GastosMenoresPage() {
                                     {pendingReimbursements.map((expense) => {
                                       const adjustment = reimbursementAdjustments[expense.id];
                                       const adjustmentValue = adjustment && adjustment !== "" ? parseFloat(adjustment) : (parseFloat(expense.reimbursementAdjustment) || 0);
-                                      const originalAmount = parseFloat(expense.messengerAmount) || 0;
+                                      const originalAmount = getExpenseReimbursementAmount(expense);
                                       const adjustedAmount = Math.max(0, originalAmount + adjustmentValue);
 
                                       return (
@@ -4314,7 +4314,7 @@ function GastosMenoresPage() {
                                         Q {parseFloat(expense.totalAmount || 0).toFixed(2)}
                                       </strong>
                                     </div>
-                                    {expense.messengerAmount && parseFloat(expense.messengerAmount) > 0 && (
+                                    {getExpenseReimbursementAmount(expense) > 0 && (
                                       <div className="mb-2">
                                         <small className="text-muted d-block">
                                           Reembolso {expense.reimbursementStatus === "PENDIENTE" ? "(Pendiente)" : expense.reimbursementStatus === "PAGADO" ? "(Pagado)" : ""}:
@@ -4322,7 +4322,7 @@ function GastosMenoresPage() {
                                         <div className="d-flex align-items-center">
                                           <strong className="text-warning" style={{ fontSize: "1rem" }}>
                                             Q {(() => {
-                                              const original = parseFloat(expense.messengerAmount) || 0;
+                                              const original = getExpenseReimbursementAmount(expense);
                                               const adjustment = reimbursementAdjustments[expense.id];
                                               const adjustmentValue = adjustment && adjustment !== "" ? parseFloat(adjustment) : (parseFloat(expense.reimbursementAdjustment) || 0);
                                               const adjusted = Math.max(0, original + adjustmentValue);
@@ -4402,7 +4402,7 @@ function GastosMenoresPage() {
                               const status = reimbursementStatusMap[expense.reimbursementStatus] || { color: "secondary", text: expense.reimbursementStatus || "N/A" };
 
                               // Calcular reembolso ajustado
-                              const originalReimbursement = parseFloat(expense.messengerAmount) || 0;
+                              const originalReimbursement = getExpenseReimbursementAmount(expense);
                               const adjustment = reimbursementAdjustments[expense.id];
                               const adjustmentValue = adjustment && adjustment !== "" ? parseFloat(adjustment) : (parseFloat(expense.reimbursementAdjustment) || 0);
                               const adjustedReimbursement = Math.max(0, originalReimbursement + adjustmentValue);
