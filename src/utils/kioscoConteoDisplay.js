@@ -88,22 +88,6 @@ export function formatConteoSubtotalLabel(categoryName) {
 export const normalizeConteoLabelSpaces = (text) =>
   String(text ?? "").replace(/\s+/g, " ").trim();
 
-/** Inicial(es) de color: NEGRO → N, negro/cafe → NC. */
-export function formatConteoColorInitials(colorName) {
-  const raw = String(colorName || "").trim();
-  if (!raw || raw === "—") return "";
-  const parts = raw.split("/").map((part) => part.trim()).filter(Boolean);
-  if (parts.length > 1) {
-    return parts
-      .map((part) => part.replace(/^[^A-Za-zÁÉÍÓÚÜÑáéíóúüñ]+/, "").charAt(0))
-      .filter(Boolean)
-      .join("")
-      .toUpperCase();
-  }
-  const first = raw.replace(/^[^A-Za-zÁÉÍÓÚÜÑáéíóúüñ]+/, "").charAt(0);
-  return first ? first.toUpperCase() : "";
-}
-
 const isWalletCategory = (name) => {
   if (!name || name === "Empaques") return false;
   return String(name).toUpperCase().includes("BILLETERA");
@@ -111,6 +95,13 @@ const isWalletCategory = (name) => {
 
 const isConteoWalletRow = (row) =>
   isWalletCategory(row?.sourceCategoryName) || isWalletCategory(row?.productCategoryName);
+
+/** Nombre de color completo para Excel/PDF de conteo (sin abreviar). */
+export function formatConteoExportColorName(colorName) {
+  const raw = normalizeConteoLabelSpaces(colorName);
+  if (!raw || raw === "—") return "";
+  return raw;
+}
 
 /**
  * Etiqueta compacta para Excel/PDF de conteo físico.
@@ -126,8 +117,8 @@ export function formatConteoExportProductLabel(row) {
     if (code) parts.push(code);
   }
 
-  const colorInit = formatConteoColorInitials(row?.colorName);
-  if (colorInit) parts.push(colorInit);
+  const colorLabel = formatConteoExportColorName(row?.colorName);
+  if (colorLabel) parts.push(colorLabel);
 
   if (!isWallet) {
     const size = String(row?.sizeLabel || "").trim();

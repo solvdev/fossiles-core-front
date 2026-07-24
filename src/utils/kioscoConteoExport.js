@@ -1,6 +1,6 @@
 import * as XLSX from "xlsx-js-style";
 import {
-  formatConteoColorInitials,
+  formatConteoExportColorName,
   formatConteoExportProductLabel,
   formatConteoSubtotalLabel,
 } from "./kioscoConteoDisplay";
@@ -80,7 +80,7 @@ const escape = (v) =>
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
 
-/** Nombre compacto: billeteras nombre+código+color+NV; resto nombre+color+T{talla}+NV. */
+/** Producto: billeteras nombre+código+color completo+NV; resto nombre+color+T{talla}+NV. */
 function formatProductLabel(row) {
   return formatConteoExportProductLabel(row);
 }
@@ -867,12 +867,12 @@ export function exportConteoToPdf(report, options = {}) {
           : "alert-row"
         : "";
     const compactLabel = formatConteoExportProductLabel(row);
-    const colorInitial = formatConteoColorInitials(row.colorName) || "—";
+    const colorLabel = formatConteoExportColorName(row.colorName) || "—";
     const sizeCell = row.sizeLabel || row.sizesSummary || "";
     return `<tr class="${alertClass}" style="${escape(style)}">
       <td>${escape(row.productCode || "")}</td>
       <td>${escape(compactLabel || row.productName || "")}</td>
-      <td>${escape(colorInitial)}</td>
+      <td>${escape(colorLabel)}</td>
       <td>${escape(sizeCell)}</td>
       ${kardexCells}
       ${counts}
