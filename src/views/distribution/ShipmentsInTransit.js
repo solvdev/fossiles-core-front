@@ -17,6 +17,11 @@ import {
 import { getShipmentsInTransit } from "services/productDistributionService";
 import { exportRowsToCsv, exportRowsToPdf } from "utils/reportExportHelper";
 import { formatDateTimeGt } from "utils/dateTimeHelper";
+import {
+  formatPackingItemLabel,
+  getShipmentPackingItems,
+  shipmentPackingTotalQty,
+} from "utils/shipmentPackingHelper";
 
 const STATUS_STYLE = {
   SENT: { bg: "#dbeafe", color: "#1d4ed8" },
@@ -94,7 +99,11 @@ function ShipmentsInTransit() {
         .map((p) => `${p.productCode || ""} ${p.productName || ""}`)
         .join(" ")
         .toLowerCase();
-      return header.includes(q) || products.includes(q);
+      const packing = getShipmentPackingItems(shipment)
+        .map((p) => formatPackingItemLabel(p))
+        .join(" ")
+        .toLowerCase();
+      return header.includes(q) || products.includes(q) || packing.includes(q);
     });
   }, [shipments, search]);
 
@@ -177,6 +186,8 @@ function ShipmentsInTransit() {
                       {filteredShipments.map((shipment) => {
                         const style = STATUS_STYLE[shipment.status] || { bg: "#e5e7eb", color: "#374151" };
                         const qty = (shipment.products || []).reduce((sum, p) => sum + Number(p.quantity || 0), 0);
+                        const packingItems = getShipmentPackingItems(shipment);
+                        const packingQty = shipmentPackingTotalQty(shipment);
                         return (
                           <tr
                             key={shipment.id}
@@ -187,6 +198,11 @@ function ShipmentsInTransit() {
                             <td>{shipment.sentAt ? formatDateTimeGt(shipment.sentAt) : "-"}</td>
                             <td>
                               {(shipment.products?.length || 0)} prod. / {qty} und.
+                              {packingItems.length > 0 ? (
+                                <div className="small text-muted">
+                                  {packingItems.length} emp. SUM- / {packingQty} und.
+                                </div>
+                              ) : null}
                             </td>
                             <td>
                               <span style={{ backgroundColor: style.bg, color: style.color, borderRadius: 999, padding: "4px 10px", fontWeight: 700, fontSize: 12 }}>
@@ -216,13 +232,14 @@ function ShipmentsInTransit() {
                     </tbody>
                   </Table>
 
-                  {expandedShipmentId && (
+                  {expandedShipmentId && (() => {
+                    const expanded = filteredShipments.find((s) => s.id === expandedShipmentId) || {};
+                    const packingItems = getShipmentPackingItems(expanded);
+                    return (
                     <Card className="mt-3" style={{ border: "1px solid #dbeafe" }}>
                       <CardHeader style={{ backgroundColor: "#eff6ff" }}>
                         <h6 className="mb-0">
-                          Detalle del envio {
-                            (filteredShipments.find((s) => s.id === expandedShipmentId) || {}).shipmentNumber
-                          }
+                          Detalle del envio {expanded.shipmentNumber}
                         </h6>
                       </CardHeader>
                       <CardBody>
@@ -236,7 +253,7 @@ function ShipmentsInTransit() {
                             </tr>
                           </thead>
                           <tbody>
-                            {((filteredShipments.find((s) => s.id === expandedShipmentId) || {}).products || []).map((p) => (
+                            {(expanded.products || []).map((p) => (
                               <tr key={p.id}>
                                 <td><strong>{p.productCode || "-"}</strong></td>
                                 <td>{p.productName || "-"}</td>
@@ -244,11 +261,28 @@ function ShipmentsInTransit() {
                                 <td className="text-right">{Number(p.quantity || 0)}</td>
                               </tr>
                             ))}
+                            {packingItems.map((item) => (
+                              <tr key={`pack-${item.materialId}`}>
+                                <td><strong>{item.materialSku || "SUM-"}</strong></td>
+                                <td>
+                                  {item.materialName || formatPackingItemLabel(item)}
+                                  <Badge color="info" className="ml-2">Empaque</Badge>
+                                </td>
+                                <td>—</td>
+                                <td className="text-right">{Number(item.quantity || 0)}</td>
+                              </tr>
+                            ))}
+                            {(expanded.products || []).length === 0 && packingItems.length === 0 ? (
+                              <tr>
+                                <td colSpan="4" className="text-muted">Sin productos ni empaques.</td>
+                              </tr>
+                            ) : null}
                           </tbody>
                         </Table>
                       </CardBody>
                     </Card>
-                  )}
+                    );
+                  })()}
                 </>
               )}
             </CardBody>

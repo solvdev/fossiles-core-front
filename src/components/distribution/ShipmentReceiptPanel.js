@@ -27,6 +27,11 @@ import {
   POS_COLOR_SWATCHES,
   resolveImageUrl,
 } from "views/kiosks/pos/posUtils";
+import {
+  formatPackingItemLabel,
+  getShipmentPackingItems,
+  shipmentPackingTotalQty,
+} from "utils/shipmentPackingHelper";
 import "views/kiosks/KioskSales.css";
 
 const shipmentMatchesSearch = (shipment, query) => {
@@ -35,10 +40,14 @@ const shipmentMatchesSearch = (shipment, query) => {
     `${shipment.shipmentNumber || ""} ${shipment.locationName || ""} ${shipment.locationCode || ""}`
   );
   if (header.includes(query)) return true;
-  return (shipment.products || []).some((product) =>
+  const inProducts = (shipment.products || []).some((product) =>
     normalizePosLabel(
       `${product.productCode || ""} ${product.productName || ""} ${product.colorName || ""} ${product.categoryName || ""}`
     ).includes(query)
+  );
+  if (inProducts) return true;
+  return getShipmentPackingItems(shipment).some((item) =>
+    normalizePosLabel(formatPackingItemLabel(item)).includes(query)
   );
 };
 
@@ -222,6 +231,8 @@ export function ShipmentReceiptList({
         const previews = uniqueProductPreviews(shipment.products);
         const colors = uniqueColors(shipment.products);
         const isSelected = selectedShipmentId === shipment.id;
+        const packingItems = getShipmentPackingItems(shipment);
+        const packingQty = shipmentPackingTotalQty(shipment);
 
         return (
           <Card
@@ -292,6 +303,18 @@ export function ShipmentReceiptList({
                 </div>
               )}
 
+              {packingItems.length > 0 && (
+                <div className="small text-muted mb-2">
+                  Empaques SUM-:{" "}
+                  {packingItems
+                    .slice(0, 3)
+                    .map((item) => `${formatPackingItemLabel(item)} x ${formatQty(item.quantity)}`)
+                    .join(" · ")}
+                  {packingItems.length > 3 ? ` · +${packingItems.length - 3} más` : ""}
+                  {" "}({formatQty(packingQty)} und.)
+                </div>
+              )}
+
               <div className="shipment-receipt-progress">
                 <div className="d-flex justify-content-between small text-muted mb-1">
                   <span>
@@ -300,6 +323,7 @@ export function ShipmentReceiptList({
                   <span>
                     Recibido: <strong>{formatQty(received)}</strong> · Líneas:{" "}
                     {(shipment.products || []).length}
+                    {packingItems.length > 0 ? ` + ${packingItems.length} emp.` : ""}
                   </span>
                 </div>
                 <Progress value={progressPct} color={progressPct >= 100 ? "success" : "info"} />
@@ -429,6 +453,8 @@ export function ShipmentReceiptDetail({
 
   if (!shipment) return null;
 
+  const packingItems = getShipmentPackingItems(shipment);
+
   return (
     <div className="shipment-receipt-detail">
       <div className="d-flex flex-wrap justify-content-between align-items-center mb-2">
@@ -436,6 +462,11 @@ export function ShipmentReceiptDetail({
           Enviado: <strong>{formatQty(totalSent)}</strong> · Recibido:{" "}
           <strong>{formatQty(totalReceived)}</strong> · Faltante:{" "}
           <strong>{formatQty(Math.max(totalSent - totalReceived, 0))}</strong>
+          {packingItems.length > 0 ? (
+            <>
+              {" "}· Empaques SUM-: <strong>{formatQty(shipmentPackingTotalQty(shipment))}</strong>
+            </>
+          ) : null}
         </small>
         {!readOnly && (
           <Button color="default" size="sm" outline onClick={receiveAllConforme}>
@@ -558,6 +589,24 @@ export function ShipmentReceiptDetail({
               </tr>
             );
           })}
+          {packingItems.map((item) => (
+            <tr key={`pack-${item.materialId}`}>
+              <td>
+                <strong>{item.materialSku || "SUM-"}</strong>
+                <div className="small text-muted">{item.materialName || formatPackingItemLabel(item)}</div>
+                <Badge color="info" className="mt-1">Empaque SUM-</Badge>
+              </td>
+              <td>—</td>
+              <td className="text-right">{formatQty(item.quantity)}</td>
+              <td className="text-right text-muted" style={{ width: 90 }}>
+                {formatQty(item.quantity)}
+                <div className="small">auto</div>
+              </td>
+              <td className="small text-muted">
+                Se carga al confirmar recepción
+              </td>
+            </tr>
+          ))}
         </tbody>
       </Table>
 
