@@ -95,6 +95,7 @@ import ReceiptConfirmation from "views/distribution/ReceiptConfirmation.js";
 import KioskInventory from "views/kiosks/KioskInventory.js";
 import KioskSales from "views/kiosks/KioskSales.js";
 import KioskReturns from "views/kiosks/KioskReturns.js";
+import KioskLedgerLab from "views/kiosks/KioskLedgerLab.js";
 
 // Ventas
 import TotalSales from "views/sales/TotalSales.js";
@@ -1057,6 +1058,15 @@ const routes = [
         permissions: {
           view: "KIOSCOS.INVENTARIO_KIOSKO.VER",
         },
+      },
+      {
+        path: "/kiosk-ledger-lab",
+        name: "Kiosk Ledger Lab",
+        mini: "LL",
+        component: <KioskLedgerLab />,
+        layout: "/admin",
+        module: "KIOSCOS",
+        showInSidebar: false,
       },
       {
         path: "/kiosk-sales",

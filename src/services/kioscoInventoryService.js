@@ -165,3 +165,39 @@ export const applyKioscoOpeningInventory = async (openingInventoryId, payload = 
 
 export const getKioscoOpeningInventoryHistorial = async (locationId) =>
   apiRequest(`/kiosco-inventory/${locationId}/inventario-inicial/historial`);
+
+// --- Kiosk Ledger Lab (solo eramirez) ---
+
+function ledgerLabParams(filters = {}) {
+  const params = new URLSearchParams();
+  Object.entries(filters).forEach(([key, value]) => {
+    if (value === undefined || value === null || value === "") return;
+    params.append(key, String(value));
+  });
+  const qs = params.toString();
+  return qs ? `?${qs}` : "";
+}
+
+export const ledgerLabListStocks = async (filters = {}) =>
+  apiRequest(`/kiosk-ledger-lab/stocks${ledgerLabParams(filters)}`);
+
+export const ledgerLabListMovements = async (filters = {}) =>
+  apiRequest(`/kiosk-ledger-lab/movements${ledgerLabParams(filters)}`);
+
+export const ledgerLabGetMovement = async (id) =>
+  apiRequest(`/kiosk-ledger-lab/movements/${id}`);
+
+export const ledgerLabCreateMovement = async (payload) =>
+  apiRequest(`/kiosk-ledger-lab/movements`, { method: "POST", body: payload });
+
+export const ledgerLabUpdateMovement = async (id, payload) =>
+  apiRequest(`/kiosk-ledger-lab/movements/${id}`, { method: "PUT", body: payload });
+
+export const ledgerLabDeleteMovement = async (id) =>
+  apiRequest(`/kiosk-ledger-lab/movements/${id}`, { method: "DELETE" });
+
+export const ledgerLabUpdateStock = async (stockId, payload) =>
+  apiRequest(`/kiosk-ledger-lab/stocks/${stockId}`, { method: "PUT", body: payload });
+
+export const ledgerLabReplayStock = async (stockId) =>
+  apiRequest(`/kiosk-ledger-lab/stocks/${stockId}/replay`, { method: "POST" });
