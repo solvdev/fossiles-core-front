@@ -623,9 +623,34 @@ function KioskSales() {
     setPendingFelSale(null);
   };
 
-  const handleFelInvoiceComplete = (sale) => {
+  /** Tras certificar / anular / editar: fusiona la venta en la lista para que NO. INTERNO y FEL se vean al instante. */
+  const upsertSaleInList = (sale) => {
+    if (!sale?.id) return;
+    setSales((prev) => {
+      const list = Array.isArray(prev) ? [...prev] : [];
+      const idx = list.findIndex((row) => Number(row.id) === Number(sale.id));
+      if (idx >= 0) {
+        list[idx] = { ...list[idx], ...sale };
+        return list;
+      }
+      return [sale, ...list];
+    });
+  };
+
+  const refreshSalesList = async () => {
+    const locationId = selectedKioskId || context?.kioskId;
+    await loadReportData(locationId, startDate, endDate);
+  };
+
+  const handleFelInvoiceComplete = async (sale) => {
     setPendingFelSale(null);
     setLastSale(sale);
+    upsertSaleInList(sale);
+    try {
+      await refreshSalesList();
+    } catch {
+      // Ya quedó el upsert local; el recargo completo puede fallar por red.
+    }
   };
 
   const cancelSale = () => {
@@ -903,12 +928,6 @@ function KioskSales() {
                         sale={pendingFelSale}
                         kioskLocationId={selectedKioskId || context?.kioskId}
                         onComplete={handleFelInvoiceComplete}
-                        onClose={() => {
-                          if (pendingFelSale) {
-                            setLastSale(pendingFelSale);
-                            setPendingFelSale(null);
-                          }
-                        }}
                       />
                     </>
                   )}
@@ -974,10 +993,16 @@ function KioskSales() {
                       }
                       cashSession={cashSession}
                       cashSessionOpen={cashSessionOpen}
-                      onSaleUpdated={async () => {
-                        await loadCashSession(selectedKioskId || context?.kioskId);
-                        await loadInitial(selectedKioskId || undefined);
-                        await loadPendingDepositSummary(selectedKioskId || context?.kioskId);
+                      onSaleUpdated={async (updated) => {
+                        upsertSaleInList(updated);
+                        const locationId = selectedKioskId || context?.kioskId;
+                        await loadCashSession(locationId);
+                        await loadReportData(locationId, startDate, endDate);
+                        await loadPendingDepositSummary(locationId);
+                        // Anulaciones / cambios de pago pueden afectar inventario del turno.
+                        if (updated == null || String(updated.status || "").toUpperCase() === "VOID") {
+                          await loadInitial(selectedKioskId || undefined);
+                        }
                       }}
                     />
                   )}

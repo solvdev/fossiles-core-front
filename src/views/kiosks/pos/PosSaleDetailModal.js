@@ -684,8 +684,14 @@ function PosSaleDetailModal({
                 felCertifiedAt: invoice?.felCertifiedAt || sale?.felCertifiedAt,
               }}
               onSaved={async () => {
-                if (onSaleUpdated) {
-                  await onSaleUpdated();
+                try {
+                  const refreshed = await getKioskSaleById(
+                    sale.id,
+                    kioskLocationId ? Number(kioskLocationId) : undefined
+                  );
+                  if (onSaleUpdated) await onSaleUpdated(refreshed);
+                } catch {
+                  if (onSaleUpdated) await onSaleUpdated();
                 }
               }}
             />

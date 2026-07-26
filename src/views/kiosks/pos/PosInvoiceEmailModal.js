@@ -1,15 +1,36 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Alert, Button, FormGroup, Input, Label, Modal, ModalBody, ModalFooter, ModalHeader, Spinner } from "reactstrap";
 import { updateKioskSaleInvoiceContact, getKioskSaleById } from "services/kioskPosService";
 import { issueTaxInvoiceFromKioskSale } from "services/taxInvoiceService";
 import { showError, showSuccess } from "utils/notificationHelper";
-import { formatCurrency, normalizeFelReceptorEmail } from "./posUtils";
+import { formatCurrency, getSaleInternalNumber, normalizeFelReceptorEmail } from "./posUtils";
 
-function PosInvoiceEmailModal({ isOpen, sale, kioskLocationId, onComplete, onClose }) {
+/**
+ * Obligatorio tras una venta que requiere FEL.
+ * No se puede cerrar por backdrop, Escape, X ni Cancelar: hay que certificar (con o sin correo).
+ */
+function PosInvoiceEmailModal({ isOpen, sale, kioskLocationId, onComplete }) {
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (!isOpen) return;
+    setEmail("");
+    setPhone("");
+    setError("");
+    setSaving(false);
+  }, [isOpen, sale?.id]);
+
+  const fetchCertifiedSale = async () => {
+    let refreshed = await getKioskSaleById(sale.id, kioskLocationId);
+    if (!getSaleInternalNumber(refreshed)) {
+      await new Promise((resolve) => setTimeout(resolve, 400));
+      refreshed = await getKioskSaleById(sale.id, kioskLocationId);
+    }
+    return refreshed;
+  };
 
   const handleSubmit = async (skipEmail) => {
     if (!sale?.id) return;
@@ -30,13 +51,13 @@ function PosInvoiceEmailModal({ isOpen, sale, kioskLocationId, onComplete, onClo
         phone: phone.trim() || null,
       });
       await issueTaxInvoiceFromKioskSale(sale.id);
-      const refreshed = await getKioskSaleById(sale.id, kioskLocationId);
+      const refreshed = await fetchCertifiedSale();
       if (normalizedEmail) {
         showSuccess("Factura certificada. Se enviará copia al correo indicado.");
       } else {
         showSuccess("Factura electrónica certificada.");
       }
-      onComplete(refreshed);
+      if (onComplete) onComplete(refreshed);
     } catch (err) {
       const msg = err.message || "No se pudo certificar la factura.";
       setError(msg);
@@ -49,12 +70,18 @@ function PosInvoiceEmailModal({ isOpen, sale, kioskLocationId, onComplete, onClo
   if (!sale) return null;
 
   return (
-    <Modal isOpen={isOpen} toggle={onClose} centered backdrop="static" className="kiosk-pos-checkout-modal">
-      <ModalHeader toggle={onClose}>Enviar factura al cliente</ModalHeader>
+    <Modal
+      isOpen={isOpen}
+      centered
+      backdrop="static"
+      keyboard={false}
+      className="kiosk-pos-checkout-modal"
+    >
+      <ModalHeader>Certificar factura electrónica</ModalHeader>
       <ModalBody>
-        <Alert color="info" className="py-2">
-          La venta <strong>{sale.saleNumber}</strong> ({formatCurrency(sale.totalAmount)}) quedó registrada.
-          Indique el correo para que INFILE envíe el PDF y XML certificados. También puede registrar teléfono de contacto.
+        <Alert color="warning" className="py-2">
+          La venta <strong>{sale.saleNumber}</strong> ({formatCurrency(sale.totalAmount)}) ya está registrada.
+          Debe certificar la factura para continuar (con correo o sin correo).
         </Alert>
         {error && <Alert color="danger">{error}</Alert>}
         <FormGroup>
@@ -91,10 +118,7 @@ function PosInvoiceEmailModal({ isOpen, sale, kioskLocationId, onComplete, onClo
           {saving ? <Spinner size="sm" /> : "Certificar y enviar factura"}
         </Button>
         <Button color="secondary" outline onClick={() => handleSubmit(true)} disabled={saving}>
-          Certificar sin correo
-        </Button>
-        <Button color="link" onClick={onClose} disabled={saving}>
-          Cancelar
+          {saving ? <Spinner size="sm" /> : "Certificar sin correo"}
         </Button>
       </ModalFooter>
     </Modal>

@@ -954,9 +954,10 @@ function PosReportsTab({
                   ? "Pendiente"
                   : sale.depositSlipNumber || "—";
 
+                const internalNumber = getSaleInternalNumber(sale);
                 return (
                   <tr
-                    key={sale.id}
+                    key={`${sale.id}-${internalNumber || "sin-interno"}-${sale.felUuid || sale.invoice?.felUuid || ""}`}
                     className={`kiosk-pos-sales-row${isVoid ? " kiosk-pos-sales-row-void" : ""}${
                       pendingDeposit ? " kiosk-pos-sales-row-pending-deposit" : ""
                     }`}
@@ -982,7 +983,7 @@ function PosReportsTab({
                         </span>
                       )}
                     </td>
-                    <td>{getSaleInternalNumber(sale) || "—"}</td>
+                    <td>{internalNumber || "—"}</td>
                     <td>{sale.customerName || sale.customerTaxId || "CF"}</td>
                     <td className="kiosk-pos-sales-products-cell">
                       {formatSaleItemsSummary(sale) || (
@@ -1238,7 +1239,7 @@ function PosReportsTab({
         cashSessionOpen={Boolean(cashSession && String(cashSession.status || "").toUpperCase() === "OPEN")}
         kioskLocationId={kioskLocationId}
         onSaleUpdated={(updated) => {
-          setSaleDetail(updated);
+          if (updated?.id) setSaleDetail(updated);
           if (onSaleUpdated) onSaleUpdated(updated);
         }}
       />
