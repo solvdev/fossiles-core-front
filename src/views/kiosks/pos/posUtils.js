@@ -3,6 +3,7 @@ import {
   productMatchesAudienceFilter,
   resolveBestTierPercentForLine,
   lineMatchesPromotionTier,
+  lineMatchesPromotionAudience,
 } from "utils/productAudienceHelper";
 import { hasInventorySizeBreakdown } from "utils/inventoryVariantHelper";
 import { isPackagingProductCode } from "utils/kioskPackagingHelper";
@@ -362,20 +363,56 @@ export const QUICK_PERCENT_PROMOS = [
   { id: "__percent_20", name: "Descuento 20%", discountType: "PERCENT", discountValue: 20, isQuickPercent: true },
 ];
 
-/** Descuento base POS sobre precio original (mínimo). Promos mayores lo reemplazan, no se apilan. */
+/**
+ * Descuento base POS por línea sobre precio original.
+ * Si el producto cumple una promo, usa ese % en lugar del 10% (no se apilan).
+ * Empaque (SUM) nunca lleva descuento.
+ */
 export const DEFAULT_POS_DISCOUNT_PERCENT = 10;
 export const DEFAULT_POS_DISCOUNT_NAME = "Descuento 10%";
 
 const roundPosMoney = (value) => Math.round(Number(value || 0) * 100) / 100;
 
+const lineSubtotal = (line) => Number(line.quantity || 0) * Number(line.unitPrice || 0);
+
+const discountForPercent = (lineTotal, percent) =>
+  roundPosMoney((Number(lineTotal || 0) * Number(percent || 0)) / 100);
+
+/** % efectivo por línea: promo si aplica (>0), si no el 10% base. */
+export const resolveLineDiscountPercent = (promoPercent) => {
+  const pct = Number(promoPercent || 0);
+  return pct > 0 ? pct : DEFAULT_POS_DISCOUNT_PERCENT;
+};
+
 export const calculateDefaultPosDiscount = (cartLines) => {
   const eligibleSubtotal = filterDiscountEligibleCartLines(cartLines).reduce(
-    (sum, line) => sum + Number(line.quantity || 0) * Number(line.unitPrice || 0),
+    (sum, line) => sum + lineSubtotal(line),
     0
   );
   return roundPosMoney((eligibleSubtotal * DEFAULT_POS_DISCOUNT_PERCENT) / 100);
 };
 
+/** Descuento TIERED por línea: tier si hay match, si no 10%. Devuelve también si hubo match. */
+const calculateTieredPercentDiscount = (cartLines, tieredPromos, singlePromotion = null) => {
+  const promos = singlePromotion ? [singlePromotion] : tieredPromos || [];
+  let discount = 0;
+  let anyTierMatch = false;
+  filterDiscountEligibleCartLines(cartLines).forEach((line) => {
+    const promoPct = singlePromotion
+      ? (singlePromotion.tiers || [])
+          .filter((tier) => lineMatchesPromotionTier(line, tier))
+          .reduce((best, tier) => Math.max(best, Number(tier?.discountValue || 0)), 0)
+      : resolveBestTierPercentForLine(line, promos);
+    if (promoPct > 0) anyTierMatch = true;
+    discount += discountForPercent(lineSubtotal(line), resolveLineDiscountPercent(promoPct));
+  });
+  return { discount: roundPosMoney(discount), anyTierMatch };
+};
+
+/**
+ * Piso 10% solo cuando el descuento resuelto es 0 o menor al default
+ * (p. ej. combo que no aplica). No debe pisar un descuento mixto por línea.
+ */
 const applyDefaultPosDiscountFloor = ({
   discount,
   autoApplied,
@@ -449,10 +486,7 @@ export const estimateAutoPromotionDiscount = (cartLines, activePromotions, subto
   const cartSubtotal =
     subtotal > 0
       ? subtotal
-      : (cartLines || []).reduce(
-          (sum, line) => sum + Number(line.quantity || 0) * Number(line.unitPrice || 0),
-          0
-        );
+      : (cartLines || []).reduce((sum, line) => sum + lineSubtotal(line), 0);
 
   if (!promos.length) {
     const defaultDiscount = calculateDefaultPosDiscount(cartLines);
@@ -471,15 +505,12 @@ export const estimateAutoPromotionDiscount = (cartLines, activePromotions, subto
   const tieredPromos = promos.filter((promo) =>
     String(promo?.discountType || "").toUpperCase().includes("TIERED")
   );
-  const tieredDiscount = filterDiscountEligibleCartLines(cartLines).reduce((sum, line) => {
-    const pct = resolveBestTierPercentForLine(line, tieredPromos);
-    if (pct <= 0) return sum;
-    const qty = Number(line.quantity || 0);
-    const price = Number(line.unitPrice || 0);
-    return sum + (qty * price * pct) / 100;
-  }, 0);
+  const { discount: tieredDiscount, anyTierMatch } = calculateTieredPercentDiscount(
+    cartLines,
+    tieredPromos
+  );
 
-  if (tieredDiscount > bestDiscount) {
+  if (anyTierMatch && tieredDiscount > bestDiscount) {
     bestDiscount = tieredDiscount;
     promotionName = "Promoción automática";
     promotionId = null;
@@ -509,34 +540,22 @@ export const estimatePromotionDiscount = (subtotal, promotion, cartLines) => {
   if (!promotion || subtotal <= 0) return 0;
   const type = String(promotion.discountType || "").toUpperCase();
   if (type.includes("TIERED")) {
-    const discount = filterDiscountEligibleCartLines(cartLines).reduce((sum, line) => {
-      const pct = (promotion.tiers || [])
-        .filter((tier) => lineMatchesPromotionTier(line, tier))
-        .reduce((best, tier) => Math.max(best, Number(tier?.discountValue || 0)), 0);
-      if (pct <= 0) return sum;
-      const qty = Number(line.quantity || 0);
-      const price = Number(line.unitPrice || 0);
-      return sum + (qty * price * pct) / 100;
-    }, 0);
+    const { discount } = calculateTieredPercentDiscount(cartLines, null, promotion);
     return Math.min(subtotal, discount);
   }
-  const eligibleLines = promotion.isQuickPercent
-    ? filterDiscountEligibleCartLines(cartLines)
+  const allEligible = filterDiscountEligibleCartLines(cartLines);
+  const promoEligibleLines = promotion.isQuickPercent
+    ? allEligible
     : filterDiscountEligibleCartLines(filterCartLinesForPromotion(cartLines, promotion.audienceCategory));
-  const eligibleSubtotal = (eligibleLines || []).reduce((sum, line) => {
-    const qty = Number(line.quantity || 0);
-    const price = Number(line.unitPrice || 0);
-    return sum + qty * price;
-  }, 0);
-  if (eligibleSubtotal <= 0) return 0;
   const value = Number(promotion.discountValue || 0);
   if (type.includes("COMBO")) {
+    if (promoEligibleLines.length <= 0) return 0;
     const buy = Number(promotion.comboBuyQty || 0);
     const pay = Number(promotion.comboPayQty || 0);
     if (buy <= 0 || pay <= 0 || pay >= buy) return 0;
     const freePerGroup = buy - pay;
     const units = [];
-    eligibleLines.forEach((line) => {
+    promoEligibleLines.forEach((line) => {
       const qty = Math.floor(Number(line.quantity || 0));
       const price = Number(line.unitPrice || 0);
       for (let i = 0; i < qty; i++) units.push(price);
@@ -546,8 +565,21 @@ export const estimatePromotionDiscount = (subtotal, promotion, cartLines) => {
     return units.slice(0, freeUnits).reduce((sum, p) => sum + p, 0);
   }
   if (type.includes("PERCENT")) {
-    return Math.min(subtotal, (eligibleSubtotal * value) / 100);
+    if (promotion.isQuickPercent) {
+      const eligibleSubtotal = allEligible.reduce((sum, line) => sum + lineSubtotal(line), 0);
+      if (eligibleSubtotal <= 0) return 0;
+      return Math.min(subtotal, roundPosMoney((eligibleSubtotal * value) / 100));
+    }
+    // Por audiencia: líneas que cumplen → % promo; resto elegible → 10% base.
+    const discount = allEligible.reduce((sum, line) => {
+      const inPromo = lineMatchesPromotionAudience(line, promotion.audienceCategory);
+      const pct = inPromo ? value : DEFAULT_POS_DISCOUNT_PERCENT;
+      return sum + discountForPercent(lineSubtotal(line), pct);
+    }, 0);
+    return Math.min(subtotal, roundPosMoney(discount));
   }
+  const eligibleSubtotal = promoEligibleLines.reduce((sum, line) => sum + lineSubtotal(line), 0);
+  if (eligibleSubtotal <= 0) return 0;
   return Math.min(subtotal, value);
 };
 
