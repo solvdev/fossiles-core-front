@@ -174,7 +174,6 @@ export default function KioskLedgerLab() {
   const [stocks, setStocks] = useState([]);
   const [movements, setMovements] = useState([]);
   const [selectedStockId, setSelectedStockId] = useState(null);
-  const [selectedProductId, setSelectedProductId] = useState(null);
   const [loadingStocks, setLoadingStocks] = useState(false);
   const [loadingMovements, setLoadingMovements] = useState(false);
   const [editorOpen, setEditorOpen] = useState(false);
@@ -240,25 +239,20 @@ export default function KioskLedgerLab() {
 
   const loadMovements = useCallback(async (opts = {}) => {
     const stockId =
-      opts.stockId !== undefined ? opts.stockId : (filters.stockId || null);
-    const productId =
-      opts.productId !== undefined ? opts.productId : selectedProductId;
+      opts.stockId !== undefined ? opts.stockId : (selectedStockId || filters.stockId || null);
     const resolvedStockId = stockId != null && stockId !== "" ? stockId : null;
-    const resolvedProductId = productId != null && productId !== "" ? productId : null;
 
-    if (!filters.locationId && !resolvedStockId && !filters.movementId && !resolvedProductId) {
+    if (!filters.locationId && !resolvedStockId && !filters.movementId) {
       setMovements([]);
       return;
     }
     const requestId = ++movementsRequestIdRef.current;
     setLoadingMovements(true);
     try {
-      // Click en producto: location + productId (todos los colores de ese producto).
-      // Filtro stockId manual: solo ese kiosco_stock_id.
+      // Click en fila: solo ese kiosco_stock_id (producto+color).
       const data = await ledgerLabListMovements({
         locationId: resolvedStockId ? undefined : (filters.locationId || undefined),
         stockId: resolvedStockId || undefined,
-        productId: resolvedStockId ? undefined : (resolvedProductId || undefined),
         type: filters.type || undefined,
         from: filters.from || undefined,
         to: filters.to || undefined,
@@ -274,8 +268,6 @@ export default function KioskLedgerLab() {
       let rows = data || [];
       if (resolvedStockId) {
         rows = rows.filter((m) => String(m.kioscoStockId) === String(resolvedStockId));
-      } else if (resolvedProductId) {
-        rows = rows.filter((m) => String(m.productId) === String(resolvedProductId));
       }
       setMovements(rows);
     } catch (err) {
@@ -289,7 +281,7 @@ export default function KioskLedgerLab() {
         setLoadingMovements(false);
       }
     }
-  }, [filters, selectedProductId]);
+  }, [filters, selectedStockId]);
 
   useEffect(() => {
     if (!allowed) return;
@@ -346,11 +338,9 @@ export default function KioskLedgerLab() {
         showSuccess(`Movimiento #${created.id} creado.`);
       }
       setEditorOpen(false);
-      await loadMovements(
-        payload.kioscoStockId
-          ? { stockId: payload.kioscoStockId }
-          : { productId: selectedProductId }
-      );
+      await loadMovements({
+        stockId: payload.kioscoStockId || selectedStockId || undefined,
+      });
       await loadStocks();
     } catch (err) {
       showError(err.message || "No se pudo guardar el movimiento.");
@@ -370,9 +360,7 @@ export default function KioskLedgerLab() {
         await ledgerLabReplayStock(stockId);
         showSuccess(`Replay stock #${stockId} listo.`);
       }
-      await loadMovements(
-        stockId ? { stockId } : { productId: selectedProductId }
-      );
+      await loadMovements({ stockId: stockId || selectedStockId || undefined });
       await loadStocks();
     } catch (err) {
       showError(err.message || "No se pudo eliminar.");
@@ -394,7 +382,7 @@ export default function KioskLedgerLab() {
       await ledgerLabReplayStock(selectedStockId);
       showSuccess("Cadena recalculada.");
       await loadStocks();
-      await loadMovements({ productId: selectedProductId });
+      await loadMovements({ stockId: selectedStockId || undefined });
     } catch (err) {
       showError(err.message || "Replay falló.");
     } finally {
@@ -469,7 +457,6 @@ export default function KioskLedgerLab() {
             onChange={(v) => {
               setFilter("locationId", v || "");
               setSelectedStockId(null);
-              setSelectedProductId(null);
             }}
             placeholder="Kiosko"
           />
@@ -589,8 +576,7 @@ export default function KioskLedgerLab() {
                   }}
                   onClick={() => {
                     setSelectedStockId(s.id);
-                    setSelectedProductId(s.productId);
-                    loadMovements({ productId: s.productId });
+                    loadMovements({ stockId: s.id });
                   }}
                 >
                   <td>{s.id}</td>
@@ -628,13 +614,13 @@ export default function KioskLedgerLab() {
           <div className="d-flex justify-content-between align-items-center mb-1">
             <strong>
               Movimientos ({movements.length})
-              {filters.stockId
-                ? ` · solo stock ${filters.stockId}`
-                : selectedProductId
-                  ? ` · producto ${selectedProductId}${selectedStock ? ` (${selectedStock.productCode})` : ""}`
-                  : filters.locationId
-                    ? " · todo el kiosko"
-                    : ""}
+              {selectedStockId || filters.stockId
+                ? ` · solo ${selectedStock
+                  ? `${selectedStock.productCode} / ${selectedStock.colorName || "sin color"} (#${selectedStockId || filters.stockId})`
+                  : `stock ${selectedStockId || filters.stockId}`}`
+                : filters.locationId
+                  ? " · todo el kiosko"
+                  : ""}
             </strong>
             {loadingMovements && <Spinner size="sm" />}
           </div>
