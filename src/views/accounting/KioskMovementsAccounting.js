@@ -44,6 +44,7 @@ const TYPE_BADGE = {
 
 const INITIAL_FILTERS = {
   locationId: "",
+  productTerm: "",
   type: "",
   from: "",
   to: "",
@@ -85,6 +86,7 @@ export default function KioskMovementsAccounting() {
     try {
       const params = {
         locationId: filters.locationId || undefined,
+        productTerm: filters.productTerm || undefined,
         type: filters.type || undefined,
         from: filters.from || undefined,
         to: filters.to || undefined,
@@ -122,6 +124,21 @@ export default function KioskMovementsAccounting() {
             placeholder="Selecciona kiosko..."
           />
         </Col>
+        <Col md={4}>
+          <FormGroup className="mb-0">
+            <Label className="mb-1 small fw-semibold">Producto (código o nombre)</Label>
+            <Input
+              type="text"
+              bsSize="sm"
+              placeholder="Ej: CIN-01, bolsa, cinturón..."
+              value={filters.productTerm}
+              onChange={(e) => setFilter("productTerm", e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") loadMovements();
+              }}
+            />
+          </FormGroup>
+        </Col>
         <Col md={2}>
           <Label className="mb-1 small fw-semibold">Tipo de movimiento</Label>
           <FilterableSelect
@@ -131,7 +148,7 @@ export default function KioskMovementsAccounting() {
             placeholder="Tipo..."
           />
         </Col>
-        <Col md={2}>
+        <Col md={1}>
           <FormGroup className="mb-0">
             <Label className="mb-1 small fw-semibold">Fecha desde</Label>
             <Input
@@ -153,6 +170,8 @@ export default function KioskMovementsAccounting() {
             />
           </FormGroup>
         </Col>
+      </Row>
+      <Row className="mb-3 g-2 align-items-end">
         <Col md={2}>
           <FormGroup className="mb-0">
             <Label className="mb-1 small fw-semibold">Referencia / No. factura</Label>
@@ -177,8 +196,6 @@ export default function KioskMovementsAccounting() {
             />
           </FormGroup>
         </Col>
-      </Row>
-      <Row className="mb-3 g-2 align-items-end">
         <Col md={3}>
           <FormGroup className="mb-0">
             <Label className="mb-1 small fw-semibold">Motivo contiene</Label>
