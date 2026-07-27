@@ -25,6 +25,7 @@ import {
   ledgerLabListMovements,
   ledgerLabListStocks,
   ledgerLabReplayStock,
+  ledgerLabSplitOpeningBySizes,
   ledgerLabUpdateMovement,
   ledgerLabUpdateStock,
 } from "services/kioscoInventoryService";
@@ -390,6 +391,52 @@ export default function KioskLedgerLab() {
     }
   };
 
+  const hasSizesData = Boolean(
+    selectedStock?.sizesData
+    && String(selectedStock.sizesData).trim()
+    && String(selectedStock.sizesData).trim() !== "{}"
+    && String(selectedStock.sizesData).trim() !== "null"
+  );
+
+  const handleSplitOpeningBySizes = async () => {
+    if (!selectedStockId) {
+      showError("Selecciona un stock.");
+      return;
+    }
+    if (!hasSizesData) {
+      showError("Este stock no tiene sizes_data con tallas.");
+      return;
+    }
+    const sizesPreview = selectedStock?.sizes
+      ? Object.entries(selectedStock.sizes)
+          .filter(([, v]) => Number(v) > 0)
+          .map(([k, v]) => `${k}:${v}`)
+          .join(", ")
+      : selectedStock?.sizesData;
+    if (!window.confirm(
+      `¿Desglosar inventario inicial del stock #${selectedStockId}?\n\n`
+      + `Se borrarán movimientos agregados (sin talla) de "Inventario inicial - migración" `
+      + `y se crearán ENTRADAs por talla según sizes_data:\n${sizesPreview}\n\n`
+      + `Luego se hará Replay automáticamente.`
+    )) {
+      return;
+    }
+    setSaving(true);
+    try {
+      const result = await ledgerLabSplitOpeningBySizes(selectedStockId);
+      showSuccess(
+        `Desglose OK: borrados ${result.deletedAggregated}, `
+        + `creadas ${result.createdEntradas} ENTRADAs (${(result.sizeKeysCreated || []).join(", ")}).`
+      );
+      await loadStocks();
+      await loadMovements({ stockId: selectedStockId || undefined });
+    } catch (err) {
+      showError(err.message || "No se pudo desglosar por tallas.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const handleSaveStock = async () => {
     if (!selectedStockId) return;
     setSaving(true);
@@ -435,6 +482,17 @@ export default function KioskLedgerLab() {
           </Button>
           <Button color="warning" size="sm" outline className="me-1" onClick={handleReplay} disabled={!selectedStockId || saving}>
             Replay stock
+          </Button>
+          <Button
+            color="success"
+            size="sm"
+            outline
+            className="me-1"
+            onClick={handleSplitOpeningBySizes}
+            disabled={!selectedStockId || !hasSizesData || saving}
+            title="Borra AJUSTE/ENTRADA agregado de inventario inicial y crea ENTRADA por talla"
+          >
+            Desglosar por tallas
           </Button>
           <Button color="info" size="sm" outline className="me-1" onClick={openStockEditor} disabled={!selectedStock || saving}>
             Editar stock
