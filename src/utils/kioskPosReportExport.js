@@ -11,7 +11,7 @@ const hBorder = (top, bottom) => ({
   bottom: bottom ? { style: bottom, color: { rgb: "000000" } } : undefined,
 });
 
-const fontBase = { name: "Calibri", sz: 11, color: { rgb: "000000" } };
+const fontBase = { name: "Courier New", sz: 11, color: { rgb: "000000" } };
 const boldFont = { ...fontBase, bold: true };
 const titleFont = { ...fontBase, bold: true, sz: 14 };
 const dayFont = { ...fontBase, bold: true, sz: 12 };
@@ -776,62 +776,80 @@ const buildReportRowsHtml = (reportRows) =>
 const reportStyles = `
   @page { size: letter landscape; margin: 12mm; }
   body {
-    font-family: Calibri, Arial, Helvetica, sans-serif;
-    font-size: 11px;
+    font-family: "Courier New", Courier, monospace;
+    font-size: 11pt;
+    line-height: 1.25;
     color: #000;
+    background: #fff;
     margin: 12px;
   }
-  .title { font-size: 15px; font-weight: 700; margin: 0 0 2px; }
-  .meta { font-size: 12px; font-weight: 700; margin: 1px 0; }
-  .day-block { margin-top: 18px; page-break-inside: avoid; }
+  .title { font-size: 14pt; font-weight: bold; margin: 0 0 2px; text-transform: uppercase; }
+  .meta { font-size: 11pt; font-weight: bold; margin: 1px 0; }
+  .day-block { margin-top: 18px; page-break-inside: avoid; background: #fff; }
   .day-block:first-of-type { margin-top: 12px; }
   table {
     width: 100%;
     border-collapse: collapse;
     margin-top: 8px;
+    background: #fff;
   }
   th {
     text-align: left;
     border-top: 2px solid #000;
     border-bottom: 2px solid #000;
-    padding: 5px 6px;
-    font-weight: 700;
+    padding: 4px 5px;
+    font-weight: bold;
+    background: #fff;
+    color: #000;
   }
   th.num, td.num { text-align: right; }
   th.center, td.center { text-align: center; }
   td {
-    padding: 2px 6px;
+    padding: 2px 5px;
     vertical-align: top;
     border: none;
+    background: #fff;
+    color: #000;
   }
   tr.day-row td {
     border-top: 2px solid #000;
     border-bottom: 2px solid #000;
-    font-weight: 700;
-    font-size: 12px;
+    font-weight: bold;
+    font-size: 11pt;
     padding-top: 8px;
     padding-bottom: 6px;
+    background: #fff;
   }
   tr.invoice-row td {
     border-top: 2px solid #000;
-    font-weight: 700;
+    font-weight: bold;
     padding-top: 7px;
     padding-bottom: 3px;
+    background: #fff;
   }
   tr.item-sep td {
     border-bottom: 2px solid #000;
     padding-bottom: 5px;
+    background: #fff;
   }
   tr.totals-row td {
     border-top: 2px solid #000;
     border-bottom: 3px double #000;
-    font-weight: 700;
+    font-weight: bold;
     padding-top: 6px;
     padding-bottom: 4px;
+    background: #fff;
   }
-  tr.spacer-row td { height: 12px; }
+  tr.spacer-row td { height: 12px; background: #fff; }
   @media print {
-    body { margin: 0; }
+    body { margin: 0; background: #fff !important; }
+    body, body * {
+      background: #fff !important;
+      color: #000 !important;
+      box-shadow: none !important;
+      -webkit-print-color-adjust: economy;
+      print-color-adjust: economy;
+    }
     .day-block { page-break-before: auto; }
   }
 `;

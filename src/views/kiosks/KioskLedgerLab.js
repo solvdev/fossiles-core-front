@@ -692,6 +692,8 @@ export default function KioskLedgerLab() {
                 <th>Talla</th>
                 <th>Before</th>
                 <th>After</th>
+                <th>Before talla</th>
+                <th>After talla</th>
                 <th>Ref</th>
                 <th>Reason</th>
                 <th></th>
@@ -716,6 +718,16 @@ export default function KioskLedgerLab() {
                     <td>{m.sizeKey || "—"}</td>
                     <td>{m.stockBefore}</td>
                     <td>{m.stockAfter}</td>
+                    <td>
+                      {m.sizeKey
+                        ? (m.sizeStockBefore != null ? m.sizeStockBefore : "—")
+                        : "—"}
+                    </td>
+                    <td>
+                      {m.sizeKey
+                        ? (m.sizeStockAfter != null ? m.sizeStockAfter : "—")
+                        : "—"}
+                    </td>
                     <td>
                       <div><small>{m.referenceSummary || m.referenceNumber || (m.referenceId != null ? `#${m.referenceId}` : "—")}</small></div>
                       {m.referenceType && <Badge color="light" className="text-dark">{m.referenceType}</Badge>}

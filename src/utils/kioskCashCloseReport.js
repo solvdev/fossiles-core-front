@@ -41,28 +41,22 @@ export const cashClosePaymentRowClass = (kind) => {
   return "pay-other";
 };
 
-const amountFill = (kind) => {
-  const k = String(kind || "").toUpperCase();
-  if (k === "CASH") return "F7A8C4";
-  if (k === "CARD") return "9EC5FE";
-  if (k === "MIXED") return "7DD3C7";
-  return "E9ECEF";
-};
-
 const reportStyles = `
   .kiosk-cash-close-report {
-    font-family: Calibri, Arial, sans-serif;
+    font-family: "Courier New", Courier, monospace;
     font-size: 11pt;
+    line-height: 1.25;
     color: #000;
     background: #fff;
     padding: 8px 4px 16px;
   }
   .kiosk-cash-close-report .title {
     text-align: center;
-    font-size: 16pt;
+    font-size: 14pt;
     font-weight: bold;
     margin: 0 0 10px;
-    letter-spacing: 0.5px;
+    letter-spacing: 0;
+    text-transform: uppercase;
   }
   .kiosk-cash-close-report .meta { margin: 2px 0; }
   .kiosk-cash-close-report .meta strong { font-weight: bold; }
@@ -73,23 +67,32 @@ const reportStyles = `
   }
   .kiosk-cash-close-report table.sales th,
   .kiosk-cash-close-report table.sales td {
-    border: 1px solid #222;
-    padding: 4px 6px;
+    border: 1px solid #000;
+    padding: 3px 5px;
     vertical-align: middle;
+    background: #fff;
+    color: #000;
   }
   .kiosk-cash-close-report table.sales th {
-    background: #f0f0f0;
+    background: #fff;
     text-align: left;
     font-weight: bold;
+    text-decoration: underline;
   }
   .kiosk-cash-close-report td.num,
   .kiosk-cash-close-report th.num { text-align: right; white-space: nowrap; }
-  .kiosk-cash-close-report tr.pay-card td.amount { background: #9ec5fe; font-weight: bold; }
-  .kiosk-cash-close-report tr.pay-mixed td.amount { background: #7dd3c7; font-weight: bold; }
-  .kiosk-cash-close-report tr.pay-cash td.amount { background: #f7a8c4; font-weight: bold; }
-  .kiosk-cash-close-report tr.pay-other td.amount { background: #e9ecef; font-weight: bold; }
-  .kiosk-cash-close-report tr.subtotal td { font-weight: bold; background: #fff; }
-  .kiosk-cash-close-report tr.disbursement td.amount { background: #8fd19e; font-weight: bold; }
+  .kiosk-cash-close-report tr.pay-card td.amount,
+  .kiosk-cash-close-report tr.pay-mixed td.amount,
+  .kiosk-cash-close-report tr.pay-cash td.amount,
+  .kiosk-cash-close-report tr.pay-other td.amount,
+  .kiosk-cash-close-report tr.disbursement td.amount {
+    background: #fff;
+    font-weight: bold;
+  }
+  .kiosk-cash-close-report tr.subtotal td {
+    font-weight: bold;
+    background: #fff;
+  }
   .kiosk-cash-close-report .summary {
     margin-top: 18px;
     width: 420px;
@@ -100,25 +103,42 @@ const reportStyles = `
     justify-content: space-between;
     gap: 12px;
     padding: 3px 0;
-    border-bottom: 1px solid #ddd;
+    border-bottom: 1px solid #000;
+    background: #fff;
   }
   .kiosk-cash-close-report .summary-row .label { font-weight: bold; }
-  .kiosk-cash-close-report .summary-row .value { text-align: right; min-width: 110px; }
+  .kiosk-cash-close-report .summary-row .value {
+    text-align: right;
+    min-width: 110px;
+    background: #fff;
+  }
   .kiosk-cash-close-report .summary-row.highlight .value {
-    background: #ffe566;
-    padding: 2px 6px;
+    background: #fff;
+    padding: 0;
     font-weight: bold;
+    text-decoration: underline;
   }
   .kiosk-cash-close-report .summary-row.strong .value { font-weight: bold; }
   .kiosk-cash-close-report .defs {
     margin-top: 22px;
-    font-size: 9.5pt;
-    color: #333;
-    border-top: 1px solid #999;
+    font-size: 9pt;
+    color: #000;
+    border-top: 1px solid #000;
     padding-top: 10px;
+    background: #fff;
   }
-  .kiosk-cash-close-report .defs h4 { margin: 0 0 6px; font-size: 10.5pt; }
+  .kiosk-cash-close-report .defs h4 { margin: 0 0 6px; font-size: 10pt; }
   .kiosk-cash-close-report .defs p { margin: 0 0 6px; }
+  @media print {
+    .kiosk-cash-close-report,
+    .kiosk-cash-close-report * {
+      background: #fff !important;
+      color: #000 !important;
+      box-shadow: none !important;
+      -webkit-print-color-adjust: economy;
+      print-color-adjust: economy;
+    }
+  }
 `;
 
 /** Cuerpo HTML del reporte (para modal / captura PDF). */
@@ -264,7 +284,7 @@ const fileStamp = (report) => {
   return `${closed}_${kiosk}`;
 };
 
-const fontBase = { name: "Calibri", sz: 11, color: { rgb: "000000" } };
+const fontBase = { name: "Courier New", sz: 11, color: { rgb: "000000" } };
 const boldFont = { ...fontBase, bold: true };
 const titleFont = { ...fontBase, bold: true, sz: 14 };
 const moneyFmt = '"Q"#,##0.00';
@@ -367,7 +387,6 @@ export const exportKioskCashCloseToExcel = (report) => {
 
   let rowIdx = 7;
   sales.forEach((line) => {
-    const fill = amountFill(line.paymentKind);
     const values = [
       line.saleNumber || "—",
       line.invoiceNumber || "—",
@@ -384,7 +403,6 @@ export const exportKioskCashCloseToExcel = (report) => {
         s: {
           font: isMoney ? boldFont : fontBase,
           alignment: { horizontal: isMoney ? "right" : "left" },
-          fill: isMoney ? { patternType: "solid", fgColor: { rgb: fill } } : undefined,
           border: {
             top: { style: "thin", color: { rgb: "000000" } },
             bottom: { style: "thin", color: { rgb: "000000" } },
@@ -397,7 +415,7 @@ export const exportKioskCashCloseToExcel = (report) => {
     rowIdx += 1;
   });
 
-  const styleMoneyRow = (r, labelCol2, amount, fillRgb) => {
+  const styleMoneyRow = (r, labelCol2, amount) => {
     setCell(ws, r, 2, {
       t: "s",
       v: labelCol2,
@@ -410,9 +428,6 @@ export const exportKioskCashCloseToExcel = (report) => {
       s: {
         font: boldFont,
         alignment: { horizontal: "right" },
-        fill: fillRgb
-          ? { patternType: "solid", fgColor: { rgb: fillRgb } }
-          : undefined,
       },
     });
   };
@@ -430,7 +445,6 @@ export const exportKioskCashCloseToExcel = (report) => {
       s: {
         font: boldFont,
         alignment: { horizontal: "right" },
-        fill: { patternType: "solid", fgColor: { rgb: "8FD19E" } },
       },
     });
     rowIdx += 1;
@@ -444,20 +458,19 @@ export const exportKioskCashCloseToExcel = (report) => {
   rowIdx += 1;
   const summaryStart = rowIdx;
   const summary = [
-    ["Monto de Apertura", Number(report.openingAmount || 0), null],
-    ["Tarjeta", Number(report.cardSalesTotal || 0), null],
-    ["Efectivo", Number(report.cashSalesTotal || 0), null],
-    ["Desembolso", Number(report.disbursementsTotal || 0), null],
+    ["Monto de Apertura", Number(report.openingAmount || 0)],
+    ["Tarjeta", Number(report.cardSalesTotal || 0)],
+    ["Efectivo", Number(report.cashSalesTotal || 0)],
+    ["Desembolso", Number(report.disbursementsTotal || 0)],
     [
       `Deposito${report.depositDetail ? ` (${report.depositDetail})` : ""}`,
       Number(report.depositAmount || 0),
-      "FFE566",
     ],
-    ["Total de Efectivo", Number(report.totalCash || 0), "FFE566"],
-    ["Monto Cierre", Number(report.closeAmount || 0), null],
-    ["Apertura", Number(report.openingAmount || 0), null],
-    ["Monto Total", Number(report.salesDayTotal || 0), null],
-    ["Diferencia", Number(report.variance || 0), null],
+    ["Total de Efectivo", Number(report.totalCash || 0)],
+    ["Monto Cierre", Number(report.closeAmount || 0)],
+    ["Apertura", Number(report.openingAmount || 0)],
+    ["Monto Total", Number(report.salesDayTotal || 0)],
+    ["Diferencia", Number(report.variance || 0)],
   ];
   summary.forEach((item, i) => {
     const r = summaryStart + i;
@@ -469,9 +482,6 @@ export const exportKioskCashCloseToExcel = (report) => {
       s: {
         font: boldFont,
         alignment: { horizontal: "right" },
-        fill: item[2]
-          ? { patternType: "solid", fgColor: { rgb: item[2] } }
-          : undefined,
       },
     });
   });
