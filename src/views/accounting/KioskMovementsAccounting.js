@@ -12,6 +12,7 @@ import {
 } from "reactstrap";
 import { FilterableSelect } from "components/distribution/FilterableSelect";
 import { getLocations } from "services/locationService";
+import { getProducts } from "services/productService";
 import { getKioskMovementsAccounting } from "services/kioscoInventoryService";
 import { formatDateTimeGt } from "utils/dateTimeHelper";
 import {
@@ -19,6 +20,20 @@ import {
   KIOSCO_MOVEMENT_TYPE_LABELS,
 } from "utils/kioskMovementHelper";
 import { showError } from "utils/notificationHelper";
+
+function CardPaymentDetail({ auth, last4, brand, auth2, last4_2, brand2 }) {
+  const hasCard1 = auth || last4 || brand;
+  const hasCard2 = auth2 || last4_2 || brand2;
+  if (!hasCard1 && !hasCard2) return "—";
+  const fmt = (b, l, a) =>
+    [b, l ? `****${l}` : null, a ? `Auth: ${a}` : null].filter(Boolean).join(" · ");
+  return (
+    <div style={{ fontSize: "0.78rem", lineHeight: 1.4 }}>
+      {hasCard1 && <div>{fmt(brand, last4, auth)}</div>}
+      {hasCard2 && <div className="text-muted">{fmt(brand2, last4_2, auth2)}</div>}
+    </div>
+  );
+}
 
 const MOVEMENT_TYPE_OPTIONS = [
   { value: "", label: "Todos los tipos", searchText: "todos" },
@@ -44,7 +59,7 @@ const TYPE_BADGE = {
 
 const INITIAL_FILTERS = {
   locationId: "",
-  productTerm: "",
+  productId: "",
   type: "",
   from: "",
   to: "",
@@ -55,6 +70,7 @@ const INITIAL_FILTERS = {
 
 export default function KioskMovementsAccounting() {
   const [locations, setLocations] = useState([]);
+  const [products, setProducts] = useState([]);
   const [filters, setFilters] = useState(INITIAL_FILTERS);
   const [movements, setMovements] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -62,6 +78,9 @@ export default function KioskMovementsAccounting() {
   useEffect(() => {
     getLocations()
       .then((data) => setLocations(Array.isArray(data) ? data : []))
+      .catch(() => {});
+    getProducts()
+      .then((data) => setProducts(Array.isArray(data) ? data : []))
       .catch(() => {});
   }, []);
 
@@ -71,6 +90,15 @@ export default function KioskMovementsAccounting() {
       value: String(l.id),
       label: l.name || l.code || String(l.id),
       searchText: `${l.name || ""} ${l.code || ""}`,
+    })),
+  ];
+
+  const productOptions = [
+    { value: "", label: "Todos los productos", searchText: "todos" },
+    ...products.map((p) => ({
+      value: String(p.id),
+      label: `${p.code} — ${p.name}`,
+      searchText: `${p.code} ${p.name}`,
     })),
   ];
 
@@ -86,7 +114,7 @@ export default function KioskMovementsAccounting() {
     try {
       const params = {
         locationId: filters.locationId || undefined,
-        productTerm: filters.productTerm || undefined,
+        productId: filters.productId || undefined,
         type: filters.type || undefined,
         from: filters.from || undefined,
         to: filters.to || undefined,
@@ -125,19 +153,13 @@ export default function KioskMovementsAccounting() {
           />
         </Col>
         <Col md={4}>
-          <FormGroup className="mb-0">
-            <Label className="mb-1 small fw-semibold">Producto (código o nombre)</Label>
-            <Input
-              type="text"
-              bsSize="sm"
-              placeholder="Ej: CIN-01, bolsa, cinturón..."
-              value={filters.productTerm}
-              onChange={(e) => setFilter("productTerm", e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") loadMovements();
-              }}
-            />
-          </FormGroup>
+          <Label className="mb-1 small fw-semibold">Producto</Label>
+          <FilterableSelect
+            options={productOptions}
+            value={String(filters.productId)}
+            onChange={(v) => setFilter("productId", v)}
+            placeholder="Buscar producto..."
+          />
         </Col>
         <Col md={2}>
           <Label className="mb-1 small fw-semibold">Tipo de movimiento</Label>
@@ -235,13 +257,12 @@ export default function KioskMovementsAccounting() {
               <th>Color</th>
               <th>Talla</th>
               <th className="text-end">Cantidad</th>
+              <th className="text-end">Stock antes</th>
+              <th className="text-end">Stock después</th>
               <th>No. Interno Factura</th>
-              <th>No. Venta</th>
               <th className="text-end">Total venta</th>
               <th>Forma de pago</th>
-              <th>Cliente</th>
-              <th>NIT</th>
-              <th>FEL UUID</th>
+              <th>Detalle pago</th>
               <th>Motivo</th>
               <th>Usuario</th>
             </tr>
@@ -249,14 +270,14 @@ export default function KioskMovementsAccounting() {
           <tbody>
             {loading && (
               <tr>
-                <td colSpan={16} className="text-center py-3">
+                <td colSpan={15} className="text-center py-3">
                   <Spinner size="sm" /> Cargando...
                 </td>
               </tr>
             )}
             {!loading && movements.length === 0 && (
               <tr>
-                <td colSpan={16} className="text-center text-muted py-3">
+                <td colSpan={15} className="text-center text-muted py-3">
                   {filters.locationId
                     ? "Sin movimientos con los filtros aplicados."
                     : "Selecciona un kiosko para comenzar."}
@@ -293,6 +314,8 @@ export default function KioskMovementsAccounting() {
                     {m.cantidad > 0 ? `+${m.cantidad}` : m.cantidad}
                   </span>
                 </td>
+                <td className="text-end text-muted">{m.stockAntes ?? "—"}</td>
+                <td className="text-end text-muted">{m.stockDespues ?? "—"}</td>
                 <td>
                   {m.numeroInternoFactura ? (
                     <span className="fw-semibold text-dark">{m.numeroInternoFactura}</span>
@@ -300,28 +323,19 @@ export default function KioskMovementsAccounting() {
                     "—"
                   )}
                 </td>
-                <td>{m.numeroVenta || "—"}</td>
                 <td className="text-end">
                   {m.totalVenta != null ? `Q ${Number(m.totalVenta).toFixed(2)}` : "—"}
                 </td>
                 <td>{m.formaPago || "—"}</td>
-                <td>{m.cliente || "—"}</td>
-                <td>{m.nit || "—"}</td>
                 <td>
-                  {m.felUuid ? (
-                    <span
-                      title={m.felUuid}
-                      style={{
-                        fontFamily: "monospace",
-                        fontSize: "0.72rem",
-                        cursor: "help",
-                      }}
-                    >
-                      {m.felUuid.slice(0, 12)}…
-                    </span>
-                  ) : (
-                    "—"
-                  )}
+                  <CardPaymentDetail
+                    auth={m.cardAuthNumber}
+                    last4={m.cardLast4}
+                    brand={m.cardBrand}
+                    auth2={m.card2AuthNumber}
+                    last4_2={m.card2Last4}
+                    brand2={m.card2Brand}
+                  />
                 </td>
                 <td>
                   <small className="text-muted">{m.motivo || "—"}</small>
