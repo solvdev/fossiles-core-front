@@ -106,6 +106,7 @@ import Invoicing from "views/sales/Invoicing.js";
 import AccountingInvoices from "views/accounting/AccountingInvoices.js";
 import AccountingInvoiceForm from "views/accounting/AccountingInvoiceForm.js";
 import AccountingInvoiceDetail from "views/accounting/AccountingInvoiceDetail.js";
+import KioskMovementsAccounting from "views/accounting/KioskMovementsAccounting.js";
 
 // Reportes
 import ProductionReports from "views/reports/ProductionReports.js";
@@ -1237,6 +1238,17 @@ const routes = [
         permissions: {
           view: "CONTABILIDAD.FACTURAS.VER",
           edit: "CONTABILIDAD.FACTURAS.CERTIFICAR",
+        },
+      },
+      {
+        path: "/kiosk-movements-accounting",
+        name: "Movimientos Kioscos",
+        mini: "MK",
+        component: <KioskMovementsAccounting />,
+        layout: "/admin",
+        module: "CONTABILIDAD",
+        permissions: {
+          view: "CONTABILIDAD.FACTURAS.VER",
         },
       },
       {
