@@ -1249,6 +1249,8 @@ const routes = [
         module: "CONTABILIDAD",
         permissions: {
           view: "CONTABILIDAD.FACTURAS.VER",
+          create: "CONTABILIDAD.FACTURAS.CREAR",
+          edit: "CONTABILIDAD.FACTURAS.CERTIFICAR",
         },
       },
       {
