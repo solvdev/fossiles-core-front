@@ -336,7 +336,7 @@ function ExchangeCheckoutModal({
           <div className="kiosk-pos-checkout-section">
             <div className="kiosk-pos-mixto-grid">
               <div>
-                <Label className="kiosk-pos-label">Número de autorización</Label>
+                <Label className="kiosk-pos-label">Número de voucher</Label>
                 <Input
                   className="kiosk-pos-input-lg"
                   value={cardAuthNumber}
@@ -426,7 +426,7 @@ function ExchangeCheckoutModal({
               {requiresCardData && (
                 <>
                   <div>
-                    <Label className="kiosk-pos-label">Número de autorización</Label>
+                    <Label className="kiosk-pos-label">Número de voucher</Label>
                     <Input
                       className="kiosk-pos-input-lg"
                       value={cardAuthNumber}
@@ -492,7 +492,7 @@ function ExchangeCheckoutModal({
           <p className="kiosk-pos-confirm-hint">El monto recibido no cubre el total</p>
         )}
         {!cashInsufficient && cardDataIncomplete && (
-          <p className="kiosk-pos-confirm-hint">Indica autorización y últimos 4 dígitos de la tarjeta</p>
+          <p className="kiosk-pos-confirm-hint">Indica número de voucher, últimos 4 dígitos y monto del voucher</p>
         )}
       </div>
     </Modal>

@@ -230,7 +230,7 @@ function PosSaleDetailModal({
   const handleSavePayment = async () => {
     if (!sale?.id) return;
     if (cardDataIncomplete) {
-      showError("Indica marca, autorización, últimos 4 dígitos y monto del voucher.");
+      showError("Indica marca, número de voucher, últimos 4 dígitos y monto del voucher.");
       return;
     }
     try {
@@ -449,7 +449,7 @@ function PosSaleDetailModal({
                           </Input>
                         </div>
                         <div className="col-md-3">
-                          <Label className="kiosk-pos-label">Número de autorización</Label>
+                          <Label className="kiosk-pos-label">Número de voucher</Label>
                           <Input
                             value={cardAuthNumber}
                             onChange={(e) => setCardAuthNumber(e.target.value)}
@@ -480,7 +480,7 @@ function PosSaleDetailModal({
                     )}
                     {cardDataIncomplete && (
                       <p className="text-danger small mt-1 mb-0">
-                        Indica marca, autorización, últimos 4 dígitos y monto del voucher.
+                        Indica marca, número de voucher, últimos 4 dígitos y monto del voucher.
                       </p>
                     )}
                     <div className="mt-2">

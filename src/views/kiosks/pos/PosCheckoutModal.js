@@ -585,7 +585,7 @@ function PosCheckoutModal({
                 </Input>
               </div>
               <div>
-                <Label className="kiosk-pos-label">Número de autorización</Label>
+                <Label className="kiosk-pos-label">Número de voucher</Label>
                 <Input
                   className="kiosk-pos-input-lg"
                   value={cardAuthNumber}
@@ -647,7 +647,7 @@ function PosCheckoutModal({
                     </Input>
                   </div>
                   <div>
-                    <Label className="kiosk-pos-label">Número de autorización</Label>
+                    <Label className="kiosk-pos-label">Número de voucher</Label>
                     <Input
                       className="kiosk-pos-input-lg"
                       value={card2AuthNumber}
@@ -747,7 +747,7 @@ function PosCheckoutModal({
                     </Input>
                   </div>
                   <div>
-                    <Label className="kiosk-pos-label">Número de autorización</Label>
+                    <Label className="kiosk-pos-label">Número de voucher</Label>
                     <Input
                       className="kiosk-pos-input-lg"
                       value={cardAuthNumber}
@@ -836,7 +836,7 @@ function PosCheckoutModal({
           <p className="kiosk-pos-confirm-hint">El monto recibido no cubre el total</p>
         )}
         {!cashInsufficient && cardDataIncomplete && (
-          <p className="kiosk-pos-confirm-hint">Indica marca, autorización y últimos 4 dígitos de la(s) tarjeta(s)</p>
+          <p className="kiosk-pos-confirm-hint">Indica marca, número de voucher, últimos 4 dígitos y monto del voucher</p>
         )}
         {!cashInsufficient && !cardDataIncomplete && splitAmountsInvalid && (
           <p className="kiosk-pos-confirm-hint">
