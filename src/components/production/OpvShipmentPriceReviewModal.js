@@ -15,6 +15,7 @@ import { showError, showSuccess } from "utils/notificationHelper";
 import {
   applyOpvPricesToOrderItems,
   buildOpvItemPricesOnlyPayload,
+  buildOpvPrintPriceIndex,
   expandOrderItemsForOpvPriceLines,
   mergeOrderWithLocalItemPrices,
   orderItemsHaveBrand,
@@ -26,6 +27,7 @@ function OpvShipmentPriceReviewModal({
   orderId,
   productCatalogById = {},
   confirmLabel = "Guardar e imprimir",
+  forPrint = false,
   onSaved,
 }) {
   const [order, setOrder] = useState(null);
@@ -76,10 +78,24 @@ function OpvShipmentPriceReviewModal({
     try {
       const itemsWithPrices = applyOpvPricesToOrderItems(order, priceByLineId);
       const payload = buildOpvItemPricesOnlyPayload(order, itemsWithPrices);
-      const updated = await updateProductionOrderItemPrices(order.id, payload);
+      let updated = null;
+      let persisted = false;
+      try {
+        updated = await updateProductionOrderItemPrices(order.id, payload);
+        persisted = true;
+      } catch (persistErr) {
+        // Permite imprimir con precios de pantalla aunque falle el API/migración.
+        const msg = persistErr.message || "No se pudieron persistir los precios";
+        setError(msg);
+        showError(`${msg}. Se usarán los precios editados para la impresión.`);
+        updated = order;
+      }
       const merged = mergeOrderWithLocalItemPrices(updated, itemsWithPrices);
-      showSuccess("Precios guardados (orden y envíos existentes)");
-      if (onSaved) onSaved(merged);
+      merged._printPriceIndex = buildOpvPrintPriceIndex(displayLines, priceByLineId);
+      if (persisted) {
+        showSuccess("Precios guardados (orden, envío e impresión/CxC)");
+      }
+      if (onSaved) onSaved(merged, { print: Boolean(forPrint) });
       toggle();
     } catch (err) {
       const msg = err.message || "No se pudieron guardar los precios";

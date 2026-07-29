@@ -56,6 +56,7 @@ import {
   classifyPrepareOrder,
   isDirectPrepareOrder,
   isEntreCuerosCustomerOpv,
+  lookupOpvPrintPriceIndex,
   mapShipmentProductsForOpvPrint,
   orderIsPendingForPrepare,
   orderItemsHaveBrand,
@@ -557,16 +558,24 @@ const buildOnlineSaleItemsFromShipmentDoc = (
 };
 
 const buildOpvOnlineSalePayload = (printDoc, productionOrder, deps) => {
-  const printSource =
-    productionOrder?.items?.length
-      ? {
-          ...printDoc,
-          _printProducts: applyOrderItemPricesToShipmentProducts(
-            productionOrder,
-            printDoc._printProducts || printDoc.products || []
-          ),
-        }
-      : printDoc;
+  const baseProducts = printDoc._printProducts || printDoc.products || [];
+  const pricedProducts = productionOrder?.items?.length
+    ? applyOrderItemPricesToShipmentProducts(productionOrder, baseProducts)
+    : baseProducts;
+  const stampedProducts = (pricedProducts || []).map((line) => {
+    const indexed = lookupOpvPrintPriceIndex(
+      productionOrder?._printPriceIndex,
+      line.productId,
+      line.colorId,
+      line.size
+    );
+    if (indexed == null) return line;
+    return { ...line, unitPrice: indexed };
+  });
+  const printSource = {
+    ...printDoc,
+    _printProducts: stampedProducts,
+  };
   const items = buildOnlineSaleItemsFromShipmentDoc(printSource, deps);
   const netAmount = items.reduce((s, it) => s + Number(it.subtotal || 0), 0);
   const order = productionOrder || {};
@@ -1653,6 +1662,14 @@ function PrepareShipments() {
   const resolveProductUnitPriceForOrder = useCallback(
     (order) => (item) => {
       const sizeKey = String(item?.size || "").trim();
+      const fromIndex = lookupOpvPrintPriceIndex(
+        order?._printPriceIndex,
+        item?.productId,
+        item?.colorId,
+        sizeKey
+      );
+      if (fromIndex != null) return fromIndex;
+
       const unitPrices =
         item?.unitPrices && typeof item.unitPrices === "object" ? item.unitPrices : null;
       if (unitPrices && sizeKey) {
@@ -1715,14 +1732,24 @@ function PrepareShipments() {
     [resolveProductUnitPriceForOrder, selectedProductionOrder]
   );
 
-  const handleOpvPricesSaved = async (order) => {
+  const handleOpvPricesSaved = async (order, meta = {}) => {
+    const shouldPrint = Boolean(meta?.print || opvPendingPrint);
     const updatedShipments = (shipments || []).map((s) => {
       const rawLines = resolveShipmentLinesForPrint(
         { ...s, _printProducts: undefined },
         order,
         orderPartialReleases
       );
-      const priced = applyOrderItemPricesToShipmentProducts(order, rawLines);
+      const priced = applyOrderItemPricesToShipmentProducts(order, rawLines).map((line) => {
+        const indexed = lookupOpvPrintPriceIndex(
+          order?._printPriceIndex,
+          line.productId,
+          line.colorId,
+          line.size
+        );
+        if (indexed == null) return line;
+        return { ...line, unitPrice: indexed };
+      });
       return {
         ...s,
         products: priced,
@@ -1732,8 +1759,8 @@ function PrepareShipments() {
     });
     setSelectedProductionOrder(order);
     setShipments(updatedShipments);
-    if (opvPendingPrint) {
-      setOpvPendingPrint(false);
+    setOpvPendingPrint(false);
+    if (shouldPrint) {
       void executeOpvPrint(order, updatedShipments);
       return;
     }
@@ -4243,6 +4270,7 @@ function PrepareShipments() {
         }}
         orderId={selectedProductionOrder?.id}
         productCatalogById={productCatalogById}
+        forPrint={opvPendingPrint}
         confirmLabel={opvPendingPrint ? "Guardar e imprimir" : "Guardar precios"}
         onSaved={handleOpvPricesSaved}
       />

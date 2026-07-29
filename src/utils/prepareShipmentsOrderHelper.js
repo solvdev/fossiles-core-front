@@ -296,42 +296,92 @@ export function buildOpvItemPricesOnlyPayload(order, itemsWithPrices) {
   };
 }
 
-/** Combina respuesta API con precios locales (garantiza unitPrices en impresión). */
+/** Combina respuesta API con precios locales (los locales mandan para impresión/CxC). */
 export function mergeOrderWithLocalItemPrices(apiOrder, itemsWithPrices) {
   const localItems = Array.isArray(itemsWithPrices) ? itemsWithPrices : [];
+  if (localItems.length === 0) {
+    return { ...(apiOrder || {}) };
+  }
   const apiItems = Array.isArray(apiOrder?.items) ? apiOrder.items : [];
-  const matchLocal = (apiItem) =>
-    localItems.find((row) => {
-      if (Number(row.productId) !== Number(apiItem.productId)) return false;
-      if (row.colorId == null && apiItem.colorId == null) return true;
-      return Number(row.colorId) === Number(apiItem.colorId);
-    }) || localItems.find((row) => Number(row.productId) === Number(apiItem.productId));
+  const matchApi = (local) =>
+    apiItems.find((row) => {
+      if (Number(row.productId) !== Number(local.productId)) return false;
+      if (row.colorId == null && local.colorId == null) return true;
+      return Number(row.colorId) === Number(local.colorId);
+    }) || apiItems.find((row) => Number(row.productId) === Number(local.productId));
 
-  const mergedItems =
-    apiItems.length > 0
-      ? apiItems.map((apiItem) => {
-          const local = matchLocal(apiItem);
-          if (!local) return apiItem;
-          return {
-            ...apiItem,
-            unitPrice: local.unitPrice != null ? Number(local.unitPrice) : apiItem.unitPrice,
-            unitPrices:
-              local.unitPrices && typeof local.unitPrices === "object"
-                ? Object.fromEntries(
-                    Object.entries(local.unitPrices).map(([k, v]) => [
-                      normalizeSizeKey(k),
-                      Number(v) || 0,
-                    ])
-                  )
-                : apiItem.unitPrices,
-          };
-        })
-      : localItems;
+  const mergedItems = localItems.map((local) => {
+    const apiItem = matchApi(local) || {};
+    const unitPrices =
+      local.unitPrices && typeof local.unitPrices === "object" && Object.keys(local.unitPrices).length > 0
+        ? Object.fromEntries(
+            Object.entries(local.unitPrices).map(([k, v]) => [normalizeSizeKey(k), Number(v) || 0])
+          )
+        : undefined;
+    return {
+      ...apiItem,
+      ...local,
+      unitPrice: Number(local.unitPrice) || 0,
+      unitPrices,
+    };
+  });
 
   return {
     ...(apiOrder || {}),
     items: mergedItems,
   };
+}
+
+/**
+ * Índice plano productId:colorId:size → precio, desde el modal de revisión.
+ * Garantiza impresión correcta aunque falle el persist/round-trip.
+ */
+export function buildOpvPrintPriceIndex(displayLines, priceByLineId) {
+  const index = {};
+  (displayLines || []).forEach((line) => {
+    if (!line) return;
+    const raw = priceByLineId?.[line.lineId];
+    const parsed = Number(raw);
+    const unit = Number.isFinite(parsed) && parsed >= 0 ? parsed : Number(line.unitPrice);
+    if (!Number.isFinite(unit) || unit < 0) return;
+    const pid = Number(line.productId);
+    if (!Number.isFinite(pid)) return;
+    const colorPart =
+      line.colorId == null || line.colorId === "" ? "" : String(Number(line.colorId));
+    const sizePart = normalizeSizeKey(line.size);
+    index[`${pid}:${colorPart}:${sizePart}`] = unit;
+    if (sizePart) {
+      index[`${pid}:${colorPart}:`] = index[`${pid}:${colorPart}:`] ?? unit;
+    }
+  });
+  return index;
+}
+
+export function lookupOpvPrintPriceIndex(priceIndex, productId, colorId, size) {
+  if (!priceIndex || typeof priceIndex !== "object") return null;
+  const pid = Number(productId);
+  if (!Number.isFinite(pid)) return null;
+  const colorPart = colorId == null || colorId === "" ? "" : String(Number(colorId));
+  const sizePart = normalizeSizeKey(size);
+  const direct = priceIndex[`${pid}:${colorPart}:${sizePart}`];
+  if (Number.isFinite(Number(direct)) && Number(direct) >= 0) return Number(direct);
+  if (sizePart) {
+    const foundKey = Object.keys(priceIndex).find((k) => {
+      const [p, c, s] = k.split(":");
+      return (
+        Number(p) === pid &&
+        String(c) === colorPart &&
+        normalizeSizeKey(s) === sizePart
+      );
+    });
+    if (foundKey != null) {
+      const n = Number(priceIndex[foundKey]);
+      if (Number.isFinite(n) && n >= 0) return n;
+    }
+  }
+  const noSize = priceIndex[`${pid}:${colorPart}:`];
+  if (Number.isFinite(Number(noSize)) && Number(noSize) >= 0) return Number(noSize);
+  return null;
 }
 
 export function buildShipmentProductsFromOrderItems(order) {
