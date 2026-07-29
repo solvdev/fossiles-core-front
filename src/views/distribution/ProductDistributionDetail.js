@@ -1138,14 +1138,11 @@ function ProductDistributionDetail() {
       });
     });
 
-    // Solo existencias > 0 en hoja principal de respaldo; resumen con todos
-    const existencias = detailRows.filter((r) => Number(r["Stock kiosko"]) > 0);
-    const existenciasResumen = summaryRows.filter((r) => Number(r["Stock total kiosko"]) > 0);
-
+    // Incluye stock en 0: necesario para planear redistribución hacia el kiosko
     const wb = XLSX.utils.book_new();
 
     const meta = [
-      ["Existencias de stock — Kiosko"],
+      ["Existencias de stock — Kiosko (incluye stock en 0)"],
       ["Kiosko", locationLabel],
       ["Distribución", distribution?.distributionNumber || "Nueva / sin guardar"],
       ["Generado", generatedAt],
@@ -1153,7 +1150,7 @@ function ProductDistributionDetail() {
     ];
 
     const wsExist = XLSX.utils.aoa_to_sheet(meta);
-    XLSX.utils.sheet_add_json(wsExist, existencias.length ? existencias : detailRows, {
+    XLSX.utils.sheet_add_json(wsExist, detailRows, {
       origin: "A6",
       skipHeader: false,
     });
@@ -1166,9 +1163,7 @@ function ProductDistributionDetail() {
     ];
     XLSX.utils.book_append_sheet(wb, wsExist, "Existencias");
 
-    const wsResumen = XLSX.utils.json_to_sheet(
-      existenciasResumen.length ? existenciasResumen : summaryRows
-    );
+    const wsResumen = XLSX.utils.json_to_sheet(summaryRows);
     wsResumen["!cols"] = [{ wch: 14 }, { wch: 36 }, { wch: 22 }, { wch: 16 }];
     XLSX.utils.book_append_sheet(wb, wsResumen, "Resumen producto");
 
