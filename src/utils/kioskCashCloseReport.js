@@ -295,8 +295,12 @@ export const buildKioskCashCloseReportBodyHtml = (report) => {
       <span class="value">${escapeHtml(formatCashCloseMoneyQ(report?.salesDayTotal))}</span>
     </div>
     <div class="summary-row">
-      <span class="label">Diferencia</span>
+      <span class="label">Diferencia efectivo</span>
       <span class="value">${escapeHtml(formatCashCloseMoneyQ(report?.variance))}</span>
+    </div>
+    <div class="summary-row strong">
+      <span class="label">Dif. voucher</span>
+      <span class="value">${escapeHtml(formatCashCloseMoneyQ(report?.cardVoucherDifferencesTotal))}</span>
     </div>
   </div>
 
@@ -306,8 +310,8 @@ export const buildKioskCashCloseReportBodyHtml = (report) => {
     <p><strong>Total de Efectivo:</strong> Desembolso + Depósito (debe igualar el efectivo de ventas del turno).</p>
     <p><strong>Monto Cierre:</strong> Apertura + Tarjeta + Total de Efectivo.</p>
     <p><strong>Monto Total:</strong> Monto Cierre − Apertura (ventas del día).</p>
-    <p><strong>Diferencia:</strong> efectivo contado físicamente − efectivo esperado en caja.</p>
-    <p><strong>Dif. voucher:</strong> monto del voucher del terminal − monto de tarjeta en la factura. No modifica FEL ni el total de ventas del cierre.</p>
+    <p><strong>Diferencia efectivo:</strong> efectivo contado físicamente − efectivo esperado en caja.</p>
+    <p><strong>Dif. voucher:</strong> suma de (voucher del terminal − tarjeta en factura). No modifica FEL ni el monto de cierre.</p>
   </div>
   </div>`;
 };
@@ -410,7 +414,8 @@ export const exportKioskCashCloseToExcel = (report) => {
   aoa.push(["Monto Cierre", Number(report.closeAmount || 0)]);
   aoa.push(["Apertura", Number(report.openingAmount || 0)]);
   aoa.push(["Monto Total", Number(report.salesDayTotal || 0)]);
-  aoa.push(["Diferencia", Number(report.variance || 0)]);
+  aoa.push(["Diferencia efectivo", Number(report.variance || 0)]);
+  aoa.push(["Dif. voucher", Number(report.cardVoucherDifferencesTotal || 0)]);
 
   const voucherDiffSales = sales.filter((line) => {
     const d1 = Number(line?.cardVoucherDifference || 0);
@@ -567,7 +572,8 @@ export const exportKioskCashCloseToExcel = (report) => {
     ["Monto Cierre", Number(report.closeAmount || 0)],
     ["Apertura", Number(report.openingAmount || 0)],
     ["Monto Total", Number(report.salesDayTotal || 0)],
-    ["Diferencia", Number(report.variance || 0)],
+    ["Diferencia efectivo", Number(report.variance || 0)],
+    ["Dif. voucher", Number(report.cardVoucherDifferencesTotal || 0)],
   ];
   summary.forEach((item, i) => {
     const r = summaryStart + i;
