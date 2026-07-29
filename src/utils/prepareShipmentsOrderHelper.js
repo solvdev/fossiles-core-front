@@ -76,10 +76,33 @@ export function orderItemsHaveBrand(items) {
   return (items || []).some((item) => String(item?.brandName || "").trim() !== "");
 }
 
-/** Clave estable para editar precio de una línea de la OP (por ítem, no por talla). */
+/** Clave estable para editar precio de una línea de la OP (por ítem). */
 export function opvItemPriceKey(item, index) {
   if (item?.id != null) return `id-${item.id}`;
   return `idx-${index}`;
+}
+
+function normalizeSizeKey(size) {
+  return String(size || "").trim();
+}
+
+/** Precio unitario por talla desde unitPrices del ítem, con fallback a unitPrice / catálogo. */
+export function resolveOpvUnitPriceForSize(item, size, productCatalogById = {}) {
+  const sizeKey = normalizeSizeKey(size);
+  const unitPrices =
+    item?.unitPrices && typeof item.unitPrices === "object" ? item.unitPrices : null;
+  if (unitPrices && sizeKey) {
+    const direct = Number(unitPrices[sizeKey]);
+    if (Number.isFinite(direct) && direct >= 0) return direct;
+    const found = Object.entries(unitPrices).find(
+      ([k]) => normalizeSizeKey(k).toUpperCase() === sizeKey.toUpperCase()
+    );
+    if (found) {
+      const n = Number(found[1]);
+      if (Number.isFinite(n) && n >= 0) return n;
+    }
+  }
+  return resolveDefaultOpvUnitPrice(item, productCatalogById);
 }
 
 export function resolveDefaultOpvUnitPrice(item, productCatalogById = {}) {
@@ -100,7 +123,6 @@ export function expandOrderItemsForOpvPriceLines(order, productCatalogById = {})
   const lines = [];
   items.forEach((item, itemIndex) => {
     const key = opvItemPriceKey(item, itemIndex);
-    const unitPrice = resolveDefaultOpvUnitPrice(item, productCatalogById);
     const base = {
       itemKey: key,
       itemIndex,
@@ -110,17 +132,18 @@ export function expandOrderItemsForOpvPriceLines(order, productCatalogById = {})
       colorId: item.colorId,
       colorName: item.colorName || "",
       brandName: item.brandName || "",
-      unitPrice,
     };
     const sizesMap = item?.sizes && typeof item.sizes === "object" ? item.sizes : null;
     const entries = sizesMap ? Object.entries(sizesMap).filter(([, q]) => Number(q) > 0) : [];
     if (entries.length > 0) {
       entries.forEach(([sizeKey, qty]) => {
+        const size = String(sizeKey);
         lines.push({
           ...base,
-          lineId: `${key}-${sizeKey}`,
-          size: String(sizeKey),
+          lineId: `${key}-${size}`,
+          size,
           quantity: Number(qty) || 0,
+          unitPrice: resolveOpvUnitPriceForSize(item, size, productCatalogById),
         });
       });
     } else if (Number(item.quantity) > 0) {
@@ -129,22 +152,56 @@ export function expandOrderItemsForOpvPriceLines(order, productCatalogById = {})
         lineId: `${key}-qty`,
         size: "",
         quantity: Number(item.quantity) || 0,
+        unitPrice: resolveDefaultOpvUnitPrice(item, productCatalogById),
       });
     }
   });
   return lines;
 }
 
-export function applyOpvPricesToOrderItems(order, priceByItemKey) {
+/**
+ * Aplica precios editados por línea (lineId). Para cinchos escribe unitPrices por talla.
+ * @param {object} order
+ * @param {Record<string, string|number>} priceByLineId
+ */
+export function applyOpvPricesToOrderItems(order, priceByLineId) {
   const items = Array.isArray(order?.items) ? order.items : [];
+  const lines = expandOrderItemsForOpvPriceLines(order, {});
   return items.map((item, index) => {
     const key = opvItemPriceKey(item, index);
-    const raw = priceByItemKey[key];
+    const itemLines = lines.filter((l) => l.itemKey === key);
+    if (itemLines.length === 0) {
+      return { ...item };
+    }
+    const hasSizes = itemLines.some((l) => normalizeSizeKey(l.size) !== "");
+    if (hasSizes) {
+      const unitPrices = { ...(item.unitPrices && typeof item.unitPrices === "object" ? item.unitPrices : {}) };
+      let firstPrice = null;
+      itemLines.forEach((line) => {
+        const raw = priceByLineId[line.lineId];
+        const parsed = Number(raw);
+        const unit = Number.isFinite(parsed) && parsed >= 0 ? parsed : line.unitPrice;
+        if (normalizeSizeKey(line.size)) {
+          unitPrices[normalizeSizeKey(line.size)] = unit;
+        }
+        if (firstPrice == null) firstPrice = unit;
+      });
+      const values = Object.values(unitPrices).map(Number).filter((n) => Number.isFinite(n) && n >= 0);
+      const allSame = values.length > 0 && values.every((v) => v === values[0]);
+      return {
+        ...item,
+        unitPrices,
+        unitPrice: allSame ? values[0] : firstPrice != null ? firstPrice : Number(item.unitPrice) || 0,
+      };
+    }
+    const line = itemLines[0];
+    const raw = priceByLineId[line.lineId] ?? priceByLineId[key];
     const parsed = Number(raw);
     const unitPrice = Number.isFinite(parsed) && parsed >= 0 ? parsed : item.unitPrice;
     return {
       ...item,
       unitPrice: unitPrice != null && unitPrice !== "" ? Number(unitPrice) : 0,
+      unitPrices: undefined,
     };
   });
 }
@@ -159,13 +216,17 @@ export function applyOrderItemPricesToShipmentProducts(order, products) {
     });
   return (products || []).map((p) => {
     const item = matchItem(p.productId, p.colorId);
-    const fromOrder = Number(item?.unitPrice);
     const next = {
       ...p,
       brandName: p.brandName || item?.brandName || "",
     };
-    if (Number.isFinite(fromOrder) && fromOrder > 0) {
-      next.unitPrice = fromOrder;
+    if (!item) return next;
+    if (item.unitPrices && typeof item.unitPrices === "object") {
+      next.unitPrices = item.unitPrices;
+    }
+    const sized = resolveOpvUnitPriceForSize(item, p.size, {});
+    if (Number.isFinite(sized) && sized >= 0) {
+      next.unitPrice = sized;
     }
     return next;
   });
@@ -193,6 +254,12 @@ export function buildOpvItemPriceUpdatePayload(order, itemsWithPrices) {
       sizes: item.sizes,
       observations: item.observations,
       unitPrice: Number(item.unitPrice) || 0,
+      unitPrices:
+        item.unitPrices && typeof item.unitPrices === "object" && Object.keys(item.unitPrices).length > 0
+          ? Object.fromEntries(
+              Object.entries(item.unitPrices).map(([k, v]) => [String(k), Number(v) || 0])
+            )
+          : undefined,
     })),
   };
 }
@@ -212,6 +279,7 @@ export function buildShipmentProductsFromOrderItems(order) {
             colorId: item.colorId != null ? Number(item.colorId) : null,
             size: String(size),
             quantity: q,
+            unitPrice: resolveOpvUnitPriceForSize(item, size, {}),
           });
           addedFromSizes = true;
         }
@@ -223,6 +291,7 @@ export function buildShipmentProductsFromOrderItems(order) {
         colorId: item.colorId != null ? Number(item.colorId) : null,
         size: "",
         quantity: Number(item.quantity),
+        unitPrice: Number(item.unitPrice) || 0,
       });
     }
   });
@@ -304,6 +373,12 @@ export function buildProductionOrderUpdatePayload(order, form) {
       sizes: item.sizes,
       observations: item.observations,
       unitPrice: item.unitPrice != null ? Number(item.unitPrice) : undefined,
+      unitPrices:
+        item.unitPrices && typeof item.unitPrices === "object" && Object.keys(item.unitPrices).length > 0
+          ? Object.fromEntries(
+              Object.entries(item.unitPrices).map(([k, v]) => [String(k), Number(v) || 0])
+            )
+          : undefined,
     })),
   };
 }

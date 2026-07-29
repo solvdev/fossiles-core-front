@@ -17,7 +17,6 @@ import {
   buildOpvItemPriceUpdatePayload,
   expandOrderItemsForOpvPriceLines,
   orderItemsHaveBrand,
-  opvItemPriceKey,
 } from "utils/prepareShipmentsOrderHelper";
 
 function OpvShipmentPriceReviewModal({
@@ -29,7 +28,7 @@ function OpvShipmentPriceReviewModal({
   onSaved,
 }) {
   const [order, setOrder] = useState(null);
-  const [priceByItemKey, setPriceByItemKey] = useState({});
+  const [priceByLineId, setPriceByLineId] = useState({});
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -42,15 +41,10 @@ function OpvShipmentPriceReviewModal({
       const fresh = await getProductionOrderById(orderId);
       setOrder(fresh);
       const initial = {};
-      (fresh.items || []).forEach((item, index) => {
-        const lines = expandOrderItemsForOpvPriceLines(
-          { items: [item] },
-          productCatalogById
-        );
-        const price = lines[0]?.unitPrice ?? 0;
-        initial[opvItemPriceKey(item, index)] = String(price);
+      expandOrderItemsForOpvPriceLines(fresh, productCatalogById).forEach((line) => {
+        initial[line.lineId] = String(line.unitPrice ?? 0);
       });
-      setPriceByItemKey(initial);
+      setPriceByLineId(initial);
     } catch (err) {
       setError(err.message || "No se pudo cargar la orden");
     } finally {
@@ -70,8 +64,8 @@ function OpvShipmentPriceReviewModal({
 
   const showBrand = useMemo(() => orderItemsHaveBrand(order?.items), [order]);
 
-  const patchPrice = (itemKey, value) => {
-    setPriceByItemKey((prev) => ({ ...prev, [itemKey]: value }));
+  const patchPrice = (lineId, value) => {
+    setPriceByLineId((prev) => ({ ...prev, [lineId]: value }));
   };
 
   const handleSave = async () => {
@@ -79,7 +73,7 @@ function OpvShipmentPriceReviewModal({
     setSaving(true);
     setError("");
     try {
-      const itemsWithPrices = applyOpvPricesToOrderItems(order, priceByItemKey);
+      const itemsWithPrices = applyOpvPricesToOrderItems(order, priceByLineId);
       const payload = buildOpvItemPriceUpdatePayload(order, itemsWithPrices);
       const updated = await updateProductionOrder(order.id, payload);
       showSuccess("Precios guardados en la orden");
@@ -97,13 +91,13 @@ function OpvShipmentPriceReviewModal({
   const previewTotal = useMemo(() => {
     let sum = 0;
     displayLines.forEach((line) => {
-      const price = Number(priceByItemKey[line.itemKey]);
+      const price = Number(priceByLineId[line.lineId]);
       const unit = Number.isFinite(price) && price >= 0 ? price : line.unitPrice;
       sum += unit * (Number(line.quantity) || 0);
     });
     const shipping = Number(order?.shippingCost) || 0;
     return { net: sum, total: sum + shipping, shipping };
-  }, [displayLines, priceByItemKey, order]);
+  }, [displayLines, priceByLineId, order]);
 
   return (
     <Modal isOpen={isOpen} toggle={toggle} size="xl">
@@ -113,8 +107,9 @@ function OpvShipmentPriceReviewModal({
       <ModalBody>
         {error && <Alert color="danger">{error}</Alert>}
         <Alert color="info" className="py-2">
-          Ajuste el precio unitario por artículo antes de imprimir el envío. Los precios se guardan en la orden de
-          producción (precios especiales por cliente).
+          Ajuste el precio unitario por artículo o talla antes de imprimir el envío. En cinchos puede fijar
+          precios distintos por talla (ej. 46/48 vs niño). Los precios se guardan en la orden y aplican al
+          total, impresión y cargo al cliente.
         </Alert>
         {loading ? (
           <div className="text-center py-4">
@@ -140,7 +135,7 @@ function OpvShipmentPriceReviewModal({
             </thead>
             <tbody>
               {displayLines.map((line) => {
-                const raw = priceByItemKey[line.itemKey];
+                const raw = priceByLineId[line.lineId];
                 const unit = Number.isFinite(Number(raw)) ? Number(raw) : line.unitPrice;
                 const sub = unit * (Number(line.quantity) || 0);
                 return (
@@ -157,8 +152,8 @@ function OpvShipmentPriceReviewModal({
                         min="0"
                         step="0.01"
                         bsSize="sm"
-                        value={priceByItemKey[line.itemKey] ?? ""}
-                        onChange={(e) => patchPrice(line.itemKey, e.target.value)}
+                        value={priceByLineId[line.lineId] ?? ""}
+                        onChange={(e) => patchPrice(line.lineId, e.target.value)}
                       />
                     </td>
                     <td className="text-right">Q. {sub.toFixed(2)}</td>

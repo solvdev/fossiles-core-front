@@ -502,6 +502,8 @@ const buildOnlineSaleItemsFromShipmentDoc = (
       if (beltLines.length > 0) {
         return beltLines.map((belt) => {
           const beltQty = Number(belt.quantity || 0);
+          const beltUnit = resolveProductUnitPrice({ ...item, size: belt.size });
+          const safeBeltUnit = Number.isFinite(beltUnit) && beltUnit > 0 ? beltUnit : rowPrice;
           return {
             productCode: item.productCode || "-",
             productName: item.productName || "-",
@@ -509,8 +511,8 @@ const buildOnlineSaleItemsFromShipmentDoc = (
             brandName: item.brandName || "",
             size: belt.size,
             quantity: beltQty,
-            unitPrice: rowPrice,
-            subtotal: rowPrice > 0 ? beltQty * rowPrice : 0,
+            unitPrice: safeBeltUnit,
+            subtotal: safeBeltUnit > 0 ? beltQty * safeBeltUnit : 0,
           };
         });
       }
@@ -1632,6 +1634,20 @@ function PrepareShipments() {
   );
 
   const resolveProductUnitPrice = (item) => {
+    const sizeKey = String(item?.size || "").trim();
+    const unitPrices =
+      item?.unitPrices && typeof item.unitPrices === "object" ? item.unitPrices : null;
+    if (unitPrices && sizeKey) {
+      const direct = Number(unitPrices[sizeKey]);
+      if (Number.isFinite(direct) && direct >= 0) return direct;
+      const found = Object.entries(unitPrices).find(
+        ([k]) => String(k).trim().toUpperCase() === sizeKey.toUpperCase()
+      );
+      if (found) {
+        const n = Number(found[1]);
+        if (Number.isFinite(n) && n >= 0) return n;
+      }
+    }
     const fromItem = Number(item?.unitPrice);
     if (Number.isFinite(fromItem) && fromItem > 0) {
       return fromItem;
@@ -2259,6 +2275,8 @@ function PrepareShipments() {
             if (beltLines.length > 0) {
               return beltLines.map((belt) => {
                 const beltQty = Number(belt.quantity || 0);
+                const beltUnit = resolveProductUnitPrice({ ...item, size: belt.size });
+                const safeBeltUnit = Number.isFinite(beltUnit) && beltUnit > 0 ? beltUnit : rowPrice;
                 return {
                   rowType: "product",
                   productCode: item.productCode || "-",
@@ -2267,8 +2285,8 @@ function PrepareShipments() {
                   colorName: item.colorName || "-",
                   quantity: beltQty,
                   uomName: item.uomName || item.unitName || "Unidad",
-                  unitPrice: rowPrice,
-                  lineTotal: rowPrice > 0 ? beltQty * rowPrice : 0,
+                  unitPrice: safeBeltUnit,
+                  lineTotal: safeBeltUnit > 0 ? beltQty * safeBeltUnit : 0,
                 };
               });
             }
