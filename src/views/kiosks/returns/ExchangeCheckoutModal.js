@@ -4,6 +4,7 @@ import { lookupTaxpayerByNit } from "services/kioskPosService";
 import {
   formatCurrency,
   formatFelCustomerName,
+  formatVoucherDiffAlert,
   isValidGuatemalaNit,
   normalizeNit,
 } from "../pos/posUtils";
@@ -35,6 +36,7 @@ function ExchangeCheckoutModal({
   const [cardAmount, setCardAmount] = useState("");
   const [cardAuthNumber, setCardAuthNumber] = useState("");
   const [cardLast4, setCardLast4] = useState("");
+  const [cardVoucherAmount, setCardVoucherAmount] = useState("");
   const [customerTaxId, setCustomerTaxId] = useState("CF");
   const [customerName, setCustomerName] = useState("CONSUMIDOR FINAL");
   const [taxLookupLoading, setTaxLookupLoading] = useState(false);
@@ -48,12 +50,31 @@ function ExchangeCheckoutModal({
     setCardAmount("");
     setCardAuthNumber("");
     setCardLast4("");
+    setCardVoucherAmount("");
     setCustomerTaxId("CF");
     setCustomerName("CONSUMIDOR FINAL");
     setTaxLookupError("");
   }, [isOpen]);
 
   const totalDue = Math.max(0, Number(differenceAmount || 0));
+
+  const expectedCardAmount = useMemo(() => {
+    if (paymentMethod === "TARJETA") return totalDue;
+    if (paymentMethod === "MIXTO") return Number(cardAmount || 0);
+    return 0;
+  }, [paymentMethod, totalDue, cardAmount]);
+
+  useEffect(() => {
+    if (paymentMethod === "TARJETA" && totalDue > 0) {
+      setCardVoucherAmount(String(totalDue.toFixed(2)));
+    }
+  }, [paymentMethod, totalDue]);
+
+  useEffect(() => {
+    if (paymentMethod === "MIXTO" && Number(cardAmount || 0) > 0) {
+      setCardVoucherAmount(String(Number(cardAmount).toFixed(2)));
+    }
+  }, [paymentMethod, cardAmount]);
 
   const changePreview = useMemo(() => {
     if (paymentMethod !== "EFECTIVO" && paymentMethod !== "MIXTO") return 0;
@@ -74,7 +95,17 @@ function ExchangeCheckoutModal({
   const requiresCardData =
     paymentMethod === "TARJETA" || (paymentMethod === "MIXTO" && Number(cardAmount || 0) > 0);
   const cardDataIncomplete =
-    requiresCardData && (!cardAuthNumber.trim() || !/^\d{4}$/.test(cardLast4.trim()));
+    requiresCardData
+    && (
+      !cardAuthNumber.trim()
+      || !/^\d{4}$/.test(cardLast4.trim())
+      || !(Number(cardVoucherAmount || 0) > 0)
+    );
+
+  const voucherDiff = requiresCardData
+    ? Number(cardVoucherAmount || 0) - expectedCardAmount
+    : 0;
+  const showVoucherDiff = requiresCardData && Math.abs(voucherDiff) > 0.009;
 
   const nitInvalid =
     normalizeNit(customerTaxId) !== "CF" &&
@@ -139,6 +170,7 @@ function ExchangeCheckoutModal({
       cardAmount: cardAmount ? Number(cardAmount) : null,
       cardAuthNumber: requiresCardData ? cardAuthNumber.trim() : null,
       cardLast4: requiresCardData ? cardLast4.trim() : null,
+      cardVoucherAmount: requiresCardData ? Number(cardVoucherAmount) : null,
       customerTaxId: normalizedTaxId,
       customerName:
         normalizedTaxId === "CF" ? "CONSUMIDOR FINAL" : String(customerName || "").trim(),
@@ -323,7 +355,27 @@ function ExchangeCheckoutModal({
                   inputMode="numeric"
                 />
               </div>
+              <div>
+                <Label className="kiosk-pos-label">Monto del voucher</Label>
+                <Input
+                  className="kiosk-pos-input-lg"
+                  type="number"
+                  min="0.01"
+                  step="0.01"
+                  value={cardVoucherAmount}
+                  onChange={(e) => setCardVoucherAmount(e.target.value)}
+                />
+              </div>
             </div>
+            {showVoucherDiff && (
+              <div
+                className="alert alert-warning py-2 mt-2 mb-0"
+                role="alert"
+                style={{ fontSize: "0.9rem" }}
+              >
+                <strong>{formatVoucherDiffAlert(voucherDiff, expectedCardAmount)}</strong>
+              </div>
+            )}
           </div>
         )}
 
@@ -393,9 +445,29 @@ function ExchangeCheckoutModal({
                       inputMode="numeric"
                     />
                   </div>
+                  <div>
+                    <Label className="kiosk-pos-label">Monto del voucher</Label>
+                    <Input
+                      className="kiosk-pos-input-lg"
+                      type="number"
+                      min="0.01"
+                      step="0.01"
+                      value={cardVoucherAmount}
+                      onChange={(e) => setCardVoucherAmount(e.target.value)}
+                    />
+                  </div>
                 </>
               )}
             </div>
+            {showVoucherDiff && (
+              <div
+                className="alert alert-warning py-2 mt-2 mb-0"
+                role="alert"
+                style={{ fontSize: "0.9rem" }}
+              >
+                <strong>{formatVoucherDiffAlert(voucherDiff, expectedCardAmount)}</strong>
+              </div>
+            )}
             {totalDue > 0 && (
               <div className="kiosk-pos-change-box mt-3">
                 <div className="kiosk-pos-change-label">Cambio efectivo</div>

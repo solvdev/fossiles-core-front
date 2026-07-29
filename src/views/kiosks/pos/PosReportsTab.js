@@ -1174,7 +1174,9 @@ function PosReportsTab({
               <tr>
                 <th>No. Factura</th>
                 <th>Tarjeta</th>
-                <th>Monto</th>
+                <th>Voucher</th>
+                <th>Factura</th>
+                <th>Dif.</th>
                 <th>Descripcion</th>
                 <th>Fecha</th>
               </tr>
@@ -1182,24 +1184,34 @@ function PosReportsTab({
             <tbody>
               {vouchersLoading && (
                 <tr>
-                  <td colSpan="5" className="text-center text-muted">
+                  <td colSpan="7" className="text-center text-muted">
                     <Spinner size="sm" className="mr-1" /> Cargando vouchers…
                   </td>
                 </tr>
               )}
               {!vouchersLoading &&
-                voucherRows.map((row) => (
+                voucherRows.map((row) => {
+                  const diff = Number(row?.difference || 0);
+                  const hasDiff = Math.abs(diff) > 0.009;
+                  return (
                   <tr key={`voucher-${row.id}`}>
                     <td>{row.invoiceNumber || "—"}</td>
                     <td>{row.cardBrand || "VISA"}</td>
                     <td>{formatCurrency(row.amount)}</td>
+                    <td>{formatCurrency(row.invoiceCardAmount ?? row.amount)}</td>
+                    <td className={hasDiff ? (diff > 0 ? "text-warning font-weight-bold" : "text-info font-weight-bold") : ""}>
+                      {hasDiff
+                        ? `${diff > 0 ? "+" : ""}${formatCurrency(diff)} ${diff > 0 ? "de más" : "de menos"}`
+                        : "—"}
+                    </td>
                     <td>{row.description || "—"}</td>
                     <td>{formatVoucherDateTime(row.soldAt)}</td>
                   </tr>
-                ))}
+                  );
+                })}
               {!vouchersLoading && voucherRows.length === 0 && (
                 <tr>
-                  <td colSpan="5" className="text-center text-muted">
+                  <td colSpan="7" className="text-center text-muted">
                     No hay ventas con tarjeta para el filtro seleccionado.
                   </td>
                 </tr>
@@ -1210,7 +1222,7 @@ function PosReportsTab({
                     Total
                   </td>
                   <td className="font-weight-bold">{formatCurrency(vouchersTotal)}</td>
-                  <td colSpan="2" />
+                  <td colSpan="4" />
                 </tr>
               )}
             </tbody>

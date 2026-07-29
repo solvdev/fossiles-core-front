@@ -65,6 +65,7 @@ function PosSaleDetailModal({
   const [cardAuthNumber, setCardAuthNumber] = useState("");
   const [cardLast4, setCardLast4] = useState("");
   const [cardBrand, setCardBrand] = useState(DEFAULT_POS_CARD_BRAND);
+  const [cardVoucherAmount, setCardVoucherAmount] = useState("");
   const [savingPayment, setSavingPayment] = useState(false);
   const [voidReason, setVoidReason] = useState("");
   const [voidConfirmOpen, setVoidConfirmOpen] = useState(false);
@@ -84,6 +85,13 @@ function PosSaleDetailModal({
     setCardAuthNumber(sale.cardAuthNumber || "");
     setCardLast4(sale.cardLast4 || "");
     setCardBrand(sale.cardBrand || DEFAULT_POS_CARD_BRAND);
+    setCardVoucherAmount(
+      sale.cardVoucherAmount != null
+        ? String(sale.cardVoucherAmount)
+        : sale.cardAmount != null
+          ? String(sale.cardAmount)
+          : ""
+    );
     setDepositSlipNumber(sale.depositSlipNumber || "");
     setEditingPayment(false);
   }, [sale?.id, sale?.paymentMethod, sale?.depositSlipNumber]);
@@ -117,7 +125,12 @@ function PosSaleDetailModal({
     paymentMethod === "TARJETA" || (paymentMethod === "MIXTO" && Number(cardAmount || 0) > 0);
   const cardDataIncomplete =
     requiresCardData
-    && (!cardAuthNumber.trim() || !/^\d{4}$/.test(cardLast4.trim()) || !cardBrand.trim());
+    && (
+      !cardAuthNumber.trim()
+      || !/^\d{4}$/.test(cardLast4.trim())
+      || !cardBrand.trim()
+      || !(Number(cardVoucherAmount || 0) > 0)
+    );
 
   const handleRegisterDeposit = async () => {
     if (!sale?.id || !depositSlipNumber.trim()) {
@@ -217,7 +230,7 @@ function PosSaleDetailModal({
   const handleSavePayment = async () => {
     if (!sale?.id) return;
     if (cardDataIncomplete) {
-      showError("Indica marca, autorización y últimos 4 dígitos de la tarjeta.");
+      showError("Indica marca, autorización, últimos 4 dígitos y monto del voucher.");
       return;
     }
     try {
@@ -232,6 +245,7 @@ function PosSaleDetailModal({
           cardAuthNumber: requiresCardData ? cardAuthNumber.trim() : null,
           cardLast4: requiresCardData ? cardLast4.trim() : null,
           cardBrand: requiresCardData ? cardBrand.trim() : null,
+          cardVoucherAmount: requiresCardData ? Number(cardVoucherAmount) : null,
         },
         kioskLocationId ? Number(kioskLocationId) : undefined
       );
@@ -420,7 +434,7 @@ function PosSaleDetailModal({
                     )}
                     {requiresCardData && (
                       <div className="row">
-                        <div className="col-md-4">
+                        <div className="col-md-3">
                           <Label className="kiosk-pos-label">Marca de tarjeta</Label>
                           <Input
                             type="select"
@@ -434,7 +448,7 @@ function PosSaleDetailModal({
                             ))}
                           </Input>
                         </div>
-                        <div className="col-md-4">
+                        <div className="col-md-3">
                           <Label className="kiosk-pos-label">Número de autorización</Label>
                           <Input
                             value={cardAuthNumber}
@@ -442,7 +456,7 @@ function PosSaleDetailModal({
                             placeholder="Ej: 123456"
                           />
                         </div>
-                        <div className="col-md-4">
+                        <div className="col-md-3">
                           <Label className="kiosk-pos-label">Últimos 4 dígitos</Label>
                           <Input
                             value={cardLast4}
@@ -452,11 +466,21 @@ function PosSaleDetailModal({
                             inputMode="numeric"
                           />
                         </div>
+                        <div className="col-md-3">
+                          <Label className="kiosk-pos-label">Monto del voucher</Label>
+                          <Input
+                            type="number"
+                            min="0.01"
+                            step="0.01"
+                            value={cardVoucherAmount}
+                            onChange={(e) => setCardVoucherAmount(e.target.value)}
+                          />
+                        </div>
                       </div>
                     )}
                     {cardDataIncomplete && (
                       <p className="text-danger small mt-1 mb-0">
-                        Indica marca, autorización y últimos 4 dígitos de la tarjeta.
+                        Indica marca, autorización, últimos 4 dígitos y monto del voucher.
                       </p>
                     )}
                     <div className="mt-2">

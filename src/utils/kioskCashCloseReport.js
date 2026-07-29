@@ -145,6 +145,11 @@ const reportStyles = `
 export const buildKioskCashCloseReportBodyHtml = (report) => {
   const sales = Array.isArray(report?.sales) ? report.sales : [];
   const disbursements = Array.isArray(report?.disbursements) ? report.disbursements : [];
+  const voucherDiffSales = sales.filter((line) => {
+    const d1 = Number(line?.cardVoucherDifference || 0);
+    const d2 = Number(line?.card2VoucherDifference || 0);
+    return Math.abs(d1) > 0.009 || Math.abs(d2) > 0.009 || String(line?.voucherDifferenceNote || "").trim();
+  });
 
   const saleRows = sales.map((line) => `
     <tr class="${cashClosePaymentRowClass(line.paymentKind)}">
@@ -155,6 +160,21 @@ export const buildKioskCashCloseReportBodyHtml = (report) => {
       <td>${escapeHtml(formatCashCloseDateTime(line.soldAt))}</td>
     </tr>`).join("");
 
+  const voucherDiffRows = voucherDiffSales.map((line) => {
+    const note = line.voucherDifferenceNote
+      || formatCashCloseVoucherDiffLine(line.cardVoucherDifference, line.card2VoucherDifference);
+    return `
+    <tr class="voucher-diff">
+      <td>${escapeHtml(line.saleNumber || "—")}</td>
+      <td>${escapeHtml(line.invoiceNumber || "—")}</td>
+      <td>${escapeHtml(note || "—")}</td>
+      <td class="num amount">${escapeHtml(formatCashCloseMoneyQ(
+        Number(line.cardVoucherDifference || 0) + Number(line.card2VoucherDifference || 0)
+      ))}</td>
+      <td>${escapeHtml(formatCashCloseDateTime(line.soldAt))}</td>
+    </tr>`;
+  }).join("");
+
   const disbursementRows = disbursements.map((d) => `
     <tr class="disbursement">
       <td colspan="2"><strong>DESEMBOLSO</strong></td>
@@ -164,6 +184,7 @@ export const buildKioskCashCloseReportBodyHtml = (report) => {
     </tr>`).join("");
 
   const hasDisbursements = disbursements.length > 0;
+  const hasVoucherDiffs = voucherDiffSales.length > 0;
 
   return `
   <div class="kiosk-cash-close-report">
@@ -202,6 +223,39 @@ export const buildKioskCashCloseReportBodyHtml = (report) => {
       </tr>` : ""}
     </tbody>
   </table>
+
+  ${hasVoucherDiffs ? `
+  <div class="title" style="margin-top:14px;font-size:12pt">DIFERENCIAS VOUCHER VS FACTURA</div>
+  <div class="meta">Informativo: no altera el monto de cierre ni la factura FEL.</div>
+  <table class="sales">
+    <thead>
+      <tr>
+        <th>Venta</th>
+        <th>Factura</th>
+        <th>Detalle</th>
+        <th class="num">Dif.</th>
+        <th>Fecha</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${voucherDiffRows}
+      <tr class="subtotal">
+        <td colspan="3" style="text-align:right">Total diferencias voucher</td>
+        <td class="num">${escapeHtml(formatCashCloseMoneyQ(report?.cardVoucherDifferencesTotal))}</td>
+        <td></td>
+      </tr>
+      <tr>
+        <td colspan="3" style="text-align:right">Total vouchers (terminal)</td>
+        <td class="num">${escapeHtml(formatCashCloseMoneyQ(report?.cardVoucherTotal))}</td>
+        <td></td>
+      </tr>
+      <tr>
+        <td colspan="3" style="text-align:right">Total tarjeta en facturas</td>
+        <td class="num">${escapeHtml(formatCashCloseMoneyQ(report?.cardInvoiceCardTotal))}</td>
+        <td></td>
+      </tr>
+    </tbody>
+  </table>` : ""}
 
   <div class="summary">
     <div class="summary-row">
@@ -253,8 +307,22 @@ export const buildKioskCashCloseReportBodyHtml = (report) => {
     <p><strong>Monto Cierre:</strong> Apertura + Tarjeta + Total de Efectivo.</p>
     <p><strong>Monto Total:</strong> Monto Cierre − Apertura (ventas del día).</p>
     <p><strong>Diferencia:</strong> efectivo contado físicamente − efectivo esperado en caja.</p>
+    <p><strong>Dif. voucher:</strong> monto del voucher del terminal − monto de tarjeta en la factura. No modifica FEL ni el total de ventas del cierre.</p>
   </div>
   </div>`;
+};
+
+const formatCashCloseVoucherDiffLine = (diff1, diff2) => {
+  const parts = [];
+  const d1 = Number(diff1 || 0);
+  const d2 = Number(diff2 || 0);
+  if (Math.abs(d1) > 0.009) {
+    parts.push(`Dif. ${formatCashCloseMoneyQ(Math.abs(d1))} ${d1 > 0 ? "de más" : "de menos"}`);
+  }
+  if (Math.abs(d2) > 0.009) {
+    parts.push(`Tarjeta 2: Dif. ${formatCashCloseMoneyQ(Math.abs(d2))} ${d2 > 0 ? "de más" : "de menos"}`);
+  }
+  return parts.join(" · ");
 };
 
 export const getKioskCashCloseReportStyles = () => reportStyles;
@@ -343,6 +411,35 @@ export const exportKioskCashCloseToExcel = (report) => {
   aoa.push(["Apertura", Number(report.openingAmount || 0)]);
   aoa.push(["Monto Total", Number(report.salesDayTotal || 0)]);
   aoa.push(["Diferencia", Number(report.variance || 0)]);
+
+  const voucherDiffSales = sales.filter((line) => {
+    const d1 = Number(line?.cardVoucherDifference || 0);
+    const d2 = Number(line?.card2VoucherDifference || 0);
+    return Math.abs(d1) > 0.009 || Math.abs(d2) > 0.009 || String(line?.voucherDifferenceNote || "").trim();
+  });
+  if (voucherDiffSales.length > 0) {
+    aoa.push([]);
+    aoa.push(["DIFERENCIAS VOUCHER VS FACTURA (informativo; no altera FEL ni cierre)"]);
+    aoa.push(["Venta", "Factura", "Detalle", "Dif.", "Fecha"]);
+    voucherDiffSales.forEach((line) => {
+      aoa.push([
+        line.saleNumber || "—",
+        line.invoiceNumber || "—",
+        line.voucherDifferenceNote || "—",
+        Number(line.cardVoucherDifference || 0) + Number(line.card2VoucherDifference || 0),
+        formatCashCloseDateTime(line.soldAt),
+      ]);
+    });
+    aoa.push([
+      "",
+      "",
+      "Total diferencias voucher",
+      Number(report.cardVoucherDifferencesTotal || 0),
+      "",
+    ]);
+    aoa.push(["", "", "Total vouchers (terminal)", Number(report.cardVoucherTotal || 0), ""]);
+    aoa.push(["", "", "Total tarjeta en facturas", Number(report.cardInvoiceCardTotal || 0), ""]);
+  }
 
   const ws = XLSX.utils.aoa_to_sheet(aoa);
   ws["!cols"] = [

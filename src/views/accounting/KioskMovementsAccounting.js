@@ -21,16 +21,44 @@ import {
 } from "utils/kioskMovementHelper";
 import { showError } from "utils/notificationHelper";
 
-function CardPaymentDetail({ auth, last4, brand, auth2, last4_2, brand2 }) {
-  const hasCard1 = auth || last4 || brand;
-  const hasCard2 = auth2 || last4_2 || brand2;
+function CardPaymentDetail({
+  auth,
+  last4,
+  brand,
+  voucherAmount,
+  voucherDiff,
+  auth2,
+  last4_2,
+  brand2,
+  voucherAmount2,
+  voucherDiff2,
+}) {
+  const hasCard1 = auth || last4 || brand || voucherAmount != null;
+  const hasCard2 = auth2 || last4_2 || brand2 || voucherAmount2 != null;
   if (!hasCard1 && !hasCard2) return "—";
-  const fmt = (b, l, a) =>
-    [b, l ? `****${l}` : null, a ? `Auth: ${a}` : null].filter(Boolean).join(" · ");
+  const fmt = (b, l, a, voucher, diff) => {
+    const parts = [b, l ? `****${l}` : null, a ? `Auth: ${a}` : null];
+    if (voucher != null && voucher !== "") {
+      const v = Number(voucher);
+      const d = diff != null ? Number(diff) : null;
+      if (Number.isFinite(v)) {
+        let voucherLabel = `Voucher Q${v.toFixed(2)}`;
+        if (Number.isFinite(d) && Math.abs(d) > 0.009) {
+          voucherLabel += ` (dif. ${d > 0 ? "+" : ""}Q${d.toFixed(2)})`;
+        }
+        parts.push(voucherLabel);
+      }
+    }
+    return parts.filter(Boolean).join(" · ");
+  };
   return (
     <div style={{ fontSize: "0.78rem", lineHeight: 1.4 }}>
-      {hasCard1 && <div>{fmt(brand, last4, auth)}</div>}
-      {hasCard2 && <div className="text-muted">{fmt(brand2, last4_2, auth2)}</div>}
+      {hasCard1 && <div>{fmt(brand, last4, auth, voucherAmount, voucherDiff)}</div>}
+      {hasCard2 && (
+        <div className="text-muted">
+          {fmt(brand2, last4_2, auth2, voucherAmount2, voucherDiff2)}
+        </div>
+      )}
     </div>
   );
 }
@@ -332,9 +360,13 @@ export default function KioskMovementsAccounting() {
                     auth={m.cardAuthNumber}
                     last4={m.cardLast4}
                     brand={m.cardBrand}
+                    voucherAmount={m.cardVoucherAmount}
+                    voucherDiff={m.cardVoucherDifference}
                     auth2={m.card2AuthNumber}
                     last4_2={m.card2Last4}
                     brand2={m.card2Brand}
+                    voucherAmount2={m.card2VoucherAmount}
+                    voucherDiff2={m.card2VoucherDifference}
                   />
                 </td>
                 <td>

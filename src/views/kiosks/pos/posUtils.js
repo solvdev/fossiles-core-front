@@ -63,6 +63,15 @@ export const POS_COLOR_SWATCHES = {
 };
 
 export const formatCurrency = (value) => `Q ${Number(value || 0).toFixed(2)}`;
+
+/** Aviso al capturar voucher distinto al monto de factura. */
+export const formatVoucherDiffAlert = (diff, invoiceAmount) => {
+  const d = Number(diff || 0);
+  if (!Number.isFinite(d) || Math.abs(d) < 0.009) return null;
+  const abs = Math.abs(d);
+  const side = d > 0 ? "DE MÁS" : "DE MENOS";
+  return `Hay una diferencia de ${formatCurrency(abs)} ${side} en el voucher. La factura queda en ${formatCurrency(invoiceAmount)} y NO se modifica.`;
+};
 export const formatQty = (value) => Number(value || 0).toFixed(2);
 
 export const normalizePosHardwareCondition = (value) =>
@@ -728,21 +737,47 @@ const formatSingleCardDetail = (brand, authNumber, last4, amount) => {
 
 export const formatSaleCardPaymentDetail = (sale) => {
   if (!sale) return "";
-  const card1 = formatSingleCardDetail(
-    sale.cardBrand,
-    sale.cardAuthNumber,
-    sale.cardLast4,
-    hasSplitCardPayment(sale) ? sale.cardAmount : null
-  );
+  const fmtVoucher = (voucherAmt, expectedAmt, diff) => {
+    if (voucherAmt == null || voucherAmt === "") return "";
+    const v = Number(voucherAmt);
+    if (!Number.isFinite(v)) return "";
+    const d = diff != null ? Number(diff) : v - Number(expectedAmt || 0);
+    if (Number.isFinite(d) && Math.abs(d) > 0.009) {
+      return `Voucher ${formatCurrency(v)} (dif. ${d > 0 ? "+" : ""}${formatCurrency(d)})`;
+    }
+    return `Voucher ${formatCurrency(v)}`;
+  };
+  const card1Parts = [
+    formatSingleCardDetail(
+      sale.cardBrand,
+      sale.cardAuthNumber,
+      sale.cardLast4,
+      hasSplitCardPayment(sale) ? sale.cardAmount : null
+    ),
+    fmtVoucher(
+      sale.cardVoucherAmount,
+      sale.cardAmount,
+      sale.cardVoucherDifference
+    ),
+  ].filter(Boolean);
+  const card1 = card1Parts.join(" · ");
   if (!hasSplitCardPayment(sale)) {
     return card1;
   }
-  const card2 = formatSingleCardDetail(
-    sale.card2Brand,
-    sale.card2AuthNumber,
-    sale.card2Last4,
-    sale.card2Amount
-  );
+  const card2Parts = [
+    formatSingleCardDetail(
+      sale.card2Brand,
+      sale.card2AuthNumber,
+      sale.card2Last4,
+      sale.card2Amount
+    ),
+    fmtVoucher(
+      sale.card2VoucherAmount,
+      sale.card2Amount,
+      sale.card2VoucherDifference
+    ),
+  ].filter(Boolean);
+  const card2 = card2Parts.join(" · ");
   const lines = [];
   if (card1) lines.push(`Tarjeta 1: ${card1}`);
   if (card2) lines.push(`Tarjeta 2: ${card2}`);
