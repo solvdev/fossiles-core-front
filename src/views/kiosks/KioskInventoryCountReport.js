@@ -61,6 +61,7 @@ import {
   hexCss,
 } from "utils/kioscoConteoColorLegend";
 import { PRODUCT_AUDIENCE_OPTIONS, productMatchesAudienceFilter } from "utils/productAudienceHelper";
+import { FilterableSelect } from "components/distribution/FilterableSelect";
 import {
   CINCHO_FILTER_OPTIONS,
   shouldShowInKioskPhysicalCount,
@@ -800,6 +801,7 @@ function KioskInventoryCountReport({ locationId, internalMode = false }) {
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [audienceFilter, setAudienceFilter] = useState("");
   const [cinchoFilter, setCinchoFilter] = useState("");
+  const [productCategoryFilter, setProductCategoryFilter] = useState("");
   const [showKardex, setShowKardex] = useState(() => !internalMode);
   const [editedSizeCounts, setEditedSizeCounts] = useState({});
   const [editedSizeCountsByLocation, setEditedSizeCountsByLocation] = useState({});
@@ -846,6 +848,18 @@ function KioskInventoryCountReport({ locationId, internalMode = false }) {
     if (!displayReport?.categories) return [];
     return displayReport.categories
       .map((category) => {
+        if (productCategoryFilter) {
+          const catId = category.categoryId != null ? String(category.categoryId) : "none";
+          const catName = String(category.categoryName || "").trim().toLowerCase();
+          const filter = String(productCategoryFilter);
+          if (filter === "none") {
+            if (category.categoryId != null && catName && catName !== "sin categoría" && catName !== "sin categoria") {
+              return null;
+            }
+          } else if (catId !== filter && catName !== filter.toLowerCase()) {
+            return null;
+          }
+        }
         const rows = category.rows.filter(
           (row) =>
             shouldShowInKioskPhysicalCount(row)
@@ -860,7 +874,35 @@ function KioskInventoryCountReport({ locationId, internalMode = false }) {
         return { ...category, rows: rowsWithLiveTotals, subtotal: sumFilteredRows(rowsWithLiveTotals) };
       })
       .filter(Boolean);
-  }, [displayReport, debouncedSearch, audienceFilter, cinchoFilter, editedCounts, editedSizeCounts, editedSizeCountsByLocation]);
+  }, [
+    displayReport,
+    debouncedSearch,
+    audienceFilter,
+    cinchoFilter,
+    productCategoryFilter,
+    editedCounts,
+    editedSizeCounts,
+    editedSizeCountsByLocation,
+  ]);
+
+  const productCategoryOptions = useMemo(() => {
+    const map = new Map();
+    (displayReport?.categories || []).forEach((category) => {
+      const id = category.categoryId != null ? String(category.categoryId) : "none";
+      if (map.has(id)) return;
+      map.set(id, {
+        value: id,
+        label: category.categoryName || "Sin categoría",
+        searchText: category.categoryName || "sin categoria",
+      });
+    });
+    return [
+      { value: "", label: "Todas las categorías", searchText: "todas" },
+      ...Array.from(map.values()).sort((a, b) =>
+        a.label.localeCompare(b.label, "es", { sensitivity: "base" })
+      ),
+    ];
+  }, [displayReport]);
 
   const allReportRows = useMemo(
     () => (displayReport?.categories || []).flatMap((category) => category.rows),
@@ -1995,7 +2037,18 @@ function KioskInventoryCountReport({ locationId, internalMode = false }) {
 
           {/* ── Filtros ── */}
           <Row className="mb-3">
-            <Col md="4">
+            <Col md="3">
+              <FormGroup className="mb-0">
+                <Label style={{ fontSize: 12 }}>Categoría de producto</Label>
+                <FilterableSelect
+                  options={productCategoryOptions}
+                  value={productCategoryFilter}
+                  onChange={setProductCategoryFilter}
+                  placeholder="Todas las categorías..."
+                />
+              </FormGroup>
+            </Col>
+            <Col md="3">
               <FormGroup className="mb-0">
                 <Label style={{ fontSize: 12 }}>Buscar producto</Label>
                 <Input
@@ -2006,7 +2059,7 @@ function KioskInventoryCountReport({ locationId, internalMode = false }) {
                 />
               </FormGroup>
             </Col>
-            <Col md="8">
+            <Col md="6">
               <Label style={{ fontSize: 12 }}>Filtros</Label>
               <div className="d-flex flex-wrap" style={{ gap: 6 }}>
                 <Button
