@@ -176,13 +176,16 @@ function PosCashClosuresTab({ kioskLocationId, isAdmin, kiosks }) {
                 <th>Usuario</th>
                 <th className="text-right">Ventas</th>
                 <th className="text-right">Desembolsos</th>
-                <th className="text-right">Diferencia</th>
+                <th className="text-right">Dif. efectivo</th>
+                <th className="text-right">Dif. voucher</th>
                 <th style={{ minWidth: 220 }}>Acciones</th>
               </tr>
             </thead>
             <tbody>
               {rows.map((row) => {
                 const busy = busySessionId === row.sessionId;
+                const voucherDiff = Number(row.cardVoucherDifferencesTotal || 0);
+                const hasVoucherDiff = Math.abs(voucherDiff) > 0.009;
                 return (
                   <tr key={row.sessionId}>
                     <td>{row.kioskName || row.kioskCode || "—"}</td>
@@ -194,6 +197,26 @@ function PosCashClosuresTab({ kioskLocationId, isAdmin, kiosks }) {
                     </td>
                     <td className="text-right">{formatCurrency(row.disbursementsTotal)}</td>
                     <td className="text-right">{formatCurrency(row.variance)}</td>
+                    <td
+                      className={`text-right ${
+                        hasVoucherDiff
+                          ? voucherDiff > 0
+                            ? "text-warning font-weight-bold"
+                            : "text-info font-weight-bold"
+                          : ""
+                      }`}
+                      title={
+                        hasVoucherDiff
+                          ? voucherDiff > 0
+                            ? "Vouchers cobraron de más vs factura"
+                            : "Vouchers cobraron de menos vs factura"
+                          : "Sin diferencia de voucher"
+                      }
+                    >
+                      {hasVoucherDiff
+                        ? `${voucherDiff > 0 ? "+" : ""}${formatCurrency(voucherDiff)}`
+                        : formatCurrency(0)}
+                    </td>
                     <td>
                       <Button
                         color="secondary"
