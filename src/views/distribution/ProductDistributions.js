@@ -13,6 +13,7 @@ import {
   Spinner,
   Collapse,
   Input,
+  Label,
   Modal,
   ModalHeader,
   ModalBody,
@@ -25,9 +26,25 @@ import {
 } from "services/productDistributionService";
 import { getAuthHeader } from "services/authService";
 import { showError, showSuccess } from "utils/notificationHelper";
-import { formatNowGt } from "utils/dateTimeHelper";
+import { formatNowGt, getTodayYmdGuatemala, shiftYmdGuatemala } from "utils/dateTimeHelper";
+import { FilterableSelect } from "components/distribution/FilterableSelect";
 import QRCode from "qrcode";
 import { getPublicFrontBaseUrl, buildPtDispatchDistributionUrl } from "utils/ptDispatchQr";
+
+const RECENT_OPTIONS = [
+  { value: "7", label: "Últimos 7 días", searchText: "7 dias recientes" },
+  { value: "30", label: "Últimos 30 días", searchText: "30 dias recientes" },
+  { value: "90", label: "Últimos 90 días", searchText: "90 dias" },
+  { value: "ALL", label: "Todas las fechas", searchText: "todas" },
+];
+
+const STATUS_OPTIONS = [
+  { value: "", label: "Todos los estados", searchText: "todos" },
+  { value: "DRAFT", label: "Borrador", searchText: "borrador draft" },
+  { value: "CONFIRMED", label: "Confirmada", searchText: "confirmada" },
+  { value: "SENT", label: "Enviada", searchText: "enviada" },
+  { value: "COMPLETED", label: "Completada", searchText: "completada" },
+];
 
 function ProductDistributions() {
   const navigate = useNavigate();
@@ -36,6 +53,12 @@ function ProductDistributions() {
   const [reportLoadingId, setReportLoadingId] = useState(null);
   const [error, setError] = useState("");
   const [expandedDistributionId, setExpandedDistributionId] = useState(null);
+  const [filters, setFilters] = useState({
+    search: "",
+    status: "",
+    recent: "30",
+    kioskId: "",
+  });
   const [previewModal, setPreviewModal] = useState({
     open: false,
     distribution: null,
@@ -50,6 +73,9 @@ function ProductDistributions() {
     loadDistributions();
   }, []);
 
+  const setFilter = (key, value) =>
+    setFilters((prev) => ({ ...prev, [key]: value }));
+
   const loadDistributions = async () => {
     try {
       setLoading(true);
@@ -63,6 +89,80 @@ function ProductDistributions() {
       setLoading(false);
     }
   };
+
+  const kioskOptions = useMemo(() => {
+    const map = new Map();
+    (distributions || []).forEach((d) => {
+      (d.shipments || []).forEach((s) => {
+        if (s.locationId == null) return;
+        const id = String(s.locationId);
+        if (map.has(id)) return;
+        map.set(id, {
+          value: id,
+          label: `${s.locationName || "Kiosko"} (${s.locationCode || id})`,
+          searchText: `${s.locationName || ""} ${s.locationCode || ""}`,
+        });
+      });
+    });
+    return [
+      { value: "", label: "Todos los kioskos", searchText: "todos" },
+      ...Array.from(map.values()).sort((a, b) =>
+        a.label.localeCompare(b.label, "es", { sensitivity: "base" })
+      ),
+    ];
+  }, [distributions]);
+
+  const filteredDistributions = useMemo(() => {
+    const term = String(filters.search || "").trim().toLowerCase();
+    const status = String(filters.status || "").toUpperCase();
+    const kioskId = String(filters.kioskId || "");
+    let minDate = null;
+    if (filters.recent && filters.recent !== "ALL") {
+      const days = Number(filters.recent);
+      if (Number.isFinite(days) && days > 0) {
+        minDate = shiftYmdGuatemala(getTodayYmdGuatemala(), -(days - 1));
+      }
+    }
+
+    return (distributions || [])
+      .filter((d) => {
+        if (status && String(d.status || "").toUpperCase() !== status) return false;
+        if (minDate) {
+          const date = String(d.distributionDate || "").slice(0, 10);
+          if (date && date < minDate) return false;
+        }
+        if (kioskId) {
+          const hits = (d.shipments || []).some(
+            (s) => String(s.locationId) === kioskId
+          );
+          if (!hits) return false;
+        }
+        if (!term) return true;
+        const hay = [
+          d.distributionNumber,
+          d.description,
+          d.productionOrderCode,
+          d.status,
+          ...(d.shipments || []).flatMap((s) => [
+            s.locationName,
+            s.locationCode,
+            s.shipmentNumber,
+          ]),
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase();
+        return hay.includes(term);
+      })
+      .sort((a, b) => {
+        const da = String(a.distributionDate || a.createdAt || "");
+        const db = String(b.distributionDate || b.createdAt || "");
+        return db.localeCompare(da);
+      });
+  }, [distributions, filters]);
+
+  const clearFilters = () =>
+    setFilters({ search: "", status: "", recent: "30", kioskId: "" });
 
   const handleDelete = async (id, distributionNumber) => {
     if (!window.confirm(`¿Está seguro de eliminar la distribución ${distributionNumber}?`)) {
@@ -696,6 +796,55 @@ function ProductDistributions() {
                 </Alert>
               )}
 
+              <Row className="mb-3 g-2 align-items-end">
+                <Col md="3">
+                  <Label className="mb-1 small fw-semibold">Buscar</Label>
+                  <Input
+                    bsSize="sm"
+                    type="search"
+                    placeholder="Número, kiosko, OP, descripción..."
+                    value={filters.search}
+                    onChange={(e) => setFilter("search", e.target.value)}
+                  />
+                </Col>
+                <Col md="2">
+                  <Label className="mb-1 small fw-semibold">Recientes</Label>
+                  <FilterableSelect
+                    options={RECENT_OPTIONS}
+                    value={filters.recent}
+                    onChange={(v) => setFilter("recent", v || "30")}
+                    allowEmpty={false}
+                    placeholder="Periodo..."
+                  />
+                </Col>
+                <Col md="2">
+                  <Label className="mb-1 small fw-semibold">Estado</Label>
+                  <FilterableSelect
+                    options={STATUS_OPTIONS}
+                    value={filters.status}
+                    onChange={(v) => setFilter("status", v)}
+                    placeholder="Estado..."
+                  />
+                </Col>
+                <Col md="3">
+                  <Label className="mb-1 small fw-semibold">Kiosko</Label>
+                  <FilterableSelect
+                    options={kioskOptions}
+                    value={filters.kioskId}
+                    onChange={(v) => setFilter("kioskId", v)}
+                    placeholder="Filtrar por kiosko..."
+                  />
+                </Col>
+                <Col md="2" className="d-flex gap-2 align-items-end">
+                  <Button color="secondary" size="sm" outline onClick={clearFilters}>
+                    Limpiar
+                  </Button>
+                  <small className="text-muted mb-1">
+                    {filteredDistributions.length}/{distributions.length}
+                  </small>
+                </Col>
+              </Row>
+
               {loading ? (
                 <div className="text-center py-5">
                   <Spinner color="primary" />
@@ -705,6 +854,10 @@ function ProductDistributions() {
                 <Alert color="info" className="mt-3">
                   No hay distribuciones registradas. Haz clic en "Nueva Distribución" para crear una.
                 </Alert>
+              ) : filteredDistributions.length === 0 ? (
+                <Alert color="warning" className="mt-3">
+                  Ninguna distribución coincide con los filtros. Ajusta búsqueda, fechas o kiosko.
+                </Alert>
               ) : (
                 <Table responsive>
                   <thead className="text-primary">
@@ -713,14 +866,25 @@ function ProductDistributions() {
                       <th>Fecha</th>
                       <th>Estado</th>
                       <th>Envíos</th>
+                      <th>Kioskos</th>
                       <th>Orden de Producción</th>
                       <th>Descripción</th>
                       <th>Acciones</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {distributions.map((distribution) => {
+                    {filteredDistributions.map((distribution) => {
                       const expanded = expandedDistributionId === distribution.id;
+                      const kioskLabels = Array.from(
+                        new Map(
+                          (distribution.shipments || [])
+                            .filter((s) => s.locationId != null)
+                            .map((s) => [
+                              String(s.locationId),
+                              s.locationName || s.locationCode || `#${s.locationId}`,
+                            ])
+                        ).values()
+                      );
                       return (
                         <React.Fragment key={distribution.id}>
                           <tr className={expanded ? "table-active" : ""}>
@@ -731,6 +895,18 @@ function ProductDistributions() {
                             <td>{getStatusBadge(distribution.status)}</td>
                             <td>
                               <Badge color="info">{distribution.shipmentCount || 0}</Badge>
+                            </td>
+                            <td>
+                              {kioskLabels.length === 0 ? (
+                                <small className="text-muted">—</small>
+                              ) : (
+                                <small>
+                                  {kioskLabels.slice(0, 2).join(", ")}
+                                  {kioskLabels.length > 2
+                                    ? ` +${kioskLabels.length - 2}`
+                                    : ""}
+                                </small>
+                              )}
                             </td>
                             <td>
                               {distribution.productionOrderCode ? (
@@ -766,7 +942,7 @@ function ProductDistributions() {
                             </td>
                           </tr>
                           <tr>
-                            <td colSpan="7" className="p-0 border-0">
+                            <td colSpan="8" className="p-0 border-0">
                               <Collapse isOpen={expanded}>
                                 <div className="p-3 mb-2" style={{ background: "#f7fbfc", border: "1px solid #e3edf0" }}>
                                   <Row>

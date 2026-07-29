@@ -32,7 +32,9 @@ import {
   completeDistribution,
 } from "services/productDistributionService";
 import { getProductInventoryByLocation, getProductInventoryByProductAndLocation } from "services/productInventoryService";
+import { getKioscoStock } from "services/kioscoInventoryService";
 import { getProducts } from "services/productService";
+import { getProductCategories } from "services/productCategoryService";
 import { getLocations } from "services/locationService";
 import { getColors } from "services/colorService";
 import { getAuthHeader } from "services/authService";
@@ -43,6 +45,7 @@ import {
   getHardwareConditionLabel,
   normalizeHardwareCondition,
 } from "utils/productCinchoHelper";
+import { FilterableSelect } from "components/distribution/FilterableSelect";
 import QRCode from "qrcode";
 import { getPublicFrontBaseUrl, buildPtDispatchDistributionUrl } from "utils/ptDispatchQr";
 
@@ -56,26 +59,74 @@ const RETURNS_WAREHOUSE_CODES = new Set([
   "BODEGA_RETURN",
 ]);
 
-/** Catálogo para envíos de distribución: no exige inventario previo en el kiosko. */
+/** Catálogo para envíos: stock actual del kiosko por producto/color (kiosco_stock). */
 async function loadDistributionProductCatalog(locationId) {
-  const [products, kioskInv] = await Promise.all([
+  const [products, kioskInv, kioscoStock, categories] = await Promise.all([
     getProducts(),
     getProductInventoryByLocation(locationId).catch(() => []),
+    getKioscoStock(locationId).catch(() => []),
+    getProductCategories().catch(() => []),
   ]);
-  const kioskQtyByProductId = new Map();
+
+  const categoryNameById = new Map();
+  (Array.isArray(categories) ? categories : []).forEach((c) => {
+    if (c?.id == null) return;
+    categoryNameById.set(Number(c.id), c.name || c.code || String(c.id));
+  });
+
+  const legacyQtyByProductId = new Map();
   (Array.isArray(kioskInv) ? kioskInv : []).forEach((row) => {
     const pid = Number(row.productId);
     if (!Number.isFinite(pid) || pid <= 0) return;
-    kioskQtyByProductId.set(pid, (kioskQtyByProductId.get(pid) || 0) + Number(row.quantity || 0));
+    legacyQtyByProductId.set(pid, (legacyQtyByProductId.get(pid) || 0) + Number(row.quantity || 0));
   });
+
+  const stockByProduct = new Map();
+  (Array.isArray(kioscoStock) ? kioscoStock : []).forEach((row) => {
+    const pid = Number(row.productId);
+    if (!Number.isFinite(pid) || pid <= 0) return;
+    const qty = Number(row.currentStock || 0);
+    const colorId = row.colorId != null ? Number(row.colorId) : null;
+    let entry = stockByProduct.get(pid);
+    if (!entry) {
+      entry = { total: 0, byColor: new Map() };
+      stockByProduct.set(pid, entry);
+    }
+    entry.total += qty;
+    if (colorId != null && Number.isFinite(colorId)) {
+      entry.byColor.set(colorId, (entry.byColor.get(colorId) || 0) + qty);
+    }
+  });
+
   return (Array.isArray(products) ? products : [])
     .filter((p) => p?.id != null)
-    .map((p) => ({
-      productId: Number(p.id),
-      productCode: p.code || p.productCode || "",
-      productName: p.name || p.productName || "",
-      quantity: kioskQtyByProductId.get(Number(p.id)) || 0,
-    }))
+    .map((p) => {
+      const pid = Number(p.id);
+      const stock = stockByProduct.get(pid);
+      const total =
+        stock != null
+          ? stock.total
+          : legacyQtyByProductId.get(pid) || 0;
+      const byColor = {};
+      if (stock?.byColor) {
+        stock.byColor.forEach((q, cid) => {
+          byColor[cid] = q;
+        });
+      }
+      const categoryId = p.categoryId != null ? Number(p.categoryId) : null;
+      return {
+        productId: pid,
+        productCode: p.code || p.productCode || "",
+        productName: p.name || p.productName || "",
+        categoryId,
+        categoryName:
+          categoryId != null
+            ? categoryNameById.get(categoryId) || `Cat. ${categoryId}`
+            : "Sin categoría",
+        quantity: total,
+        stockByColor: byColor,
+      };
+    })
     .sort((a, b) =>
       String(a.productCode).localeCompare(String(b.productCode), "es", { sensitivity: "base" })
     );
@@ -235,6 +286,9 @@ function ProductDistributionDetail() {
   const [showCompleteModal, setShowCompleteModal] = useState(false);
   const [generateProductionOrderOnComplete, setGenerateProductionOrderOnComplete] = useState(false);
   const [inventorySearch, setInventorySearch] = useState("");
+  const [inventoryCategoryId, setInventoryCategoryId] = useState("");
+  const [inventoryColorId, setInventoryColorId] = useState("");
+  const [inventoryStockFilter, setInventoryStockFilter] = useState(""); // "", "ZERO", "LOW", "HAS"
   const [onlySelectedProducts, setOnlySelectedProducts] = useState(false);
   const [inventoryPage, setInventoryPage] = useState(1);
   const [packingMaterials, setPackingMaterials] = useState([]);
@@ -631,6 +685,11 @@ function ProductDistributionDetail() {
       try {
         const invData = await loadDistributionProductCatalog(locationId);
         setInventory(invData || []);
+        setInventorySearch("");
+        setInventoryCategoryId("");
+        setInventoryColorId("");
+        setInventoryStockFilter("");
+        setOnlySelectedProducts(false);
       } catch (err) {
         console.error("Error loading product catalog:", err);
         setInventory([]);
@@ -653,6 +712,11 @@ function ProductDistributionDetail() {
       try {
         const invData = await loadDistributionProductCatalog(locationId);
         setInventory(invData || []);
+        setInventorySearch("");
+        setInventoryCategoryId("");
+        setInventoryColorId("");
+        setInventoryStockFilter("");
+        setOnlySelectedProducts(false);
       } catch (err) {
         console.error("Error loading product catalog:", err);
         setInventory([]);
@@ -974,16 +1038,108 @@ function ProductDistributionDetail() {
     return <Badge color={config.color}>{config.text}</Badge>;
   };
 
+  const categoryFilterOptions = useMemo(() => {
+    const map = new Map();
+    (inventory || []).forEach((item) => {
+      const id = item.categoryId != null ? String(item.categoryId) : "none";
+      if (map.has(id)) return;
+      map.set(id, {
+        value: id === "none" ? "none" : id,
+        label: item.categoryName || "Sin categoría",
+        searchText: item.categoryName || "sin categoria",
+      });
+    });
+    return [
+      { value: "", label: "Todas las categorías", searchText: "todas" },
+      ...Array.from(map.values()).sort((a, b) =>
+        a.label.localeCompare(b.label, "es", { sensitivity: "base" })
+      ),
+    ];
+  }, [inventory]);
+
+  const colorFilterOptions = useMemo(() => {
+    return [
+      { value: "", label: "Todos los colores", searchText: "todos" },
+      ...(colors || []).map((c) => ({
+        value: String(c.id),
+        label: c.name || String(c.id),
+        searchText: c.name || "",
+      })),
+    ];
+  }, [colors]);
+
+  const stockFilterOptions = [
+    { value: "", label: "Cualquier stock kiosko", searchText: "todos" },
+    { value: "ZERO", label: "Sin stock en kiosko (0)", searchText: "cero sin stock" },
+    { value: "LOW", label: "Stock bajo (1-3)", searchText: "bajo" },
+    { value: "HAS", label: "Con stock (>0)", searchText: "con stock" },
+  ];
+
+  const getKioskStockForRow = (item) => {
+    const colorRaw = shipmentColors[item.productId];
+    const colorId =
+      colorRaw === "" || colorRaw === null || colorRaw === undefined
+        ? null
+        : parseInt(colorRaw, 10);
+    if (colorId != null && Number.isFinite(colorId) && item.stockByColor) {
+      const byColor = Number(item.stockByColor[colorId]);
+      if (Number.isFinite(byColor)) return byColor;
+    }
+    return Number(item.quantity || 0);
+  };
+
   const filteredInventory = useMemo(() => {
     const search = (inventorySearch || "").toLowerCase().trim();
+    const cat = String(inventoryCategoryId || "");
+    const colorFilter = String(inventoryColorId || "");
+    const stockMode = String(inventoryStockFilter || "");
+
     return (inventory || []).filter((item) => {
       if (onlySelectedProducts && !hasSelectedProduct(item.productId)) return false;
+
+      if (cat) {
+        if (cat === "none") {
+          if (item.categoryId != null) return false;
+        } else if (String(item.categoryId) !== cat) {
+          return false;
+        }
+      }
+
+      if (colorFilter) {
+        const cid = Number(colorFilter);
+        const colorStock = item.stockByColor ? Number(item.stockByColor[cid] || 0) : 0;
+        // Mostrar si tiene ese color en stock, o si la fila ya lo tiene seleccionado
+        const selectedColor = String(shipmentColors[item.productId] || "");
+        if (colorStock <= 0 && selectedColor !== colorFilter) return false;
+      }
+
+      const stock = (() => {
+        if (colorFilter && item.stockByColor) {
+          return Number(item.stockByColor[Number(colorFilter)] || 0);
+        }
+        return Number(item.quantity || 0);
+      })();
+
+      if (stockMode === "ZERO" && stock !== 0) return false;
+      if (stockMode === "LOW" && !(stock > 0 && stock <= 3)) return false;
+      if (stockMode === "HAS" && !(stock > 0)) return false;
+
       if (!search) return true;
       const code = (item.productCode || "").toLowerCase();
       const name = (item.productName || "").toLowerCase();
-      return code.includes(search) || name.includes(search);
+      const category = (item.categoryName || "").toLowerCase();
+      return code.includes(search) || name.includes(search) || category.includes(search);
     });
-  }, [inventory, inventorySearch, onlySelectedProducts, shipmentProducts]);
+  }, [
+    inventory,
+    inventorySearch,
+    inventoryCategoryId,
+    inventoryColorId,
+    inventoryStockFilter,
+    onlySelectedProducts,
+    shipmentProducts,
+    shipmentColors,
+  ]);
 
   const totalInventoryPages = Math.max(1, Math.ceil(filteredInventory.length / pageSize));
   const pagedInventory = useMemo(() => {
@@ -1110,7 +1266,14 @@ function ProductDistributionDetail() {
 
   useEffect(() => {
     setInventoryPage(1);
-  }, [selectedLocation, inventorySearch, onlySelectedProducts]);
+  }, [
+    selectedLocation,
+    inventorySearch,
+    inventoryCategoryId,
+    inventoryColorId,
+    inventoryStockFilter,
+    onlySelectedProducts,
+  ]);
 
   const formatDate = (dateString) => {
     if (!dateString) return "N/A";
@@ -1544,23 +1707,52 @@ function ProductDistributionDetail() {
                         <Label>
                           <strong>Catálogo de productos — cantidades a enviar</strong>
                           <small className="text-muted ml-2">
-                            (El kiosko puede tener stock 0; el envío sale de Bodega PT / devoluciones)
+                            (Stock Actual = inventario real del kiosko; el envío sale de Bodega PT / devoluciones)
                           </small>
                           <br />
                           <small className="text-muted">
-                            Stock devoluciones y Stock PT muestran la variante elegida (color y talla en CINCHO).
+                            Al elegir color se muestra el stock de esa variante. Filtra por categoría para armar el envío más rápido.
                           </small>
                         </Label>
-                        <Row className="mb-2">
-                          <Col md="5">
+                        <Row className="mb-2 align-items-end">
+                          <Col md="3">
+                            <Label className="mb-1 small">Categoría</Label>
+                            <FilterableSelect
+                              options={categoryFilterOptions}
+                              value={inventoryCategoryId}
+                              onChange={setInventoryCategoryId}
+                              placeholder="Categoría..."
+                            />
+                          </Col>
+                          <Col md="2">
+                            <Label className="mb-1 small">Color</Label>
+                            <FilterableSelect
+                              options={colorFilterOptions}
+                              value={inventoryColorId}
+                              onChange={setInventoryColorId}
+                              placeholder="Color..."
+                            />
+                          </Col>
+                          <Col md="2">
+                            <Label className="mb-1 small">Stock kiosko</Label>
+                            <FilterableSelect
+                              options={stockFilterOptions}
+                              value={inventoryStockFilter}
+                              onChange={setInventoryStockFilter}
+                              placeholder="Stock..."
+                            />
+                          </Col>
+                          <Col md="3">
+                            <Label className="mb-1 small">Buscar producto</Label>
                             <Input
                               type="search"
-                              placeholder="Buscar por código o producto..."
+                              bsSize="sm"
+                              placeholder="Código, nombre o categoría..."
                               value={inventorySearch}
                               onChange={(e) => setInventorySearch(e.target.value)}
                             />
                           </Col>
-                          <Col md="3" className="d-flex align-items-center">
+                          <Col md="2" className="d-flex align-items-center">
                             <Label check style={{ cursor: "pointer", marginBottom: 0 }}>
                               <Input
                                 type="checkbox"
@@ -1570,17 +1762,18 @@ function ProductDistributionDetail() {
                               {" "}Solo seleccionados
                             </Label>
                           </Col>
-                          <Col md="4" className="text-right d-flex align-items-center justify-content-end">
-                            <small className="text-muted">
-                              Mostrando {pagedInventory.length} de {filteredInventory.length} productos
-                            </small>
-                          </Col>
                         </Row>
+                        <div className="mb-2 text-right">
+                          <small className="text-muted">
+                            Mostrando {pagedInventory.length} de {filteredInventory.length} productos
+                          </small>
+                        </div>
                         <Table responsive striped>
                           <thead className="text-primary">
                             <tr>
                               <th>Código</th>
                               <th>Producto</th>
+                              <th>Categoría</th>
                               <th>Stock Actual en Kiosko</th>
                               <th>Color</th>
                               <th>Talla</th>
@@ -1593,7 +1786,8 @@ function ProductDistributionDetail() {
                           <tbody>
                             {pagedInventory.map((item) => {
                               const currentQty = getSelectedProductQty(item.productId);
-                              const stock = parseFloat(item.quantity || 0);
+                              const stock = getKioskStockForRow(item);
+                              const stockTotal = Number(item.quantity || 0);
                               const hasQuantity = currentQty > 0;
                               const isCincho = isCinchoProduct(item.productCode, item.productName);
                               const displayValue = quantityInputs[item.productId] !== undefined 
@@ -1642,9 +1836,30 @@ function ProductDistributionDetail() {
                                   <td>{item.productCode || "N/A"}</td>
                                   <td>{item.productName || "N/A"}</td>
                                   <td>
-                                    <strong className={stock === 0 ? "text-muted" : "text-primary"}>
-                                      {stock.toFixed(3)}
+                                    <small className="text-muted">{item.categoryName || "—"}</small>
+                                  </td>
+                                  <td>
+                                    <strong
+                                      className={
+                                        stock === 0
+                                          ? "text-danger"
+                                          : stock <= 3
+                                          ? "text-warning"
+                                          : "text-success"
+                                      }
+                                      title={
+                                        rowColorId != null
+                                          ? `Total producto en kiosko: ${stockTotal}`
+                                          : "Stock total del producto en el kiosko"
+                                      }
+                                    >
+                                      {Number.isFinite(stock) ? stock.toFixed(0) : "0"}
                                     </strong>
+                                    {rowColorId != null && stock !== stockTotal && (
+                                      <div>
+                                        <small className="text-muted">Total: {stockTotal}</small>
+                                      </div>
+                                    )}
                                   </td>
                                   <td>
                                     <Input
