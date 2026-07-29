@@ -145,6 +145,33 @@ export const updateProductionOrder = async (id, orderData) => {
   }
 };
 
+/** Solo precios (y opcional shippingCost); no recrea ítems — seguro con envíos existentes. */
+export const updateProductionOrderItemPrices = async (id, payload) => {
+  if (!id || id === 'undefined' || id === 'null') {
+    throw new Error('ID de orden de producción inválido');
+  }
+  try {
+    const response = await fetch(`${API_URL}/production-orders/${id}/item-prices`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        ...getAuthHeader()
+      },
+      body: JSON.stringify(payload)
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({ message: 'Error al actualizar precios' }));
+      throw new Error(errorData.message || 'Error al actualizar precios');
+    }
+
+    return await response.json();
+  } catch (error) {
+    console.error('Update production order item prices error:', error);
+    throw error;
+  }
+};
+
 /** Estado solo para OP CINCHOS_FOSSILES / CINCHOS_MARCAS (PENDING, IN_PROGRESS, COMPLETED, CANCELLED). */
 export const updateManagedCinchoOrderStatus = async (id, status) => {
   if (!id || id === 'undefined' || id === 'null') {

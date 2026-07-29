@@ -10,11 +10,11 @@ import {
   Spinner,
   Table,
 } from "reactstrap";
-import { getProductionOrderById, updateProductionOrder } from "services/productionOrderService";
+import { getProductionOrderById, updateProductionOrderItemPrices } from "services/productionOrderService";
 import { showError, showSuccess } from "utils/notificationHelper";
 import {
   applyOpvPricesToOrderItems,
-  buildOpvItemPriceUpdatePayload,
+  buildOpvItemPricesOnlyPayload,
   expandOrderItemsForOpvPriceLines,
   orderItemsHaveBrand,
 } from "utils/prepareShipmentsOrderHelper";
@@ -74,9 +74,9 @@ function OpvShipmentPriceReviewModal({
     setError("");
     try {
       const itemsWithPrices = applyOpvPricesToOrderItems(order, priceByLineId);
-      const payload = buildOpvItemPriceUpdatePayload(order, itemsWithPrices);
-      const updated = await updateProductionOrder(order.id, payload);
-      showSuccess("Precios guardados en la orden");
+      const payload = buildOpvItemPricesOnlyPayload(order, itemsWithPrices);
+      const updated = await updateProductionOrderItemPrices(order.id, payload);
+      showSuccess("Precios guardados (orden y envíos existentes)");
       if (onSaved) onSaved(updated);
       toggle();
     } catch (err) {
@@ -102,14 +102,13 @@ function OpvShipmentPriceReviewModal({
   return (
     <Modal isOpen={isOpen} toggle={toggle} size="xl">
       <ModalHeader toggle={toggle}>
-        Revisar precios — {order?.code || order?.vendorShipmentNumber || "OPV"}
+        Editar precios — {order?.code || order?.vendorShipmentNumber || "OP"}
       </ModalHeader>
       <ModalBody>
         {error && <Alert color="danger">{error}</Alert>}
         <Alert color="info" className="py-2">
-          Ajuste el precio unitario por artículo o talla antes de imprimir el envío. En cinchos puede fijar
-          precios distintos por talla (ej. 46/48 vs niño). Los precios se guardan en la orden y aplican al
-          total, impresión y cargo al cliente.
+          Puede editar precios aunque el envío ya exista. En cinchos fije precios por talla (ej. 46/48 vs niño).
+          Se guardan en la orden, se sincronizan al envío e impactan impresión y cargo al cliente.
         </Alert>
         {loading ? (
           <div className="text-center py-4">

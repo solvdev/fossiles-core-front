@@ -264,6 +264,24 @@ export function buildOpvItemPriceUpdatePayload(order, itemsWithPrices) {
   };
 }
 
+/** Payload para PUT /item-prices (no recrea líneas de la OP). */
+export function buildOpvItemPricesOnlyPayload(order, itemsWithPrices) {
+  return {
+    shippingCost: Number(order?.shippingCost) || 0,
+    items: (itemsWithPrices || []).map((item) => ({
+      productId: item.productId,
+      colorId: item.colorId ?? null,
+      unitPrice: Number(item.unitPrice) || 0,
+      unitPrices:
+        item.unitPrices && typeof item.unitPrices === "object" && Object.keys(item.unitPrices).length > 0
+          ? Object.fromEntries(
+              Object.entries(item.unitPrices).map(([k, v]) => [String(k), Number(v) || 0])
+            )
+          : undefined,
+    })),
+  };
+}
+
 export function buildShipmentProductsFromOrderItems(order) {
   const items = Array.isArray(order?.items) ? order.items : [];
   const lines = [];

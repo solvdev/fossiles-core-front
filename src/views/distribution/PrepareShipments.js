@@ -1678,7 +1678,7 @@ function PrepareShipments() {
     return map;
   }, [productPriceById, sellerPriceById]);
 
-  const handleOpvPricesSaved = (order) => {
+  const handleOpvPricesSaved = async (order) => {
     const updatedShipments = (shipments || []).map((s) => {
       const priced = applyOrderItemPricesToShipmentProducts(
         order,
@@ -1696,6 +1696,15 @@ function PrepareShipments() {
     if (opvPendingPrint) {
       setOpvPendingPrint(false);
       void executeOpvPrint(order, updatedShipments);
+      return;
+    }
+    try {
+      if (selectedOpcOrderId) await reloadOpcShipmentsView();
+      else if (selectedOpvOrderId) await reloadOpvShipmentsView();
+      else if (selectedOpckOrderId) await reloadOpckShipmentsView();
+      else if (selectedOpkOrderId) await reloadOpkShipmentsView();
+    } catch (_e) {
+      // Ya aplicamos precios en memoria; el reload es best-effort.
     }
   };
 
@@ -3199,7 +3208,7 @@ function PrepareShipments() {
                       className="mt-2 mr-2"
                     >
                       <i className="nc-icon nc-money-coins mr-1" />
-                      Revisar precios
+                      Editar precios
                     </Button>
                   )}
                   <Button
@@ -3268,16 +3277,36 @@ function PrepareShipments() {
               )}
               {luisFelipePrintFlow && (
                 <Alert color="warning">
-                  Flujo especial OPV vendedor activo ({selectedProductionOrder?.sellerName || "Luis Felipe"}): sin límite de productos por envío y usando precio vendedor.
-                  <div className="mt-1">
-                    Los empaques y costo de envío para OPV se gestionan únicamente en la vista de Orden de Producción.
+                  Flujo especial Luis Felipe ({selectedProductionOrder?.sellerName || "Luis Felipe"}): precios
+                  vendedor / por talla. Puede <strong>Editar precios</strong> aunque el envío ya exista; eso
+                  corrige impresión, total y cargo al cliente.
+                  <div className="mt-2">
+                    <Button
+                      color="warning"
+                      size="sm"
+                      onClick={() => openOpvPriceReview(false)}
+                      disabled={!selectedProductionOrder?.id}
+                    >
+                      <i className="nc-icon nc-money-coins mr-1" />
+                      Editar precios
+                    </Button>
+                  </div>
+                  <div className="mt-1 small">
+                    Los empaques y costo de envío para OPV se gestionan en Orden de Producción.
                   </div>
                 </Alert>
               )}
 
-              {opcFlow && (
+              {opcFlow && !luisFelipePrintFlow && (
                 <Alert color="info">
                   <strong>OPC (cinchos):</strong> envíos generados desde la orden de producción. Impresión con el mismo formato que distribución; al marcar enviado se descuenta Bodega PT (con kiosko opcional en la generación del envío).
+                </Alert>
+              )}
+
+              {opcFlow && luisFelipePrintFlow && (
+                <Alert color="info">
+                  <strong>OPC Luis Felipe:</strong> use <strong>Editar precios</strong> para ajustar por talla
+                  (46/48 vs niño) aunque el envío ya esté creado; luego imprima para ver los totales correctos.
                 </Alert>
               )}
 
@@ -3923,6 +3952,19 @@ function PrepareShipments() {
                           })()}
                         </td>
                         <td className="text-right">
+                          {luisFelipePrintFlow && (
+                            <Button
+                              color="warning"
+                              size="sm"
+                              onClick={() => openOpvPriceReview(false)}
+                              className="mr-2"
+                              disabled={!selectedProductionOrder?.id}
+                              title="Editar precios de la orden (aplica a este envío e impresión)"
+                            >
+                              <i className="nc-icon nc-money-coins mr-1" />
+                              Precios
+                            </Button>
+                          )}
                           <Button
                             color="warning"
                             size="sm"
