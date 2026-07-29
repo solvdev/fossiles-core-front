@@ -46,6 +46,7 @@ import {
   normalizeHardwareCondition,
 } from "utils/productCinchoHelper";
 import { FilterableSelect } from "components/distribution/FilterableSelect";
+import * as XLSX from "xlsx-js-style";
 import QRCode from "qrcode";
 import { getPublicFrontBaseUrl, buildPtDispatchDistributionUrl } from "utils/ptDispatchQr";
 
@@ -1088,6 +1089,96 @@ function ProductDistributionDetail() {
     return Number(item.quantity || 0);
   };
 
+  const exportKioskStockExcel = () => {
+    if (!selectedLocation || !inventory.length) {
+      showError("Selecciona un kiosko con catálogo cargado para exportar.");
+      return;
+    }
+    const location = (locations || []).find((l) => String(l.id) === String(selectedLocation));
+    const locationLabel = location
+      ? `${location.name || ""} (${location.code || location.id})`
+      : `Kiosko ${selectedLocation}`;
+    const colorNameById = new Map(
+      (colors || []).map((c) => [Number(c.id), c.name || String(c.id)])
+    );
+    const stamp = new Date().toISOString().slice(0, 10);
+    const generatedAt = formatDateGt(new Date()) || stamp;
+
+    const detailRows = [];
+    const summaryRows = [];
+
+    (inventory || []).forEach((item) => {
+      const total = Number(item.quantity || 0);
+      const byColor = item.stockByColor || {};
+      const colorEntries = Object.entries(byColor);
+      summaryRows.push({
+        Código: item.productCode || "",
+        Producto: item.productName || "",
+        Categoría: item.categoryName || "Sin categoría",
+        "Stock total kiosko": total,
+      });
+      if (colorEntries.length === 0) {
+        detailRows.push({
+          Código: item.productCode || "",
+          Producto: item.productName || "",
+          Categoría: item.categoryName || "Sin categoría",
+          Color: "Sin color",
+          "Stock kiosko": total,
+        });
+        return;
+      }
+      colorEntries.forEach(([cid, qty]) => {
+        detailRows.push({
+          Código: item.productCode || "",
+          Producto: item.productName || "",
+          Categoría: item.categoryName || "Sin categoría",
+          Color: colorNameById.get(Number(cid)) || `Color ${cid}`,
+          "Stock kiosko": Number(qty || 0),
+        });
+      });
+    });
+
+    // Solo existencias > 0 en hoja principal de respaldo; resumen con todos
+    const existencias = detailRows.filter((r) => Number(r["Stock kiosko"]) > 0);
+    const existenciasResumen = summaryRows.filter((r) => Number(r["Stock total kiosko"]) > 0);
+
+    const wb = XLSX.utils.book_new();
+
+    const meta = [
+      ["Existencias de stock — Kiosko"],
+      ["Kiosko", locationLabel],
+      ["Distribución", distribution?.distributionNumber || "Nueva / sin guardar"],
+      ["Generado", generatedAt],
+      [],
+    ];
+
+    const wsExist = XLSX.utils.aoa_to_sheet(meta);
+    XLSX.utils.sheet_add_json(wsExist, existencias.length ? existencias : detailRows, {
+      origin: "A6",
+      skipHeader: false,
+    });
+    wsExist["!cols"] = [
+      { wch: 14 },
+      { wch: 36 },
+      { wch: 22 },
+      { wch: 18 },
+      { wch: 14 },
+    ];
+    XLSX.utils.book_append_sheet(wb, wsExist, "Existencias");
+
+    const wsResumen = XLSX.utils.json_to_sheet(
+      existenciasResumen.length ? existenciasResumen : summaryRows
+    );
+    wsResumen["!cols"] = [{ wch: 14 }, { wch: 36 }, { wch: 22 }, { wch: 16 }];
+    XLSX.utils.book_append_sheet(wb, wsResumen, "Resumen producto");
+
+    const safeCode = String(location?.code || location?.name || selectedLocation)
+      .replace(/[^\w\-]+/g, "_")
+      .slice(0, 40);
+    XLSX.writeFile(wb, `existencias_kiosko_${safeCode}_${stamp}.xlsx`);
+    showSuccess("Excel de existencias del kiosko descargado.");
+  };
+
   const filteredInventory = useMemo(() => {
     const search = (inventorySearch || "").toLowerCase().trim();
     const cat = String(inventoryCategoryId || "");
@@ -1763,7 +1854,17 @@ function ProductDistributionDetail() {
                             </Label>
                           </Col>
                         </Row>
-                        <div className="mb-2 text-right">
+                        <div className="mb-2 d-flex justify-content-between align-items-center">
+                          <Button
+                            color="success"
+                            size="sm"
+                            outline
+                            onClick={exportKioskStockExcel}
+                            title="Descargar Excel con existencias actuales del kiosko"
+                          >
+                            <i className="nc-icon nc-cloud-download-93 mr-1" />
+                            Excel existencias kiosko
+                          </Button>
                           <small className="text-muted">
                             Mostrando {pagedInventory.length} de {filteredInventory.length} productos
                           </small>
