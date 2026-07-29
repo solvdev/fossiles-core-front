@@ -16,6 +16,7 @@ import {
   applyOpvPricesToOrderItems,
   buildOpvItemPricesOnlyPayload,
   expandOrderItemsForOpvPriceLines,
+  mergeOrderWithLocalItemPrices,
   orderItemsHaveBrand,
 } from "utils/prepareShipmentsOrderHelper";
 
@@ -76,8 +77,9 @@ function OpvShipmentPriceReviewModal({
       const itemsWithPrices = applyOpvPricesToOrderItems(order, priceByLineId);
       const payload = buildOpvItemPricesOnlyPayload(order, itemsWithPrices);
       const updated = await updateProductionOrderItemPrices(order.id, payload);
+      const merged = mergeOrderWithLocalItemPrices(updated, itemsWithPrices);
       showSuccess("Precios guardados (orden y envíos existentes)");
-      if (onSaved) onSaved(updated);
+      if (onSaved) onSaved(merged);
       toggle();
     } catch (err) {
       const msg = err.message || "No se pudieron guardar los precios";

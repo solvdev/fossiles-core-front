@@ -83,7 +83,7 @@ export function opvItemPriceKey(item, index) {
 }
 
 function normalizeSizeKey(size) {
-  return String(size || "").trim();
+  return String(size || "").trim().toUpperCase();
 }
 
 /** Precio unitario por talla desde unitPrices del ítem, con fallback a unitPrice / catálogo. */
@@ -95,7 +95,7 @@ export function resolveOpvUnitPriceForSize(item, size, productCatalogById = {}) 
     const direct = Number(unitPrices[sizeKey]);
     if (Number.isFinite(direct) && direct >= 0) return direct;
     const found = Object.entries(unitPrices).find(
-      ([k]) => normalizeSizeKey(k).toUpperCase() === sizeKey.toUpperCase()
+      ([k]) => normalizeSizeKey(k) === sizeKey
     );
     if (found) {
       const n = Number(found[1]);
@@ -208,12 +208,15 @@ export function applyOpvPricesToOrderItems(order, priceByLineId) {
 
 export function applyOrderItemPricesToShipmentProducts(order, products) {
   const items = Array.isArray(order?.items) ? order.items : [];
-  const matchItem = (productId, colorId) =>
-    items.find((row) => {
+  const matchItem = (productId, colorId) => {
+    const byBoth = items.find((row) => {
       if (Number(row.productId) !== Number(productId)) return false;
       if (row.colorId == null && (colorId == null || colorId === "")) return true;
       return Number(row.colorId) === Number(colorId);
     });
+    if (byBoth) return byBoth;
+    return items.find((row) => Number(row.productId) === Number(productId));
+  };
   return (products || []).map((p) => {
     const item = matchItem(p.productId, p.colorId);
     const next = {
@@ -221,12 +224,23 @@ export function applyOrderItemPricesToShipmentProducts(order, products) {
       brandName: p.brandName || item?.brandName || "",
     };
     if (!item) return next;
-    if (item.unitPrices && typeof item.unitPrices === "object") {
-      next.unitPrices = item.unitPrices;
+    const hasSizedMap =
+      item.unitPrices &&
+      typeof item.unitPrices === "object" &&
+      Object.keys(item.unitPrices).length > 0;
+    if (hasSizedMap) {
+      next.unitPrices = Object.fromEntries(
+        Object.entries(item.unitPrices).map(([k, v]) => [normalizeSizeKey(k), Number(v) || 0])
+      );
+      const sized = resolveOpvUnitPriceForSize(item, p.size, {});
+      if (Number.isFinite(sized) && sized >= 0) {
+        next.unitPrice = sized;
+      }
+      return next;
     }
-    const sized = resolveOpvUnitPriceForSize(item, p.size, {});
-    if (Number.isFinite(sized) && sized >= 0) {
-      next.unitPrice = sized;
+    const fromOrder = Number(item.unitPrice);
+    if (Number.isFinite(fromOrder) && fromOrder > 0) {
+      next.unitPrice = fromOrder;
     }
     return next;
   });
@@ -275,10 +289,48 @@ export function buildOpvItemPricesOnlyPayload(order, itemsWithPrices) {
       unitPrices:
         item.unitPrices && typeof item.unitPrices === "object" && Object.keys(item.unitPrices).length > 0
           ? Object.fromEntries(
-              Object.entries(item.unitPrices).map(([k, v]) => [String(k), Number(v) || 0])
+              Object.entries(item.unitPrices).map(([k, v]) => [normalizeSizeKey(k), Number(v) || 0])
             )
           : undefined,
     })),
+  };
+}
+
+/** Combina respuesta API con precios locales (garantiza unitPrices en impresión). */
+export function mergeOrderWithLocalItemPrices(apiOrder, itemsWithPrices) {
+  const localItems = Array.isArray(itemsWithPrices) ? itemsWithPrices : [];
+  const apiItems = Array.isArray(apiOrder?.items) ? apiOrder.items : [];
+  const matchLocal = (apiItem) =>
+    localItems.find((row) => {
+      if (Number(row.productId) !== Number(apiItem.productId)) return false;
+      if (row.colorId == null && apiItem.colorId == null) return true;
+      return Number(row.colorId) === Number(apiItem.colorId);
+    }) || localItems.find((row) => Number(row.productId) === Number(apiItem.productId));
+
+  const mergedItems =
+    apiItems.length > 0
+      ? apiItems.map((apiItem) => {
+          const local = matchLocal(apiItem);
+          if (!local) return apiItem;
+          return {
+            ...apiItem,
+            unitPrice: local.unitPrice != null ? Number(local.unitPrice) : apiItem.unitPrice,
+            unitPrices:
+              local.unitPrices && typeof local.unitPrices === "object"
+                ? Object.fromEntries(
+                    Object.entries(local.unitPrices).map(([k, v]) => [
+                      normalizeSizeKey(k),
+                      Number(v) || 0,
+                    ])
+                  )
+                : apiItem.unitPrices,
+          };
+        })
+      : localItems;
+
+  return {
+    ...(apiOrder || {}),
+    items: mergedItems,
   };
 }
 

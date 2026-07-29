@@ -59,6 +59,7 @@ import {
   mapShipmentProductsForOpvPrint,
   orderIsPendingForPrepare,
   orderItemsHaveBrand,
+  resolveOpvUnitPriceForSize,
 } from "utils/prepareShipmentsOrderHelper";
 import {
   findLinkedPartialRelease,
@@ -1633,35 +1634,6 @@ function PrepareShipments() {
     ]
   );
 
-  const resolveProductUnitPrice = (item) => {
-    const sizeKey = String(item?.size || "").trim();
-    const unitPrices =
-      item?.unitPrices && typeof item.unitPrices === "object" ? item.unitPrices : null;
-    if (unitPrices && sizeKey) {
-      const direct = Number(unitPrices[sizeKey]);
-      if (Number.isFinite(direct) && direct >= 0) return direct;
-      const found = Object.entries(unitPrices).find(
-        ([k]) => String(k).trim().toUpperCase() === sizeKey.toUpperCase()
-      );
-      if (found) {
-        const n = Number(found[1]);
-        if (Number.isFinite(n) && n >= 0) return n;
-      }
-    }
-    const fromItem = Number(item?.unitPrice);
-    if (Number.isFinite(fromItem) && fromItem > 0) {
-      return fromItem;
-    }
-    const productId = Number(item?.productId);
-    if (!Number.isFinite(productId) || productId <= 0) {
-      return Number(item?.price || 0);
-    }
-    if (luisFelipePrintFlow) {
-      return Number(sellerPriceById[productId] || productPriceById[productId] || item?.price || 0);
-    }
-    return Number(productPriceById[productId] || item?.price || 0);
-  };
-
   const productCatalogById = useMemo(() => {
     const map = {};
     const ids = new Set([
@@ -1678,12 +1650,79 @@ function PrepareShipments() {
     return map;
   }, [productPriceById, sellerPriceById]);
 
+  const resolveProductUnitPriceForOrder = useCallback(
+    (order) => (item) => {
+      const sizeKey = String(item?.size || "").trim();
+      const unitPrices =
+        item?.unitPrices && typeof item.unitPrices === "object" ? item.unitPrices : null;
+      if (unitPrices && sizeKey) {
+        const direct = Number(unitPrices[sizeKey]);
+        if (Number.isFinite(direct) && direct >= 0) return direct;
+        const found = Object.entries(unitPrices).find(
+          ([k]) => String(k).trim().toUpperCase() === sizeKey.toUpperCase()
+        );
+        if (found) {
+          const n = Number(found[1]);
+          if (Number.isFinite(n) && n >= 0) return n;
+        }
+      }
+
+      const orderItems = Array.isArray(order?.items) ? order.items : [];
+      const orderItem =
+        orderItems.find((row) => {
+          if (Number(row.productId) !== Number(item?.productId)) return false;
+          if (row.colorId == null && (item?.colorId == null || item?.colorId === "")) return true;
+          return Number(row.colorId) === Number(item?.colorId);
+        }) || orderItems.find((row) => Number(row.productId) === Number(item?.productId));
+
+      if (orderItem) {
+        const hasSizedMap =
+          orderItem.unitPrices &&
+          typeof orderItem.unitPrices === "object" &&
+          Object.keys(orderItem.unitPrices).length > 0;
+        if (hasSizedMap) {
+          const fromOrderSized = resolveOpvUnitPriceForSize(orderItem, sizeKey, productCatalogById);
+          if (Number.isFinite(fromOrderSized) && fromOrderSized >= 0) return fromOrderSized;
+        } else if (!sizeKey) {
+          const fromOrder = Number(orderItem.unitPrice);
+          if (Number.isFinite(fromOrder) && fromOrder > 0) return fromOrder;
+        }
+      }
+
+      const fromItem = Number(item?.unitPrice);
+      if (Number.isFinite(fromItem) && fromItem > 0) return fromItem;
+
+      if (orderItem) {
+        const fromOrder = Number(orderItem.unitPrice);
+        if (Number.isFinite(fromOrder) && fromOrder > 0) return fromOrder;
+      }
+
+      const productId = Number(item?.productId);
+      if (!Number.isFinite(productId) || productId <= 0) {
+        return Number(item?.price || 0);
+      }
+      const useSeller = isLuisFelipeVendorFlow(order?.orderType, order?.sellerName);
+      if (useSeller) {
+        return Number(sellerPriceById[productId] || productPriceById[productId] || item?.price || 0);
+      }
+      return Number(productPriceById[productId] || item?.price || 0);
+    },
+    [productCatalogById, productPriceById, sellerPriceById]
+  );
+
+  const resolveProductUnitPrice = useCallback(
+    (item) => resolveProductUnitPriceForOrder(selectedProductionOrder)(item),
+    [resolveProductUnitPriceForOrder, selectedProductionOrder]
+  );
+
   const handleOpvPricesSaved = async (order) => {
     const updatedShipments = (shipments || []).map((s) => {
-      const priced = applyOrderItemPricesToShipmentProducts(
+      const rawLines = resolveShipmentLinesForPrint(
+        { ...s, _printProducts: undefined },
         order,
-        resolveShipmentLinesForPrint(s, order, orderPartialReleases)
+        orderPartialReleases
       );
+      const priced = applyOrderItemPricesToShipmentProducts(order, rawLines);
       return {
         ...s,
         products: priced,
@@ -1965,7 +2004,12 @@ function PrepareShipments() {
 
   const getShipmentPrintProducts = useCallback(
     (shipment, order = selectedProductionOrder) => {
-      const lines = resolveShipmentLinesForPrint(shipment, order, orderPartialReleases);
+      // Siempre partir de productos crudos y reaplicar precios de la OP (evita _printProducts viejos).
+      const lines = resolveShipmentLinesForPrint(
+        { ...shipment, _printProducts: undefined },
+        order,
+        orderPartialReleases
+      );
       return applyOrderItemPricesToShipmentProducts(order, lines);
     },
     [selectedProductionOrder, orderPartialReleases]
@@ -2068,9 +2112,10 @@ function PrepareShipments() {
       showError("No se pudo abrir la ventana de impresion");
       return;
     }
+    const resolvePrice = resolveProductUnitPriceForOrder(activeOrder);
     const opvDeps = {
       packingMaterials,
-      resolveProductUnitPrice,
+      resolveProductUnitPrice: resolvePrice,
       resolveMaterialUnitPrice,
       getShipmentPackingItems: resolveShipmentPackingItems,
     };

@@ -1089,89 +1089,107 @@ function ProductDistributionDetail() {
     return Number(item.quantity || 0);
   };
 
-  const exportKioskStockExcel = () => {
-    if (!selectedLocation || !inventory.length) {
-      showError("Selecciona un kiosko con catálogo cargado para exportar.");
+  const exportKioskStockExcel = async () => {
+    if (!selectedLocation) {
+      showError("Selecciona un kiosko para exportar existencias.");
       return;
     }
     const location = (locations || []).find((l) => String(l.id) === String(selectedLocation));
     const locationLabel = location
       ? `${location.name || ""} (${location.code || location.id})`
       : `Kiosko ${selectedLocation}`;
-    const colorNameById = new Map(
-      (colors || []).map((c) => [Number(c.id), c.name || String(c.id)])
-    );
     const stamp = new Date().toISOString().slice(0, 10);
     const generatedAt = formatDateGt(new Date()) || stamp;
+    const categoryByProductId = new Map(
+      (inventory || []).map((item) => [Number(item.productId), item.categoryName || "Sin categoría"])
+    );
 
-    const detailRows = [];
-    const summaryRows = [];
-
-    (inventory || []).forEach((item) => {
-      const total = Number(item.quantity || 0);
-      const byColor = item.stockByColor || {};
-      const colorEntries = Object.entries(byColor);
-      summaryRows.push({
-        Código: item.productCode || "",
-        Producto: item.productName || "",
-        Categoría: item.categoryName || "Sin categoría",
-        "Stock total kiosko": total,
-      });
-      if (colorEntries.length === 0) {
-        detailRows.push({
-          Código: item.productCode || "",
-          Producto: item.productName || "",
-          Categoría: item.categoryName || "Sin categoría",
-          Color: "Sin color",
-          "Stock kiosko": total,
-        });
+    try {
+      // Solo filas reales de kiosco_stock de este location (incluye current_stock = 0).
+      const stockRows = await getKioscoStock(selectedLocation);
+      const rows = Array.isArray(stockRows) ? stockRows : [];
+      if (rows.length === 0) {
+        showError("Este kiosko no tiene filas en kiosco_stock para exportar.");
         return;
       }
-      colorEntries.forEach(([cid, qty]) => {
-        detailRows.push({
-          Código: item.productCode || "",
-          Producto: item.productName || "",
-          Categoría: item.categoryName || "Sin categoría",
-          Color: colorNameById.get(Number(cid)) || `Color ${cid}`,
-          "Stock kiosko": Number(qty || 0),
-        });
+
+      const detailRows = rows.map((row) => {
+        const qty = Number(row.currentStock ?? 0);
+        const colorLabel =
+          row.colorName ||
+          (row.colorId != null
+            ? ((colors || []).find((c) => Number(c.id) === Number(row.colorId))?.name || `Color ${row.colorId}`)
+            : "Sin color");
+        const hw = String(row.hardwareCondition || "").trim().toUpperCase();
+        return {
+          Código: row.productCode || "",
+          Producto: row.productName || "",
+          Categoría: categoryByProductId.get(Number(row.productId)) || "Sin categoría",
+          Color: colorLabel,
+          Herraje: hw === "VIEJO" || hw === "NUEVO" ? hw : "",
+          "Stock kiosko": qty,
+        };
       });
-    });
 
-    // Incluye stock en 0: necesario para planear redistribución hacia el kiosko
-    const wb = XLSX.utils.book_new();
+      const summaryMap = new Map();
+      detailRows.forEach((r) => {
+        const key = `${r.Código}|${r.Producto}|${r.Categoría}`;
+        const prev = summaryMap.get(key) || {
+          Código: r.Código,
+          Producto: r.Producto,
+          Categoría: r.Categoría,
+          "Stock total kiosko": 0,
+        };
+        prev["Stock total kiosko"] += Number(r["Stock kiosko"] || 0);
+        summaryMap.set(key, prev);
+      });
+      const summaryRows = Array.from(summaryMap.values()).sort((a, b) =>
+        String(a.Código).localeCompare(String(b.Código), "es", { sensitivity: "base" })
+      );
 
-    const meta = [
-      ["Existencias de stock — Kiosko (incluye stock en 0)"],
-      ["Kiosko", locationLabel],
-      ["Distribución", distribution?.distributionNumber || "Nueva / sin guardar"],
-      ["Generado", generatedAt],
-      [],
-    ];
+      detailRows.sort((a, b) => {
+        const code = String(a.Código).localeCompare(String(b.Código), "es", { sensitivity: "base" });
+        if (code !== 0) return code;
+        return String(a.Color).localeCompare(String(b.Color), "es", { sensitivity: "base" });
+      });
 
-    const wsExist = XLSX.utils.aoa_to_sheet(meta);
-    XLSX.utils.sheet_add_json(wsExist, detailRows, {
-      origin: "A6",
-      skipHeader: false,
-    });
-    wsExist["!cols"] = [
-      { wch: 14 },
-      { wch: 36 },
-      { wch: 22 },
-      { wch: 18 },
-      { wch: 14 },
-    ];
-    XLSX.utils.book_append_sheet(wb, wsExist, "Existencias");
+      const wb = XLSX.utils.book_new();
+      const meta = [
+        ["Existencias de stock — Kiosko (solo kiosco_stock; incluye 0)"],
+        ["Kiosko", locationLabel],
+        ["Distribución", distribution?.distributionNumber || "Nueva / sin guardar"],
+        ["Generado", generatedAt],
+        ["Filas kiosco_stock", rows.length],
+        [],
+      ];
 
-    const wsResumen = XLSX.utils.json_to_sheet(summaryRows);
-    wsResumen["!cols"] = [{ wch: 14 }, { wch: 36 }, { wch: 22 }, { wch: 16 }];
-    XLSX.utils.book_append_sheet(wb, wsResumen, "Resumen producto");
+      const wsExist = XLSX.utils.aoa_to_sheet(meta);
+      XLSX.utils.sheet_add_json(wsExist, detailRows, {
+        origin: "A7",
+        skipHeader: false,
+      });
+      wsExist["!cols"] = [
+        { wch: 14 },
+        { wch: 36 },
+        { wch: 22 },
+        { wch: 18 },
+        { wch: 10 },
+        { wch: 14 },
+      ];
+      XLSX.utils.book_append_sheet(wb, wsExist, "Existencias");
 
-    const safeCode = String(location?.code || location?.name || selectedLocation)
-      .replace(/[^\w\-]+/g, "_")
-      .slice(0, 40);
-    XLSX.writeFile(wb, `existencias_kiosko_${safeCode}_${stamp}.xlsx`);
-    showSuccess("Excel de existencias del kiosko descargado.");
+      const wsResumen = XLSX.utils.json_to_sheet(summaryRows);
+      wsResumen["!cols"] = [{ wch: 14 }, { wch: 36 }, { wch: 22 }, { wch: 16 }];
+      XLSX.utils.book_append_sheet(wb, wsResumen, "Resumen producto");
+
+      const safeCode = String(location?.code || location?.name || selectedLocation)
+        .replace(/[^\w\-]+/g, "_")
+        .slice(0, 40);
+      XLSX.writeFile(wb, `existencias_kiosko_${safeCode}_${stamp}.xlsx`);
+      showSuccess(`Excel descargado: ${rows.length} filas de kiosco_stock (incluye stock 0).`);
+    } catch (err) {
+      showError(err.message || "No se pudo exportar el stock del kiosko");
+    }
   };
 
   const filteredInventory = useMemo(() => {
@@ -1855,7 +1873,7 @@ function ProductDistributionDetail() {
                             size="sm"
                             outline
                             onClick={exportKioskStockExcel}
-                            title="Descargar Excel con existencias actuales del kiosko"
+                            title="Descargar Excel solo con filas de kiosco_stock de este kiosko (incluye stock 0)"
                           >
                             <i className="nc-icon nc-cloud-download-93 mr-1" />
                             Excel existencias kiosko
