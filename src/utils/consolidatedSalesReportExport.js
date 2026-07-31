@@ -24,8 +24,7 @@ const normalizeClientName = (sale) => {
   return String(sale?.customerName || "").trim() || "CONSUMIDOR FINAL";
 };
 
-const getInvoiceNumber = (sale) =>
-  sale?.internalNumber || sale?.invoice?.internalNumber || sale?.saleNumber || "-";
+const getInvoiceNumber = (sale) => sale?.internalNumber || sale?.invoice?.internalNumber || "-";
 
 export const formatGeneratedByLine = (generatedByName) => {
   const name = String(generatedByName || "").trim().toUpperCase() || "USUARIO";
