@@ -1,3 +1,12 @@
+import { getTodayYmdGuatemala, shiftYmdGuatemala } from "utils/dateTimeHelper";
+
+export const RECENT_DATE_OPTIONS = [
+  { value: "7", label: "Últimos 7 días" },
+  { value: "30", label: "Últimos 30 días" },
+  { value: "90", label: "Últimos 90 días" },
+  { value: "ALL", label: "Todas las fechas" },
+];
+
 export const STATUS_LABELS = {
   PENDING: "Pendiente",
   IN_PROGRESS: "En Progreso",
@@ -54,17 +63,49 @@ export const getOrderTypeGroup = (order) => {
   return "NORMAL";
 };
 
-export const filterOrders = (orders, { orderTypeFilter, searchTerm }) => {
+/** Fecha de la OP para filtrar (YYYY-MM-DD), alineada a lo que se muestra en el código. */
+export const getOrderFilterDateYmd = (order) => {
+  const raw =
+    order?.startDate ||
+    order?.deliveryDate ||
+    order?.createdAt ||
+    order?.productionOrderCreatedAt ||
+    "";
+  const s = String(raw).trim();
+  if (!s) return "";
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+  return "";
+};
+
+export const filterOrders = (orders, { orderTypeFilter, searchTerm, recent = "30" }) => {
   const term = String(searchTerm || "").trim().toLowerCase();
-  return (orders || []).filter((order) => {
-    if (orderTypeFilter !== "ALL" && getOrderTypeGroup(order) !== orderTypeFilter) {
-      return false;
+  let minDate = null;
+  if (recent && recent !== "ALL") {
+    const days = Number(recent);
+    if (Number.isFinite(days) && days > 0) {
+      minDate = shiftYmdGuatemala(getTodayYmdGuatemala(), -(days - 1));
     }
-    if (!term) return true;
-    const haystack = `${order.productionOrderCode || ""} ${order.orderType || ""} ${order.distributionNumber || ""} ${order.deliveryDate || ""}`
-      .toLowerCase();
-    return haystack.includes(term);
-  });
+  }
+
+  return (orders || [])
+    .filter((order) => {
+      if (orderTypeFilter !== "ALL" && getOrderTypeGroup(order) !== orderTypeFilter) {
+        return false;
+      }
+      if (minDate) {
+        const date = getOrderFilterDateYmd(order);
+        if (!date || date < minDate) return false;
+      }
+      if (!term) return true;
+      const haystack = `${order.productionOrderCode || ""} ${order.orderType || ""} ${order.distributionNumber || ""} ${order.deliveryDate || ""} ${order.startDate || ""}`
+        .toLowerCase();
+      return haystack.includes(term);
+    })
+    .sort((a, b) => {
+      const da = getOrderFilterDateYmd(a);
+      const db = getOrderFilterDateYmd(b);
+      return db.localeCompare(da);
+    });
 };
 
 export const getOrderQtyProgress = (order, summary) => {

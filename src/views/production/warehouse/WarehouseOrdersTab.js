@@ -5,6 +5,7 @@ import {
 import { formatProductionOrderCodeDate } from "utils/productionOrderDisplayHelper";
 import WarehouseOrderDetail from "./WarehouseOrderDetail";
 import {
+  RECENT_DATE_OPTIONS,
   STATUS_LABELS,
   STATUS_STYLES,
   DISPATCH_TYPE_LABELS,
@@ -17,11 +18,12 @@ import {
 const WarehouseOrdersTab = ({ orders, onRefresh }) => {
   const [orderTypeFilter, setOrderTypeFilter] = useState("ALL");
   const [searchTerm, setSearchTerm] = useState("");
+  const [recent, setRecent] = useState("30");
   const [expanded, setExpanded] = useState({});
 
   const filteredOrders = useMemo(
-    () => filterOrders(orders, { orderTypeFilter, searchTerm }),
-    [orders, orderTypeFilter, searchTerm]
+    () => filterOrders(orders, { orderTypeFilter, searchTerm, recent }),
+    [orders, orderTypeFilter, searchTerm, recent]
   );
 
   const toggle = (id) => setExpanded((p) => ({ ...p, [id]: !p[id] }));
@@ -29,7 +31,7 @@ const WarehouseOrdersTab = ({ orders, onRefresh }) => {
   return (
     <>
       <Row className="mb-2">
-        <Col md="7">
+        <Col md="5">
           <div className="d-flex flex-wrap" style={{ gap: 8 }}>
             {["ALL", "NORMAL", "VENTA_EN_LINEA", "DISTRIBUTION"].map((key) => (
               <Button
@@ -44,9 +46,22 @@ const WarehouseOrdersTab = ({ orders, onRefresh }) => {
             ))}
           </div>
         </Col>
-        <Col md="5">
+        <Col md="3">
+          <Input
+            type="select"
+            bsSize="sm"
+            value={recent}
+            onChange={(e) => setRecent(e.target.value)}
+          >
+            {RECENT_DATE_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value}>{opt.label}</option>
+            ))}
+          </Input>
+        </Col>
+        <Col md="4">
           <Input
             type="text"
+            bsSize="sm"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             placeholder="Buscar por código OP..."
@@ -101,9 +116,11 @@ const WarehouseOrdersTab = ({ orders, onRefresh }) => {
               </Row>
             </CardHeader>
             <Collapse isOpen={isOpen}>
-              <CardBody>
-                <WarehouseOrderDetail order={order} mode="orders" onRefresh={onRefresh} />
-              </CardBody>
+              {isOpen && (
+                <CardBody>
+                  <WarehouseOrderDetail order={order} mode="orders" onRefresh={onRefresh} />
+                </CardBody>
+              )}
             </Collapse>
           </Card>
         );
