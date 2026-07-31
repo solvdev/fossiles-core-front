@@ -104,7 +104,6 @@ import OnlineSales from "views/sales/OnlineSales.js";
 import OpvShipmentsPage from "views/sales/OpvShipmentsPage.js";
 import Invoicing from "views/sales/Invoicing.js";
 import AccountingInvoices from "views/accounting/AccountingInvoices.js";
-import ConsolidatedSalesReport from "views/accounting/ConsolidatedSalesReport.js";
 import AccountingInvoiceForm from "views/accounting/AccountingInvoiceForm.js";
 import AccountingInvoiceDetail from "views/accounting/AccountingInvoiceDetail.js";
 import KioskMovementsAccounting from "views/accounting/KioskMovementsAccounting.js";
@@ -1239,17 +1238,6 @@ const routes = [
         permissions: {
           view: "CONTABILIDAD.FACTURAS.VER",
           edit: "CONTABILIDAD.FACTURAS.CERTIFICAR",
-        },
-      },
-      {
-        path: "/accounting/consolidated-sales",
-        name: "Ventas Consolidadas",
-        mini: "VC",
-        component: <ConsolidatedSalesReport />,
-        layout: "/admin",
-        module: "CONTABILIDAD",
-        permissions: {
-          view: "CONTABILIDAD.FACTURAS.VER",
         },
       },
       {

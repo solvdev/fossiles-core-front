@@ -26,6 +26,7 @@ import Select from "react-select";
 import { useAuth } from "contexts/AuthContext";
 import KioskMainSheetReportPreview from "components/kiosks/KioskMainSheetReportPreview";
 import {
+  getConsolidatedKioskSalesReport,
   getGeneralKioskBankDeposits,
   getGeneralKioskDisbursements,
   getGeneralKioskVouchers,
@@ -69,6 +70,11 @@ import {
   exportKioskMainSheetToPdf,
   formatMainSheetCountLabel,
 } from "utils/kioskMainSheetReportExport";
+import {
+  buildConsolidatedSalesRows,
+  exportConsolidatedSalesToExcel,
+  exportConsolidatedSalesToPdf,
+} from "utils/consolidatedSalesReportExport";
 import { showError, showSuccess, showWarning } from "utils/notificationHelper";
 import { formatCurrency, formatQty, getSaleInternalNumber, getSaleCardAmount } from "views/kiosks/pos/posUtils";
 import "../kiosks/KioskSales.css";
@@ -82,6 +88,7 @@ const REPORT_TYPES = {
   BANK_DEPOSITS: "BANK_DEPOSITS",
   VOUCHERS: "VOUCHERS",
   MAIN_SHEET: "MAIN_SHEET",
+  CONSOLIDATED: "CONSOLIDATED",
 };
 
 const REPORT_TYPE_OPTIONS = [
@@ -119,6 +126,11 @@ const REPORT_TYPE_OPTIONS = [
     value: REPORT_TYPES.MAIN_SHEET,
     label: "Hoja principal",
     hint: "Resumen por corte de conteo físico: ventas diarias, tarjetas, depósitos, gastos y cuadre.",
+  },
+  {
+    value: REPORT_TYPES.CONSOLIDATED,
+    label: "Ventas consolidadas",
+    hint: "Detalle por factura de varios kioskos a la vez (incluye anuladas), para contabilidad.",
   },
 ];
 
@@ -181,13 +193,17 @@ function SalesReports() {
   const [selectedPhysicalCountId, setSelectedPhysicalCountId] = useState("");
   const [mainSheetReport, setMainSheetReport] = useState(null);
   const [mainSheetLoading, setMainSheetLoading] = useState(false);
+  const [consolidatedSales, setConsolidatedSales] = useState([]);
+  const [selectedConsolidatedKioskIds, setSelectedConsolidatedKioskIds] = useState([]);
 
   const generatedByName = useMemo(() => resolveUserFullName(user), [user]);
   const isDisbursements = reportType === REPORT_TYPES.DISBURSEMENTS;
   const isBankDeposits = reportType === REPORT_TYPES.BANK_DEPOSITS;
   const isVouchers = reportType === REPORT_TYPES.VOUCHERS;
   const isMainSheet = reportType === REPORT_TYPES.MAIN_SHEET;
-  const isSalesReport = !isDisbursements && !isBankDeposits && !isVouchers && !isMainSheet;
+  const isConsolidated = reportType === REPORT_TYPES.CONSOLIDATED;
+  const isSalesReport =
+    !isDisbursements && !isBankDeposits && !isVouchers && !isMainSheet && !isConsolidated;
   const paymentKindParam =
     reportType === REPORT_TYPES.CASH || reportType === REPORT_TYPES.CARD ? reportType : undefined;
 
@@ -256,6 +272,31 @@ function SalesReports() {
       kioskSelectOptions.find((opt) => String(opt.value) === String(selectedKioskId || "")) ||
       ALL_KIOSKS_OPTION,
     [kioskSelectOptions, selectedKioskId]
+  );
+
+  const nonPilotKioskOptions = useMemo(() => {
+    return (kioskLocations || [])
+      .filter((loc) => !loc.posTestMode)
+      .map((loc) => ({ value: loc.id, label: loc.code ? `${loc.name} (${loc.code})` : loc.name }))
+      .sort((a, b) => String(a.label).localeCompare(String(b.label), "es"));
+  }, [kioskLocations]);
+
+  const consolidatedRows = useMemo(
+    () => buildConsolidatedSalesRows(consolidatedSales),
+    [consolidatedSales]
+  );
+
+  const consolidatedTotals = useMemo(
+    () =>
+      consolidatedRows.reduce(
+        (acc, row) => ({
+          anulado: acc.anulado + row.anulado,
+          creditos: acc.creditos + row.creditos,
+          totalFacturado: acc.totalFacturado + row.totalFacturado,
+        }),
+        { anulado: 0, creditos: 0, totalFacturado: 0 }
+      ),
+    [consolidatedRows]
   );
 
   const selectedPhysicalCountSession = useMemo(
@@ -426,6 +467,17 @@ function SalesReports() {
         return;
       }
 
+      if (reportType === REPORT_TYPES.CONSOLIDATED) {
+        const sales = await getConsolidatedKioskSalesReport(from, to, selectedConsolidatedKioskIds);
+        setConsolidatedSales(Array.isArray(sales) ? sales : []);
+        setDisbursements([]);
+        setBankDepositReport(null);
+        setVoucherReport(null);
+        setSalesDetail([]);
+        setReport(null);
+        return;
+      }
+
       const paymentKind =
         reportType === REPORT_TYPES.CASH || reportType === REPORT_TYPES.CARD
           ? reportType
@@ -453,10 +505,19 @@ function SalesReports() {
       setDisbursements([]);
       setBankDepositReport(null);
       setVoucherReport(null);
+      setConsolidatedSales([]);
     } finally {
       setLoading(false);
     }
-  }, [startDate, endDate, dateFilterMode, today, reportType, selectedKioskId]);
+  }, [
+    startDate,
+    endDate,
+    dateFilterMode,
+    today,
+    reportType,
+    selectedKioskId,
+    selectedConsolidatedKioskIds,
+  ]);
 
   useEffect(() => {
     if (activeTab !== TABS.SALES) return;
@@ -545,6 +606,22 @@ function SalesReports() {
     return { report: reportData, rows: list, from, to };
   };
 
+  const loadConsolidatedForExport = async () => {
+    const from = startDate || today;
+    const to = (dateFilterMode === "single" ? from : endDate) || from;
+    if (!from) {
+      showWarning("Selecciona el día (o rango) a exportar.");
+      return null;
+    }
+    const sales = await getConsolidatedKioskSalesReport(from, to, selectedConsolidatedKioskIds);
+    const list = Array.isArray(sales) ? sales : [];
+    if (!list.length) {
+      showWarning("No hay ventas para exportar en el período seleccionado.");
+      return null;
+    }
+    return { sales: list, from, to };
+  };
+
   const resolveExportKioskName = (salesOrRows) => {
     if (selectedKioskId) {
       const match = kioskLocations.find((k) => String(k.id) === String(selectedKioskId));
@@ -615,6 +692,19 @@ function SalesReports() {
           generatedByName,
         });
         showSuccess("Excel de voucher descargado correctamente.");
+        return;
+      }
+
+      if (isConsolidated) {
+        const payload = await loadConsolidatedForExport();
+        if (!payload) return;
+        exportConsolidatedSalesToExcel({
+          sales: payload.sales,
+          startDate: payload.from,
+          endDate: payload.to,
+          generatedByName,
+        });
+        showSuccess("Excel de ventas consolidadas descargado correctamente.");
         return;
       }
 
@@ -709,6 +799,23 @@ function SalesReports() {
           return;
         }
         showSuccess("PDF de voucher listo para imprimir o guardar.");
+        return;
+      }
+
+      if (isConsolidated) {
+        const payload = await loadConsolidatedForExport();
+        if (!payload) return;
+        const opened = exportConsolidatedSalesToPdf({
+          sales: payload.sales,
+          startDate: payload.from,
+          endDate: payload.to,
+          generatedByName,
+        });
+        if (opened === false) {
+          showWarning("Permite ventanas emergentes para imprimir o guardar el PDF.");
+          return;
+        }
+        showSuccess("PDF de ventas consolidadas listo para imprimir o guardar.");
         return;
       }
 
@@ -861,6 +968,12 @@ function SalesReports() {
                     <strong>Hoja principal</strong> por kiosko y corte de conteo físico. El rango de
                     fechas coincide con el corte seleccionado.
                   </>
+                ) : isConsolidated ? (
+                  <>
+                    Reporte de <strong>ventas consolidadas</strong> por factura, para varios kioskos a
+                    la vez. Incluye ventas anuladas. Selecciona uno o más kioskos (o deja vacío para
+                    incluirlos todos).
+                  </>
                 ) : (
                   <>
                     Mismo formato de <strong>REPORTE DE VENTAS</strong> del POS (factura interna, X
@@ -965,18 +1078,38 @@ function SalesReports() {
                 )}
                 <Col md="3">
                   <Label>Kiosko</Label>
-                  <Select
-                    className="react-select"
-                    classNamePrefix="react-select"
-                    placeholder={loadingKiosks ? "Cargando kioskos..." : "Buscar kiosko..."}
-                    isClearable
-                    isSearchable
-                    isLoading={loadingKiosks}
-                    options={kioskSelectOptions}
-                    value={selectedKioskOption}
-                    onChange={(selected) => setSelectedKioskId(selected?.value || "")}
-                    noOptionsMessage={() => "No hay kioskos"}
-                  />
+                  {isConsolidated ? (
+                    <Select
+                      className="react-select"
+                      classNamePrefix="react-select"
+                      placeholder={loadingKiosks ? "Cargando kioskos..." : "Selecciona los kioskos..."}
+                      isMulti
+                      isClearable
+                      isSearchable
+                      isLoading={loadingKiosks}
+                      options={nonPilotKioskOptions}
+                      value={nonPilotKioskOptions.filter((opt) =>
+                        selectedConsolidatedKioskIds.includes(opt.value)
+                      )}
+                      onChange={(selected) =>
+                        setSelectedConsolidatedKioskIds((selected || []).map((opt) => opt.value))
+                      }
+                      noOptionsMessage={() => "No hay kioskos"}
+                    />
+                  ) : (
+                    <Select
+                      className="react-select"
+                      classNamePrefix="react-select"
+                      placeholder={loadingKiosks ? "Cargando kioskos..." : "Buscar kiosko..."}
+                      isClearable
+                      isSearchable
+                      isLoading={loadingKiosks}
+                      options={kioskSelectOptions}
+                      value={selectedKioskOption}
+                      onChange={(selected) => setSelectedKioskId(selected?.value || "")}
+                      noOptionsMessage={() => "No hay kioskos"}
+                    />
+                  )}
                 </Col>
                 {activeTab === TABS.SALES && (
                   <Col md="2" className="d-flex align-items-end">
@@ -1398,6 +1531,85 @@ function SalesReports() {
                           </td>
                           <td className="font-weight-bold">{formatCurrency(vouchersTotal)}</td>
                           <td colSpan="2" />
+                        </tr>
+                      )}
+                    </tbody>
+                  </Table>
+                </>
+              )}
+
+              {activeTab === TABS.SALES && !loading && isConsolidated && (
+                <>
+                  <Row className="mb-3">
+                    <Col md="4">
+                      <Card body>
+                        <strong>Facturas:</strong> {consolidatedRows.length}
+                      </Card>
+                    </Col>
+                    <Col md="4">
+                      <Card body>
+                        <strong>Anulado:</strong> {formatCurrency(consolidatedTotals.anulado)}
+                      </Card>
+                    </Col>
+                    <Col md="4">
+                      <Card body>
+                        <strong>Total facturado:</strong>{" "}
+                        {formatCurrency(consolidatedTotals.totalFacturado)}
+                      </Card>
+                    </Col>
+                  </Row>
+                  <Table responsive>
+                    <thead className="text-primary">
+                      <tr>
+                        <th>Kiosco</th>
+                        <th>No. Factura</th>
+                        <th>Fecha Emisión</th>
+                        <th>Estado Venta</th>
+                        <th>Cliente</th>
+                        <th>Vendedor</th>
+                        <th>Anulado</th>
+                        <th>Créditos</th>
+                        <th>Total Facturado</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {consolidatedRows.map((row, index) => (
+                        <tr
+                          key={`consolidated-${index}`}
+                          className={row.voided ? "text-danger font-weight-bold" : ""}
+                        >
+                          <td>{row.kiosco}</td>
+                          <td>{row.noFactura}</td>
+                          <td>{row.fechaEmision}</td>
+                          <td>{row.estado}</td>
+                          <td>{row.cliente}</td>
+                          <td>{row.vendedor}</td>
+                          <td>{formatCurrency(row.anulado)}</td>
+                          <td>{formatCurrency(row.creditos)}</td>
+                          <td>{formatCurrency(row.totalFacturado)}</td>
+                        </tr>
+                      ))}
+                      {consolidatedRows.length === 0 && (
+                        <tr>
+                          <td colSpan="9" className="text-center text-muted">
+                            No hay ventas en el período / filtro seleccionado
+                          </td>
+                        </tr>
+                      )}
+                      {consolidatedRows.length > 0 && (
+                        <tr>
+                          <td colSpan="6" className="text-right font-weight-bold">
+                            Total
+                          </td>
+                          <td className="font-weight-bold">
+                            {formatCurrency(consolidatedTotals.anulado)}
+                          </td>
+                          <td className="font-weight-bold">
+                            {formatCurrency(consolidatedTotals.creditos)}
+                          </td>
+                          <td className="font-weight-bold">
+                            {formatCurrency(consolidatedTotals.totalFacturado)}
+                          </td>
                         </tr>
                       )}
                     </tbody>
