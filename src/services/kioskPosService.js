@@ -147,6 +147,19 @@ export const getGeneralKioskSalesDetail = async (startDate, endDate, kioskLocati
   return parseJson(response, "No se pudieron cargar las ventas para exportar.");
 };
 
+export const getConsolidatedKioskSalesReport = async (startDate, endDate, kioskLocationIds) => {
+  const query = new URLSearchParams();
+  if (startDate) query.append("startDate", startDate);
+  if (endDate) query.append("endDate", endDate);
+  (kioskLocationIds || []).forEach((id) => query.append("kioskLocationIds", id));
+  const raw = query.toString();
+  const response = await fetch(
+    `${API_URL}/kiosk-pos/reports/consolidated-sales${raw ? `?${raw}` : ""}`,
+    { headers: headers() }
+  );
+  return parseJson(response, "No se pudo cargar el reporte de ventas consolidadas.");
+};
+
 export const getGeneralKioskDisbursements = async (startDate, endDate, kioskLocationId) => {
   const response = await fetch(
     `${API_URL}/kiosk-pos/reports/general/disbursements${toQuery({
