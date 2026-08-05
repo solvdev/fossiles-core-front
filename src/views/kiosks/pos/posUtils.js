@@ -485,7 +485,9 @@ export const getSaleInternalNumber = (sale) =>
   sale?.internalNumber || sale?.invoice?.internalNumber || "";
 
 export const isDiscountEligibleCartLine = (line) =>
-  !line?.isPackaging && !isPackagingProductCode(line?.productCode);
+  !line?.isPackaging
+  && !isPackagingProductCode(line?.productCode)
+  && !line?.priceEdited;
 
 export const filterDiscountEligibleCartLines = (cartLines) =>
   (cartLines || []).filter(isDiscountEligibleCartLine);

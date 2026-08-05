@@ -33,8 +33,8 @@ function PosCartPanel({
         </div>
         {canEditPrices ? (
           <div className="text-muted small mb-2">
-            Miraflores: puedes editar el precio unitario para empatar cobro POS con lo registrado.
-            Si el precio ya incluye descuento, marca «Cobrar sin descuento» al pagar.
+            Miraflores: la línea que edites queda al precio final (sin descuento).
+            Las demás siguen con el descuento/promo normal.
           </div>
         ) : null}
 

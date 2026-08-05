@@ -38,6 +38,8 @@ function PosCheckoutModal({
   onCommentsChange,
   saving,
   onConfirm,
+  /** Miraflores: precios editados = total final, sin descuento encima. */
+  lockFinalPrices = false,
 }) {
   const [paymentMethod, setPaymentMethod] = useState("EFECTIVO");
   const [amountReceived, setAmountReceived] = useState("");
@@ -78,12 +80,12 @@ function PosCheckoutModal({
     setCard2Last4("");
     setCard2Brand(DEFAULT_POS_CARD_BRAND);
     setCard2VoucherAmount("");
-    setChargeWithoutDiscount(false);
+    setChargeWithoutDiscount(Boolean(lockFinalPrices));
     setNotesOpen(Boolean(notes));
     setCustomerTaxId("CF");
     setCustomerName("CONSUMIDOR FINAL");
     setTaxLookupError("");
-  }, [isOpen, notes]);
+  }, [isOpen, notes, lockFinalPrices]);
 
   const lookupTaxId = async () => {
     const nit = normalizeNit(customerTaxId);
@@ -121,8 +123,9 @@ function PosCheckoutModal({
     }
   };
 
-  const checkoutDiscount = chargeWithoutDiscount ? 0 : Number(estimatedDiscount || 0);
-  const checkoutTotal = chargeWithoutDiscount
+  const noDiscount = lockFinalPrices || chargeWithoutDiscount;
+  const checkoutDiscount = noDiscount ? 0 : Number(estimatedDiscount || 0);
+  const checkoutTotal = noDiscount
     ? Number(estimatedSubtotal || 0)
     : Number(estimatedTotal || 0);
 
@@ -284,8 +287,8 @@ function PosCheckoutModal({
         paymentMethod === "TARJETA" && splitTwoCards ? card2Brand.trim() : null,
       card2VoucherAmount:
         paymentMethod === "TARJETA" && splitTwoCards ? Number(card2VoucherAmount) : null,
-      promotionId: chargeWithoutDiscount ? null : (selectedPromotionId || null),
-      chargeWithoutDiscount,
+      promotionId: noDiscount ? null : (selectedPromotionId || null),
+      chargeWithoutDiscount: noDiscount,
       notes: notes || null,
       comments: comments || null,
       customerTaxId: normalizedTaxId,
@@ -329,22 +332,30 @@ function PosCheckoutModal({
           </div>
         </div>
 
-        <div className="kiosk-pos-checkout-section">
-          <div className="custom-control custom-checkbox mb-0">
-            <Input
-              type="checkbox"
-              id="pos-charge-without-discount"
-              checked={chargeWithoutDiscount}
-              onChange={(e) => setChargeWithoutDiscount(e.target.checked)}
-            />
-            <Label className="custom-control-label" for="pos-charge-without-discount">
-              Cobrar sin descuento (precio normal)
-            </Label>
+        {lockFinalPrices ? (
+          <div className="kiosk-pos-checkout-section">
+            <div className="text-muted small">
+              Precios editados: se cobra y factura exactamente el total mostrado (sin descuento adicional).
+            </div>
           </div>
-          <div className="text-muted small mt-1">
-            Ignora el 10% automático y promociones; cobra el subtotal de catálogo.
+        ) : (
+          <div className="kiosk-pos-checkout-section">
+            <div className="custom-control custom-checkbox mb-0">
+              <Input
+                type="checkbox"
+                id="pos-charge-without-discount"
+                checked={chargeWithoutDiscount}
+                onChange={(e) => setChargeWithoutDiscount(e.target.checked)}
+              />
+              <Label className="custom-control-label" for="pos-charge-without-discount">
+                Cobrar sin descuento (precio normal)
+              </Label>
+            </div>
+            <div className="text-muted small mt-1">
+              Ignora el 10% automático y promociones; cobra el subtotal de catálogo.
+            </div>
           </div>
-        </div>
+        )}
 
         <div className="kiosk-pos-checkout-section">
           <Label className="kiosk-pos-label">Datos de facturación</Label>
@@ -405,50 +416,52 @@ function PosCheckoutModal({
           </div>
         </div>
 
-        <div className={`kiosk-pos-checkout-section ${chargeWithoutDiscount ? "opacity-50" : ""}`}>
-          <Label className="kiosk-pos-label">Promoción</Label>
-          <div className="d-flex flex-wrap mb-2" style={{ gap: 8 }}>
-            <button
-              type="button"
-              className={`kiosk-pos-quick-btn ${selectedPromotionId === "__percent_10" ? "kiosk-pos-quick-exact" : ""}`}
-              onClick={() => onPromotionChange(selectedPromotionId === "__percent_10" ? "" : "__percent_10")}
-              disabled={chargeWithoutDiscount}
-            >
-              10% OFF
-            </button>
-            <button
-              type="button"
-              className={`kiosk-pos-quick-btn ${selectedPromotionId === "__percent_15" ? "kiosk-pos-quick-exact" : ""}`}
-              onClick={() => onPromotionChange(selectedPromotionId === "__percent_15" ? "" : "__percent_15")}
-              disabled={chargeWithoutDiscount}
-            >
-              15% OFF
-            </button>
-            <button
-              type="button"
-              className={`kiosk-pos-quick-btn ${selectedPromotionId === "__percent_20" ? "kiosk-pos-quick-exact" : ""}`}
-              onClick={() => onPromotionChange(selectedPromotionId === "__percent_20" ? "" : "__percent_20")}
-              disabled={chargeWithoutDiscount}
-            >
-              20% OFF
-            </button>
+        {!lockFinalPrices && (
+          <div className={`kiosk-pos-checkout-section ${noDiscount ? "opacity-50" : ""}`}>
+            <Label className="kiosk-pos-label">Promoción</Label>
+            <div className="d-flex flex-wrap mb-2" style={{ gap: 8 }}>
+              <button
+                type="button"
+                className={`kiosk-pos-quick-btn ${selectedPromotionId === "__percent_10" ? "kiosk-pos-quick-exact" : ""}`}
+                onClick={() => onPromotionChange(selectedPromotionId === "__percent_10" ? "" : "__percent_10")}
+                disabled={noDiscount}
+              >
+                10% OFF
+              </button>
+              <button
+                type="button"
+                className={`kiosk-pos-quick-btn ${selectedPromotionId === "__percent_15" ? "kiosk-pos-quick-exact" : ""}`}
+                onClick={() => onPromotionChange(selectedPromotionId === "__percent_15" ? "" : "__percent_15")}
+                disabled={noDiscount}
+              >
+                15% OFF
+              </button>
+              <button
+                type="button"
+                className={`kiosk-pos-quick-btn ${selectedPromotionId === "__percent_20" ? "kiosk-pos-quick-exact" : ""}`}
+                onClick={() => onPromotionChange(selectedPromotionId === "__percent_20" ? "" : "__percent_20")}
+                disabled={noDiscount}
+              >
+                20% OFF
+              </button>
+            </div>
+            <FilterableSelect
+              value={selectedPromotionId}
+              onChange={onPromotionChange}
+              options={promotionOptions}
+              placeholder="Buscar promoción..."
+              emptyLabel="Sin promoción"
+              inputClassName="kiosk-pos-promo-select"
+              disabled={noDiscount}
+            />
+            {checkoutDiscount > 0 && (
+              <div className="kiosk-pos-promo-discount">Descuento aplicado: -{formatCurrency(checkoutDiscount)}</div>
+            )}
+            {noDiscount && estimatedSubtotal > 0 && (
+              <div className="kiosk-pos-promo-discount">Precio normal: {formatCurrency(estimatedSubtotal)}</div>
+            )}
           </div>
-          <FilterableSelect
-            value={selectedPromotionId}
-            onChange={onPromotionChange}
-            options={promotionOptions}
-            placeholder="Buscar promoción..."
-            emptyLabel="Sin promoción"
-            inputClassName="kiosk-pos-promo-select"
-            disabled={chargeWithoutDiscount}
-          />
-          {checkoutDiscount > 0 && (
-            <div className="kiosk-pos-promo-discount">Descuento aplicado: -{formatCurrency(checkoutDiscount)}</div>
-          )}
-          {chargeWithoutDiscount && estimatedSubtotal > 0 && (
-            <div className="kiosk-pos-promo-discount">Precio normal: {formatCurrency(estimatedSubtotal)}</div>
-          )}
-        </div>
+        )}
 
         <div className="kiosk-pos-checkout-section">
           <Label className="kiosk-pos-label">Forma de pago</Label>

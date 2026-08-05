@@ -292,6 +292,7 @@ function KioskSales() {
           line.key === key ? { ...line, quantity: nextQty } : line
         );
       }
+      const catalogUnitPrice = Number(inventoryItem.suggestedUnitPrice || 0);
       return [
         ...prev,
         {
@@ -310,7 +311,9 @@ function KioskSales() {
           isPackaging: isPackagingProductCode(inventoryItem.productCode),
           availableQty,
           quantity: 1,
-          unitPrice: Number(inventoryItem.suggestedUnitPrice || 0),
+          catalogUnitPrice,
+          unitPrice: catalogUnitPrice,
+          priceEdited: false,
         },
       ];
     });
@@ -337,6 +340,12 @@ function KioskSales() {
             showError("El precio unitario debe ser mayor a cero.");
             return line;
           }
+          const catalog = Number(line.catalogUnitPrice ?? line.unitPrice);
+          return {
+            ...line,
+            unitPrice: nextPrice,
+            priceEdited: Math.abs(nextPrice - catalog) > 0.001,
+          };
         }
         return { ...line, ...patch };
       })
@@ -388,6 +397,7 @@ function KioskSales() {
       return acc;
     }, { items: 0, total: 0 });
 
+    // Líneas priceEdited no entran al descuento (precio final); el resto sí.
     const resolved = resolveCartDiscount(cart, {
       selectedPromotion,
       promotions,
@@ -494,7 +504,8 @@ function KioskSales() {
             hardwareCondition: line.hardwareCondition || "NUEVO",
             quantity: Number(line.quantity || 0),
           };
-          if (canEditPosPrices && Number(line.unitPrice) > 0) {
+          // Solo líneas editadas: precio final sin descuento sobre esa línea.
+          if (line.priceEdited && Number(line.unitPrice) > 0) {
             item.unitPrice = Number(line.unitPrice);
           }
           return item;
