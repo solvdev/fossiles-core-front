@@ -33,9 +33,8 @@ function PosCartPanel({
         </div>
         {canEditPrices ? (
           <div className="text-muted small mb-2">
-            Miraflores: usa <strong>Con desc.</strong> (lleva promo/descuento) o{" "}
-            <strong>Final</strong> (cobra exactamente ese precio, sin descuento).
-            Puedes mezclar: uno con descuento y otro final.
+            Miraflores: toca la etiqueta <strong>Con desc.</strong> / <strong>Final</strong> en cada
+            producto. Final = cobra ese precio sin descuento.
           </div>
         ) : null}
 
@@ -48,29 +47,49 @@ function PosCartPanel({
           ) : (
             cart.map((line) => (
               <div key={line.key} className="kiosk-pos-cart-line">
-                <div>
-                  <div className="kiosk-pos-item-name">
-                    {line.productName}
-                    {isPackagingProductCode(line.productCode) && (
-                      <Badge color="secondary" className="ml-1">Empaque</Badge>
-                    )}
-                    {canEditPrices && (
-                      <Badge
-                        color={line.priceEdited ? "success" : "info"}
-                        className="ml-1"
-                        style={{ fontSize: 10 }}
+                <div className="kiosk-pos-line-top">
+                  <div className="kiosk-pos-line-title">
+                    <div className="kiosk-pos-item-name">
+                      {line.productName}
+                      {isPackagingProductCode(line.productCode) && (
+                        <Badge color="secondary" className="ml-1">Empaque</Badge>
+                      )}
+                    </div>
+                    <div className="kiosk-pos-item-sub">
+                      {line.productCode} · {line.colorName || "Sin color"}
+                      {line.hardwareLabel && line.hardwareLabel !== "—" ? ` · ${line.hardwareLabel}` : ""}
+                      {line.size ? ` · Talla ${line.size}` : ""}
+                    </div>
+                  </div>
+                  <div className="kiosk-pos-line-top-actions">
+                    {canEditPrices ? (
+                      <button
+                        type="button"
+                        className={`kiosk-pos-price-mode-chip ${line.priceEdited ? "is-final" : "is-discount"}`}
+                        onClick={() =>
+                          onUpdateLine(line.key, { priceEdited: !line.priceEdited })
+                        }
+                        title={
+                          line.priceEdited
+                            ? "Precio final (sin descuento). Clic para aplicar descuento"
+                            : "Con descuento. Clic para precio final"
+                        }
                       >
                         {line.priceEdited ? "Final" : "Con desc."}
-                      </Badge>
-                    )}
-                  </div>
-                  <div className="kiosk-pos-item-sub">
-                    {line.productCode} · {line.colorName || "Sin color"}
-                    {line.hardwareLabel && line.hardwareLabel !== "—" ? ` · ${line.hardwareLabel}` : ""}
-                    {line.size ? ` · Talla ${line.size}` : ""}
+                      </button>
+                    ) : null}
+                    <button
+                      type="button"
+                      className="kiosk-pos-line-remove"
+                      onClick={() => onRemoveLine(line.key)}
+                      title="Quitar"
+                    >
+                      Quitar
+                    </button>
                   </div>
                 </div>
-                <div className="kiosk-pos-line-actions" style={{ flexWrap: "wrap", gap: 6 }}>
+
+                <div className={`kiosk-pos-line-actions ${canEditPrices ? "with-price" : ""}`}>
                   <Input
                     className="kiosk-pos-input-lg kiosk-pos-qty"
                     type="number"
@@ -83,54 +102,21 @@ function PosCartPanel({
                     title="Cantidad"
                   />
                   {canEditPrices ? (
-                    <div style={{ display: "flex", flexDirection: "column", minWidth: 100 }}>
-                      <span className="text-muted" style={{ fontSize: 11, lineHeight: 1.1 }}>
-                        Precio
-                      </span>
-                      <Input
-                        className="kiosk-pos-input-lg kiosk-pos-qty"
-                        type="number"
-                        min="0.01"
-                        step="0.01"
-                        value={line.unitPrice}
-                        onChange={(e) =>
-                          onUpdateLine(line.key, { unitPrice: Number(e.target.value || 0) })
-                        }
-                        title="Precio unitario"
-                        style={{
-                          minWidth: 100,
-                          border: line.priceEdited ? "2px solid #1D9E75" : "2px solid #5e72e4",
-                          background: line.priceEdited ? "#f0faf5" : "#f5f7ff",
-                        }}
-                      />
-                    </div>
-                  ) : (
-                    <div className="kiosk-pos-line-unit text-muted small">
-                      {formatCurrency(line.unitPrice)}
-                    </div>
-                  )}
-                  <div className="kiosk-pos-line-total">{formatCurrency(line.quantity * line.unitPrice)}</div>
-                  {canEditPrices ? (
-                    <Button
-                      color={line.priceEdited ? "success" : "info"}
-                      outline={!line.priceEdited}
-                      className="kiosk-pos-btn-lg"
-                      type="button"
-                      onClick={() =>
-                        onUpdateLine(line.key, { priceEdited: !line.priceEdited })
+                    <Input
+                      className={`kiosk-pos-input-lg kiosk-pos-price-input ${line.priceEdited ? "is-final" : "is-discount"}`}
+                      type="number"
+                      min="0.01"
+                      step="0.01"
+                      value={line.unitPrice}
+                      onChange={(e) =>
+                        onUpdateLine(line.key, { unitPrice: Number(e.target.value || 0) })
                       }
-                      title={
-                        line.priceEdited
-                          ? "Ahora es precio final. Clic para volver a aplicar descuento"
-                          : "Ahora lleva descuento. Clic para precio final sin descuento"
-                      }
-                    >
-                      {line.priceEdited ? "Final" : "Con desc."}
-                    </Button>
+                      title="Precio unitario"
+                    />
                   ) : null}
-                  <Button color="danger" className="kiosk-pos-btn-lg" onClick={() => onRemoveLine(line.key)}>
-                    Quitar
-                  </Button>
+                  <div className="kiosk-pos-line-total">
+                    {formatCurrency(line.quantity * line.unitPrice)}
+                  </div>
                 </div>
               </div>
             ))

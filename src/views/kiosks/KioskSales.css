@@ -626,32 +626,98 @@
   margin-bottom: 8px;
 }
 
+.kiosk-pos-line-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.kiosk-pos-line-title {
+  min-width: 0;
+  flex: 1;
+}
+
+.kiosk-pos-line-top-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.kiosk-pos-price-mode-chip {
+  border: none;
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  line-height: 1.2;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.kiosk-pos-price-mode-chip.is-discount {
+  background: #e8eefc;
+  color: #3b5bdb;
+}
+
+.kiosk-pos-price-mode-chip.is-final {
+  background: #d3f9e5;
+  color: #087f5b;
+}
+
+.kiosk-pos-line-remove {
+  border: none;
+  background: transparent;
+  color: #e03131;
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 4px 2px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.kiosk-pos-line-remove:hover {
+  text-decoration: underline;
+}
+
 .kiosk-pos-line-actions {
   display: grid;
-  grid-template-columns: 70px 1fr 60px;
+  grid-template-columns: 70px 1fr auto;
   gap: 6px;
   margin-top: 8px;
   align-items: center;
 }
 
-.kiosk-pos-line-actions .btn-danger {
-  font-size: 0.75rem;
-  padding: 4px 8px;
-  min-height: 36px;
+.kiosk-pos-line-actions.with-price {
+  grid-template-columns: 64px minmax(88px, 1fr) auto;
 }
 
 .kiosk-pos-qty,
-.kiosk-pos-price {
+.kiosk-pos-price,
+.kiosk-pos-price-input {
   text-align: center;
+}
+
+.kiosk-pos-price-input.is-discount {
+  border: 1.5px solid #748ffc;
+  background: #f5f7ff;
+}
+
+.kiosk-pos-price-input.is-final {
+  border: 1.5px solid #37b24d;
+  background: #f0faf5;
 }
 
 .kiosk-pos-line-total {
   display: flex;
   align-items: center;
-  justify-content: center;
-  font-weight: 500;
-  font-size: 0.8125rem;
+  justify-content: flex-end;
+  font-weight: 600;
+  font-size: 0.875rem;
   color: #374151;
+  min-width: 72px;
+  white-space: nowrap;
 }
 
 .kiosk-pos-cart-footer {
