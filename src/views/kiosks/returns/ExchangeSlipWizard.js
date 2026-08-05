@@ -31,7 +31,10 @@ import {
 } from "../pos/posUtils";
 import ExchangeCheckoutModal from "./ExchangeCheckoutModal";
 
-function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, onCompleted }) {
+const MIRAFLORES_PRICE_EDIT_CODE = "A15";
+
+function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, onCompleted }) {
+  const canEditPrices = String(kioskCode || "").trim().toUpperCase() === MIRAFLORES_PRICE_EDIT_CODE;
   const [step, setStep] = useState(1);
   const [exchangeMode, setExchangeMode] = useState("SALE");
   const [saleQuery, setSaleQuery] = useState("");
@@ -49,6 +52,8 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, onCompleted }) {
   const [returnedQty, setReturnedQty] = useState("1");
   const [givenQty, setGivenQty] = useState("1");
   const [preview, setPreview] = useState(null);
+  const [editReturnedUnitPrice, setEditReturnedUnitPrice] = useState("");
+  const [editGivenUnitPrice, setEditGivenUnitPrice] = useState("");
   const [reason, setReason] = useState("");
   const [observations, setObservations] = useState("");
   const [physicalSlipNumber, setPhysicalSlipNumber] = useState("");
@@ -76,6 +81,8 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, onCompleted }) {
     setReturnedQty("1");
     setGivenQty("1");
     setPreview(null);
+    setEditReturnedUnitPrice("");
+    setEditGivenUnitPrice("");
     setReason("");
     setObservations("");
     setPhysicalSlipNumber("");
@@ -181,6 +188,21 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, onCompleted }) {
     setGivenQty(String(item.quantity || 1));
   };
 
+  const buildPreviewPayload = (priceOverrides = {}) => ({
+    kioskLocationId,
+    originalSaleId: sale?.id || null,
+    originalSaleItemId: selectedItem?.id || null,
+    returnedProductId: selectedReturnedProduct?.id || null,
+    returnedColorId: returnedColorId ? Number(returnedColorId) : null,
+    returnedSize: returnedSize.trim() || null,
+    givenProductId: selectedVariant?.productId || preview?.given?.productId,
+    givenColorId: selectedVariant?.colorId ?? preview?.given?.colorId,
+    givenSize: selectedSize || preview?.given?.size || null,
+    returnedQuantity: Number(returnedQty || preview?.returned?.quantity || 1),
+    givenQuantity: Number(givenQty || preview?.given?.quantity || returnedQty || 1),
+    ...priceOverrides,
+  });
+
   const handlePreview = async () => {
     resetError();
     if (exchangeMode === "SALE" && !selectedItem) {
@@ -201,20 +223,10 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, onCompleted }) {
     }
     try {
       setLoading(true);
-      const result = await previewKioskExchange({
-        kioskLocationId,
-        originalSaleId: sale?.id || null,
-        originalSaleItemId: selectedItem?.id || null,
-        returnedProductId: selectedReturnedProduct?.id || null,
-        returnedColorId: returnedColorId ? Number(returnedColorId) : null,
-        returnedSize: returnedSize.trim() || null,
-        givenProductId: selectedVariant.productId,
-        givenColorId: selectedVariant.colorId,
-        givenSize: selectedSize || null,
-        returnedQuantity: Number(returnedQty || 1),
-        givenQuantity: Number(givenQty || returnedQty || 1),
-      });
+      const result = await previewKioskExchange(buildPreviewPayload());
       setPreview(result);
+      setEditReturnedUnitPrice(String(result?.returned?.unitPrice ?? ""));
+      setEditGivenUnitPrice(String(result?.given?.unitPrice ?? ""));
       setStep(4);
     } catch (err) {
       setError(err.message || "No se pudo calcular la boleta.");
@@ -223,28 +235,92 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, onCompleted }) {
     }
   };
 
-  const hasPriceDifference = Number(preview?.differenceAmount || 0) > 0;
+  const handleApplyEditedPrices = async () => {
+    resetError();
+    if (!preview) return;
+    const returnedUnit = Number(editReturnedUnitPrice);
+    const givenUnit = Number(editGivenUnitPrice);
+    if (!(returnedUnit > 0) || !(givenUnit > 0)) {
+      setError("Los precios unitarios deben ser mayores a cero.");
+      return;
+    }
+    try {
+      setLoading(true);
+      const result = await previewKioskExchange(buildPreviewPayload({
+        returnedUnitPrice: returnedUnit,
+        givenUnitPrice: givenUnit,
+      }));
+      setPreview(result);
+      setEditReturnedUnitPrice(String(result?.returned?.unitPrice ?? returnedUnit));
+      setEditGivenUnitPrice(String(result?.given?.unitPrice ?? givenUnit));
+    } catch (err) {
+      setError(err.message || "No se pudieron aplicar los precios.");
+    } finally {
+      setLoading(false);
+    }
+  };
 
-  const buildCompleteRequest = (payment = {}) => ({
-    kioskLocationId,
-    originalSaleId: sale?.id || null,
-    originalSaleItemId: selectedItem?.id || null,
-    returnedProductId: selectedReturnedProduct?.id || null,
-    returnedColorId: returnedColorId ? Number(returnedColorId) : null,
-    returnedSize: returnedSize.trim() || null,
-    givenProductId: preview.given.productId,
-    givenColorId: preview.given.colorId,
-    givenSize: preview.given.size,
-    returnedQuantity: preview.returned.quantity,
-    givenQuantity: preview.given.quantity,
-    physicalSlipNumber: physicalSlipNumber.trim(),
-    reason: payment.reason || reason,
-    observations: payment.observations || observations,
-    ...payment,
-  });
+  const displayPreview = useMemo(() => {
+    if (!preview) return null;
+    if (!canEditPrices) return preview;
+    const returnedUnit = Number(editReturnedUnitPrice);
+    const givenUnit = Number(editGivenUnitPrice);
+    if (!(returnedUnit > 0) || !(givenUnit > 0)) return preview;
+    const returnedQuantity = Number(preview.returned?.quantity || 0);
+    const givenQuantity = Number(preview.given?.quantity || 0);
+    const returnedAmount = Number((returnedUnit * returnedQuantity).toFixed(2));
+    const givenAmount = Number((givenUnit * givenQuantity).toFixed(2));
+    const differenceAmount = Number((givenAmount - returnedAmount).toFixed(2));
+    return {
+      ...preview,
+      returnedAmount,
+      givenAmount,
+      differenceAmount,
+      returned: {
+        ...preview.returned,
+        unitPrice: returnedUnit,
+        lineTotal: returnedAmount,
+      },
+      given: {
+        ...preview.given,
+        unitPrice: givenUnit,
+        lineTotal: givenAmount,
+      },
+    };
+  }, [preview, canEditPrices, editReturnedUnitPrice, editGivenUnitPrice]);
+
+  const hasPriceDifference = Number(displayPreview?.differenceAmount || 0) > 0;
+
+  const buildCompleteRequest = (payment = {}) => {
+    const source = displayPreview || preview;
+    const payload = {
+      kioskLocationId,
+      originalSaleId: sale?.id || null,
+      originalSaleItemId: selectedItem?.id || null,
+      returnedProductId: selectedReturnedProduct?.id || null,
+      returnedColorId: returnedColorId ? Number(returnedColorId) : null,
+      returnedSize: returnedSize.trim() || null,
+      givenProductId: source.given.productId,
+      givenColorId: source.given.colorId,
+      givenSize: source.given.size,
+      returnedQuantity: source.returned.quantity,
+      givenQuantity: source.given.quantity,
+      physicalSlipNumber: physicalSlipNumber.trim(),
+      reason: payment.reason || reason,
+      observations: payment.observations || observations,
+      ...payment,
+    };
+    if (canEditPrices) {
+      const returnedUnit = Number(editReturnedUnitPrice);
+      const givenUnit = Number(editGivenUnitPrice);
+      if (returnedUnit > 0) payload.returnedUnitPrice = returnedUnit;
+      if (givenUnit > 0) payload.givenUnitPrice = givenUnit;
+    }
+    return payload;
+  };
 
   const handleComplete = async (payment) => {
-    if (!preview) return;
+    if (!displayPreview) return;
     if (!String(physicalSlipNumber || "").trim()) {
       setError("Indica el número de boleta de cambio física.");
       return;
@@ -253,7 +329,7 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, onCompleted }) {
       setSaving(true);
       const result = await completeKioskExchange(buildCompleteRequest(payment));
       setCheckoutOpen(false);
-      openExchangeSlipPrintWindow(buildKioskExchangeSlipPrintHtml(result.slip, preview));
+      openExchangeSlipPrintWindow(buildKioskExchangeSlipPrintHtml(result.slip, displayPreview));
       onCompleted?.(result);
       onClose();
     } catch (err) {
@@ -264,7 +340,7 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, onCompleted }) {
   };
 
   const handleSubmitAuthorizationRequest = async () => {
-    if (!preview) return;
+    if (!displayPreview) return;
     resetError();
     if (!String(physicalSlipNumber || "").trim()) {
       setError("Indica el número de boleta de cambio física.");
@@ -280,7 +356,7 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, onCompleted }) {
         reason: reason.trim(),
         observations: observations.trim() || null,
       }));
-      openExchangeSlipPrintWindow(buildKioskExchangeSlipPrintHtml(result.slip, preview));
+      openExchangeSlipPrintWindow(buildKioskExchangeSlipPrintHtml(result.slip, displayPreview));
       onCompleted?.(result);
       onClose();
     } catch (err) {
@@ -552,26 +628,68 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, onCompleted }) {
             </>
           )}
 
-          {step === 4 && preview && (
+          {step === 4 && displayPreview && (
             <>
               <div className="row">
                 <div className="col-md-4">
                   <h6>INGRESO</h6>
-                  <p>{preview.returned.productCode} · {preview.returned.productName}</p>
-                  <p>Cant. {formatQty(preview.returned.quantity)}</p>
-                  <strong>{formatCurrency(preview.returnedAmount)}</strong>
+                  <p>{displayPreview.returned.productCode} · {displayPreview.returned.productName}</p>
+                  <p>Cant. {formatQty(displayPreview.returned.quantity)}</p>
+                  {canEditPrices ? (
+                    <FormGroup className="mb-2">
+                      <Label>Precio unitario (crédito)</Label>
+                      <Input
+                        type="number"
+                        min="0.01"
+                        step="0.01"
+                        value={editReturnedUnitPrice}
+                        onChange={(e) => setEditReturnedUnitPrice(e.target.value)}
+                      />
+                    </FormGroup>
+                  ) : null}
+                  <strong>{formatCurrency(displayPreview.returnedAmount)}</strong>
                 </div>
                 <div className="col-md-4">
                   <h6>EGRESO</h6>
-                  <p>{preview.given.productCode} · {preview.given.productName}</p>
-                  <p>Cant. {formatQty(preview.given.quantity)}</p>
-                  <strong>{formatCurrency(preview.givenAmount)}</strong>
+                  <p>{displayPreview.given.productCode} · {displayPreview.given.productName}</p>
+                  <p>Cant. {formatQty(displayPreview.given.quantity)}</p>
+                  {canEditPrices ? (
+                    <FormGroup className="mb-2">
+                      <Label>Precio unitario (cobro)</Label>
+                      <Input
+                        type="number"
+                        min="0.01"
+                        step="0.01"
+                        value={editGivenUnitPrice}
+                        onChange={(e) => setEditGivenUnitPrice(e.target.value)}
+                      />
+                    </FormGroup>
+                  ) : null}
+                  <strong>{formatCurrency(displayPreview.givenAmount)}</strong>
                 </div>
                 <div className="col-md-4">
                   <h6>DIFERENCIA</h6>
-                  <p className="display-4">{formatCurrency(preview.differenceAmount)}</p>
+                  <p className="display-4">{formatCurrency(displayPreview.differenceAmount)}</p>
+                  {canEditPrices ? (
+                    <Button
+                      color="secondary"
+                      outline
+                      size="sm"
+                      className="mt-2"
+                      onClick={() => void handleApplyEditedPrices()}
+                      disabled={loading}
+                    >
+                      {loading ? "Aplicando..." : "Aplicar precios"}
+                    </Button>
+                  ) : null}
                 </div>
               </div>
+              {canEditPrices ? (
+                <Alert color="warning" className="mt-3 mb-0">
+                  Miraflores (A15): edita los precios para que lo cobrado en POS (efectivo/tarjeta)
+                  coincida con lo que factura y registra el sistema.
+                </Alert>
+              ) : null}
               <FormGroup className="mt-3">
                 <Label>Número de boleta de cambio (física)</Label>
                 <Input
@@ -634,12 +752,12 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, onCompleted }) {
               Ver resumen
             </Button>
           )}
-          {step === 4 && preview && hasPriceDifference && (
+          {step === 4 && displayPreview && hasPriceDifference && (
             <Button color="success" onClick={handleOpenCheckout}>
               Cobrar y confirmar
             </Button>
           )}
-          {step === 4 && preview && !hasPriceDifference && (
+          {step === 4 && displayPreview && !hasPriceDifference && (
             <Button color="success" onClick={() => void handleSubmitAuthorizationRequest()} disabled={saving}>
               {saving ? "Enviando..." : "Enviar solicitud de cambio"}
             </Button>
@@ -650,9 +768,9 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, onCompleted }) {
       <ExchangeCheckoutModal
         isOpen={checkoutOpen}
         onClose={() => setCheckoutOpen(false)}
-        differenceAmount={preview?.differenceAmount}
-        returnedAmount={preview?.returnedAmount}
-        givenAmount={preview?.givenAmount}
+        differenceAmount={displayPreview?.differenceAmount}
+        returnedAmount={displayPreview?.returnedAmount}
+        givenAmount={displayPreview?.givenAmount}
         reason={reason}
         onReasonChange={setReason}
         observations={observations}
