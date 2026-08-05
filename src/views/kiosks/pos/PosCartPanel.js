@@ -73,18 +73,23 @@ function PosCartPanel({
                     title="Cantidad"
                   />
                   {canEditPrices ? (
-                    <Input
-                      className="kiosk-pos-input-lg kiosk-pos-qty"
-                      type="number"
-                      min="0.01"
-                      step="0.01"
-                      value={line.unitPrice}
-                      onChange={(e) =>
-                        onUpdateLine(line.key, { unitPrice: Number(e.target.value || 0) })
-                      }
-                      title="Precio unitario"
-                      style={{ minWidth: 88 }}
-                    />
+                    <div style={{ display: "flex", flexDirection: "column", minWidth: 100 }}>
+                      <span className="text-muted" style={{ fontSize: 11, lineHeight: 1.1 }}>
+                        Precio
+                      </span>
+                      <Input
+                        className="kiosk-pos-input-lg kiosk-pos-qty"
+                        type="number"
+                        min="0.01"
+                        step="0.01"
+                        value={line.unitPrice}
+                        onChange={(e) =>
+                          onUpdateLine(line.key, { unitPrice: Number(e.target.value || 0) })
+                        }
+                        title="Precio unitario editable"
+                        style={{ minWidth: 100, border: "2px solid #1D9E75" }}
+                      />
+                    </div>
                   ) : (
                     <div className="kiosk-pos-line-unit text-muted small">
                       {formatCurrency(line.unitPrice)}

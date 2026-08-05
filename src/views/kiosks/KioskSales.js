@@ -709,7 +709,11 @@ function KioskSales() {
     return context.kioskCode || "";
   }, [context, selectedKioskId]);
 
-  const canEditPosPrices = String(selectedKioskCode || "").trim().toUpperCase() === "A15";
+  const canEditPosPrices = useMemo(() => {
+    const code = String(selectedKioskCode || "").trim().toUpperCase();
+    const name = String(selectedKioskName || "").trim().toUpperCase();
+    return code === "A15" || name.includes("MIRAFLORES");
+  }, [selectedKioskCode, selectedKioskName]);
 
   const selectedKioskOpeningCash = useMemo(() => {
     if (!context) return 300;

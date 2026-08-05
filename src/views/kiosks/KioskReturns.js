@@ -110,6 +110,11 @@ function KioskReturns() {
     return location?.code || "";
   }, [locations, selectedKiosk]);
 
+  const selectedKioskName = useMemo(() => {
+    const location = locations.find((item) => String(item.id) === String(selectedKiosk));
+    return location?.name || "";
+  }, [locations, selectedKiosk]);
+
   const loadLocations = async () => {
     const data = await getLocations();
     const kiosks = (data || []).filter(isKioskLocation);
@@ -574,6 +579,7 @@ function KioskReturns() {
         onClose={() => setExchangeWizardOpen(false)}
         kioskLocationId={selectedKiosk ? Number(selectedKiosk) : null}
         kioskCode={selectedKioskCode}
+        kioskName={selectedKioskName}
         onCompleted={() => void loadData()}
       />
       <SimpleReturnWizard

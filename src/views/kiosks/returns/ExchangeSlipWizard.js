@@ -33,8 +33,10 @@ import ExchangeCheckoutModal from "./ExchangeCheckoutModal";
 
 const MIRAFLORES_PRICE_EDIT_CODE = "A15";
 
-function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, onCompleted }) {
-  const canEditPrices = String(kioskCode || "").trim().toUpperCase() === MIRAFLORES_PRICE_EDIT_CODE;
+function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kioskName, onCompleted }) {
+  const canEditPrices =
+    String(kioskCode || "").trim().toUpperCase() === MIRAFLORES_PRICE_EDIT_CODE
+    || String(kioskName || "").trim().toUpperCase().includes("MIRAFLORES");
   const [step, setStep] = useState(1);
   const [exchangeMode, setExchangeMode] = useState("SALE");
   const [saleQuery, setSaleQuery] = useState("");
