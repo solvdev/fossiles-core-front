@@ -324,12 +324,21 @@ function KioskSales() {
     setCart((prev) =>
       prev.map((line) => {
         if (line.key !== key) return line;
-        const updated = { ...line, ...patch };
         if (patch.quantity != null && Number(patch.quantity) > Number(line.availableQty || 0)) {
           showError(`Cantidad máxima disponible: ${formatQty(line.availableQty)}.`);
           return line;
         }
-        return updated;
+        if (patch.unitPrice != null) {
+          if (!canEditPosPrices) {
+            return line;
+          }
+          const nextPrice = Number(patch.unitPrice);
+          if (!(nextPrice > 0)) {
+            showError("El precio unitario debe ser mayor a cero.");
+            return line;
+          }
+        }
+        return { ...line, ...patch };
       })
     );
   };
@@ -440,6 +449,10 @@ function KioskSales() {
         showError(`Stock insuficiente para ${line.productName}.`);
         return;
       }
+      if (canEditPosPrices && !(Number(line.unitPrice) > 0)) {
+        showError(`Precio inválido para ${line.productName}.`);
+        return;
+      }
     }
     try {
       setSaving(true);
@@ -473,13 +486,19 @@ function KioskSales() {
         chargeWithoutDiscount: Boolean(checkoutData.chargeWithoutDiscount),
         requestInvoice: true,
         saleDate: today,
-        items: cart.map((line) => ({
-          productId: line.productId,
-          colorId: line.colorId || null,
-          size: line.size || null,
-          hardwareCondition: line.hardwareCondition || "NUEVO",
-          quantity: Number(line.quantity || 0),
-        })),
+        items: cart.map((line) => {
+          const item = {
+            productId: line.productId,
+            colorId: line.colorId || null,
+            size: line.size || null,
+            hardwareCondition: line.hardwareCondition || "NUEVO",
+            quantity: Number(line.quantity || 0),
+          };
+          if (canEditPosPrices && Number(line.unitPrice) > 0) {
+            item.unitPrice = Number(line.unitPrice);
+          }
+          return item;
+        }),
       });
 
       setCheckoutOpen(false);
@@ -690,6 +709,8 @@ function KioskSales() {
     return context.kioskCode || "";
   }, [context, selectedKioskId]);
 
+  const canEditPosPrices = String(selectedKioskCode || "").trim().toUpperCase() === "A15";
+
   const selectedKioskOpeningCash = useMemo(() => {
     if (!context) return 300;
     if (context.admin && Array.isArray(context.kiosks)) {
@@ -843,6 +864,7 @@ function KioskSales() {
                               onCancelSale={cancelSale}
                               onApplyPromotion={() => setCheckoutOpen(true)}
                               disabled={!cashSessionOpen || saving}
+                              canEditPrices={canEditPosPrices}
                             />
                           </div>
                         </div>

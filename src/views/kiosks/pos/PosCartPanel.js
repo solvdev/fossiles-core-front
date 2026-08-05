@@ -13,6 +13,7 @@ function PosCartPanel({
   onCancelSale,
   onApplyPromotion,
   disabled,
+  canEditPrices = false,
 }) {
   return (
     <Card className="kiosk-pos-block kiosk-pos-cart-panel">
@@ -30,6 +31,12 @@ function PosCartPanel({
           <i className="nc-icon nc-paper" />
           Factura electrónica obligatoria (CF por defecto o NIT al cobrar)
         </div>
+        {canEditPrices ? (
+          <div className="text-muted small mb-2">
+            Miraflores: puedes editar el precio unitario para empatar cobro POS con lo registrado.
+            Si el precio ya incluye descuento, marca «Cobrar sin descuento» al pagar.
+          </div>
+        ) : null}
 
         <div className="kiosk-pos-cart-wrap">
           {cart.length === 0 ? (
@@ -63,7 +70,26 @@ function PosCartPanel({
                     onChange={(e) =>
                       onUpdateLine(line.key, { quantity: Number(e.target.value || 0) })
                     }
+                    title="Cantidad"
                   />
+                  {canEditPrices ? (
+                    <Input
+                      className="kiosk-pos-input-lg kiosk-pos-qty"
+                      type="number"
+                      min="0.01"
+                      step="0.01"
+                      value={line.unitPrice}
+                      onChange={(e) =>
+                        onUpdateLine(line.key, { unitPrice: Number(e.target.value || 0) })
+                      }
+                      title="Precio unitario"
+                      style={{ minWidth: 88 }}
+                    />
+                  ) : (
+                    <div className="kiosk-pos-line-unit text-muted small">
+                      {formatCurrency(line.unitPrice)}
+                    </div>
+                  )}
                   <div className="kiosk-pos-line-total">{formatCurrency(line.quantity * line.unitPrice)}</div>
                   <Button color="danger" className="kiosk-pos-btn-lg" onClick={() => onRemoveLine(line.key)}>
                     Quitar
