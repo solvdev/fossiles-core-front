@@ -12,6 +12,8 @@ import {
   Table,
 } from "reactstrap";
 import { getKioskPosContext } from "services/kioskPosService";
+import { getProducts } from "services/productService";
+import { getColors } from "services/colorService";
 import {
   completeKioskExchange,
   lookupKioskSale,
@@ -31,9 +33,15 @@ import ExchangeCheckoutModal from "./ExchangeCheckoutModal";
 
 function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, onCompleted }) {
   const [step, setStep] = useState(1);
+  const [exchangeMode, setExchangeMode] = useState("SALE");
   const [saleQuery, setSaleQuery] = useState("");
   const [sale, setSale] = useState(null);
   const [selectedItemId, setSelectedItemId] = useState("");
+  const [products, setProducts] = useState([]);
+  const [colors, setColors] = useState([]);
+  const [returnedProductId, setReturnedProductId] = useState("");
+  const [returnedColorId, setReturnedColorId] = useState("");
+  const [returnedSize, setReturnedSize] = useState("");
   const [inventory, setInventory] = useState([]);
   const [productSearch, setProductSearch] = useState("");
   const [selectedVariantKey, setSelectedVariantKey] = useState("");
@@ -52,9 +60,15 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, onCompleted }) {
   useEffect(() => {
     if (!isOpen) return;
     setStep(1);
+    setExchangeMode("SALE");
     setSaleQuery("");
     setSale(null);
     setSelectedItemId("");
+    setProducts([]);
+    setColors([]);
+    setReturnedProductId("");
+    setReturnedColorId("");
+    setReturnedSize("");
     setInventory([]);
     setProductSearch("");
     setSelectedVariantKey("");
@@ -67,6 +81,27 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, onCompleted }) {
     setPhysicalSlipNumber("");
     setCheckoutOpen(false);
     setError("");
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    let cancelled = false;
+    const loadCatalogs = async () => {
+      try {
+        const [productRows, colorRows] = await Promise.all([getProducts(), getColors()]);
+        if (cancelled) return;
+        setProducts(Array.isArray(productRows) ? productRows : []);
+        setColors(Array.isArray(colorRows) ? colorRows : []);
+      } catch (err) {
+        if (!cancelled) {
+          setError(err.message || "No se pudo cargar el catálogo de productos.");
+        }
+      }
+    };
+    void loadCatalogs();
+    return () => {
+      cancelled = true;
+    };
   }, [isOpen]);
 
   useEffect(() => {
@@ -85,6 +120,11 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, onCompleted }) {
   const selectedItem = useMemo(
     () => (sale?.items || []).find((item) => String(item.id) === String(selectedItemId)),
     [sale, selectedItemId]
+  );
+
+  const selectedReturnedProduct = useMemo(
+    () => (products || []).find((product) => String(product.id) === String(returnedProductId)) || null,
+    [products, returnedProductId]
   );
 
   const selectedVariant = useMemo(() => {
@@ -143,8 +183,12 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, onCompleted }) {
 
   const handlePreview = async () => {
     resetError();
-    if (!selectedItem) {
+    if (exchangeMode === "SALE" && !selectedItem) {
       setError("Selecciona la línea devuelta en el paso anterior.");
+      return;
+    }
+    if (exchangeMode === "FREE" && !selectedReturnedProduct) {
+      setError("Selecciona el producto que ingresa al kiosko.");
       return;
     }
     if (!selectedVariant) {
@@ -159,8 +203,11 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, onCompleted }) {
       setLoading(true);
       const result = await previewKioskExchange({
         kioskLocationId,
-        originalSaleId: sale.id,
-        originalSaleItemId: selectedItem.id,
+        originalSaleId: sale?.id || null,
+        originalSaleItemId: selectedItem?.id || null,
+        returnedProductId: selectedReturnedProduct?.id || null,
+        returnedColorId: returnedColorId ? Number(returnedColorId) : null,
+        returnedSize: returnedSize.trim() || null,
         givenProductId: selectedVariant.productId,
         givenColorId: selectedVariant.colorId,
         givenSize: selectedSize || null,
@@ -178,6 +225,24 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, onCompleted }) {
 
   const hasPriceDifference = Number(preview?.differenceAmount || 0) > 0;
 
+  const buildCompleteRequest = (payment = {}) => ({
+    kioskLocationId,
+    originalSaleId: sale?.id || null,
+    originalSaleItemId: selectedItem?.id || null,
+    returnedProductId: selectedReturnedProduct?.id || null,
+    returnedColorId: returnedColorId ? Number(returnedColorId) : null,
+    returnedSize: returnedSize.trim() || null,
+    givenProductId: preview.given.productId,
+    givenColorId: preview.given.colorId,
+    givenSize: preview.given.size,
+    returnedQuantity: preview.returned.quantity,
+    givenQuantity: preview.given.quantity,
+    physicalSlipNumber: physicalSlipNumber.trim(),
+    reason: payment.reason || reason,
+    observations: payment.observations || observations,
+    ...payment,
+  });
+
   const handleComplete = async (payment) => {
     if (!preview) return;
     if (!String(physicalSlipNumber || "").trim()) {
@@ -186,20 +251,7 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, onCompleted }) {
     }
     try {
       setSaving(true);
-      const result = await completeKioskExchange({
-        kioskLocationId,
-        originalSaleId: sale.id,
-        originalSaleItemId: selectedItem.id,
-        givenProductId: preview.given.productId,
-        givenColorId: preview.given.colorId,
-        givenSize: preview.given.size,
-        returnedQuantity: preview.returned.quantity,
-        givenQuantity: preview.given.quantity,
-        physicalSlipNumber: physicalSlipNumber.trim(),
-        reason: payment.reason || reason,
-        observations: payment.observations || observations,
-        ...payment,
-      });
+      const result = await completeKioskExchange(buildCompleteRequest(payment));
       setCheckoutOpen(false);
       openExchangeSlipPrintWindow(buildKioskExchangeSlipPrintHtml(result.slip, preview));
       onCompleted?.(result);
@@ -224,19 +276,10 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, onCompleted }) {
     }
     try {
       setSaving(true);
-      const result = await completeKioskExchange({
-        kioskLocationId,
-        originalSaleId: sale.id,
-        originalSaleItemId: selectedItem.id,
-        givenProductId: preview.given.productId,
-        givenColorId: preview.given.colorId,
-        givenSize: preview.given.size,
-        returnedQuantity: preview.returned.quantity,
-        givenQuantity: preview.given.quantity,
-        physicalSlipNumber: physicalSlipNumber.trim(),
+      const result = await completeKioskExchange(buildCompleteRequest({
         reason: reason.trim(),
         observations: observations.trim() || null,
-      });
+      }));
       openExchangeSlipPrintWindow(buildKioskExchangeSlipPrintHtml(result.slip, preview));
       onCompleted?.(result);
       onClose();
@@ -265,18 +308,113 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, onCompleted }) {
 
           {step === 1 && (
             <>
-              <Label>Número de venta original (POS)</Label>
-              <div className="d-flex">
-                <Input
-                  value={saleQuery}
-                  onChange={(e) => setSaleQuery(e.target.value)}
-                  placeholder="Ej: POS-2026-0042"
-                  className="mr-2"
-                />
-                <Button color="primary" onClick={() => void handleLookupSale()} disabled={loading}>
-                  Buscar
-                </Button>
-              </div>
+              <FormGroup tag="fieldset">
+                <Label>Tipo de cambio</Label>
+                <div>
+                  <Label check className="mr-4">
+                    <Input
+                      type="radio"
+                      checked={exchangeMode === "SALE"}
+                      onChange={() => setExchangeMode("SALE")}
+                    />{" "}
+                    Con venta POS registrada
+                  </Label>
+                  <Label check>
+                    <Input
+                      type="radio"
+                      checked={exchangeMode === "FREE"}
+                      onChange={() => setExchangeMode("FREE")}
+                    />{" "}
+                    Cambio libre
+                  </Label>
+                </div>
+              </FormGroup>
+
+              {exchangeMode === "SALE" ? (
+                <>
+                  <Label>Número de venta original (POS)</Label>
+                  <div className="d-flex">
+                    <Input
+                      value={saleQuery}
+                      onChange={(e) => setSaleQuery(e.target.value)}
+                      placeholder="Ej: POS-2026-0042"
+                      className="mr-2"
+                    />
+                    <Button color="primary" onClick={() => void handleLookupSale()} disabled={loading}>
+                      Buscar
+                    </Button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <Alert color="info">
+                    El producto que ingresa se valora al precio de catálogo. El producto nuevo se cobrará y
+                    facturará según la diferencia.
+                  </Alert>
+                  <FormGroup>
+                    <Label>Producto que ingresa</Label>
+                    <Input
+                      type="select"
+                      value={returnedProductId}
+                      onChange={(e) => setReturnedProductId(e.target.value)}
+                    >
+                      <option value="">Selecciona producto</option>
+                      {(products || []).map((product) => (
+                        <option key={product.id} value={product.id}>
+                          {product.code} · {product.name}
+                        </option>
+                      ))}
+                    </Input>
+                  </FormGroup>
+                  <FormGroup>
+                    <Label>Color que ingresa (opcional)</Label>
+                    <Input
+                      type="select"
+                      value={returnedColorId}
+                      onChange={(e) => setReturnedColorId(e.target.value)}
+                    >
+                      <option value="">Sin color</option>
+                      {(colors || []).map((color) => (
+                        <option key={color.id} value={color.id}>
+                          {color.name}
+                        </option>
+                      ))}
+                    </Input>
+                  </FormGroup>
+                  <div className="d-flex">
+                    <FormGroup className="mr-3" style={{ maxWidth: 180 }}>
+                      <Label>Talla que ingresa (si aplica)</Label>
+                      <Input value={returnedSize} onChange={(e) => setReturnedSize(e.target.value)} />
+                    </FormGroup>
+                    <FormGroup style={{ maxWidth: 180 }}>
+                      <Label>Cantidad que ingresa</Label>
+                      <Input
+                        type="number"
+                        min="1"
+                        step="1"
+                        value={returnedQty}
+                        onChange={(e) => {
+                          setReturnedQty(e.target.value);
+                          setGivenQty(e.target.value);
+                        }}
+                      />
+                    </FormGroup>
+                  </div>
+                  <Button
+                    color="primary"
+                    onClick={() => {
+                      resetError();
+                      if (!selectedReturnedProduct) {
+                        setError("Selecciona el producto que ingresa al kiosko.");
+                        return;
+                      }
+                      setStep(3);
+                    }}
+                  >
+                    Seleccionar producto nuevo
+                  </Button>
+                </>
+              )}
             </>
           )}
 
@@ -467,7 +605,12 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, onCompleted }) {
         </ModalBody>
         <ModalFooter>
           {step > 1 && step < 4 && (
-            <Button color="secondary" outline onClick={() => setStep((value) => value - 1)} disabled={loading}>
+            <Button
+              color="secondary"
+              outline
+              onClick={() => setStep((value) => (exchangeMode === "FREE" && value === 3 ? 1 : value - 1))}
+              disabled={loading}
+            >
               Atrás
             </Button>
           )}

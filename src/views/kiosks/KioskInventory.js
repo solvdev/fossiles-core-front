@@ -44,7 +44,11 @@ import {
 import { isPackagingProductCode } from "utils/kioskPackagingHelper";
 import { hasInventorySizeBreakdown } from "utils/inventoryVariantHelper";
 import { isFossCinchosProductCode } from "utils/cinchoProductionHelper";
-import { sortSizeKeys, filterVisibleKioskStockRows } from "utils/productCinchoHelper";
+import {
+  filterVisibleKioskStockRows,
+  resolveCinchoSizesForProduct,
+  sortSizeKeys,
+} from "utils/productCinchoHelper";
 import { showError, showSuccess, showWarning } from "utils/notificationHelper";
 import {
   canSell,
@@ -425,10 +429,35 @@ function KioskInventory() {
     });
   };
 
+  const findCatalogProduct = (productId) =>
+    (products || []).find((product) => Number(product.id) === Number(productId)) || null;
+
+  const isCinchoLine = (line, row) => {
+    const product = findCatalogProduct(line.productId);
+    return Boolean(
+      row?.cinchoType
+      || row?.cinchoForKids
+      || product?.cinchoType
+      || product?.cinchoForKids
+      || isFossCinchosProductCode(row?.productCode || product?.code)
+    );
+  };
+
+  const lineNeedsSize = (line) => {
+    const row = findStockRow(line.productId, line.colorId);
+    return Boolean(
+      hasInventorySizeBreakdown(row?.sizes) || isCinchoLine(line, row)
+    );
+  };
+
   const resolveLineSizeOptions = (line) => {
     const row = findStockRow(line.productId, line.colorId);
-    if (!row || !hasInventorySizeBreakdown(row.sizes)) return [];
-    return sortSizeKeys(Object.keys(row.sizes || {}));
+    const existingSizes = Object.keys(row?.sizes || {});
+    if (!isCinchoLine(line, row)) {
+      return hasInventorySizeBreakdown(row?.sizes) ? sortSizeKeys(existingSizes) : [];
+    }
+    const product = findCatalogProduct(line.productId) || row;
+    return sortSizeKeys([...new Set([...resolveCinchoSizesForProduct(product), ...existingSizes])]);
   };
 
   const updateLineItem = (lineId, key, value) => {
@@ -459,10 +488,7 @@ function KioskInventory() {
         invoiceId: form.invoiceId,
         reason: form.reason,
         physicalSlipNumber: form.physicalSlipNumber,
-        lineNeedsSize: (line) => {
-          const row = findStockRow(line.productId, line.colorId);
-          return Boolean(row && hasInventorySizeBreakdown(row.sizes));
-        },
+        lineNeedsSize,
       });
     }
     if (form.operation === "DEVOLUCION_DEPOSITO") {
@@ -1071,8 +1097,7 @@ function KioskInventory() {
                               <tbody>
                                 {lineItems.map((line) => {
                                   const lineStock = findStockRow(line.productId, line.colorId);
-                                  const lineNeedsSize =
-                                    lineStock && hasInventorySizeBreakdown(lineStock.sizes);
+                                  const needsSize = lineNeedsSize(line);
                                   const sizeOptions = resolveLineSizeOptions(line);
                                   return (
                                     <tr key={line.id}>
@@ -1108,7 +1133,7 @@ function KioskInventory() {
                                         />
                                       </td>
                                       <td style={{ width: 96 }}>
-                                        {lineNeedsSize && sizeOptions.length > 0 ? (
+                                        {needsSize && sizeOptions.length > 0 ? (
                                           <Input
                                             type="select"
                                             bsSize="sm"
@@ -1135,8 +1160,8 @@ function KioskInventory() {
                                             onChange={(e) =>
                                               updateLineItem(line.id, "sizeKey", e.target.value)
                                             }
-                                            placeholder={lineNeedsSize ? "Req." : "—"}
-                                            disabled={!lineNeedsSize}
+                                            placeholder={needsSize ? "Req." : "—"}
+                                            disabled={!needsSize}
                                           />
                                         )}
                                       </td>
