@@ -340,12 +340,17 @@ function KioskSales() {
             showError("El precio unitario debe ser mayor a cero.");
             return line;
           }
-          const catalog = Number(line.catalogUnitPrice ?? line.unitPrice);
+          // Cambiar el monto no decide el descuento: eso lo controla el botón Final / Con desc.
           return {
             ...line,
             unitPrice: nextPrice,
-            priceEdited: Math.abs(nextPrice - catalog) > 0.001,
           };
+        }
+        if (patch.priceEdited != null) {
+          if (!canEditPosPrices) {
+            return line;
+          }
+          return { ...line, priceEdited: Boolean(patch.priceEdited) };
         }
         return { ...line, ...patch };
       })

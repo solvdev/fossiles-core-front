@@ -33,8 +33,9 @@ function PosCartPanel({
         </div>
         {canEditPrices ? (
           <div className="text-muted small mb-2">
-            Miraflores: la línea que edites queda al precio final (sin descuento).
-            Las demás siguen con el descuento/promo normal.
+            Miraflores: usa <strong>Con desc.</strong> (lleva promo/descuento) o{" "}
+            <strong>Final</strong> (cobra exactamente ese precio, sin descuento).
+            Puedes mezclar: uno con descuento y otro final.
           </div>
         ) : null}
 
@@ -53,6 +54,15 @@ function PosCartPanel({
                     {isPackagingProductCode(line.productCode) && (
                       <Badge color="secondary" className="ml-1">Empaque</Badge>
                     )}
+                    {canEditPrices && (
+                      <Badge
+                        color={line.priceEdited ? "success" : "info"}
+                        className="ml-1"
+                        style={{ fontSize: 10 }}
+                      >
+                        {line.priceEdited ? "Final" : "Con desc."}
+                      </Badge>
+                    )}
                   </div>
                   <div className="kiosk-pos-item-sub">
                     {line.productCode} · {line.colorName || "Sin color"}
@@ -60,7 +70,7 @@ function PosCartPanel({
                     {line.size ? ` · Talla ${line.size}` : ""}
                   </div>
                 </div>
-                <div className="kiosk-pos-line-actions">
+                <div className="kiosk-pos-line-actions" style={{ flexWrap: "wrap", gap: 6 }}>
                   <Input
                     className="kiosk-pos-input-lg kiosk-pos-qty"
                     type="number"
@@ -86,8 +96,12 @@ function PosCartPanel({
                         onChange={(e) =>
                           onUpdateLine(line.key, { unitPrice: Number(e.target.value || 0) })
                         }
-                        title="Precio unitario editable"
-                        style={{ minWidth: 100, border: "2px solid #1D9E75" }}
+                        title="Precio unitario"
+                        style={{
+                          minWidth: 100,
+                          border: line.priceEdited ? "2px solid #1D9E75" : "2px solid #5e72e4",
+                          background: line.priceEdited ? "#f0faf5" : "#f5f7ff",
+                        }}
                       />
                     </div>
                   ) : (
@@ -96,6 +110,24 @@ function PosCartPanel({
                     </div>
                   )}
                   <div className="kiosk-pos-line-total">{formatCurrency(line.quantity * line.unitPrice)}</div>
+                  {canEditPrices ? (
+                    <Button
+                      color={line.priceEdited ? "success" : "info"}
+                      outline={!line.priceEdited}
+                      className="kiosk-pos-btn-lg"
+                      type="button"
+                      onClick={() =>
+                        onUpdateLine(line.key, { priceEdited: !line.priceEdited })
+                      }
+                      title={
+                        line.priceEdited
+                          ? "Ahora es precio final. Clic para volver a aplicar descuento"
+                          : "Ahora lleva descuento. Clic para precio final sin descuento"
+                      }
+                    >
+                      {line.priceEdited ? "Final" : "Con desc."}
+                    </Button>
+                  ) : null}
                   <Button color="danger" className="kiosk-pos-btn-lg" onClick={() => onRemoveLine(line.key)}>
                     Quitar
                   </Button>
