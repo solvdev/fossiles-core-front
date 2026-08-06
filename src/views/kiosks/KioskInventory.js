@@ -29,7 +29,6 @@ import {
   getKioscoMovimientos,
   getKioscoStock,
   getKioscoStockBajo,
-  initializeKioscoInventory,
   registrarKioscoAjuste,
   registrarKioscoAnulacion,
   registrarKioscoDevolucionCliente,
@@ -100,7 +99,6 @@ function KioskInventory() {
   const [form, setForm] = useState(INITIAL_FORM);
   const [loadingCatalogs, setLoadingCatalogs] = useState(false);
   const [loadingData, setLoadingData] = useState(false);
-  const [initializingStock, setInitializingStock] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [customAjusteSizeKeys, setCustomAjusteSizeKeys] = useState([]);
@@ -812,33 +810,6 @@ function KioskInventory() {
     }
   };
 
-  const handleInitializeInventory = async () => {
-    const targetLocationId = selectedLocation ? Number(selectedLocation) : null;
-    const confirmationMessage = targetLocationId
-      ? "¿Inicializar inventario para este kiosko? Se crearán las variantes faltantes por color y tallas de cincho en 0. Los empaques SUM- entran sin color ni tallas (una fila por producto)."
-      : "¿Inicializar inventario para TODOS los kioskos? Se crearán las variantes faltantes por color y tallas de cincho en 0. Los empaques SUM- entran sin color ni tallas (una fila por producto).";
-    if (!window.confirm(confirmationMessage)) {
-      return;
-    }
-    try {
-      setInitializingStock(true);
-      const result = await initializeKioscoInventory(targetLocationId);
-      showSuccess(
-        `${result.message} Creados: ${result.createdCount || 0}, existentes: ${result.existingCount || 0}.`
-      );
-      if (selectedLocation) {
-        await refreshLocationData(selectedLocation);
-      }
-      if (movementKioskId) {
-        await loadMovements(movementKioskId);
-      }
-    } catch (err) {
-      showError(err.message || "No se pudo inicializar el inventario de kiosko.");
-    } finally {
-      setInitializingStock(false);
-    }
-  };
-
   const saleWouldHitMin = form.operation === "VENTA" && isSaleBelowMinimum(selectedStockRow, form.quantity);
   const saleCanSubmit = form.operation !== "VENTA" || canSell(selectedStockRow, form.quantity);
   const bulkSaleCanSubmit = useMemo(() => {
@@ -901,7 +872,7 @@ function KioskInventory() {
               {error && <Alert color="danger">{error}</Alert>}
 
               <Row className="mb-3 align-items-end">
-                <Col md="4" sm="6">
+                <Col md="5" sm="8">
                   <FormGroup className="mb-0">
                     <Label>Kiosko</Label>
                     <FilterableSelect
@@ -916,26 +887,6 @@ function KioskInventory() {
                       disabled={loadingCatalogs}
                     />
                   </FormGroup>
-                </Col>
-                <Col md="8" sm="6" className="d-flex align-items-end flex-wrap" style={{ gap: 8 }}>
-                  <Button
-                    color="primary"
-                    outline
-                    onClick={() => void handleInitializeInventory()}
-                    disabled={loadingCatalogs || initializingStock}
-                  >
-                    {initializingStock ? (
-                      <>
-                        <Spinner size="sm" className="mr-2" />
-                        Generando...
-                      </>
-                    ) : (
-                      <>
-                        <i className="nc-icon nc-refresh-69 mr-1" />
-                        Generar inventario en kioskos
-                      </>
-                    )}
-                  </Button>
                 </Col>
               </Row>
 
@@ -1578,8 +1529,6 @@ function KioskInventory() {
                   onRefreshStock={() =>
                     selectedLocation ? refreshLocationData(selectedLocation) : Promise.resolve()
                   }
-                  onInitializeInventory={() => void handleInitializeInventory()}
-                  initializingStock={initializingStock}
                 />
               )}
             </CardBody>

@@ -96,7 +96,7 @@ function KioskInventoryStockExplorer({
       ) : !selectedProductId ? (
         <Alert color="light" className="border mb-0 py-2">
           {stockRows.length === 0
-            ? "Este kiosko no tiene filas de inventario. Use «Generar inventario» o registre entradas."
+            ? "Este kiosko no tiene filas de inventario. Registre entradas o use Inventario inicial."
             : `Hay ${stockRows.length} fila(s) en este kiosko. Busca un producto para ver colores y tallas.`}
         </Alert>
       ) : productVariants.length === 0 ? (
