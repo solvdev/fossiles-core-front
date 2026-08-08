@@ -4,7 +4,6 @@ import {
   Button,
   FormGroup,
   Input,
-  Label,
   Modal,
   ModalBody,
   ModalFooter,
@@ -32,9 +31,17 @@ import {
   posVariantSizeEntries,
 } from "../pos/posUtils";
 import ExchangeCheckoutModal from "./ExchangeCheckoutModal";
+import "../KioskSales.css";
 
 const MIRAFLORES_PRICE_EDIT_CODE = "A15";
 const DISCOUNT_PRESETS = ["10", "15", "20"];
+
+const WIZARD_STEPS = [
+  { id: 1, label: "Ingreso" },
+  { id: 2, label: "Línea" },
+  { id: 3, label: "Salida" },
+  { id: 4, label: "Resumen" },
+];
 
 const impliedDiscountPercent = (catalogSalePrice, paidUnitPrice) => {
   const catalog = Number(catalogSalePrice || 0);
@@ -267,57 +274,61 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
     ...priceOverrides,
   });
 
+  const visibleSteps = useMemo(() => {
+    if (exchangeMode === "FREE") {
+      return WIZARD_STEPS.filter((item) => item.id !== 2);
+    }
+    return WIZARD_STEPS;
+  }, [exchangeMode]);
+
   const renderReturnedDiscountFields = () => (
-    <FormGroup className="mt-2">
-      <Label>¿Se vendió con descuento?</Label>
-      <div>
-        <Label check className="mr-3">
-          <Input
-            type="radio"
-            checked={!returnedSoldWithDiscount}
-            onChange={() => {
-              setReturnedSoldWithDiscount(false);
-              setReturnedDiscountPreset("");
-              setReturnedDiscountOther("");
-            }}
-          />{" "}
+    <div className="kiosk-exchange-panel">
+      <p className="kiosk-exchange-panel-title">¿Se vendió con descuento?</p>
+      <div className="kiosk-exchange-chips">
+        <button
+          type="button"
+          className={`kiosk-exchange-chip${!returnedSoldWithDiscount ? " is-active" : ""}`}
+          onClick={() => {
+            setReturnedSoldWithDiscount(false);
+            setReturnedDiscountPreset("");
+            setReturnedDiscountOther("");
+          }}
+        >
           No
-        </Label>
-        <Label check>
-          <Input
-            type="radio"
-            checked={returnedSoldWithDiscount}
-            onChange={() => {
-              setReturnedSoldWithDiscount(true);
-              if (!returnedDiscountPreset) setReturnedDiscountPreset("10");
-            }}
-          />{" "}
+        </button>
+        <button
+          type="button"
+          className={`kiosk-exchange-chip${returnedSoldWithDiscount ? " is-active" : ""}`}
+          onClick={() => {
+            setReturnedSoldWithDiscount(true);
+            if (!returnedDiscountPreset) setReturnedDiscountPreset("10");
+          }}
+        >
           Sí
-        </Label>
+        </button>
       </div>
       {returnedSoldWithDiscount && (
-        <div className="d-flex flex-wrap align-items-end mt-2">
+        <div className="kiosk-exchange-chips mt-2">
           {DISCOUNT_PRESETS.map((pct) => (
-            <Label key={pct} check className="mr-3">
-              <Input
-                type="radio"
-                checked={returnedDiscountPreset === pct}
-                onChange={() => {
-                  setReturnedDiscountPreset(pct);
-                  setReturnedDiscountOther("");
-                }}
-              />{" "}
+            <button
+              key={pct}
+              type="button"
+              className={`kiosk-exchange-chip${returnedDiscountPreset === pct ? " is-active" : ""}`}
+              onClick={() => {
+                setReturnedDiscountPreset(pct);
+                setReturnedDiscountOther("");
+              }}
+            >
               {pct}%
-            </Label>
+            </button>
           ))}
-          <Label check className="mr-2">
-            <Input
-              type="radio"
-              checked={returnedDiscountPreset === "other"}
-              onChange={() => setReturnedDiscountPreset("other")}
-            />{" "}
+          <button
+            type="button"
+            className={`kiosk-exchange-chip${returnedDiscountPreset === "other" ? " is-active" : ""}`}
+            onClick={() => setReturnedDiscountPreset("other")}
+          >
             Otro
-          </Label>
+          </button>
           {returnedDiscountPreset === "other" && (
             <Input
               type="number"
@@ -327,20 +338,45 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
               value={returnedDiscountOther}
               onChange={(e) => setReturnedDiscountOther(e.target.value)}
               placeholder="%"
-              style={{ maxWidth: 90 }}
               bsSize="sm"
+              className="kiosk-exchange-chip-input"
             />
           )}
         </div>
       )}
-      <small className="text-muted d-block mt-1">
-        El crédito del ingreso usa el precio de venta de catálogo
+      <p className="kiosk-exchange-help mb-0">
+        Crédito del ingreso: precio de venta de catálogo
         {returnedSoldWithDiscount && resolvedDiscountPercent > 0
           ? ` con ${resolvedDiscountPercent}% de descuento.`
           : " sin descuento."}
-      </small>
-    </FormGroup>
+      </p>
+    </div>
   );
+
+  const goToGivenStep = () => {
+    resetError();
+    if (exchangeMode === "FREE") {
+      if (!selectedReturnedProduct) {
+        setError("Selecciona el producto que ingresa al kiosko.");
+        return;
+      }
+      if (returnedSoldWithDiscount && !(resolvedDiscountPercent > 0)) {
+        setError("Indica el porcentaje de descuento.");
+        return;
+      }
+      setStep(3);
+      return;
+    }
+    if (!selectedItemId) {
+      setError("Selecciona la línea devuelta.");
+      return;
+    }
+    if (returnedSoldWithDiscount && !(resolvedDiscountPercent > 0)) {
+      setError("Indica el porcentaje de descuento.");
+      return;
+    }
+    setStep(3);
+  };
 
   const handlePreview = async () => {
     resetError();
@@ -517,121 +553,135 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
 
   return (
     <>
-      <Modal isOpen={isOpen} toggle={onClose} size="lg">
+      <Modal isOpen={isOpen} toggle={onClose} size="lg" className="kiosk-exchange-modal" contentClassName="kiosk-pos-page">
         <ModalHeader toggle={onClose}>Nueva boleta de cambio</ModalHeader>
         <ModalBody>
+          <div className="kiosk-exchange-steps" aria-label="Progreso">
+            {visibleSteps.map((item, index) => {
+              const isActive = step === item.id;
+              const isDone = step > item.id || (exchangeMode === "FREE" && item.id === 1 && step === 3);
+              return (
+                <div
+                  key={item.id}
+                  className={`kiosk-exchange-step${isActive ? " is-active" : ""}${isDone && !isActive ? " is-done" : ""}`}
+                >
+                  <span className="kiosk-exchange-step-num">{index + 1}</span>
+                  <span className="kiosk-exchange-step-label">{item.label}</span>
+                </div>
+              );
+            })}
+          </div>
+
           {error && <Alert color="danger">{error}</Alert>}
 
           {step === 1 && (
             <>
-              <FormGroup tag="fieldset">
-                <Label>Tipo de cambio</Label>
-                <div>
-                  <Label check className="mr-4">
-                    <Input
-                      type="radio"
-                      checked={exchangeMode === "SALE"}
-                      onChange={() => setExchangeMode("SALE")}
-                    />{" "}
-                    Con venta POS registrada
-                  </Label>
-                  <Label check>
-                    <Input
-                      type="radio"
-                      checked={exchangeMode === "FREE"}
-                      onChange={() => setExchangeMode("FREE")}
-                    />{" "}
-                    Cambio libre
-                  </Label>
+              <div className="kiosk-exchange-section">
+                <span className="kiosk-exchange-label">Tipo de cambio</span>
+                <div className="kiosk-exchange-mode-row">
+                  <button
+                    type="button"
+                    className={`kiosk-exchange-mode-btn${exchangeMode === "SALE" ? " is-active" : ""}`}
+                    onClick={() => setExchangeMode("SALE")}
+                  >
+                    <strong>Con factura</strong>
+                    <span>Buscar por serie-correlativo</span>
+                  </button>
+                  <button
+                    type="button"
+                    className={`kiosk-exchange-mode-btn${exchangeMode === "FREE" ? " is-active" : ""}`}
+                    onClick={() => setExchangeMode("FREE")}
+                  >
+                    <strong>Cambio libre</strong>
+                    <span>Ventas anteriores al sistema</span>
+                  </button>
                 </div>
-              </FormGroup>
+              </div>
 
               {exchangeMode === "SALE" ? (
                 <>
-                  <Label>Serie-correlativo de factura</Label>
-                  <div className="d-flex">
-                    <Input
-                      value={saleQuery}
-                      onChange={(e) => setSaleQuery(e.target.value)}
-                      placeholder="Ej: A45-241"
-                      className="mr-2"
-                    />
-                    <Button color="primary" onClick={() => void handleLookupSale()} disabled={loading}>
-                      Buscar
-                    </Button>
+                  <div className="kiosk-exchange-panel">
+                    <span className="kiosk-exchange-label">Serie-correlativo</span>
+                    <div className="kiosk-exchange-lookup">
+                      <Input
+                        value={saleQuery}
+                        onChange={(e) => setSaleQuery(e.target.value)}
+                        placeholder="Ej: A45-241"
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            void handleLookupSale();
+                          }
+                        }}
+                      />
+                      <Button color="primary" onClick={() => void handleLookupSale()} disabled={loading}>
+                        {loading ? "…" : "Buscar"}
+                      </Button>
+                    </div>
                   </div>
-                  <Alert color="secondary" className="mt-3 mb-0">
-                    Si el cambio es de una venta <strong>anterior al inicio del sistema</strong>, use{" "}
-                    <strong>Cambio libre</strong>.
-                  </Alert>
+                  <div className="kiosk-exchange-hint mt-3 mb-0">
+                    <span className="kiosk-exchange-hint-icon" aria-hidden>i</span>
+                    <span>
+                      Si el cambio es de una venta <strong>anterior al inicio del sistema</strong>, use{" "}
+                      <strong>Cambio libre</strong>.
+                    </span>
+                  </div>
                 </>
               ) : (
                 <>
-                  <Alert color="info">
-                    El producto que ingresa se valora al precio de venta de catálogo (con o sin descuento).
-                    El producto nuevo se cobra a precio normal cuando hay diferencia.
-                  </Alert>
-                  <FormGroup>
-                    <Label>Producto que ingresa</Label>
-                    <ProductSelector
-                      products={products}
-                      value={returnedProductId}
-                      onChange={(product) => {
-                        setReturnedProductId(product?.id != null ? String(product.id) : "");
-                        setReturnedSoldWithDiscount(false);
-                        setReturnedDiscountPreset("");
-                        setReturnedDiscountOther("");
-                      }}
-                      placeholder="Buscar por código o nombre…"
-                    />
-                  </FormGroup>
-                  <FormGroup>
-                    <Label>Color que ingresa (opcional)</Label>
-                    <ColorSelector
-                      colors={colors}
-                      value={returnedColorId}
-                      onChange={(color) => setReturnedColorId(color?.id != null ? String(color.id) : "")}
-                      placeholder="Buscar color…"
-                    />
-                  </FormGroup>
-                  <div className="d-flex">
-                    <FormGroup className="mr-3" style={{ maxWidth: 180 }}>
-                      <Label>Talla que ingresa (si aplica)</Label>
-                      <Input value={returnedSize} onChange={(e) => setReturnedSize(e.target.value)} />
-                    </FormGroup>
-                    <FormGroup style={{ maxWidth: 180 }}>
-                      <Label>Cantidad que ingresa</Label>
-                      <Input
-                        type="number"
-                        min="1"
-                        step="1"
-                        value={returnedQty}
-                        onChange={(e) => {
-                          setReturnedQty(e.target.value);
-                          setGivenQty(e.target.value);
+                  <div className="kiosk-exchange-hint">
+                    <span className="kiosk-exchange-hint-icon" aria-hidden>i</span>
+                    <span>
+                      El ingreso se valora a precio de catálogo (con o sin descuento). El producto nuevo se cobra
+                      a precio normal cuando hay diferencia.
+                    </span>
+                  </div>
+                  <div className="kiosk-exchange-panel">
+                    <p className="kiosk-exchange-panel-title">Producto que ingresa</p>
+                    <div className="kiosk-exchange-field">
+                      <span className="kiosk-exchange-label">Producto</span>
+                      <ProductSelector
+                        products={products}
+                        value={returnedProductId}
+                        onChange={(product) => {
+                          setReturnedProductId(product?.id != null ? String(product.id) : "");
+                          setReturnedSoldWithDiscount(false);
+                          setReturnedDiscountPreset("");
+                          setReturnedDiscountOther("");
                         }}
+                        placeholder="Buscar por código o nombre…"
                       />
-                    </FormGroup>
+                    </div>
+                    <div className="kiosk-exchange-field">
+                      <span className="kiosk-exchange-label">Color (opcional)</span>
+                      <ColorSelector
+                        colors={colors}
+                        value={returnedColorId}
+                        onChange={(color) => setReturnedColorId(color?.id != null ? String(color.id) : "")}
+                        placeholder="Buscar color…"
+                      />
+                    </div>
+                    <div className="kiosk-exchange-field-grid">
+                      <div className="kiosk-exchange-field">
+                        <span className="kiosk-exchange-label">Talla (si aplica)</span>
+                        <Input value={returnedSize} onChange={(e) => setReturnedSize(e.target.value)} placeholder="Ej: 34" />
+                      </div>
+                      <div className="kiosk-exchange-field">
+                        <span className="kiosk-exchange-label">Cantidad</span>
+                        <Input
+                          type="number"
+                          min="1"
+                          step="1"
+                          value={returnedQty}
+                          onChange={(e) => {
+                            setReturnedQty(e.target.value);
+                            setGivenQty(e.target.value);
+                          }}
+                        />
+                      </div>
+                    </div>
                   </div>
                   {renderReturnedDiscountFields()}
-                  <Button
-                    color="primary"
-                    className="mt-2"
-                    onClick={() => {
-                      resetError();
-                      if (!selectedReturnedProduct) {
-                        setError("Selecciona el producto que ingresa al kiosko.");
-                        return;
-                      }
-                      if (returnedSoldWithDiscount && !(resolvedDiscountPercent > 0)) {
-                        setError("Indica el porcentaje de descuento.");
-                        return;
-                      }
-                      setStep(3);
-                    }}
-                  >
-                    Seleccionar producto nuevo
-                  </Button>
                 </>
               )}
             </>
@@ -639,58 +689,63 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
 
           {step === 2 && sale && (
             <>
-              <p className="text-muted">
-                Venta {sale.saleNumber} · {sale.saleDate} · Total {formatCurrency(sale.totalAmount)}
-              </p>
-              <Table responsive size="sm">
-                <thead>
-                  <tr>
-                    <th />
-                    <th>Código</th>
-                    <th>Artículo</th>
-                    <th>Cant.</th>
-                    <th>Precio</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {(sale.items || []).map((item) => {
-                    const isSelected = String(selectedItemId) === String(item.id);
-                    return (
-                    <tr
-                      key={item.id}
-                      className={isSelected ? "table-active" : ""}
-                      style={{ cursor: "pointer" }}
-                      onClick={() => selectReturnedItem(item)}
-                    >
-                      <td onClick={(e) => e.stopPropagation()}>
-                        <Input
-                          type="radio"
-                          name="return-line"
-                          checked={isSelected}
-                          onChange={() => selectReturnedItem(item)}
-                        />
-                      </td>
-                      <td>{item.productCode}</td>
-                      <td>{item.productName}</td>
-                      <td>{formatQty(item.quantity)}</td>
-                      <td>{formatCurrency(item.unitPrice)}</td>
+              <div className="kiosk-exchange-sale-meta">
+                <span className="kiosk-exchange-pill">{sale.saleNumber || "Venta"}</span>
+                <span className="kiosk-exchange-pill">{sale.saleDate}</span>
+                <span className="kiosk-exchange-pill">Total {formatCurrency(sale.totalAmount)}</span>
+              </div>
+              <div className="kiosk-exchange-table-wrap">
+                <Table responsive size="sm">
+                  <thead>
+                    <tr>
+                      <th />
+                      <th>Código</th>
+                      <th>Artículo</th>
+                      <th>Cant.</th>
+                      <th>Precio</th>
                     </tr>
-                    );
-                  })}
-                </tbody>
-              </Table>
-              <div className="mt-2" style={{ maxWidth: 180 }}>
-                <Label>Cantidad devuelta</Label>
-                <Input
-                  type="number"
-                  min="1"
-                  step="1"
-                  value={returnedQty}
-                  onChange={(e) => {
-                    setReturnedQty(e.target.value);
-                    setGivenQty(e.target.value);
-                  }}
-                />
+                  </thead>
+                  <tbody>
+                    {(sale.items || []).map((item) => {
+                      const isSelected = String(selectedItemId) === String(item.id);
+                      return (
+                        <tr
+                          key={item.id}
+                          className={isSelected ? "table-active" : ""}
+                          onClick={() => selectReturnedItem(item)}
+                        >
+                          <td onClick={(e) => e.stopPropagation()}>
+                            <Input
+                              type="radio"
+                              name="return-line"
+                              checked={isSelected}
+                              onChange={() => selectReturnedItem(item)}
+                            />
+                          </td>
+                          <td>{item.productCode}</td>
+                          <td>{item.productName}</td>
+                          <td>{formatQty(item.quantity)}</td>
+                          <td>{formatCurrency(item.unitPrice)}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </Table>
+              </div>
+              <div className="kiosk-exchange-panel mb-3">
+                <div className="kiosk-exchange-field" style={{ maxWidth: 180 }}>
+                  <span className="kiosk-exchange-label">Cantidad devuelta</span>
+                  <Input
+                    type="number"
+                    min="1"
+                    step="1"
+                    value={returnedQty}
+                    onChange={(e) => {
+                      setReturnedQty(e.target.value);
+                      setGivenQty(e.target.value);
+                    }}
+                  />
+                </div>
               </div>
               {renderReturnedDiscountFields()}
             </>
@@ -698,58 +753,65 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
 
           {step === 3 && (
             <>
-              <p className="text-muted mb-2">
-                Busca y selecciona el producto nuevo (código, color y stock). Se valora a precio de venta normal.
-              </p>
-              <FormGroup>
-                <Label>Producto nuevo</Label>
-                <FilterableSelect
-                  value={selectedVariantKey}
-                  onChange={(value) => selectGivenVariant(value)}
-                  options={inventoryOptions}
-                  placeholder="Buscar por código, nombre o color…"
-                  emptyLabel="Selecciona producto…"
-                  onSearchChange={setProductSearch}
-                />
-              </FormGroup>
-              {inventoryOptions.length === 0 && (
-                <p className="text-muted">No hay productos con stock en este kiosko para la búsqueda indicada.</p>
-              )}
-              {selectedVariant && (
-                <Alert color="info" className="mt-2 mb-0">
-                  Seleccionado: <strong>{selectedVariant.productCode}</strong> · {selectedVariant.productName}
-                  {selectedVariant.colorName ? ` · ${selectedVariant.colorName}` : ""}
-                  {selectedSize ? ` · T.${selectedSize}` : ""}
-                </Alert>
-              )}
-              {selectedVariant && posVariantNeedsSizePick(selectedVariant) && (
-                <FormGroup className="mt-3" style={{ maxWidth: 260 }}>
-                  <Label>Talla</Label>
+              <div className="kiosk-exchange-hint">
+                <span className="kiosk-exchange-hint-icon" aria-hidden>i</span>
+                <span>
+                  Selecciona el producto nuevo del inventario del kiosko. Se valora a precio de venta normal.
+                </span>
+              </div>
+              <div className="kiosk-exchange-panel">
+                <div className="kiosk-exchange-field">
+                  <span className="kiosk-exchange-label">Producto nuevo</span>
                   <FilterableSelect
-                    value={selectedSize}
-                    onChange={setSelectedSize}
-                    options={posVariantSizeEntries(selectedVariant).map((entry) => ({
-                      value: entry.size,
-                      label: `${entry.size} (${formatQty(entry.quantity)})`,
-                    }))}
-                    placeholder="Buscar talla…"
-                    emptyLabel="Selecciona talla…"
+                    value={selectedVariantKey}
+                    onChange={(value) => selectGivenVariant(value)}
+                    options={inventoryOptions}
+                    placeholder="Buscar por código, nombre o color…"
+                    emptyLabel="Selecciona producto…"
+                    onSearchChange={setProductSearch}
                   />
-                </FormGroup>
-              )}
+                </div>
+                {inventoryOptions.length === 0 && (
+                  <p className="kiosk-exchange-help mb-0">No hay productos con stock para esa búsqueda.</p>
+                )}
+                {selectedVariant && (
+                  <div className="kiosk-exchange-selected">
+                    <strong>{selectedVariant.productCode}</strong>
+                    {" · "}
+                    {selectedVariant.productName}
+                    {selectedVariant.colorName ? ` · ${selectedVariant.colorName}` : ""}
+                    {selectedSize ? ` · T.${selectedSize}` : ""}
+                  </div>
+                )}
+                {selectedVariant && posVariantNeedsSizePick(selectedVariant) && (
+                  <div className="kiosk-exchange-field mt-3" style={{ maxWidth: 280 }}>
+                    <span className="kiosk-exchange-label">Talla</span>
+                    <FilterableSelect
+                      value={selectedSize}
+                      onChange={setSelectedSize}
+                      options={posVariantSizeEntries(selectedVariant).map((entry) => ({
+                        value: entry.size,
+                        label: `${entry.size} (${formatQty(entry.quantity)})`,
+                      }))}
+                      placeholder="Buscar talla…"
+                      emptyLabel="Selecciona talla…"
+                    />
+                  </div>
+                )}
+              </div>
             </>
           )}
 
           {step === 4 && displayPreview && (
             <>
-              <div className="row">
-                <div className="col-md-4">
-                  <h6>INGRESO</h6>
+              <div className="kiosk-exchange-summary">
+                <div className="kiosk-exchange-summary-card">
+                  <h6>Ingreso</h6>
                   <p>{displayPreview.returned.productCode} · {displayPreview.returned.productName}</p>
                   <p>Cant. {formatQty(displayPreview.returned.quantity)}</p>
                   {canEditPrices ? (
-                    <FormGroup className="mb-2">
-                      <Label>Precio unitario (crédito)</Label>
+                    <FormGroup className="mb-2 mt-2">
+                      <span className="kiosk-exchange-label">Precio unitario</span>
                       <Input
                         type="number"
                         min="0.01"
@@ -761,13 +823,13 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
                   ) : null}
                   <strong>{formatCurrency(displayPreview.returnedAmount)}</strong>
                 </div>
-                <div className="col-md-4">
-                  <h6>EGRESO</h6>
+                <div className="kiosk-exchange-summary-card">
+                  <h6>Egreso</h6>
                   <p>{displayPreview.given.productCode} · {displayPreview.given.productName}</p>
                   <p>Cant. {formatQty(displayPreview.given.quantity)}</p>
                   {canEditPrices ? (
-                    <FormGroup className="mb-2">
-                      <Label>Precio unitario (cobro)</Label>
+                    <FormGroup className="mb-2 mt-2">
+                      <span className="kiosk-exchange-label">Precio unitario</span>
                       <Input
                         type="number"
                         min="0.01"
@@ -779,15 +841,17 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
                   ) : null}
                   <strong>{formatCurrency(displayPreview.givenAmount)}</strong>
                 </div>
-                <div className="col-md-4">
-                  <h6>DIFERENCIA</h6>
-                  <p className="display-4">{formatCurrency(displayPreview.differenceAmount)}</p>
+                <div className="kiosk-exchange-summary-card is-diff">
+                  <h6>Diferencia</h6>
+                  <div className="kiosk-exchange-diff-value">
+                    {formatCurrency(displayPreview.differenceAmount)}
+                  </div>
                   {canEditPrices ? (
                     <Button
                       color="secondary"
                       outline
                       size="sm"
-                      className="mt-2"
+                      className="mt-3"
                       onClick={() => void handleApplyEditedPrices()}
                       disabled={loading}
                     >
@@ -797,39 +861,46 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
                 </div>
               </div>
               {canEditPrices ? (
-                <Alert color="warning" className="mt-3 mb-0">
-                  Miraflores (A15): edita los precios para que lo cobrado en POS (efectivo/tarjeta)
-                  coincida con lo que factura y registra el sistema.
-                </Alert>
+                <div className="kiosk-exchange-hint">
+                  <span className="kiosk-exchange-hint-icon" aria-hidden>i</span>
+                  <span>
+                    Miraflores (A15): edita los precios para que lo cobrado en POS coincida con lo facturado.
+                  </span>
+                </div>
               ) : null}
-              <FormGroup className="mt-3">
-                <Label>Número de boleta de cambio (física)</Label>
-                <Input
-                  value={physicalSlipNumber}
-                  onChange={(e) => setPhysicalSlipNumber(e.target.value)}
-                  placeholder="Ej: BC-0042"
-                />
-              </FormGroup>
-              {!hasPriceDifference && (
-                <>
-                  <Alert color="info" className="mt-2">
-                    Sin diferencia de precio: no hay cobro ni facturación. Logística debe autorizar el cambio
-                    antes de mover inventario.
-                  </Alert>
-                  <FormGroup>
-                    <Label>Motivo del cambio</Label>
-                    <Input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Ej: Cambio de talla" />
-                  </FormGroup>
-                  <FormGroup>
-                    <Label>Observaciones (opcional)</Label>
-                    <Input
-                      type="textarea"
-                      value={observations}
-                      onChange={(e) => setObservations(e.target.value)}
-                    />
-                  </FormGroup>
-                </>
-              )}
+              <div className="kiosk-exchange-panel">
+                <div className="kiosk-exchange-field">
+                  <span className="kiosk-exchange-label">Número de boleta física</span>
+                  <Input
+                    value={physicalSlipNumber}
+                    onChange={(e) => setPhysicalSlipNumber(e.target.value)}
+                    placeholder="Ej: BC-0042"
+                  />
+                </div>
+                {!hasPriceDifference && (
+                  <>
+                    <div className="kiosk-exchange-hint mt-3">
+                      <span className="kiosk-exchange-hint-icon" aria-hidden>i</span>
+                      <span>
+                        Sin diferencia: no hay cobro. Supervisora debe autorizar antes de mover inventario.
+                      </span>
+                    </div>
+                    <div className="kiosk-exchange-field mt-3">
+                      <span className="kiosk-exchange-label">Motivo del cambio</span>
+                      <Input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Ej: Cambio de talla" />
+                    </div>
+                    <div className="kiosk-exchange-field">
+                      <span className="kiosk-exchange-label">Observaciones (opcional)</span>
+                      <Input
+                        type="textarea"
+                        rows="2"
+                        value={observations}
+                        onChange={(e) => setObservations(e.target.value)}
+                      />
+                    </div>
+                  </>
+                )}
+              </div>
             </>
           )}
         </ModalBody>
@@ -844,22 +915,13 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
               Atrás
             </Button>
           )}
+          {step === 1 && exchangeMode === "FREE" && (
+            <Button color="primary" onClick={goToGivenStep}>
+              Seleccionar producto nuevo
+            </Button>
+          )}
           {step === 2 && (
-            <Button
-              color="primary"
-              onClick={() => {
-                resetError();
-                if (!selectedItemId) {
-                  setError("Selecciona la línea devuelta.");
-                  return;
-                }
-                if (returnedSoldWithDiscount && !(resolvedDiscountPercent > 0)) {
-                  setError("Indica el porcentaje de descuento.");
-                  return;
-                }
-                setStep(3);
-              }}
-            >
+            <Button color="primary" onClick={goToGivenStep}>
               Siguiente
             </Button>
           )}

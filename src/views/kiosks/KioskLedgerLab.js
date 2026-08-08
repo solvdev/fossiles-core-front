@@ -24,6 +24,7 @@ import {
   ledgerLabDeleteMovement,
   ledgerLabListMovements,
   ledgerLabListStocks,
+  ledgerLabReplayAllStocks,
   ledgerLabReplayStock,
   ledgerLabSplitOpeningBySizes,
   ledgerLabUpdateMovement,
@@ -391,6 +392,33 @@ export default function KioskLedgerLab() {
     }
   };
 
+  const handleReplayAll = async () => {
+    if (!filters.locationId) {
+      showError("Selecciona un kiosko.");
+      return;
+    }
+    const kioskLabel =
+      kioskOptions.find((o) => String(o.value) === String(filters.locationId))?.label
+      || `location #${filters.locationId}`;
+    if (!window.confirm(
+      `¿Recalcular stock_before/after y current_stock de TODOS los stocks de ${kioskLabel}?\n\n`
+      + `Esto puede tardar unos segundos.`
+    )) {
+      return;
+    }
+    setSaving(true);
+    try {
+      const result = await ledgerLabReplayAllStocks(filters.locationId);
+      showSuccess(`Replay all listo: ${result?.stockCount ?? 0} stocks recalculados.`);
+      await loadStocks();
+      await loadMovements();
+    } catch (err) {
+      showError(err.message || "Replay all falló.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const hasSizesData = Boolean(
     selectedStock?.sizesData
     && String(selectedStock.sizesData).trim()
@@ -482,6 +510,16 @@ export default function KioskLedgerLab() {
           </Button>
           <Button color="warning" size="sm" outline className="me-1" onClick={handleReplay} disabled={!selectedStockId || saving}>
             Replay stock
+          </Button>
+          <Button
+            color="warning"
+            size="sm"
+            className="me-1"
+            onClick={handleReplayAll}
+            disabled={!filters.locationId || saving}
+            title="Recalcula todos los kiosco_stock del kiosko seleccionado"
+          >
+            Replay stock all
           </Button>
           <Button
             color="success"
