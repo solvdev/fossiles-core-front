@@ -158,9 +158,14 @@ const resolveItemName = (item) => {
 };
 
 const resolveItemDescription = (item) => {
-  if (item?.categoryName) return String(item.categoryName).trim();
-  if (item?.colorName) return String(item.colorName).trim();
-  return "";
+  const color = String(item?.colorName || "").trim();
+  const category = String(item?.categoryName || "").trim();
+  const size = String(item?.size || "").trim();
+  const parts = [];
+  if (color) parts.push(color);
+  if (size) parts.push(`Talla ${size}`);
+  if (category) parts.push(category);
+  return parts.join(" · ");
 };
 
 const normalizePayment = (sale) => String(sale?.paymentMethod || "").toUpperCase().trim();
@@ -625,7 +630,7 @@ const buildSalesWorksheet = ({
   ];
   ws["!cols"] = [
     { wch: 36 },
-    { wch: 14 },
+    { wch: 28 },
     { wch: 10 },
     { wch: 12 },
     { wch: 12 },
