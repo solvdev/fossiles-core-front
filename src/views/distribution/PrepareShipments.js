@@ -40,6 +40,7 @@ import {
   getProductionOrderShipments,
   getProductionOrderPartialReleases,
   searchPartialReleasesForPrepare,
+  searchProductionOrdersForPrepare,
   voidVendorShipmentDocument,
 } from "services/productionOrderService";
 import { showError, showSuccess, showWarning } from "utils/notificationHelper";
@@ -690,6 +691,8 @@ function PrepareShipments() {
   const [selectedPartialReleaseKey, setSelectedPartialReleaseKey] = useState("");
   const [loadingPartialReleases, setLoadingPartialReleases] = useState(false);
   const focusedPartialReleaseIdRef = useRef("");
+  const partialReleaseSearchTimerRef = useRef(null);
+  const partialReleaseSearchSeqRef = useRef(0);
 
   const filterShipmentsForFocusedPartial = useCallback((docs, partialList) => {
     const focusId = focusedPartialReleaseIdRef.current;
@@ -727,26 +730,121 @@ function PrepareShipments() {
     loadDistributions();
     loadProductPrices();
     loadPackingMaterials();
-    loadOpvOrders();
-    loadOpiOrders();
-    loadOpcOrders();
-    loadOpckOrders();
-    loadOpkOrders();
+    // Órdenes: búsqueda remota al abrir/escribir (no precargar catálogo completo).
     loadStandaloneInternalShipments();
     loadStandaloneKioskShipments();
     loadPartialReleaseCatalog();
   }, []);
 
-  const loadPartialReleaseCatalog = async () => {
+  const loadPartialReleaseCatalog = async (query = "") => {
+    const seq = ++partialReleaseSearchSeqRef.current;
     try {
       setLoadingPartialReleases(true);
-      const rows = await searchPartialReleasesForPrepare("", 200);
+      const q = String(query || "").trim();
+      const rows = await searchPartialReleasesForPrepare(q, q ? undefined : 80);
+      if (seq !== partialReleaseSearchSeqRef.current) return;
       setPartialReleaseCatalog(Array.isArray(rows) ? rows : []);
     } catch (_err) {
+      if (seq !== partialReleaseSearchSeqRef.current) return;
       setPartialReleaseCatalog([]);
     } finally {
-      setLoadingPartialReleases(false);
+      if (seq === partialReleaseSearchSeqRef.current) {
+        setLoadingPartialReleases(false);
+      }
     }
+  };
+
+  const handlePartialReleaseSearchChange = useCallback((query) => {
+    if (partialReleaseSearchTimerRef.current) {
+      clearTimeout(partialReleaseSearchTimerRef.current);
+    }
+    const q = String(query || "").trim();
+    if (!q) {
+      void loadPartialReleaseCatalog("");
+      return;
+    }
+    partialReleaseSearchTimerRef.current = setTimeout(() => {
+      void loadPartialReleaseCatalog(query);
+    }, 160);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (partialReleaseSearchTimerRef.current) {
+        clearTimeout(partialReleaseSearchTimerRef.current);
+      }
+    };
+  }, []);
+
+  const orderSearchTimersRef = useRef({});
+  const orderSearchSeqRef = useRef({});
+
+  const setOrdersForKind = useCallback((kind, rows) => {
+    const list = Array.isArray(rows) ? rows : [];
+    if (kind === "OPV") setOpvOrders(list);
+    else if (kind === "OPI") setOpiOrders(list);
+    else if (kind === "OPC") setOpcOrders(list);
+    else if (kind === "OPCK") setOpckOrders(list);
+    else if (kind === "OPK") setOpkOrders(list);
+  }, []);
+
+  const setLoadingForKind = useCallback((kind, loading) => {
+    if (kind === "OPV") setLoadingOpvOrders(loading);
+    else if (kind === "OPI") setLoadingOpiOrders(loading);
+    else if (kind === "OPC") setLoadingOpcOrders(loading);
+    else if (kind === "OPCK") setLoadingOpckOrders(loading);
+    else if (kind === "OPK") setLoadingOpkOrders(loading);
+  }, []);
+
+  const searchOrdersForKind = useCallback(async (kind, query = "") => {
+    const k = String(kind || "").toUpperCase();
+    const seq = (orderSearchSeqRef.current[k] || 0) + 1;
+    orderSearchSeqRef.current[k] = seq;
+    try {
+      setLoadingForKind(k, true);
+      const q = String(query || "").trim();
+      const rows = await searchProductionOrdersForPrepare(k, q, q ? undefined : 80);
+      if (orderSearchSeqRef.current[k] !== seq) return;
+      setOrdersForKind(k, rows);
+    } catch (_err) {
+      if (orderSearchSeqRef.current[k] !== seq) return;
+      setOrdersForKind(k, []);
+    } finally {
+      if (orderSearchSeqRef.current[k] === seq) {
+        setLoadingForKind(k, false);
+      }
+    }
+  }, [setLoadingForKind, setOrdersForKind]);
+
+  const handleOrderSearchChange = useCallback((kind, query) => {
+    const k = String(kind || "").toUpperCase();
+    if (orderSearchTimersRef.current[k]) {
+      clearTimeout(orderSearchTimersRef.current[k]);
+    }
+    const q = String(query || "").trim();
+    if (!q) {
+      void searchOrdersForKind(k, "");
+      return;
+    }
+    orderSearchTimersRef.current[k] = setTimeout(() => {
+      void searchOrdersForKind(k, query);
+    }, 150);
+  }, [searchOrdersForKind]);
+
+  useEffect(() => {
+    return () => {
+      Object.values(orderSearchTimersRef.current || {}).forEach((timer) => clearTimeout(timer));
+    };
+  }, []);
+
+  const loadPrepareOrderCatalogs = async () => {
+    await Promise.all([
+      searchOrdersForKind("OPV", ""),
+      searchOrdersForKind("OPI", ""),
+      searchOrdersForKind("OPC", ""),
+      searchOrdersForKind("OPCK", ""),
+      searchOrdersForKind("OPK", ""),
+    ]);
   };
 
   const loadPendingOrders = async () => {
@@ -1223,35 +1321,6 @@ function PrepareShipments() {
     }
   };
 
-  const loadOpvOrders = async () => {
-    try {
-      setLoadingOpvOrders(true);
-      const orders = await getProductionOrders();
-      const rows = (orders || []).filter((order) => classifyPrepareOrder(order) === "OPV");
-      setOpvOrders(rows);
-    } catch (_err) {
-      setOpvOrders([]);
-    } finally {
-      setLoadingOpvOrders(false);
-    }
-  };
-
-  const loadOpiOrders = async () => {
-    try {
-      setLoadingOpiOrders(true);
-      const orders = await getProductionOrders();
-      const rows = (orders || []).filter((order) => {
-        const type = String(order?.orderType || "").trim().toUpperCase();
-        return type === "INTERNA";
-      });
-      setOpiOrders(rows);
-    } catch (_err) {
-      setOpiOrders([]);
-    } finally {
-      setLoadingOpiOrders(false);
-    }
-  };
-
   const loadStandaloneInternalShipments = async () => {
     try {
       setLoadingStandaloneInternalList(true);
@@ -1289,51 +1358,6 @@ function PrepareShipments() {
     setSelectedProductionOrder(null);
     if (created?.id != null) {
       setSelectedStandaloneKioskId(String(created.id));
-    }
-  };
-
-  const loadOpcOrders = async () => {
-    try {
-      setLoadingOpcOrders(true);
-      const orders = await getProductionOrders();
-      const rows = (orders || []).filter((order) => {
-        const type = String(order?.orderType || "").trim().toUpperCase();
-        return isCinchoOrderType(type) || isOpcFamilyProductionOrderCode(order?.code);
-      });
-      setOpcOrders(rows);
-    } catch (_err) {
-      setOpcOrders([]);
-    } finally {
-      setLoadingOpcOrders(false);
-    }
-  };
-
-  const loadOpckOrders = async () => {
-    try {
-      setLoadingOpckOrders(true);
-      const orders = await getProductionOrders();
-      const rows = (orders || []).filter((order) => {
-        const type = String(order?.orderType || "").trim().toUpperCase();
-        return type === "CLIENTE_KIOSKO";
-      });
-      setOpckOrders(rows);
-    } catch (_err) {
-      setOpckOrders([]);
-    } finally {
-      setLoadingOpckOrders(false);
-    }
-  };
-
-  const loadOpkOrders = async () => {
-    try {
-      setLoadingOpkOrders(true);
-      const orders = await getProductionOrders();
-      const rows = (orders || []).filter((order) => classifyPrepareOrder(order) === "OPK");
-      setOpkOrders(rows);
-    } catch (_err) {
-      setOpkOrders([]);
-    } finally {
-      setLoadingOpkOrders(false);
     }
   };
 
@@ -3257,12 +3281,10 @@ function PrepareShipments() {
                     size="sm"
                     onClick={() => {
                       loadDistributions();
-                      loadOpvOrders();
-                      loadOpiOrders();
-                      loadOpcOrders();
-                      loadOpckOrders();
-                      loadOpkOrders();
+                      loadPrepareOrderCatalogs();
+                      loadStandaloneInternalShipments();
                       loadStandaloneKioskShipments();
+                      loadPartialReleaseCatalog();
                       if (viewMode === "pending") loadPendingOrders();
                     }}
                     disabled={loadingDistributions || loadingPending}
@@ -3492,7 +3514,9 @@ function PrepareShipments() {
                     value={selectedOpvOrderId}
                     onChange={(id) => activateOrderSource("OPV", id)}
                     options={opvOrderOptions}
-                    disabled={loadingOpvOrders || pendingFlow}
+                    disabled={pendingFlow}
+                    loading={loadingOpvOrders}
+                    onSearchChange={(q) => handleOrderSearchChange("OPV", q)}
                     placeholder="Buscar OPV…"
                     emptyLabel="— Seleccione orden OPV —"
                   />
@@ -3503,7 +3527,9 @@ function PrepareShipments() {
                     value={selectedOpiOrderId}
                     onChange={(id) => activateOrderSource("OPI", id)}
                     options={opiOrderOptions}
-                    disabled={loadingOpiOrders || pendingFlow}
+                    disabled={pendingFlow}
+                    loading={loadingOpiOrders}
+                    onSearchChange={(q) => handleOrderSearchChange("OPI", q)}
                     placeholder="Buscar OPI…"
                     emptyLabel="— OPI (sin kiosko / PT) —"
                   />
@@ -3514,7 +3540,9 @@ function PrepareShipments() {
                     value={selectedOpcOrderId}
                     onChange={(id) => activateOrderSource("OPC", id)}
                     options={opcOrderOptions}
-                    disabled={loadingOpcOrders || pendingFlow}
+                    disabled={pendingFlow}
+                    loading={loadingOpcOrders}
+                    onSearchChange={(q) => handleOrderSearchChange("OPC", q)}
                     placeholder="Buscar OPC…"
                     emptyLabel="— Orden OPC —"
                   />
@@ -3525,7 +3553,9 @@ function PrepareShipments() {
                     value={selectedOpckOrderId}
                     onChange={(id) => activateOrderSource("OPCK", id)}
                     options={opckOrderOptions}
-                    disabled={loadingOpckOrders || pendingFlow}
+                    disabled={pendingFlow}
+                    loading={loadingOpckOrders}
+                    onSearchChange={(q) => handleOrderSearchChange("OPCK", q)}
                     placeholder="Buscar OPCK…"
                     emptyLabel="— OPCK —"
                   />
@@ -3539,7 +3569,9 @@ function PrepareShipments() {
                     value={selectedOpkOrderId}
                     onChange={(id) => activateOrderSource("OPK", id)}
                     options={opkOrderOptions}
-                    disabled={loadingOpkOrders || pendingFlow}
+                    disabled={pendingFlow}
+                    loading={loadingOpkOrders}
+                    onSearchChange={(q) => handleOrderSearchChange("OPK", q)}
                     placeholder="Buscar OPK…"
                     emptyLabel="— OPK —"
                   />
@@ -3602,12 +3634,14 @@ function PrepareShipments() {
                     value={selectedPartialReleaseKey}
                     onChange={(key) => void activatePartialReleaseSource(key)}
                     options={partialReleaseOptions}
-                    disabled={loadingPartialReleases || pendingFlow}
+                    disabled={pendingFlow}
+                    loading={loadingPartialReleases}
+                    onSearchChange={handlePartialReleaseSearchChange}
                     placeholder="Buscar parcial, OP, cliente o ENV…"
                     emptyLabel="— Liberaciones parciales confirmadas —"
                   />
                   <small className="text-muted d-block mt-1">
-                    Busca por etiqueta del parcial, código de orden, cliente o número de envío.
+                    Escriba para buscar en servidor (parcial, OP, cliente o ENV). Sin tope artificial al buscar.
                   </small>
                 </Col>
               </Row>

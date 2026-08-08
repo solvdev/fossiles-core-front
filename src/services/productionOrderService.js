@@ -96,6 +96,24 @@ export const getProductionOrdersByStatus = async (status) => {
   }
 };
 
+/** Búsqueda liviana para filtros de Preparar envíos (OPV/OPI/OPC/OPCK/OPK). */
+export const searchProductionOrdersForPrepare = async (kind, query = "", limit) => {
+  const params = new URLSearchParams();
+  params.set("kind", String(kind || "").trim().toUpperCase());
+  const q = String(query || "").trim();
+  if (q) params.set("q", q);
+  if (limit != null) params.set("limit", String(limit));
+  const response = await fetch(`${API_URL}/production-orders/prepare-search?${params}`, {
+    method: "GET",
+    headers: { "Content-Type": "application/json", ...getAuthHeader() },
+  });
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({ message: "Error al buscar órdenes" }));
+    throw new Error(errorData.message || "Error al buscar órdenes");
+  }
+  return response.json();
+};
+
 export const createProductionOrder = async (orderData) => {
   try {
     const response = await fetch(`${API_URL}/production-orders`, {
@@ -497,10 +515,10 @@ export const generateProductionOrderShipment = async (orderId, payload) => {
   return response.json();
 };
 
-export const searchPartialReleasesForPrepare = async (query = "", limit = 150) => {
+export const searchPartialReleasesForPrepare = async (query = "", limit) => {
   const params = new URLSearchParams();
   if (query) params.set("q", query);
-  if (limit) params.set("limit", String(limit));
+  if (limit != null) params.set("limit", String(limit));
   const qs = params.toString();
   const response = await fetch(
     `${API_URL}/partial-releases/search${qs ? `?${qs}` : ""}`,

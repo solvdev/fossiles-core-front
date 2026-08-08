@@ -55,6 +55,7 @@ export function AnchoredDropdownMenu({
 
   return createPortal(
     <div
+      data-anchored-dropdown-menu="true"
       style={{
         position: "fixed",
         top: position.top,
