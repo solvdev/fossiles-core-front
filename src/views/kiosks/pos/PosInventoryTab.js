@@ -20,6 +20,12 @@ import { getProducts } from "services/productService";
 import { getProductCategories } from "services/productCategoryService";
 import { formatInventorySizesLine } from "utils/inventoryVariantHelper";
 import { filterVisibleKioskStockRows } from "utils/productCinchoHelper";
+import {
+  PRODUCT_AUDIENCE_OPTIONS,
+  getProductAudienceLabel,
+  normalizeAudienceCategory,
+  productMatchesAudienceFilter,
+} from "utils/productAudienceHelper";
 import { showError } from "utils/notificationHelper";
 import { FilterableSelect } from "components/distribution/FilterableSelect";
 import { formatQty } from "./posUtils";
@@ -70,6 +76,7 @@ const buildProducts = (rows) => {
         productName: row.productName,
         productCategoryId: row.productCategoryId ?? null,
         productCategoryName: row.productCategoryName,
+        audienceCategory: normalizeAudienceCategory(row.audienceCategory),
         variants: [],
       });
     }
@@ -80,6 +87,9 @@ const buildProducts = (rows) => {
     if (!group.productCategoryName && row.productCategoryName) {
       group.productCategoryName = row.productCategoryName;
     }
+    if (row.audienceCategory) {
+      group.audienceCategory = normalizeAudienceCategory(row.audienceCategory);
+    }
     group.variants.push(row);
   });
   return Array.from(grouped.values())
@@ -89,6 +99,18 @@ const buildProducts = (rows) => {
       totalQuantity: group.variants.reduce((sum, variant) => sum + safeNumber(variant.quantity), 0),
     }))
     .sort((a, b) => {
+      const catCompare = safeText(a.productCategoryName).localeCompare(
+        safeText(b.productCategoryName),
+        "es",
+        { sensitivity: "base" }
+      );
+      if (catCompare !== 0) return catCompare;
+      const audCompare = getProductAudienceLabel(a.audienceCategory).localeCompare(
+        getProductAudienceLabel(b.audienceCategory),
+        "es",
+        { sensitivity: "base" }
+      );
+      if (audCompare !== 0) return audCompare;
       const byCode = safeText(a.productCode).localeCompare(safeText(b.productCode), "es", {
         sensitivity: "base",
       });
@@ -109,6 +131,7 @@ const normalizeKioscoRows = (rows) =>
     productName: row.productName,
     productCategoryId: row.productCategoryId ?? row.categoryId ?? null,
     productCategoryName: row.productCategoryName || row.categoryName || "",
+    audienceCategory: normalizeAudienceCategory(row.audienceCategory),
     colorId: row.colorId,
     colorName: row.colorName,
     quantity: safeNumber(row.currentStock),
@@ -126,11 +149,14 @@ const mergeInventoryRows = (kioscoRows, legacyRows, productMetaById) => {
     legacyByKey.set(inventoryKey(row.productId, row.colorId), row);
   });
 
-  const enrichCategory = (row) => {
+  const enrichMeta = (row) => {
     const meta = row.productId != null ? productMetaById.get(Number(row.productId)) : null;
     if (meta) {
       if (row.productCategoryId == null) row.productCategoryId = meta.categoryId;
       if (!row.productCategoryName) row.productCategoryName = meta.categoryName || "";
+      row.audienceCategory = normalizeAudienceCategory(meta.audienceCategory);
+    } else {
+      row.audienceCategory = normalizeAudienceCategory(row.audienceCategory);
     }
     return row;
   };
@@ -144,17 +170,21 @@ const mergeInventoryRows = (kioscoRows, legacyRows, productMetaById) => {
       row.sizes = row.sizes || legacy.sizes || null;
       row.productCategoryId = row.productCategoryId ?? legacy.productCategoryId ?? null;
       row.productCategoryName = row.productCategoryName || legacy.productCategoryName || "";
+      if (legacy.audienceCategory) {
+        row.audienceCategory = normalizeAudienceCategory(legacy.audienceCategory);
+      }
     }
-    enrichCategory(row);
+    enrichMeta(row);
   });
 
   (legacyRows || []).forEach((legacy) => {
     const key = inventoryKey(legacy.productId, legacy.colorId);
     if (mergedByKey.has(key)) return;
     merged.push(
-      enrichCategory({
+      enrichMeta({
         ...legacy,
         productCategoryId: legacy.productCategoryId ?? null,
+        audienceCategory: normalizeAudienceCategory(legacy.audienceCategory),
         quantity: safeNumber(legacy.quantity),
         min: safeNumber(legacy.min),
       })
@@ -171,6 +201,7 @@ function PosInventoryTab({ kioskLocationId, kioskName, active }) {
   const [search, setSearch] = useState("");
   const [stockFilter, setStockFilter] = useState("ALL");
   const [categoryFilter, setCategoryFilter] = useState("");
+  const [audienceFilter, setAudienceFilter] = useState("");
 
   const loadInventory = useCallback(async () => {
     if (!kioskLocationId) {
@@ -197,6 +228,7 @@ function PosInventoryTab({ kioskLocationId, kioskName, active }) {
         productMetaById.set(Number(p.id), {
           categoryId,
           categoryName: categoryId != null ? categoryNameById.get(categoryId) || "" : "",
+          audienceCategory: normalizeAudienceCategory(p.audienceCategory),
         });
       });
       setRows(
@@ -250,6 +282,9 @@ function PosInventoryTab({ kioskLocationId, kioskName, active }) {
             return null;
           }
         }
+        if (!productMatchesAudienceFilter(product, audienceFilter)) {
+          return null;
+        }
         const filteredVariants = product.variants.filter((variant) => {
           const status = variantStatus(variant);
           if (stockFilter === "LOW" && !status.low) return false;
@@ -257,8 +292,8 @@ function PosInventoryTab({ kioskLocationId, kioskName, active }) {
           if (!query) return true;
           const text = normalize(
             `${product.productCode || ""} ${product.productName || ""} ${product.productCategoryName || ""} ${
-              variant.colorName || ""
-            } ${formatInventorySizesLine(variant.sizes) || ""}`
+              getProductAudienceLabel(product.audienceCategory)
+            } ${variant.colorName || ""} ${formatInventorySizesLine(variant.sizes) || ""}`
           );
           return text.includes(query);
         });
@@ -270,7 +305,7 @@ function PosInventoryTab({ kioskLocationId, kioskName, active }) {
         };
       })
       .filter(Boolean);
-  }, [products, query, stockFilter, categoryFilter]);
+  }, [products, query, stockFilter, categoryFilter, audienceFilter]);
 
   const summary = useMemo(() => {
     const allVariants = filteredProducts.flatMap((p) => p.variants);
@@ -324,7 +359,8 @@ function PosInventoryTab({ kioskLocationId, kioskName, active }) {
                 Inventario detallado{kioskName ? ` — ${kioskName}` : ""}
               </CardTitle>
               <small className="text-muted">
-                Detalle por producto, color y tallas. Filtra por categoría y nivel de stock.
+                Detalle por producto, color y tallas. Separa por categoría (ej. Billeteras) y línea
+                (Dama / Caballero / Unisex).
               </small>
             </div>
             <Button color="default" size="sm" onClick={() => void loadInventory()} disabled={loading}>
@@ -366,16 +402,42 @@ function PosInventoryTab({ kioskLocationId, kioskName, active }) {
             </Row>
 
             <Row className="mb-3 align-items-end">
-              <Col md="4">
+              <Col md="3">
                 <Label className="mb-1 small">Categoría</Label>
                 <FilterableSelect
                   options={categoryOptions}
                   value={categoryFilter}
                   onChange={setCategoryFilter}
-                  placeholder="Filtrar por categoría..."
+                  placeholder="Ej. Billeteras..."
                 />
               </Col>
               <Col md="3" className="mt-2 mt-md-0">
+                <Label className="mb-1 small">Línea</Label>
+                <div className="d-flex flex-wrap" style={{ gap: 6 }}>
+                  <Button
+                    size="sm"
+                    color={!audienceFilter ? "primary" : "secondary"}
+                    outline={Boolean(audienceFilter)}
+                    onClick={() => setAudienceFilter("")}
+                  >
+                    Todas
+                  </Button>
+                  {PRODUCT_AUDIENCE_OPTIONS.map((opt) => (
+                    <Button
+                      key={opt.value}
+                      size="sm"
+                      color={audienceFilter === opt.value ? "primary" : "secondary"}
+                      outline={audienceFilter !== opt.value}
+                      onClick={() =>
+                        setAudienceFilter(audienceFilter === opt.value ? "" : opt.value)
+                      }
+                    >
+                      {opt.label}
+                    </Button>
+                  ))}
+                </div>
+              </Col>
+              <Col md="2" className="mt-2 mt-md-0">
                 <Label className="mb-1 small">Nivel de stock</Label>
                 <Input
                   className="kiosk-pos-input-lg"
@@ -388,14 +450,14 @@ function PosInventoryTab({ kioskLocationId, kioskName, active }) {
                   <option value="OUT">Solo sin stock</option>
                 </Input>
               </Col>
-              <Col md="5" className="mt-2 mt-md-0">
+              <Col md="4" className="mt-2 mt-md-0">
                 <Label className="mb-1 small">Buscar</Label>
                 <Input
                   className="kiosk-pos-input-lg"
                   type="text"
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Código, producto, categoría, color o talla..."
+                  placeholder="Código, producto, categoría, línea, color..."
                 />
               </Col>
             </Row>
@@ -422,6 +484,9 @@ function PosInventoryTab({ kioskLocationId, kioskName, active }) {
                               {product.productCategoryName}
                             </Badge>
                           ) : null}
+                          <Badge color="info" className="ml-1">
+                            {getProductAudienceLabel(product.audienceCategory)}
+                          </Badge>
                         </div>
                         <Badge color="primary" pill>
                           Total: {formatQty(product.totalQuantity)}
