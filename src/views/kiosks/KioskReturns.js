@@ -23,8 +23,7 @@ import {
   Table,
 } from "reactstrap";
 import { useAuth } from "contexts/AuthContext";
-import { FilterableSelect } from "components/distribution/FilterableSelect";
-import { getLocations } from "services/locationService";
+import { getKioskPosContext } from "services/kioskPosService";
 import {
   authorizeKioskExchange,
   listKioskExchanges,
@@ -47,13 +46,9 @@ import {
 } from "utils/kioskExchangeSlipPrint";
 import { formatCurrency, formatQty } from "./pos/posUtils";
 import "./KioskSales.css";
+import PosAdminKioskPicker from "./pos/PosAdminKioskPicker";
 import ExchangeSlipWizard from "./returns/ExchangeSlipWizard";
 import SimpleReturnWizard from "./returns/SimpleReturnWizard";
-
-const isKioskLocation = (location) => {
-  const text = `${location?.categoria || ""} ${location?.name || ""} ${location?.code || ""}`.toUpperCase();
-  return text.includes("KIOS") || String(location?.code || "").toUpperCase().startsWith("K");
-};
 
 const statusBadge = (status) => {
   const normalized = String(status || "").toUpperCase();
@@ -81,7 +76,7 @@ function KioskReturns() {
     hasPermission("KIOSCOS.CAMBIOS.AUTORIZAR.APROBAR") || hasPermission("KIOSCOS.CAMBIOS.AUTORIZAR.VER");
   const [activeTab, setActiveTab] = useState("EXCHANGES");
   const [selectedKiosk, setSelectedKiosk] = useState("");
-  const [locations, setLocations] = useState([]);
+  const [posContext, setPosContext] = useState(null);
   const [exchanges, setExchanges] = useState([]);
   const [returns, setReturns] = useState([]);
   const [depositReturns, setDepositReturns] = useState([]);
@@ -96,60 +91,60 @@ function KioskReturns() {
   const [exchangeWizardOpen, setExchangeWizardOpen] = useState(false);
   const [returnWizardOpen, setReturnWizardOpen] = useState(false);
 
-  const kioskOptions = useMemo(
-    () =>
-      locations.map((location) => ({
-        value: String(location.id),
-        label: `${location.name}${location.categoria ? ` (${location.categoria})` : ""}`,
-      })),
-    [locations]
+  const isAdmin = Boolean(posContext?.admin);
+  const adminKiosks = useMemo(
+    () => (Array.isArray(posContext?.kiosks) ? posContext.kiosks : []),
+    [posContext]
   );
 
   const selectedKioskCode = useMemo(() => {
-    const location = locations.find((item) => String(item.id) === String(selectedKiosk));
-    return location?.code || "";
-  }, [locations, selectedKiosk]);
+    if (isAdmin) {
+      const match = adminKiosks.find((k) => String(k.kioskId) === String(selectedKiosk));
+      return match?.kioskCode || posContext?.kioskCode || "";
+    }
+    return posContext?.kioskCode || "";
+  }, [isAdmin, adminKiosks, selectedKiosk, posContext]);
 
   const selectedKioskName = useMemo(() => {
-    const location = locations.find((item) => String(item.id) === String(selectedKiosk));
-    return location?.name || "";
-  }, [locations, selectedKiosk]);
-
-  const loadLocations = async () => {
-    const data = await getLocations();
-    const kiosks = (data || []).filter(isKioskLocation);
-    setLocations(kiosks);
-    if (!selectedKiosk && kiosks.length === 1) {
-      setSelectedKiosk(String(kiosks[0].id));
+    if (isAdmin) {
+      const match = adminKiosks.find((k) => String(k.kioskId) === String(selectedKiosk));
+      return match?.kioskName || posContext?.kioskName || "";
     }
-  };
+    return posContext?.kioskName || "";
+  }, [isAdmin, adminKiosks, selectedKiosk, posContext]);
 
-  const loadDepositReturns = async (kioskId, kioskList) => {
-    const kioskIds = kioskId
-      ? [Number(kioskId)]
-      : (kioskList || []).map((location) => location.id).filter(Boolean);
-    if (kioskIds.length === 0) {
-      return [];
-    }
-    const movementGroups = await Promise.all(
-      kioskIds.map((id) => getKioscoMovimientos(id).catch(() => []))
-    );
-    return movementGroups
-      .flat()
+  const selectedKioskLabel = useMemo(() => {
+    if (!selectedKioskName && !selectedKioskCode) return "Kiosko";
+    if (selectedKioskCode && selectedKioskName) return `${selectedKioskCode} · ${selectedKioskName}`;
+    return selectedKioskName || selectedKioskCode;
+  }, [selectedKioskCode, selectedKioskName]);
+
+  const loadDepositReturns = async (kioskId) => {
+    if (!kioskId) return [];
+    const movements = await getKioscoMovimientos(Number(kioskId)).catch(() => []);
+    return (Array.isArray(movements) ? movements : [])
       .filter((movement) => String(movement.movementType || "").toUpperCase() === "DEVOLUCION_DEPOSITO")
       .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
   };
 
-  const loadData = async (kioskId = selectedKiosk, kioskList = locations) => {
+  const loadData = async (kioskId = selectedKiosk) => {
+    if (!kioskId) {
+      setExchanges([]);
+      setReturns([]);
+      setDepositReturns([]);
+      setPendingAuthorizations([]);
+      setPendingReintegros([]);
+      return;
+    }
     try {
       setLoading(true);
       setError("");
-      const kioskLocationId = kioskId || undefined;
+      const kioskLocationId = Number(kioskId);
       const [exchangeRows, authorizationRows, reintegroRows, depositRows] = await Promise.all([
         listKioskExchanges(kioskLocationId),
         canAuthorizeExchanges ? listPendingAuthorizations(kioskLocationId) : Promise.resolve([]),
         listPendingReintegros(kioskLocationId),
-        loadDepositReturns(kioskId, kioskList),
+        loadDepositReturns(kioskId),
       ]);
       const allRows = Array.isArray(exchangeRows) ? exchangeRows : [];
       setExchanges(allRows.filter((row) => String(row.slipType || "EXCHANGE").toUpperCase() === "EXCHANGE"));
@@ -164,13 +159,38 @@ function KioskReturns() {
     }
   };
 
+  const loadContext = async (kioskIdOverride) => {
+    try {
+      setLoading(true);
+      setError("");
+      const ctx = await getKioskPosContext(kioskIdOverride || selectedKiosk || undefined, {});
+      setPosContext(ctx || null);
+      const resolvedId = ctx?.kioskId ? String(ctx.kioskId) : kioskIdOverride ? String(kioskIdOverride) : "";
+      if (resolvedId) {
+        setSelectedKiosk(resolvedId);
+        await loadData(resolvedId);
+      }
+    } catch (err) {
+      setError(err.message || "Error al cargar el kiosko.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   useEffect(() => {
-    void loadLocations().catch((err) => setError(err.message || "Error al cargar kioskos"));
+    void loadContext();
   }, []);
 
   useEffect(() => {
-    void loadData(selectedKiosk, locations);
-  }, [selectedKiosk, locations]);
+    if (!canAuthorizeExchanges && activeTab === "AUTHORIZATIONS") {
+      setActiveTab("EXCHANGES");
+    }
+  }, [canAuthorizeExchanges, activeTab]);
+
+  const handleKioskChange = async (nextKioskId) => {
+    setSelectedKiosk(String(nextKioskId));
+    await loadContext(nextKioskId);
+  };
 
   const handleReintegrate = async (slip) => {
     try {
@@ -266,17 +286,24 @@ function KioskReturns() {
                 Devoluciones a bodega registran la salida del inventario kiosko hacia bodega (sin venta POS).
                 Devoluciones de cliente quedan ligadas a la venta original.
               </p>
-              <Row className="mb-3">
-                <Col md="4">
+              <Row className="mb-3 align-items-end">
+                <Col md="5">
                   <label>Kiosko</label>
-                  <FilterableSelect
-                    value={selectedKiosk}
-                    onChange={(value) => setSelectedKiosk(value)}
-                    options={kioskOptions}
-                    placeholder="Buscar kiosko…"
-                    emptyLabel="Todos los kioskos"
-                    disabled={loading}
-                  />
+                  {isAdmin && adminKiosks.length > 0 ? (
+                    <PosAdminKioskPicker
+                      kiosks={adminKiosks}
+                      selectedKioskId={selectedKiosk}
+                      selectedLabel={selectedKioskLabel}
+                      onSelect={(id) => void handleKioskChange(id)}
+                    />
+                  ) : (
+                    <div>
+                      <Badge color="primary" pill className="mr-2">
+                        {selectedKioskCode || "—"}
+                      </Badge>
+                      <span>{selectedKioskName || "Tu kiosko asignado"}</span>
+                    </div>
+                  )}
                 </Col>
               </Row>
 

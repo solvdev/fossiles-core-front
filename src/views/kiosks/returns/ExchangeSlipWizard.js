@@ -11,6 +11,8 @@ import {
   ModalHeader,
   Table,
 } from "reactstrap";
+import { ColorSelector, ProductSelector } from "components/catalog/FilterableCatalogSelectors";
+import { FilterableSelect } from "components/distribution/FilterableSelect";
 import { getKioskPosContext } from "services/kioskPosService";
 import { getProducts } from "services/productService";
 import { getColors } from "services/colorService";
@@ -32,6 +34,14 @@ import {
 import ExchangeCheckoutModal from "./ExchangeCheckoutModal";
 
 const MIRAFLORES_PRICE_EDIT_CODE = "A15";
+const DISCOUNT_PRESETS = ["10", "15", "20"];
+
+const impliedDiscountPercent = (catalogSalePrice, paidUnitPrice) => {
+  const catalog = Number(catalogSalePrice || 0);
+  const paid = Number(paidUnitPrice || 0);
+  if (!(catalog > 0) || !(paid >= 0) || paid >= catalog - 0.009) return null;
+  return Math.round((1 - paid / catalog) * 1000) / 10;
+};
 
 function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kioskName, onCompleted }) {
   const canEditPrices =
@@ -47,6 +57,9 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
   const [returnedProductId, setReturnedProductId] = useState("");
   const [returnedColorId, setReturnedColorId] = useState("");
   const [returnedSize, setReturnedSize] = useState("");
+  const [returnedSoldWithDiscount, setReturnedSoldWithDiscount] = useState(false);
+  const [returnedDiscountPreset, setReturnedDiscountPreset] = useState("");
+  const [returnedDiscountOther, setReturnedDiscountOther] = useState("");
   const [inventory, setInventory] = useState([]);
   const [productSearch, setProductSearch] = useState("");
   const [selectedVariantKey, setSelectedVariantKey] = useState("");
@@ -76,6 +89,9 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
     setReturnedProductId("");
     setReturnedColorId("");
     setReturnedSize("");
+    setReturnedSoldWithDiscount(false);
+    setReturnedDiscountPreset("");
+    setReturnedDiscountOther("");
     setInventory([]);
     setProductSearch("");
     setSelectedVariantKey("");
@@ -149,26 +165,66 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
   const inventoryOptions = useMemo(
     () =>
       (inventory || []).map((row) => ({
-        key: `${row.productId}:${row.colorId || ""}`,
+        value: `${row.productId}:${row.colorId || ""}`,
         label: `${row.productCode || ""} · ${row.productName || ""} · ${row.colorName || "Sin color"} · Stock ${formatQty(row.quantity)}`,
         row,
       })),
     [inventory]
   );
 
+  const resolvedDiscountPercent = useMemo(() => {
+    if (!returnedSoldWithDiscount) return 0;
+    if (returnedDiscountPreset === "other") {
+      const n = Number(returnedDiscountOther);
+      return Number.isFinite(n) && n > 0 ? n : 0;
+    }
+    const n = Number(returnedDiscountPreset);
+    return Number.isFinite(n) && n > 0 ? n : 0;
+  }, [returnedSoldWithDiscount, returnedDiscountPreset, returnedDiscountOther]);
+
+  const applyDiscountFromCatalog = (catalogSalePrice, paidUnitPrice) => {
+    const implied = impliedDiscountPercent(catalogSalePrice, paidUnitPrice);
+    if (implied == null || implied <= 0) {
+      setReturnedSoldWithDiscount(false);
+      setReturnedDiscountPreset("");
+      setReturnedDiscountOther("");
+      return;
+    }
+    setReturnedSoldWithDiscount(true);
+    const asInt = String(Math.round(implied));
+    if (DISCOUNT_PRESETS.includes(asInt) && Math.abs(Number(asInt) - implied) < 0.51) {
+      setReturnedDiscountPreset(asInt);
+      setReturnedDiscountOther("");
+    } else {
+      setReturnedDiscountPreset("other");
+      setReturnedDiscountOther(String(implied));
+    }
+  };
+
+  useEffect(() => {
+    if (!selectedItem) return;
+    const product = (products || []).find((p) => Number(p.id) === Number(selectedItem.productId));
+    applyDiscountFromCatalog(product?.salePrice, selectedItem.unitPrice);
+  }, [selectedItem, products]);
+
   const resetError = () => setError("");
 
   const handleLookupSale = async () => {
     resetError();
     if (!saleQuery.trim()) {
-      setError("Indica el número de venta POS.");
+      setError("Indica el serie-correlativo de la factura (ej. A45-241).");
       return;
     }
     try {
       setLoading(true);
       const result = await lookupKioskSale(saleQuery.trim(), kioskLocationId);
       setSale(result);
-      setSelectedItemId(result?.items?.length === 1 ? String(result.items[0].id) : "");
+      const firstId = result?.items?.length === 1 ? String(result.items[0].id) : "";
+      setSelectedItemId(firstId);
+      if (firstId && result.items[0]) {
+        setReturnedQty(String(result.items[0].quantity || 1));
+        setGivenQty(String(result.items[0].quantity || 1));
+      }
       setStep(2);
     } catch (err) {
       setError(err.message || "No se encontró la venta.");
@@ -177,9 +233,9 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
     }
   };
 
-  const selectGivenVariant = (option) => {
+  const selectGivenVariant = (variantKey) => {
     resetError();
-    setSelectedVariantKey(option.key);
+    setSelectedVariantKey(variantKey || "");
     setSelectedSize("");
   };
 
@@ -189,6 +245,11 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
     setReturnedQty(String(item.quantity || 1));
     setGivenQty(String(item.quantity || 1));
   };
+
+  const buildDiscountPayload = () => ({
+    returnedSoldWithDiscount: Boolean(returnedSoldWithDiscount),
+    returnedDiscountPercent: returnedSoldWithDiscount ? resolvedDiscountPercent : 0,
+  });
 
   const buildPreviewPayload = (priceOverrides = {}) => ({
     kioskLocationId,
@@ -202,8 +263,84 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
     givenSize: selectedSize || preview?.given?.size || null,
     returnedQuantity: Number(returnedQty || preview?.returned?.quantity || 1),
     givenQuantity: Number(givenQty || preview?.given?.quantity || returnedQty || 1),
+    ...buildDiscountPayload(),
     ...priceOverrides,
   });
+
+  const renderReturnedDiscountFields = () => (
+    <FormGroup className="mt-2">
+      <Label>¿Se vendió con descuento?</Label>
+      <div>
+        <Label check className="mr-3">
+          <Input
+            type="radio"
+            checked={!returnedSoldWithDiscount}
+            onChange={() => {
+              setReturnedSoldWithDiscount(false);
+              setReturnedDiscountPreset("");
+              setReturnedDiscountOther("");
+            }}
+          />{" "}
+          No
+        </Label>
+        <Label check>
+          <Input
+            type="radio"
+            checked={returnedSoldWithDiscount}
+            onChange={() => {
+              setReturnedSoldWithDiscount(true);
+              if (!returnedDiscountPreset) setReturnedDiscountPreset("10");
+            }}
+          />{" "}
+          Sí
+        </Label>
+      </div>
+      {returnedSoldWithDiscount && (
+        <div className="d-flex flex-wrap align-items-end mt-2">
+          {DISCOUNT_PRESETS.map((pct) => (
+            <Label key={pct} check className="mr-3">
+              <Input
+                type="radio"
+                checked={returnedDiscountPreset === pct}
+                onChange={() => {
+                  setReturnedDiscountPreset(pct);
+                  setReturnedDiscountOther("");
+                }}
+              />{" "}
+              {pct}%
+            </Label>
+          ))}
+          <Label check className="mr-2">
+            <Input
+              type="radio"
+              checked={returnedDiscountPreset === "other"}
+              onChange={() => setReturnedDiscountPreset("other")}
+            />{" "}
+            Otro
+          </Label>
+          {returnedDiscountPreset === "other" && (
+            <Input
+              type="number"
+              min="1"
+              max="99"
+              step="0.5"
+              value={returnedDiscountOther}
+              onChange={(e) => setReturnedDiscountOther(e.target.value)}
+              placeholder="%"
+              style={{ maxWidth: 90 }}
+              bsSize="sm"
+            />
+          )}
+        </div>
+      )}
+      <small className="text-muted d-block mt-1">
+        El crédito del ingreso usa el precio de venta de catálogo
+        {returnedSoldWithDiscount && resolvedDiscountPercent > 0
+          ? ` con ${resolvedDiscountPercent}% de descuento.`
+          : " sin descuento."}
+      </small>
+    </FormGroup>
+  );
 
   const handlePreview = async () => {
     resetError();
@@ -312,6 +449,7 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
       observations: payment.observations || observations,
       ...payment,
     };
+    Object.assign(payload, buildDiscountPayload());
     if (canEditPrices) {
       const returnedUnit = Number(editReturnedUnitPrice);
       const givenUnit = Number(editGivenUnitPrice);
@@ -410,54 +548,51 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
 
               {exchangeMode === "SALE" ? (
                 <>
-                  <Label>Número de venta original (POS)</Label>
+                  <Label>Serie-correlativo de factura</Label>
                   <div className="d-flex">
                     <Input
                       value={saleQuery}
                       onChange={(e) => setSaleQuery(e.target.value)}
-                      placeholder="Ej: POS-2026-0042"
+                      placeholder="Ej: A45-241"
                       className="mr-2"
                     />
                     <Button color="primary" onClick={() => void handleLookupSale()} disabled={loading}>
                       Buscar
                     </Button>
                   </div>
+                  <Alert color="secondary" className="mt-3 mb-0">
+                    Si el cambio es de una venta <strong>anterior al inicio del sistema</strong>, use{" "}
+                    <strong>Cambio libre</strong>.
+                  </Alert>
                 </>
               ) : (
                 <>
                   <Alert color="info">
-                    El producto que ingresa se valora al precio de catálogo. El producto nuevo se cobrará y
-                    facturará según la diferencia.
+                    El producto que ingresa se valora al precio de venta de catálogo (con o sin descuento).
+                    El producto nuevo se cobra a precio normal cuando hay diferencia.
                   </Alert>
                   <FormGroup>
                     <Label>Producto que ingresa</Label>
-                    <Input
-                      type="select"
+                    <ProductSelector
+                      products={products}
                       value={returnedProductId}
-                      onChange={(e) => setReturnedProductId(e.target.value)}
-                    >
-                      <option value="">Selecciona producto</option>
-                      {(products || []).map((product) => (
-                        <option key={product.id} value={product.id}>
-                          {product.code} · {product.name}
-                        </option>
-                      ))}
-                    </Input>
+                      onChange={(product) => {
+                        setReturnedProductId(product?.id != null ? String(product.id) : "");
+                        setReturnedSoldWithDiscount(false);
+                        setReturnedDiscountPreset("");
+                        setReturnedDiscountOther("");
+                      }}
+                      placeholder="Buscar por código o nombre…"
+                    />
                   </FormGroup>
                   <FormGroup>
                     <Label>Color que ingresa (opcional)</Label>
-                    <Input
-                      type="select"
+                    <ColorSelector
+                      colors={colors}
                       value={returnedColorId}
-                      onChange={(e) => setReturnedColorId(e.target.value)}
-                    >
-                      <option value="">Sin color</option>
-                      {(colors || []).map((color) => (
-                        <option key={color.id} value={color.id}>
-                          {color.name}
-                        </option>
-                      ))}
-                    </Input>
+                      onChange={(color) => setReturnedColorId(color?.id != null ? String(color.id) : "")}
+                      placeholder="Buscar color…"
+                    />
                   </FormGroup>
                   <div className="d-flex">
                     <FormGroup className="mr-3" style={{ maxWidth: 180 }}>
@@ -478,12 +613,18 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
                       />
                     </FormGroup>
                   </div>
+                  {renderReturnedDiscountFields()}
                   <Button
                     color="primary"
+                    className="mt-2"
                     onClick={() => {
                       resetError();
                       if (!selectedReturnedProduct) {
                         setError("Selecciona el producto que ingresa al kiosko.");
+                        return;
+                      }
+                      if (returnedSoldWithDiscount && !(resolvedDiscountPercent > 0)) {
+                        setError("Indica el porcentaje de descuento.");
                         return;
                       }
                       setStep(3);
@@ -551,81 +692,50 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
                   }}
                 />
               </div>
+              {renderReturnedDiscountFields()}
             </>
           )}
 
           {step === 3 && (
             <>
               <p className="text-muted mb-2">
-                Haz clic en una fila para elegir el producto nuevo (código, color y stock).
+                Busca y selecciona el producto nuevo (código, color y stock). Se valora a precio de venta normal.
               </p>
-              <Label>Buscar producto nuevo</Label>
-              <Input
-                value={productSearch}
-                onChange={(e) => setProductSearch(e.target.value)}
-                placeholder="Código o nombre"
-                className="mb-3"
-              />
-              {inventoryOptions.length === 0 ? (
+              <FormGroup>
+                <Label>Producto nuevo</Label>
+                <FilterableSelect
+                  value={selectedVariantKey}
+                  onChange={(value) => selectGivenVariant(value)}
+                  options={inventoryOptions}
+                  placeholder="Buscar por código, nombre o color…"
+                  emptyLabel="Selecciona producto…"
+                  onSearchChange={setProductSearch}
+                />
+              </FormGroup>
+              {inventoryOptions.length === 0 && (
                 <p className="text-muted">No hay productos con stock en este kiosko para la búsqueda indicada.</p>
-              ) : (
-              <div style={{ maxHeight: 260, overflowY: "auto" }}>
-                <Table responsive size="sm" hover>
-                  <thead>
-                    <tr>
-                      <th />
-                      <th>Producto</th>
-                      <th>Color</th>
-                      <th>Stock</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {inventoryOptions.map((option) => {
-                      const isSelected = selectedVariantKey === option.key;
-                      return (
-                      <tr
-                        key={option.key}
-                        className={isSelected ? "table-active" : ""}
-                        style={{ cursor: "pointer" }}
-                        onClick={() => selectGivenVariant(option)}
-                      >
-                        <td onClick={(e) => e.stopPropagation()}>
-                          <Input
-                            type="radio"
-                            name="given-product"
-                            checked={isSelected}
-                            onChange={() => selectGivenVariant(option)}
-                          />
-                        </td>
-                        <td>{option.row.productCode} · {option.row.productName}</td>
-                        <td>{option.row.colorName || "—"}</td>
-                        <td>{formatQty(option.row.quantity)}</td>
-                      </tr>
-                      );
-                    })}
-                  </tbody>
-                </Table>
-              </div>
               )}
               {selectedVariant && (
-                <Alert color="info" className="mt-3 mb-0">
+                <Alert color="info" className="mt-2 mb-0">
                   Seleccionado: <strong>{selectedVariant.productCode}</strong> · {selectedVariant.productName}
                   {selectedVariant.colorName ? ` · ${selectedVariant.colorName}` : ""}
                   {selectedSize ? ` · T.${selectedSize}` : ""}
                 </Alert>
               )}
               {selectedVariant && posVariantNeedsSizePick(selectedVariant) && (
-                <div className="mt-3" style={{ maxWidth: 220 }}>
+                <FormGroup className="mt-3" style={{ maxWidth: 260 }}>
                   <Label>Talla</Label>
-                  <Input type="select" value={selectedSize} onChange={(e) => setSelectedSize(e.target.value)}>
-                    <option value="">Selecciona talla</option>
-                    {posVariantSizeEntries(selectedVariant).map((entry) => (
-                      <option key={entry.size} value={entry.size}>
-                        {entry.size} ({formatQty(entry.quantity)})
-                      </option>
-                    ))}
-                  </Input>
-                </div>
+                  <FilterableSelect
+                    value={selectedSize}
+                    onChange={setSelectedSize}
+                    options={posVariantSizeEntries(selectedVariant).map((entry) => ({
+                      value: entry.size,
+                      label: `${entry.size} (${formatQty(entry.quantity)})`,
+                    }))}
+                    placeholder="Buscar talla…"
+                    emptyLabel="Selecciona talla…"
+                  />
+                </FormGroup>
               )}
             </>
           )}
@@ -741,6 +851,10 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
                 resetError();
                 if (!selectedItemId) {
                   setError("Selecciona la línea devuelta.");
+                  return;
+                }
+                if (returnedSoldWithDiscount && !(resolvedDiscountPercent > 0)) {
+                  setError("Indica el porcentaje de descuento.");
                   return;
                 }
                 setStep(3);

@@ -11,6 +11,7 @@ import {
   ModalHeader,
   Table,
 } from "reactstrap";
+import { FilterableSelect } from "components/distribution/FilterableSelect";
 import {
   completeKioskSimpleReturn,
   lookupKioskSale,
@@ -46,7 +47,6 @@ function SimpleReturnWizard({ isOpen, onClose, kioskLocationId, physicalCountId,
   const [observations, setObservations] = useState("");
   const [physicalSlipNumber, setPhysicalSlipNumber] = useState("");
   const [stockRows, setStockRows] = useState([]);
-  const [stockSearch, setStockSearch] = useState("");
   const [selectedStockKey, setSelectedStockKey] = useState("");
   const [selectedSize, setSelectedSize] = useState("");
   const [lineQty, setLineQty] = useState("1");
@@ -68,7 +68,6 @@ function SimpleReturnWizard({ isOpen, onClose, kioskLocationId, physicalCountId,
     setObservations("");
     setPhysicalSlipNumber("");
     setStockRows([]);
-    setStockSearch("");
     setSelectedStockKey("");
     setSelectedSize("");
     setLineQty("1");
@@ -116,15 +115,6 @@ function SimpleReturnWizard({ isOpen, onClose, kioskLocationId, physicalCountId,
     [stockRows]
   );
 
-  const filteredStock = useMemo(() => {
-    const q = stockSearch.trim().toLowerCase();
-    if (!q) return availableStock;
-    return availableStock.filter((row) => {
-      const text = `${row.productCode || ""} ${row.productName || ""} ${row.colorName || ""}`.toLowerCase();
-      return text.includes(q);
-    });
-  }, [availableStock, stockSearch]);
-
   const selectedStockRow = useMemo(
     () => availableStock.find((row) => stockRowKey(row) === selectedStockKey),
     [availableStock, selectedStockKey]
@@ -156,10 +146,19 @@ function SimpleReturnWizard({ isOpen, onClose, kioskLocationId, physicalCountId,
     }
   };
 
+  const stockSelectOptions = useMemo(
+    () =>
+      availableStock.map((row) => ({
+        value: stockRowKey(row),
+        label: `${row.productCode || ""} · ${row.productName || ""} · ${row.colorName || "Sin color"} · Disp. ${formatQty(row.currentStock)}`,
+      })),
+    [availableStock]
+  );
+
   const handleLookupSale = async () => {
     setError("");
     if (!saleQuery.trim()) {
-      setError("Indica el número de venta POS.");
+      setError("Indica el serie-correlativo de la factura (ej. A45-241).");
       return;
     }
     try {
@@ -366,18 +365,22 @@ function SimpleReturnWizard({ isOpen, onClose, kioskLocationId, physicalCountId,
 
         {step === 2 && returnType === RETURN_TYPE_CLIENT && (
           <>
-            <Label>Número de venta original (POS)</Label>
+            <Label>Serie-correlativo de factura</Label>
             <div className="d-flex">
               <Input
                 value={saleQuery}
                 onChange={(e) => setSaleQuery(e.target.value)}
-                placeholder="Ej: POS-2026-0042"
+                placeholder="Ej: A45-241"
                 className="mr-2"
               />
               <Button color="primary" onClick={() => void handleLookupSale()} disabled={loading}>
                 Buscar
               </Button>
             </div>
+            <Alert color="secondary" className="mt-3 mb-0">
+              Si la devolución es de una venta <strong>anterior al inicio del sistema</strong>, use
+              devolución a bodega o registre el caso con supervisora (no hay factura en el sistema).
+            </Alert>
           </>
         )}
 
@@ -446,42 +449,35 @@ function SimpleReturnWizard({ isOpen, onClose, kioskLocationId, physicalCountId,
         {step === 2 && returnType === RETURN_TYPE_DEPOSIT && (
           <>
             <FormGroup>
-              <Label>Buscar en inventario del kiosko</Label>
-              <Input value={stockSearch} onChange={(e) => setStockSearch(e.target.value)} placeholder="Código, nombre o color" />
-            </FormGroup>
-            <FormGroup>
               <Label>Producto / color</Label>
-              <Input
-                type="select"
+              <FilterableSelect
                 value={selectedStockKey}
-                onChange={(e) => {
-                  setSelectedStockKey(e.target.value);
+                onChange={(value) => {
+                  setSelectedStockKey(value || "");
                   setSelectedSize("");
                   setLineQty("1");
                 }}
-              >
-                <option value="">— Seleccionar —</option>
-                {filteredStock.map((row) => (
-                  <option key={stockRowKey(row)} value={stockRowKey(row)}>
-                    {row.productCode} · {row.productName} · {row.colorName || "Sin color"} · Disp. {formatQty(row.currentStock)}
-                  </option>
-                ))}
-              </Input>
+                options={stockSelectOptions}
+                placeholder="Buscar código, nombre o color…"
+                emptyLabel="— Seleccionar —"
+              />
             </FormGroup>
             {selectedStockRow && posVariantNeedsSizePick(selectedStockRow) && (
               <FormGroup>
                 <Label>Talla</Label>
-                <Input type="select" value={selectedSize} onChange={(e) => setSelectedSize(e.target.value)}>
-                  <option value="">— Seleccionar talla —</option>
-                  {sortPosSizeKeys(sizeOptions.map((item) => item.size)).map((size) => {
+                <FilterableSelect
+                  value={selectedSize}
+                  onChange={setSelectedSize}
+                  options={sortPosSizeKeys(sizeOptions.map((item) => item.size)).map((size) => {
                     const entry = sizeOptions.find((item) => item.size === size);
-                    return (
-                      <option key={size} value={size}>
-                        {size} · Disp. {formatQty(entry?.quantity || 0)}
-                      </option>
-                    );
+                    return {
+                      value: size,
+                      label: `${size} · Disp. ${formatQty(entry?.quantity || 0)}`,
+                    };
                   })}
-                </Input>
+                  placeholder="Buscar talla…"
+                  emptyLabel="— Seleccionar talla —"
+                />
               </FormGroup>
             )}
             <FormGroup style={{ maxWidth: 180 }}>
