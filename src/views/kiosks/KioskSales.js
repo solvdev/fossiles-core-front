@@ -331,6 +331,11 @@ function KioskSales() {
           showError(`Cantidad máxima disponible: ${formatQty(line.availableQty)}.`);
           return line;
         }
+        const isPackaging = Boolean(line.isPackaging) || isPackagingProductCode(line.productCode);
+        // Empaques SUM: sin edición de precio ni modo Final/Con desc. (pueden ir en 0).
+        if (isPackaging && (patch.unitPrice != null || patch.priceEdited != null)) {
+          return line;
+        }
         if (patch.unitPrice != null) {
           if (!canEditPosPrices) {
             return line;
@@ -464,7 +469,9 @@ function KioskSales() {
         showError(`Stock insuficiente para ${line.productName}.`);
         return;
       }
-      if (canEditPosPrices && !(Number(line.unitPrice) > 0)) {
+      const isPackaging = Boolean(line.isPackaging) || isPackagingProductCode(line.productCode);
+      // Empaques pueden ir en 0; el resto (Miraflores) exige precio > 0.
+      if (canEditPosPrices && !isPackaging && !(Number(line.unitPrice) > 0)) {
         showError(`Precio inválido para ${line.productName}.`);
         return;
       }

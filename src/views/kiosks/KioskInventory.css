@@ -220,3 +220,96 @@
   max-height: 520px;
   overflow-y: auto;
 }
+
+.kiosk-opening-counters {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+}
+
+@media (max-width: 992px) {
+  .kiosk-opening-counters {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 576px) {
+  .kiosk-opening-counters {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.kiosk-opening-counter-card {
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #fff;
+  padding: 10px 12px;
+}
+
+.kiosk-opening-counter-card.accent {
+  border-color: #86efac;
+  background: #f0fdf4;
+}
+
+.kiosk-opening-counter-label {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #64748b;
+}
+
+.kiosk-opening-counter-value {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #0f172a;
+  line-height: 1.2;
+}
+
+.kiosk-opening-counter-hint {
+  font-size: 0.6875rem;
+  color: #94a3b8;
+  margin-top: 2px;
+}
+
+.kiosk-opening-color-rows td {
+  vertical-align: middle;
+}
+
+.kiosk-opening-hw-toggle {
+  display: inline-flex;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #fff;
+}
+
+.kiosk-opening-hw-btn {
+  border: none;
+  background: transparent;
+  color: #64748b;
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 5px 10px;
+  cursor: pointer;
+  line-height: 1.2;
+}
+
+.kiosk-opening-hw-btn + .kiosk-opening-hw-btn {
+  border-left: 1px solid #cbd5e1;
+}
+
+.kiosk-opening-hw-btn.active.is-nuevo {
+  background: #d3f9e5;
+  color: #087f5b;
+}
+
+.kiosk-opening-hw-btn.active.is-viejo {
+  background: #fff3bf;
+  color: #e67700;
+}
+
+.kiosk-opening-hw-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}

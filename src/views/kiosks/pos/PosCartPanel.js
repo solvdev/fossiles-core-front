@@ -34,7 +34,7 @@ function PosCartPanel({
         {canEditPrices ? (
           <div className="text-muted small mb-2">
             Miraflores: toca la etiqueta <strong>Con desc.</strong> / <strong>Final</strong> en cada
-            producto. Final = cobra ese precio sin descuento.
+            producto (no aplica a empaques). Final = cobra ese precio sin descuento.
           </div>
         ) : null}
 
@@ -45,13 +45,16 @@ function PosCartPanel({
               <p>Toca un producto para agregarlo</p>
             </div>
           ) : (
-            cart.map((line) => (
+            cart.map((line) => {
+              const isPackaging = Boolean(line.isPackaging) || isPackagingProductCode(line.productCode);
+              const showPriceControls = canEditPrices && !isPackaging;
+              return (
               <div key={line.key} className="kiosk-pos-cart-line">
                 <div className="kiosk-pos-line-top">
                   <div className="kiosk-pos-line-title">
                     <div className="kiosk-pos-item-name">
                       {line.productName}
-                      {isPackagingProductCode(line.productCode) && (
+                      {isPackaging && (
                         <Badge color="secondary" className="ml-1">Empaque</Badge>
                       )}
                     </div>
@@ -62,7 +65,7 @@ function PosCartPanel({
                     </div>
                   </div>
                   <div className="kiosk-pos-line-top-actions">
-                    {canEditPrices ? (
+                    {showPriceControls ? (
                       <button
                         type="button"
                         className={`kiosk-pos-price-mode-chip ${line.priceEdited ? "is-final" : "is-discount"}`}
@@ -89,7 +92,7 @@ function PosCartPanel({
                   </div>
                 </div>
 
-                <div className={`kiosk-pos-line-actions ${canEditPrices ? "with-price" : ""}`}>
+                <div className={`kiosk-pos-line-actions ${showPriceControls ? "with-price" : ""}`}>
                   <Input
                     className="kiosk-pos-input-lg kiosk-pos-qty"
                     type="number"
@@ -101,7 +104,7 @@ function PosCartPanel({
                     }
                     title="Cantidad"
                   />
-                  {canEditPrices ? (
+                  {showPriceControls ? (
                     <Input
                       className={`kiosk-pos-input-lg kiosk-pos-price-input ${line.priceEdited ? "is-final" : "is-discount"}`}
                       type="number"
@@ -119,7 +122,8 @@ function PosCartPanel({
                   </div>
                 </div>
               </div>
-            ))
+              );
+            })
           )}
         </div>
 
