@@ -44,7 +44,9 @@ import { isPackagingProductCode } from "utils/kioskPackagingHelper";
 import { hasInventorySizeBreakdown } from "utils/inventoryVariantHelper";
 import { isFossCinchosProductCode } from "utils/cinchoProductionHelper";
 import {
+  HARDWARE_CONDITION_OPTIONS,
   filterVisibleKioskStockRows,
+  normalizeHardwareCondition,
   resolveCinchoSizesForProduct,
   sortSizeKeys,
 } from "utils/productCinchoHelper";
@@ -85,6 +87,7 @@ const INITIAL_FORM = {
   userId: "",
   physicalSlipNumber: "",
   sizeKey: "",
+  hardwareCondition: "NUEVO",
   realSizes: {},
 };
 
@@ -206,13 +209,32 @@ function KioskInventory() {
   const selectedStockRow = useMemo(() => {
     if (!form.productId) return null;
     const colorCandidate = form.colorId ? Number(form.colorId) : null;
-    return stockRows.find((row) => {
+    const hw = normalizeHardwareCondition(form.hardwareCondition) || "NUEVO";
+    const rows = form.operation === "TRASLADO" ? originStockRows : stockRows;
+    const match = rows.find((row) => {
       const sameProduct = Number(row.productId) === Number(form.productId);
       const sameColor =
         colorCandidate == null ? row.colorId == null : Number(row.colorId) === colorCandidate;
-      return sameProduct && sameColor;
+      const rowHw = normalizeHardwareCondition(row.hardwareCondition) || "NUEVO";
+      return sameProduct && sameColor && rowHw === hw;
     });
-  }, [form.productId, form.colorId, stockRows]);
+    if (match) return match;
+    return (
+      rows.find((row) => {
+        const sameProduct = Number(row.productId) === Number(form.productId);
+        const sameColor =
+          colorCandidate == null ? row.colorId == null : Number(row.colorId) === colorCandidate;
+        return sameProduct && sameColor;
+      }) || null
+    );
+  }, [
+    form.productId,
+    form.colorId,
+    form.hardwareCondition,
+    form.operation,
+    stockRows,
+    originStockRows,
+  ]);
 
   const selectedProduct = useMemo(
     () => (products || []).find((product) => Number(product.id) === Number(form.productId)) || null,
@@ -415,16 +437,26 @@ function KioskInventory() {
     setNewAjusteSizeKey("");
   };
 
-  const findStockRow = (productId, colorId) => {
+  const findStockRow = (productId, colorId, hardwareCondition = "NUEVO") => {
     if (!productId) return null;
     const colorCandidate = colorId ? Number(colorId) : null;
+    const hw = normalizeHardwareCondition(hardwareCondition) || "NUEVO";
     const rows = form.operation === "TRASLADO" ? originStockRows : stockRows;
+    const match = rows.find((row) => {
+      const sameProduct = Number(row.productId) === Number(productId);
+      const sameColor =
+        colorCandidate == null ? row.colorId == null : Number(row.colorId) === colorCandidate;
+      const rowHw = normalizeHardwareCondition(row.hardwareCondition) || "NUEVO";
+      return sameProduct && sameColor && rowHw === hw;
+    });
+    if (match) return match;
+    // Fallback: misma variante sin herraje (stocks antiguos).
     return rows.find((row) => {
       const sameProduct = Number(row.productId) === Number(productId);
       const sameColor =
         colorCandidate == null ? row.colorId == null : Number(row.colorId) === colorCandidate;
       return sameProduct && sameColor;
-    });
+    }) || null;
   };
 
   const findCatalogProduct = (productId) =>
@@ -442,14 +474,14 @@ function KioskInventory() {
   };
 
   const lineNeedsSize = (line) => {
-    const row = findStockRow(line.productId, line.colorId);
+    const row = findStockRow(line.productId, line.colorId, line.hardwareCondition);
     return Boolean(
       hasInventorySizeBreakdown(row?.sizes) || isCinchoLine(line, row)
     );
   };
 
   const resolveLineSizeOptions = (line) => {
-    const row = findStockRow(line.productId, line.colorId);
+    const row = findStockRow(line.productId, line.colorId, line.hardwareCondition);
     const existingSizes = Object.keys(row?.sizes || {});
     if (!isCinchoLine(line, row)) {
       return hasInventorySizeBreakdown(row?.sizes) ? sortSizeKeys(existingSizes) : [];
@@ -579,6 +611,7 @@ function KioskInventory() {
       userId: form.userId ? Number(form.userId) : null,
       quantity: Number(line.quantity),
       sizeKey: String(line.sizeKey || "").trim() || null,
+      hardwareCondition: normalizeHardwareCondition(line.hardwareCondition) || "NUEVO",
     };
     switch (form.operation) {
       case "ENTRADA":
@@ -600,17 +633,27 @@ function KioskInventory() {
   };
 
   const buildPayload = () => {
+    const hardwareCondition = normalizeHardwareCondition(form.hardwareCondition) || "NUEVO";
     const base = {
       productId: Number(form.productId),
       colorId: form.colorId ? Number(form.colorId) : null,
       userId: form.userId ? Number(form.userId) : null,
       quantity: Number(form.quantity),
+      hardwareCondition,
     };
     switch (form.operation) {
       case "ENTRADA":
-        return { ...base, referenceId: form.referenceId ? Number(form.referenceId) : null };
+        return {
+          ...base,
+          referenceId: form.referenceId ? Number(form.referenceId) : null,
+          sizeKey: String(form.sizeKey || "").trim() || null,
+        };
       case "VENTA":
-        return { ...base, invoiceId: Number(form.invoiceId) };
+        return {
+          ...base,
+          invoiceId: Number(form.invoiceId),
+          sizeKey: String(form.sizeKey || "").trim() || null,
+        };
       case "DEVOLUCION_DEPOSITO":
         return {
           ...base,
@@ -626,7 +669,11 @@ function KioskInventory() {
           apto: Boolean(form.apto),
         };
       case "MERMA":
-        return { ...base, reason: String(form.reason || "").trim() };
+        return {
+          ...base,
+          reason: String(form.reason || "").trim(),
+          sizeKey: String(form.sizeKey || "").trim() || null,
+        };
       case "AJUSTE": {
         if (fossAjusteMode) {
           const realSizes = {};
@@ -641,6 +688,7 @@ function KioskInventory() {
             realQuantity,
             realSizes,
             reason: String(form.reason || "").trim(),
+            hardwareCondition,
           };
         }
         return {
@@ -649,6 +697,7 @@ function KioskInventory() {
           userId: form.userId ? Number(form.userId) : null,
           realQuantity: Number(form.realQuantity),
           reason: String(form.reason || "").trim(),
+          hardwareCondition,
         };
       }
       case "ANULACION":
@@ -700,6 +749,7 @@ function KioskInventory() {
           colorId: line.colorId ? Number(line.colorId) : null,
           quantity: Number(line.quantity),
           sizeKey: String(line.sizeKey || "").trim() || null,
+          hardwareCondition: normalizeHardwareCondition(line.hardwareCondition) || "NUEVO",
         })),
       });
       return result;
@@ -708,7 +758,7 @@ function KioskInventory() {
     const errors = [];
     for (const line of activeLines) {
       if (form.operation === "VENTA") {
-        const row = findStockRow(line.productId, line.colorId);
+        const row = findStockRow(line.productId, line.colorId, line.hardwareCondition);
         if (!canSell(row, line.quantity)) {
           errors.push(`Sin stock suficiente para producto #${line.productId}.`);
         }
@@ -816,7 +866,10 @@ function KioskInventory() {
     if (form.operation !== "VENTA" || !supportsBulkLines(form.operation)) return true;
     return lineItems.every((line) => {
       if (!line.productId || !line.quantity) return true;
-      return canSell(findStockRow(line.productId, line.colorId), line.quantity);
+      return canSell(
+        findStockRow(line.productId, line.colorId, line.hardwareCondition),
+        line.quantity
+      );
     });
   }, [form.operation, lineItems, stockRows]);
 
@@ -1040,6 +1093,7 @@ function KioskInventory() {
                                 <tr>
                                   <th>Producto</th>
                                   <th>Color</th>
+                                  <th>Herraje</th>
                                   <th>Talla</th>
                                   <th>Cant.</th>
                                   <th />
@@ -1047,12 +1101,16 @@ function KioskInventory() {
                               </thead>
                               <tbody>
                                 {lineItems.map((line) => {
-                                  const lineStock = findStockRow(line.productId, line.colorId);
+                                  const lineStock = findStockRow(
+                                    line.productId,
+                                    line.colorId,
+                                    line.hardwareCondition
+                                  );
                                   const needsSize = lineNeedsSize(line);
                                   const sizeOptions = resolveLineSizeOptions(line);
                                   return (
                                     <tr key={line.id}>
-                                      <td style={{ minWidth: 220 }}>
+                                      <td style={{ minWidth: 200 }}>
                                         <ProductSelector
                                           products={products}
                                           value={line.productId}
@@ -1068,7 +1126,7 @@ function KioskInventory() {
                                           renderOptionExtra={renderProductOptionExtra}
                                         />
                                       </td>
-                                      <td style={{ minWidth: 120 }}>
+                                      <td style={{ minWidth: 110 }}>
                                         <ColorSelector
                                           colors={colors}
                                           value={line.colorId}
@@ -1082,6 +1140,22 @@ function KioskInventory() {
                                           placeholder="Color…"
                                           disabled={loadingCatalogs}
                                         />
+                                      </td>
+                                      <td style={{ width: 118 }}>
+                                        <Input
+                                          type="select"
+                                          bsSize="sm"
+                                          value={normalizeHardwareCondition(line.hardwareCondition) || "NUEVO"}
+                                          onChange={(e) =>
+                                            updateLineItem(line.id, "hardwareCondition", e.target.value || "NUEVO")
+                                          }
+                                        >
+                                          {HARDWARE_CONDITION_OPTIONS.filter((opt) => opt.value).map((opt) => (
+                                            <option key={opt.value} value={opt.value}>
+                                              {opt.value === "NUEVO" ? "Nuevo" : "Viejo"}
+                                            </option>
+                                          ))}
+                                        </Input>
                                       </td>
                                       <td style={{ width: 96 }}>
                                         {needsSize && sizeOptions.length > 0 ? (
@@ -1278,6 +1352,23 @@ function KioskInventory() {
                           />
                         </FormGroup>
                       )}
+
+                      {!supportsBulkLines(form.operation) && form.operation === "AJUSTE" ? (
+                        <FormGroup>
+                          <Label>Herraje</Label>
+                          <Input
+                            type="select"
+                            value={normalizeHardwareCondition(form.hardwareCondition) || "NUEVO"}
+                            onChange={(e) => onFormChange("hardwareCondition", e.target.value || "NUEVO")}
+                          >
+                            {HARDWARE_CONDITION_OPTIONS.filter((opt) => opt.value).map((opt) => (
+                              <option key={opt.value} value={opt.value}>
+                                {opt.value === "NUEVO" ? "Nuevo" : "Viejo"}
+                              </option>
+                            ))}
+                          </Input>
+                        </FormGroup>
+                      ) : null}
 
                       {!supportsBulkLines(form.operation) &&
                       requiresSizeKey &&
