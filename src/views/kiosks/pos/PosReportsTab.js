@@ -952,7 +952,17 @@ function PosReportsTab({
                 const showVoidButton = canVoidSaleRow(sale, cashSession);
                 const depositLabel = pendingDeposit
                   ? "Pendiente"
-                  : sale.depositSlipNumber || "—";
+                  : sale.depositSlipNumber
+                    ? `${sale.depositSlipNumber}${
+                        sale.depositBankName
+                          ? ` · ${sale.depositBankName}`
+                          : sale.depositBank === "INDUSTRIAL"
+                            ? " · Banco Industrial"
+                            : sale.depositBank
+                              ? " · Banco G&T Continental"
+                              : ""
+                      }`
+                    : "—";
 
                 const internalNumber = getSaleInternalNumber(sale);
                 return (

@@ -71,6 +71,7 @@ function PosSaleDetailModal({
   const [voidConfirmOpen, setVoidConfirmOpen] = useState(false);
   const [voiding, setVoiding] = useState(false);
   const [depositSlipNumber, setDepositSlipNumber] = useState("");
+  const [depositBank, setDepositBank] = useState("GT_CONTINENTAL");
   const [savingDeposit, setSavingDeposit] = useState(false);
   const [disbursementAmount, setDisbursementAmount] = useState("");
   const [disbursementDescription, setDisbursementDescription] = useState("");
@@ -93,8 +94,9 @@ function PosSaleDetailModal({
           : ""
     );
     setDepositSlipNumber(sale.depositSlipNumber || "");
+    setDepositBank(sale.depositBank || "GT_CONTINENTAL");
     setEditingPayment(false);
-  }, [sale?.id, sale?.paymentMethod, sale?.depositSlipNumber]);
+  }, [sale?.id, sale?.paymentMethod, sale?.depositSlipNumber, sale?.depositBank]);
 
   if (!isOpen) return null;
 
@@ -137,6 +139,10 @@ function PosSaleDetailModal({
       showError("Indica el número de boleta de depósito.");
       return;
     }
+    if (!depositBank) {
+      showError("Selecciona el banco donde depositaste (G&T Continental o Industrial).");
+      return;
+    }
     if (netDepositAmount <= 0) {
       showError("Esta venta no requiere boleta: el efectivo fue totalmente desembolsado.");
       return;
@@ -145,7 +151,10 @@ function PosSaleDetailModal({
       setSavingDeposit(true);
       const updated = await registerDepositSlip(
         sale.id,
-        { depositSlipNumber: depositSlipNumber.trim() },
+        {
+          depositSlipNumber: depositSlipNumber.trim(),
+          depositBank,
+        },
         kioskLocationId ? Number(kioskLocationId) : undefined
       );
       showSuccess("Boleta de depósito registrada.");
@@ -614,6 +623,13 @@ function PosSaleDetailModal({
                   <div className="small mb-1">
                     <strong>Número:</strong> {sale.depositSlipNumber}
                   </div>
+                  <div className="small mb-1">
+                    <strong>Banco:</strong>{" "}
+                    {sale.depositBankName
+                      || (sale.depositBank === "INDUSTRIAL"
+                        ? "Banco Industrial"
+                        : "Banco G&T Continental")}
+                  </div>
                   {sale.depositRecordedAt && (
                     <div className="small text-muted">
                       Registrada {formatDateTime(sale.depositRecordedAt)}
@@ -623,7 +639,30 @@ function PosSaleDetailModal({
                 </>
               ) : depositApplicable && pendingDeposit ? (
                 <>
-                  <Label className="kiosk-pos-label">Número de boleta</Label>
+                  <Label className="kiosk-pos-label">Banco del depósito *</Label>
+                  <div className="d-flex flex-wrap mb-2" style={{ gap: 8 }}>
+                    <Button
+                      type="button"
+                      size="sm"
+                      color={depositBank === "GT_CONTINENTAL" ? "primary" : "secondary"}
+                      outline={depositBank !== "GT_CONTINENTAL"}
+                      onClick={() => setDepositBank("GT_CONTINENTAL")}
+                      disabled={savingDeposit}
+                    >
+                      Banco G&T Continental
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      color={depositBank === "INDUSTRIAL" ? "primary" : "secondary"}
+                      outline={depositBank !== "INDUSTRIAL"}
+                      onClick={() => setDepositBank("INDUSTRIAL")}
+                      disabled={savingDeposit}
+                    >
+                      Banco Industrial
+                    </Button>
+                  </div>
+                  <Label className="kiosk-pos-label">Número de boleta *</Label>
                   <Input
                     type="text"
                     maxLength={40}
@@ -632,7 +671,12 @@ function PosSaleDetailModal({
                     placeholder="Ej. 1234567890"
                     className="mb-2"
                   />
-                  <Button color="warning" size="sm" onClick={handleRegisterDeposit} disabled={savingDeposit}>
+                  <Button
+                    color="warning"
+                    size="sm"
+                    onClick={handleRegisterDeposit}
+                    disabled={savingDeposit || !depositSlipNumber.trim() || !depositBank}
+                  >
                     {savingDeposit ? <Spinner size="sm" /> : "Registrar boleta"}
                   </Button>
                   {sale?.testSale ? (

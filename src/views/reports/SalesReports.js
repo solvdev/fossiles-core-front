@@ -1422,7 +1422,7 @@ function SalesReports() {
                   {bankDepositReport?.accountName && (
                     <p className="text-muted small">
                       {bankDepositReport.accountName}
-                      {bankDepositReport.bankName ? ` · ${bankDepositReport.bankName}` : ""}
+                      {" · bancos: G&T Continental / Industrial (según boleta)"}
                     </p>
                   )}
                   <Table responsive>
