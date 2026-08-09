@@ -341,8 +341,14 @@ function KioskSales() {
             return line;
           }
           const nextPrice = Number(patch.unitPrice);
-          if (!(nextPrice > 0)) {
-            showError("El precio unitario debe ser mayor a cero.");
+          const catalogZero = !(Number(line.catalogUnitPrice) > 0);
+          // Catálogo en 0 (ej. llaveros promocionales): permiten 0; el resto exige > 0.
+          if (!Number.isFinite(nextPrice) || nextPrice < 0 || (!catalogZero && !(nextPrice > 0))) {
+            showError(
+              catalogZero
+                ? "El precio unitario no puede ser negativo."
+                : "El precio unitario debe ser mayor a cero."
+            );
             return line;
           }
           // Cambiar el monto no decide el descuento: eso lo controla el botón Final / Con desc.
@@ -470,8 +476,9 @@ function KioskSales() {
         return;
       }
       const isPackaging = Boolean(line.isPackaging) || isPackagingProductCode(line.productCode);
-      // Empaques pueden ir en 0; el resto (Miraflores) exige precio > 0.
-      if (canEditPosPrices && !isPackaging && !(Number(line.unitPrice) > 0)) {
+      // Empaques y productos con precio de catálogo 0 pueden ir en 0; el resto exige > 0.
+      const catalogZero = !(Number(line.catalogUnitPrice) > 0);
+      if (canEditPosPrices && !isPackaging && !catalogZero && !(Number(line.unitPrice) > 0)) {
         showError(`Precio inválido para ${line.productName}.`);
         return;
       }
@@ -516,8 +523,12 @@ function KioskSales() {
             hardwareCondition: line.hardwareCondition || "NUEVO",
             quantity: Number(line.quantity || 0),
           };
-          // Solo líneas editadas: precio final sin descuento sobre esa línea.
-          if (line.priceEdited && Number(line.unitPrice) > 0) {
+          // Precio final sin descuento: modo Final, o catálogo en 0 con monto capturado en caja.
+          const catalogZero = !(Number(line.catalogUnitPrice) > 0);
+          if (
+            Number(line.unitPrice) > 0
+            && (line.priceEdited || catalogZero)
+          ) {
             item.unitPrice = Number(line.unitPrice);
           }
           return item;
