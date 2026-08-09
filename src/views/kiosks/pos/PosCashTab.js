@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   Alert,
   Button,
@@ -50,18 +50,28 @@ function PosCashCloseModal({ isOpen, session, onClose, onClosed, pendingDepositS
   const [notes, setNotes] = useState("");
   const [saving, setSaving] = useState(false);
 
+  useEffect(() => {
+    if (!isOpen) return;
+    setCountedCash("");
+    setNotes("");
+    setSaving(false);
+  }, [isOpen]);
+
   const pendingCount = Number(pendingDepositSummary?.pendingCount || 0);
   const expected = Number(session?.expectedCash ?? 0);
-  const parsedCounted = Number(countedCash);
-  const variance =
-    countedCash !== "" && !Number.isNaN(parsedCounted)
-      ? parsedCounted - expected
-      : null;
+  const countedTrimmed = String(countedCash ?? "").trim();
+  const parsedCounted = countedTrimmed === "" ? NaN : Number(countedTrimmed);
+  const hasValidCountedCash =
+    countedTrimmed !== ""
+    && Number.isFinite(parsedCounted)
+    && !Number.isNaN(parsedCounted)
+    && parsedCounted >= 0;
+  const variance = hasValidCountedCash ? parsedCounted - expected : null;
 
   const handleClose = async () => {
     if (!session?.id) return;
-    if (Number.isNaN(parsedCounted)) {
-      showError("Ingresa el efectivo contado en caja.");
+    if (!hasValidCountedCash) {
+      showError("Debes ingresar el efectivo contado físicamente.");
       return;
     }
     const sessionId = session.id;
@@ -101,16 +111,24 @@ function PosCashCloseModal({ isOpen, session, onClose, onClosed, pendingDepositS
           {" · "}
           Tarjeta: <strong>{formatCurrency(session?.cardSalesTotal || 0)}</strong>
         </div>
-        <Label className="kiosk-pos-label">Efectivo contado físicamente</Label>
+        <Label className="kiosk-pos-label">
+          Efectivo contado físicamente <span className="text-danger">*</span>
+        </Label>
         <Input
           type="number"
           min="0"
           step="0.01"
           value={countedCash}
           onChange={(e) => setCountedCash(e.target.value)}
-          placeholder="0.00"
-          className="kiosk-pos-input-lg mb-2"
+          placeholder="Ingresa el monto contado"
+          className={`kiosk-pos-input-lg mb-1${!hasValidCountedCash ? " border-danger" : ""}`}
+          invalid={!hasValidCountedCash}
         />
+        {!hasValidCountedCash && (
+          <div className="text-danger small mb-2" role="alert">
+            Obligatorio: ingresa el efectivo contado físicamente para poder cerrar la caja.
+          </div>
+        )}
         {variance != null && (
           <Alert color={variance === 0 ? "success" : "warning"} className="py-2">
             Diferencia (contado − esperado): <strong>{formatCurrency(variance)}</strong>
@@ -134,7 +152,7 @@ function PosCashCloseModal({ isOpen, session, onClose, onClosed, pendingDepositS
         <Button color="secondary" onClick={onClose} disabled={saving}>
           Cancelar
         </Button>
-        <Button color="primary" onClick={handleClose} disabled={saving}>
+        <Button color="primary" onClick={handleClose} disabled={saving || !hasValidCountedCash}>
           {saving ? <Spinner size="sm" /> : "Confirmar cierre"}
         </Button>
       </ModalFooter>
