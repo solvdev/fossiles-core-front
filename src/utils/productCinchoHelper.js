@@ -174,12 +174,24 @@ const hasConteoKardexActivity = (row) => {
     || n(row?.total) > 0;
 };
 
-/** Empaques SUM- no llevan color; deben aparecer igual en conteo físico y listados de stock. */
+/** Productos sin color (llaveros, etc.) o con tallas deben verse si hay qty > 0. */
+const rowHasPositiveStockQty = (row) => {
+  if (Number(row?.quantity ?? row?.currentStock ?? 0) > 0) return true;
+  const sizes = row?.sizes || row?.systemSizes;
+  if (!sizes || typeof sizes !== "object") return false;
+  return Object.values(sizes).some((v) => Number(v || 0) > 0);
+};
+
+/**
+ * Oculta filas huérfanas sin color y sin stock.
+ * Empaques SUM- y SKUs sin color con stock (ej. LL-12) sí deben aparecer en POS/conteo.
+ */
 export const shouldShowInKioskPhysicalCount = (row) =>
   hasAssignedProductColor(row)
   || row?.packaging === true
   || isPackagingProductCode(row?.productCode)
-  || hasConteoKardexActivity(row);
+  || hasConteoKardexActivity(row)
+  || rowHasPositiveStockQty(row);
 
 export const filterVisibleKioskStockRows = (rows) =>
   (rows || []).filter(shouldShowInKioskPhysicalCount);
