@@ -2582,7 +2582,7 @@ function OnlineSales() {
                         <th style={{ minWidth: 35 }}>No.</th>
                         <th style={{ minWidth: 120 }}>Nombre</th>
                         <th style={{ minWidth: 80 }}>Teléfono</th>
-                        <th style={{ minWidth: 80 }}>Teléfono 2</th>
+                        <th style={{ minWidth: 160 }}>Dirección</th>
                         <th style={{ minWidth: 50 }}>Emp.</th>
                         <th style={{ minWidth: 130 }}>Forma Pago</th>
                         <th style={{ minWidth: 60 }}>NIT</th>
@@ -2592,8 +2592,6 @@ function OnlineSales() {
                         <th style={{ minWidth: 50 }}>Envío</th>
                         <th style={{ minWidth: 70 }}>Sin Envío</th>
                         <th style={{ minWidth: 90 }}>Transporte</th>
-                        <th style={{ minWidth: 80 }}>Red Social</th>
-                        <th style={{ minWidth: 80 }}>Vendedor</th>
                         <th style={{ minWidth: 70 }}>Estado</th>
                         <th style={{ minWidth: 80 }}>Guía</th>
                         <th style={{ minWidth: 90 }}>Autorización</th>
@@ -2610,7 +2608,9 @@ function OnlineSales() {
                           <td><strong>{sale.saleNumber || idx + 1}</strong></td>
                           <td>{renderInlineCell(sale, "customerName")}</td>
                           <td>{renderInlineCell(sale, "phone")}</td>
-                          <td>{renderInlineCell(sale, "phone2")}</td>
+                          <td style={{ maxWidth: 220, whiteSpace: "normal", wordBreak: "break-word" }}>
+                            {renderInlineCell(sale, "address")}
+                          </td>
                           <td>
                             <span style={{ cursor: "pointer" }}
                               onClick={async () => {
@@ -2678,8 +2678,6 @@ function OnlineSales() {
                           </td>
                           <td>{renderInlineCell(sale, "shippingCarrier", "select",
                             SHIPPING_CARRIERS.map(c => ({ value: c.value, label: c.label })))}</td>
-                          <td>{getSocialIcon(sale.socialNetwork)}</td>
-                          <td style={{ fontSize: 11 }}>{sale.salesperson ? sale.salesperson.split(" ")[0] : "—"}</td>
                           <td>{getStatusBadge(sale.status)}</td>
                           <td>{renderInlineCell(sale, "guideNumber")}</td>
                           <td>{renderInlineCell(sale, "paymentAuthorization")}</td>
