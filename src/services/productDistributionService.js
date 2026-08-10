@@ -460,6 +460,26 @@ export const auditDeliveredShipmentReceiptInventory = async (shipmentId) => {
   return response.json();
 };
 
+/** Busca cualquier envío por número (parcial o exacto): ENVP, ENVI, OPC-ENV, etc. */
+export const lookupShipmentsByNumber = async (query, limit = 25) => {
+  const q = String(query || "").trim();
+  if (!q) return [];
+  const params = new URLSearchParams();
+  params.set("q", q);
+  if (limit != null) params.set("limit", String(limit));
+  const response = await fetch(
+    `${API_URL}/product-distributions/shipments/lookup?${params.toString()}`,
+    {
+      headers: { "Content-Type": "application/json", ...getAuthHeader() },
+    }
+  );
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ message: "Error al buscar envíos" }));
+    throw new Error(err.message || "Error al buscar envíos");
+  }
+  return response.json();
+};
+
 export const getShipmentsInTransit = async (kioskLocationId) => {
   const params = new URLSearchParams();
   if (kioskLocationId != null && kioskLocationId !== '') {

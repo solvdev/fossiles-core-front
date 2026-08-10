@@ -29,6 +29,7 @@ import {
   listStandaloneInternalShipments,
   listStandaloneKioskShipments,
   getShipmentById,
+  lookupShipmentsByNumber,
   repairDeliveredShipmentReceiptInventory,
 } from "services/productDistributionService";
 import * as XLSX from "xlsx-js-style";
@@ -92,6 +93,7 @@ import {
 import {
   buildPseudoOrderFromStandaloneShipment,
   getStandaloneInternalUserNotes,
+  isStandaloneInternalShipment,
   parseStandaloneInternalMeta,
   computeInternalEnviUnitPrice,
 } from "utils/standaloneInternalShipmentHelper";
@@ -691,8 +693,13 @@ function PrepareShipments() {
   const [selectedPartialReleaseKey, setSelectedPartialReleaseKey] = useState("");
   const [loadingPartialReleases, setLoadingPartialReleases] = useState(false);
   const focusedPartialReleaseIdRef = useRef("");
+  const focusedShipmentIdRef = useRef("");
   const partialReleaseSearchTimerRef = useRef(null);
   const partialReleaseSearchSeqRef = useRef(0);
+  const [globalShipmentQuery, setGlobalShipmentQuery] = useState("");
+  const [globalShipmentHits, setGlobalShipmentHits] = useState([]);
+  const [loadingGlobalShipmentLookup, setLoadingGlobalShipmentLookup] = useState(false);
+  const [selectedGlobalShipmentId, setSelectedGlobalShipmentId] = useState("");
 
   const filterShipmentsForFocusedPartial = useCallback((docs, partialList) => {
     const focusId = focusedPartialReleaseIdRef.current;
@@ -705,6 +712,13 @@ function PrepareShipments() {
     return filtered.length ? filtered : docs;
   }, []);
 
+  const filterShipmentsForFocusedId = useCallback((docs) => {
+    const focusId = focusedShipmentIdRef.current;
+    if (!focusId || !docs?.length) return docs;
+    const filtered = docs.filter((s) => String(s.id) === String(focusId));
+    return filtered.length ? filtered : docs;
+  }, []);
+
   const commitEnrichedShipments = useCallback(
     (printable, partialList, order) => {
       const docs = enrichShipmentsWithPartialMeta(
@@ -712,13 +726,15 @@ function PrepareShipments() {
         partialList,
         order ? buildPrepareShipmentProductsExtra(order) : undefined
       );
-      const visible = filterShipmentsForFocusedPartial(docs, partialList);
+      const byPartial = filterShipmentsForFocusedPartial(docs, partialList);
+      const visible = filterShipmentsForFocusedId(byPartial);
       setShipments(visible);
       const { copies, selected } = initShipmentCopiesAndSelection(visible);
       setCopiesByShipment(copies);
       setSelectedRows(selected);
+      focusedShipmentIdRef.current = "";
     },
-    [filterShipmentsForFocusedPartial]
+    [filterShipmentsForFocusedPartial, filterShipmentsForFocusedId]
   );
 
   const clearPartialReleaseFocus = () => {
@@ -940,6 +956,99 @@ function PrepareShipments() {
     else if (kind === "OPV") setSelectedOpvOrderId(String(order.id));
   };
 
+  const openShipmentFromGlobalLookup = async (hit) => {
+    if (!hit?.id) return;
+    try {
+      setLoadingShipments(true);
+      setError("");
+      setViewMode("shipments");
+      clearPartialReleaseFocus();
+      focusedShipmentIdRef.current = String(hit.id);
+      setSelectedGlobalShipmentId(String(hit.id));
+
+      const shipment = await getShipmentById(hit.id);
+
+      setDistributionId("");
+      setSelectedOpvOrderId("");
+      setSelectedOpiOrderId("");
+      setSelectedOpcOrderId("");
+      setSelectedOpckOrderId("");
+      setSelectedOpkOrderId("");
+      setSelectedStandaloneInternalId("");
+      setSelectedStandaloneKioskId("");
+      setSelectedProductionOrder(null);
+
+      if (shipment.distributionId) {
+        setDistributionId(String(shipment.distributionId));
+        return;
+      }
+      if (shipment.productionOrderId) {
+        const order = await getProductionOrderById(shipment.productionOrderId);
+        if (classifyPrepareOrder(order)) {
+          openOrderInShipmentsView(order, { keepPartialFocus: true });
+          return;
+        }
+        setSelectedProductionOrder(order);
+        setShipments([shipment]);
+        setCopiesByShipment({ [shipment.id]: 1 });
+        setSelectedRows({ [shipment.id]: true });
+        focusedShipmentIdRef.current = "";
+        setLoadingShipments(false);
+        return;
+      }
+      if (isStandaloneInternalShipment(shipment)) {
+        setStandaloneInternalList((prev) => {
+          const list = prev || [];
+          if (list.some((s) => String(s.id) === String(shipment.id))) return list;
+          return [shipment, ...list];
+        });
+        setSelectedStandaloneInternalId(String(shipment.id));
+        return;
+      }
+      setStandaloneKioskList((prev) => {
+        const list = prev || [];
+        if (list.some((s) => String(s.id) === String(shipment.id))) return list;
+        return [shipment, ...list];
+      });
+      setSelectedStandaloneKioskId(String(shipment.id));
+    } catch (err) {
+      focusedShipmentIdRef.current = "";
+      setError(err.message || "No se pudo abrir el envío");
+      showError(err.message || "No se pudo abrir el envío");
+      setLoadingShipments(false);
+    }
+  };
+
+  const runGlobalShipmentLookup = async () => {
+    const q = String(globalShipmentQuery || "").trim();
+    if (!q) {
+      showWarning("Escriba un número de envío (ENVP, ENVI, OPC-ENV, etc.).");
+      return;
+    }
+    try {
+      setLoadingGlobalShipmentLookup(true);
+      setError("");
+      const rows = await lookupShipmentsByNumber(q, 40);
+      setGlobalShipmentHits(rows || []);
+      if (!rows?.length) {
+        showWarning(`No se encontró ningún envío con “${q}”.`);
+        setSelectedGlobalShipmentId("");
+        return;
+      }
+      const exact = rows.find(
+        (r) => String(r.shipmentNumber || "").trim().toUpperCase() === q.toUpperCase()
+      );
+      if (exact || rows.length === 1) {
+        await openShipmentFromGlobalLookup(exact || rows[0]);
+      }
+    } catch (err) {
+      setError(err.message || "No se pudo buscar el envío");
+      showError(err.message || "No se pudo buscar el envío");
+    } finally {
+      setLoadingGlobalShipmentLookup(false);
+    }
+  };
+
   const activatePartialReleaseSource = async (compositeKey) => {
     const key = compositeKey ? String(compositeKey) : "";
     if (!key) {
@@ -1017,7 +1126,14 @@ function PrepareShipments() {
         )
       );
       const realShipments = await getProductionOrderShipments(selectedOpvOrderId);
-      const printable = (realShipments || []).filter(isShipmentRowForPrepareList);
+      let printable = (realShipments || []).filter(isShipmentRowForPrepareList);
+      const focusId = focusedShipmentIdRef.current;
+      if (focusId && !printable.some((s) => String(s.id) === String(focusId))) {
+        const focused =
+          (realShipments || []).find((s) => String(s.id) === String(focusId)) ||
+          (await getShipmentById(focusId).catch(() => null));
+        if (focused) printable = [focused, ...printable];
+      }
       const partialList = await getProductionOrderPartialReleases(selectedOpvOrderId).catch(() => null);
       setOrderPartialReleases(partialList);
       const pendingConfirm = (partialList?.releases || []).filter(
@@ -1062,7 +1178,14 @@ function PrepareShipments() {
         (prev || []).map((o) => (String(o.id) === String(order.id) ? { ...o, ...order } : o))
       );
       const realShipments = await getProductionOrderShipments(selectedOpcOrderId);
-      const printable = (realShipments || []).filter(isShipmentRowForPrepareList);
+      let printable = (realShipments || []).filter(isShipmentRowForPrepareList);
+      const focusId = focusedShipmentIdRef.current;
+      if (focusId && !printable.some((s) => String(s.id) === String(focusId))) {
+        const focused =
+          (realShipments || []).find((s) => String(s.id) === String(focusId)) ||
+          (await getShipmentById(focusId).catch(() => null));
+        if (focused) printable = [focused, ...printable];
+      }
       const partialList = orderAllowsPartialReleases(order)
         ? await getProductionOrderPartialReleases(selectedOpcOrderId).catch(() => null)
         : null;
@@ -1105,7 +1228,14 @@ function PrepareShipments() {
       const order = await getProductionOrderById(selectedOpckOrderId);
       setSelectedProductionOrder(order);
       const realShipments = await getProductionOrderShipments(selectedOpckOrderId);
-      const printable = (realShipments || []).filter(isShipmentRowForPrepareList);
+      let printable = (realShipments || []).filter(isShipmentRowForPrepareList);
+      const focusId = focusedShipmentIdRef.current;
+      if (focusId && !printable.some((s) => String(s.id) === String(focusId))) {
+        const focused =
+          (realShipments || []).find((s) => String(s.id) === String(focusId)) ||
+          (await getShipmentById(focusId).catch(() => null));
+        if (focused) printable = [focused, ...printable];
+      }
       const partialList = orderAllowsPartialReleases(order)
         ? await getProductionOrderPartialReleases(selectedOpckOrderId).catch(() => null)
         : null;
@@ -1148,7 +1278,14 @@ function PrepareShipments() {
       const order = await getProductionOrderById(selectedOpkOrderId);
       setSelectedProductionOrder(order);
       const realShipments = await getProductionOrderShipments(selectedOpkOrderId);
-      const printable = (realShipments || []).filter(isShipmentRowForPrepareList);
+      let printable = (realShipments || []).filter(isShipmentRowForPrepareList);
+      const focusId = focusedShipmentIdRef.current;
+      if (focusId && !printable.some((s) => String(s.id) === String(focusId))) {
+        const focused =
+          (realShipments || []).find((s) => String(s.id) === String(focusId)) ||
+          (await getShipmentById(focusId).catch(() => null));
+        if (focused) printable = [focused, ...printable];
+      }
       const partialList = orderAllowsPartialReleases(order)
         ? await getProductionOrderPartialReleases(selectedOpkOrderId).catch(() => null)
         : null;
@@ -1218,7 +1355,24 @@ function PrepareShipments() {
               : o
           )
         );
-        if (order.vendorShipmentVoidedAt) {
+        const realShipments = await getProductionOrderShipments(selectedOpiOrderId).catch(() => []);
+        const focusId = focusedShipmentIdRef.current;
+        if (focusId) {
+          const focused =
+            (realShipments || []).find((s) => String(s.id) === String(focusId)) ||
+            (await getShipmentById(focusId).catch(() => null));
+          if (focused) {
+            setShipments([focused]);
+            setCopiesByShipment({ [focused.id]: 1 });
+            setSelectedRows({ [focused.id]: true });
+            focusedShipmentIdRef.current = "";
+            return;
+          }
+        }
+        const printable = (realShipments || []).filter(isShipmentRowForPrepareList);
+        if (printable.length > 0) {
+          commitEnrichedShipments(printable, null, order);
+        } else if (order.vendorShipmentVoidedAt) {
           setShipments([]);
           setCopiesByShipment({});
           setSelectedRows({});
@@ -1236,7 +1390,7 @@ function PrepareShipments() {
       }
     };
     loadOrderAsShipment();
-  }, [selectedOpiOrderId]);
+  }, [selectedOpiOrderId, commitEnrichedShipments]);
 
   useEffect(() => {
     if (!selectedStandaloneInternalId) return;
@@ -1407,14 +1561,28 @@ function PrepareShipments() {
       setSelectedProductionOrder(po);
       setOrderPartialReleases(null);
       const data = await getShipmentsByDistribution(id);
-      const rawShipments = data || [];
+      let rawShipments = data || [];
+      const focusId = focusedShipmentIdRef.current;
+      if (focusId) {
+        const focused = rawShipments.filter((s) => String(s.id) === String(focusId));
+        if (focused.length) {
+          rawShipments = focused;
+        } else {
+          try {
+            rawShipments = [await getShipmentById(focusId)];
+          } catch (_err) {
+            /* keep distribution list */
+          }
+        }
+        focusedShipmentIdRef.current = "";
+      }
 
       setShipments(rawShipments);
       const initialCopies = {};
       const initialSelected = {};
       rawShipments.forEach((shipment) => {
         initialCopies[shipment.id] = 1;
-        if (isShipmentRowForPrepareList(shipment)) {
+        if (isShipmentRowForPrepareList(shipment) || (focusId && String(shipment.id) === String(focusId))) {
           initialSelected[shipment.id] = true;
         }
       });
@@ -3473,6 +3641,60 @@ function PrepareShipments() {
                   Se ocultaron {hiddenProcessedCount} envío(s) ya entregado(s) o anulado(s). Los envíos <strong>en tránsito (Enviado)</strong> siguen visibles para reimprimir.
                 </Alert>
               )}
+
+              <Row className="mb-3 align-items-end">
+                <Col md="5">
+                  <Label><strong>Buscar cualquier envío por número</strong></Label>
+                  <Input
+                    type="search"
+                    placeholder="ENVP-00021, ENVI-12, OPC-14-ENV-00001, 00021…"
+                    value={globalShipmentQuery}
+                    onChange={(e) => setGlobalShipmentQuery(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        void runGlobalShipmentLookup();
+                      }
+                    }}
+                    disabled={loadingGlobalShipmentLookup || pendingFlow}
+                  />
+                  <small className="text-muted d-block mt-1">
+                    Busca en todos los envíos (distribución, OPV/OPC/OPI, ENVI, kiosko), sin importar el tipo.
+                  </small>
+                </Col>
+                <Col md="2" className="pb-1">
+                  <Button
+                    color="primary"
+                    block
+                    onClick={() => void runGlobalShipmentLookup()}
+                    disabled={loadingGlobalShipmentLookup || pendingFlow}
+                  >
+                    {loadingGlobalShipmentLookup ? <Spinner size="sm" /> : "Buscar envío"}
+                  </Button>
+                </Col>
+                {globalShipmentHits.length > 1 && (
+                  <Col md="5">
+                    <Label><strong>Resultados ({globalShipmentHits.length})</strong></Label>
+                    <FilterableSelect
+                      value={selectedGlobalShipmentId}
+                      onChange={(id) => {
+                        const hit = globalShipmentHits.find((r) => String(r.id) === String(id));
+                        if (hit) void openShipmentFromGlobalLookup(hit);
+                      }}
+                      options={globalShipmentHits.map((r) => ({
+                        value: String(r.id),
+                        label: `${r.shipmentNumber || `#${r.id}`} · ${r.status || "—"}${
+                          r.productionOrderCode ? ` · ${r.productionOrderCode}` : ""
+                        }${r.locationName ? ` · ${r.locationName}` : ""}`,
+                        searchText: `${r.shipmentNumber || ""} ${r.productionOrderCode || ""} ${r.locationName || ""} ${r.status || ""}`,
+                      }))}
+                      allowEmpty={false}
+                      placeholder="Elija el envío…"
+                      emptyLabel="— Resultados —"
+                    />
+                  </Col>
+                )}
+              </Row>
 
               <Row className="mb-3">
                 <Col md="2">
