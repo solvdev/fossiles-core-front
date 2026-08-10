@@ -30,6 +30,7 @@ import {
   downloadTaxInvoiceCertifiedXml,
   openFelInvoiceReport,
 } from "../../services/taxInvoiceService";
+import { lookupTaxpayerByNit } from "../../services/kioskPosService";
 import EditTaxInvoiceFelModal from "../../components/accounting/EditTaxInvoiceFelModal";
 import { useAuth } from "../../contexts/AuthContext";
 import { canEditTaxInvoiceFel } from "../../utils/taxInvoiceEditHelper";
@@ -97,7 +98,7 @@ const computeSaleAmountsFromItems = (sale) => {
   return { net, total, lineCount: productLines.length };
 };
 
-const buildFelInvoicePreview = (sale) => {
+const buildFelInvoicePreview = (sale, invoiceCustomerName = null) => {
   if (!sale) return null;
   const lines = [];
   const items = Array.isArray(sale.items) && sale.items.length > 0 ? sale.items : [];
@@ -146,7 +147,8 @@ const buildFelInvoicePreview = (sale) => {
 
   const rawTaxId = String(sale.invoiceTaxId || "CF").trim().toUpperCase();
   const customerTaxId = rawTaxId === "C/F" || !rawTaxId ? "CF" : rawTaxId;
-  const customerName = sale.customerName
+  // Nombre fiscal: consulta SAT / CF. Nunca el nombre operativo de la venta (WhatsApp, etc.).
+  const customerName = invoiceCustomerName
     || (customerTaxId === "CF" ? "CONSUMIDOR FINAL" : "—");
 
   const totalFromLines = lines.reduce((sum, line) => sum + line.lineTotal, 0);
@@ -160,6 +162,7 @@ const buildFelInvoicePreview = (sale) => {
     establishmentCode: "1",
     customerTaxId,
     customerName,
+    saleCustomerName: sale.customerName || "—",
     address: sale.address || "—",
     phone: sale.phone || "—",
     email: sale.email || "—",
@@ -1265,9 +1268,41 @@ function OnlineSales() {
     }
   };
 
-  const openFelInvoiceModal = (sale) => {
+  const openFelInvoiceModal = async (sale) => {
     setError("");
-    setFelInvoiceModal({ phase: "preview", sale });
+    const rawTaxId = String(sale?.invoiceTaxId || "CF").trim().toUpperCase();
+    const customerTaxId = rawTaxId === "C/F" || !rawTaxId ? "CF" : rawTaxId;
+    setFelInvoiceModal({
+      phase: "preview",
+      sale,
+      invoiceCustomerName: customerTaxId === "CF" ? "CONSUMIDOR FINAL" : null,
+      nitLookupLoading: customerTaxId !== "CF",
+      nitLookupError: null,
+    });
+    if (customerTaxId === "CF") return;
+    try {
+      const lookup = await lookupTaxpayerByNit(customerTaxId);
+      const satName = String(lookup?.customerName || "").trim();
+      setFelInvoiceModal((prev) => {
+        if (!prev || prev.sale?.id !== sale.id || prev.phase !== "preview") return prev;
+        return {
+          ...prev,
+          invoiceCustomerName: satName || null,
+          nitLookupLoading: false,
+          nitLookupError: satName ? null : "El NIT no devolvió nombre en la consulta SAT.",
+        };
+      });
+    } catch (e) {
+      setFelInvoiceModal((prev) => {
+        if (!prev || prev.sale?.id !== sale.id || prev.phase !== "preview") return prev;
+        return {
+          ...prev,
+          invoiceCustomerName: null,
+          nitLookupLoading: false,
+          nitLookupError: e.message || "No se pudo consultar el NIT en SAT.",
+        };
+      });
+    }
   };
 
   const closeFelInvoiceModal = () => {
@@ -1322,6 +1357,20 @@ function OnlineSales() {
   const confirmGenerateFelInvoice = async () => {
     const sale = felInvoiceModal?.sale;
     if (!sale?.id) return;
+    const rawTaxId = String(sale.invoiceTaxId || "CF").trim().toUpperCase();
+    const customerTaxId = rawTaxId === "C/F" || !rawTaxId ? "CF" : rawTaxId;
+    const satName = String(felInvoiceModal?.invoiceCustomerName || "").trim();
+    if (customerTaxId !== "CF" && !satName) {
+      const msg = felInvoiceModal?.nitLookupError
+        || "No hay nombre SAT para este NIT. Corrija el NIT en la venta y vuelva a intentar. No se generó factura.";
+      setFelInvoiceModal((prev) => (prev ? {
+        ...prev,
+        nitLookupError: msg,
+        nitLookupLoading: false,
+      } : prev));
+      setError(msg);
+      return;
+    }
     try {
       setFelInvoiceLoadingId(sale.id);
       setError("");
@@ -1342,7 +1391,12 @@ function OnlineSales() {
         ? "Factura FEL certificada correctamente."
         : "Factura registrada; revise el estado FEL.");
     } catch (e) {
-      setError(e.message || "No se pudo generar la factura FEL.");
+      const msg = e.message || "No se pudo generar la factura FEL. No se creó factura; revise NIT/nombre y reintente.";
+      setError(msg);
+      setFelInvoiceModal((prev) => (prev?.phase === "preview" ? {
+        ...prev,
+        nitLookupError: msg,
+      } : prev));
     } finally {
       setFelInvoiceLoadingId(null);
     }
@@ -2582,6 +2636,7 @@ function OnlineSales() {
                         <th style={{ minWidth: 35 }}>No.</th>
                         <th style={{ minWidth: 120 }}>Nombre</th>
                         <th style={{ minWidth: 80 }}>Teléfono</th>
+                        <th style={{ minWidth: 80 }}>Teléfono 2</th>
                         <th style={{ minWidth: 160 }}>Dirección</th>
                         <th style={{ minWidth: 50 }}>Emp.</th>
                         <th style={{ minWidth: 130 }}>Forma Pago</th>
@@ -2592,6 +2647,8 @@ function OnlineSales() {
                         <th style={{ minWidth: 50 }}>Envío</th>
                         <th style={{ minWidth: 70 }}>Sin Envío</th>
                         <th style={{ minWidth: 90 }}>Transporte</th>
+                        <th style={{ minWidth: 80 }}>Red Social</th>
+                        <th style={{ minWidth: 80 }}>Vendedor</th>
                         <th style={{ minWidth: 70 }}>Estado</th>
                         <th style={{ minWidth: 80 }}>Guía</th>
                         <th style={{ minWidth: 90 }}>Autorización</th>
@@ -2608,6 +2665,7 @@ function OnlineSales() {
                           <td><strong>{sale.saleNumber || idx + 1}</strong></td>
                           <td>{renderInlineCell(sale, "customerName")}</td>
                           <td>{renderInlineCell(sale, "phone")}</td>
+                          <td>{renderInlineCell(sale, "phone2")}</td>
                           <td style={{ maxWidth: 220, whiteSpace: "normal", wordBreak: "break-word" }}>
                             {renderInlineCell(sale, "address")}
                           </td>
@@ -2678,6 +2736,8 @@ function OnlineSales() {
                           </td>
                           <td>{renderInlineCell(sale, "shippingCarrier", "select",
                             SHIPPING_CARRIERS.map(c => ({ value: c.value, label: c.label })))}</td>
+                          <td>{getSocialIcon(sale.socialNetwork)}</td>
+                          <td style={{ fontSize: 11 }}>{sale.salesperson ? sale.salesperson.split(" ")[0] : "—"}</td>
                           <td>{getStatusBadge(sale.status)}</td>
                           <td>{renderInlineCell(sale, "guideNumber")}</td>
                           <td>{renderInlineCell(sale, "paymentAuthorization")}</td>
@@ -4785,9 +4845,13 @@ function OnlineSales() {
         size="lg"
       >
         {felInvoiceModal?.phase === "preview" && (() => {
-          const preview = buildFelInvoicePreview(felInvoiceModal.sale);
           const sale = felInvoiceModal.sale;
+          const preview = buildFelInvoicePreview(sale, felInvoiceModal.invoiceCustomerName);
           const confirming = felInvoiceLoadingId === sale?.id;
+          const nitLookupLoading = Boolean(felInvoiceModal.nitLookupLoading);
+          const nitLookupError = felInvoiceModal.nitLookupError;
+          const hasSatName = Boolean(String(felInvoiceModal.invoiceCustomerName || "").trim())
+            || preview?.customerTaxId === "CF";
           const retry = isFelInvoiceRetry(sale);
           const storedTotal = parseFloat(sale?.totalAmount || 0);
           const totalMismatch = preview?.total > 0
@@ -4810,14 +4874,37 @@ function OnlineSales() {
                     productos ({formatQ(preview.total)}). La factura usará la suma de líneas.
                   </Alert>
                 )}
+                {nitLookupLoading && (
+                  <Alert color="secondary" className="py-2">
+                    Consultando nombre fiscal del NIT en SAT…
+                  </Alert>
+                )}
+                {nitLookupError && (
+                  <Alert color="danger" className="py-2">
+                    {nitLookupError}
+                    <div className="mt-1 small">
+                      NIT INCORRECTO/INVALIDO. No se generará factura. Revise/edite el NIT en la venta y vuelva a abrir esta ventana.
+                    </div>
+                  </Alert>
+                )}
                 <p className="text-muted small mb-3">
                   Revise los datos que se enviarán a certificación FEL antes de confirmar.
+                  El nombre de factura es el de la consulta SAT del NIT (no el nombre de la venta).
                 </p>
                 {preview && (
                   <>
                     <Row className="mb-3">
                       <Col md="6">
-                        <p className="mb-1"><strong>Cliente:</strong> {preview.customerName}</p>
+                        <p className="mb-1">
+                          <strong>Nombre factura (SAT):</strong>{" "}
+                          {nitLookupLoading ? "Consultando…" : preview.customerName}
+                        </p>
+                        {preview.saleCustomerName
+                          && preview.saleCustomerName !== preview.customerName && (
+                          <p className="mb-1 text-muted small">
+                            <strong>Nombre venta:</strong> {preview.saleCustomerName}
+                          </p>
+                        )}
                         <p className="mb-1"><strong>NIT / CF:</strong> {preview.customerTaxId}</p>
                         <p className="mb-1"><strong>Dirección:</strong> {preview.address}</p>
                       </Col>
@@ -4864,7 +4951,11 @@ function OnlineSales() {
                 <Button color="secondary" outline onClick={closeFelInvoiceModal} disabled={confirming}>
                   Cancelar
                 </Button>
-                <Button color="success" onClick={confirmGenerateFelInvoice} disabled={confirming || !preview?.lines?.length}>
+                <Button
+                  color="success"
+                  onClick={confirmGenerateFelInvoice}
+                  disabled={confirming || !preview?.lines?.length || nitLookupLoading || !hasSatName}
+                >
                   {confirming
                     ? (<><Spinner size="sm" /> Certificando...</>)
                     : (retry ? "Reintentar certificación FEL" : "Generar factura FEL")}
@@ -4916,6 +5007,12 @@ function OnlineSales() {
                   <Alert color="warning" className="py-2">
                     Ambiente de <strong>pruebas</strong> INFILE — documento sin validez fiscal.
                   </Alert>
+                )}
+                {invoice?.customerName && (
+                  <p className="mb-1 small">
+                    <strong>Nombre factura (SAT):</strong> {invoice.customerName}
+                    {invoice?.customerTaxId ? ` · NIT ${invoice.customerTaxId}` : ""}
+                  </p>
                 )}
                 {invoice?.felUuid && (
                   <p className="mb-1 small"><strong>Autorización (UUID):</strong> {invoice.felUuid}</p>
