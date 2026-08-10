@@ -89,13 +89,49 @@ const taskRecipeHasStockWarning = (task) => {
   return task.products.some((p) => (p.recipe || []).some((m) => m.sufficientStock === false));
 };
 
+const DAY_PRESET = {
+  PENDING: "PENDING",
+  DELIVERED: "DELIVERED",
+  ALL: "ALL",
+};
+
+const matchesMaterialsSearch = (task, query) => {
+  const q = String(query || "").trim().toLowerCase();
+  if (!q) return true;
+  const hay = [
+    task.taskCode,
+    task.productionOrderCode,
+    task.customerName,
+    ...(task.products || []).flatMap((p) => [p.productCode, p.productName, p.colorName]),
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+  return hay.includes(q);
+};
+
+const matchesOrderSearch = (order, query) => {
+  const q = String(query || "").trim().toLowerCase();
+  if (!q) return true;
+  const hay = [
+    order.code,
+    order.customerName,
+    ...(order.items || []).flatMap((it) => [it.productCode, it.productName]),
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+  return hay.includes(q);
+};
+
 const MaterialsTasksView = () => {
-  // Tab state: "orders" (primary) or "history" (by date)
-  const [activeTab, setActiveTab] = useState("orders");
+  // Default: day view (pendientes hoy). Orders tab is OP drill-down.
+  const [activeTab, setActiveTab] = useState("day");
 
   // === Orders tab state ===
   const [orders, setOrders] = useState([]);
-  const [loadingOrders, setLoadingOrders] = useState(true);
+  const [loadingOrders, setLoadingOrders] = useState(false);
+  const [ordersLoaded, setOrdersLoaded] = useState(false);
   const [selectedOrderId, setSelectedOrderId] = useState(null);
   const [orderTasks, setOrderTasks] = useState([]);
   const [loadingTasks, setLoadingTasks] = useState(false);
@@ -103,15 +139,18 @@ const MaterialsTasksView = () => {
   const [loadingCinchoRecipes, setLoadingCinchoRecipes] = useState(false);
   const [expandedTasks, setExpandedTasks] = useState({});
   const [orderTypeFilter, setOrderTypeFilter] = useState("");
-  const [workflowFilter, setWorkflowFilter] = useState("NOT_PRODUCED");
+  const [workflowFilter, setWorkflowFilter] = useState("MATERIALS_ACTIONABLE");
+  const [orderSearch, setOrderSearch] = useState("");
 
-  // === History tab state ===
-  const [historyTasks, setHistoryTasks] = useState([]);
-  const [loadingHistory, setLoadingHistory] = useState(false);
+  // === Day tab state ===
+  const [dayTasks, setDayTasks] = useState([]);
+  const [loadingDay, setLoadingDay] = useState(false);
   const [selectedDate, setSelectedDate] = useState(
     new Date().toISOString().split("T")[0]
   );
-  const [expandedHistoryTasks, setExpandedHistoryTasks] = useState({});
+  const [dayPreset, setDayPreset] = useState(DAY_PRESET.PENDING);
+  const [daySearch, setDaySearch] = useState("");
+  const [expandedDayTaskId, setExpandedDayTaskId] = useState(null);
   const [printingDayRecipes, setPrintingDayRecipes] = useState(false);
 
   const [error, setError] = useState(null);
@@ -150,16 +189,13 @@ const MaterialsTasksView = () => {
         return 0;
       });
       setOrders(visible);
+      setOrdersLoaded(true);
     } catch (err) {
       setError(err.message);
     } finally {
       setLoadingOrders(false);
     }
   }, []);
-
-  useEffect(() => {
-    fetchOrders();
-  }, [fetchOrders]);
 
   // ─── Fetch tasks for selected order ───
   const fetchOrderTasks = useCallback(async (orderId, orderRow) => {
@@ -201,10 +237,8 @@ const MaterialsTasksView = () => {
         return;
       }
       setOrderTasks(list);
-      // Auto-expand all tasks
-      const expanded = {};
-      list.forEach((t) => (expanded[t.taskId] = true));
-      setExpandedTasks(expanded);
+      // Collapse detail until the user expands a task.
+      setExpandedTasks({});
     } catch (err) {
       setError(err.message);
     } finally {
@@ -223,37 +257,50 @@ const MaterialsTasksView = () => {
     }
   };
 
-  // ─── History tab ───
-  const fetchHistory = useCallback(async () => {
-    setLoadingHistory(true);
+  // ─── Day tab: pendientes (default) / entregadas / todas ───
+  const fetchDayTasks = useCallback(async () => {
+    setLoadingDay(true);
     setError(null);
+    setExpandedDayTaskId(null);
     try {
-      const data = await getMaterialsView(selectedDate, { scheduleDay: true });
-      setHistoryTasks(data || []);
+      let options = {};
+      if (dayPreset === DAY_PRESET.DELIVERED) {
+        options = { includeDelivered: true };
+      } else if (dayPreset === DAY_PRESET.ALL) {
+        options = { scheduleDay: true };
+      }
+      const data = await getMaterialsView(selectedDate, options);
+      setDayTasks(data || []);
     } catch (err) {
       setError(err.message);
     } finally {
-      setLoadingHistory(false);
+      setLoadingDay(false);
     }
-  }, [selectedDate]);
+  }, [selectedDate, dayPreset]);
 
   useEffect(() => {
-    if (activeTab === "history") {
-      fetchHistory();
+    if (activeTab === "day") {
+      fetchDayTasks();
     }
-  }, [activeTab, fetchHistory]);
+  }, [activeTab, fetchDayTasks]);
+
+  useEffect(() => {
+    if (activeTab === "orders" && !ordersLoaded && !loadingOrders) {
+      fetchOrders();
+    }
+  }, [activeTab, ordersLoaded, loadingOrders, fetchOrders]);
 
   // ─── Toggle helpers ───
   const toggleTask = (taskId, isHistory = false) => {
     if (isHistory) {
-      setExpandedHistoryTasks((prev) => ({ ...prev, [taskId]: !prev[taskId] }));
+      setExpandedDayTaskId((prev) => (prev === taskId ? null : taskId));
     } else {
       setExpandedTasks((prev) => ({ ...prev, [taskId]: !prev[taskId] }));
     }
   };
 
   const handleDeliverMaterials = async (taskId, isHistory = false, force = false) => {
-    const sourceList = isHistory ? historyTasks : orderTasks;
+    const sourceList = isHistory ? dayTasks : orderTasks;
     const sourceTask = (sourceList || []).find((t) => t.taskId === taskId);
     if (taskSkipsMaterials(sourceTask)) {
       return;
@@ -277,7 +324,7 @@ const MaterialsTasksView = () => {
         canDeliverMaterials: updated.canDeliverMaterials,
       };
       if (isHistory) {
-        await fetchHistory();
+        await fetchDayTasks();
       } else {
         setOrderTasks((prev) => {
           const next = prev.filter((t) => t.taskId !== taskId);
@@ -297,7 +344,7 @@ const MaterialsTasksView = () => {
   };
 
   const handleDeliverMaterialsForProduct = async (taskId, taskItemId, isHistory = false, force = false) => {
-    const sourceList = isHistory ? historyTasks : orderTasks;
+    const sourceList = isHistory ? dayTasks : orderTasks;
     const sourceTask = (sourceList || []).find((t) => t.taskId === taskId);
     const product = (sourceTask?.products || []).find((p) => p.taskItemId === taskItemId);
     if (!force && product && (product.recipe || []).some((m) => m.sufficientStock === false)) {
@@ -313,7 +360,7 @@ const MaterialsTasksView = () => {
         );
       }
       if (isHistory) {
-        await fetchHistory();
+        await fetchDayTasks();
       } else {
         setOrderTasks((prev) => {
           const next = prev
@@ -346,7 +393,7 @@ const MaterialsTasksView = () => {
     try {
       await setTaskItemMaterialPick(taskId, taskItemId, materialId, picked);
       if (isHistory) {
-        await fetchHistory();
+        await fetchDayTasks();
       } else if (selectedOrderId) {
         const row = orders.find((o) => o.id === selectedOrderId);
         await fetchOrderTasks(selectedOrderId, row);
@@ -381,7 +428,7 @@ const MaterialsTasksView = () => {
   };
 
   const printDayDeliveriesReport = () => {
-    const tasks = historyTasks || [];
+    const tasks = dayTasks || [];
     if (!tasks.length) return;
     const fmtDateTime = (value) => {
       if (!value) return "—";
@@ -486,22 +533,32 @@ const MaterialsTasksView = () => {
     w.document.close();
   };
 
-  const expandAll = (tasks, isHistory = false) => {
+  const expandAll = (tasks) => {
     const allExpanded = {};
     tasks.forEach((t) => (allExpanded[t.taskId] = true));
-    if (isHistory) setExpandedHistoryTasks(allExpanded);
-    else setExpandedTasks(allExpanded);
+    setExpandedTasks(allExpanded);
   };
 
-  const collapseAll = (isHistory = false) => {
-    if (isHistory) setExpandedHistoryTasks({});
-    else setExpandedTasks({});
+  const collapseAll = () => {
+    setExpandedTasks({});
   };
 
-  // ─── Filter orders by type ───
-  const filteredOrders = orderTypeFilter
-    ? orders.filter((o) => o.orderType === orderTypeFilter)
-    : orders;
+  // ─── Filter orders by type + search ───
+  const filteredOrders = useMemo(() => {
+    let list = orders || [];
+    if (orderTypeFilter) {
+      list = list.filter((o) => o.orderType === orderTypeFilter);
+    }
+    if (orderSearch.trim()) {
+      list = list.filter((o) => matchesOrderSearch(o, orderSearch));
+    }
+    return list;
+  }, [orders, orderTypeFilter, orderSearch]);
+
+  const filteredDayTasks = useMemo(
+    () => (dayTasks || []).filter((t) => matchesMaterialsSearch(t, daySearch)),
+    [dayTasks, daySearch]
+  );
 
   const filteredOrderTasks = useMemo(() => {
     const tasks = orderTasks || [];
@@ -556,6 +613,12 @@ const MaterialsTasksView = () => {
               <>
                 <br />
                 <small className="text-muted">OP: {task.productionOrderCode}</small>
+                {task.customerName ? (
+                  <>
+                    <br />
+                    <small className="text-muted">{task.customerName}</small>
+                  </>
+                ) : null}
               </>
             )}
           </Col>
@@ -752,11 +815,21 @@ const MaterialsTasksView = () => {
                     Vista de Materiales
                   </CardTitle>
                   <p className="text-muted mb-0">
-                    Recetas (BOM) por orden de producción para despacho de materiales
+                    Despacho del día (pendientes por defecto) y consulta por orden de producción
                   </p>
                 </Col>
                 <Col md="6" className="text-right">
                   <Nav pills className="justify-content-end">
+                    <NavItem>
+                      <NavLink
+                        className={activeTab === "day" ? "active" : ""}
+                        onClick={() => setActiveTab("day")}
+                        style={{ cursor: "pointer" }}
+                      >
+                        <i className="nc-icon nc-calendar-60 mr-1" />
+                        Por día
+                      </NavLink>
+                    </NavItem>
                     <NavItem>
                       <NavLink
                         className={activeTab === "orders" ? "active" : ""}
@@ -764,17 +837,7 @@ const MaterialsTasksView = () => {
                         style={{ cursor: "pointer" }}
                       >
                         <i className="nc-icon nc-single-copy-04 mr-1" />
-                        Órdenes Activas
-                      </NavLink>
-                    </NavItem>
-                    <NavItem>
-                      <NavLink
-                        className={activeTab === "history" ? "active" : ""}
-                        onClick={() => setActiveTab("history")}
-                        style={{ cursor: "pointer" }}
-                      >
-                        <i className="nc-icon nc-calendar-60 mr-1" />
-                        Historial por Fecha
+                        Por orden
                       </NavLink>
                     </NavItem>
                   </Nav>
@@ -786,10 +849,117 @@ const MaterialsTasksView = () => {
               {error && <Alert color="danger">{error}</Alert>}
 
               <TabContent activeTab={activeTab}>
-                {/* ═══════ TAB 1: ORDERS ═══════ */}
+                {/* ═══════ TAB: DAY (default) ═══════ */}
+                <TabPane tabId="day">
+                  <Row className="mb-3 align-items-center">
+                    <Col md="2">
+                      <Input
+                        type="date"
+                        value={selectedDate}
+                        onChange={(e) => setSelectedDate(e.target.value)}
+                        bsSize="sm"
+                      />
+                    </Col>
+                    <Col md="4">
+                      <Input
+                        type="select"
+                        value={dayPreset}
+                        onChange={(e) => setDayPreset(e.target.value)}
+                        bsSize="sm"
+                      >
+                        <option value={DAY_PRESET.PENDING}>Pendientes hoy</option>
+                        <option value={DAY_PRESET.DELIVERED}>Entregadas</option>
+                        <option value={DAY_PRESET.ALL}>Todas (día de trabajo)</option>
+                      </Input>
+                    </Col>
+                    <Col md="3">
+                      <Input
+                        type="text"
+                        value={daySearch}
+                        onChange={(e) => setDaySearch(e.target.value)}
+                        placeholder="Buscar OP / producto / cliente"
+                        bsSize="sm"
+                      />
+                    </Col>
+                    <Col md="3" className="text-right">
+                      <Badge color="primary" className="mr-2 p-2">
+                        {filteredDayTasks.length} tareas
+                      </Badge>
+                      <Button size="sm" color="primary" onClick={() => void fetchDayTasks()}>
+                        <i className="nc-icon nc-refresh-69 mr-1" />
+                        Actualizar
+                      </Button>
+                    </Col>
+                  </Row>
+                  <Row className="mb-3">
+                    <Col className="text-right">
+                      <Button size="sm" color="secondary" onClick={() => setExpandedDayTaskId(null)} className="mr-1">
+                        Colapsar
+                      </Button>
+                      <Button size="sm" color="success" className="mr-1" onClick={printDayDeliveriesReport}>
+                        Imprimir líneas marcadas
+                      </Button>
+                      <Button
+                        size="sm"
+                        color="dark"
+                        disabled={printingDayRecipes}
+                        onClick={() => void handlePrintDayRecipes()}
+                      >
+                        {printingDayRecipes ? (
+                          <>
+                            <Spinner size="sm" className="mr-1" />
+                            Cargando…
+                          </>
+                        ) : (
+                          <>
+                            <i className="nc-icon nc-paper mr-1" />
+                            Imprimir recetas del día
+                          </>
+                        )}
+                      </Button>
+                    </Col>
+                  </Row>
+                  <Alert color="light" className="py-2 mb-3" style={{ fontSize: "13px" }}>
+                    <strong>Pendientes hoy</strong> = programadas para la fecha (+ cola activa si es hoy) sin materiales
+                    entregados. <strong>Entregadas</strong> = entrega registrada en esa fecha.{" "}
+                    <strong>Todas</strong> = día de trabajo completo. El detalle de receta se abre al seleccionar una tarea.
+                  </Alert>
+
+                  {loadingDay ? (
+                    <div className="text-center py-4">
+                      <Spinner color="primary" />
+                      <p className="mt-2">Cargando tareas...</p>
+                    </div>
+                  ) : filteredDayTasks.length === 0 ? (
+                    <Alert color="info">
+                      {daySearch.trim()
+                        ? "Ninguna tarea coincide con la búsqueda."
+                        : dayPreset === DAY_PRESET.PENDING
+                          ? "No hay pendientes de materiales para esta fecha."
+                          : dayPreset === DAY_PRESET.DELIVERED
+                            ? "No hay entregas de materiales registradas en esta fecha."
+                            : "No hay tareas programadas para esta fecha (ni cola activa si es hoy)."}
+                    </Alert>
+                  ) : (
+                    filteredDayTasks.map((task) =>
+                      renderTaskCard(task, expandedDayTaskId === task.taskId, true)
+                    )
+                  )}
+                </TabPane>
+
+                {/* ═══════ TAB: ORDERS ═══════ */}
                 <TabPane tabId="orders">
                   {/* Filters */}
                   <Row className="mb-3 align-items-center">
+                    <Col md="3">
+                      <Input
+                        type="text"
+                        value={orderSearch}
+                        onChange={(e) => setOrderSearch(e.target.value)}
+                        placeholder="Buscar OP / producto / cliente"
+                        bsSize="sm"
+                      />
+                    </Col>
                     <Col md="3">
                       <Input
                         type="select"
@@ -809,24 +979,24 @@ const MaterialsTasksView = () => {
                       </Input>
                     </Col>
                     {!showCinchoReadonlyRecipes ? (
-                    <Col md="4">
+                    <Col md="3">
                       <Input
                         type="select"
                         value={workflowFilter}
                         onChange={(e) => setWorkflowFilter(e.target.value)}
                         bsSize="sm"
                       >
-                        <option value="NOT_PRODUCED">No producidas (general)</option>
                         <option value="MATERIALS_ACTIONABLE">Listas para entrega de materiales</option>
+                        <option value="NOT_PRODUCED">No producidas (general)</option>
                         <option value="PREPARATION">Previas (cuero/troquel/mesa) para preparar</option>
                         <option value="PRODUCED">Producidas</option>
                         <option value="ALL">Todas</option>
                       </Input>
                     </Col>
                     ) : null}
-                    <Col md={showCinchoReadonlyRecipes ? "9" : "5"} className="text-right">
+                    <Col md={showCinchoReadonlyRecipes ? "6" : "3"} className="text-right">
                       <Badge color="primary" className="mr-2 p-2">
-                        {filteredOrders.length} órdenes visibles
+                        {filteredOrders.length} órdenes
                       </Badge>
                       <Button size="sm" color="primary" onClick={fetchOrders}>
                         <i className="nc-icon nc-refresh-69 mr-1" />
@@ -920,8 +1090,8 @@ const MaterialsTasksView = () => {
                                     <Badge color="primary" className="mr-2 p-2">
                                       {filteredOrderTasks.length} tareas (filtro)
                                     </Badge>
-                                    <Button size="sm" color="info" onClick={() => expandAll(orderTasks)} className="mr-1">
-                                      Expandir todo
+                                    <Button size="sm" color="info" onClick={() => expandAll(filteredOrderTasks)} className="mr-1">
+                                      Expandir filtro
                                     </Button>
                                     <Button size="sm" color="secondary" onClick={() => collapseAll()}>
                                       Colapsar
@@ -1013,80 +1183,6 @@ const MaterialsTasksView = () => {
                         </Card>
                       )}
                     </>
-                  )}
-                </TabPane>
-
-                {/* ═══════ TAB 2: HISTORY ═══════ */}
-                <TabPane tabId="history">
-                  <Row className="mb-3 align-items-center">
-                    <Col md="3">
-                      <Input
-                        type="date"
-                        value={selectedDate}
-                        onChange={(e) => setSelectedDate(e.target.value)}
-                        bsSize="sm"
-                      />
-                    </Col>
-                    <Col md="9" className="text-right">
-                      <Badge color="primary" className="mr-2 p-2">
-                        {historyTasks.length} tareas
-                      </Badge>
-                      <Badge color="info" className="mr-2 p-2">
-                        {historyTasks.filter((t) => t.status === "IN_PROGRESS").length} en progreso
-                      </Badge>
-                      <Badge color="warning" className="p-2 mr-2">
-                        {historyTasks.filter((t) => t.status === "PENDING").length} pendientes
-                      </Badge>
-                      <Button size="sm" color="info" onClick={() => expandAll(historyTasks, true)} className="mr-1">
-                        Expandir todo
-                      </Button>
-                      <Button size="sm" color="secondary" onClick={() => collapseAll(true)}>
-                        Colapsar
-                      </Button>
-                      <Button size="sm" color="success" className="ml-1" onClick={printDayDeliveriesReport}>
-                        Imprimir líneas marcadas
-                      </Button>
-                      <Button
-                        size="sm"
-                        color="dark"
-                        className="ml-1"
-                        disabled={printingDayRecipes}
-                        onClick={() => void handlePrintDayRecipes()}
-                      >
-                        {printingDayRecipes ? (
-                          <>
-                            <Spinner size="sm" className="mr-1" />
-                            Cargando…
-                          </>
-                        ) : (
-                          <>
-                            <i className="nc-icon nc-paper mr-1" />
-                            Imprimir recetas del día
-                          </>
-                        )}
-                      </Button>
-                    </Col>
-                  </Row>
-                  <Alert color="light" className="py-2 mb-3" style={{ fontSize: "13px" }}>
-                    Lista las tareas con <strong>fecha de programación</strong> en el día elegido (incluye ya entregadas
-                    o en otro estado). Si el día es <strong>hoy</strong>, también aparecen tareas sin fecha o atrasadas
-                    que sigan activas. <strong>Imprimir recetas del día</strong> usa la misma base:{" "}
-                    <strong>todas</strong> las tareas del día con su receta (las ya entregadas van marcadas).
-                  </Alert>
-
-                  {loadingHistory ? (
-                    <div className="text-center py-4">
-                      <Spinner color="primary" />
-                      <p className="mt-2">Cargando tareas...</p>
-                    </div>
-                  ) : historyTasks.length === 0 ? (
-                    <Alert color="info">
-                      No hay tareas programadas para esta fecha (ni cola activa sin fecha si es hoy).
-                    </Alert>
-                  ) : (
-                    historyTasks.map((task) =>
-                      renderTaskCard(task, expandedHistoryTasks[task.taskId], true)
-                    )
                   )}
                 </TabPane>
               </TabContent>

@@ -3,6 +3,10 @@ import { getTaskTicket, getTicketsByProductionOrder } from "services/taskService
 import { showError } from "utils/notificationHelper";
 import { formatDateGt, formatDateTimeGt, formatNowGt } from "utils/dateTimeHelper";
 import { deskDisplayLabel, resolveDeskSupervisorNameForTicket } from "utils/deskSupervisorDisplay";
+import {
+  addWorkDurationSkippingLunch,
+  formatProductionDuration,
+} from "utils/productionTimeHelper";
 
 function TaskTicketPrint({ taskId, taskIds, productionOrderId, supervisorByDesk, onClose, autoPrintOnLoad }) {
   const [tickets, setTickets] = useState([]);
@@ -202,7 +206,7 @@ function TaskTicketPrint({ taskId, taskIds, productionOrderId, supervisorByDesk,
     const [hh, mm] = ticket.startTime.split(":").map(Number);
     const start = new Date(ticket.scheduledDate + "T00:00:00");
     start.setHours(hh, mm, 0, 0);
-    return new Date(start.getTime() + ticket.estimatedHours * 60 * 60 * 1000);
+    return addWorkDurationSkippingLunch(start, ticket.estimatedHours);
   };
 
   const calcActualDuration = (ticket) => {
@@ -297,14 +301,14 @@ function TaskTicketPrint({ taskId, taskIds, productionOrderId, supervisorByDesk,
           const items = ticket.items || [];
           const regularItems = items.filter((i) => !i.daySaleExtra);
           const dayItems = items.filter((i) => i.daySaleExtra);
-          const totalEstMin = items.length > 0
-            ? items.reduce((sum, i) => sum + Math.round((i.estimatedHours || 0) * 60), 0)
-            : Math.round((ticket.estimatedHours || 0) * 60);
-          const extraEstMin = items.length > 0
-            ? items.reduce((sum, i) => sum + (i.daySaleExtra ? Math.round((i.estimatedHours || 0) * 60) : 0), 0)
+          const totalEstHours = items.length > 0
+            ? items.reduce((sum, i) => sum + (i.estimatedHours || 0), 0)
+            : (ticket.estimatedHours || 0);
+          const extraEstHours = items.length > 0
+            ? items.reduce((sum, i) => sum + (i.daySaleExtra ? (i.estimatedHours || 0) : 0), 0)
             : 0;
-          const baseEstMin = Math.max(totalEstMin - extraEstMin, 0);
-          const totalEstDisplay = `${totalEstMin} min`;
+          const baseEstHours = Math.max(totalEstHours - extraEstHours, 0);
+          const totalEstDisplay = formatProductionDuration(totalEstHours);
 
           return (
             <div className="ticket" key={ticket.taskId}>
@@ -391,9 +395,9 @@ function TaskTicketPrint({ taskId, taskIds, productionOrderId, supervisorByDesk,
                   {(() => {
                     const renderItemsTable = (tableItems, title, totalLabel) => {
                       if (!tableItems.length) return null;
-                      let accumulatedMin = 0;
-                      const tableTotalMin = tableItems.reduce(
-                        (sum, item) => sum + Math.round((item.estimatedHours || 0) * 60),
+                      let accumulatedHours = 0;
+                      const tableTotalHours = tableItems.reduce(
+                        (sum, item) => sum + (item.estimatedHours || 0),
                         0
                       );
                       return (
@@ -417,9 +421,9 @@ function TaskTicketPrint({ taskId, taskIds, productionOrderId, supervisorByDesk,
                             <tbody>
                               {tableItems.map((item, idx) => {
                                 const qty = item.quantity || 1;
-                                const totalItemMin = Math.round((item.estimatedHours || 0) * 60);
-                                const perUnitMin = qty > 0 ? (totalItemMin / qty).toFixed(1) : 0;
-                                accumulatedMin += totalItemMin;
+                                const totalItemHours = item.estimatedHours || 0;
+                                const perUnitHours = qty > 0 ? totalItemHours / qty : 0;
+                                accumulatedHours += totalItemHours;
                                 return (
                                   <tr key={`${title}-${idx}`}>
                                     <td>{idx + 1}</td>
@@ -427,16 +431,16 @@ function TaskTicketPrint({ taskId, taskIds, productionOrderId, supervisorByDesk,
                                     <td>{item.productName || "-"}</td>
                                     <td>{item.colorName || "-"}</td>
                                     <td className="number"><strong>{qty}</strong></td>
-                                    <td className="number">{perUnitMin} min</td>
-                                    <td className="number"><strong>{totalItemMin} min</strong></td>
-                                    <td className="number">{accumulatedMin} min</td>
+                                    <td className="number">{formatProductionDuration(perUnitHours)}</td>
+                                    <td className="number"><strong>{formatProductionDuration(totalItemHours)}</strong></td>
+                                    <td className="number">{formatProductionDuration(accumulatedHours)}</td>
                                   </tr>
                                 );
                               })}
                               <tr style={{ fontWeight: "bold", backgroundColor: "#f0f0f0" }}>
                                 <td colSpan="6" style={{ textAlign: "right" }}>{totalLabel}</td>
-                                <td className="number">{tableTotalMin} min</td>
-                                <td className="number">{tableTotalMin} min</td>
+                                <td className="number">{formatProductionDuration(tableTotalHours)}</td>
+                                <td className="number">{formatProductionDuration(tableTotalHours)}</td>
                               </tr>
                             </tbody>
                           </table>
@@ -455,7 +459,7 @@ function TaskTicketPrint({ taskId, taskIds, productionOrderId, supervisorByDesk,
                                 TIEMPO TOTAL ESTIMADO
                               </td>
                               <td style={{ textAlign: "right", border: "1px solid #333", padding: "4px 6px", width: "130px" }}>
-                                {totalEstMin} min
+                                {totalEstDisplay}
                               </td>
                             </tr>
                           </tbody>
@@ -474,9 +478,11 @@ function TaskTicketPrint({ taskId, taskIds, productionOrderId, supervisorByDesk,
               <div className="observations-area">
                 <div className="section-title">OBSERVACIONES</div>
                 <div style={{ fontSize: "11px", marginBottom: "6px", color: "#444" }}>
-                  <strong>Tiempo total estimado:</strong> {totalEstMin} min
-                  {extraEstMin > 0 && (
-                    <span> (Base: {baseEstMin} min + Dia: {extraEstMin} min)</span>
+                  <strong>Tiempo total estimado:</strong> {totalEstDisplay}
+                  {extraEstHours > 0 && (
+                    <span>
+                      {" "}(Base: {formatProductionDuration(baseEstHours)} + Dia: {formatProductionDuration(extraEstHours)})
+                    </span>
                   )}
                 </div>
                 <div className="obs-lines">
@@ -497,7 +503,9 @@ function TaskTicketPrint({ taskId, taskIds, productionOrderId, supervisorByDesk,
                 <div className="info-item">
                   <span className="info-label">Tiempo Real:</span>
                   <span className="info-value">
-                    {actualDuration !== null ? `${actualDuration} min` : "________________"}
+                    {actualDuration !== null
+                      ? formatProductionDuration(actualDuration / 60)
+                      : "________________"}
                   </span>
                 </div>
               </div>

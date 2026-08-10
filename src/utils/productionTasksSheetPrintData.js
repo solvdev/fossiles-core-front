@@ -4,7 +4,11 @@ import { buildDeskSupervisorLegendLine, mesasListWithSupervisors } from "./deskS
 const STATUS_LABELS_PRINT = {
   PENDING: "Pendiente",
   IN_PROGRESS: "En proceso",
+  AWAITING_WAREHOUSE: "Pendiente bodega PT",
+  DRAFT: "Borrador",
 };
+
+const EXCLUDED_DAY_SHEET_STATUSES = new Set(["CANCELLED", "COMPLETED"]);
 
 const COLOR_PRIORITY = [
   { keys: ["negro", "negra"], header: "Negro" },
@@ -120,12 +124,6 @@ function flattenTaskLines(task, orderMap) {
   return lines;
 }
 
-function hasAssignedDesk(task) {
-  const d = task.desk;
-  if (d === null || d === undefined || d === "") return false;
-  return true;
-}
-
 /**
  * @param {object[]} tasks
  * @param {object[]} productionOrders
@@ -145,13 +143,13 @@ export function buildProductionTasksSheetPrintModel(tasks, productionOrders, opt
   const deskSupervisorLegend = buildDeskSupervisorLegendLine(deskSupervisorByDesk, numDesksForLegend);
   const orderMap = new Map((productionOrders || []).map((o) => [Number(o.id), o]));
 
+  // Mismo criterio que getOrganizerDayDeskTasks: fecha del día, sin exigir mesa;
+  // excluye solo CANCELLED / COMPLETED (OPL y AWAITING_WAREHOUSE incluidos).
   const filtered = (tasks || []).filter((t) => {
     if (!t) return false;
     if (String(t.scheduledDate || "").slice(0, 10) !== workDateYmd) return false;
-    if (!hasAssignedDesk(t)) return false;
     const st = String(t.status || "").toUpperCase();
-    if (st !== "PENDING" && st !== "IN_PROGRESS") return false;
-    return true;
+    return !EXCLUDED_DAY_SHEET_STATUSES.has(st);
   });
 
   const lines = [];
@@ -166,7 +164,7 @@ export function buildProductionTasksSheetPrintModel(tasks, productionOrders, opt
       rows: [],
       colorColumns: [],
       emptyMessage:
-        "No hay tareas del organizador pendientes o en proceso con mesa asignada para esta fecha.",
+        "No hay tareas del organizador programadas para esta fecha (excluye canceladas y completadas).",
     };
   }
 
@@ -208,7 +206,7 @@ export function buildProductionTasksSheetPrintModel(tasks, productionOrders, opt
       rows: [],
       colorColumns: [],
       emptyMessage:
-        "No hay tareas del organizador con mesa para esta fecha (sin líneas de producto válidas).",
+        "No hay líneas de producto válidas en las tareas del organizador para esta fecha.",
     };
   }
 

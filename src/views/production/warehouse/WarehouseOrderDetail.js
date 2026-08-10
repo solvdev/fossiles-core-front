@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  Alert, Badge, Button, Card, CardBody, Col, Progress, Row, Spinner,
+  Alert, Badge, Button, Card, CardBody, Col, Input, Progress, Row, Spinner,
 } from "reactstrap";
 import {
   closeWarehouseReceipt,
@@ -30,6 +30,8 @@ const WarehouseOrderDetail = ({
   const [saving, setSaving] = useState(false);
   const [unitDrafts, setUnitDrafts] = useState({});
   const [dispatchModal, setDispatchModal] = useState({ open: false, sale: null });
+  const [unitSearch, setUnitSearch] = useState("");
+  const [unitStatusFilter, setUnitStatusFilter] = useState(mode === "receipt" ? "PENDING" : "ALL");
 
   const loadWorkspace = useCallback(async () => {
     if (!order?.productionOrderId) return;
@@ -49,6 +51,11 @@ const WarehouseOrderDetail = ({
     loadWorkspace();
   }, [loadWorkspace]);
 
+  useEffect(() => {
+    setUnitSearch("");
+    setUnitStatusFilter(mode === "receipt" ? "PENDING" : "ALL");
+  }, [order?.productionOrderId, mode]);
+
   const units = workspace?.units || [];
   const summary = workspace?.summary;
   const receiptClosed = summary?.receiptClosed || !!order?.warehouseReceiptClosedAt;
@@ -58,6 +65,26 @@ const WarehouseOrderDetail = ({
     () => units.filter((u) => (u.receiptStatus || "PENDING") === "PENDING" && !u.shippedAt),
     [units]
   );
+
+  const visibleUnits = useMemo(() => {
+    const term = String(unitSearch || "").trim().toLowerCase();
+    const filtered = units.filter((u) => {
+      const status = u.receiptStatus || "PENDING";
+      if (unitStatusFilter === "PENDING" && (status !== "PENDING" || u.shippedAt)) return false;
+      if (unitStatusFilter === "RECEIVED" && status !== "RECEIVED") return false;
+      if (unitStatusFilter === "REJECTED" && status !== "REJECTED") return false;
+      if (!term) return true;
+      const hay = `${u.unitLabel || ""} ${u.productCode || ""} ${u.productName || ""} ${u.colorName || ""}`
+        .toLowerCase();
+      return hay.includes(term);
+    });
+    return [...filtered].sort((a, b) => {
+      const sa = (a.receiptStatus || "PENDING") === "PENDING" && !a.shippedAt ? 0 : 1;
+      const sb = (b.receiptStatus || "PENDING") === "PENDING" && !b.shippedAt ? 0 : 1;
+      if (sa !== sb) return sa - sb;
+      return String(a.unitLabel || "").localeCompare(String(b.unitLabel || ""), "es", { numeric: true });
+    });
+  }, [units, unitSearch, unitStatusFilter]);
 
   const draftUpdates = useMemo(() => {
     return Object.values(unitDrafts).filter((d) => d?.receiptStatus && d.receiptStatus !== "PENDING");
@@ -176,16 +203,61 @@ const WarehouseOrderDetail = ({
         </Button>
       )}
 
-      <h6 className="mb-2">Piezas ({units.length})</h6>
-      {units.map((unit) => (
-        <WarehouseUnitRow
-          key={unit.id}
-          unit={{ ...unit, receiptClosed }}
-          draft={unitDrafts[unit.id]}
-          readOnly={mode === "orders" || receiptClosed}
-          onDraftChange={(draft) => handleDraftChange(unit.id, draft)}
-        />
-      ))}
+      <Row className="align-items-end mb-2">
+        <Col md="6" className="mb-2 mb-md-0">
+          <h6 className="mb-1">
+            Piezas ({visibleUnits.length}
+            {visibleUnits.length !== units.length ? ` de ${units.length}` : ""})
+          </h6>
+          {mode === "receipt" && (
+            <Input
+              type="search"
+              bsSize="sm"
+              value={unitSearch}
+              onChange={(e) => setUnitSearch(e.target.value)}
+              placeholder="Filtrar piezas por código o producto…"
+            />
+          )}
+        </Col>
+        {mode === "receipt" && (
+          <Col md="6">
+            <div className="d-flex flex-wrap justify-content-md-end" style={{ gap: 6 }}>
+              {[
+                { value: "PENDING", label: `Pendientes (${pendingUnits.length})` },
+                { value: "ALL", label: "Todas" },
+                { value: "RECEIVED", label: "Recibidas" },
+                { value: "REJECTED", label: "Rechazadas" },
+              ].map((opt) => (
+                <Button
+                  key={opt.value}
+                  size="sm"
+                  color={unitStatusFilter === opt.value ? "info" : "secondary"}
+                  outline={unitStatusFilter !== opt.value}
+                  onClick={() => setUnitStatusFilter(opt.value)}
+                >
+                  {opt.label}
+                </Button>
+              ))}
+            </div>
+          </Col>
+        )}
+      </Row>
+
+      {visibleUnits.length === 0 ? (
+        <Alert color="info" className="py-2">
+          No hay piezas con este filtro. Prueba “Todas” o limpia la búsqueda.
+        </Alert>
+      ) : (
+        visibleUnits.map((unit) => (
+          <WarehouseUnitRow
+            key={unit.id}
+            unit={{ ...unit, receiptClosed }}
+            draft={unitDrafts[unit.id]}
+            readOnly={mode === "orders" || receiptClosed}
+            onDraftChange={(draft) => handleDraftChange(unit.id, draft)}
+          />
+        ))
+      )}
 
       {mode === "orders" && order.dispatchType === "CUSTOMER_SHIPMENTS" && order.customerShipments?.length > 0 && (
         <div className="mt-4">

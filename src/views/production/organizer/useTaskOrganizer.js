@@ -11,7 +11,11 @@ import { getDeskCountForDate } from "services/deskCountService";
 import { buildTableCenterTasks } from "utils/cinchoProductionHelper";
 import { getTodayYmdGuatemala, isWeekendYmd } from "utils/dateTimeHelper";
 import { showSuccess, showError } from "utils/notificationHelper";
-import { MAX_HOURS_PER_DESK, MAX_HOURS_PER_TASK_HARD_CAP } from "utils/taskHoursHelper";
+import {
+  MAX_HOURS_PER_DESK,
+  MAX_HOURS_PER_TASK_HARD_CAP,
+  lineCountsAgainstCupo,
+} from "utils/taskHoursHelper";
 
 /**
  * Estado del Organizador de Tareas: órdenes con restantes, tarea borrador
@@ -108,8 +112,9 @@ export default function useTaskOrganizer() {
   useEffect(() => { loadDesksForDate(boardDate); }, [boardDate, loadDesksForDate]);
 
   // --- Derivados del borrador ---
-  const baseLines = useMemo(() => draftLines.filter((l) => !l.daySaleExtra), [draftLines]);
-  const extraLines = useMemo(() => draftLines.filter((l) => l.daySaleExtra), [draftLines]);
+  // OPL never counts against cupo (same as daySaleExtra).
+  const baseLines = useMemo(() => draftLines.filter((l) => lineCountsAgainstCupo(l)), [draftLines]);
+  const extraLines = useMemo(() => draftLines.filter((l) => !lineCountsAgainstCupo(l)), [draftLines]);
   const baseHours = useMemo(
     () => baseLines.reduce((s, l) => s + (l.hours || 0), 0),
     [baseLines]
@@ -118,7 +123,7 @@ export default function useTaskOrganizer() {
     () => draftLines.reduce((s, l) => s + (l.hours || 0), 0),
     [draftLines]
   );
-  /** OP base de la tarea: la de la primera línea no-extra (o la primera línea). */
+  /** OP base de la tarea: la de la primera línea que cuenta cupo (o la primera línea). */
   const baseOrder = useMemo(() => {
     const first = baseLines[0] || draftLines[0];
     return first
@@ -136,7 +141,7 @@ export default function useTaskOrganizer() {
    * @param order  OrganizerProductionOrderResponse
    * @param item   OrganizerItemResponse
    * @param qty    cantidad (1..remainingQuantity)
-   * @param extra  true = extra OPL sobre el cupo
+   * @param extra  ignored for OPL (always excluded from cupo); for others, client may pass true
    */
   const addDraftLine = useCallback((order, item, qty, extra) => {
     const quantity = Number(qty);
@@ -148,7 +153,10 @@ export default function useTaskOrganizer() {
       showError(`Cantidad no disponible: restante ${item.remainingQuantity}.`);
       return false;
     }
-    if (extra && !order.onlineSale) {
+    const onlineSale = !!order.onlineSale;
+    // OPL always daySaleExtra / zero cupo.
+    const asExtra = onlineSale || !!extra;
+    if (asExtra && !onlineSale) {
       showError("Solo los productos de OPL (venta en línea) pueden ir como extra.");
       return false;
     }
@@ -159,8 +167,8 @@ export default function useTaskOrganizer() {
         ok = false;
         return prev;
       }
-      const firstBase = prev.find((l) => !l.daySaleExtra);
-      if (!extra && firstBase && firstBase.productionOrderId !== order.id) {
+      const firstBase = prev.find((l) => lineCountsAgainstCupo(l));
+      if (!asExtra && firstBase && firstBase.productionOrderId !== order.id) {
         showError(`La tarea ya tiene productos de ${firstBase.productionOrderCode}. ` +
           "Solo los extras OPL pueden mezclar órdenes; cree otra tarea para esta OP.");
         ok = false;
@@ -171,7 +179,7 @@ export default function useTaskOrganizer() {
         productionOrderItemId: item.productionOrderItemId,
         productionOrderId: order.id,
         productionOrderCode: order.code,
-        onlineSale: order.onlineSale,
+        onlineSale,
         productCode: item.productCode,
         productName: item.productName,
         colorName: item.colorName,
@@ -179,7 +187,7 @@ export default function useTaskOrganizer() {
         remainingQuantity: item.remainingQuantity,
         prdTimePerUnit: item.prdTimePerUnit,
         hours,
-        daySaleExtra: !!extra,
+        daySaleExtra: asExtra,
       }];
     });
     return ok;
@@ -189,14 +197,15 @@ export default function useTaskOrganizer() {
     setDraftLines((prev) => prev.filter((l) => l.productionOrderItemId !== productionOrderItemId));
   }, []);
 
+  /** OPL stays daySaleExtra; toggle is a no-op for onlineSale lines. */
   const toggleDraftLineExtra = useCallback((productionOrderItemId) => {
     setDraftLines((prev) => prev.map((l) => {
       if (l.productionOrderItemId !== productionOrderItemId) return l;
-      if (!l.onlineSale) {
-        showError("Solo los productos de OPL pueden marcarse como extra.");
-        return l;
+      if (l.onlineSale) {
+        return { ...l, daySaleExtra: true };
       }
-      return { ...l, daySaleExtra: !l.daySaleExtra };
+      showError("Solo los productos de OPL pueden marcarse como extra.");
+      return l;
     }));
   }, []);
 
@@ -231,7 +240,7 @@ export default function useTaskOrganizer() {
         items: draftLines.map((l) => ({
           productionOrderItemId: l.productionOrderItemId,
           quantity: l.quantity,
-          daySaleExtra: l.daySaleExtra,
+          daySaleExtra: !!(l.daySaleExtra || l.onlineSale),
         })),
         desk: draftDesk ? Number(draftDesk) : null,
         scheduledDate: draftDate || null,

@@ -219,10 +219,11 @@ function DownloadOpsModal({ isOpen, toggle, orders, tasks, dayDeskTasks = null, 
         <Alert color="light" className="py-2 mb-3">
           {scopeToOrganizerDay ? (
             <>
-              Solo OPs con tareas del <strong>organizador</strong> para{" "}
-              <strong>{workDateYmd ? formatDateGt(workDateYmd) : "la fecha de trabajo"}</strong>.
-              Excel e impresión incluyen únicamente las líneas/cantidades asignadas a mesa ese día
-              (no la OP completa).
+              OPs/OPL con tareas del <strong>organizador</strong> para{" "}
+              <strong>{workDateYmd ? formatDateGt(workDateYmd) : "la fecha de trabajo"}</strong>
+              {" "}(con o sin mesa; excluye canceladas y completadas). Excel e impresión incluyen
+              únicamente las líneas/cantidades programadas ese día (no la OP completa). Las OPL del
+              día quedan disponibles para corte.
             </>
           ) : (
             <>
@@ -369,7 +370,7 @@ function DownloadOpsModal({ isOpen, toggle, orders, tasks, dayDeskTasks = null, 
                 <tr>
                   <td colSpan={5} className="text-muted text-center py-4">
                     {scopeToOrganizerDay
-                      ? "No hay OPs con tareas del organizador (mesa + fecha) para este día."
+                      ? "No hay OPs/OPL programadas en el organizador para este día."
                       : "No hay órdenes con ese prefijo/rango/tipo."}
                   </td>
                 </tr>

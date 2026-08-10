@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Button,
+  ButtonGroup,
   Card,
   CardHeader,
   CardBody,
@@ -54,6 +55,8 @@ const OP_EXPORT_HEADERS = [
   { label: "Avance OP", value: "orderProgress" },
 ];
 
+const LIST_PAGE_STEP = 50;
+
 function ProductionOrdersList() {
   const navigate = useNavigate();
   const [orders, setOrders] = useState([]);
@@ -63,6 +66,8 @@ function ProductionOrdersList() {
   const [filterType, setFilterType] = useState("all");
   const [filterStatus, setFilterStatus] = useState("all");
   const [filterProcess, setFilterProcess] = useState("ACTIVE");
+  const [listPreset, setListPreset] = useState("activas");
+  const [visibleCount, setVisibleCount] = useState(LIST_PAGE_STEP);
   const [showForm, setShowForm] = useState(false);
   const [selectedOrderId, setSelectedOrderId] = useState(null);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
@@ -72,6 +77,10 @@ function ProductionOrdersList() {
   useEffect(() => {
     loadOrders();
   }, [filterType, filterStatus]);
+
+  useEffect(() => {
+    setVisibleCount(LIST_PAGE_STEP);
+  }, [searchTerm, filterType, filterStatus, filterProcess]);
 
   const loadOrders = async () => {
     try {
@@ -269,6 +278,48 @@ function ProductionOrdersList() {
       return searchText.includes(term);
     });
   }, [orders, searchTerm, filterProcess]);
+
+  const visibleOrders = useMemo(
+    () => filteredOrders.slice(0, visibleCount),
+    [filteredOrders, visibleCount]
+  );
+
+  const applyListPreset = (key) => {
+    setListPreset(key);
+    if (key === "activas") {
+      setFilterType("all");
+      setFilterStatus("all");
+      setFilterProcess("ACTIVE");
+    } else if (key === "produccion") {
+      setFilterType("all");
+      setFilterStatus("all");
+      setFilterProcess("PRODUCTION");
+    } else if (key === "bodega") {
+      setFilterType("all");
+      setFilterStatus("all");
+      setFilterProcess("BODEGA");
+    } else if (key === "listas") {
+      setFilterType("all");
+      setFilterStatus("all");
+      setFilterProcess("READY");
+    } else if (key === "opl") {
+      setFilterType("VENTA_EN_LINEA");
+      setFilterStatus("all");
+      setFilterProcess("ACTIVE");
+    } else if (key === "cinchos") {
+      setFilterType("CINCHOS");
+      setFilterStatus("all");
+      setFilterProcess("ACTIVE");
+    }
+  };
+
+  const clearListFilters = () => {
+    setFilterType("all");
+    setFilterStatus("all");
+    setFilterProcess("ACTIVE");
+    setSearchTerm("");
+    setListPreset("activas");
+  };
 
   const getOrderProcessDates = (orderId, fallbackStart, fallbackDelivery) => {
     const orderTasks = tasks.filter((task) => Number(task.productionOrderId) === Number(orderId));
@@ -622,6 +673,31 @@ function ProductionOrdersList() {
             <CardBody>
               {error && <Alert color="danger">{error}</Alert>}
               
+              <Row className="mb-2">
+                <Col md="12" className="mb-2">
+                  <Label className="d-block mb-1"><small>Atajos</small></Label>
+                  <ButtonGroup size="sm" className="flex-wrap">
+                    {[
+                      { key: "activas", label: "Activas" },
+                      { key: "produccion", label: "En producción" },
+                      { key: "bodega", label: "Bodega PT" },
+                      { key: "listas", label: "Listas" },
+                      { key: "opl", label: "OPL" },
+                      { key: "cinchos", label: "Cinchos" },
+                    ].map((p) => (
+                      <Button
+                        key={p.key}
+                        color={listPreset === p.key ? "primary" : "secondary"}
+                        outline={listPreset !== p.key}
+                        onClick={() => applyListPreset(p.key)}
+                      >
+                        {p.label}
+                      </Button>
+                    ))}
+                  </ButtonGroup>
+                </Col>
+              </Row>
+
               <Row className="mb-3">
                 <Col md="4">
                   <FormGroup>
@@ -640,7 +716,10 @@ function ProductionOrdersList() {
                     <Input
                       type="select"
                       value={filterType}
-                      onChange={(e) => setFilterType(e.target.value)}
+                      onChange={(e) => {
+                        setFilterType(e.target.value);
+                        setListPreset(null);
+                      }}
                     >
                       <option value="all">Todos los tipos</option>
                       <option value="CINCHOS">CINCHOS</option>
@@ -660,7 +739,10 @@ function ProductionOrdersList() {
                     <Input
                       type="select"
                       value={filterStatus}
-                      onChange={(e) => setFilterStatus(e.target.value)}
+                      onChange={(e) => {
+                        setFilterStatus(e.target.value);
+                        setListPreset(null);
+                      }}
                     >
                       <option value="all">Todos los estados</option>
                       <option value="PENDING">Pendiente</option>
@@ -676,7 +758,10 @@ function ProductionOrdersList() {
                     <Input
                       type="select"
                       value={filterProcess}
-                      onChange={(e) => setFilterProcess(e.target.value)}
+                      onChange={(e) => {
+                        setFilterProcess(e.target.value);
+                        setListPreset(null);
+                      }}
                     >
                       <option value="ACTIVE">Activas del proceso</option>
                       <option value="ALL">Todas</option>
@@ -687,16 +772,16 @@ function ProductionOrdersList() {
                     </Input>
                   </FormGroup>
                 </Col>
-                <Col md="12" className="d-flex justify-content-end">
+                <Col md="12" className="d-flex justify-content-between align-items-center">
+                  <small className="text-muted">
+                    {filteredOrders.length === 0
+                      ? "Sin resultados"
+                      : `Mostrando ${Math.min(visibleCount, filteredOrders.length)} de ${filteredOrders.length}`}
+                  </small>
                   <Button
                     color="secondary"
                     size="sm"
-                    onClick={() => {
-                      setFilterType("all");
-                      setFilterStatus("all");
-                      setFilterProcess("ACTIVE");
-                      setSearchTerm("");
-                    }}
+                    onClick={clearListFilters}
                   >
                     Limpiar
                   </Button>
@@ -714,6 +799,7 @@ function ProductionOrdersList() {
                   </p>
                 </div>
               ) : (
+                <>
                 <Table responsive>
                   <thead className="text-primary">
                     <tr>
@@ -735,7 +821,7 @@ function ProductionOrdersList() {
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredOrders.map((order) => {
+                    {visibleOrders.map((order) => {
                       const processDates = getOrderProcessDates(order.id, order.startDate, order.deliveryDate);
                       const qtyProgress = getOrderQtyProgress(order.items);
                       const stage = getProcessStage(order);
@@ -854,6 +940,19 @@ function ProductionOrdersList() {
                     })}
                   </tbody>
                 </Table>
+                {visibleCount < filteredOrders.length && (
+                  <div className="text-center mt-3">
+                    <Button
+                      color="primary"
+                      outline
+                      size="sm"
+                      onClick={() => setVisibleCount((n) => n + LIST_PAGE_STEP)}
+                    >
+                      Cargar más ({Math.min(LIST_PAGE_STEP, filteredOrders.length - visibleCount)} de {filteredOrders.length - visibleCount} restantes)
+                    </Button>
+                  </div>
+                )}
+                </>
               )}
             </CardBody>
           </Card>

@@ -1,9 +1,13 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   Card, CardBody, CardHeader, Row, Col, Table, Badge, Input, Button,
   ButtonGroup, FormGroup, Label, Spinner,
 } from "reactstrap";
 import { formatDateGt } from "utils/dateTimeHelper";
+import { formatProductionDuration } from "utils/productionTimeHelper";
+
+const INITIAL_VISIBLE = 30;
+const LOAD_MORE_STEP = 30;
 
 /** Colores por familia de OP (texto siempre legible sobre el fondo). */
 const FAMILY_STYLES = {
@@ -50,10 +54,9 @@ function formatAssignmentLine(a) {
 /** Fila de ítem con input de cantidad parcial y botón Agregar. */
 function OrganizerItemRow({ order, item, inDraft, onAdd, onJumpToAssignment, onAssignDesk, numDesks }) {
   const [qty, setQty] = useState(item.remainingQuantity);
-  const [extra, setExtra] = useState(false);
   const [deskChoice, setDeskChoice] = useState({});
   const [assigningKey, setAssigningKey] = useState(null);
-  const minutesPerUnit = Math.round((item.prdTimePerUnit || 0.1) * 60);
+  const hoursPerUnit = item.prdTimePerUnit || 0.1;
   const sizesText = formatSizes(item.sizes);
   const assignments = item.assignments || [];
 
@@ -145,7 +148,7 @@ function OrganizerItemRow({ order, item, inDraft, onAdd, onJumpToAssignment, onA
         </Badge>
       </td>
       <td className="text-center text-muted" style={{ whiteSpace: "nowrap" }}>
-        {minutesPerUnit} min/u
+        {formatProductionDuration(hoursPerUnit)}/u
       </td>
       <td style={{ width: 110 }}>
         <Input
@@ -160,14 +163,9 @@ function OrganizerItemRow({ order, item, inDraft, onAdd, onJumpToAssignment, onA
       </td>
       {order.onlineSale ? (
         <td className="text-center">
-          <Input
-            type="checkbox"
-            checked={extra}
-            disabled={inDraft}
-            onChange={(e) => setExtra(e.target.checked)}
-            title="Agregar como extra sobre las 4 horas"
-            style={{ position: "static", margin: 0 }}
-          />
+          <Badge color="success" title="OPL no cuenta contra el cupo de mesa" style={{ fontSize: 10 }}>
+            Sin cupo
+          </Badge>
         </td>
       ) : (
         <td />
@@ -178,9 +176,9 @@ function OrganizerItemRow({ order, item, inDraft, onAdd, onJumpToAssignment, onA
           color={inDraft ? "secondary" : "primary"}
           disabled={inDraft || item.remainingQuantity <= 0}
           onClick={() => {
-            if (onAdd(order, item, qty, extra)) {
+            // OPL always excluded from cupo (daySaleExtra equivalent).
+            if (onAdd(order, item, qty, !!order.onlineSale)) {
               setQty(item.remainingQuantity);
-              setExtra(false);
             }
           }}
         >
@@ -210,12 +208,30 @@ export default function OrganizerOrderBrowser({
   numDesks,
 }) {
   const [expandedId, setExpandedId] = useState(null);
+  const [visibleCount, setVisibleCount] = useState(INITIAL_VISIBLE);
+
+  useEffect(() => {
+    setVisibleCount(INITIAL_VISIBLE);
+  }, [search, typeFilter, orders]);
+
+  const visibleOrders = orders.slice(0, visibleCount);
+  const remaining = Math.max(0, orders.length - visibleCount);
 
   return (
     <Card>
       <CardHeader>
         <Row className="align-items-end">
-          <Col md="auto">
+          <Col md="5" className="mb-2 mb-md-0">
+            <FormGroup className="mb-0">
+              <Label><strong>Buscar OP o cliente</strong></Label>
+              <Input
+                placeholder="OPV-00123, cliente…"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+              />
+            </FormGroup>
+          </Col>
+          <Col md="auto" className="mb-2 mb-md-0">
             <FormGroup className="mb-0">
               <Label className="d-block"><small>Tipo de orden</small></Label>
               <ButtonGroup size="sm">
@@ -231,7 +247,7 @@ export default function OrganizerOrderBrowser({
                   outline={typeFilter !== "OPL"}
                   onClick={() => setTypeFilter("OPL")}
                 >
-                  OPL (venta en línea)
+                  OPL
                 </Button>
                 <Button
                   color={typeFilter === "REGULAR" ? "primary" : "secondary"}
@@ -243,25 +259,16 @@ export default function OrganizerOrderBrowser({
               </ButtonGroup>
             </FormGroup>
           </Col>
-          <Col md="4">
-            <FormGroup className="mb-0">
-              <Label><small>Buscar OP o cliente</small></Label>
-              <Input
-                bsSize="sm"
-                placeholder="OPV-00123, cliente…"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-              />
-            </FormGroup>
-          </Col>
-          <Col md="auto">
+          <Col md="auto" className="mb-2 mb-md-0">
             <Button size="sm" color="info" outline onClick={onReload} disabled={loading}>
               {loading ? <Spinner size="sm" /> : "Actualizar"}
             </Button>
           </Col>
           <Col className="text-right text-muted">
             <small>
-              {orders.length} orden{orders.length === 1 ? "" : "es"}
+              {orders.length === 0
+                ? "0 órdenes"
+                : `Mostrando ${Math.min(visibleCount, orders.length)} de ${orders.length}`}
               {orders.some((o) => (o.items || []).some((i) => (i.remainingQuantity || 0) > 0))
                 ? ` · ${(orders.reduce((n, o) => n + (o.items || []).filter((i) => (i.remainingQuantity || 0) > 0).length, 0))} con restante`
                 : ""}
@@ -275,7 +282,7 @@ export default function OrganizerOrderBrowser({
             No hay órdenes activas para este filtro.
           </div>
         )}
-        {orders.map((order) => {
+        {visibleOrders.map((order) => {
           const expanded = expandedId === order.id;
           const itemCount = (order.items || []).length;
           const remainingCount = (order.items || []).filter((i) => (i.remainingQuantity || 0) > 0).length;
@@ -324,7 +331,7 @@ export default function OrganizerOrderBrowser({
                       <th className="text-center">Restante</th>
                       <th className="text-center">Tiempo</th>
                       <th>Cantidad</th>
-                      <th className="text-center">{order.onlineSale ? "Extra 4h+" : ""}</th>
+                      <th className="text-center">{order.onlineSale ? "Cupo" : ""}</th>
                       <th />
                     </tr>
                   </thead>
@@ -347,6 +354,18 @@ export default function OrganizerOrderBrowser({
             </div>
           );
         })}
+        {remaining > 0 && (
+          <div className="text-center py-2">
+            <Button
+              size="sm"
+              color="primary"
+              outline
+              onClick={() => setVisibleCount((n) => n + LOAD_MORE_STEP)}
+            >
+              Cargar más ({Math.min(LOAD_MORE_STEP, remaining)} de {remaining} restantes)
+            </Button>
+          </div>
+        )}
       </CardBody>
     </Card>
   );

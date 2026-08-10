@@ -12,6 +12,7 @@ import {
   Input,
   Label,
   Button,
+  ButtonGroup,
   FormGroup,
   Alert,
   Progress,
@@ -70,6 +71,7 @@ import CinchosDayBoard from "./CinchosDayBoard";
 import RedistributeBoard from "./components/RedistributeBoard";
 import useMoveTaskItem from "./hooks/useMoveTaskItem";
 import { MAX_HOURS_PER_DESK, getTaskBaseHours, getTaskExtraHours } from "utils/taskHoursHelper";
+import { formatProductionDuration } from "utils/productionTimeHelper";
 
 /** En tarjetas con fondo claro: Paper fuerza texto blanco en `.badge`, lo que deja cantidades ilegibles. */
 const BADGE_READABLE_ON_LIGHT = {
@@ -93,6 +95,8 @@ function TasksByTable() {
   const [filterProductionOrderId, setFilterProductionOrderId] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
   const [filterDieCut, setFilterDieCut] = useState("all");
+  /** Preset rápido: hoy | atrasadas | opl | sin_mesa */
+  const [quickPreset, setQuickPreset] = useState(null);
   const [printTaskId, setPrintTaskId] = useState(null);
   const [printBatchTaskIds, setPrintBatchTaskIds] = useState(null);
   const [printSupervisorByDesk, setPrintSupervisorByDesk] = useState(null);
@@ -503,6 +507,54 @@ function TasksByTable() {
     setFilterDieCut("all");
     setFilterProductionOrderId("");
     setSearchTerm("");
+    setQuickPreset(null);
+  };
+
+  const isOplTask = useCallback((task) => {
+    const code = String(task?.productionOrderCode || "").toUpperCase();
+    if (code.startsWith("OPL")) return true;
+    const orderId = Number(task?.productionOrderId);
+    if (!Number.isFinite(orderId)) return false;
+    const order =
+      productionOrdersForFilter.find((o) => Number(o.id) === orderId)
+      || productionOrders.find((o) => Number(o.id) === orderId);
+    return String(order?.orderType || "").toUpperCase() === "VENTA_EN_LINEA";
+  }, [productionOrdersForFilter, productionOrders]);
+
+  const matchesQuickPreset = useCallback((task) => {
+    if (!quickPreset) return true;
+    const today = getTodayYmdGuatemala();
+    if (quickPreset === "hoy") {
+      return String(task.scheduledDate || "").slice(0, 10) === today;
+    }
+    if (quickPreset === "atrasadas") {
+      if (["COMPLETED", "CANCELLED"].includes(task.status)) return false;
+      const sched = String(task.scheduledDate || "").slice(0, 10);
+      return !!sched && sched < today;
+    }
+    if (quickPreset === "opl") return isOplTask(task);
+    if (quickPreset === "sin_mesa") return task.desk == null;
+    return true;
+  }, [quickPreset, isOplTask]);
+
+  const matchesSearchTerm = useCallback((task) => {
+    if (!searchTerm) return true;
+    const term = searchTerm.toLowerCase();
+    const itemsText = (task.items || [])
+      .map((i) => `${i.productCode || ""} ${i.productName || ""} ${i.colorName || ""}`)
+      .join(" ");
+    const searchable = `${task.code || ""} ${task.productionOrderCode || ""} ${task.productName || ""} ${task.productCode || ""} ${task.colorName || ""} ${itemsText}`.toLowerCase();
+    return searchable.includes(term);
+  }, [searchTerm]);
+
+  const applyQuickPreset = (key) => {
+    const next = quickPreset === key ? null : key;
+    setQuickPreset(next);
+    if (next === "hoy") setFilterDate("");
+    if (next === "sin_mesa") setFilterDesk("");
+    if (next && next !== "sin_mesa" && viewMode === "operation") {
+      setShowDetailedList(true);
+    }
   };
 
   // ==================== COMPUTED ====================
@@ -606,15 +658,20 @@ function TasksByTable() {
       if (filterStatus !== "all" && task.status !== filterStatus) return false;
       if (filterDieCut === "yes" && !task.dieCutReady) return false;
       if (filterDieCut === "no" && task.dieCutReady) return false;
-      if (searchTerm) {
-        const term = searchTerm.toLowerCase();
-        const itemsText = (task.items || []).map(i => `${i.productCode || ""} ${i.productName || ""} ${i.colorName || ""}`).join(" ");
-        const searchable = `${task.code || ""} ${task.productionOrderCode || ""} ${task.productName || ""} ${task.productCode || ""} ${task.colorName || ""} ${itemsText}`.toLowerCase();
-        if (!searchable.includes(term)) return false;
-      }
+      if (!matchesSearchTerm(task)) return false;
+      if (!matchesQuickPreset(task)) return false;
       return true;
     });
-  }, [tableCenterTasks, filterProductionOrderId, filterDesk, filterDate, filterStatus, filterDieCut, searchTerm]);
+  }, [
+    tableCenterTasks,
+    filterProductionOrderId,
+    filterDesk,
+    filterDate,
+    filterStatus,
+    filterDieCut,
+    matchesSearchTerm,
+    matchesQuickPreset,
+  ]);
 
   // "Pendientes de asignar" deben ser solo tareas activas sin mesa (no incluir COMPLETED/CANCELLED).
   // Cuando una tarea se completa, se limpia desk para liberar capacidad, pero queda el historial en workedDesk.
@@ -624,13 +681,19 @@ function TasksByTable() {
         && t.status !== "CANCELLED"
         && t.status !== "COMPLETED"
         && t.status !== "AWAITING_WAREHOUSE"
+        && matchesSearchTerm(t)
+        && matchesQuickPreset(t)
     ),
-    [tableCenterTasks]
+    [tableCenterTasks, matchesSearchTerm, matchesQuickPreset]
   );
 
   const awaitingWarehouseTasks = useMemo(
-    () => tableCenterTasks.filter((t) => t.status === "AWAITING_WAREHOUSE"),
-    [tableCenterTasks]
+    () => tableCenterTasks.filter(
+      (t) => t.status === "AWAITING_WAREHOUSE"
+        && matchesSearchTerm(t)
+        && matchesQuickPreset(t)
+    ),
+    [tableCenterTasks, matchesSearchTerm, matchesQuickPreset]
   );
 
   const scheduleByDate = useMemo(() => {
@@ -853,6 +916,7 @@ function TasksByTable() {
 
   const printWorkDateYmd = filterDate || getTodayYmdGuatemala();
 
+  // OPs/OPL del día (con o sin mesa); excluye CANCELLED/COMPLETED. Alimenta hoja + descarga.
   const organizerDayDeskTasks = useMemo(
     () => getOrganizerDayDeskTasks(tableCenterTasks, printWorkDateYmd),
     [tableCenterTasks, printWorkDateYmd]
@@ -1165,12 +1229,17 @@ function TasksByTable() {
   };
 
   const renderTaskTimeBadge = (task) => {
-    const totalMin = Math.round((task.estimatedHours || 0) * 60);
-    const extraMin = Math.round(getTaskExtraHours(task) * 60);
-    const baseMin = Math.max(totalMin - extraMin, 0);
+    const totalHours = task.estimatedHours || 0;
+    const extraHours = getTaskExtraHours(task);
+    const baseHours = Math.max(totalHours - extraHours, 0);
+    const baseMin = Math.round(baseHours * 60);
     const tone =
       baseMin >= 210 ? "danger" :
       baseMin >= 120 ? "warning" : "success";
+    const label =
+      extraHours > 0
+        ? `${formatProductionDuration(baseHours)}+${formatProductionDuration(extraHours)}`
+        : formatProductionDuration(baseHours);
     return (
       <Badge
         color={tone}
@@ -1183,7 +1252,7 @@ function TasksByTable() {
         }}
         title="Base 4h + extra venta del dia"
       >
-        {extraMin > 0 ? `${baseMin}+${extraMin}min` : `${baseMin}min`}
+        {label}
       </Badge>
     );
   };
@@ -1223,7 +1292,7 @@ function TasksByTable() {
                 <div className="px-3">
                   <small className="text-muted d-block">Tiempo Total</small>
                   <strong style={{ fontSize: "20px" }}>
-                    {stats.totalMin} min
+                    {formatProductionDuration(stats.totalMin / 60)}
                   </strong>
                 </div>
               </div>
@@ -1336,7 +1405,7 @@ function TasksByTable() {
                     className="mb-0"
                     onClick={handlePrintTasksSheet}
                     disabled={loading}
-                    title="PDF solo con tareas del organizador (mesa + fecha de trabajo)"
+                    title="PDF con tareas del organizador del día (con o sin mesa; excluye canceladas/completadas)"
                   >
                     <i className="nc-icon nc-paper mr-1" />
                     Hoja PDF
@@ -1348,7 +1417,7 @@ function TasksByTable() {
                     className="mb-0"
                     onClick={handleExcelTasksSheet}
                     disabled={loading}
-                    title="Excel solo con tareas del organizador (mesa + fecha de trabajo)"
+                    title="Excel con tareas del organizador del día (con o sin mesa; excluye canceladas/completadas)"
                   >
                     <i className="nc-icon nc-cloud-download-93 mr-1" />
                     Hoja Excel
@@ -1474,77 +1543,112 @@ function TasksByTable() {
                 </Col>
               </Row>
 
-              {/* ========== FILTERS ========== */}
-              {(viewMode === "schedule" || (viewMode === "operation" && showDetailedList)) && (
-                <Row className="mb-3">
-                  <Col md="3">
+              {/* ========== FILTERS / PRESETS ========== */}
+              {(viewMode === "operation" || viewMode === "schedule") && (
+                <Row className="mb-3 align-items-end">
+                  <Col md={viewMode === "operation" ? "5" : "3"} className="mb-2 mb-md-0">
                     <FormGroup className="mb-0">
-                      <Label><small>Buscar</small></Label>
+                      <Label><small>{viewMode === "operation" ? "Buscar tarea / OP / producto" : "Buscar"}</small></Label>
                       <Input
                         type="search"
-                        bsSize="sm"
+                        bsSize={viewMode === "operation" ? undefined : "sm"}
                         placeholder="Código, producto, orden..."
                         value={searchTerm}
                         onChange={(e) => setSearchTerm(e.target.value)}
                       />
                     </FormGroup>
                   </Col>
-                  <Col md="2">
+                  <Col md="auto" className="mb-2 mb-md-0">
                     <FormGroup className="mb-0">
-                      <Label><small>Mesa</small></Label>
-                      <Input type="select" bsSize="sm" value={filterDesk} onChange={(e) => setFilterDesk(e.target.value)}>
-                        <option value="">Todas</option>
-                        {uniqueDesks.map((d) => (
-                          <option key={d} value={d}>
-                            {deskDisplayLabel(d, supervisorMapForUi)}
-                          </option>
+                      <Label className="d-block"><small>Atajos</small></Label>
+                      <ButtonGroup size="sm">
+                        {[
+                          { key: "hoy", label: "Hoy" },
+                          { key: "atrasadas", label: "Atrasadas" },
+                          { key: "opl", label: "OPL" },
+                          { key: "sin_mesa", label: "Sin mesa" },
+                        ].map((p) => (
+                          <Button
+                            key={p.key}
+                            color={quickPreset === p.key ? "primary" : "secondary"}
+                            outline={quickPreset !== p.key}
+                            onClick={() => applyQuickPreset(p.key)}
+                          >
+                            {p.label}
+                          </Button>
                         ))}
-                      </Input>
+                      </ButtonGroup>
                     </FormGroup>
                   </Col>
-                  <Col md="2">
-                    <FormGroup className="mb-0">
-                      <Label><small>Fecha</small></Label>
-                      <Input type="select" bsSize="sm" value={filterDate} onChange={(e) => setFilterDate(e.target.value)}>
-                        <option value="">Todas</option>
-                        {uniqueDates.map((d) => <option key={d} value={d}>{formatDate(d)}</option>)}
-                      </Input>
-                    </FormGroup>
-                  </Col>
-                  <Col md="2">
-                    <FormGroup className="mb-0">
-                      <Label><small>Estado</small></Label>
-                      <Input type="select" bsSize="sm" value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}>
-                        <option value="all">Todos</option>
-                        <option value="PENDING">Pendiente</option>
-                        <option value="IN_PROGRESS">En Proceso</option>
-                        <option value="COMPLETED">Completada</option>
-                        <option value="CANCELLED">Cancelada</option>
-                      </Input>
-                    </FormGroup>
-                  </Col>
-                  <Col md="2">
-                    <FormGroup className="mb-0">
-                      <Label><small>Troquelado</small></Label>
-                      <Input type="select" bsSize="sm" value={filterDieCut} onChange={(e) => setFilterDieCut(e.target.value)}>
-                        <option value="all">Todos</option>
-                        <option value="yes">✂️ Troquelados</option>
-                        <option value="no">Sin troquelar</option>
-                      </Input>
-                    </FormGroup>
-                  </Col>
-                  <Col md="1" className="d-flex align-items-end">
+                  {(viewMode === "schedule" || (viewMode === "operation" && showDetailedList)) && (
+                    <>
+                      <Col md="2" className="mb-2 mb-md-0">
+                        <FormGroup className="mb-0">
+                          <Label><small>Mesa</small></Label>
+                          <Input type="select" bsSize="sm" value={filterDesk} onChange={(e) => setFilterDesk(e.target.value)}>
+                            <option value="">Todas</option>
+                            {uniqueDesks.map((d) => (
+                              <option key={d} value={d}>
+                                {deskDisplayLabel(d, supervisorMapForUi)}
+                              </option>
+                            ))}
+                          </Input>
+                        </FormGroup>
+                      </Col>
+                      <Col md="2" className="mb-2 mb-md-0">
+                        <FormGroup className="mb-0">
+                          <Label><small>Fecha</small></Label>
+                          <Input type="select" bsSize="sm" value={filterDate} onChange={(e) => setFilterDate(e.target.value)}>
+                            <option value="">Todas</option>
+                            {uniqueDates.map((d) => <option key={d} value={d}>{formatDate(d)}</option>)}
+                          </Input>
+                        </FormGroup>
+                      </Col>
+                      <Col md="2" className="mb-2 mb-md-0">
+                        <FormGroup className="mb-0">
+                          <Label><small>Estado</small></Label>
+                          <Input type="select" bsSize="sm" value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}>
+                            <option value="all">Todos</option>
+                            <option value="PENDING">Pendiente</option>
+                            <option value="IN_PROGRESS">En Proceso</option>
+                            <option value="COMPLETED">Completada</option>
+                            <option value="CANCELLED">Cancelada</option>
+                          </Input>
+                        </FormGroup>
+                      </Col>
+                      <Col md="2" className="mb-2 mb-md-0">
+                        <FormGroup className="mb-0">
+                          <Label><small>Troquelado</small></Label>
+                          <Input type="select" bsSize="sm" value={filterDieCut} onChange={(e) => setFilterDieCut(e.target.value)}>
+                            <option value="all">Todos</option>
+                            <option value="yes">✂️ Troquelados</option>
+                            <option value="no">Sin troquelar</option>
+                          </Input>
+                        </FormGroup>
+                      </Col>
+                    </>
+                  )}
+                  <Col md="auto" className="d-flex align-items-end">
                     <Button
                       color="secondary"
                       size="sm"
-                      block
                       title="Limpiar Filtros"
                       onClick={clearFilters}
                     >
-                      <i className="nc-icon nc-simple-remove" />
+                      <i className="nc-icon nc-simple-remove" /> Limpiar
                     </Button>
                   </Col>
                 </Row>
+              )}
+              {(searchTerm || quickPreset) && (viewMode === "operation" || viewMode === "schedule") && (
+                <small className="text-muted d-block mb-2">
+                  Mostrando {filteredTasks.length} tarea{filteredTasks.length === 1 ? "" : "s"}
+                  {quickPreset === "hoy" ? " de hoy" : ""}
+                  {quickPreset === "atrasadas" ? " atrasadas" : ""}
+                  {quickPreset === "opl" ? " OPL" : ""}
+                  {quickPreset === "sin_mesa" ? " sin mesa" : ""}
+                  {searchTerm ? ` · búsqueda “${searchTerm}”` : ""}
+                </small>
               )}
 
               {loading ? (
@@ -1600,13 +1704,26 @@ function TasksByTable() {
                       )}
                       {unassignedTasks.length === 0 && awaitingWarehouseTasks.length === 0 ? (
                         <div className="text-center py-4">
-                          <i className="nc-icon nc-check-2" style={{ fontSize: "48px", color: "#28a745" }} />
-                          <p className="mt-2 text-success">
-                            <strong>¡Todas las tareas están asignadas!</strong>
-                          </p>
-                          <Button color="primary" size="sm" onClick={() => setViewMode("schedule")}>
-                            Ver Cronograma →
-                          </Button>
+                          {(searchTerm || quickPreset) ? (
+                            <>
+                              <p className="mt-2 text-muted">
+                                Ninguna tarea sin mesa coincide con búsqueda/atajo.
+                              </p>
+                              <Button color="secondary" size="sm" outline onClick={clearFilters}>
+                                Limpiar filtros
+                              </Button>
+                            </>
+                          ) : (
+                            <>
+                              <i className="nc-icon nc-check-2" style={{ fontSize: "48px", color: "#28a745" }} />
+                              <p className="mt-2 text-success">
+                                <strong>¡Todas las tareas están asignadas!</strong>
+                              </p>
+                              <Button color="primary" size="sm" onClick={() => setViewMode("schedule")}>
+                                Ver Cronograma →
+                              </Button>
+                            </>
+                          )}
                         </div>
                       ) : unassignedTasks.length > 0 ? (
                         <>
@@ -1636,8 +1753,8 @@ function TasksByTable() {
                                         style={{ height: "8px", marginBottom: "2px" }}
                                       />
                                       <small className="text-muted" style={{ fontSize: "10px" }}>
-                                        {Math.round(load * 60)}min inicio
-                                        {totalLoad > load && ` · ${Math.round(totalLoad * 60)}min total`}
+                                        {formatProductionDuration(load)} inicio
+                                        {totalLoad > load && ` · ${formatProductionDuration(totalLoad)} total`}
                                       </small>
                                     </Col>
                                   );
@@ -1872,7 +1989,7 @@ function TasksByTable() {
                                               <div className="d-flex justify-content-between align-items-center mb-1">
                                                 <strong>{deskDisplayLabel(Number(desk), supMap)}</strong>
                                                 <small className="text-muted">
-                                                  {Math.round(totalHours * 60)}min / {MAX_HOURS_PER_DESK * 60}min
+                                                  {formatProductionDuration(totalHours)} / {formatProductionDuration(MAX_HOURS_PER_DESK)}
                                                 </small>
                                               </div>
                                               <Progress
@@ -1935,10 +2052,12 @@ function TasksByTable() {
                                                     <div className="d-flex justify-content-between mt-1">
                                                       <small className="text-dark">
                                                         {(() => {
-                                                          const totalMin = Math.round((task.estimatedHours || 0) * 60);
-                                                          const extraMin = Math.round(getTaskExtraHours(task) * 60);
-                                                          const baseMin = Math.max(totalMin - extraMin, 0);
-                                                          return extraMin > 0 ? `${baseMin}+${extraMin}min` : `${baseMin}min`;
+                                                          const totalHours = task.estimatedHours || 0;
+                                                          const extraHours = getTaskExtraHours(task);
+                                                          const baseHours = Math.max(totalHours - extraHours, 0);
+                                                          return extraHours > 0
+                                                            ? `${formatProductionDuration(baseHours)}+${formatProductionDuration(extraHours)}`
+                                                            : formatProductionDuration(baseHours);
                                                         })()}
                                                         {task.startTime && (
                                                           <span className="ml-1">🕐 {task.startTime}</span>
@@ -2298,7 +2417,7 @@ function TasksByTable() {
                         <td>{item.productName || "—"}</td>
                         <td>{item.colorName || "—"}</td>
                         <td className="text-right">{item.quantity || 0}</td>
-                        <td className="text-right">{Math.round((item.estimatedHours || 0) * 60)}min</td>
+                        <td className="text-right">{formatProductionDuration(item.estimatedHours || 0)}</td>
                         <td>
                           {assigned ? (
                             <small className="text-muted">
@@ -2321,10 +2440,10 @@ function TasksByTable() {
               </Table>
               <div className="d-flex justify-content-between align-items-center mt-2">
                 <small className="text-muted">
-                  Base actual: <strong>{Math.round(getTaskBaseHours(daySaleTask || {}) * 60)}min</strong> ·
-                  Extra seleccionado: <strong>{daySaleCandidates
+                  Base actual: <strong>{formatProductionDuration(getTaskBaseHours(daySaleTask || {}))}</strong> ·
+                  Extra seleccionado: <strong>{formatProductionDuration(daySaleCandidates
                     .filter((c) => selectedDaySaleItems.includes(c.productionOrderItemId))
-                    .reduce((sum, c) => sum + Math.round((c.estimatedHours || 0) * 60), 0)}min</strong>
+                    .reduce((sum, c) => sum + (c.estimatedHours || 0), 0))}</strong>
                 </small>
                 <div>
                   <Button

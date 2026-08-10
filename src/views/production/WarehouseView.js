@@ -1,11 +1,12 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  Card, CardBody, CardHeader, CardTitle, Col, Row, Button, Input, Spinner, Alert, Nav, NavItem, NavLink, TabContent, TabPane,
+  Card, CardBody, CardHeader, CardTitle, Col, Row, Button, Input, Spinner, Alert, Nav, NavItem, NavLink, TabContent, TabPane, Badge,
 } from "reactstrap";
 import classnames from "classnames";
 import { getWarehouseView } from "../../services/productionOrderService";
 import WarehouseReceiptTab from "./warehouse/WarehouseReceiptTab";
 import WarehouseOrdersTab from "./warehouse/WarehouseOrdersTab";
+import { getPendingReceiptQty } from "./warehouse/warehouseUtils";
 
 const WarehouseView = () => {
   const [orders, setOrders] = useState([]);
@@ -31,23 +32,29 @@ const WarehouseView = () => {
     fetchData();
   }, [fetchData]);
 
+  const pendingReceiptCount = useMemo(
+    () => (orders || []).filter((o) => getPendingReceiptQty(o) > 0).length,
+    [orders]
+  );
+
   return (
     <div className="content">
       <Row>
         <Col md="12">
-          <Card>
-            <CardHeader>
+          <Card className="shadow-sm">
+            <CardHeader style={{ background: "linear-gradient(120deg, #f4faf6 0%, #ffffff 55%)" }}>
               <Row className="align-items-center">
-                <Col md="5">
-                  <CardTitle tag="h4">
+                <Col md="6">
+                  <CardTitle tag="h4" className="mb-1">
                     <i className="nc-icon nc-box mr-2" />
                     Bodega de producto terminado
                   </CardTitle>
                   <p className="text-muted mb-0">
-                    Recepción pieza a pieza, cierre de orden en bodega y despacho.
+                    Recibe piezas de las OP / OPL. Usa la búsqueda y los atajos para no perderte con mucha data.
                   </p>
                 </Col>
-                <Col md="3">
+                <Col md="3" className="mt-3 mt-md-0">
+                  <label className="small text-muted mb-1 d-block">Estado de la OP</label>
                   <Input
                     type="select"
                     value={statusFilter}
@@ -59,8 +66,8 @@ const WarehouseView = () => {
                     <option value="COMPLETED">Completada</option>
                   </Input>
                 </Col>
-                <Col md="4" className="text-right">
-                  <Button size="sm" color="primary" onClick={fetchData} disabled={loading}>
+                <Col md="3" className="text-md-right mt-3 mt-md-0">
+                  <Button color="primary" onClick={fetchData} disabled={loading}>
                     <i className="nc-icon nc-refresh-69 mr-1" />
                     Actualizar
                   </Button>
@@ -72,6 +79,7 @@ const WarehouseView = () => {
               {loading ? (
                 <div className="text-center py-5">
                   <Spinner color="primary" />
+                  <div className="text-muted mt-2">Cargando órdenes de bodega…</div>
                 </div>
               ) : (
                 <>
@@ -83,6 +91,11 @@ const WarehouseView = () => {
                         style={{ cursor: "pointer" }}
                       >
                         Recepción
+                        {pendingReceiptCount > 0 && (
+                          <Badge color="warning" pill className="ml-2">
+                            {pendingReceiptCount}
+                          </Badge>
+                        )}
                       </NavLink>
                     </NavItem>
                     <NavItem>

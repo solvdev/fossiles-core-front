@@ -16,7 +16,7 @@ function hoursLabel(hours) {
 
 /**
  * Tarea borrador (carrito): líneas agregadas desde el buscador de OPs,
- * barra de cupo de 4 horas (los extras OPL no cuentan) y creación de la tarea.
+ * barra de cupo de 4 horas (OPL / extras no cuentan) y creación de la tarea.
  */
 export default function DraftTaskPanel({
   lines,
@@ -26,7 +26,6 @@ export default function DraftTaskPanel({
   overCapacity,
   overIdeal,
   onRemove,
-  onToggleExtra,
   onClear,
   onCreate,
   creating,
@@ -53,7 +52,7 @@ export default function DraftTaskPanel({
           )}
         </CardTitle>
         <small className="text-muted">
-          Ideal {MAX_HOURS_PER_DESK}h por tarea, máximo {MAX_HOURS_PER_TASK_HARD_CAP}h. Los extras OPL van encima.
+          Ideal {MAX_HOURS_PER_DESK}h por tarea, máximo {MAX_HOURS_PER_TASK_HARD_CAP}h. Las OPL no cuentan contra el cupo.
         </small>
       </CardHeader>
       <CardBody>
@@ -62,7 +61,7 @@ export default function DraftTaskPanel({
             Carga base: <strong>{baseHours.toFixed(2)} h</strong> / ideal {MAX_HOURS_PER_DESK} h · máx {MAX_HOURS_PER_TASK_HARD_CAP} h
           </small>
           {extraHours > 0 && (
-            <small className="text-muted">+ {extraHours.toFixed(2)} h extra OPL</small>
+            <small className="text-muted">+ {extraHours.toFixed(2)} h OPL (sin cupo)</small>
           )}
         </div>
         <div style={{ position: "relative" }}>
@@ -81,7 +80,7 @@ export default function DraftTaskPanel({
         </div>
         {overCapacity ? (
           <div className="text-danger mb-2" style={{ fontSize: 12 }}>
-            La carga base excede el máximo de {MAX_HOURS_PER_TASK_HARD_CAP}h. Quite productos o márquelos como extra OPL.
+            La carga base (solo OP) excede el máximo de {MAX_HOURS_PER_TASK_HARD_CAP}h. Quite productos de OP.
           </div>
         ) : overIdeal ? (
           <div className="text-warning mb-2" style={{ fontSize: 12 }}>
@@ -100,13 +99,13 @@ export default function DraftTaskPanel({
                 <th>Producto</th>
                 <th className="text-center">Uds</th>
                 <th className="text-center">Tiempo</th>
-                <th className="text-center">Extra</th>
+                <th className="text-center">Cupo</th>
                 <th />
               </tr>
             </thead>
             <tbody>
               {lines.map((l) => (
-                <tr key={l.productionOrderItemId} style={l.daySaleExtra ? { background: "#f1f8e9" } : undefined}>
+                <tr key={l.productionOrderItemId} style={(l.daySaleExtra || l.onlineSale) ? { background: "#f1f8e9" } : undefined}>
                   <td>
                     <div style={{ fontSize: 12 }}>
                       <Badge color="light" className="text-dark mr-1">{l.productionOrderCode}</Badge>
@@ -122,16 +121,12 @@ export default function DraftTaskPanel({
                   <td className="text-center">{l.quantity}</td>
                   <td className="text-center" style={{ whiteSpace: "nowrap" }}>{hoursLabel(l.hours)}</td>
                   <td className="text-center">
-                    {l.onlineSale ? (
-                      <Input
-                        type="checkbox"
-                        checked={l.daySaleExtra}
-                        onChange={() => onToggleExtra(l.productionOrderItemId)}
-                        title="Extra OPL: no cuenta contra las 4 horas"
-                        style={{ position: "static", margin: 0 }}
-                      />
+                    {l.onlineSale || l.daySaleExtra ? (
+                      <Badge color="success" title="OPL: no cuenta contra el cupo de mesa" style={{ fontSize: 10 }}>
+                        Sin cupo
+                      </Badge>
                     ) : (
-                      <span className="text-muted">—</span>
+                      <span className="text-muted">Base</span>
                     )}
                   </td>
                   <td className="text-right">

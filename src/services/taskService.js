@@ -210,6 +210,10 @@ export const bulkDieCut = async (productionOrderId, dieCutReady) => {
 
 // ==================== MATERIALS VIEW ====================
 
+/**
+ * Vista materiales del día.
+ * options: {} = pendientes; { includeDelivered: true } = entregadas; { scheduleDay: true } = todas.
+ */
 export const getMaterialsView = async (date, options = {}) => {
   const params = new URLSearchParams();
   if (date) params.append('date', date);

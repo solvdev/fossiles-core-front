@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   Card, CardBody, CardHeader, CardTitle, Table, Badge, Button, Spinner,
   Modal, ModalHeader, ModalBody, ModalFooter, FormGroup, Label, Input, Row, Col,
@@ -7,6 +7,9 @@ import { scheduleTask } from "services/taskService";
 import { formatDateGt, getTodayYmdGuatemala, isWeekendYmd } from "utils/dateTimeHelper";
 import { showSuccess, showError } from "utils/notificationHelper";
 import { getTaskBaseHours } from "utils/taskHoursHelper";
+
+const INITIAL_VISIBLE = 30;
+const LOAD_MORE_STEP = 30;
 
 function daysLate(scheduledDate) {
   if (!scheduledDate) return null;
@@ -106,6 +109,7 @@ export default function PendingTasksBacklog({ backlog, loading, numDesks, onRelo
   const [saving, setSaving] = useState(false);
   const [orderFilter, setOrderFilter] = useState("");
   const [productFilter, setProductFilter] = useState("");
+  const [visibleCount, setVisibleCount] = useState(INITIAL_VISIBLE);
 
   const filteredBacklog = useMemo(() => {
     const orderQ = orderFilter.trim().toLowerCase();
@@ -125,6 +129,13 @@ export default function PendingTasksBacklog({ backlog, loading, numDesks, onRelo
       return matchOrder && matchProduct;
     });
   }, [backlog, orderFilter, productFilter]);
+
+  useEffect(() => {
+    setVisibleCount(INITIAL_VISIBLE);
+  }, [orderFilter, productFilter, backlog]);
+
+  const visibleBacklog = filteredBacklog.slice(0, visibleCount);
+  const remainingRows = Math.max(0, filteredBacklog.length - visibleCount);
 
   const openReprogram = (task) => {
     setModal({
@@ -182,26 +193,33 @@ export default function PendingTasksBacklog({ backlog, loading, numDesks, onRelo
           </div>
         ) : (
           <>
-            <Row className="mb-3">
-              <Col md="4" sm="6" className="mb-2 mb-md-0">
-                <Input
-                  bsSize="sm"
-                  placeholder="Filtrar por OP (ej. OPK-10)"
-                  value={orderFilter}
-                  onChange={(e) => setOrderFilter(e.target.value)}
-                />
+            <Row className="mb-3 align-items-end">
+              <Col md="5" sm="12" className="mb-2 mb-md-0">
+                <FormGroup className="mb-0">
+                  <Label><strong>Buscar por OP</strong></Label>
+                  <Input
+                    placeholder="Ej. OPK-10, OPL-…"
+                    value={orderFilter}
+                    onChange={(e) => setOrderFilter(e.target.value)}
+                  />
+                </FormGroup>
               </Col>
-              <Col md="4" sm="6" className="mb-2 mb-md-0">
-                <Input
-                  bsSize="sm"
-                  placeholder="Filtrar por producto"
-                  value={productFilter}
-                  onChange={(e) => setProductFilter(e.target.value)}
-                />
+              <Col md="4" sm="12" className="mb-2 mb-md-0">
+                <FormGroup className="mb-0">
+                  <Label><small>Producto</small></Label>
+                  <Input
+                    placeholder="Código o nombre de producto"
+                    value={productFilter}
+                    onChange={(e) => setProductFilter(e.target.value)}
+                  />
+                </FormGroup>
               </Col>
-              <Col md="4" className="d-flex align-items-center justify-content-md-end">
+              <Col md="3" className="d-flex align-items-center justify-content-md-end">
                 <small className="text-muted">
-                  {filteredBacklog.length} de {backlog.length} tarea{backlog.length === 1 ? "" : "s"}
+                  {filteredBacklog.length === 0
+                    ? `0 de ${backlog.length}`
+                    : `Mostrando ${Math.min(visibleCount, filteredBacklog.length)} de ${filteredBacklog.length}`}
+                  {filteredBacklog.length !== backlog.length ? ` (filtro / ${backlog.length})` : ""}
                 </small>
                 {(orderFilter || productFilter) && (
                   <Button
@@ -221,6 +239,7 @@ export default function PendingTasksBacklog({ backlog, loading, numDesks, onRelo
                 Ninguna tarea coincide con el filtro.
               </div>
             ) : (
+              <>
               <Table size="sm" responsive>
                 <thead>
                   <tr>
@@ -238,7 +257,7 @@ export default function PendingTasksBacklog({ backlog, loading, numDesks, onRelo
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredBacklog.map((t) => {
+                  {visibleBacklog.map((t) => {
                     const late = daysLate(t.scheduledDate);
                     const colorLabel = taskColorSummary(t);
                     return (
@@ -277,6 +296,19 @@ export default function PendingTasksBacklog({ backlog, loading, numDesks, onRelo
                   })}
                 </tbody>
               </Table>
+              {remainingRows > 0 && (
+                <div className="text-center mt-2">
+                  <Button
+                    size="sm"
+                    color="primary"
+                    outline
+                    onClick={() => setVisibleCount((n) => n + LOAD_MORE_STEP)}
+                  >
+                    Cargar más ({Math.min(LOAD_MORE_STEP, remainingRows)} de {remainingRows} restantes)
+                  </Button>
+                </div>
+              )}
+              </>
             )}
           </>
         )}

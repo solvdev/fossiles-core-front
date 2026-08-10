@@ -1,9 +1,11 @@
 /**
- * Tareas del organizador para una fecha de trabajo: con mesa y fecha asignadas.
- * Es lo que debe salir en hoja de mesas, Excel/PDF de OPs del día y boletas.
+ * Tareas del organizador para una fecha de trabajo.
+ * Hoja / descarga OPs del día: todas las OP/OPL con scheduledDate ese día,
+ * con o sin mesa; excluye solo CANCELLED y COMPLETED.
+ * Boletas: siguen exigiendo mesa + PENDING/IN_PROGRESS.
  */
 
-const ACTIVE_SHEET_STATUSES = new Set(["PENDING", "IN_PROGRESS"]);
+const EXCLUDED_DAY_SHEET_STATUSES = new Set(["CANCELLED", "COMPLETED"]);
 const ACTIVE_BOLETA_STATUSES = new Set(["PENDING", "IN_PROGRESS"]);
 
 function hasAssignedDesk(task) {
@@ -16,24 +18,40 @@ function statusUpper(task) {
 }
 
 /**
+ * Tareas del día para hoja de mesas / descarga e impresión de OPs.
+ * Por defecto no exige mesa; excluye CANCELLED y COMPLETED.
+ *
  * @param {object[]} tasks
  * @param {string} workDateYmd YYYY-MM-DD
- * @param {{ statuses?: Set<string> }} [options]
+ * @param {{
+ *   statuses?: Set<string>,
+ *   excludeStatuses?: Set<string>,
+ *   requireDesk?: boolean,
+ * }} [options]
  */
 export function getOrganizerDayDeskTasks(tasks, workDateYmd, options = {}) {
   const date = String(workDateYmd || "").slice(0, 10);
   if (!date) return [];
-  const statuses = options.statuses || ACTIVE_SHEET_STATUSES;
+  const requireDesk = options.requireDesk === true;
+  const whitelist = options.statuses;
+  const excludeStatuses = options.excludeStatuses || EXCLUDED_DAY_SHEET_STATUSES;
+
   return (tasks || []).filter((t) => {
     if (!t) return false;
     if (String(t.scheduledDate || "").slice(0, 10) !== date) return false;
-    if (!hasAssignedDesk(t)) return false;
-    return statuses.has(statusUpper(t));
+    if (requireDesk && !hasAssignedDesk(t)) return false;
+    const st = statusUpper(t);
+    if (whitelist) return whitelist.has(st);
+    return !excludeStatuses.has(st);
   });
 }
 
+/** Boletas del día: con mesa y activas (PENDING / IN_PROGRESS). */
 export function getOrganizerDayBoletaTasks(tasks, workDateYmd) {
-  return getOrganizerDayDeskTasks(tasks, workDateYmd, { statuses: ACTIVE_BOLETA_STATUSES });
+  return getOrganizerDayDeskTasks(tasks, workDateYmd, {
+    requireDesk: true,
+    statuses: ACTIVE_BOLETA_STATUSES,
+  });
 }
 
 function taskLines(task) {

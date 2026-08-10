@@ -146,7 +146,6 @@ export default function TaskOrganizer() {
                 overCapacity={org.overCapacity}
                 overIdeal={org.overIdeal}
                 onRemove={org.removeDraftLine}
-                onToggleExtra={org.toggleDraftLineExtra}
                 onClear={org.clearDraft}
                 onCreate={async () => {
                   const created = await org.createDraftTask();
