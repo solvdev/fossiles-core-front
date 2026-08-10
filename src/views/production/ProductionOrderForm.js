@@ -581,7 +581,14 @@ function ProductionOrderForm({ orderId, isOpen, toggle, onSuccess }) {
           quantity: item.quantity,
           sizes: item.sizes,
           observations: item.observations,
-          unitPrice: showItemUnitPrice ? Number(item.unitPrice) || 0 : undefined,
+          unitPrice: showItemUnitPrice
+            ? (() => {
+                const n = Number(item.unitPrice);
+                if (Number.isFinite(n) && n > 0) return n;
+                const fallback = resolveDefaultOpvUnitPrice(item, productCatalogById);
+                return fallback > 0 ? fallback : undefined;
+              })()
+            : undefined,
         })),
       };
 
