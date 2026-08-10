@@ -1,7 +1,8 @@
-import React, { useMemo } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   Alert,
   Badge,
+  Button,
   Card,
   CardBody,
   CardHeader,
@@ -44,6 +45,8 @@ const MOVEMENT_TYPE_BADGE_COLORS = {
   CAMBIO: "warning",
 };
 
+const PAGE_SIZE = 50;
+
 function matchesDateRange(createdAt, fromDate, toDate) {
   if (!fromDate && !toDate) return true;
   if (!createdAt) return false;
@@ -62,6 +65,8 @@ function KioskInventoryMovementsPanel({
   selectedKiosk,
   onKioskChange,
 }) {
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+
   const filteredMovements = useMemo(() => {
     const term = String(filters.productTerm || "").trim().toLowerCase();
     const refTerm = String(filters.referenceTerm || "").trim().toLowerCase();
@@ -100,6 +105,13 @@ function KioskInventoryMovementsPanel({
       return true;
     });
   }, [movements, filters]);
+
+  useEffect(() => {
+    setVisibleCount(PAGE_SIZE);
+  }, [selectedKiosk, filters, movements]);
+
+  const visibleMovements = filteredMovements.slice(0, visibleCount);
+  const remaining = Math.max(0, filteredMovements.length - visibleCount);
 
   const selectedKioskLabel = useMemo(() => {
     if (!selectedKiosk) return "";
@@ -211,52 +223,69 @@ function KioskInventoryMovementsPanel({
         ) : filteredMovements.length === 0 ? (
           <Alert color="light" className="border mb-0">Ningún movimiento coincide con los filtros.</Alert>
         ) : (
-          <Table responsive size="sm" className="mb-0">
-            <thead>
-              <tr>
-                <th>Fecha</th>
-                <th>Tipo</th>
-                <th>Kiosko</th>
-                <th>Origen → Destino</th>
-                <th>Producto</th>
-                <th>Color</th>
-                <th>Talla</th>
-                <th className="text-right">Cant.</th>
-                <th className="text-right">Antes</th>
-                <th className="text-right">Después</th>
-                <th>Ref. / boleta</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredMovements.map((movement) => {
-                const movementType = normalizeKioscoMovementType(movement.movementType);
-                return (
-                  <tr key={movement.id}>
-                    <td className="text-nowrap">
-                      {movement.createdAt ? formatDateTimeGt(movement.createdAt) : "—"}
-                    </td>
-                    <td>
-                      <Badge color={MOVEMENT_TYPE_BADGE_COLORS[movementType] || "secondary"}>
-                        {getKioscoMovementTypeLabel(movementType)}
-                      </Badge>
-                    </td>
-                    <td>{movement.locationName || selectedKioskLabel || "—"}</td>
-                    <td style={{ whiteSpace: "nowrap" }}>{formatKioscoMovementRoute(movement)}</td>
-                    <td>
-                      {movement.productCode || movement.productId}
-                      {movement.productName ? ` — ${movement.productName}` : ""}
-                    </td>
-                    <td>{movement.colorName || "—"}</td>
-                    <td>{movement.sizeKey || "—"}</td>
-                    <td className="text-right">{getKioscoMovementSignedQuantity(movement)}</td>
-                    <td className="text-right">{movement.stockBefore ?? "—"}</td>
-                    <td className="text-right">{movement.stockAfter ?? "—"}</td>
-                    <td>{formatKioscoMovementReference(movement)}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </Table>
+          <>
+            <p className="text-muted small mb-2">
+              Mostrando {Math.min(visibleCount, filteredMovements.length)} de {filteredMovements.length}
+            </p>
+            <Table responsive size="sm" className="mb-0">
+              <thead>
+                <tr>
+                  <th>Fecha</th>
+                  <th>Tipo</th>
+                  <th>Kiosko</th>
+                  <th>Origen → Destino</th>
+                  <th>Producto</th>
+                  <th>Color</th>
+                  <th>Talla</th>
+                  <th className="text-right">Cant.</th>
+                  <th className="text-right">Antes</th>
+                  <th className="text-right">Después</th>
+                  <th>Ref. / boleta</th>
+                </tr>
+              </thead>
+              <tbody>
+                {visibleMovements.map((movement) => {
+                  const movementType = normalizeKioscoMovementType(movement.movementType);
+                  return (
+                    <tr key={movement.id}>
+                      <td className="text-nowrap">
+                        {movement.createdAt ? formatDateTimeGt(movement.createdAt) : "—"}
+                      </td>
+                      <td>
+                        <Badge color={MOVEMENT_TYPE_BADGE_COLORS[movementType] || "secondary"}>
+                          {getKioscoMovementTypeLabel(movementType)}
+                        </Badge>
+                      </td>
+                      <td>{movement.locationName || selectedKioskLabel || "—"}</td>
+                      <td style={{ whiteSpace: "nowrap" }}>{formatKioscoMovementRoute(movement)}</td>
+                      <td>
+                        {movement.productCode || movement.productId}
+                        {movement.productName ? ` — ${movement.productName}` : ""}
+                      </td>
+                      <td>{movement.colorName || "—"}</td>
+                      <td>{movement.sizeKey || "—"}</td>
+                      <td className="text-right">{getKioscoMovementSignedQuantity(movement)}</td>
+                      <td className="text-right">{movement.stockBefore ?? "—"}</td>
+                      <td className="text-right">{movement.stockAfter ?? "—"}</td>
+                      <td>{formatKioscoMovementReference(movement)}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </Table>
+            {remaining > 0 && (
+              <div className="text-center mt-3">
+                <Button
+                  color="primary"
+                  outline
+                  size="sm"
+                  onClick={() => setVisibleCount((n) => n + PAGE_SIZE)}
+                >
+                  Cargar más ({Math.min(PAGE_SIZE, remaining)} de {remaining} restantes)
+                </Button>
+              </div>
+            )}
+          </>
         )}
       </CardBody>
     </Card>

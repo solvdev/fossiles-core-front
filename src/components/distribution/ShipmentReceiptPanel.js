@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
   Badge,
@@ -348,6 +348,8 @@ export function ShipmentReceiptDetail({
   const [notes, setNotes] = useState("");
   const [saving, setSaving] = useState(false);
   const [repairing, setRepairing] = useState(false);
+  const submittingRef = useRef(false);
+  const repairingRef = useRef(false);
 
   const isDelivered = String(shipment?.status || "").toUpperCase() === "DELIVERED";
 
@@ -395,10 +397,21 @@ export function ShipmentReceiptDetail({
 
   const handleConfirm = async () => {
     if (!shipment?.id || readOnly) return;
+    if (submittingRef.current) return;
     if (shipment.status && shipment.status !== "SENT") {
       showError("Solo se puede confirmar recepción para envíos en estado SENT.");
       return;
     }
+    if (
+      !window.confirm(
+        "¿Confirmar recepción de este envío?\n\n"
+          + "Se actualizará el inventario del kiosko con las cantidades indicadas. "
+          + "Esta acción no se puede deshacer fácilmente."
+      )
+    ) {
+      return;
+    }
+    submittingRef.current = true;
     try {
       setSaving(true);
       const items = (shipment.products || []).map((product) => ({
@@ -418,11 +431,13 @@ export function ShipmentReceiptDetail({
       showError(err.message || "No se pudo confirmar la recepción.");
     } finally {
       setSaving(false);
+      submittingRef.current = false;
     }
   };
 
   const handleRepairInventory = async () => {
     if (!shipment?.id || !isDelivered) return;
+    if (repairingRef.current) return;
     if (
       !window.confirm(
         "¿Sincronizar inventario de kiosko con este envío entregado?\n\n"
@@ -432,6 +447,7 @@ export function ShipmentReceiptDetail({
     ) {
       return;
     }
+    repairingRef.current = true;
     try {
       setRepairing(true);
       const result = await repairDeliveredShipmentReceiptInventory(shipment.id);
@@ -448,6 +464,7 @@ export function ShipmentReceiptDetail({
       showError(err.message || "No se pudo reparar el inventario de recepción.");
     } finally {
       setRepairing(false);
+      repairingRef.current = false;
     }
   };
 

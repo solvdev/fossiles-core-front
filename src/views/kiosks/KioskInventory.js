@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
   Badge,
@@ -103,6 +103,7 @@ function KioskInventory() {
   const [loadingCatalogs, setLoadingCatalogs] = useState(false);
   const [loadingData, setLoadingData] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const submittingRef = useRef(false);
   const [error, setError] = useState("");
   const [customAjusteSizeKeys, setCustomAjusteSizeKeys] = useState([]);
   const [newAjusteSizeKey, setNewAjusteSizeKey] = useState("");
@@ -767,27 +768,75 @@ function KioskInventory() {
     if (errors.length) {
       throw new Error(errors[0]);
     }
-    for (const line of activeLines) {
-      const payload = buildPayloadForLine(line);
-      if (form.operation === "ENTRADA") {
-        await registrarKioscoEntrada(locationId, payload);
-      } else if (form.operation === "VENTA") {
-        await registrarKioscoVenta(locationId, payload);
-      } else if (form.operation === "DEVOLUCION_DEPOSITO") {
-        await registrarKioscoDevolucionDeposito(locationId, payload);
-      } else if (form.operation === "MERMA") {
-        await registrarKioscoMerma(locationId, payload);
+
+    // ENTRADA/MERMA/etc. se envían línea a línea: si falla a mitad, no reintentar las ya OK.
+    let successCount = 0;
+    for (let i = 0; i < activeLines.length; i += 1) {
+      const line = activeLines[i];
+      try {
+        const payload = buildPayloadForLine(line);
+        if (form.operation === "ENTRADA") {
+          await registrarKioscoEntrada(locationId, payload);
+        } else if (form.operation === "VENTA") {
+          await registrarKioscoVenta(locationId, payload);
+        } else if (form.operation === "DEVOLUCION_DEPOSITO") {
+          await registrarKioscoDevolucionDeposito(locationId, payload);
+        } else if (form.operation === "MERMA") {
+          await registrarKioscoMerma(locationId, payload);
+        }
+        successCount += 1;
+      } catch (err) {
+        const pending = activeLines.slice(i);
+        setLineItems(pending.length ? pending : [createEmptyLineItem()]);
+        const detail = err?.message || "Error desconocido.";
+        const error = new Error(
+          successCount > 0
+            ? `Se registraron ${successCount} de ${activeLines.length} movimiento(s). Falló el siguiente: ${detail}. Las líneas pendientes quedaron en el formulario; no vuelvas a enviar las ya registradas.`
+            : detail
+        );
+        error.partialSuccess = successCount > 0;
+        error.successCount = successCount;
+        throw error;
       }
     }
-    return null;
+    return { successCount };
+  };
+
+  const confirmSensitiveOperation = () => {
+    const op = form.operation;
+    if (op === "TRASLADO") {
+      return window.confirm(
+        "¿Registrar este traslado entre kioskos?\n\nSe descontará stock en origen y se sumará en destino."
+      );
+    }
+    if (op === "AJUSTE") {
+      return window.confirm(
+        "¿Registrar este ajuste por conteo físico?\n\nEl stock del kiosko quedará con las cantidades indicadas."
+      );
+    }
+    if (op === "MERMA") {
+      return window.confirm(
+        "¿Registrar esta merma?\n\nSe descontará stock del kiosko. Esta acción no se puede deshacer fácilmente."
+      );
+    }
+    // ENTRADA solo confirma en envío unitario (sin líneas múltiples).
+    if (op === "ENTRADA" && !supportsBulkLines(op)) {
+      return window.confirm("¿Registrar esta entrada de stock?");
+    }
+    return true;
   };
 
   const submitOperation = async () => {
+    if (submittingRef.current) return;
     const validationError = validateForm();
     if (validationError) {
       showError(validationError);
       return;
     }
+    if (!confirmSensitiveOperation()) {
+      return;
+    }
+    submittingRef.current = true;
     try {
       setSubmitting(true);
       let trasladoResult = null;
@@ -854,9 +903,28 @@ function KioskInventory() {
         setLineItems([createEmptyLineItem()]);
       }
     } catch (err) {
-      showError(err.message || "No se pudo registrar el movimiento.");
+      if (err?.partialSuccess) {
+        showWarning(err.message);
+        if (selectedLocation) {
+          try {
+            await refreshLocationData(selectedLocation);
+          } catch {
+            /* ignore */
+          }
+        }
+        if (movementKioskId) {
+          try {
+            await loadMovements(movementKioskId);
+          } catch {
+            /* ignore */
+          }
+        }
+      } else {
+        showError(err.message || "No se pudo registrar el movimiento.");
+      }
     } finally {
       setSubmitting(false);
+      submittingRef.current = false;
     }
   };
 
