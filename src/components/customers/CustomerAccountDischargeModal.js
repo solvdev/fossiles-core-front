@@ -18,10 +18,6 @@ import {
   PAYMENT_METHODS,
 } from "services/customerAccountService";
 import { getTodayYmdGuatemala } from "utils/dateTimeHelper";
-import {
-  buildCustomerPaymentReceiptPrintHtml,
-  openAccountPrintWindow,
-} from "utils/customerPaymentReceiptPrintHtml";
 
 const EMPTY_FORM = {
   receiptNumber: "",
@@ -155,8 +151,6 @@ function CustomerAccountDischargeModal({
         description: `Descarga ${selectedDoc.invoiceNumber || selectedDoc.documentNumber || ""}`.trim(),
       };
       const saved = await createCustomerAccountEntry(customerId, payload);
-      const html = buildCustomerPaymentReceiptPrintHtml(saved, customerInfo);
-      openAccountPrintWindow(html);
       toggle();
       if (onSaved) onSaved(saved);
     } catch (err) {
@@ -326,7 +320,7 @@ function CustomerAccountDischargeModal({
           Cancelar
         </Button>
         <Button color="primary" onClick={handleSubmit} disabled={saving || !selectedDoc}>
-          {saving ? "Guardando..." : "Registrar descarga e imprimir"}
+          {saving ? "Guardando..." : "Registrar descarga"}
         </Button>
       </ModalFooter>
     </Modal>
