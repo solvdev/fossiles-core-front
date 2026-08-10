@@ -147,6 +147,19 @@
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+  align-items: center;
+}
+
+.kiosk-opening-filter-sep {
+  width: 1px;
+  align-self: stretch;
+  min-height: 22px;
+  background: #d1d5db;
+  margin: 0 2px;
+}
+
+.kiosk-opening-draft-filters .kiosk-opening-filter-chips {
+  margin-bottom: 2px;
 }
 
 .kiosk-opening-chip {

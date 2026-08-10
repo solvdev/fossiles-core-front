@@ -33,6 +33,7 @@ import { isPackagingProductCode } from "utils/kioskPackagingHelper";
 import { formatDateTimeGt } from "utils/dateTimeHelper";
 import {
   CINCHO_FILTER_OPTIONS,
+  formatCinchoClassification,
   getHardwareConditionLabel,
   normalizeCinchoType,
   productMatchesCinchoFilter,
@@ -40,6 +41,11 @@ import {
   sortSizeKeys,
   sumSizeCounts,
 } from "utils/productCinchoHelper";
+import {
+  PRODUCT_AUDIENCE_OPTIONS,
+  getProductAudienceLabel,
+  productMatchesAudienceFilter,
+} from "utils/productAudienceHelper";
 import { showSuccess, showWarning } from "utils/notificationHelper";
 import "./KioskInventory.css";
 
@@ -51,6 +57,8 @@ const CATEGORY_OPTIONS = [
   { value: "PACKAGING", label: "Empaque" },
   { value: "OTHER", label: "Otros" },
 ];
+
+const DRAFT_CINCHO_FILTER_OPTIONS = CINCHO_FILTER_OPTIONS.filter((opt) => opt.value !== "NONE");
 
 function itemKey(productId, colorId, hardwareCondition) {
   return `${productId}:${colorId ?? ""}:${hardwareCondition || "NUEVO"}`;
@@ -242,6 +250,9 @@ function KioskOpeningInventoryTab({
   const [cinchoFilter, setCinchoFilter] = useState("");
   const [productSearch, setProductSearch] = useState("");
   const [draftSearch, setDraftSearch] = useState("");
+  const [draftCategoryFilter, setDraftCategoryFilter] = useState("ALL");
+  const [draftAudienceFilter, setDraftAudienceFilter] = useState("");
+  const [draftCinchoFilter, setDraftCinchoFilter] = useState("");
 
   const [selectedProductId, setSelectedProductId] = useState("");
   const [colorRows, setColorRows] = useState([]);
@@ -253,9 +264,17 @@ function KioskOpeningInventoryTab({
   const readOnly = report?.status === "APLICADO";
   const sessionId = report?.id;
 
+  const productsById = useMemo(() => {
+    const map = new Map();
+    (products || []).forEach((p) => {
+      if (p?.id != null) map.set(Number(p.id), p);
+    });
+    return map;
+  }, [products]);
+
   const selectedProduct = useMemo(
-    () => (products || []).find((p) => Number(p.id) === Number(selectedProductId)) || null,
-    [products, selectedProductId]
+    () => productsById.get(Number(selectedProductId)) || null,
+    [productsById, selectedProductId]
   );
 
   const isPackaging = isPackagingProductCode(selectedProduct?.code);
@@ -279,20 +298,63 @@ function KioskOpeningInventoryTab({
     return keys;
   }, [report]);
 
+  const enrichedDraftItems = useMemo(() => {
+    return (report?.items || []).map((row) => {
+      const product = productsById.get(Number(row.productId));
+      const code = product?.code || row.productCode;
+      const name = product?.name || row.productName;
+      return {
+        ...row,
+        code,
+        name,
+        audienceCategory: product?.audienceCategory,
+        cinchoType: product?.cinchoType,
+        cinchoForKids: Boolean(product?.cinchoForKids),
+        audienceLabel: getProductAudienceLabel(product?.audienceCategory),
+        cinchoLabel: formatCinchoClassification({
+          cinchoType: product?.cinchoType,
+          cinchoForKids: product?.cinchoForKids,
+        }),
+      };
+    });
+  }, [report, productsById]);
+
   const filteredDraftItems = useMemo(() => {
     const q = String(draftSearch || "").trim().toLowerCase();
-    const items = report?.items || [];
-    if (!q) return items;
-    return items.filter((row) =>
-      String(row.productCode || "").toLowerCase().includes(q)
-      || String(row.productName || "").toLowerCase().includes(q)
-      || String(row.colorName || "").toLowerCase().includes(q)
-    );
-  }, [report, draftSearch]);
+    return enrichedDraftItems.filter((row) => {
+      if (!productMatchesCategory(row, draftCategoryFilter)) return false;
+      if (!productMatchesAudienceFilter(row, draftAudienceFilter)) return false;
+      if (!productMatchesCinchoFilter(row, draftCinchoFilter)) return false;
+      if (!q) return true;
+      return (
+        String(row.productCode || "").toLowerCase().includes(q)
+        || String(row.productName || "").toLowerCase().includes(q)
+        || String(row.colorName || "").toLowerCase().includes(q)
+      );
+    });
+  }, [
+    enrichedDraftItems,
+    draftCategoryFilter,
+    draftAudienceFilter,
+    draftCinchoFilter,
+    draftSearch,
+  ]);
 
   const draftStats = useMemo(
     () => countOpeningCaptureStats(report?.items || []),
     [report]
+  );
+
+  const filteredDraftStats = useMemo(
+    () => countOpeningCaptureStats(filteredDraftItems),
+    [filteredDraftItems]
+  );
+
+  const draftFiltersActive = Boolean(
+    draftCategoryFilter !== "ALL"
+    || draftAudienceFilter
+    || draftCinchoFilter
+    || String(draftSearch || "").trim()
   );
 
   const stagingStats = useMemo(
@@ -985,6 +1047,55 @@ function KioskOpeningInventoryTab({
                 ) : null}
               </CardHeader>
               <CardBody className="pt-2">
+                <div className="kiosk-opening-draft-filters mb-2">
+                  <div className="kiosk-opening-filter-chips">
+                    {CATEGORY_OPTIONS.map((opt) => (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        className={`kiosk-opening-chip ${draftCategoryFilter === opt.value ? "active" : ""}`}
+                        onClick={() => setDraftCategoryFilter(opt.value)}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                    <span className="kiosk-opening-filter-sep" aria-hidden="true" />
+                    <button
+                      type="button"
+                      className={`kiosk-opening-chip ${draftAudienceFilter === "" ? "active" : ""}`}
+                      onClick={() => setDraftAudienceFilter("")}
+                    >
+                      Línea: Todas
+                    </button>
+                    {PRODUCT_AUDIENCE_OPTIONS.map((opt) => (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        className={`kiosk-opening-chip ${draftAudienceFilter === opt.value ? "active" : ""}`}
+                        onClick={() => setDraftAudienceFilter(opt.value)}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                    <span className="kiosk-opening-filter-sep" aria-hidden="true" />
+                    {DRAFT_CINCHO_FILTER_OPTIONS.map((opt) => (
+                      <button
+                        key={opt.value || "all"}
+                        type="button"
+                        className={`kiosk-opening-chip ${draftCinchoFilter === opt.value ? "active" : ""}`}
+                        onClick={() => setDraftCinchoFilter(opt.value)}
+                      >
+                        {opt.value === "" ? "Cinchos: Todos" : opt.label}
+                      </button>
+                    ))}
+                  </div>
+                  {draftFiltersActive ? (
+                    <small className="text-muted d-block mt-1">
+                      Vista filtrada: {filteredDraftStats.lineas} líneas · {filteredDraftStats.unidades} uds
+                      {" "}(de {draftStats.lineas} · {draftStats.unidades})
+                    </small>
+                  ) : null}
+                </div>
                 <FormGroup className="mb-2">
                   <Input
                     type="search"
@@ -1005,7 +1116,7 @@ function KioskOpeningInventoryTab({
                   </Alert>
                 ) : filteredDraftItems.length === 0 ? (
                   <Alert color="light" className="border mb-0 py-3">
-                    Ningún ítem coincide con «{draftSearch}».
+                    Ningún ítem coincide con los filtros actuales.
                   </Alert>
                 ) : (
                   <div className="table-responsive kiosk-opening-final-table">
@@ -1013,6 +1124,7 @@ function KioskOpeningInventoryTab({
                       <thead>
                         <tr>
                           <th>Producto</th>
+                          <th>Línea</th>
                           <th>Color</th>
                           <th>Herraje</th>
                           <th>Tallas</th>
@@ -1026,9 +1138,17 @@ function KioskOpeningInventoryTab({
                             <td>
                               <div>{row.productCode}</div>
                               <small className="text-muted">{row.productName}</small>
-                              {row.packaging ? (
-                                <Badge color="secondary" className="ml-1">Empaque</Badge>
-                              ) : null}
+                              <div className="mt-1">
+                                {row.packaging ? (
+                                  <Badge color="secondary" className="mr-1">Empaque</Badge>
+                                ) : null}
+                                {row.cinchoLabel && row.cinchoLabel !== "—" ? (
+                                  <Badge color="info" className="mr-1">{row.cinchoLabel}</Badge>
+                                ) : null}
+                              </div>
+                            </td>
+                            <td>
+                              <small>{row.packaging ? "—" : row.audienceLabel}</small>
                             </td>
                             <td>{row.colorName || "—"}</td>
                             <td>
