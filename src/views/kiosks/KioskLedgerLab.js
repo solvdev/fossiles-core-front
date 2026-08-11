@@ -655,7 +655,6 @@ export default function KioskLedgerLab() {
           <Table size="sm" hover bordered responsive className="mb-0">
             <thead>
               <tr>
-                <th>ID</th>
                 <th>Producto</th>
                 <th>Color</th>
                 <th>Qty</th>
@@ -675,7 +674,6 @@ export default function KioskLedgerLab() {
                     loadMovements({ stockId: s.id });
                   }}
                 >
-                  <td>{s.id}</td>
                   <td>
                     <div>{s.productCode}</div>
                     <small className="text-muted">{s.productName}</small>
@@ -690,7 +688,7 @@ export default function KioskLedgerLab() {
               ))}
               {!loadingStocks && stocks.length === 0 && (
                 <tr>
-                  <td colSpan={5} className="text-muted text-center">
+                  <td colSpan={4} className="text-muted text-center">
                     Elige kiosko o stockId
                   </td>
                 </tr>
@@ -699,7 +697,7 @@ export default function KioskLedgerLab() {
           </Table>
           {selectedStock && (
             <div className="mt-2 p-2 border rounded bg-light">
-              <div><strong>Stock #{selectedStock.id}</strong> · loc {selectedStock.locationId}</div>
+              <div><strong>{selectedStock.productCode}</strong> · {selectedStock.colorName || "sin color"} · loc {selectedStock.locationId}</div>
               <div>current={selectedStock.currentStock} min={selectedStock.minimumStock}</div>
               <div><small>sizes_data: {selectedStock.sizesData || "null"}</small></div>
             </div>
@@ -712,8 +710,8 @@ export default function KioskLedgerLab() {
               Movimientos ({movements.length})
               {selectedStockId || filters.stockId
                 ? ` · solo ${selectedStock
-                  ? `${selectedStock.productCode} / ${selectedStock.colorName || "sin color"} (#${selectedStockId || filters.stockId})`
-                  : `stock ${selectedStockId || filters.stockId}`}`
+                  ? `${selectedStock.productCode} / ${selectedStock.colorName || "sin color"}`
+                  : "stock seleccionado"}`
                 : filters.locationId
                   ? " · todo el kiosko"
                   : ""}
@@ -723,7 +721,6 @@ export default function KioskLedgerLab() {
           <Table size="sm" hover bordered responsive className="mb-0">
             <thead>
               <tr>
-                <th>ID</th>
                 <th>Fecha</th>
                 <th>Tipo</th>
                 <th>Qty</th>
@@ -742,7 +739,6 @@ export default function KioskLedgerLab() {
                 const type = normalizeKioscoMovementType(m.movementType);
                 return (
                   <tr key={m.id}>
-                    <td>{m.id}</td>
                     <td><small>{formatDateTimeGt(m.createdAt)}</small></td>
                     <td>
                       <Badge color={TYPE_BADGE[type] || "light"}>
