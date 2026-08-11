@@ -138,7 +138,8 @@ function InventoryReports() {
             <CardBody>
               <Alert color="info">
                 Selecciona los kioskos que deseas incluir. El Excel sale en una sola hoja con columna de kiosko
-                para filtrar. Los kioskos en modo piloto no aparecen en este reporte.
+                para filtrar. Incluye stock &gt; 0 y ceros con historial; excluye filas fantasma (nunca tuvieron
+                movimiento). Los kioskos en modo piloto no aparecen en este reporte.
               </Alert>
               <Row>
                 <Col md="8">
