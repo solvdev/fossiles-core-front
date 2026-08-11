@@ -26,6 +26,7 @@ import {
   removeKioscoNotificationRecipient,
   revisarKioscoConteo,
   saveKioscoConteoItems,
+  saveKioscoConteoObservations,
   pollKioscoConteoLiveSession,
   startKioscoConteo,
   terminarKioscoConteo,
@@ -797,6 +798,8 @@ function KioskInventoryCountReport({ locationId, internalMode = false }) {
   const [editedCounts, setEditedCounts] = useState({});
   const [reviewNotes, setReviewNotes] = useState("");
   const [showReviewBox, setShowReviewBox] = useState(false);
+  const [sessionObservations, setSessionObservations] = useState("");
+  const [savingObservations, setSavingObservations] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [audienceFilter, setAudienceFilter] = useState("");
@@ -1040,6 +1043,7 @@ function KioskInventoryCountReport({ locationId, internalMode = false }) {
     setEditedHardwareLocationCounts({});
     setEditedObservations({});
     setReviewNotes(data.notes || "");
+    setSessionObservations(data.observations || "");
     setShowReviewBox(false);
     setCinchoModalProductId(null);
   };
@@ -1155,6 +1159,8 @@ function KioskInventoryCountReport({ locationId, internalMode = false }) {
       const allVisible = visibleCategories.flatMap((c) => c.rows);
       const exportPayload = {
         ...payload,
+        observations: parentReport.observations || sessionObservations || payload.observations || "",
+        notes: parentReport.notes || payload.notes || "",
         categories: visibleCategories,
         totalGeneral: allVisible.length ? sumFilteredRows(allVisible) : payload.totalGeneral,
       };
@@ -1592,10 +1598,17 @@ function KioskInventoryCountReport({ locationId, internalMode = false }) {
         countId = saved.id;
         clearEditedCounts();
       }
+      if (String(sessionObservations || "") !== String(report.observations || "")) {
+        const withObs = await saveKioscoConteoObservations(countId, sessionObservations);
+        setReport(withObs);
+        setSessionObservations(withObs.observations || "");
+        countId = withObs.id;
+      }
       const data = await terminarKioscoConteo(countId);
       setReport(data);
+      setSessionObservations(data.observations || "");
       await loadHistorial(locationId);
-      showSuccess("Conteo terminado. Las vitrinas están bloqueadas para edición.");
+      showSuccess("Conteo terminado. Las vitrinas quedan bloqueadas para edición.");
     } catch (err) {
       showError(err.message || "No se pudo terminar el conteo.");
     } finally {
@@ -1608,6 +1621,7 @@ function KioskInventoryCountReport({ locationId, internalMode = false }) {
       setSaving(true);
       const data = await revisarKioscoConteo(report.id, reviewNotes);
       setReport(data);
+      setSessionObservations(data.observations || "");
       setShowReviewBox(false);
       await loadHistorial(locationId);
       showSuccess("Conteo marcado como revisado.");
@@ -1615,6 +1629,22 @@ function KioskInventoryCountReport({ locationId, internalMode = false }) {
       showError(err.message || "No se pudo marcar el conteo como revisado.");
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleSaveObservations = async () => {
+    if (!report?.id || internalMode) return;
+    try {
+      setSavingObservations(true);
+      const data = await saveKioscoConteoObservations(report.id, sessionObservations);
+      setReport(data);
+      setSessionObservations(data.observations || "");
+      await loadHistorial(locationId);
+      showSuccess("Observaciones guardadas.");
+    } catch (err) {
+      showError(err.message || "No se pudieron guardar las observaciones.");
+    } finally {
+      setSavingObservations(false);
     }
   };
 
@@ -1723,10 +1753,11 @@ function KioskInventoryCountReport({ locationId, internalMode = false }) {
     return {
       ...report,
       ...data,
+      observations: sessionObservations,
       reportType: report.reportType || (report.asOfDate ? "SUBCONTEO" : data.reportType),
       asOfDate: report.asOfDate ?? data.asOfDate,
     };
-  }, [report, exportReport, displayReport]);
+  }, [report, exportReport, displayReport, sessionObservations]);
 
   const handleExportExcel = () => {
     if (!excelExportPayload) {
@@ -1833,7 +1864,7 @@ function KioskInventoryCountReport({ locationId, internalMode = false }) {
                     <th>{internalMode ? "Encargada" : "Generado por"}</th>
                     <th>{internalMode ? "Guardado el" : "Fecha creación"}</th>
                     {!internalMode && <th>Revisado por</th>}
-                    <th>Notas</th>
+                    <th>Observaciones</th>
                     <th></th>
                   </tr>
                 </thead>
@@ -1875,8 +1906,8 @@ function KioskInventoryCountReport({ locationId, internalMode = false }) {
                             : (s.generatedAt ? fmtDt(s.generatedAt) : "—")}
                         </td>
                         {!internalMode && <td>{s.reviewedByName || "—"}</td>}
-                        <td style={{ maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "#6b7280" }}>
-                          {s.notes || "—"}
+                        <td style={{ maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "#6b7280" }} title={s.observations || s.notes || ""}>
+                          {s.observations || s.notes || "—"}
                         </td>
                         <td>
                           <Button
@@ -2029,6 +2060,46 @@ function KioskInventoryCountReport({ locationId, internalMode = false }) {
             <Alert color="warning" className="mb-3" style={{ fontSize: 12 }}>
               <strong>Áreas para corregir:</strong> {report.notes}
             </Alert>
+          )}
+
+          {!internalMode && !isSubcountView && (
+            <div
+              style={{
+                background: "#fffbeb",
+                border: "1px solid #fde68a",
+                borderRadius: 8,
+                padding: 12,
+                marginBottom: 14,
+              }}
+            >
+              <FormGroup className="mb-2">
+                <Label style={{ fontWeight: 600, fontSize: 13 }}>
+                  Observaciones generales del conteo
+                </Label>
+                <Input
+                  type="textarea"
+                  rows={3}
+                  value={sessionObservations}
+                  disabled={isClosed}
+                  onChange={(e) => setSessionObservations(e.target.value)}
+                  placeholder="Ej. faltante en vitrina 3, producto dañado, conteo pendiente de BO…"
+                />
+                <small className="text-muted">
+                  Se muestra en el encabezado del Excel/PDF. Editable hasta cerrar el conteo.
+                </small>
+              </FormGroup>
+              {!isClosed && (
+                <Button
+                  color="warning"
+                  outline
+                  size="sm"
+                  onClick={() => void handleSaveObservations()}
+                  disabled={savingObservations || String(sessionObservations || "") === String(report.observations || "")}
+                >
+                  {savingObservations ? <Spinner size="sm" /> : "Guardar observaciones"}
+                </Button>
+              )}
+            </div>
           )}
 
           {isSubcountView && (

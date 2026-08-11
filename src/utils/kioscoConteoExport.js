@@ -172,6 +172,7 @@ function buildHeaderRows(report, includeVitrines = true, vitrineOnly = false) {
       ["Estado", report.status || "—"],
       ["Encargada", report.generatedByName || "—"],
       ["Notas", report.notes || ""],
+      ["Observaciones", report.observations || ""],
       ["Exportado", formatNowGt()],
     ];
     rows.push([]);
@@ -193,7 +194,8 @@ function buildHeaderRows(report, includeVitrines = true, vitrineOnly = false) {
     ["Generado por", report.generatedByName || "—"],
     ["Generado el", report.generatedAt ? String(report.generatedAt).slice(0, 19).replace("T", " ") : "—"],
     ["Revisado por", report.reviewedByName || "Pendiente"],
-    ["Notas", report.notes || ""],
+    ["Observaciones", report.observations || ""],
+    ["Notas revisión", report.notes || ""],
     ["Exportado", formatNowGt()]
   );
   rows.push([]);
@@ -812,7 +814,8 @@ export function exportConteoToPdf(report, options = {}) {
         <div><span>Estado</span><strong>${escape(prepared.status || "—")}</strong></div>
         <div><span>Generado por</span><strong>${escape(prepared.generatedByName || "—")}</strong></div>
         <div><span>Revisado por</span><strong>${escape(prepared.reviewedByName || "Pendiente")}</strong></div>
-        ${prepared.notes ? `<div class="full"><span>Notas</span><strong>${escape(prepared.notes)}</strong></div>` : ""}
+        ${prepared.observations ? `<div class="full"><span>Observaciones</span><strong>${escape(prepared.observations)}</strong></div>` : ""}
+        ${prepared.notes ? `<div class="full"><span>Notas revisión</span><strong>${escape(prepared.notes)}</strong></div>` : ""}
       </div>
       ${legendHtml}
     </div>
