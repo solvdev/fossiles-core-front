@@ -71,9 +71,7 @@ const statusLabel = (status) => {
 };
 
 function KioskReturns() {
-  const { hasPermission } = useAuth();
-  const canAuthorizeExchanges =
-    hasPermission("KIOSCOS.CAMBIOS.AUTORIZAR.APROBAR") || hasPermission("KIOSCOS.CAMBIOS.AUTORIZAR.VER");
+  const { hasAnyRole } = useAuth();
   const [activeTab, setActiveTab] = useState("EXCHANGES");
   const [selectedKiosk, setSelectedKiosk] = useState("");
   const [posContext, setPosContext] = useState(null);
@@ -92,6 +90,13 @@ function KioskReturns() {
   const [returnWizardOpen, setReturnWizardOpen] = useState(false);
 
   const isAdmin = Boolean(posContext?.admin);
+  /** Solo admin/supervisión gestiona devoluciones; encargadas de kiosko solo cambios. */
+  const canManageReturns = isAdmin;
+  /** Autorizar cambios: solo admin/logística (acceso global); encargadas no. */
+  const canAuthorizeExchanges =
+    isAdmin
+    || hasAnyRole(["ADMIN", "ADMINISTRADOR", "LOGISTICA", "LOGISTICO", "LOGIST"]);
+  const canApproveExchanges = canAuthorizeExchanges;
   const adminKiosks = useMemo(
     () => (Array.isArray(posContext?.kiosks) ? posContext.kiosks : []),
     [posContext]
@@ -127,7 +132,11 @@ function KioskReturns() {
       .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
   };
 
-  const loadData = async (kioskId = selectedKiosk) => {
+  const loadData = async (
+    kioskId = selectedKiosk,
+    manageReturns = canManageReturns,
+    authorizeExchanges = canAuthorizeExchanges
+  ) => {
     if (!kioskId) {
       setExchanges([]);
       setReturns([]);
@@ -142,16 +151,20 @@ function KioskReturns() {
       const kioskLocationId = Number(kioskId);
       const [exchangeRows, authorizationRows, reintegroRows, depositRows] = await Promise.all([
         listKioskExchanges(kioskLocationId),
-        canAuthorizeExchanges ? listPendingAuthorizations(kioskLocationId) : Promise.resolve([]),
-        listPendingReintegros(kioskLocationId),
-        loadDepositReturns(kioskId),
+        authorizeExchanges ? listPendingAuthorizations(kioskLocationId) : Promise.resolve([]),
+        manageReturns ? listPendingReintegros(kioskLocationId) : Promise.resolve([]),
+        manageReturns ? loadDepositReturns(kioskId) : Promise.resolve([]),
       ]);
       const allRows = Array.isArray(exchangeRows) ? exchangeRows : [];
       setExchanges(allRows.filter((row) => String(row.slipType || "EXCHANGE").toUpperCase() === "EXCHANGE"));
-      setReturns(allRows.filter((row) => String(row.slipType || "").toUpperCase() === "RETURN"));
-      setDepositReturns(Array.isArray(depositRows) ? depositRows : []);
+      setReturns(
+        manageReturns
+          ? allRows.filter((row) => String(row.slipType || "").toUpperCase() === "RETURN")
+          : []
+      );
+      setDepositReturns(manageReturns && Array.isArray(depositRows) ? depositRows : []);
       setPendingAuthorizations(Array.isArray(authorizationRows) ? authorizationRows : []);
-      setPendingReintegros(Array.isArray(reintegroRows) ? reintegroRows : []);
+      setPendingReintegros(manageReturns && Array.isArray(reintegroRows) ? reintegroRows : []);
     } catch (err) {
       setError(err.message || "Error al cargar devoluciones y boletas.");
     } finally {
@@ -168,7 +181,11 @@ function KioskReturns() {
       const resolvedId = ctx?.kioskId ? String(ctx.kioskId) : kioskIdOverride ? String(kioskIdOverride) : "";
       if (resolvedId) {
         setSelectedKiosk(resolvedId);
-        await loadData(resolvedId);
+        const adminAccess = Boolean(ctx?.admin);
+        const authorizeAccess =
+          adminAccess
+          || hasAnyRole(["ADMIN", "ADMINISTRADOR", "LOGISTICA", "LOGISTICO", "LOGIST"]);
+        await loadData(resolvedId, adminAccess, authorizeAccess);
       }
     } catch (err) {
       setError(err.message || "Error al cargar el kiosko.");
@@ -185,7 +202,13 @@ function KioskReturns() {
     if (!canAuthorizeExchanges && activeTab === "AUTHORIZATIONS") {
       setActiveTab("EXCHANGES");
     }
-  }, [canAuthorizeExchanges, activeTab]);
+    if (
+      !canManageReturns
+      && (activeTab === "DEPOSIT_RETURNS" || activeTab === "RETURNS" || activeTab === "REINTEGROS")
+    ) {
+      setActiveTab("EXCHANGES");
+    }
+  }, [canAuthorizeExchanges, canManageReturns, activeTab]);
 
   const handleKioskChange = async (nextKioskId) => {
     setSelectedKiosk(String(nextKioskId));
@@ -268,23 +291,25 @@ function KioskReturns() {
                   >
                     <i className="nc-icon nc-simple-add" /> Boleta de cambio
                   </Button>
-                  <Button
-                    color="info"
-                    className="btn-round"
-                    onClick={() => setReturnWizardOpen(true)}
-                    disabled={!selectedKiosk}
-                  >
-                    <i className="nc-icon nc-simple-add" /> Devolución
-                  </Button>
+                  {canManageReturns && (
+                    <Button
+                      color="info"
+                      className="btn-round"
+                      onClick={() => setReturnWizardOpen(true)}
+                      disabled={!selectedKiosk}
+                    >
+                      <i className="nc-icon nc-simple-add" /> Devolución
+                    </Button>
+                  )}
                 </Col>
               </Row>
             </CardHeader>
             <CardBody>
               {error && <Alert color="danger">{error}</Alert>}
               <p className="text-muted">
-                Boletas de cambio: devuelve un producto a precio vendido y factura el nuevo a precio catálogo.
-                Devoluciones a bodega registran la salida del inventario kiosko hacia bodega (sin venta POS).
-                Devoluciones de cliente quedan ligadas a la venta original.
+                {canManageReturns
+                  ? "Boletas de cambio: devuelve un producto a precio vendido y factura el nuevo a precio catálogo. Devoluciones a bodega registran la salida del inventario kiosko hacia bodega (sin venta POS). Devoluciones de cliente quedan ligadas a la venta original."
+                  : "Boletas de cambio: devuelve un producto a precio vendido y factura el nuevo a precio catálogo. Las devoluciones a bodega las gestiona supervisión."}
               </p>
               <Row className="mb-3 align-items-end">
                 <Col md="5">
@@ -317,35 +342,39 @@ function KioskReturns() {
                     Boletas de cambio
                   </NavLink>
                 </NavItem>
-                <NavItem>
-                  <NavLink
-                    className={activeTab === "DEPOSIT_RETURNS" ? "active" : ""}
-                    onClick={() => setActiveTab("DEPOSIT_RETURNS")}
-                    style={{ cursor: "pointer" }}
-                  >
-                    Devoluciones a bodega
-                    {depositReturns.length > 0 ? ` (${depositReturns.length})` : ""}
-                  </NavLink>
-                </NavItem>
-                <NavItem>
-                  <NavLink
-                    className={activeTab === "RETURNS" ? "active" : ""}
-                    onClick={() => setActiveTab("RETURNS")}
-                    style={{ cursor: "pointer" }}
-                  >
-                    Devoluciones de cliente
-                  </NavLink>
-                </NavItem>
-                <NavItem>
-                  <NavLink
-                    className={activeTab === "REINTEGROS" ? "active" : ""}
-                    onClick={() => setActiveTab("REINTEGROS")}
-                    style={{ cursor: "pointer" }}
-                  >
-                    Pendientes reintegro
-                    {pendingReintegros.length > 0 ? ` (${pendingReintegros.length})` : ""}
-                  </NavLink>
-                </NavItem>
+                {canManageReturns && (
+                  <>
+                    <NavItem>
+                      <NavLink
+                        className={activeTab === "DEPOSIT_RETURNS" ? "active" : ""}
+                        onClick={() => setActiveTab("DEPOSIT_RETURNS")}
+                        style={{ cursor: "pointer" }}
+                      >
+                        Devoluciones a bodega
+                        {depositReturns.length > 0 ? ` (${depositReturns.length})` : ""}
+                      </NavLink>
+                    </NavItem>
+                    <NavItem>
+                      <NavLink
+                        className={activeTab === "RETURNS" ? "active" : ""}
+                        onClick={() => setActiveTab("RETURNS")}
+                        style={{ cursor: "pointer" }}
+                      >
+                        Devoluciones de cliente
+                      </NavLink>
+                    </NavItem>
+                    <NavItem>
+                      <NavLink
+                        className={activeTab === "REINTEGROS" ? "active" : ""}
+                        onClick={() => setActiveTab("REINTEGROS")}
+                        style={{ cursor: "pointer" }}
+                      >
+                        Pendientes reintegro
+                        {pendingReintegros.length > 0 ? ` (${pendingReintegros.length})` : ""}
+                      </NavLink>
+                    </NavItem>
+                  </>
+                )}
                 {canAuthorizeExchanges && (
                   <NavItem>
                     <NavLink
@@ -565,7 +594,7 @@ function KioskReturns() {
                               <td>{row.givenProductName}</td>
                               <td>{row.reason}</td>
                               <td className="text-right">
-                                {hasPermission("KIOSCOS.CAMBIOS.AUTORIZAR.APROBAR") && (
+                                {canApproveExchanges && (
                                   <>
                                     <Button
                                       color="success"
@@ -610,7 +639,7 @@ function KioskReturns() {
         onCompleted={() => void loadData()}
       />
       <SimpleReturnWizard
-        isOpen={returnWizardOpen}
+        isOpen={canManageReturns && returnWizardOpen}
         onClose={() => setReturnWizardOpen(false)}
         kioskLocationId={selectedKiosk ? Number(selectedKiosk) : null}
         onCompleted={() => void loadData()}
