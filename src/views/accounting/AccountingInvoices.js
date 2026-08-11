@@ -294,7 +294,8 @@ function AccountingInvoices() {
     canVoidFel
     && invoice
     && invoice.status === "CERTIFIED"
-    && invoice.felUuid;
+    && invoice.felUuid
+    && invoice.felDirectVoidAllowed !== false;
 
   return (
     <div className="content">

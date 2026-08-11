@@ -101,7 +101,10 @@ function AccountingInvoiceDetail() {
   const canRetry = invoice && ["FAILED", "SKIPPED", "DRAFT"].includes(invoice.status);
   const canDownloadXml = invoice?.status === "CERTIFIED" && invoice?.hasCertifiedXml;
   const canDownloadFelReport = invoice?.status === "CERTIFIED" && invoice?.felUuid;
-  const canVoid = canVoidFel && invoice?.status === "CERTIFIED" && invoice?.felUuid;
+  const canOpenVoid = canVoidFel
+    && invoice?.status === "CERTIFIED"
+    && invoice?.felUuid;
+  const voidBlockedByCfWindow = canOpenVoid && invoice?.felDirectVoidAllowed === false;
 
   const handleDownloadFelReport = () => {
     try {
@@ -148,8 +151,16 @@ function AccountingInvoiceDetail() {
                   Descargar factura
                 </Button>
               )}
-              {canVoid && (
-                <Button color="danger" size="sm" outline className="mr-2" onClick={() => setVoidOpen(true)}>
+              {canOpenVoid && (
+                <Button
+                  color="danger"
+                  size="sm"
+                  outline
+                  className="mr-2"
+                  disabled={voidBlockedByCfWindow}
+                  title={voidBlockedByCfWindow ? "Plazo de anulación CF vencido" : undefined}
+                  onClick={() => setVoidOpen(true)}
+                >
                   Anular FEL
                 </Button>
               )}

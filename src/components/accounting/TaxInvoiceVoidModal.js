@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import {
+  Alert,
   Button,
   Input,
   Modal,
@@ -10,6 +11,14 @@ import {
 } from "reactstrap";
 import { voidTaxInvoice } from "services/taxInvoiceService";
 import { showError, showSuccess } from "utils/notificationHelper";
+
+function formatDeadline(value) {
+  if (!value) return null;
+  const raw = String(value).slice(0, 10);
+  const [y, m, d] = raw.split("-");
+  if (!y || !m || !d) return raw;
+  return `${d}/${m}/${y}`;
+}
 
 function TaxInvoiceVoidModal({ isOpen, onClose, invoice, onSuccess }) {
   const [voidReason, setVoidReason] = useState("");
@@ -22,7 +31,19 @@ function TaxInvoiceVoidModal({ isOpen, onClose, invoice, onSuccess }) {
     }
   }, [isOpen, invoice?.id]);
 
+  const isCf = Boolean(invoice?.consumidorFinal);
+  const voidBlocked = isCf && invoice?.felDirectVoidAllowed === false;
+  const deadlineLabel = formatDeadline(invoice?.felDirectVoidDeadlineDate);
+
   const handleVoid = async () => {
+    if (voidBlocked) {
+      showError(
+        deadlineLabel
+          ? `Plazo de anulación CF vencido (hasta ${deadlineLabel}).`
+          : "Plazo de anulación CF vencido."
+      );
+      return;
+    }
     if (!invoice?.id || !voidReason.trim()) {
       showError("Indica el motivo de anulación.");
       return;
@@ -60,19 +81,32 @@ function TaxInvoiceVoidModal({ isOpen, onClose, invoice, onSuccess }) {
           Se enviará la anulación al certificador FEL (INFILE). La factura quedará en <strong>borrador</strong>
           sin UUID FEL para que puedas volver a firmarla con los datos corregidos.
         </p>
+        {voidBlocked && (
+          <Alert color="danger" className="mb-3">
+            SAT: anulación directa a Consumidor Final (CF) solo el día de emisión o el siguiente
+            {deadlineLabel ? ` (hasta ${deadlineLabel})` : ""}.
+            Fuera de plazo no se envía desde este sistema (requiere anulación extemporánea ante la SAT).
+          </Alert>
+        )}
+        {isCf && !voidBlocked && (
+          <Alert color="warning" className="mb-3">
+            Receptor CF: la anulación directa solo es válida el día de emisión o el día siguiente
+            {deadlineLabel ? ` (hasta ${deadlineLabel})` : ""}.
+          </Alert>
+        )}
         <Input
           type="text"
           placeholder="Motivo de anulación (obligatorio)"
           value={voidReason}
           onChange={(e) => setVoidReason(e.target.value)}
-          disabled={voiding}
+          disabled={voiding || voidBlocked}
         />
       </ModalBody>
       <ModalFooter>
         <Button color="secondary" outline onClick={onClose} disabled={voiding}>
           Cancelar
         </Button>
-        <Button color="danger" onClick={handleVoid} disabled={voiding}>
+        <Button color="danger" onClick={handleVoid} disabled={voiding || voidBlocked || !voidReason.trim()}>
           {voiding ? <Spinner size="sm" /> : "Confirmar anulación"}
         </Button>
       </ModalFooter>
