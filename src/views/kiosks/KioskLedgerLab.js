@@ -542,7 +542,7 @@ export default function KioskLedgerLab() {
       </div>
 
       <Alert color="warning" className="py-2 px-3 mb-2">
-        Mutaciones directas al ledger. Tras editar qty/tipo/orden, usa <strong>Replay stock</strong>.
+        Mutaciones directas al ledger. Crear/editar/borrar movimiento hace <strong>Replay stock</strong> automático; el botón manual queda como recuperación.
       </Alert>
 
       <Row className="g-2 mb-2">

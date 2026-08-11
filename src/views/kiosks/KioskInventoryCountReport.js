@@ -1005,6 +1005,23 @@ function KioskInventoryCountReport({ locationId, internalMode = false }) {
     setEditedObservations({});
   }, [locationId, loadHistorial, internalMode]);
 
+  // Siguiente conteo: periodFrom = día siguiente al periodTo del último cerrado (sin solape).
+  useEffect(() => {
+    if (internalMode || !historial?.length || from) return;
+    const closed = historial
+      .filter((s) => String(s.status || "").toUpperCase() === "CERRADO" && s.periodTo)
+      .sort((a, b) => String(b.periodTo).localeCompare(String(a.periodTo)));
+    if (!closed.length) return;
+    const lastTo = closed[0].periodTo;
+    const next = new Date(`${lastTo}T12:00:00`);
+    if (Number.isNaN(next.getTime())) return;
+    next.setDate(next.getDate() + 1);
+    const yyyy = next.getFullYear();
+    const mm = String(next.getMonth() + 1).padStart(2, "0");
+    const dd = String(next.getDate()).padStart(2, "0");
+    setFrom(`${yyyy}-${mm}-${dd}`);
+  }, [historial, internalMode, from]);
+
   const openReport = (data, { isPrincipal = true } = {}) => {
     setReport(data);
     lastSyncSinceRef.current = new Date();
