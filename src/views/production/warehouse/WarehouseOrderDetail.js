@@ -10,13 +10,14 @@ import {
 } from "../../../services/productionOrderService";
 import { showError, showSuccess } from "utils/notificationHelper";
 import { formatProductionOrderCodeDate } from "utils/productionOrderDisplayHelper";
-import WarehouseUnitRow from "./WarehouseUnitRow";
+import WarehouseUnitGroupRow from "./WarehouseUnitGroupRow";
 import {
   DISPATCH_TYPE_LABELS,
   DISPATCH_TYPE_STYLES,
   SALE_STATUS_STYLES,
   DEFAULT_BADGE_STYLE,
   getOrderQtyProgress,
+  groupWarehouseUnits,
 } from "./warehouseUtils";
 import DispatchModal from "./DispatchModal";
 
@@ -28,7 +29,6 @@ const WarehouseOrderDetail = ({
   const [workspace, setWorkspace] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [unitDrafts, setUnitDrafts] = useState({});
   const [dispatchModal, setDispatchModal] = useState({ open: false, sale: null });
   const [unitSearch, setUnitSearch] = useState("");
   const [unitStatusFilter, setUnitStatusFilter] = useState(mode === "receipt" ? "PENDING" : "ALL");
@@ -39,7 +39,6 @@ const WarehouseOrderDetail = ({
     try {
       const data = await getWarehouseWorkspace(order.productionOrderId);
       setWorkspace(data);
-      setUnitDrafts({});
     } catch (err) {
       showError(err.message || "Error al cargar piezas de la orden");
     } finally {
@@ -68,7 +67,7 @@ const WarehouseOrderDetail = ({
 
   const visibleUnits = useMemo(() => {
     const term = String(unitSearch || "").trim().toLowerCase();
-    const filtered = units.filter((u) => {
+    return units.filter((u) => {
       const status = u.receiptStatus || "PENDING";
       if (unitStatusFilter === "PENDING" && (status !== "PENDING" || u.shippedAt)) return false;
       if (unitStatusFilter === "RECEIVED" && status !== "RECEIVED") return false;
@@ -78,76 +77,57 @@ const WarehouseOrderDetail = ({
         .toLowerCase();
       return hay.includes(term);
     });
-    return [...filtered].sort((a, b) => {
-      const sa = (a.receiptStatus || "PENDING") === "PENDING" && !a.shippedAt ? 0 : 1;
-      const sb = (b.receiptStatus || "PENDING") === "PENDING" && !b.shippedAt ? 0 : 1;
-      if (sa !== sb) return sa - sb;
-      return String(a.unitLabel || "").localeCompare(String(b.unitLabel || ""), "es", { numeric: true });
-    });
   }, [units, unitSearch, unitStatusFilter]);
 
-  const draftUpdates = useMemo(() => {
-    return Object.values(unitDrafts).filter((d) => d?.receiptStatus && d.receiptStatus !== "PENDING");
-  }, [unitDrafts]);
+  const visibleGroups = useMemo(() => groupWarehouseUnits(visibleUnits), [visibleUnits]);
 
-  const handleDraftChange = (unitId, draft) => {
-    setUnitDrafts((prev) => ({ ...prev, [unitId]: draft }));
-  };
-
-  const buildReceiptPayload = (unitList) => ({
-    units: unitList.map((u) => ({
-      unitId: u.id,
-      receiptStatus: unitDrafts[u.id]?.receiptStatus || "RECEIVED",
-      rejectionReason: unitDrafts[u.id]?.rejectionReason,
-    })),
-  });
-
-  const saveDrafts = async (unitList) => {
-    const toSave = unitList.filter((u) => {
-      const d = unitDrafts[u.id];
-      return d?.receiptStatus && d.receiptStatus !== "PENDING";
-    });
-    if (toSave.length === 0) {
-      showError("Seleccione al menos una pieza para actualizar.");
-      return;
-    }
-    for (const u of toSave) {
-      const d = unitDrafts[u.id];
-      if (d.receiptStatus === "REJECTED" && !d.rejectionReason) {
-        showError(`Indique motivo de rechazo para ${u.unitLabel}`);
-        return;
-      }
-    }
+  const applyUnitStatus = async (unitList, receiptStatus, rejectionReason) => {
+    if (!unitList?.length) return;
     setSaving(true);
     try {
-      await updateWarehouseUnitsReceipt(order.productionOrderId, buildReceiptPayload(toSave));
-      showSuccess("Recepción actualizada.");
+      await updateWarehouseUnitsReceipt(order.productionOrderId, {
+        units: unitList.map((u) => ({
+          unitId: u.id,
+          receiptStatus,
+          rejectionReason: receiptStatus === "REJECTED" ? rejectionReason : undefined,
+        })),
+      });
+      const label = receiptStatus === "REJECTED" ? "rechazada(s)" : "recibida(s)";
+      showSuccess(`${unitList.length} pieza(s) ${label}.`);
       await loadWorkspace();
       if (onRefresh) onRefresh();
     } catch (err) {
-      showError(err.message || "Error al guardar recepción");
+      showError(err.message || "Error al actualizar recepción");
     } finally {
       setSaving(false);
     }
+  };
+
+  const receiveGroupQty = async (group, qty) => {
+    const n = Math.min(Math.max(Number(qty) || 0, 0), group.pendingUnits.length);
+    if (n <= 0) {
+      showError("Indique cuántas piezas recibir.");
+      return;
+    }
+    await applyUnitStatus(group.pendingUnits.slice(0, n), "RECEIVED");
+  };
+
+  const rejectGroupQty = async (group, qty, rejectionReason) => {
+    const n = Math.min(Math.max(Number(qty) || 0, 0), group.pendingUnits.length);
+    if (n <= 0) {
+      showError("Indique cuántas piezas rechazar.");
+      return;
+    }
+    if (!rejectionReason) {
+      showError("Seleccione el motivo de rechazo.");
+      return;
+    }
+    await applyUnitStatus(group.pendingUnits.slice(0, n), "REJECTED", rejectionReason);
   };
 
   const receiveAllPending = async () => {
-    const updates = pendingUnits.map((u) => ({
-      unitId: u.id,
-      receiptStatus: "RECEIVED",
-    }));
-    if (updates.length === 0) return;
-    setSaving(true);
-    try {
-      await updateWarehouseUnitsReceipt(order.productionOrderId, { units: updates });
-      showSuccess(`${updates.length} pieza(s) recibidas.`);
-      await loadWorkspace();
-      if (onRefresh) onRefresh();
-    } catch (err) {
-      showError(err.message || "Error al recibir piezas");
-    } finally {
-      setSaving(false);
-    }
+    if (pendingUnits.length === 0) return;
+    await applyUnitStatus(pendingUnits, "RECEIVED");
   };
 
   const handleCloseReceipt = async () => {
@@ -185,20 +165,17 @@ const WarehouseOrderDetail = ({
 
       {mode === "receipt" && !receiptClosed && (
         <div className="d-flex flex-wrap mb-3" style={{ gap: 8 }}>
-          <Button size="sm" color="success" disabled={saving || draftUpdates.length === 0} onClick={() => saveDrafts(units.filter((u) => unitDrafts[u.id]))}>
-            Guardar selección ({draftUpdates.length})
-          </Button>
-          <Button size="sm" color="success" outline disabled={saving || pendingUnits.length === 0} onClick={receiveAllPending}>
+          <Button size="sm" color="success" outline disabled={saving || pendingUnits.length === 0} onClick={() => void receiveAllPending()}>
             Recibir todas pendientes ({pendingUnits.length})
           </Button>
-          <Button size="sm" color="dark" outline disabled={saving || progress.pending > 0} onClick={handleCloseReceipt}>
+          <Button size="sm" color="dark" outline disabled={saving || progress.pending > 0} onClick={() => void handleCloseReceipt()}>
             Cerrar recepción en bodega
           </Button>
         </div>
       )}
 
       {mode === "orders" && !receiptClosed && progress.pending === 0 && (
-        <Button size="sm" color="dark" className="mb-3" disabled={saving} onClick={handleCloseReceipt}>
+        <Button size="sm" color="dark" className="mb-3" disabled={saving} onClick={() => void handleCloseReceipt()}>
           Cerrar recepción en bodega
         </Button>
       )}
@@ -206,8 +183,8 @@ const WarehouseOrderDetail = ({
       <Row className="align-items-end mb-2">
         <Col md="6" className="mb-2 mb-md-0">
           <h6 className="mb-1">
-            Piezas ({visibleUnits.length}
-            {visibleUnits.length !== units.length ? ` de ${units.length}` : ""})
+            Lotes ({visibleGroups.length}
+            {visibleUnits.length !== units.length ? ` · ${visibleUnits.length} de ${units.length} piezas` : ` · ${units.length} piezas`})
           </h6>
           {mode === "receipt" && (
             <Input
@@ -215,7 +192,7 @@ const WarehouseOrderDetail = ({
               bsSize="sm"
               value={unitSearch}
               onChange={(e) => setUnitSearch(e.target.value)}
-              placeholder="Filtrar piezas por código o producto…"
+              placeholder="Filtrar por código, producto o color…"
             />
           )}
         </Col>
@@ -243,18 +220,20 @@ const WarehouseOrderDetail = ({
         )}
       </Row>
 
-      {visibleUnits.length === 0 ? (
+      {visibleGroups.length === 0 ? (
         <Alert color="info" className="py-2">
           No hay piezas con este filtro. Prueba “Todas” o limpia la búsqueda.
         </Alert>
       ) : (
-        visibleUnits.map((unit) => (
-          <WarehouseUnitRow
-            key={unit.id}
-            unit={{ ...unit, receiptClosed }}
-            draft={unitDrafts[unit.id]}
+        visibleGroups.map((group) => (
+          <WarehouseUnitGroupRow
+            key={group.key}
+            group={group}
             readOnly={mode === "orders" || receiptClosed}
-            onDraftChange={(draft) => handleDraftChange(unit.id, draft)}
+            receiptClosed={receiptClosed}
+            saving={saving}
+            onReceiveQty={receiveGroupQty}
+            onRejectQty={rejectGroupQty}
           />
         ))
       )}

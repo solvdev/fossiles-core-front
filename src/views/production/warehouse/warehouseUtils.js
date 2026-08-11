@@ -57,6 +57,82 @@ export const UNIT_RECEIPT_LABELS = {
   REJECTED: "Rechazada",
 };
 
+/**
+ * Agrupa piezas de recepción por producto + color + talla (línea OP).
+ * Así se puede recibir/rechazar por lote en vez de pieza por pieza.
+ */
+export const warehouseUnitGroupKey = (unit) => {
+  const itemId = unit?.productionOrderItemId ?? unit?.productId ?? "x";
+  const colorId = unit?.colorId ?? "";
+  const size = String(unit?.sizeKey || "").trim();
+  return `${itemId}|${colorId}|${size}`;
+};
+
+export const groupWarehouseUnits = (units = []) => {
+  const map = new Map();
+  (units || []).forEach((unit) => {
+    const key = warehouseUnitGroupKey(unit);
+    if (!map.has(key)) {
+      map.set(key, {
+        key,
+        productionOrderItemId: unit.productionOrderItemId,
+        productId: unit.productId,
+        productCode: unit.productCode,
+        productName: unit.productName,
+        colorId: unit.colorId,
+        colorName: unit.colorName,
+        sizeKey: unit.sizeKey || null,
+        units: [],
+        pendingUnits: [],
+        receivedCount: 0,
+        rejectedCount: 0,
+        shippedCount: 0,
+      });
+    }
+    const group = map.get(key);
+    group.units.push(unit);
+    const status = unit.receiptStatus || "PENDING";
+    const shipped = !!unit.shippedAt || unit.shipped;
+    if (shipped) {
+      group.shippedCount += 1;
+    } else if (status === "RECEIVED") {
+      group.receivedCount += 1;
+    } else if (status === "REJECTED") {
+      group.rejectedCount += 1;
+    } else {
+      group.pendingUnits.push(unit);
+    }
+  });
+
+  return [...map.values()]
+    .map((group) => {
+      const pendingUnits = [...group.pendingUnits].sort((a, b) =>
+        String(a.unitLabel || "").localeCompare(String(b.unitLabel || ""), "es", { numeric: true })
+      );
+      return {
+        ...group,
+        pendingUnits,
+        pendingCount: pendingUnits.length,
+        totalCount: group.units.length,
+      };
+    })
+    .sort((a, b) => {
+      const code = String(a.productCode || "").localeCompare(String(b.productCode || ""), "es");
+      if (code !== 0) return code;
+      const color = String(a.colorName || "").localeCompare(String(b.colorName || ""), "es");
+      if (color !== 0) return color;
+      return String(a.sizeKey || "").localeCompare(String(b.sizeKey || ""), "es", { numeric: true });
+    });
+};
+
+export const formatWarehouseGroupTitle = (group) => {
+  const parts = [];
+  if (group?.colorName) parts.push(group.colorName);
+  if (group?.productCode) parts.push(group.productCode);
+  if (group?.sizeKey) parts.push(`Talla ${group.sizeKey}`);
+  return parts.join(" · ") || "Producto";
+};
+
 export const ORDER_TYPE_FILTER_OPTIONS = [
   { value: "ALL", label: "Todas" },
   { value: "VENTA_EN_LINEA", label: "OPL (en línea)" },
