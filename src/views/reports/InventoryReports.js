@@ -30,11 +30,6 @@ const formatSizes = (sizes) =>
     .map(([size, quantity]) => `${size}: ${quantity}`)
     .join(" · ");
 
-const toSheetName = (location) => {
-  const raw = `${location.code || ""} ${location.name || "Kiosko"}`.trim();
-  return raw.slice(0, 31) || "Kiosko";
-};
-
 function InventoryReports() {
   const [kiosks, setKiosks] = useState([]);
   const [selectedKioskIds, setSelectedKioskIds] = useState([]);
@@ -84,19 +79,14 @@ function InventoryReports() {
     try {
       setExporting(true);
       const rows = await getKioscoStockReport(selectedKioskIds);
-      const rowsByLocation = new Map();
-      (rows || []).forEach((row) => {
-        const locationRows = rowsByLocation.get(row.locationId) || [];
-        locationRows.push(row);
-        rowsByLocation.set(row.locationId, locationRows);
-      });
+      const locationById = new Map(kiosks.map((kiosk) => [Number(kiosk.id), kiosk]));
 
-      const workbook = XLSX.utils.book_new();
-      const summaryRows = [];
-      selectedKioskIds.forEach((locationId) => {
-        const location = kiosks.find((item) => Number(item.id) === Number(locationId));
-        const locationRows = rowsByLocation.get(locationId) || [];
-        const data = locationRows.map((row) => ({
+      // Una sola hoja con todos los kioskos: filtrable en Excel por Kiosko/Código/Producto/etc.
+      const data = (rows || []).map((row) => {
+        const location = locationById.get(Number(row.locationId));
+        return {
+          Kiosko: location?.name || row.locationName || "",
+          "Código kiosko": location?.code || row.locationCode || "",
           Código: row.productCode || "",
           Producto: row.productName || "",
           Color: row.colorName || "",
@@ -106,35 +96,29 @@ function InventoryReports() {
           "Stock mínimo": Number(row.minimumStock || 0),
           Estado: row.lowStock ? "Stock bajo" : "Disponible",
           "Última actualización": row.lastUpdatedAt || "",
-        }));
-        const totalStock = data.reduce((total, item) => total + item["Stock actual"], 0);
-        summaryRows.push({
-          Kiosko: location?.name || locationRows[0]?.locationName || String(locationId),
-          Código: location?.code || locationRows[0]?.locationCode || "",
-          "Líneas de stock": data.length,
-          "Unidades totales": totalStock,
-        });
-
-        const worksheet = XLSX.utils.aoa_to_sheet([
-          [`Existencias - ${location?.name || locationRows[0]?.locationName || "Kiosko"}`],
-          [],
-        ]);
-        XLSX.utils.sheet_add_json(worksheet, data, { origin: "A3" });
-        XLSX.utils.sheet_add_aoa(worksheet, [["TOTAL", "", "", "", "", totalStock]], {
-          origin: `A${data.length + 4}`,
-        });
-        worksheet["!cols"] = [
-          { wch: 16 }, { wch: 34 }, { wch: 20 }, { wch: 32 }, { wch: 12 },
-          { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 22 },
-        ];
-        XLSX.utils.book_append_sheet(workbook, worksheet, toSheetName(location || locationRows[0] || {}));
+        };
+      });
+      data.sort((left, right) => {
+        const byKiosk = String(left.Kiosko).localeCompare(String(right.Kiosko), "es");
+        if (byKiosk !== 0) return byKiosk;
+        const byCode = String(left.Código).localeCompare(String(right.Código), "es");
+        if (byCode !== 0) return byCode;
+        return String(left.Color).localeCompare(String(right.Color), "es");
       });
 
-      if (selectedKioskIds.length > 1) {
-        const summarySheet = XLSX.utils.json_to_sheet(summaryRows);
-        summarySheet["!cols"] = [{ wch: 32 }, { wch: 16 }, { wch: 18 }, { wch: 18 }];
-        XLSX.utils.book_append_sheet(workbook, summarySheet, "Resumen");
-      }
+      const totalStock = data.reduce((total, item) => total + item["Stock actual"], 0);
+      const workbook = XLSX.utils.book_new();
+      const worksheet = XLSX.utils.json_to_sheet(data);
+      XLSX.utils.sheet_add_aoa(
+        worksheet,
+        [["", "", "", "", "", "", "TOTAL", totalStock, "", "", ""]],
+        { origin: `A${data.length + 2}` }
+      );
+      worksheet["!cols"] = [
+        { wch: 32 }, { wch: 14 }, { wch: 16 }, { wch: 34 }, { wch: 20 },
+        { wch: 32 }, { wch: 12 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 22 },
+      ];
+      XLSX.utils.book_append_sheet(workbook, worksheet, "Existencias");
       XLSX.writeFile(workbook, "existencias-kioscos.xlsx");
     } catch (err) {
       showError(err.message || "No se pudo generar el reporte de existencias.");
@@ -153,7 +137,8 @@ function InventoryReports() {
             </CardHeader>
             <CardBody>
               <Alert color="info">
-                Selecciona los kioskos que deseas incluir. Los kioskos en modo piloto no aparecen en este reporte.
+                Selecciona los kioskos que deseas incluir. El Excel sale en una sola hoja con columna de kiosko
+                para filtrar. Los kioskos en modo piloto no aparecen en este reporte.
               </Alert>
               <Row>
                 <Col md="8">
