@@ -3,7 +3,7 @@ import {
   Card, CardBody, CardHeader, Row, Col, Table, Badge, Input, Button,
   ButtonGroup, FormGroup, Label, Spinner,
 } from "reactstrap";
-import { formatDateGt } from "utils/dateTimeHelper";
+import { formatDateGt, getTodayYmdGuatemala } from "utils/dateTimeHelper";
 import { formatProductionDuration } from "utils/productionTimeHelper";
 
 const INITIAL_VISIBLE = 30;
@@ -51,10 +51,67 @@ function formatAssignmentLine(a) {
   return `${mesa} · ${day}${qty}${code}`;
 }
 
+/** Controles mesa + fecha de asignación (días hábiles, también rezagados). */
+function AssignmentDeskControls({
+  assignmentKey,
+  assignment,
+  deskChoice,
+  setDeskChoice,
+  dateChoice,
+  setDateChoice,
+  assigningKey,
+  onAssign,
+  numDesks,
+  label,
+  showSummary = true,
+}) {
+  const desk = deskChoice[assignmentKey] || "";
+  const dateVal =
+    dateChoice[assignmentKey]
+    ?? (assignment.scheduledDate ? String(assignment.scheduledDate).slice(0, 10) : getTodayYmdGuatemala());
+  const busy = assigningKey === assignmentKey;
+  return (
+    <div className="d-flex align-items-center flex-wrap mb-1" style={{ gap: 4 }}>
+      {showSummary && <span className="text-muted">{formatAssignmentLine(assignment)}</span>}
+      <Input
+        type="date"
+        bsSize="sm"
+        value={dateVal}
+        onChange={(e) => setDateChoice((prev) => ({ ...prev, [assignmentKey]: e.target.value }))}
+        title="Fecha de asignación a la mesa (puede ser un día hábil anterior)"
+        style={{ width: 132, fontSize: 11, height: 22, padding: "0 4px" }}
+      />
+      <Input
+        type="select"
+        bsSize="sm"
+        value={desk}
+        onChange={(e) => setDeskChoice((prev) => ({ ...prev, [assignmentKey]: e.target.value }))}
+        style={{ width: 88, fontSize: 11, height: 22, padding: "0 4px" }}
+      >
+        <option value="">Mesa…</option>
+        {Array.from({ length: numDesks || 12 }, (_, i) => i + 1).map((d) => (
+          <option key={d} value={d}>Mesa {d}</option>
+        ))}
+      </Input>
+      <button
+        type="button"
+        className="btn btn-sm btn-primary"
+        style={{ fontSize: 11, padding: "0 6px", height: 22, lineHeight: "20px" }}
+        disabled={!desk || !dateVal || busy}
+        onClick={() => onAssign(assignmentKey, assignment)}
+      >
+        {busy ? "…" : label}
+      </button>
+    </div>
+  );
+}
+
 /** Fila de ítem con input de cantidad parcial y botón Agregar. */
 function OrganizerItemRow({ order, item, inDraft, onAdd, onJumpToAssignment, onAssignDesk, numDesks }) {
   const [qty, setQty] = useState(item.remainingQuantity);
   const [deskChoice, setDeskChoice] = useState({});
+  const [dateChoice, setDateChoice] = useState({});
+  const [reassignOpen, setReassignOpen] = useState({});
   const [assigningKey, setAssigningKey] = useState(null);
   const hoursPerUnit = item.prdTimePerUnit || 0.1;
   const sizesText = formatSizes(item.sizes);
@@ -62,11 +119,24 @@ function OrganizerItemRow({ order, item, inDraft, onAdd, onJumpToAssignment, onA
 
   const handleAssign = async (assignmentKey, assignment) => {
     const desk = deskChoice[assignmentKey];
-    if (!desk) return;
+    const dateVal =
+      dateChoice[assignmentKey]
+      ?? (assignment.scheduledDate ? String(assignment.scheduledDate).slice(0, 10) : getTodayYmdGuatemala());
+    if (!desk || !dateVal) return;
     setAssigningKey(assignmentKey);
     try {
-      await onAssignDesk(assignment, Number(desk));
+      await onAssignDesk(assignment, Number(desk), dateVal);
       setDeskChoice((prev) => {
+        const next = { ...prev };
+        delete next[assignmentKey];
+        return next;
+      });
+      setDateChoice((prev) => {
+        const next = { ...prev };
+        delete next[assignmentKey];
+        return next;
+      });
+      setReassignOpen((prev) => {
         const next = { ...prev };
         delete next[assignmentKey];
         return next;
@@ -90,50 +160,73 @@ function OrganizerItemRow({ order, item, inDraft, onAdd, onJumpToAssignment, onA
               const key = a.taskId != null ? a.taskId : idx;
               if (a.desk == null) {
                 return (
-                  <div key={key} className="d-flex align-items-center mb-1" style={{ gap: 4 }}>
-                    <span className="text-muted">{formatAssignmentLine(a)}</span>
-                    <Input
-                      type="select"
-                      bsSize="sm"
-                      value={deskChoice[key] || ""}
-                      onChange={(e) => setDeskChoice((prev) => ({ ...prev, [key]: e.target.value }))}
-                      style={{ width: 88, fontSize: 11, height: 22, padding: "0 4px" }}
-                    >
-                      <option value="">Mesa…</option>
-                      {Array.from({ length: numDesks || 12 }, (_, i) => i + 1).map((d) => (
-                        <option key={d} value={d}>Mesa {d}</option>
-                      ))}
-                    </Input>
-                    <button
-                      type="button"
-                      className="btn btn-sm btn-primary"
-                      style={{ fontSize: 11, padding: "0 6px", height: 22, lineHeight: "20px" }}
-                      disabled={!deskChoice[key] || assigningKey === key}
-                      onClick={() => handleAssign(key, a)}
-                    >
-                      {assigningKey === key ? "…" : "Asignar mesa"}
-                    </button>
-                  </div>
+                  <AssignmentDeskControls
+                    key={key}
+                    assignmentKey={key}
+                    assignment={a}
+                    deskChoice={deskChoice}
+                    setDeskChoice={setDeskChoice}
+                    dateChoice={dateChoice}
+                    setDateChoice={setDateChoice}
+                    assigningKey={assigningKey}
+                    onAssign={handleAssign}
+                    numDesks={numDesks}
+                    label="Asignar mesa"
+                  />
                 );
               }
               return (
-                <div key={key}>
-                  <button
-                    type="button"
-                    className="text-muted"
-                    onClick={() => onJumpToAssignment && onJumpToAssignment(a)}
-                    title="Ir al tablero en la fecha de esta tarea"
-                    style={{
-                      background: "none",
-                      border: "none",
-                      padding: 0,
-                      font: "inherit",
-                      textDecoration: "underline",
-                      cursor: "pointer",
-                    }}
-                  >
-                    {formatAssignmentLine(a)} → ver en tablero
-                  </button>
+                <div key={key} className="mb-1">
+                  <div className="d-flex align-items-center flex-wrap" style={{ gap: 6 }}>
+                    <button
+                      type="button"
+                      className="text-muted"
+                      onClick={() => onJumpToAssignment && onJumpToAssignment(a)}
+                      title="Ir al tablero en la fecha de esta tarea"
+                      style={{
+                        background: "none",
+                        border: "none",
+                        padding: 0,
+                        font: "inherit",
+                        textDecoration: "underline",
+                        cursor: "pointer",
+                      }}
+                    >
+                      {formatAssignmentLine(a)} → ver en tablero
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-outline-secondary"
+                      style={{ fontSize: 10, padding: "0 6px", height: 20, lineHeight: "18px" }}
+                      onClick={() => {
+                        setReassignOpen((prev) => ({ ...prev, [key]: !prev[key] }));
+                        setDeskChoice((prev) => ({ ...prev, [key]: String(a.desk) }));
+                        setDateChoice((prev) => ({
+                          ...prev,
+                          [key]: a.scheduledDate
+                            ? String(a.scheduledDate).slice(0, 10)
+                            : getTodayYmdGuatemala(),
+                        }));
+                      }}
+                    >
+                      {reassignOpen[key] ? "Cancelar" : "Reasignar"}
+                    </button>
+                  </div>
+                  {reassignOpen[key] && (
+                    <AssignmentDeskControls
+                      assignmentKey={key}
+                      assignment={a}
+                      deskChoice={deskChoice}
+                      setDeskChoice={setDeskChoice}
+                      dateChoice={dateChoice}
+                      setDateChoice={setDateChoice}
+                      assigningKey={assigningKey}
+                      onAssign={handleAssign}
+                      numDesks={numDesks}
+                      label="Guardar"
+                      showSummary={false}
+                    />
+                  )}
                 </div>
               );
             })}

@@ -64,6 +64,8 @@ export default function RedistributeBoard({
   const [activeItemId, setActiveItemId] = useState(null);
   /** Mesa elegida en el selector manual por taskItemId (alternativa a arrastrar). */
   const [manualDeskByItem, setManualDeskByItem] = useState({});
+  /** Fecha de asignación por tarjeta (permite mover a un día rezagado distinto al filtro del tablero). */
+  const [manualDateByItem, setManualDateByItem] = useState({});
   const [assigningItemId, setAssigningItemId] = useState(null);
 
   const activeTasks = useMemo(() => (tasks || []).filter((t) => t && t.status !== "CANCELLED" && t.status !== "COMPLETED"), [tasks]);
@@ -155,16 +157,25 @@ export default function RedistributeBoard({
   }, [date, findContainerForTaskItem, onMove]);
 
   /**
-   * Asignar/cambiar mesa sin arrastrar: elige mesa en el desplegable de la tarjeta y confirma.
-   * Mueve las unidades completas de esa línea (no divide la cantidad); "Sin mesa" la regresa
-   * a la columna de no asignadas.
+   * Asignar/cambiar mesa (+ fecha) sin arrastrar: elige mesa y fecha en la tarjeta.
+   * La fecha puede ser un día hábil distinto al filtro del tablero (días rezagados).
+   * Mueve las unidades completas de esa línea; "Sin mesa" la regresa a no asignadas.
    */
   const handleManualAssign = useCallback(async (taskItemId) => {
+    const it = items.find((x) => Number(x.taskItemId) === Number(taskItemId));
     const raw = manualDeskByItem[taskItemId];
-    const targetDesk = raw ? Number(raw) : null;
-    const targetDate = date || null;
+    const targetDesk = raw !== undefined ? (raw ? Number(raw) : null) : (it?.desk || null);
+    const targetDate =
+      manualDateByItem[taskItemId]
+      || it?.scheduledDate
+      || date
+      || null;
+    if (targetDesk && !targetDate) {
+      showError("Seleccione la fecha de asignación a la mesa.");
+      return;
+    }
     if (targetDesk && isWeekendYmd(targetDate)) {
-      showError("Solo se trabaja de lunes a viernes: elige una fecha entre semana antes de asignar mesa.");
+      showError("Solo se trabaja de lunes a viernes: elige una fecha entre semana.");
       return;
     }
     setAssigningItemId(taskItemId);
@@ -175,10 +186,19 @@ export default function RedistributeBoard({
         delete next[taskItemId];
         return next;
       });
+      setManualDateByItem((prev) => {
+        const next = { ...prev };
+        delete next[taskItemId];
+        return next;
+      });
+      // Si movió a otra fecha, mostrar ese día para que la tarjeta no "desaparezca".
+      if (targetDate && setDate && String(targetDate) !== String(date || "")) {
+        setDate(String(targetDate).slice(0, 10));
+      }
     } finally {
       setAssigningItemId(null);
     }
-  }, [manualDeskByItem, date, onMove]);
+  }, [manualDeskByItem, manualDateByItem, items, date, setDate, onMove]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } })
@@ -241,32 +261,56 @@ export default function RedistributeBoard({
                           <span>{Math.round((it.estimatedHours || 0) * 60)} min</span>
                         </div>
                     </DraggableCard>
-                    <div className="d-flex" style={{ gap: 4, marginTop: 4 }}>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 4, marginTop: 4 }}>
                       <Input
-                        type="select"
+                        type="date"
                         bsSize="sm"
-                        value={manualDeskByItem[it.taskItemId] ?? (it.desk ? String(it.desk) : "")}
-                        onChange={(e) => setManualDeskByItem((prev) => ({ ...prev, [it.taskItemId]: e.target.value }))}
-                        style={{ fontSize: 12 }}
-                      >
-                        <option value="">Sin mesa</option>
-                        {Array.from({ length: numDesks || 12 }, (_, i) => i + 1).map((d) => (
-                          <option key={d} value={d}>Mesa {d}</option>
-                        ))}
-                      </Input>
-                      <button
-                        type="button"
-                        className="btn btn-sm btn-primary"
-                        style={{ fontSize: 12, whiteSpace: "nowrap" }}
-                        disabled={
-                          assigningItemId === it.taskItemId
-                          || String(manualDeskByItem[it.taskItemId] ?? (it.desk ? String(it.desk) : "")) === String(it.desk || "")
+                        value={
+                          manualDateByItem[it.taskItemId]
+                          ?? (it.scheduledDate ? String(it.scheduledDate).slice(0, 10) : (date || ""))
                         }
-                        onClick={() => handleManualAssign(it.taskItemId)}
-                        title="Cambia la mesa de esta tarea sin arrastrar. Mueve las uds. completas de esta línea."
-                      >
-                        {assigningItemId === it.taskItemId ? "…" : it.desk ? "Cambiar mesa" : "Asignar"}
-                      </button>
+                        onChange={(e) => setManualDateByItem((prev) => ({ ...prev, [it.taskItemId]: e.target.value }))}
+                        title="Fecha de asignación a la mesa (puede ser un día hábil anterior)"
+                        style={{ fontSize: 12 }}
+                      />
+                      <div className="d-flex" style={{ gap: 4 }}>
+                        <Input
+                          type="select"
+                          bsSize="sm"
+                          value={manualDeskByItem[it.taskItemId] ?? (it.desk ? String(it.desk) : "")}
+                          onChange={(e) => setManualDeskByItem((prev) => ({ ...prev, [it.taskItemId]: e.target.value }))}
+                          style={{ fontSize: 12 }}
+                        >
+                          <option value="">Sin mesa</option>
+                          {Array.from({ length: numDesks || 12 }, (_, i) => i + 1).map((d) => (
+                            <option key={d} value={d}>Mesa {d}</option>
+                          ))}
+                        </Input>
+                        <button
+                          type="button"
+                          className="btn btn-sm btn-primary"
+                          style={{ fontSize: 12, whiteSpace: "nowrap" }}
+                          disabled={(() => {
+                            if (assigningItemId === it.taskItemId) return true;
+                            const chosenDesk = String(
+                              manualDeskByItem[it.taskItemId] ?? (it.desk ? String(it.desk) : "")
+                            );
+                            const currentDesk = String(it.desk || "");
+                            const chosenDate = String(
+                              manualDateByItem[it.taskItemId]
+                              ?? (it.scheduledDate ? String(it.scheduledDate).slice(0, 10) : (date || ""))
+                            ).slice(0, 10);
+                            const currentDate = String(it.scheduledDate || date || "").slice(0, 10);
+                            return chosenDesk === currentDesk && chosenDate === currentDate;
+                          })()}
+                          onClick={() => handleManualAssign(it.taskItemId)}
+                          title="Cambia mesa y/o fecha de esta tarea. Mueve las uds. completas de esta línea."
+                        >
+                          {assigningItemId === it.taskItemId
+                            ? "…"
+                            : (it.desk ? "Cambiar" : "Asignar")}
+                        </button>
+                      </div>
                     </div>
                   </div>
                 ))}

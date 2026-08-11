@@ -47,20 +47,26 @@ export default function TaskOrganizer() {
   };
 
   /**
-   * Asigna mesa directamente desde la pestaña Organizar, sin ir al tablero ni arrastrar.
-   * Usa el mismo endpoint move-item que el drag & drop del tablero; conserva la fecha
-   * que ya tenía la tarea (o la deja sin fecha si no tenía).
+   * Asigna o reasigna mesa (+ fecha) desde Organizar, sin ir al tablero.
+   * Mismo endpoint move-item que el drag & drop; la fecha puede ser un día
+   * hábil anterior para retomar trabajo rezagado.
    */
-  const assignDeskFromOrganizer = async (assignment, desk) => {
+  const assignDeskFromOrganizer = async (assignment, desk, chosenDate) => {
     if (!assignment?.taskItemId || !desk) return;
-    const targetDate = assignment.scheduledDate || null;
+    const targetDate = chosenDate || assignment.scheduledDate || null;
+    if (!targetDate) {
+      showError("Seleccione la fecha de asignación a la mesa.");
+      return;
+    }
     if (isWeekendYmd(targetDate)) {
-      showError("Solo se trabaja de lunes a viernes: esta tarea tiene fecha de fin de semana.");
+      showError("Solo se trabaja de lunes a viernes: elige una fecha entre semana.");
       return;
     }
     await onMove({ taskItemId: assignment.taskItemId, targetDesk: desk, targetDate });
-    showSuccess(`Tarea ${assignment.taskCode || ""} asignada a Mesa ${desk}.`);
-    await org.loadOrders();
+    showSuccess(
+      `Tarea ${assignment.taskCode || ""} en Mesa ${desk} · ${formatDateGt(targetDate)}.`
+    );
+    await Promise.all([org.loadOrders(), org.loadTasks()]);
   };
 
   return (
@@ -210,10 +216,10 @@ export default function TaskOrganizer() {
                 introText={
                   <>
                     <strong>Tablero de mesas</strong>: las tareas creadas sin mesa aparecen en
-                    “Sin asignar”. Arrastra cada producto a la mesa donde se trabajará en la fecha elegida
-                    (solo días hábiles). Usa <strong>Reiniciar tareas del día</strong> para liberar solo las
-                    mesas del día que estás viendo, o <strong>Limpiar todas las mesas</strong> para un reset
-                    completo de todas las tareas pendientes.
+                    “Sin asignar”. Arrastra a una mesa del día del filtro, o usa la fecha + mesa
+                    de cada tarjeta para reasignar también a días hábiles anteriores (rezagados).
+                    <strong> Reiniciar</strong> libera solo el día que ves;
+                    <strong> Limpiar todas</strong> resetea pendientes.
                   </>
                 }
               />
