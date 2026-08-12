@@ -27,6 +27,7 @@ import { getProducts } from "services/productService";
 import { getColors } from "services/colorService";
 import {
   getKioscoMovimientos,
+  getKioscoProductoEnKioskos,
   getKioscoStock,
   getKioscoStockBajo,
   registrarKioscoAjuste,
@@ -41,11 +42,13 @@ import {
   registrarKioscoVenta,
 } from "services/kioscoInventoryService";
 import { isPackagingProductCode } from "utils/kioskPackagingHelper";
-import { hasInventorySizeBreakdown } from "utils/inventoryVariantHelper";
+import { hasInventorySizeBreakdown, formatInventorySizesLine } from "utils/inventoryVariantHelper";
 import { isFossCinchosProductCode } from "utils/cinchoProductionHelper";
 import {
   HARDWARE_CONDITION_OPTIONS,
   filterVisibleKioskStockRows,
+  formatCinchoClassification,
+  getHardwareConditionLabel,
   normalizeHardwareCondition,
   resolveCinchoSizesForProduct,
   sortSizeKeys,
@@ -126,6 +129,10 @@ function KioskInventory() {
     fromDate: "",
     toDate: "",
   });
+  const [lookupProductId, setLookupProductId] = useState("");
+  const [lookupColorId, setLookupColorId] = useState("");
+  const [lookupRows, setLookupRows] = useState([]);
+  const [lookupLoading, setLookupLoading] = useState(false);
 
   const kiosks = useMemo(
     () =>
@@ -422,6 +429,36 @@ function KioskInventory() {
     } finally {
       setLoadingData(false);
     }
+  };
+
+  const runProductLookup = async () => {
+    if (!lookupProductId) {
+      showWarning("Selecciona un producto para buscar.");
+      return;
+    }
+    try {
+      setLookupLoading(true);
+      setError("");
+      const rows = await getKioscoProductoEnKioskos(
+        lookupProductId,
+        lookupColorId || null
+      );
+      setLookupRows(rows || []);
+    } catch (err) {
+      setLookupRows([]);
+      setError(err.message || "No se pudo consultar el producto en kioskos.");
+    } finally {
+      setLookupLoading(false);
+    }
+  };
+
+  const openLookupRowInInventory = (row) => {
+    if (!row?.locationId) return;
+    setSelectedLocation(String(row.locationId));
+    onFormChange("locationId", String(row.locationId));
+    setStockExploreProductId(row.productId ? String(row.productId) : "");
+    setStockExploreColorId(row.colorId ? String(row.colorId) : "");
+    setActiveTab("INVENTARIO");
   };
 
   const onFormChange = (key, value) => {
@@ -987,11 +1024,24 @@ function KioskInventory() {
                     Inventario inicial
                   </NavLink>
                 </NavItem>
+                <NavItem>
+                  <NavLink
+                    href="#"
+                    className={activeTab === "DONDE_ESTA" ? "active" : ""}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      setActiveTab("DONDE_ESTA");
+                    }}
+                  >
+                    Dónde está
+                  </NavLink>
+                </NavItem>
               </Nav>
             </CardHeader>
             <CardBody>
               {error && <Alert color="danger">{error}</Alert>}
 
+              {activeTab !== "DONDE_ESTA" && (
               <Row className="mb-3 align-items-end">
                 <Col md="5" sm="8">
                   <FormGroup className="mb-0">
@@ -1010,6 +1060,7 @@ function KioskInventory() {
                   </FormGroup>
                 </Col>
               </Row>
+              )}
 
               {activeTab === "INVENTARIO" && (
               <>
@@ -1689,6 +1740,130 @@ function KioskInventory() {
                     selectedLocation ? refreshLocationData(selectedLocation) : Promise.resolve()
                   }
                 />
+              )}
+
+              {activeTab === "DONDE_ESTA" && (
+                <>
+                  <Alert color="info" className="py-2">
+                    Consulta en qué kioskos está un producto (existencias de <code>kiosco_stock</code>).
+                    Disponible para ADMIN y LOGÍSTICA.
+                  </Alert>
+                  <Row className="align-items-end mb-3">
+                    <Col md="5">
+                      <FormGroup className="mb-0">
+                        <Label>Producto</Label>
+                        <ProductSelector
+                          products={products}
+                          value={lookupProductId}
+                          onChange={(product) => {
+                            setLookupProductId(product ? String(product.id) : "");
+                            setLookupRows([]);
+                          }}
+                          placeholder="Buscar producto…"
+                          disabled={loadingCatalogs}
+                          renderOptionExtra={renderProductOptionExtra}
+                        />
+                      </FormGroup>
+                    </Col>
+                    <Col md="4">
+                      <FormGroup className="mb-0">
+                        <Label>Color (opcional)</Label>
+                        <ColorSelector
+                          colors={colors}
+                          value={lookupColorId}
+                          onChange={(color) => {
+                            setLookupColorId(color ? String(color.id) : "");
+                            setLookupRows([]);
+                          }}
+                          placeholder="Todos los colores…"
+                          disabled={loadingCatalogs || !lookupProductId}
+                        />
+                      </FormGroup>
+                    </Col>
+                    <Col md="3">
+                      <Button
+                        color="primary"
+                        block
+                        disabled={!lookupProductId || lookupLoading}
+                        onClick={() => void runProductLookup()}
+                      >
+                        {lookupLoading ? (
+                          <>
+                            <Spinner size="sm" className="mr-2" />
+                            Buscando…
+                          </>
+                        ) : (
+                          "Buscar en kioskos"
+                        )}
+                      </Button>
+                    </Col>
+                  </Row>
+
+                  {lookupLoading ? (
+                    <div className="text-center text-muted py-4">
+                      <Spinner size="sm" className="mr-2" />
+                      Consultando existencias…
+                    </div>
+                  ) : !lookupProductId ? (
+                    <Alert color="light" className="border mb-0">
+                      Selecciona un producto para ver en qué kioskos está.
+                    </Alert>
+                  ) : lookupRows.length === 0 ? (
+                    <Alert color="warning" className="mb-0">
+                      No hay existencias ni historial de movimientos de este producto en kioskos
+                      {lookupColorId ? " con el color seleccionado" : ""}.
+                    </Alert>
+                  ) : (
+                    <Table responsive hover size="sm" className="mb-0 bg-white">
+                      <thead>
+                        <tr>
+                          <th>Kiosko</th>
+                          <th>Producto</th>
+                          <th>Color</th>
+                          <th>Tipo</th>
+                          <th>Herraje</th>
+                          <th className="text-right">Stock</th>
+                          <th>Tallas</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {lookupRows.map((row) => (
+                          <tr
+                            key={row.id || `${row.locationId}-${row.productId}-${row.colorId}-${row.hardwareCondition}`}
+                            style={{ cursor: "pointer" }}
+                            title="Ver inventario de este kiosko"
+                            onClick={() => openLookupRowInInventory(row)}
+                          >
+                            <td>
+                              <strong>{row.locationName || "—"}</strong>
+                              {row.locationCode ? (
+                                <div className="small text-muted">{row.locationCode}</div>
+                              ) : null}
+                            </td>
+                            <td>
+                              {row.productCode || "—"}
+                              {row.productName ? (
+                                <div className="small text-muted">{row.productName}</div>
+                              ) : null}
+                            </td>
+                            <td>{row.colorName || "Sin color"}</td>
+                            <td className="small">{formatCinchoClassification(row)}</td>
+                            <td className="small">{getHardwareConditionLabel(row.hardwareCondition)}</td>
+                            <td className="text-right font-weight-bold">
+                              {row.currentStock ?? 0}
+                              {row.lowStock ? (
+                                <Badge color="warning" className="ml-1">Bajo</Badge>
+                              ) : null}
+                            </td>
+                            <td className="small text-muted">
+                              {formatInventorySizesLine(row.sizes) || "—"}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </Table>
+                  )}
+                </>
               )}
             </CardBody>
           </Card>

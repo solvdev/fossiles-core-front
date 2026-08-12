@@ -48,6 +48,13 @@ export const getKioscoStockReport = async (locationIds) => {
   return apiRequest(`/kiosco-inventory/reporte/existencias?${params.toString()}`);
 };
 
+export const getKioscoProductoEnKioskos = async (productId, colorId) => {
+  if (!productId) return [];
+  const params = new URLSearchParams({ productId: String(productId) });
+  if (colorId) params.append("colorId", String(colorId));
+  return apiRequest(`/kiosco-inventory/reporte/producto-en-kioskos?${params.toString()}`);
+};
+
 export const startKioscoConteo = async (locationId, from, to) => {
   const params = new URLSearchParams({ from, to });
   return apiRequest(`/kiosco-inventory/${locationId}/conteo-fisico?${params.toString()}`, { method: "POST" });
