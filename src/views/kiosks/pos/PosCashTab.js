@@ -14,14 +14,13 @@ import {
   Table,
 } from "reactstrap";
 import {
-  addCashSessionExpense,
   closeCashSession,
   getCashCloseReport,
   openCashSession,
 } from "services/kioskPosService";
 import { formatDateTimeGt } from "utils/dateTimeHelper";
 import { showError, showSuccess } from "utils/notificationHelper";
-import { formatCurrency, formatSaleDepositReference, isDepositApplicable } from "./posUtils";
+import { formatCurrency } from "./posUtils";
 import PosCashCloseReportModal from "./PosCashCloseReportModal";
 
 const formatDateTime = (value) => formatDateTimeGt(value);
@@ -37,7 +36,7 @@ function CashReconciliationSummary({ session }) {
       <div className="small text-muted mb-1">Cuadre de efectivo</div>
       <div>Fondo inicial: <strong>{formatCurrency(opening)}</strong></div>
       <div>+ Efectivo en ventas: <strong>{formatCurrency(cashSales)}</strong></div>
-          <div>- Desembolsos (gastos) del turno: <strong>{formatCurrency(expenses)}</strong></div>
+      <div>- Desembolsos (gastos) del turno: <strong>{formatCurrency(expenses)}</strong></div>
       <div className="mt-2">
         = Efectivo esperado en caja: <strong>{formatCurrency(expected)}</strong>
       </div>
@@ -165,17 +164,12 @@ function PosCashTab({
   kioskLocationId,
   kioskName,
   posOpeningCashAmount = 300,
-  sessionSales = [],
   onSessionChange,
   loading,
   pendingDepositSummary,
 }) {
   const [opening, setOpening] = useState(false);
   const [closeOpen, setCloseOpen] = useState(false);
-  const [expenseAmount, setExpenseAmount] = useState("");
-  const [expenseDescription, setExpenseDescription] = useState("");
-  const [linkedSaleId, setLinkedSaleId] = useState("");
-  const [expenseSaving, setExpenseSaving] = useState(false);
   const [reportModalOpen, setReportModalOpen] = useState(false);
   const [reportLoading, setReportLoading] = useState(false);
   const [closeReport, setCloseReport] = useState(null);
@@ -210,36 +204,6 @@ function PosCashTab({
       showError(err.message || "Caja cerrada, pero no se pudo abrir el reporte.");
     } finally {
       setReportLoading(false);
-    }
-  };
-
-  const handleAddExpense = async () => {
-    if (!cashSession?.id) return;
-    const amount = Number(expenseAmount);
-    if (!Number.isFinite(amount) || amount <= 0) {
-      showError("Ingresa un monto válido para el gasto.");
-      return;
-    }
-    if (!expenseDescription.trim()) {
-      showError("Describe para qué fue el gasto.");
-      return;
-    }
-    try {
-      setExpenseSaving(true);
-      await addCashSessionExpense(cashSession.id, {
-        amount,
-        description: expenseDescription.trim(),
-        kioskSaleId: linkedSaleId ? Number(linkedSaleId) : undefined,
-      });
-      setExpenseAmount("");
-      setExpenseDescription("");
-      setLinkedSaleId("");
-      showSuccess("Gasto registrado.");
-      await onSessionChange();
-    } catch (err) {
-      showError(err.message || "No se pudo registrar el gasto.");
-    } finally {
-      setExpenseSaving(false);
     }
   };
 
@@ -279,6 +243,9 @@ function PosCashTab({
                   <div className="text-muted small">
                     Desde {formatDateTime(cashSession.openedAt)} · Fondo {formatCurrency(cashSession.openingAmount ?? configuredOpening)}
                   </div>
+                  <div className="text-muted small mt-1">
+                    Los desembolsos se registran desde el detalle de cada venta.
+                  </div>
                 </div>
                 <Button color="danger" outline onClick={() => setCloseOpen(true)}>
                   Cerrar caja
@@ -293,56 +260,13 @@ function PosCashTab({
                 Tarjeta: <strong>{formatCurrency(cashSession.cardSalesTotal || 0)}</strong>
               </div>
 
-              <div className="border rounded p-3 mb-0">
-                <h6 className="mb-2">Registrar desembolso (gasto de efectivo)</h6>
-                <p className="text-muted small mb-2">
-                  Gasto del turno. Opcionalmente liga el desembolso a una venta en efectivo del día para
-                  descontarlo del depósito de esa venta.
-                </p>
-                <div className="d-flex flex-wrap align-items-end" style={{ gap: 12 }}>
-                  {sessionSales.length > 0 && (
-                    <div style={{ minWidth: 220 }}>
-                      <Label className="kiosk-pos-label mb-1">Venta (opcional)</Label>
-                      <Input
-                        type="select"
-                        value={linkedSaleId}
-                        onChange={(e) => setLinkedSaleId(e.target.value)}
-                      >
-                        <option value="">General de caja</option>
-                        {sessionSales.map((sale) => (
-                          <option key={sale.id} value={sale.id}>
-                            {formatSaleDepositReference(sale)} · {formatCurrency(sale.totalAmount)}
-                          </option>
-                        ))}
-                      </Input>
-                    </div>
-                  )}
-                  <div style={{ minWidth: 120 }}>
-                    <Label className="kiosk-pos-label mb-1">Monto</Label>
-                    <Input
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      value={expenseAmount}
-                      onChange={(e) => setExpenseAmount(e.target.value)}
-                      placeholder="0.00"
-                    />
-                  </div>
-                  <div style={{ flex: 1, minWidth: 180 }}>
-                    <Label className="kiosk-pos-label mb-1">Descripción</Label>
-                    <Input
-                      value={expenseDescription}
-                      onChange={(e) => setExpenseDescription(e.target.value)}
-                      placeholder="Ej. compra de bolsas"
-                    />
-                  </div>
-                  <Button color="warning" outline onClick={handleAddExpense} disabled={expenseSaving}>
-                    {expenseSaving ? <Spinner size="sm" /> : "Agregar desembolso"}
-                  </Button>
-                </div>
-
-                {expenses.length > 0 && (
-                  <Table responsive size="sm" className="mt-3 mb-0">
+              {expenses.length > 0 && (
+                <div className="border rounded p-3 mb-0">
+                  <h6 className="mb-2">Desembolsos del turno</h6>
+                  <p className="text-muted small mb-2">
+                    Solo lectura. Se agregan desde el detalle de cada venta.
+                  </p>
+                  <Table responsive size="sm" className="mb-0">
                     <thead>
                       <tr>
                         <th>Hora</th>
@@ -374,8 +298,8 @@ function PosCashTab({
                       </tr>
                     </tfoot>
                   </Table>
-                )}
-              </div>
+                </div>
+              )}
             </>
           )}
         </CardBody>
