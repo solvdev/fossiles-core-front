@@ -1890,7 +1890,12 @@ function PrepareShipments() {
           typeof orderItem.unitPrices === "object" &&
           Object.keys(orderItem.unitPrices).length > 0;
         if (hasSizedMap) {
-          const fromOrderSized = resolveOpvUnitPriceForSize(orderItem, sizeKey, productCatalogById);
+          const fromOrderSized = resolveOpvUnitPriceForSize(
+            orderItem,
+            sizeKey,
+            productCatalogById,
+            isLuisFelipeVendorFlow(order?.orderType, order?.sellerName)
+          );
           if (Number.isFinite(fromOrderSized) && fromOrderSized >= 0) return fromOrderSized;
         } else if (!sizeKey) {
           const fromOrder = Number(orderItem.unitPrice);

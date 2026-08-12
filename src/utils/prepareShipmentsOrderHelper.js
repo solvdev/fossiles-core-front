@@ -87,7 +87,7 @@ function normalizeSizeKey(size) {
 }
 
 /** Precio unitario por talla desde unitPrices del ítem, con fallback a unitPrice / catálogo. */
-export function resolveOpvUnitPriceForSize(item, size, productCatalogById = {}) {
+export function resolveOpvUnitPriceForSize(item, size, productCatalogById = {}, preferSellerPrice = false) {
   const sizeKey = normalizeSizeKey(size);
   const unitPrices =
     item?.unitPrices && typeof item.unitPrices === "object" ? item.unitPrices : null;
@@ -102,16 +102,22 @@ export function resolveOpvUnitPriceForSize(item, size, productCatalogById = {}) 
       if (Number.isFinite(n) && n >= 0) return n;
     }
   }
-  return resolveDefaultOpvUnitPrice(item, productCatalogById);
+  return resolveDefaultOpvUnitPrice(item, productCatalogById, preferSellerPrice);
 }
 
-export function resolveDefaultOpvUnitPrice(item, productCatalogById = {}) {
+/**
+ * Fallback de catálogo. `preferSellerPrice` solo para Luis Felipe;
+ * OPCK/OPK y demás usan precio de venta.
+ */
+export function resolveDefaultOpvUnitPrice(item, productCatalogById = {}, preferSellerPrice = false) {
   const fromItem = Number(item?.unitPrice);
   if (Number.isFinite(fromItem) && fromItem > 0) return fromItem;
   const productId = Number(item?.productId);
   const product = Number.isFinite(productId) ? productCatalogById[productId] : null;
-  const seller = Number(product?.sellerPrice);
-  if (Number.isFinite(seller) && seller > 0) return seller;
+  if (preferSellerPrice) {
+    const seller = Number(product?.sellerPrice);
+    if (Number.isFinite(seller) && seller > 0) return seller;
+  }
   const sale = Number(product?.salePrice ?? product?.price);
   if (Number.isFinite(sale) && sale > 0) return sale;
   return 0;
@@ -119,6 +125,7 @@ export function resolveDefaultOpvUnitPrice(item, productCatalogById = {}) {
 
 /** Filas para revisión de precios (una fila por talla si aplica). */
 export function expandOrderItemsForOpvPriceLines(order, productCatalogById = {}) {
+  const preferSellerPrice = isLuisFelipeVendorFlow(order?.orderType, order?.sellerName);
   const items = Array.isArray(order?.items) ? order.items : [];
   const lines = [];
   items.forEach((item, itemIndex) => {
@@ -143,7 +150,7 @@ export function expandOrderItemsForOpvPriceLines(order, productCatalogById = {})
           lineId: `${key}-${size}`,
           size,
           quantity: Number(qty) || 0,
-          unitPrice: resolveOpvUnitPriceForSize(item, size, productCatalogById),
+          unitPrice: resolveOpvUnitPriceForSize(item, size, productCatalogById, preferSellerPrice),
         });
       });
     } else if (Number(item.quantity) > 0) {
@@ -152,7 +159,7 @@ export function expandOrderItemsForOpvPriceLines(order, productCatalogById = {})
         lineId: `${key}-qty`,
         size: "",
         quantity: Number(item.quantity) || 0,
-        unitPrice: resolveDefaultOpvUnitPrice(item, productCatalogById),
+        unitPrice: resolveDefaultOpvUnitPrice(item, productCatalogById, preferSellerPrice),
       });
     }
   });
@@ -207,6 +214,7 @@ export function applyOpvPricesToOrderItems(order, priceByLineId) {
 }
 
 export function applyOrderItemPricesToShipmentProducts(order, products) {
+  const preferSellerPrice = isLuisFelipeVendorFlow(order?.orderType, order?.sellerName);
   const items = Array.isArray(order?.items) ? order.items : [];
   const matchItem = (productId, colorId) => {
     const byBoth = items.find((row) => {
@@ -232,7 +240,7 @@ export function applyOrderItemPricesToShipmentProducts(order, products) {
       next.unitPrices = Object.fromEntries(
         Object.entries(item.unitPrices).map(([k, v]) => [normalizeSizeKey(k), Number(v) || 0])
       );
-      const sized = resolveOpvUnitPriceForSize(item, p.size, {});
+      const sized = resolveOpvUnitPriceForSize(item, p.size, {}, preferSellerPrice);
       if (Number.isFinite(sized) && sized >= 0) {
         next.unitPrice = sized;
       }
@@ -385,6 +393,7 @@ export function lookupOpvPrintPriceIndex(priceIndex, productId, colorId, size) {
 }
 
 export function buildShipmentProductsFromOrderItems(order) {
+  const preferSellerPrice = isLuisFelipeVendorFlow(order?.orderType, order?.sellerName);
   const items = Array.isArray(order?.items) ? order.items : [];
   const lines = [];
   items.forEach((item) => {
@@ -399,7 +408,7 @@ export function buildShipmentProductsFromOrderItems(order) {
             colorId: item.colorId != null ? Number(item.colorId) : null,
             size: String(size),
             quantity: q,
-            unitPrice: resolveOpvUnitPriceForSize(item, size, {}),
+            unitPrice: resolveOpvUnitPriceForSize(item, size, {}, preferSellerPrice),
           });
           addedFromSizes = true;
         }

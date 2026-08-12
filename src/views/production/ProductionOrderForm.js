@@ -353,9 +353,14 @@ function ProductionOrderForm({ orderId, isOpen, toggle, onSuccess }) {
     return Object.keys(newErrors).length === 0;
   };
 
+  const preferSellerCatalogPrice = isLuisFelipeVendorFlow(
+    formData.orderType,
+    formData.sellerName
+  );
+
   const defaultUnitPriceForProduct = (productId) => {
     const item = { productId, unitPrice: itemForm.unitPrice };
-    return resolveDefaultOpvUnitPrice(item, productCatalogById);
+    return resolveDefaultOpvUnitPrice(item, productCatalogById, preferSellerCatalogPrice);
   };
 
   const handleAddItem = () => {
@@ -515,7 +520,8 @@ function ProductionOrderForm({ orderId, isOpen, toggle, onSuccess }) {
       if (showItemUnitPrice) {
         const price = resolveDefaultOpvUnitPrice(
           { productId, unitPrice: prev.unitPrice },
-          productCatalogById
+          productCatalogById,
+          isLuisFelipeVendorFlow(formData.orderType, formData.sellerName)
         );
         next.unitPrice = price > 0 ? String(price) : "";
       }
@@ -585,7 +591,11 @@ function ProductionOrderForm({ orderId, isOpen, toggle, onSuccess }) {
             ? (() => {
                 const n = Number(item.unitPrice);
                 if (Number.isFinite(n) && n > 0) return n;
-                const fallback = resolveDefaultOpvUnitPrice(item, productCatalogById);
+                const fallback = resolveDefaultOpvUnitPrice(
+                  item,
+                  productCatalogById,
+                  isLuisFelipeVendorFlow(formData.orderType, formData.sellerName)
+                );
                 return fallback > 0 ? fallback : undefined;
               })()
             : undefined,
