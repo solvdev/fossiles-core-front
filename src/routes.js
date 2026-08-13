@@ -61,6 +61,7 @@ import CinchosProductionOrdersView from "views/production/CinchosProductionOrder
 // Inventarios
 import InventoryByLocation from "views/inventory/InventoryByLocation.js";
 import ProductInventoryByLocation from "views/inventory/ProductInventoryByLocation.js";
+import ProductLedgerLab from "views/inventory/ProductLedgerLab.js";
 import MaterialInventoryKardex from "views/inventory/MaterialInventoryKardex.js";
 import InventoryKardex from "views/inventory/InventoryKardex.js";
 import InventoryTransfers from "views/inventory/InventoryTransfers.js";
@@ -742,6 +743,15 @@ const routes = [
         permissions: {
           view: "INVENTARIOS.PRODUCTOS.VER",
         },
+      },
+      {
+        path: "/product-ledger-lab",
+        name: "Product Ledger Lab",
+        mini: "PL",
+        component: <ProductLedgerLab />,
+        layout: "/admin",
+        module: "INVENTARIOS",
+        showInSidebar: false,
       },
       {
         path: "/material-inventory-kardex",
