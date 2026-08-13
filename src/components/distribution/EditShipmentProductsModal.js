@@ -15,14 +15,30 @@ import {
   Table,
 } from "reactstrap";
 import { ColorSelector, ProductSelector } from "components/catalog/FilterableCatalogSelectors";
+import { FilterableSelect } from "components/distribution/FilterableSelect";
 import { getColors } from "services/colorService";
+import { getLocations } from "services/locationService";
 import { getProducts } from "services/productService";
-import { previewDispatchStock, updateShipmentProducts } from "services/productDistributionService";
+import {
+  previewDispatchStock,
+  updateShipmentDestination,
+  updateShipmentProducts,
+} from "services/productDistributionService";
 import { isCinchoInventoryProductByCodeAndName } from "utils/cinchoProductionHelper";
 import { HARDWARE_CONDITION_OPTIONS } from "utils/productCinchoHelper";
 import { showError, showSuccess } from "utils/notificationHelper";
 
 const normalizeStatus = (status) => String(status || "").trim().toUpperCase();
+
+const extractDestinoFromNotes = (notes) => {
+  for (const line of String(notes || "").split("\n")) {
+    const trimmed = line.trim();
+    if (trimmed.toUpperCase().startsWith("DESTINO:")) {
+      return trimmed.slice("DESTINO:".length).trim();
+    }
+  }
+  return "";
+};
 
 const emptyLine = () => ({
   key: `line-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
@@ -50,11 +66,16 @@ function EditShipmentProductsModal({ isOpen, toggle, shipment, onSaved }) {
   const [lines, setLines] = useState([emptyLine()]);
   const [products, setProducts] = useState([]);
   const [colors, setColors] = useState([]);
+  const [kiosks, setKiosks] = useState([]);
   const [loadingCatalog, setLoadingCatalog] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [destinationUnlocked, setDestinationUnlocked] = useState(false);
+  const [locationId, setLocationId] = useState("");
+  const [destinationAddress, setDestinationAddress] = useState("");
 
   const shipmentStatus = normalizeStatus(shipment?.status);
   const isSent = shipmentStatus === "SENT";
+  const usesKioskDestination = shipment?.locationId != null || shipment?.distributionId != null;
 
   const resetFromShipment = useCallback(() => {
     const source = Array.isArray(shipment?.products) ? shipment.products : [];
@@ -63,16 +84,24 @@ function EditShipmentProductsModal({ isOpen, toggle, shipment, onSaved }) {
     } else {
       setLines([emptyLine()]);
     }
+    setDestinationUnlocked(false);
+    setLocationId(shipment?.locationId != null ? String(shipment.locationId) : "");
+    setDestinationAddress(extractDestinoFromNotes(shipment?.notes));
   }, [shipment]);
 
   useEffect(() => {
     if (!isOpen || !shipment) return;
     resetFromShipment();
     setLoadingCatalog(true);
-    Promise.all([getProducts(), getColors()])
-      .then(([prods, cols]) => {
+    Promise.all([getProducts(), getColors(), getLocations()])
+      .then(([prods, cols, locs]) => {
         setProducts(prods || []);
         setColors(cols || []);
+        const rows = (locs || []).filter((loc) => {
+          const cat = String(loc.category || loc.categoria || loc.locationCategory || "").toUpperCase();
+          return cat.includes("KIOSKO") || cat === "KIOSK";
+        });
+        setKiosks(rows.length ? rows : locs || []);
       })
       .catch((err) => showError(err.message || "No se pudo cargar catálogo"))
       .finally(() => setLoadingCatalog(false));
@@ -83,6 +112,37 @@ function EditShipmentProductsModal({ isOpen, toggle, shipment, onSaved }) {
     (products || []).forEach((p) => map.set(Number(p.id), p));
     return map;
   }, [products]);
+
+  const kioskOptions = useMemo(
+    () =>
+      (kiosks || []).map((k) => ({
+        value: String(k.id),
+        label: `${k.code ? `${k.code} — ` : ""}${k.name || ""}`.trim(),
+        searchText: `${k.code || ""} ${k.name || ""} ${k.category || k.categoria || ""}`,
+      })),
+    [kiosks]
+  );
+
+  const destinationLabel = useMemo(() => {
+    if (usesKioskDestination) {
+      const selected = (kiosks || []).find((k) => String(k.id) === String(locationId || shipment?.locationId));
+      if (selected) {
+        return `${selected.code ? `${selected.code} — ` : ""}${selected.name || ""}`.trim();
+      }
+      return (
+        shipment?.locationName ||
+        shipment?.locationCode ||
+        (shipment?.locationId ? `Kiosko #${shipment.locationId}` : "Sin destino")
+      );
+    }
+    return destinationAddress || extractDestinoFromNotes(shipment?.notes) || "Sin destino";
+  }, [
+    usesKioskDestination,
+    kiosks,
+    locationId,
+    shipment,
+    destinationAddress,
+  ]);
 
   const getLineProduct = (row) => productsById.get(Number(row.productId));
 
@@ -153,6 +213,12 @@ function EditShipmentProductsModal({ isOpen, toggle, shipment, onSaved }) {
     setLines((prev) => (prev.length <= 1 ? prev : prev.filter((l) => l.key !== key)));
   };
 
+  const lockDestination = () => {
+    setDestinationUnlocked(false);
+    setLocationId(shipment?.locationId != null ? String(shipment.locationId) : "");
+    setDestinationAddress(extractDestinoFromNotes(shipment?.notes));
+  };
+
   const handleSubmit = async () => {
     if (!shipment?.id) {
       showError("Envío no válido");
@@ -189,9 +255,23 @@ function EditShipmentProductsModal({ isOpen, toggle, shipment, onSaved }) {
       }
     }
 
+    if (destinationUnlocked && usesKioskDestination) {
+      const nextLoc = Number(locationId);
+      if (!Number.isFinite(nextLoc) || nextLoc <= 0) {
+        showError("Seleccione el kiosko destino");
+        return;
+      }
+    }
+
     const productsPayload = payloadLines.map(({ rowKey, ...rest }) => rest);
     setSaving(true);
     try {
+      if (destinationUnlocked) {
+        const destPayload = usesKioskDestination
+          ? { locationId: Number(locationId) }
+          : { destinationAddress: String(destinationAddress || "").trim() };
+        await updateShipmentDestination(shipment.id, destPayload);
+      }
       const updated = await updateShipmentProducts(shipment.id, productsPayload);
       showSuccess(`Envío ${updated.shipmentNumber || shipment.shipmentNumber || shipment.id} actualizado`);
       toggle();
@@ -202,11 +282,6 @@ function EditShipmentProductsModal({ isOpen, toggle, shipment, onSaved }) {
       setSaving(false);
     }
   };
-
-  const destinationLabel =
-    shipment?.locationName ||
-    shipment?.locationCode ||
-    (shipment?.locationId ? `Kiosko #${shipment.locationId}` : "Sin destino");
 
   return (
     <Modal isOpen={isOpen} toggle={toggle} size="xl">
@@ -223,10 +298,44 @@ function EditShipmentProductsModal({ isOpen, toggle, shipment, onSaved }) {
         <Row className="mb-3">
           <Col md="6">
             <FormGroup className="mb-0">
-              <Label className="mb-1">Destino</Label>
-              <div className="form-control-plaintext border rounded px-2 py-1 bg-light">
-                {destinationLabel}
-              </div>
+              <Label className="mb-1 d-flex align-items-center justify-content-between">
+                <span>Destino</span>
+                <Button
+                  color="link"
+                  size="sm"
+                  className="p-0"
+                  type="button"
+                  title={destinationUnlocked ? "Bloquear destino" : "Editar destino"}
+                  onClick={() => (destinationUnlocked ? lockDestination() : setDestinationUnlocked(true))}
+                  disabled={saving || loadingCatalog}
+                >
+                  <i className={`nc-icon ${destinationUnlocked ? "nc-lock-circle-open" : "nc-ruler-pencil"}`} />
+                  <span className="ml-1">{destinationUnlocked ? "Bloquear" : "Editar"}</span>
+                </Button>
+              </Label>
+              {destinationUnlocked ? (
+                usesKioskDestination ? (
+                  <FilterableSelect
+                    options={kioskOptions}
+                    value={locationId}
+                    onChange={setLocationId}
+                    placeholder="Seleccione kiosko destino…"
+                    emptyLabel="— Kiosko —"
+                    disabled={loadingCatalog || saving}
+                  />
+                ) : (
+                  <Input
+                    value={destinationAddress}
+                    onChange={(e) => setDestinationAddress(e.target.value)}
+                    placeholder="Destino / dirección"
+                    disabled={saving}
+                  />
+                )
+              ) : (
+                <div className="form-control-plaintext border rounded px-2 py-1 bg-light">
+                  {destinationLabel}
+                </div>
+              )}
             </FormGroup>
           </Col>
           <Col md="3">

@@ -288,6 +288,32 @@ export const updateShipmentProducts = async (shipmentId, products) => {
   }
 };
 
+export const updateShipmentDestination = async (shipmentId, payload) => {
+  if (!shipmentId || shipmentId === 'undefined' || shipmentId === 'null') {
+    throw new Error('ID de envío inválido');
+  }
+  try {
+    const response = await fetch(`${API_URL}/product-distributions/shipments/${shipmentId}/destination`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        ...getAuthHeader()
+      },
+      body: JSON.stringify(payload || {})
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({ message: 'Error al actualizar destino del envío' }));
+      throw new Error(errorData.message || 'Error al actualizar destino del envío');
+    }
+
+    return await response.json();
+  } catch (error) {
+    console.error('Update shipment destination error:', error);
+    throw error;
+  }
+};
+
 export const cancelShipment = async (id) => {
   if (!id || id === 'undefined' || id === 'null') {
     throw new Error('ID de envío inválido');
