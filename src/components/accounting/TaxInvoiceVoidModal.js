@@ -51,7 +51,7 @@ function TaxInvoiceVoidModal({ isOpen, onClose, invoice, onSuccess }) {
     try {
       setVoiding(true);
       const updated = await voidTaxInvoice(invoice.id, voidReason.trim());
-      showSuccess("Factura anulada ante el SAT. Quedó en borrador para volver a certificar.");
+      showSuccess("Factura anulada ante el SAT. Quedó en Anuladas.");
       if (onSuccess) onSuccess(updated);
       onClose();
     } catch (err) {
@@ -78,8 +78,9 @@ function TaxInvoiceVoidModal({ isOpen, onClose, invoice, onSuccess }) {
           </p>
         )}
         <p className="text-muted small mb-3">
-          Se enviará la anulación al certificador FEL (INFILE). La factura quedará en <strong>borrador</strong>
-          sin UUID FEL para que puedas volver a firmarla con los datos corregidos.
+          Se enviará la anulación al certificador FEL (INFILE). La factura quedará en estado{" "}
+          <strong>Anulada</strong> (con motivo y UUID de anulación). Si necesitas reemitirla, usa{" "}
+          <strong>Firmar FEL</strong> desde el detalle.
         </p>
         {voidBlocked && (
           <Alert color="danger" className="mb-3">

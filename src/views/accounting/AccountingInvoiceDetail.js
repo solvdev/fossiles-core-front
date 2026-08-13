@@ -208,9 +208,9 @@ function AccountingInvoiceDetail() {
                 </>
               )}
               {invoice.status === "VOID" && (
-                <p className="text-warning small">
-                  Estado heredado de versión anterior. Use <strong>Firmar FEL</strong> o ejecute el script
-                  migration-reset-void-tax-invoice-to-draft.sql para dejarla en borrador.
+                <p className="text-muted small">
+                  Factura anulada ante el SAT. Para reemitir con datos corregidos use{" "}
+                  <strong>Firmar FEL</strong> (pasa a borrador y certifica de nuevo).
                 </p>
               )}
               {invoice.status === "CERTIFIED" && !invoice.hasCertifiedXml && (

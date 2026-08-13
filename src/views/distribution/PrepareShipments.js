@@ -185,7 +185,7 @@ const isShipmentRowForPrepareList = (shipment) => {
 const isShipmentSendable = (status) => normalizeShipmentStatus(status) === "CONFIRMED";
 const isShipmentCancellable = (status) => {
   const st = normalizeShipmentStatus(status);
-  return st === "DRAFT" || st === "CONFIRMED";
+  return st === "DRAFT" || st === "CONFIRMED" || st === "SENT";
 };
 const isShipmentProductsEditable = (status) => {
   const st = normalizeShipmentStatus(status);
@@ -3409,7 +3409,13 @@ function PrepareShipments() {
 
   const handleCancelShipment = async (shipment) => {
     if (!shipment) return;
-    if (!window.confirm("¿Anular este envío? Solo aplica antes de enviar (borrador o confirmado).")) {
+    const st = normalizeShipmentStatus(shipment.status);
+    const confirmMsg = isSyntheticShipmentId(shipment.id)
+      ? "¿Anular este documento de envío? La orden volverá a pendientes para regenerarlo."
+      : st === "SENT"
+        ? "¿Anular este envío en tránsito?\n\nSe revierte la salida de Bodega PT/Devoluciones, el envío queda anulado y la orden/kiosko vuelve a pendientes para regenerarlo."
+        : "¿Anular este envío?\n\nQuedará anulado y podrá regenerar el envío desde pendientes / Generar envío.";
+    if (!window.confirm(confirmMsg)) {
       return;
     }
     try {
@@ -3419,10 +3425,10 @@ function PrepareShipments() {
         const orderId = syntheticShipmentOrderId(shipment.id);
         if (!orderId) throw new Error("No se pudo identificar la orden del documento");
         await voidVendorShipmentDocument(orderId);
-        showSuccess("Documento de envío anulado");
+        showSuccess("Documento anulado. Puede regenerar el envío desde pendientes.");
       } else {
         await cancelShipment(shipment.id);
-        showSuccess("Envío anulado correctamente");
+        showSuccess("Envío anulado. Puede regenerarlo desde pendientes / Generar envío.");
       }
       await reloadAfterShipmentCancel();
     } catch (err) {
@@ -4417,13 +4423,14 @@ function PrepareShipments() {
                               disabled={cancellingShipmentId === shipment.id}
                               onClick={() => handleCancelShipment(shipment)}
                               className="mr-2"
+                              title="Anula el envío (si está en tránsito revierte bodega) para poder regenerarlo"
                             >
                               {cancellingShipmentId === shipment.id ? (
                                 <Spinner size="sm" />
                               ) : (
                                 <>
                                   <i className="nc-icon nc-simple-remove mr-1" />
-                                  Anular
+                                  Anular / regenerar
                                 </>
                               )}
                             </Button>
