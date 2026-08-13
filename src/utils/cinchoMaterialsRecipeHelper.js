@@ -4,7 +4,7 @@
  * Mantener alineado con fossiles-mobile-inventory/src/utils/cinchoOrderRecipe.ts
  * y con el backend:
  * - TaskController.buildProductWithRecipe (BOM activo "A", preferencia colorId, total = bomQty × piezas OP)
- * - ProductionOrderController al crear OP: piezas = quantity + sum(sizes) cuando sizes no vacío
+ * - ProductionOrderItemQuantityHelper: piezas = sum(sizes) si hay tallas; si no, quantity
  */
 
 export const CINCHO_MATERIALS_READONLY_TITLE =
@@ -23,14 +23,14 @@ function sumSizesMap(sizes) {
 }
 
 /**
- * Igual que el total usado al generar solicitudes de materiales en ProductionOrderController (~167–172).
+ * Igual que ProductionOrderItemQuantityHelper / totalOrderItemQuantity:
+ * tallas si suman > 0; si no, quantity.
  * @param {{ quantity?: number|null, sizes?: Record<string, number>|null }} item
  */
 export function effectivePieceQuantityForOrderItem(item) {
-  const q = Number(item?.quantity || 0);
   const sumSz = sumSizesMap(item?.sizes);
-  if (sumSz > 0) return q + sumSz;
-  return q;
+  if (sumSz > 0) return sumSz;
+  return Number(item?.quantity || 0);
 }
 
 /**

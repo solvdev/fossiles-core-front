@@ -25,16 +25,17 @@ export function getExcludedCinchoItemsForTableCenter(order) {
 }
 
 /**
- * Cantidad efectiva de un ítem de OP: quantity + suma de tallas, mínimo 1
+ * Cantidad efectiva de un ítem de OP: si hay tallas con suma > 0, esa suma;
+ * si no, quantity. Mínimo 1.
  * (espejo de ProductionOrderItemQuantityHelper.effectiveQuantityForBom del backend).
  */
 export function effectiveOrderItemQuantity(item) {
   if (!item) return 1;
-  let total = Number(item.quantity) || 0;
   if (item.sizes && typeof item.sizes === "object") {
-    total += Object.values(item.sizes).reduce((sum, q) => sum + (Number(q) || 0), 0);
+    const fromSizes = Object.values(item.sizes).reduce((sum, q) => sum + (Number(q) || 0), 0);
+    if (fromSizes > 0) return fromSizes;
   }
-  return Math.max(total, 1);
+  return Math.max(Number(item.quantity) || 0, 1);
 }
 
 /**
