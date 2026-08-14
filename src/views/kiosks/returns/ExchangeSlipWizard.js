@@ -27,8 +27,12 @@ import {
 import {
   formatCurrency,
   formatQty,
+  posVariantChipLabel,
+  posVariantHasStock,
   posVariantNeedsSizePick,
   posVariantSizeEntries,
+  posVariantStockQty,
+  variantLineKeyFor,
 } from "../pos/posUtils";
 import ExchangeCheckoutModal from "./ExchangeCheckoutModal";
 import "../KioskSales.css";
@@ -48,6 +52,20 @@ const impliedDiscountPercent = (catalogSalePrice, paidUnitPrice) => {
   const paid = Number(paidUnitPrice || 0);
   if (!(catalog > 0) || !(paid >= 0) || paid >= catalog - 0.009) return null;
   return Math.round((1 - paid / catalog) * 1000) / 10;
+};
+
+/** Solo variantes con stock; una fila por producto+color+herraje (queda la de mayor qty). */
+const dedupeSellableInventory = (rows) => {
+  const byKey = new Map();
+  (rows || []).forEach((row) => {
+    if (!posVariantHasStock(row)) return;
+    const key = variantLineKeyFor(row.productId, row.colorId, row.hardwareCondition);
+    const prev = byKey.get(key);
+    if (!prev || posVariantStockQty(row) > posVariantStockQty(prev)) {
+      byKey.set(key, row);
+    }
+  });
+  return Array.from(byKey.values());
 };
 
 function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kioskName, onCompleted }) {
@@ -141,7 +159,7 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
     const timer = setTimeout(async () => {
       try {
         const ctx = await getKioskPosContext(kioskLocationId, { search: productSearch });
-        setInventory(Array.isArray(ctx?.inventory) ? ctx.inventory : []);
+        setInventory(dedupeSellableInventory(Array.isArray(ctx?.inventory) ? ctx.inventory : []));
       } catch (err) {
         setError(err.message || "No se pudo cargar el catálogo del kiosko.");
       }
@@ -161,21 +179,27 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
 
   const selectedVariant = useMemo(() => {
     if (!selectedVariantKey) return null;
-    const [productId, colorId] = selectedVariantKey.split(":");
     return (inventory || []).find(
       (row) =>
-        String(row.productId) === productId &&
-        String(row.colorId || "") === String(colorId || "")
+        variantLineKeyFor(row.productId, row.colorId, row.hardwareCondition) === selectedVariantKey
     );
   }, [inventory, selectedVariantKey]);
 
   const inventoryOptions = useMemo(
     () =>
-      (inventory || []).map((row) => ({
-        value: `${row.productId}:${row.colorId || ""}`,
-        label: `${row.productCode || ""} · ${row.productName || ""} · ${row.colorName || "Sin color"} · Stock ${formatQty(row.quantity)}`,
-        row,
-      })),
+      (inventory || []).map((row) => {
+        const sameProduct = (inventory || []).filter(
+          (other) => String(other.productId) === String(row.productId)
+        );
+        const colorLabel = posVariantChipLabel(row, sameProduct);
+        return {
+          value: variantLineKeyFor(row.productId, row.colorId, row.hardwareCondition),
+          label: `${row.productCode || ""} · ${row.productName || ""} · ${colorLabel} · Stock ${formatQty(
+            posVariantStockQty(row)
+          )}`,
+          row,
+        };
+      }),
     [inventory]
   );
 
