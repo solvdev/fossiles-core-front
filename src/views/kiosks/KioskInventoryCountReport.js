@@ -123,7 +123,8 @@ const DIFF_ALERT_THRESHOLD = 3;
 
 function conteoStatusMeta(status, internalMode = false) {
   if (internalMode && status === "SAVED") return { label: "Guardado", color: "success" };
-  if (status === "CERRADO") return { label: "🔒 Cerrado", color: "secondary" };
+  // Paper Dashboard no define badge-secondary (fondo transparente + texto blanco).
+  if (status === "CERRADO") return { label: "🔒 Cerrado", color: "default" };
   if (status === "REVISADO") return { label: "✓ Revisado", color: "success" };
   if (status === "CONTADO") return { label: "✓ Contado", color: "info" };
   return { label: "Borrador", color: "warning" };
