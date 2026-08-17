@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Badge,
   Button,
@@ -10,10 +10,15 @@ import {
   Spinner,
   Table,
 } from "reactstrap";
+import { ColorSelector, ProductSelector } from "components/catalog/FilterableCatalogSelectors";
 import { FilterableSelect } from "components/distribution/FilterableSelect";
+import { getColors } from "services/colorService";
 import { getLocations } from "services/locationService";
 import { getProducts } from "services/productService";
-import { getKioskMovementsAccounting } from "services/kioscoInventoryService";
+import {
+  getKioskMovementsAccounting,
+  getKioskMovementsAccountingStocks,
+} from "services/kioscoInventoryService";
 import { formatDateTimeGt } from "utils/dateTimeHelper";
 import {
   getKioscoMovementTypeLabel,
@@ -88,20 +93,37 @@ const TYPE_BADGE = {
 const INITIAL_FILTERS = {
   locationId: "",
   productId: "",
+  colorId: "",
   type: "",
   from: "",
   to: "",
   referenceTerm: "",
-  reason: "",
   sizeKey: "",
 };
+
+function sizesSummary(stock) {
+  if (stock?.tallas && typeof stock.tallas === "object") {
+    return (
+      Object.entries(stock.tallas)
+        .filter(([, v]) => Number(v) > 0)
+        .map(([k, v]) => `${k}:${v}`)
+        .join(" ") || "—"
+    );
+  }
+  return "—";
+}
 
 export default function KioskMovementsAccounting() {
   const [locations, setLocations] = useState([]);
   const [products, setProducts] = useState([]);
+  const [colors, setColors] = useState([]);
   const [filters, setFilters] = useState(INITIAL_FILTERS);
+  const [stocks, setStocks] = useState([]);
   const [movements, setMovements] = useState([]);
-  const [loading, setLoading] = useState(false);
+  const [selectedStockId, setSelectedStockId] = useState(null);
+  const [loadingStocks, setLoadingStocks] = useState(false);
+  const [loadingMovements, setLoadingMovements] = useState(false);
+  const movementsRequestIdRef = useRef(0);
 
   useEffect(() => {
     getLocations()
@@ -110,97 +132,176 @@ export default function KioskMovementsAccounting() {
     getProducts()
       .then((data) => setProducts(Array.isArray(data) ? data : []))
       .catch(() => {});
+    getColors()
+      .then((data) => setColors(Array.isArray(data) ? data : []))
+      .catch(() => {});
   }, []);
 
-  const locationOptions = [
-    { value: "", label: "Todos los kioskos", searchText: "todos" },
-    ...locations.map((l) => ({
-      value: String(l.id),
-      label: l.name || l.code || String(l.id),
-      searchText: `${l.name || ""} ${l.code || ""}`,
-    })),
-  ];
-
-  const productOptions = [
-    { value: "", label: "Todos los productos", searchText: "todos" },
-    ...products.map((p) => ({
-      value: String(p.id),
-      label: `${p.code} — ${p.name}`,
-      searchText: `${p.code} ${p.name}`,
-    })),
-  ];
+  const kioskOptions = useMemo(() => {
+    const opts = (locations || [])
+      .filter((location) => {
+        const category = String(location?.categoria || "").toUpperCase();
+        const name = String(location?.name || "").toUpperCase();
+        const code = String(location?.code || "").toUpperCase();
+        return category.includes("KIOS") || name.includes("KIOS") || code.startsWith("K") || code.startsWith("A");
+      })
+      .map((k) => ({
+        value: String(k.id),
+        label: `${k.code || ""} · ${k.name || ""}`.trim(),
+        searchText: `${k.code || ""} ${k.name || ""}`,
+      }));
+    return [{ value: "", label: "Selecciona kiosko…", searchText: "kiosko" }, ...opts];
+  }, [locations]);
 
   const setFilter = (key, value) =>
     setFilters((prev) => ({ ...prev, [key]: value }));
 
-  const loadMovements = useCallback(async () => {
+  const loadStocks = useCallback(async () => {
     if (!filters.locationId) {
-      showError("Selecciona un kiosko para consultar movimientos.");
+      setStocks([]);
       return;
     }
-    setLoading(true);
+    setLoadingStocks(true);
     try {
-      const params = {
-        locationId: filters.locationId || undefined,
+      const data = await getKioskMovementsAccountingStocks({
+        locationId: filters.locationId,
         productId: filters.productId || undefined,
-        type: filters.type || undefined,
-        from: filters.from || undefined,
-        to: filters.to || undefined,
-        referenceTerm: filters.referenceTerm || undefined,
-        reason: filters.reason || undefined,
-        sizeKey: filters.sizeKey || undefined,
-      };
-      const data = await getKioskMovementsAccounting(params);
-      setMovements(Array.isArray(data) ? data : []);
+        colorId: filters.colorId || undefined,
+      });
+      setStocks(Array.isArray(data) ? data : []);
     } catch (err) {
-      showError(err.message || "Error al cargar movimientos.");
+      showError(err.message || "Error al cargar inventario del kiosko.");
+      setStocks([]);
     } finally {
-      setLoading(false);
+      setLoadingStocks(false);
     }
-  }, [filters]);
+  }, [filters.locationId, filters.productId, filters.colorId]);
+
+  const loadMovements = useCallback(
+    async (opts = {}) => {
+      const stockId =
+        opts.stockId !== undefined ? opts.stockId : selectedStockId;
+      const resolvedStockId = stockId != null && stockId !== "" ? stockId : null;
+
+      if (!filters.locationId && !resolvedStockId) {
+        setMovements([]);
+        return;
+      }
+
+      const requestId = ++movementsRequestIdRef.current;
+      setLoadingMovements(true);
+      try {
+        const data = await getKioskMovementsAccounting({
+          locationId: resolvedStockId ? undefined : filters.locationId || undefined,
+          stockId: resolvedStockId || undefined,
+          productId: resolvedStockId ? undefined : filters.productId || undefined,
+          colorId: resolvedStockId ? undefined : filters.colorId || undefined,
+          type: filters.type || undefined,
+          from: filters.from || undefined,
+          to: filters.to || undefined,
+          referenceTerm: filters.referenceTerm || undefined,
+          sizeKey: filters.sizeKey || undefined,
+        });
+        if (requestId !== movementsRequestIdRef.current) return;
+        let rows = Array.isArray(data) ? data : [];
+        if (resolvedStockId) {
+          rows = rows.filter((m) => String(m.kioscoStockId) === String(resolvedStockId));
+        }
+        setMovements(rows);
+      } catch (err) {
+        if (requestId !== movementsRequestIdRef.current) return;
+        showError(err.message || "Error al cargar movimientos.");
+        setMovements([]);
+      } finally {
+        if (requestId === movementsRequestIdRef.current) {
+          setLoadingMovements(false);
+        }
+      }
+    },
+    [filters, selectedStockId]
+  );
+
+  const handleConsultar = async () => {
+    if (!filters.locationId) {
+      showError("Selecciona un kiosko.");
+      return;
+    }
+    setSelectedStockId(null);
+    await loadStocks();
+    await loadMovements({ stockId: null });
+  };
 
   const handleClear = () => {
     setFilters(INITIAL_FILTERS);
+    setStocks([]);
     setMovements([]);
+    setSelectedStockId(null);
   };
 
-  return (
-    <div className="content">
-      <h4 className="mb-3">Movimientos de Kioscos</h4>
-      <p className="text-muted small mb-3">Vista de consulta y auditoría. Solo lectura.</p>
+  const selectedStock = useMemo(
+    () => stocks.find((s) => String(s.id) === String(selectedStockId)) || null,
+    [stocks, selectedStockId]
+  );
 
-      {/* — FILTROS — */}
-      <Row className="mb-3 g-2 align-items-end">
+  return (
+    <div className="content" style={{ fontSize: "0.85rem" }}>
+      <h4 className="mb-1">Movimientos de Kioscos</h4>
+      <p className="text-muted small mb-3">
+        Consulta detallada por producto, color y talla (solo lectura). Elige un kiosko, filtra y haz clic en
+        una fila de inventario para ver su kardex.
+      </p>
+
+      <Row className="g-2 mb-2 align-items-end">
         <Col md={3}>
           <Label className="mb-1 small fw-semibold">Kiosko</Label>
           <FilterableSelect
-            options={locationOptions}
+            options={kioskOptions}
             value={String(filters.locationId)}
-            onChange={(v) => setFilter("locationId", v)}
-            placeholder="Selecciona kiosko..."
+            onChange={(v) => {
+              setFilter("locationId", v || "");
+              setSelectedStockId(null);
+              setStocks([]);
+              setMovements([]);
+            }}
+            placeholder="Selecciona kiosko…"
           />
         </Col>
-        <Col md={4}>
+        <Col md={3}>
           <Label className="mb-1 small fw-semibold">Producto</Label>
-          <FilterableSelect
-            options={productOptions}
-            value={String(filters.productId)}
-            onChange={(v) => setFilter("productId", v)}
-            placeholder="Buscar producto..."
+          <ProductSelector
+            products={products}
+            value={filters.productId || null}
+            onChange={(product) => {
+              setFilter("productId", product?.id != null ? String(product.id) : "");
+              setSelectedStockId(null);
+            }}
+            placeholder="Buscar producto…"
           />
         </Col>
         <Col md={2}>
-          <Label className="mb-1 small fw-semibold">Tipo de movimiento</Label>
+          <Label className="mb-1 small fw-semibold">Color</Label>
+          <ColorSelector
+            colors={colors}
+            value={filters.colorId || null}
+            onChange={(color) => {
+              setFilter("colorId", color?.id != null ? String(color.id) : "");
+              setSelectedStockId(null);
+            }}
+            placeholder="Buscar color…"
+          />
+        </Col>
+        <Col md={2}>
+          <Label className="mb-1 small fw-semibold">Tipo</Label>
           <FilterableSelect
             options={MOVEMENT_TYPE_OPTIONS}
             value={filters.type}
             onChange={(v) => setFilter("type", v)}
-            placeholder="Tipo..."
+            placeholder="Tipo…"
           />
         </Col>
         <Col md={1}>
           <FormGroup className="mb-0">
-            <Label className="mb-1 small fw-semibold">Fecha desde</Label>
+            <Label className="mb-1 small fw-semibold">Desde</Label>
             <Input
               type="date"
               bsSize="sm"
@@ -209,9 +310,9 @@ export default function KioskMovementsAccounting() {
             />
           </FormGroup>
         </Col>
-        <Col md={2}>
+        <Col md={1}>
           <FormGroup className="mb-0">
-            <Label className="mb-1 small fw-semibold">Fecha hasta</Label>
+            <Label className="mb-1 small fw-semibold">Hasta</Label>
             <Input
               type="date"
               bsSize="sm"
@@ -221,14 +322,15 @@ export default function KioskMovementsAccounting() {
           </FormGroup>
         </Col>
       </Row>
-      <Row className="mb-3 g-2 align-items-end">
-        <Col md={2}>
+
+      <Row className="g-2 mb-3 align-items-end">
+        <Col md={3}>
           <FormGroup className="mb-0">
-            <Label className="mb-1 small fw-semibold">Referencia / No. factura</Label>
+            <Label className="mb-1 small fw-semibold">Boleta / factura / venta</Label>
             <Input
               type="text"
               bsSize="sm"
-              placeholder="Buscar referencia..."
+              placeholder="Nº boleta, factura o venta…"
               value={filters.referenceTerm}
               onChange={(e) => setFilter("referenceTerm", e.target.value)}
             />
@@ -240,144 +342,231 @@ export default function KioskMovementsAccounting() {
             <Input
               type="text"
               bsSize="sm"
-              placeholder="Ej: 32"
+              placeholder="Ej. 32"
               value={filters.sizeKey}
               onChange={(e) => setFilter("sizeKey", e.target.value)}
             />
           </FormGroup>
         </Col>
-        <Col md={3}>
-          <FormGroup className="mb-0">
-            <Label className="mb-1 small fw-semibold">Motivo contiene</Label>
-            <Input
-              type="text"
-              bsSize="sm"
-              placeholder="Buscar motivo..."
-              value={filters.reason}
-              onChange={(e) => setFilter("reason", e.target.value)}
-            />
-          </FormGroup>
-        </Col>
-        <Col md={2} className="d-flex gap-2">
-          <Button color="primary" size="sm" onClick={loadMovements} disabled={loading}>
-            {loading ? <Spinner size="sm" /> : "Consultar"}
+        <Col md={3} className="d-flex gap-2">
+          <Button
+            color="primary"
+            size="sm"
+            onClick={handleConsultar}
+            disabled={loadingStocks || loadingMovements}
+          >
+            {loadingStocks || loadingMovements ? <Spinner size="sm" /> : "Consultar"}
           </Button>
           <Button color="secondary" size="sm" outline onClick={handleClear}>
             Limpiar
           </Button>
+          <Button
+            color="secondary"
+            size="sm"
+            outline
+            onClick={() => {
+              loadStocks();
+              loadMovements();
+            }}
+            disabled={!filters.locationId || loadingStocks || loadingMovements}
+          >
+            Refrescar
+          </Button>
         </Col>
-        {movements.length > 0 && (
-          <Col md={2} className="text-muted small d-flex align-items-end">
-            {movements.length} movimiento{movements.length !== 1 ? "s" : ""}
-          </Col>
-        )}
       </Row>
 
-      {/* — TABLA — */}
-      <div style={{ overflowX: "auto" }}>
-        <Table striped hover size="sm" className="mb-0" style={{ fontSize: "0.82rem" }}>
-          <thead className="table-dark sticky-top">
-            <tr>
-              <th>Fecha</th>
-              <th>Kiosko</th>
-              <th>Tipo</th>
-              <th>Producto</th>
-              <th>Color</th>
-              <th>Talla</th>
-              <th className="text-end">Cantidad</th>
-              <th className="text-end">Stock antes</th>
-              <th className="text-end">Stock después</th>
-              <th>No. Interno Factura</th>
-              <th className="text-end">Total venta</th>
-              <th>Forma de pago</th>
-              <th>Detalle pago</th>
-              <th>Motivo</th>
-              <th>Usuario</th>
-            </tr>
-          </thead>
-          <tbody>
-            {loading && (
+      <Row>
+        <Col md={4} style={{ maxHeight: "70vh", overflow: "auto" }}>
+          <div className="d-flex justify-content-between align-items-center mb-1">
+            <strong>Inventario ({stocks.length})</strong>
+            {loadingStocks && <Spinner size="sm" />}
+          </div>
+          <Table size="sm" hover bordered responsive className="mb-0">
+            <thead>
               <tr>
-                <td colSpan={15} className="text-center py-3">
-                  <Spinner size="sm" /> Cargando...
-                </td>
+                <th>Producto</th>
+                <th>Color</th>
+                <th>Cant.</th>
+                <th>Tallas</th>
               </tr>
-            )}
-            {!loading && movements.length === 0 && (
-              <tr>
-                <td colSpan={15} className="text-center text-muted py-3">
-                  {filters.locationId
-                    ? "Sin movimientos con los filtros aplicados."
-                    : "Selecciona un kiosko para comenzar."}
-                </td>
-              </tr>
-            )}
-            {movements.map((m) => (
-              <tr key={m.id}>
-                <td style={{ whiteSpace: "nowrap" }}>{formatDateTimeGt(m.fecha)}</td>
-                <td>{m.kiosko || "—"}</td>
-                <td>
-                  <Badge color={TYPE_BADGE[m.tipoMovimiento] || "secondary"} pill>
-                    {getKioscoMovementTypeLabel(m.tipoMovimiento)}
-                  </Badge>
-                </td>
-                <td>
-                  <div className="fw-semibold">{m.codigoProducto}</div>
-                  <small className="text-muted">{m.producto}</small>
-                </td>
-                <td>{m.color || "—"}</td>
-                <td>{m.talla || "—"}</td>
-                <td className="text-end">
-                  <span
-                    style={{
-                      color:
-                        m.cantidad > 0
-                          ? "#28a745"
-                          : m.cantidad < 0
-                          ? "#dc3545"
-                          : undefined,
-                      fontWeight: 600,
-                    }}
-                  >
-                    {m.cantidad > 0 ? `+${m.cantidad}` : m.cantidad}
-                  </span>
-                </td>
-                <td className="text-end text-muted">{m.stockAntes ?? "—"}</td>
-                <td className="text-end text-muted">{m.stockDespues ?? "—"}</td>
-                <td>
-                  {m.numeroInternoFactura ? (
-                    <span className="fw-semibold text-dark">{m.numeroInternoFactura}</span>
-                  ) : (
-                    "—"
-                  )}
-                </td>
-                <td className="text-end">
-                  {m.totalVenta != null ? `Q ${Number(m.totalVenta).toFixed(2)}` : "—"}
-                </td>
-                <td>{m.formaPago || "—"}</td>
-                <td>
-                  <CardPaymentDetail
-                    auth={m.cardAuthNumber}
-                    last4={m.cardLast4}
-                    brand={m.cardBrand}
-                    voucherAmount={m.cardVoucherAmount}
-                    voucherDiff={m.cardVoucherDifference}
-                    auth2={m.card2AuthNumber}
-                    last4_2={m.card2Last4}
-                    brand2={m.card2Brand}
-                    voucherAmount2={m.card2VoucherAmount}
-                    voucherDiff2={m.card2VoucherDifference}
-                  />
-                </td>
-                <td>
-                  <small className="text-muted">{m.motivo || "—"}</small>
-                </td>
-                <td>{m.usuario || "—"}</td>
-              </tr>
-            ))}
-          </tbody>
-        </Table>
-      </div>
+            </thead>
+            <tbody>
+              {stocks.map((s) => (
+                <tr
+                  key={s.id}
+                  style={{
+                    cursor: "pointer",
+                    background:
+                      String(selectedStockId) === String(s.id)
+                        ? "rgba(54,162,235,0.15)"
+                        : undefined,
+                  }}
+                  onClick={() => {
+                    setSelectedStockId(s.id);
+                    loadMovements({ stockId: s.id });
+                  }}
+                >
+                  <td>
+                    <div className="fw-semibold">{s.codigoProducto}</div>
+                    <small className="text-muted">{s.producto}</small>
+                    {s.herraje && s.herraje !== "NUEVO" && (
+                      <Badge color="secondary" className="ms-1">
+                        {s.herraje}
+                      </Badge>
+                    )}
+                  </td>
+                  <td>{s.color || "—"}</td>
+                  <td>{s.cantidad}</td>
+                  <td>
+                    <small>{sizesSummary(s)}</small>
+                  </td>
+                </tr>
+              ))}
+              {!loadingStocks && stocks.length === 0 && (
+                <tr>
+                  <td colSpan={4} className="text-muted text-center">
+                    {filters.locationId
+                      ? "Sin filas. Pulsa Consultar."
+                      : "Selecciona un kiosko."}
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </Table>
+          {selectedStock && (
+            <div className="mt-2 p-2 border rounded bg-light">
+              <div>
+                <strong>{selectedStock.codigoProducto}</strong>
+                {" · "}
+                {selectedStock.color || "sin color"}
+              </div>
+              <div>
+                Stock actual: {selectedStock.cantidad}
+                {selectedStock.minimo != null ? ` · Mín. ${selectedStock.minimo}` : ""}
+              </div>
+              <div>
+                <small>Tallas: {sizesSummary(selectedStock)}</small>
+              </div>
+            </div>
+          )}
+        </Col>
+
+        <Col md={8} style={{ maxHeight: "70vh", overflow: "auto" }}>
+          <div className="d-flex justify-content-between align-items-center mb-1">
+            <strong>
+              Movimientos ({movements.length})
+              {selectedStock
+                ? ` · ${selectedStock.codigoProducto} / ${selectedStock.color || "sin color"}`
+                : filters.locationId
+                  ? " · kiosko completo (o filtra con producto/color)"
+                  : ""}
+            </strong>
+            {loadingMovements && <Spinner size="sm" />}
+          </div>
+          <div style={{ overflowX: "auto" }}>
+            <Table size="sm" hover bordered responsive className="mb-0" style={{ fontSize: "0.8rem" }}>
+              <thead className="table-light sticky-top">
+                <tr>
+                  <th>Fecha</th>
+                  <th>Tipo</th>
+                  <th className="text-end">Cant.</th>
+                  <th>Talla</th>
+                  <th className="text-end">Antes</th>
+                  <th className="text-end">Después</th>
+                  <th className="text-end">Antes talla</th>
+                  <th className="text-end">Después talla</th>
+                  <th>Ref. / boleta / factura</th>
+                  <th className="text-end">Total</th>
+                  <th>Pago</th>
+                  <th>Motivo</th>
+                  <th>Usuario</th>
+                </tr>
+              </thead>
+              <tbody>
+                {movements.map((m) => (
+                  <tr key={m.id}>
+                    <td style={{ whiteSpace: "nowrap" }}>
+                      <small>{formatDateTimeGt(m.fecha)}</small>
+                    </td>
+                    <td>
+                      <Badge color={TYPE_BADGE[m.tipoMovimiento] || "secondary"} pill>
+                        {getKioscoMovementTypeLabel(m.tipoMovimiento)}
+                      </Badge>
+                    </td>
+                    <td className="text-end fw-semibold">{m.cantidad ?? "—"}</td>
+                    <td>{m.talla || "—"}</td>
+                    <td className="text-end text-muted">{m.stockAntes ?? "—"}</td>
+                    <td className="text-end text-muted">{m.stockDespues ?? "—"}</td>
+                    <td className="text-end">
+                      {m.talla ? (m.stockAntesTalla != null ? m.stockAntesTalla : "—") : "—"}
+                    </td>
+                    <td className="text-end">
+                      {m.talla ? (m.stockDespuesTalla != null ? m.stockDespuesTalla : "—") : "—"}
+                    </td>
+                    <td>
+                      <div>
+                        <small>
+                          {m.resumenReferencia
+                            || m.numeroInternoFactura
+                            || m.boletaFisica
+                            || m.referencia
+                            || "—"}
+                        </small>
+                      </div>
+                      {m.numeroInternoFactura && (
+                        <div>
+                          <small className="fw-semibold">{m.numeroInternoFactura}</small>
+                        </div>
+                      )}
+                      {m.boletaFisica && (
+                        <Badge color="light" className="text-dark">
+                          Boleta {m.boletaFisica}
+                        </Badge>
+                      )}
+                      {m.tipoReferencia && (
+                        <Badge color="light" className="text-dark ms-1">
+                          {m.tipoReferencia}
+                        </Badge>
+                      )}
+                    </td>
+                    <td className="text-end">
+                      {m.totalVenta != null ? `Q ${Number(m.totalVenta).toFixed(2)}` : "—"}
+                    </td>
+                    <td>
+                      <div>{m.formaPago || "—"}</div>
+                      <CardPaymentDetail
+                        auth={m.cardAuthNumber}
+                        last4={m.cardLast4}
+                        brand={m.cardBrand}
+                        voucherAmount={m.cardVoucherAmount}
+                        voucherDiff={m.cardVoucherDifference}
+                        auth2={m.card2AuthNumber}
+                        last4_2={m.card2Last4}
+                        brand2={m.card2Brand}
+                        voucherAmount2={m.card2VoucherAmount}
+                        voucherDiff2={m.card2VoucherDifference}
+                      />
+                    </td>
+                    <td>
+                      <small className="text-muted">{m.motivo || "—"}</small>
+                    </td>
+                    <td>{m.usuario || "—"}</td>
+                  </tr>
+                ))}
+                {!loadingMovements && movements.length === 0 && (
+                  <tr>
+                    <td colSpan={13} className="text-muted text-center py-3">
+                      {filters.locationId
+                        ? "Sin movimientos. Consulta o selecciona un producto/color a la izquierda."
+                        : "Selecciona un kiosko para comenzar."}
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </Table>
+          </div>
+        </Col>
+      </Row>
     </div>
   );
 }
