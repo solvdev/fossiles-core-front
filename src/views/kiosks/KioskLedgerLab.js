@@ -58,7 +58,7 @@ const TYPE_BADGE = {
   DEVOLUCION_DEPOSITO: "info",
   TRASLADO_SALIDA: "warning",
   MERMA: "danger",
-  AJUSTE: "secondary",
+  AJUSTE: "dark",
   ANULACION: "danger",
   CAMBIO: "warning",
 };
