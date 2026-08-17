@@ -37,6 +37,7 @@ const MOVEMENT_TYPE_BADGE_COLORS = {
   TRASLADO_ENTRADA: "success",
   VENTA: "primary",
   DEVOLUCION_CLIENTE: "info",
+  DEVOLUCION_A_CLIENTE: "warning",
   DEVOLUCION_DEPOSITO: "info",
   TRASLADO_SALIDA: "warning",
   MERMA: "danger",
