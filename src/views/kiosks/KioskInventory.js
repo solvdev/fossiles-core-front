@@ -58,6 +58,7 @@ import {
   canSell,
   createEmptyLineItem,
   isSaleBelowMinimum,
+  AJUSTE_DIRECTION_OPTIONS,
   OPERATION_OPTIONS,
   sortMovementsDesc,
   supportsBulkLines,
@@ -85,13 +86,11 @@ const INITIAL_FORM = {
   originalInvoiceId: "",
   apto: true,
   reason: "",
-  realQuantity: "",
   productLeftKiosk: false,
   userId: "",
   physicalSlipNumber: "",
   sizeKey: "",
   hardwareCondition: "NUEVO",
-  realSizes: {},
 };
 
 function KioskInventory() {
@@ -108,8 +107,6 @@ function KioskInventory() {
   const [submitting, setSubmitting] = useState(false);
   const submittingRef = useRef(false);
   const [error, setError] = useState("");
-  const [customAjusteSizeKeys, setCustomAjusteSizeKeys] = useState([]);
-  const [newAjusteSizeKey, setNewAjusteSizeKey] = useState("");
   const [activeTab, setActiveTab] = useState("INVENTARIO");
   const [stockViewFilter, setStockViewFilter] = useState("ALL");
   const [lineItems, setLineItems] = useState([createEmptyLineItem()]);
@@ -244,33 +241,10 @@ function KioskInventory() {
     originStockRows,
   ]);
 
-  const selectedProduct = useMemo(
-    () => (products || []).find((product) => Number(product.id) === Number(form.productId)) || null,
-    [products, form.productId]
-  );
-
   const requiresSizeKey = useMemo(() => {
     if (!selectedStockRow) return false;
     return hasInventorySizeBreakdown(selectedStockRow.sizes);
   }, [selectedStockRow]);
-
-  const fossAjusteMode = useMemo(() => {
-    if (!selectedProduct || form.operation !== "AJUSTE") return false;
-    return isFossCinchosProductCode(selectedProduct.code);
-  }, [selectedProduct, form.operation]);
-
-  const ajusteSizeKeys = useMemo(() => {
-    const keys = new Set(Object.keys(selectedStockRow?.sizes || {}));
-    Object.keys(form.realSizes || {}).forEach((key) => keys.add(key));
-    customAjusteSizeKeys.forEach((key) => keys.add(key));
-    return sortSizeKeys(keys);
-  }, [selectedStockRow, form.realSizes, customAjusteSizeKeys]);
-
-  useEffect(() => {
-    setCustomAjusteSizeKeys([]);
-    setNewAjusteSizeKey("");
-    setForm((prev) => ({ ...prev, realSizes: {} }));
-  }, [form.productId, form.colorId, form.locationId]);
 
   useEffect(() => {
     void loadCatalogs();
@@ -465,16 +439,6 @@ function KioskInventory() {
     setForm((prev) => ({ ...prev, [key]: value }));
   };
 
-  const handleAddAjusteSizeKey = () => {
-    const normalized = String(newAjusteSizeKey || "").trim();
-    if (!normalized) {
-      showWarning("Indique el número de talla (ej. 32).");
-      return;
-    }
-    setCustomAjusteSizeKeys((prev) => (prev.includes(normalized) ? prev : [...prev, normalized]));
-    setNewAjusteSizeKey("");
-  };
-
   const findStockRow = (productId, colorId, hardwareCondition = "NUEVO") => {
     if (!productId) return null;
     const colorCandidate = colorId ? Number(colorId) : null;
@@ -594,27 +558,6 @@ function KioskInventory() {
         productLeftKiosk: form.productLeftKiosk,
       });
     }
-    if (form.operation === "AJUSTE") {
-      if (!form.locationId || !form.productId) {
-        return "Debes seleccionar kiosko y producto.";
-      }
-      if (fossAjusteMode) {
-        const realSizes = form.realSizes || {};
-        const total = ajusteSizeKeys.reduce((sum, size) => sum + Number(realSizes[size] || 0), 0);
-        if (ajusteSizeKeys.length === 0) {
-          return "Agregue al menos una talla (ej. 32, 34) con la cantidad contada.";
-        }
-        if (!Number.isInteger(total) || total < 0) {
-          return "Indica la cantidad real por talla (enteros >= 0).";
-        }
-      } else if (!Number.isInteger(Number(form.realQuantity)) || Number(form.realQuantity) < 0) {
-        return "La cantidad real debe ser un entero >= 0.";
-      }
-      if (!String(form.reason || "").trim()) {
-        return "El motivo del ajuste es obligatorio.";
-      }
-      return "";
-    }
     const commonError = validateCommonStockForm({
       locationId: form.locationId,
       productId: form.productId,
@@ -665,6 +608,12 @@ function KioskInventory() {
         };
       case "MERMA":
         return { ...base, reason: String(form.reason || "").trim() };
+      case "AJUSTE":
+        return {
+          ...base,
+          direction: String(line.direction || "INGRESO").toUpperCase(),
+          reason: String(form.reason || "").trim(),
+        };
       default:
         return base;
     }
@@ -712,32 +661,6 @@ function KioskInventory() {
           reason: String(form.reason || "").trim(),
           sizeKey: String(form.sizeKey || "").trim() || null,
         };
-      case "AJUSTE": {
-        if (fossAjusteMode) {
-          const realSizes = {};
-          ajusteSizeKeys.forEach((size) => {
-            realSizes[size] = Number(form.realSizes?.[size] || 0);
-          });
-          const realQuantity = Object.values(realSizes).reduce((sum, qty) => sum + qty, 0);
-          return {
-            productId: Number(form.productId),
-            colorId: form.colorId ? Number(form.colorId) : null,
-            userId: form.userId ? Number(form.userId) : null,
-            realQuantity,
-            realSizes,
-            reason: String(form.reason || "").trim(),
-            hardwareCondition,
-          };
-        }
-        return {
-          productId: Number(form.productId),
-          colorId: form.colorId ? Number(form.colorId) : null,
-          userId: form.userId ? Number(form.userId) : null,
-          realQuantity: Number(form.realQuantity),
-          reason: String(form.reason || "").trim(),
-          hardwareCondition,
-        };
-      }
       case "ANULACION":
         return {
           ...base,
@@ -820,6 +743,8 @@ function KioskInventory() {
           await registrarKioscoDevolucionDeposito(locationId, payload);
         } else if (form.operation === "MERMA") {
           await registrarKioscoMerma(locationId, payload);
+        } else if (form.operation === "AJUSTE") {
+          await registrarKioscoAjuste(locationId, payload);
         }
         successCount += 1;
       } catch (err) {
@@ -848,7 +773,7 @@ function KioskInventory() {
     }
     if (op === "AJUSTE") {
       return window.confirm(
-        "¿Registrar este ajuste por conteo físico?\n\nEl stock del kiosko quedará con las cantidades indicadas."
+        "¿Registrar estos ajustes?\n\nCada línea suma (ingreso) o resta (egreso) la cantidad indicada sobre el stock actual."
       );
     }
     if (op === "MERMA") {
@@ -891,8 +816,6 @@ function KioskInventory() {
           await registrarKioscoDevolucionCliente(Number(form.locationId), payload);
         } else if (form.operation === "MERMA") {
           await registrarKioscoMerma(Number(form.locationId), payload);
-        } else if (form.operation === "AJUSTE") {
-          await registrarKioscoAjuste(Number(form.locationId), payload);
         } else if (form.operation === "ANULACION") {
           await registrarKioscoAnulacion(Number(form.locationId), payload);
         } else if (form.operation === "CAMBIO") {
@@ -1204,6 +1127,8 @@ function KioskInventory() {
                           <Alert color="info" className="py-2">
                             {form.operation === "TRASLADO"
                               ? "Agrega uno o más productos (color y talla FOSS si aplica). Misma boleta = mismo traslado; puedes buscar una boleta ya guardada para completar faltantes."
+                              : form.operation === "AJUSTE"
+                                ? "Cada línea suma (ingreso) o resta (egreso) unidades sobre el stock actual. Puedes registrar varios productos a la vez."
                               : `Agrega varias líneas de producto. Todas se registran en un solo envío (${OPERATION_OPTIONS.find((o) => o.value === form.operation)?.label}).`}
                           </Alert>
                           <div className="kiosk-inv-line-table-wrap">
@@ -1214,6 +1139,7 @@ function KioskInventory() {
                                   <th>Color</th>
                                   <th>Herraje</th>
                                   <th>Talla</th>
+                                  {form.operation === "AJUSTE" ? <th>Tipo</th> : null}
                                   <th>Cant.</th>
                                   <th />
                                 </tr>
@@ -1309,6 +1235,24 @@ function KioskInventory() {
                                           />
                                         )}
                                       </td>
+                                      {form.operation === "AJUSTE" ? (
+                                        <td style={{ width: 120 }}>
+                                          <Input
+                                            type="select"
+                                            bsSize="sm"
+                                            value={line.direction || "INGRESO"}
+                                            onChange={(e) =>
+                                              updateLineItem(line.id, "direction", e.target.value)
+                                            }
+                                          >
+                                            {AJUSTE_DIRECTION_OPTIONS.map((opt) => (
+                                              <option key={opt.value} value={opt.value}>
+                                                {opt.label}
+                                              </option>
+                                            ))}
+                                          </Input>
+                                        </td>
+                                      ) : null}
                                       <td style={{ width: 72 }}>
                                         <Input
                                           type="number"
@@ -1375,91 +1319,7 @@ function KioskInventory() {
                         </>
                       )}
 
-                      {form.operation === "AJUSTE" ? (
-                        fossAjusteMode ? (
-                          <>
-                            <Alert color="info" className="py-2">
-                              Cincho FOSS: indica la cantidad real contada por talla. Si <strong>sizes_data</strong> está
-                              vacío, este ajuste crea el desglose y alinea Fin. con lo contado.
-                              {selectedStockRow?.currentStock != null ? (
-                                <div className="mt-1">
-                                  Stock actual del sistema: <strong>{selectedStockRow.currentStock}</strong>
-                                  {!hasInventorySizeBreakdown(selectedStockRow?.sizes)
-                                    ? " (sin desglose por talla todavía)."
-                                    : null}
-                                </div>
-                              ) : null}
-                            </Alert>
-                            {ajusteSizeKeys.length === 0 ? (
-                              <Alert color="warning" className="py-2">
-                                No hay tallas registradas. Agregue las tallas que contó (32, 34, 36…) y la cantidad de cada una.
-                              </Alert>
-                            ) : null}
-                            <FormGroup className="d-flex align-items-end">
-                              <div className="flex-grow-1 mr-2">
-                                <Label>Agregar talla</Label>
-                                <Input
-                                  type="text"
-                                  placeholder="Ej. 32"
-                                  value={newAjusteSizeKey}
-                                  onChange={(e) => setNewAjusteSizeKey(e.target.value)}
-                                  onKeyDown={(e) => {
-                                    if (e.key === "Enter") {
-                                      e.preventDefault();
-                                      handleAddAjusteSizeKey();
-                                    }
-                                  }}
-                                />
-                              </div>
-                              <Button color="secondary" outline type="button" onClick={handleAddAjusteSizeKey}>
-                                Agregar
-                              </Button>
-                            </FormGroup>
-                            {ajusteSizeKeys.map((size) => (
-                              <FormGroup key={size}>
-                                <Label>Talla {size}</Label>
-                                <Input
-                                  type="number"
-                                  min="0"
-                                  step="1"
-                                  value={form.realSizes?.[size] ?? ""}
-                                  onChange={(e) =>
-                                    setForm((prev) => ({
-                                      ...prev,
-                                      realSizes: {
-                                        ...(prev.realSizes || {}),
-                                        [size]: e.target.value,
-                                      },
-                                    }))
-                                  }
-                                />
-                              </FormGroup>
-                            ))}
-                            <FormGroup>
-                              <Label>Total real</Label>
-                              <Input
-                                type="number"
-                                readOnly
-                                value={ajusteSizeKeys.reduce(
-                                  (sum, size) => sum + Number(form.realSizes?.[size] || 0),
-                                  0
-                                )}
-                              />
-                            </FormGroup>
-                          </>
-                        ) : (
-                          <FormGroup>
-                            <Label>Cantidad real contada</Label>
-                            <Input
-                              type="number"
-                              min="0"
-                              step="1"
-                              value={form.realQuantity}
-                              onChange={(e) => onFormChange("realQuantity", e.target.value)}
-                            />
-                          </FormGroup>
-                        )
-                      ) : supportsBulkLines(form.operation) ? null : (
+                      {supportsBulkLines(form.operation) ? null : (
                         <FormGroup>
                           <Label>Cantidad</Label>
                           <Input
@@ -1471,23 +1331,6 @@ function KioskInventory() {
                           />
                         </FormGroup>
                       )}
-
-                      {!supportsBulkLines(form.operation) && form.operation === "AJUSTE" ? (
-                        <FormGroup>
-                          <Label>Herraje</Label>
-                          <Input
-                            type="select"
-                            value={normalizeHardwareCondition(form.hardwareCondition) || "NUEVO"}
-                            onChange={(e) => onFormChange("hardwareCondition", e.target.value || "NUEVO")}
-                          >
-                            {HARDWARE_CONDITION_OPTIONS.filter((opt) => opt.value).map((opt) => (
-                              <option key={opt.value} value={opt.value}>
-                                {opt.value === "NUEVO" ? "Nuevo" : "Viejo"}
-                              </option>
-                            ))}
-                          </Input>
-                        </FormGroup>
-                      ) : null}
 
                       {!supportsBulkLines(form.operation) &&
                       requiresSizeKey &&

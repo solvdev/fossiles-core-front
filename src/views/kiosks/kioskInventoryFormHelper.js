@@ -6,7 +6,7 @@ export const OPERATION_OPTIONS = [
   { value: "DEVOLUCION_CLIENTE", label: "Devolución de cliente" },
   { value: "TRASLADO", label: "Traslado entre kioskos" },
   { value: "MERMA", label: "Merma" },
-  { value: "AJUSTE", label: "Ajuste por conteo físico" },
+  { value: "AJUSTE", label: "Ajuste (ingreso / egreso)" },
   { value: "ANULACION", label: "Anulación de factura" },
 ];
 
@@ -17,7 +17,13 @@ export const BULK_LINE_OPERATIONS = new Set([
   "DEVOLUCION_DEPOSITO",
   "MERMA",
   "TRASLADO",
+  "AJUSTE",
 ]);
+
+export const AJUSTE_DIRECTION_OPTIONS = [
+  { value: "INGRESO", label: "Ingreso (+)" },
+  { value: "EGRESO", label: "Egreso (−)" },
+];
 
 export function supportsBulkLines(operation) {
   return BULK_LINE_OPERATIONS.has(operation);
@@ -31,6 +37,7 @@ export function createEmptyLineItem(id = Date.now()) {
     quantity: "",
     sizeKey: "",
     hardwareCondition: "NUEVO",
+    direction: "INGRESO",
   };
 }
 
@@ -94,6 +101,12 @@ export function validateBulkLines(
     if (!isPositiveInteger(line.quantity)) {
       return `Línea ${lineNo}: la cantidad debe ser un entero mayor a cero.`;
     }
+    if (operation === "AJUSTE") {
+      const dir = String(line.direction || "").toUpperCase();
+      if (dir !== "INGRESO" && dir !== "EGRESO") {
+        return `Línea ${lineNo}: indica si es ingreso o egreso.`;
+      }
+    }
     const needsSize =
       typeof lineNeedsSize === "function" ? lineNeedsSize(line) : false;
     if (needsSize && !String(line.sizeKey || "").trim()) {
@@ -103,8 +116,10 @@ export function validateBulkLines(
   if (operation === "VENTA" && !invoiceId) {
     return "La referencia de factura es obligatoria.";
   }
-  if (operation === "MERMA" && !String(reason || "").trim()) {
-    return "El motivo de merma es obligatorio.";
+  if ((operation === "MERMA" || operation === "AJUSTE") && !String(reason || "").trim()) {
+    return operation === "AJUSTE"
+      ? "El motivo del ajuste es obligatorio."
+      : "El motivo de merma es obligatorio.";
   }
   return "";
 }

@@ -3,6 +3,7 @@ import {
   isSaleBelowMinimum,
   sortMovementsDesc,
   validateAnulacionForm,
+  validateBulkLines,
   validateCommonStockForm,
   validateTransferForm,
 } from "./kioskInventoryFormHelper";
@@ -117,6 +118,33 @@ describe("kioskInventoryFormHelper", () => {
       ]);
       expect(movements[0].id).toBe(2);
       expect(movements[1].id).toBe(1);
+    });
+  });
+
+  describe("Formulario de ajuste bulk", () => {
+    it("requiere motivo y dirección ingreso/egreso", () => {
+      expect(
+        validateBulkLines("AJUSTE", [{ productId: 1, quantity: 2, direction: "INGRESO" }], {
+          locationId: 1,
+          reason: "",
+        })
+      ).toContain("motivo");
+      expect(
+        validateBulkLines("AJUSTE", [{ productId: 1, quantity: 2, direction: "" }], {
+          locationId: 1,
+          reason: "conteo",
+        })
+      ).toContain("ingreso o egreso");
+      expect(
+        validateBulkLines(
+          "AJUSTE",
+          [
+            { productId: 1, quantity: 2, direction: "INGRESO" },
+            { productId: 2, quantity: 1, direction: "EGRESO" },
+          ],
+          { locationId: 1, reason: "conteo" }
+        )
+      ).toBe("");
     });
   });
 });
