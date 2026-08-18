@@ -179,6 +179,21 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
     [sale]
   );
 
+  const packagingSaleItems = useMemo(
+    () => (sale?.items || []).filter((item) => isPackagingProductCode(item.productCode)),
+    [sale]
+  );
+
+  const packagingSaleTotal = useMemo(
+    () =>
+      packagingSaleItems.reduce((sum, item) => {
+        const line = Number(item.lineTotal);
+        if (Number.isFinite(line) && line > 0) return sum + line;
+        return sum + Number(item.unitPrice || 0) * Number(item.quantity || 0);
+      }, 0),
+    [packagingSaleItems]
+  );
+
   const exchangeableProducts = useMemo(
     () => (products || []).filter((product) => !isPackagingProductCode(product.code)),
     [products]
@@ -484,17 +499,17 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
     const returnedQuantity = Number(preview.returned?.quantity || 0);
     const givenQuantity = Number(preview.given?.quantity || 0);
     const packagingReturned = Number(preview.packagingReturnedAmount || 0);
-    const packagingGiven = Number(preview.packagingGivenAmount || 0);
     const productReturned = Number((returnedUnit * returnedQuantity).toFixed(2));
     const productGiven = Number((givenUnit * givenQuantity).toFixed(2));
     const returnedAmount = Number((productReturned + packagingReturned).toFixed(2));
-    const givenAmount = Number((productGiven + packagingGiven).toFixed(2));
+    const givenAmount = productGiven;
     const differenceAmount = Number((givenAmount - returnedAmount).toFixed(2));
     return {
       ...preview,
       returnedAmount,
       givenAmount,
       differenceAmount,
+      packagingGivenAmount: 0,
       returned: {
         ...preview.returned,
         unitPrice: returnedUnit,
@@ -745,7 +760,8 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
               <div className="kiosk-exchange-hint">
                 <span className="kiosk-exchange-hint-icon" aria-hidden>i</span>
                 <span>
-                  Selecciona la línea del producto a cambiar. Los empaques SUM no entran en el cambio.
+                  Selecciona el producto a cambiar. Los empaques SUM se muestran solo de referencia (precio de factura,
+                  sin descuento) y no mueven stock.
                 </span>
               </div>
               <div className="kiosk-exchange-table-wrap">
@@ -760,32 +776,52 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
                     </tr>
                   </thead>
                   <tbody>
-                    {exchangeableSaleItems.map((item) => {
-                      const isSelected = String(selectedItemId) === String(item.id);
+                    {(sale.items || []).map((item) => {
+                      const isPackaging = isPackagingProductCode(item.productCode);
+                      const isSelected = !isPackaging && String(selectedItemId) === String(item.id);
+                      const lineTotal =
+                        Number(item.lineTotal) > 0
+                          ? Number(item.lineTotal)
+                          : Number(item.unitPrice || 0) * Number(item.quantity || 0);
                       return (
                         <tr
                           key={item.id}
-                          className={isSelected ? "table-active" : ""}
-                          onClick={() => selectReturnedItem(item)}
+                          className={isSelected ? "table-active" : isPackaging ? "text-muted" : ""}
+                          onClick={() => {
+                            if (!isPackaging) selectReturnedItem(item);
+                          }}
+                          style={isPackaging ? { cursor: "default" } : undefined}
                         >
                           <td onClick={(e) => e.stopPropagation()}>
-                            <Input
-                              type="radio"
-                              name="return-line"
-                              checked={isSelected}
-                              onChange={() => selectReturnedItem(item)}
-                            />
+                            {isPackaging ? (
+                              <span className="kiosk-exchange-help">SUM</span>
+                            ) : (
+                              <Input
+                                type="radio"
+                                name="return-line"
+                                checked={isSelected}
+                                onChange={() => selectReturnedItem(item)}
+                              />
+                            )}
                           </td>
                           <td>{item.productCode}</td>
-                          <td>{item.productName}</td>
+                          <td>
+                            {item.productName}
+                            {isPackaging ? " · empaque (sin cambio de stock)" : ""}
+                          </td>
                           <td>{formatQty(item.quantity)}</td>
-                          <td>{formatCurrency(item.unitPrice)}</td>
+                          <td>{formatCurrency(isPackaging ? lineTotal : item.unitPrice)}</td>
                         </tr>
                       );
                     })}
                   </tbody>
                 </Table>
               </div>
+              {packagingSaleTotal > 0 ? (
+                <p className="kiosk-exchange-help">
+                  Empaque en factura original: <strong>{formatCurrency(packagingSaleTotal)}</strong> (sin descuento).
+                </p>
+              ) : null}
               {exchangeableSaleItems.length === 0 && (
                 <Alert color="warning" className="py-2">
                   Esta venta no tiene productos cambiables (solo empaques SUM u otras líneas excluidas).
@@ -884,7 +920,8 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
                   <strong>{formatCurrency(displayPreview.returnedAmount)}</strong>
                   {Number(displayPreview.packagingReturnedAmount || 0) > 0 ? (
                     <p className="kiosk-exchange-help mb-0 mt-1">
-                      Incluye empaque SUM {formatCurrency(displayPreview.packagingReturnedAmount)} (sin cambio de stock)
+                      Incluye empaque de factura {formatCurrency(displayPreview.packagingReturnedAmount)} (sin
+                      descuento / sin stock)
                     </p>
                   ) : null}
                 </div>
@@ -905,11 +942,7 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
                     </FormGroup>
                   ) : null}
                   <strong>{formatCurrency(displayPreview.givenAmount)}</strong>
-                  {Number(displayPreview.packagingGivenAmount || 0) > 0 ? (
-                    <p className="kiosk-exchange-help mb-0 mt-1">
-                      Incluye empaque SUM {formatCurrency(displayPreview.packagingGivenAmount)} (sin cambio de stock)
-                    </p>
-                  ) : null}
+                  <p className="kiosk-exchange-help mb-0 mt-1">Solo producto (sin empaque)</p>
                 </div>
                 <div className="kiosk-exchange-summary-card is-diff">
                   <h6>Diferencia</h6>
