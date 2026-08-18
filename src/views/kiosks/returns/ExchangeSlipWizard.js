@@ -483,8 +483,12 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
     if (!(returnedUnit > 0) || !(givenUnit > 0)) return preview;
     const returnedQuantity = Number(preview.returned?.quantity || 0);
     const givenQuantity = Number(preview.given?.quantity || 0);
-    const returnedAmount = Number((returnedUnit * returnedQuantity).toFixed(2));
-    const givenAmount = Number((givenUnit * givenQuantity).toFixed(2));
+    const packagingReturned = Number(preview.packagingReturnedAmount || 0);
+    const packagingGiven = Number(preview.packagingGivenAmount || 0);
+    const productReturned = Number((returnedUnit * returnedQuantity).toFixed(2));
+    const productGiven = Number((givenUnit * givenQuantity).toFixed(2));
+    const returnedAmount = Number((productReturned + packagingReturned).toFixed(2));
+    const givenAmount = Number((productGiven + packagingGiven).toFixed(2));
     const differenceAmount = Number((givenAmount - returnedAmount).toFixed(2));
     return {
       ...preview,
@@ -494,12 +498,12 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
       returned: {
         ...preview.returned,
         unitPrice: returnedUnit,
-        lineTotal: returnedAmount,
+        lineTotal: productReturned,
       },
       given: {
         ...preview.given,
         unitPrice: givenUnit,
-        lineTotal: givenAmount,
+        lineTotal: productGiven,
       },
     };
   }, [preview, canEditPrices, editReturnedUnitPrice, editGivenUnitPrice]);
@@ -878,6 +882,11 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
                     </FormGroup>
                   ) : null}
                   <strong>{formatCurrency(displayPreview.returnedAmount)}</strong>
+                  {Number(displayPreview.packagingReturnedAmount || 0) > 0 ? (
+                    <p className="kiosk-exchange-help mb-0 mt-1">
+                      Incluye empaque SUM {formatCurrency(displayPreview.packagingReturnedAmount)} (sin cambio de stock)
+                    </p>
+                  ) : null}
                 </div>
                 <div className="kiosk-exchange-summary-card">
                   <h6>Egreso</h6>
@@ -896,6 +905,11 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
                     </FormGroup>
                   ) : null}
                   <strong>{formatCurrency(displayPreview.givenAmount)}</strong>
+                  {Number(displayPreview.packagingGivenAmount || 0) > 0 ? (
+                    <p className="kiosk-exchange-help mb-0 mt-1">
+                      Incluye empaque SUM {formatCurrency(displayPreview.packagingGivenAmount)} (sin cambio de stock)
+                    </p>
+                  ) : null}
                 </div>
                 <div className="kiosk-exchange-summary-card is-diff">
                   <h6>Diferencia</h6>
