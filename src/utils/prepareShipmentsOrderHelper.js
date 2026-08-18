@@ -166,6 +166,63 @@ export function expandOrderItemsForOpvPriceLines(order, productCatalogById = {})
   return lines;
 }
 
+function matchOrderItemForShipmentProduct(items, productId, colorId) {
+  const byBoth = items.findIndex((row) => {
+    if (Number(row.productId) !== Number(productId)) return false;
+    if (row.colorId == null && (colorId == null || colorId === "")) return true;
+    return Number(row.colorId) === Number(colorId);
+  });
+  if (byBoth >= 0) return byBoth;
+  return items.findIndex((row) => Number(row.productId) === Number(productId));
+}
+
+/**
+ * Filas de revisión de precios a partir de productos de un envío (parcial o completo).
+ * Usa las cantidades del envío, no las de toda la OP.
+ */
+export function expandShipmentProductsForOpvPriceLines(order, products, productCatalogById = {}) {
+  const preferSellerPrice = isLuisFelipeVendorFlow(order?.orderType, order?.sellerName);
+  const items = Array.isArray(order?.items) ? order.items : [];
+  const lines = [];
+  (products || []).forEach((product, pIdx) => {
+    const qty = Number(product?.quantity) || 0;
+    if (qty <= 0 || product?.productId == null) return;
+    const itemIndex = matchOrderItemForShipmentProduct(items, product.productId, product.colorId);
+    const item = itemIndex >= 0 ? items[itemIndex] : null;
+    const key = item ? opvItemPriceKey(item, itemIndex) : `shp-${product.productId}-${pIdx}`;
+    const sizeRaw = String(product.size || product.sizeLabel || "").trim();
+    let size = sizeRaw;
+    if (item?.sizes && typeof item.sizes === "object" && sizeRaw) {
+      const found = Object.keys(item.sizes).find(
+        (k) => normalizeSizeKey(k) === normalizeSizeKey(sizeRaw)
+      );
+      if (found) size = String(found);
+    } else if (sizeRaw) {
+      size = normalizeSizeKey(sizeRaw);
+    }
+    const unitPrice = item
+      ? size
+        ? resolveOpvUnitPriceForSize(item, size, productCatalogById, preferSellerPrice)
+        : resolveDefaultOpvUnitPrice(item, productCatalogById, preferSellerPrice)
+      : Number(product.unitPrice) || 0;
+    lines.push({
+      itemKey: key,
+      itemIndex: itemIndex >= 0 ? itemIndex : pIdx,
+      productId: product.productId,
+      productCode: product.productCode || item?.productCode || "",
+      productName: product.productName || item?.productName || "",
+      colorId: product.colorId ?? item?.colorId,
+      colorName: product.colorName || item?.colorName || "",
+      brandName: product.brandName || item?.brandName || "",
+      lineId: size ? `${key}-${size}` : `${key}-qty`,
+      size,
+      quantity: qty,
+      unitPrice,
+    });
+  });
+  return lines;
+}
+
 /**
  * Aplica precios editados por línea (lineId). Para cinchos escribe unitPrices por talla.
  * @param {object} order

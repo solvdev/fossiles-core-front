@@ -2029,6 +2029,30 @@ function PrepareShipments() {
     });
   }, [visibleShipments, normalizedQuery]);
 
+  const priceReviewScope = useMemo(() => {
+    const selected = (filteredShipments || []).filter((s) => selectedRows[s.id]);
+    const docs = selected.length ? selected : filteredShipments || [];
+    if (!docs.length || !docs.every(isPartialReleaseShipmentDoc)) {
+      return { products: null, title: "" };
+    }
+    const products = [];
+    docs.forEach((shipment) => {
+      const lines = resolveShipmentLinesForPrint(
+        { ...shipment, _printProducts: undefined },
+        selectedProductionOrder,
+        orderPartialReleases
+      );
+      applyOrderItemPricesToShipmentProducts(selectedProductionOrder, lines).forEach((line) => {
+        products.push(line);
+      });
+    });
+    const title =
+      docs.length === 1
+        ? docs[0].partialReleaseLabel || "Parcial"
+        : `${docs.length} envíos parciales`;
+    return { products, title };
+  }, [filteredShipments, selectedRows, selectedProductionOrder, orderPartialReleases]);
+
   const filteredPendingOrders = useMemo(() => {
     return pendingOrders.filter((order) => {
       const kind = classifyPrepareOrder(order);
@@ -4555,6 +4579,8 @@ function PrepareShipments() {
         orderId={selectedProductionOrder?.id}
         productCatalogById={productCatalogById}
         forPrint={opvPendingPrint}
+        reviewProducts={priceReviewScope.products}
+        reviewTitle={priceReviewScope.title}
         confirmLabel={opvPendingPrint ? "Guardar e imprimir" : "Guardar precios"}
         onSaved={handleOpvPricesSaved}
       />

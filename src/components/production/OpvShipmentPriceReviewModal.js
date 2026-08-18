@@ -17,6 +17,7 @@ import {
   buildOpvItemPricesOnlyPayload,
   buildOpvPrintPriceIndex,
   expandOrderItemsForOpvPriceLines,
+  expandShipmentProductsForOpvPriceLines,
   mergeOrderWithLocalItemPrices,
   orderItemsHaveBrand,
 } from "utils/prepareShipmentsOrderHelper";
@@ -28,6 +29,8 @@ function OpvShipmentPriceReviewModal({
   productCatalogById = {},
   confirmLabel = "Guardar e imprimir",
   forPrint = false,
+  reviewProducts = null,
+  reviewTitle = "",
   onSaved,
 }) {
   const [order, setOrder] = useState(null);
@@ -35,6 +38,16 @@ function OpvShipmentPriceReviewModal({
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+
+  const expandLines = useCallback(
+    (fresh) => {
+      if (Array.isArray(reviewProducts) && reviewProducts.length > 0) {
+        return expandShipmentProductsForOpvPriceLines(fresh, reviewProducts, productCatalogById);
+      }
+      return expandOrderItemsForOpvPriceLines(fresh, productCatalogById);
+    },
+    [reviewProducts, productCatalogById]
+  );
 
   const load = useCallback(async () => {
     if (!orderId) return;
@@ -44,7 +57,7 @@ function OpvShipmentPriceReviewModal({
       const fresh = await getProductionOrderById(orderId);
       setOrder(fresh);
       const initial = {};
-      expandOrderItemsForOpvPriceLines(fresh, productCatalogById).forEach((line) => {
+      expandLines(fresh).forEach((line) => {
         initial[line.lineId] = String(line.unitPrice ?? 0);
       });
       setPriceByLineId(initial);
@@ -53,7 +66,7 @@ function OpvShipmentPriceReviewModal({
     } finally {
       setLoading(false);
     }
-  }, [orderId, productCatalogById]);
+  }, [orderId, expandLines]);
 
   useEffect(() => {
     if (!isOpen || !orderId) return;
@@ -62,8 +75,8 @@ function OpvShipmentPriceReviewModal({
 
   const displayLines = useMemo(() => {
     if (!order) return [];
-    return expandOrderItemsForOpvPriceLines(order, productCatalogById);
-  }, [order, productCatalogById]);
+    return expandLines(order);
+  }, [order, expandLines]);
 
   const showBrand = useMemo(() => orderItemsHaveBrand(order?.items), [order]);
 
@@ -121,12 +134,21 @@ function OpvShipmentPriceReviewModal({
     <Modal isOpen={isOpen} toggle={toggle} size="xl">
       <ModalHeader toggle={toggle}>
         Editar precios — {order?.code || order?.vendorShipmentNumber || "OP"}
+        {reviewTitle ? ` · ${reviewTitle}` : ""}
       </ModalHeader>
       <ModalBody>
         {error && <Alert color="danger">{error}</Alert>}
         <Alert color="info" className="py-2">
-          Puede editar precios aunque el envío ya exista. En cinchos fije precios por talla (ej. 46/48 vs niño).
-          Se guardan en la orden, se sincronizan al envío e impactan impresión y cargo al cliente.
+          {Array.isArray(reviewProducts) && reviewProducts.length > 0 ? (
+            <>
+              Solo las líneas de este envío parcial. El costo de envío de la OP se mantiene en el total.
+            </>
+          ) : (
+            <>
+              Puede editar precios aunque el envío ya exista. En cinchos fije precios por talla (ej. 46/48 vs niño).
+              Se guardan en la orden, se sincronizan al envío e impactan impresión y cargo al cliente.
+            </>
+          )}
         </Alert>
         {loading ? (
           <div className="text-center py-4">
@@ -134,7 +156,9 @@ function OpvShipmentPriceReviewModal({
           </div>
         ) : displayLines.length === 0 ? (
           <Alert color="warning" className="mb-0">
-            La orden no tiene líneas con cantidad para facturar.
+            {Array.isArray(reviewProducts)
+              ? "Este envío parcial no tiene líneas con cantidad."
+              : "La orden no tiene líneas con cantidad para facturar."}
           </Alert>
         ) : (
           <Table responsive bordered size="sm" className="mb-2">
