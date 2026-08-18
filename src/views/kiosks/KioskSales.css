@@ -1676,6 +1676,14 @@
   background: #fef3c7;
 }
 
+.kiosk-pos-sales-row-pending-fel {
+  background: #fef2f2;
+}
+
+.kiosk-pos-sales-row-pending-fel:hover {
+  background: #fee2e2;
+}
+
 .kiosk-pos-pending-deposit-badge {
   white-space: normal;
   max-width: 220px;

@@ -41,7 +41,15 @@ import {
 import { showError, showSuccess, showWarning } from "utils/notificationHelper";
 import PosSaleDetailModal from "./PosSaleDetailModal";
 import PosVoidSaleModal from "./PosVoidSaleModal";
-import { formatCurrency, formatQty, getSaleInternalNumber, isSalePendingDeposit, formatSaleCardPaymentDetail } from "./posUtils";
+import PosInvoiceEmailModal from "./PosInvoiceEmailModal";
+import {
+  formatCurrency,
+  formatQty,
+  getSaleInternalNumber,
+  isSalePendingDeposit,
+  formatSaleCardPaymentDetail,
+  saleNeedsFelCertification,
+} from "./posUtils";
 
 const REPORT_TYPES = {
   SALES: "SALES",
@@ -117,6 +125,7 @@ function PosReportsTab({
   const [detailLoading, setDetailLoading] = useState(false);
   const [saleDetail, setSaleDetail] = useState(null);
   const [voidTargetSale, setVoidTargetSale] = useState(null);
+  const [certifyTargetSale, setCertifyTargetSale] = useState(null);
   const [depositFilter, setDepositFilter] = useState("ALL");
   const [dateFilterMode, setDateFilterMode] = useState("single");
   const [exportMode, setExportMode] = useState("consolidated"); // consolidated | byDay
@@ -920,6 +929,7 @@ function PosReportsTab({
 
           <p className="text-muted small mt-3 mb-2">
             Toca una venta para ver el detalle. Con caja abierta puedes anular ventas del turno desde la columna Acciones.
+            Si falta FEL, usa <strong>Certificar</strong> antes de seguir vendiendo.
           </p>
 
           <Table responsive className="kiosk-pos-sales-table">
@@ -936,7 +946,7 @@ function PosReportsTab({
                 <th>Total</th>
                 <th>Factura</th>
                 <th>Boleta depósito</th>
-                <th style={{ width: 180 }}>Acciones</th>
+                <th style={{ width: 260 }}>Acciones</th>
               </tr>
             </thead>
             <tbody>
@@ -950,6 +960,7 @@ function PosReportsTab({
                 const isVoid = String(sale.status || "").toUpperCase() === "VOID";
                 const pendingDeposit = isSalePendingDeposit(sale);
                 const showVoidButton = canVoidSaleRow(sale, cashSession);
+                const needsFel = !isVoid && saleNeedsFelCertification(sale);
                 const depositLabel = pendingDeposit
                   ? "Pendiente"
                   : sale.depositSlipNumber
@@ -970,7 +981,7 @@ function PosReportsTab({
                     key={`${sale.id}-${internalNumber || "sin-interno"}-${sale.felUuid || sale.invoice?.felUuid || ""}`}
                     className={`kiosk-pos-sales-row${isVoid ? " kiosk-pos-sales-row-void" : ""}${
                       pendingDeposit ? " kiosk-pos-sales-row-pending-deposit" : ""
-                    }`}
+                    }${needsFel ? " kiosk-pos-sales-row-pending-fel" : ""}`}
                     onClick={() => openSaleDetail(sale)}
                     role="button"
                     tabIndex={0}
@@ -990,6 +1001,11 @@ function PosReportsTab({
                       {!isVoid && isTestSale && (
                         <span className="badge badge-warning ml-1" title="No cuenta en ventas de producción">
                           Prueba
+                        </span>
+                      )}
+                      {needsFel && (
+                        <span className="badge badge-danger ml-1" title="Sin factura electrónica">
+                          Sin FEL
                         </span>
                       )}
                     </td>
@@ -1021,12 +1037,22 @@ function PosReportsTab({
                       )}
                     </td>
                     <td className="kiosk-pos-sales-actions-cell" onClick={(e) => e.stopPropagation()}>
+                      {needsFel && (
+                        <Button
+                          color="primary"
+                          size="sm"
+                          className="mr-1 mb-1"
+                          onClick={() => setCertifyTargetSale(sale)}
+                        >
+                          Certificar
+                        </Button>
+                      )}
                       {pendingDeposit && !isVoid && (
                         <Button
                           color="warning"
                           size="sm"
                           outline
-                          className="mr-1"
+                          className="mr-1 mb-1"
                           onClick={() => openSaleDetail(sale)}
                         >
                           Boleta
@@ -1037,12 +1063,12 @@ function PosReportsTab({
                           color="danger"
                           size="sm"
                           outline
-                          className="kiosk-pos-sales-void-btn"
+                          className="kiosk-pos-sales-void-btn mb-1"
                           onClick={() => setVoidTargetSale(sale)}
                         >
                           Anular
                         </Button>
-                      ) : !pendingDeposit ? (
+                      ) : !pendingDeposit && !needsFel ? (
                         <span className="text-muted small">—</span>
                       ) : null}
                     </td>
@@ -1263,6 +1289,17 @@ function PosReportsTab({
         onSaleUpdated={(updated) => {
           if (updated?.id) setSaleDetail(updated);
           if (onSaleUpdated) onSaleUpdated(updated);
+        }}
+      />
+
+      <PosInvoiceEmailModal
+        isOpen={Boolean(certifyTargetSale)}
+        sale={certifyTargetSale}
+        kioskLocationId={kioskLocationId}
+        onComplete={(refreshed) => {
+          setCertifyTargetSale(null);
+          if (saleDetail?.id === refreshed?.id) setSaleDetail(refreshed);
+          if (onSaleUpdated) onSaleUpdated(refreshed);
         }}
       />
     </>

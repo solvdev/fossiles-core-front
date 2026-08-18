@@ -19,7 +19,20 @@ import EditTaxInvoiceFelModal from "components/accounting/EditTaxInvoiceFelModal
 import { useAuth } from "contexts/AuthContext";
 import { canEditTaxInvoiceFel } from "utils/taxInvoiceEditHelper";
 import { showError, showSuccess } from "utils/notificationHelper";
-import { formatCurrency, formatQty, getSaleInternalNumber, getSaleGrossDepositAmount, getSaleNetDepositAmount, isDepositApplicable, isSalePendingDeposit, POS_CARD_BRANDS, DEFAULT_POS_CARD_BRAND, formatSaleCardPaymentDetail } from "./posUtils";
+import {
+  formatCurrency,
+  formatQty,
+  getSaleInternalNumber,
+  getSaleGrossDepositAmount,
+  getSaleNetDepositAmount,
+  isDepositApplicable,
+  isSalePendingDeposit,
+  POS_CARD_BRANDS,
+  DEFAULT_POS_CARD_BRAND,
+  formatSaleCardPaymentDetail,
+  saleNeedsFelCertification,
+} from "./posUtils";
+import PosInvoiceEmailModal from "./PosInvoiceEmailModal";
 
 const formatDateTime = (value) => formatDateTimeGt(value);
 
@@ -76,6 +89,7 @@ function PosSaleDetailModal({
   const [disbursementAmount, setDisbursementAmount] = useState("");
   const [disbursementDescription, setDisbursementDescription] = useState("");
   const [savingDisbursement, setSavingDisbursement] = useState(false);
+  const [felCertOpen, setFelCertOpen] = useState(false);
 
   useEffect(() => {
     if (!sale) return;
@@ -96,6 +110,7 @@ function PosSaleDetailModal({
     setDepositSlipNumber(sale.depositSlipNumber || "");
     setDepositBank(sale.depositBank || "GT_CONTINENTAL");
     setEditingPayment(false);
+    setFelCertOpen(false);
   }, [sale?.id, sale?.paymentMethod, sale?.depositSlipNumber, sale?.depositBank]);
 
   if (!isOpen) return null;
@@ -215,6 +230,10 @@ function PosSaleDetailModal({
   const internalNumber = getSaleInternalNumber(sale);
   const canDownloadXml = felStatus === "CERTIFIED" && invoice?.hasCertifiedXml && invoice?.id;
   const canDownloadFelReport = Boolean(felUuid);
+  const needsFelCertification =
+    Boolean(sale?.id)
+    && !isVoid
+    && saleNeedsFelCertification(sale);
 
   const handleDownloadFelReport = () => {
     try {
@@ -292,8 +311,9 @@ function PosSaleDetailModal({
   };
 
   return (
-    <Modal isOpen={isOpen} toggle={onClose} size="lg" className="kiosk-pos-sale-detail-modal">
-      <ModalHeader toggle={onClose}>
+    <>
+    <Modal isOpen={isOpen} toggle={felCertOpen ? undefined : onClose} size="lg" className="kiosk-pos-sale-detail-modal">
+      <ModalHeader toggle={felCertOpen ? undefined : onClose}>
         Detalle de venta {sale?.saleNumber ? `· ${sale.saleNumber}` : ""}
         {sale?.testSale && (
           <Badge color="warning" className="ml-2">
@@ -723,6 +743,11 @@ function PosSaleDetailModal({
                 </div>
               )}
               <div className="d-flex flex-wrap mt-2" style={{ gap: "0.5rem" }}>
+                {needsFelCertification && (
+                  <Button color="primary" size="sm" type="button" onClick={() => setFelCertOpen(true)}>
+                    Certificar factura
+                  </Button>
+                )}
                 {canEditFel && invoice?.id && (
                   <Button color="warning" size="sm" outline type="button" onClick={() => setFelEditOpen(true)}>
                     Corregir factura FEL
@@ -870,11 +895,22 @@ function PosSaleDetailModal({
             </Button>
           </div>
         )}
-        <Button color="secondary" onClick={onClose}>
+        <Button color="secondary" onClick={onClose} disabled={felCertOpen}>
           Cerrar
         </Button>
       </ModalFooter>
     </Modal>
+
+    <PosInvoiceEmailModal
+      isOpen={felCertOpen}
+      sale={sale}
+      kioskLocationId={kioskLocationId}
+      onComplete={async (refreshed) => {
+        setFelCertOpen(false);
+        if (onSaleUpdated) await onSaleUpdated(refreshed);
+      }}
+    />
+    </>
   );
 }
 

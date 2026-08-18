@@ -26,6 +26,7 @@ import {
   getKioskPromotions,
   getKioskProductAvailability,
   getMyKioskSales,
+  getOldestPendingFelSale,
   getPendingDepositSummary,
 } from "services/kioskPosService";
 import { countShipmentsInTransit } from "services/productDistributionService";
@@ -135,6 +136,25 @@ function KioskSales() {
     }
   };
 
+  const loadPendingFelSale = async (kioskLocationId) => {
+    const locationId = kioskLocationId || selectedKioskId || undefined;
+    if (!locationId) {
+      setPendingFelSale(null);
+      return null;
+    }
+    try {
+      const pending = await getOldestPendingFelSale(locationId);
+      if (pending && saleNeedsFelCertification(pending)) {
+        setPendingFelSale(pending);
+        return pending;
+      }
+      setPendingFelSale(null);
+      return null;
+    } catch {
+      return null;
+    }
+  };
+
   const loadPendingDepositSummary = async (kioskLocationId) => {
     const locationId = kioskLocationId || selectedKioskId || undefined;
     if (!locationId) {
@@ -196,6 +216,7 @@ function KioskSales() {
         loadCashSession(kioskLocationId || ctx?.kioskId),
         loadPendingDepositSummary(kioskLocationId || ctx?.kioskId),
         loadPendingReceiptCount(kioskLocationId || ctx?.kioskId),
+        loadPendingFelSale(kioskLocationId || ctx?.kioskId),
       ]);
     } catch (err) {
       showError(err.message || "No se pudo cargar la pantalla POS.");
@@ -450,6 +471,15 @@ function KioskSales() {
       showError("Agrega al menos un producto al carrito.");
       return;
     }
+    const locationId = selectedKioskId || context?.kioskId;
+    const pendingBefore = await loadPendingFelSale(locationId);
+    if (pendingBefore) {
+      setCheckoutOpen(false);
+      showError(
+        `Hay una venta pendiente de certificar FEL (${pendingBefore.saleNumber || `#${pendingBefore.id}`}). Certifícala antes de continuar.`
+      );
+      return;
+    }
     const normalizedTaxId = checkoutData.customerTaxId || "CF";
     const invoiceName = checkoutData.customerName || (normalizedTaxId === "CF" ? "CONSUMIDOR FINAL" : "");
     if (normalizedTaxId !== "CF" && !invoiceName) {
@@ -666,7 +696,7 @@ function KioskSales() {
 
   const resetNewSale = () => {
     setLastSale(null);
-    setPendingFelSale(null);
+    void loadPendingFelSale(selectedKioskId || context?.kioskId);
   };
 
   /** Tras certificar / anular / editar: fusiona la venta en la lista para que NO. INTERNO y FEL se vean al instante. */
@@ -688,14 +718,33 @@ function KioskSales() {
     await loadReportData(locationId, startDate, endDate);
   };
 
+  const openCheckout = async () => {
+    if (!cashSessionOpen || saving) return;
+    const locationId = selectedKioskId || context?.kioskId;
+    const pending = await loadPendingFelSale(locationId);
+    if (pending) {
+      showError(
+        `Hay una venta pendiente de certificar FEL (${pending.saleNumber || `#${pending.id}`}). Certifícala antes de continuar.`
+      );
+      return;
+    }
+    setCheckoutOpen(true);
+  };
+
   const handleFelInvoiceComplete = async (sale) => {
-    setPendingFelSale(null);
     setLastSale(sale);
     upsertSaleInList(sale);
+    const locationId = selectedKioskId || context?.kioskId;
     try {
       await refreshSalesList();
+      const nextPending = await loadPendingFelSale(locationId);
+      if (nextPending) {
+        showSuccess("Factura certificada. Queda otra venta pendiente de FEL.");
+        return;
+      }
+      setPendingFelSale(null);
     } catch {
-      // Ya quedó el upsert local; el recargo completo puede fallar por red.
+      setPendingFelSale(null);
     }
   };
 
@@ -860,6 +909,13 @@ function KioskSales() {
                           Debes <strong>abrir caja</strong> (pestaña Caja, fondo {formatCurrency(selectedKioskOpeningCash)}) antes de registrar ventas.
                         </Alert>
                       )}
+                      {pendingFelSale && (
+                        <Alert color="danger" className="mb-3">
+                          Venta pendiente de certificar FEL:{" "}
+                          <strong>{pendingFelSale.saleNumber || `#${pendingFelSale.id}`}</strong>
+                          . Debes certificarla antes de registrar otra venta (correlativo).
+                        </Alert>
+                      )}
                       {lastSale ? (
                         <PosSuccessScreen sale={lastSale} onNewSale={resetNewSale} />
                       ) : (
@@ -878,8 +934,8 @@ function KioskSales() {
                               colorFilter={colorFilter}
                               onColorFilterChange={setColorFilter}
                               cartQtyByColorKey={cartQtyByColorKey}
-                              onAddProduct={cashSessionOpen ? addToCart : () => {}}
-                              onPickSizedVariant={cashSessionOpen ? setCinchoPickVariant : () => {}}
+                              onAddProduct={cashSessionOpen && !pendingFelSale ? addToCart : () => {}}
+                              onPickSizedVariant={cashSessionOpen && !pendingFelSale ? setCinchoPickVariant : () => {}}
                             />
                           </div>
                           <div className="kiosk-pos-layout-cart">
@@ -889,10 +945,10 @@ function KioskSales() {
                               estimatedTotal={cartTotals.estimated}
                               onUpdateLine={updateCartLine}
                               onRemoveLine={removeCartLine}
-                              onCheckout={() => setCheckoutOpen(true)}
+                              onCheckout={() => void openCheckout()}
                               onCancelSale={cancelSale}
-                              onApplyPromotion={() => setCheckoutOpen(true)}
-                              disabled={!cashSessionOpen || saving}
+                              onApplyPromotion={() => void openCheckout()}
+                              disabled={!cashSessionOpen || saving || Boolean(pendingFelSale)}
                               canEditPrices={canEditPosPrices}
                             />
                           </div>
@@ -975,13 +1031,6 @@ function KioskSales() {
                         saving={saving}
                         onConfirm={submitSale}
                       />
-
-                      <PosInvoiceEmailModal
-                        isOpen={Boolean(pendingFelSale)}
-                        sale={pendingFelSale}
-                        kioskLocationId={selectedKioskId || context?.kioskId}
-                        onComplete={handleFelInvoiceComplete}
-                      />
                     </>
                   )}
 
@@ -1051,6 +1100,7 @@ function KioskSales() {
                         await loadCashSession(locationId);
                         await loadReportData(locationId, startDate, endDate);
                         await loadPendingDepositSummary(locationId);
+                        await loadPendingFelSale(locationId);
                         // Anulaciones / cambios de pago pueden afectar inventario del turno.
                         if (updated == null || String(updated.status || "").toUpperCase() === "VOID") {
                           await loadInitial(selectedKioskId || undefined);
@@ -1070,6 +1120,13 @@ function KioskSales() {
                       kiosks={context.kiosks}
                     />
                   )}
+
+                  <PosInvoiceEmailModal
+                    isOpen={Boolean(pendingFelSale)}
+                    sale={pendingFelSale}
+                    kioskLocationId={selectedKioskId || context?.kioskId}
+                    onComplete={handleFelInvoiceComplete}
+                  />
                 </>
               )}
             </CardBody>

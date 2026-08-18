@@ -20,6 +20,7 @@ import {
   lookupKioskSale,
   previewKioskExchange,
 } from "services/kioskExchangeService";
+import { getOldestPendingFelSale } from "services/kioskPosService";
 import {
   buildKioskExchangeSlipPrintHtml,
   openExchangeSlipPrintWindow,
@@ -32,10 +33,12 @@ import {
   posVariantNeedsSizePick,
   posVariantSizeEntries,
   posVariantStockQty,
+  saleNeedsFelCertification,
   variantLineKeyFor,
 } from "../pos/posUtils";
 import { isPackagingProductCode } from "utils/kioskPackagingHelper";
 import ExchangeCheckoutModal from "./ExchangeCheckoutModal";
+import PosInvoiceEmailModal from "../pos/PosInvoiceEmailModal";
 import "../KioskSales.css";
 
 const MIRAFLORES_PRICE_EDIT_CODE = "A15";
@@ -100,6 +103,8 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
   const [observations, setObservations] = useState("");
   const [physicalSlipNumber, setPhysicalSlipNumber] = useState("");
   const [checkoutOpen, setCheckoutOpen] = useState(false);
+  const [pendingFelSale, setPendingFelSale] = useState(null);
+  const [pendingCompleteResult, setPendingCompleteResult] = useState(null);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -132,6 +137,8 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
     setObservations("");
     setPhysicalSlipNumber("");
     setCheckoutOpen(false);
+    setPendingFelSale(null);
+    setPendingCompleteResult(null);
     setError("");
   }, [isOpen]);
 
@@ -554,6 +561,20 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
     return payload;
   };
 
+  const finishExchange = (result) => {
+    onCompleted?.(result);
+    onClose();
+  };
+
+  const handleFelInvoiceComplete = (certifiedSale) => {
+    const result = pendingCompleteResult
+      ? { ...pendingCompleteResult, sale: certifiedSale || pendingCompleteResult.sale }
+      : { sale: certifiedSale };
+    setPendingFelSale(null);
+    setPendingCompleteResult(null);
+    finishExchange(result);
+  };
+
   const handleComplete = async (payment) => {
     if (!displayPreview) return;
     if (!String(physicalSlipNumber || "").trim()) {
@@ -562,11 +583,24 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
     }
     try {
       setSaving(true);
+      if (hasPriceDifference) {
+        const pending = await getOldestPendingFelSale(kioskLocationId);
+        if (pending && saleNeedsFelCertification(pending)) {
+          setError(
+            `Hay una venta pendiente de certificar FEL (${pending.saleNumber || `#${pending.id}`}). Certifícala en el POS antes de cobrar este cambio.`
+          );
+          return;
+        }
+      }
       const result = await completeKioskExchange(buildCompleteRequest(payment));
       setCheckoutOpen(false);
       openExchangeSlipPrintWindow(buildKioskExchangeSlipPrintHtml(result.slip, displayPreview));
-      onCompleted?.(result);
-      onClose();
+      if (result?.sale && saleNeedsFelCertification(result.sale)) {
+        setPendingCompleteResult(result);
+        setPendingFelSale(result.sale);
+        return;
+      }
+      finishExchange(result);
     } catch (err) {
       setError(err.message || "No se pudo registrar la boleta de cambio.");
     } finally {
@@ -612,8 +646,14 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
 
   return (
     <>
-      <Modal isOpen={isOpen} toggle={onClose} size="lg" className="kiosk-exchange-modal" contentClassName="kiosk-pos-page">
-        <ModalHeader toggle={onClose}>Nueva boleta de cambio</ModalHeader>
+      <Modal
+        isOpen={isOpen}
+        toggle={pendingFelSale ? undefined : onClose}
+        size="lg"
+        className="kiosk-exchange-modal"
+        contentClassName="kiosk-pos-page"
+      >
+        <ModalHeader toggle={pendingFelSale ? undefined : onClose}>Nueva boleta de cambio</ModalHeader>
         <ModalBody>
           <div className="kiosk-exchange-steps" aria-label="Progreso">
             {visibleSteps.map((item, index) => {
@@ -1058,6 +1098,13 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
         onObservationsChange={setObservations}
         saving={saving}
         onConfirm={handleComplete}
+      />
+
+      <PosInvoiceEmailModal
+        isOpen={Boolean(pendingFelSale)}
+        sale={pendingFelSale}
+        kioskLocationId={kioskLocationId}
+        onComplete={handleFelInvoiceComplete}
       />
     </>
   );

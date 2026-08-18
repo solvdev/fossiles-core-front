@@ -66,6 +66,16 @@ export const getKioskSaleById = async (saleId, kioskLocationId) => {
   return parseJson(response, "No se pudo cargar el detalle de la venta.");
 };
 
+/** Venta COMPLETED más antigua sin FEL; null si no hay pendientes. */
+export const getOldestPendingFelSale = async (kioskLocationId) => {
+  const response = await fetch(
+    `${API_URL}/kiosk-pos/sales/pending-fel${toQuery({ kioskLocationId })}`,
+    { headers: headers() }
+  );
+  if (response.status === 204) return null;
+  return parseJson(response, "No se pudo consultar ventas pendientes de FEL.");
+};
+
 export const updateKioskSalePayment = async (saleId, payload, kioskLocationId) => {
   const response = await fetch(
     `${API_URL}/kiosk-pos/sales/${saleId}/payment${toQuery({ kioskLocationId })}`,
