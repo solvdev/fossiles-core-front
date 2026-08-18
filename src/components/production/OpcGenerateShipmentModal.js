@@ -139,7 +139,7 @@ function OpcGenerateShipmentModal({ isOpen, toggle, order, partialRelease, onGen
         payload.locationId = Number(locationId);
       }
       const packingFromOrder = mapPackingItemsForApi(orderForGenerate.packingItems);
-      if (luisFelipeFlow && packingFromOrder.length > 0) {
+      if (luisFelipeFlow && !partialRelease?.id && packingFromOrder.length > 0) {
         payload.packingItems = packingFromOrder;
       }
       const created = partialRelease?.id

@@ -1,9 +1,89 @@
-import { isCinchoOrderType } from "utils/cinchoProductionHelper";
-import { isLuisFelipeSeller } from "utils/luisFelipeVendorHelper";
-import { isEntreCuerosCustomerOpv } from "utils/prepareShipmentsOrderHelper";
+var __defProp = Object.defineProperty;
+var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
+var __getOwnPropNames = Object.getOwnPropertyNames;
+var __hasOwnProp = Object.prototype.hasOwnProperty;
+var __export = (target, all) => {
+  for (var name in all)
+    __defProp(target, name, { get: all[name], enumerable: true });
+};
+var __copyProps = (to, from, except, desc) => {
+  if (from && typeof from === "object" || typeof from === "function") {
+    for (let key of __getOwnPropNames(from))
+      if (!__hasOwnProp.call(to, key) && key !== except)
+        __defProp(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable });
+  }
+  return to;
+};
+var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
 
-/** OPV (Luis Felipe o Entre Cueros), OPC (cinchos), OPCK u OPK (kiosko). */
-export function orderAllowsPartialReleases(order) {
+// src/utils/partialReleaseHelper.js
+var partialReleaseHelper_exports = {};
+__export(partialReleaseHelper_exports, {
+  applyDraftLineIncluded: () => applyDraftLineIncluded,
+  applyDraftSizeIncluded: () => applyDraftSizeIncluded,
+  buildPartialReleaseLinesPayload: () => buildPartialReleaseLinesPayload,
+  buildShipmentProductsFromPartialReleaseLines: () => buildShipmentProductsFromPartialReleaseLines,
+  countDraftTotalUnits: () => countDraftTotalUnits,
+  countPartialReleaseLineRows: () => countPartialReleaseLineRows,
+  countPartialReleaseSavedLines: () => countPartialReleaseSavedLines,
+  draftLineHasDraftQuantity: () => draftLineHasDraftQuantity,
+  draftLinesForReviewFromRelease: () => draftLinesForReviewFromRelease,
+  filterShipmentsByPartialReleaseId: () => filterShipmentsByPartialReleaseId,
+  findLinkedPartialRelease: () => findLinkedPartialRelease,
+  initDraftLinesFromAvailability: () => initDraftLinesFromAvailability,
+  initDraftLinesFromRelease: () => initDraftLinesFromRelease,
+  isPartialReleaseShipment: () => isPartialReleaseShipment,
+  lineUsesSizeBreakdown: () => lineUsesSizeBreakdown,
+  maxDraftLineQuantity: () => maxDraftLineQuantity,
+  orderAllowsPartialReleases: () => orderAllowsPartialReleases,
+  partialReleaseLineHasQuantity: () => partialReleaseLineHasQuantity,
+  releaseLineCount: () => releaseLineCount,
+  releaseTotalUnits: () => releaseTotalUnits,
+  resolvePartialReleaseShipmentProducts: () => resolvePartialReleaseShipmentProducts,
+  resolveShipmentLinesForPrint: () => resolveShipmentLinesForPrint,
+  shouldUseSyntheticFullOrderDocument: () => shouldUseSyntheticFullOrderDocument,
+  sumDraftLineQuantity: () => sumDraftLineQuantity,
+  sumPartialReleaseLineQuantity: () => sumPartialReleaseLineQuantity,
+  validateDraftLines: () => validateDraftLines
+});
+module.exports = __toCommonJS(partialReleaseHelper_exports);
+
+// src/utils/cinchoProductionHelper.js
+var CINCHO_ORDER_TYPES = ["CINCHOS", "CINCHOS_FOSSILES", "CINCHOS_MARCAS"];
+function isCinchoOrderType(orderType) {
+  const t = String(orderType || "").trim().toUpperCase();
+  return CINCHO_ORDER_TYPES.includes(t);
+}
+
+// src/utils/luisFelipeVendorHelper.js
+var stripDiacritics = (value) => String(value || "").normalize("NFD").replace(/\p{M}/gu, "");
+var normalizeSellerName = (value) => stripDiacritics(String(value || "").trim()).toUpperCase();
+var isLuisFelipeSeller = (sellerName) => normalizeSellerName(sellerName).includes("LUIS FELIPE");
+
+// src/utils/prepareShipmentsOrderHelper.js
+function classifyPrepareOrder(order) {
+  if (!order) return null;
+  const type = String(order.orderType || "").trim().toUpperCase();
+  const code = String(order.code || "").trim().toUpperCase();
+  if (type === "INTERNA") return "OPI";
+  if (type === "CLIENTE_KIOSKO" || code.startsWith("OPCK")) return "OPCK";
+  if (isCinchoOrderType(type)) return "OPC";
+  if (type === "MARCAS" || type === "OPV" || code.startsWith("OPV-")) return "OPV";
+  if (isLuisFelipeSeller(order.sellerName)) return "OPV";
+  if (type === "NORMAL" || code.startsWith("OPK-")) return "OPK";
+  return null;
+}
+function normalizeEntreCuerosToken(value) {
+  return String(value || "").normalize("NFD").replace(/\p{M}/gu, "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+}
+function isEntreCuerosCustomerOpv(order) {
+  if (!order || classifyPrepareOrder(order) !== "OPV") return false;
+  const customerToken = normalizeEntreCuerosToken(order.customerName);
+  return customerToken.includes("ENTRECUEROS");
+}
+
+// src/utils/partialReleaseHelper.js
+function orderAllowsPartialReleases(order) {
   if (!order) return false;
   if (isLuisFelipeSeller(order.sellerName)) return true;
   if (isEntreCuerosCustomerOpv(order)) return true;
@@ -13,27 +93,22 @@ export function orderAllowsPartialReleases(order) {
   const code = String(order.code || "").trim().toUpperCase();
   return code.startsWith("OPK-");
 }
-
 function sizeMapHasKeys(sizes) {
   return Boolean(sizes && typeof sizes === "object" && Object.keys(sizes).length > 0);
 }
-
 function sizeMapHasPositiveQty(sizes) {
   if (!sizeMapHasKeys(sizes)) return false;
   return Object.values(sizes).some((q) => Number(q) > 0);
 }
-
-/** La línea se captura por talla si hay desglose (OPC u OPV/OPK/OPCK con sizes). */
-export function lineUsesSizeBreakdown(line) {
+function lineUsesSizeBreakdown(line) {
   return sizeMapHasKeys(line?.sizes) || sizeMapHasKeys(line?.orderedSizes);
 }
-
 function mergePayloadLine(existing, incoming) {
   if (incoming.sizes) {
-    const sizes = { ...(existing.sizes || {}) };
+    const sizes = { ...existing.sizes || {} };
     Object.entries(incoming.sizes).forEach(([size, qty]) => {
-      const q = Number(qty);
-      if (q > 0) sizes[String(size)] = (sizes[String(size)] || 0) + q;
+      const q2 = Number(qty);
+      if (q2 > 0) sizes[String(size)] = (sizes[String(size)] || 0) + q2;
     });
     if (!Object.keys(sizes).length) return existing;
     return { productionOrderItemId: existing.productionOrderItemId, sizes };
@@ -42,26 +117,22 @@ function mergePayloadLine(existing, incoming) {
   if (q <= 0) return existing;
   return { productionOrderItemId: existing.productionOrderItemId, quantity: q };
 }
-
-/** Cantidad capturada en el borrador (ignora el flag «included», solo mira tallas/cantidad). */
-export function draftLineHasDraftQuantity(row, orderType) {
+function draftLineHasDraftQuantity(row, orderType) {
   if (!row) return false;
   if (lineUsesSizeBreakdown(row) || sizeMapHasKeys(row.sizes)) {
     return sizeMapHasPositiveQty(row.sizes);
   }
   return Number(row.quantity || 0) > 0;
 }
-
-export function sumDraftLineQuantity(row, orderType) {
+function sumDraftLineQuantity(row, orderType) {
   if (!draftLineHasDraftQuantity(row, orderType)) return 0;
   if (sizeMapHasKeys(row.sizes)) {
     return Object.values(row.sizes).reduce((s, q) => s + Math.max(0, Number(q) || 0), 0);
   }
   return Math.max(0, Number(row.quantity || 0));
 }
-
-export function buildPartialReleaseLinesPayload(draftLines, orderType) {
-  const byItem = new Map();
+function buildPartialReleaseLinesPayload(draftLines, orderType) {
+  const byItem = /* @__PURE__ */ new Map();
   (draftLines || []).forEach((row) => {
     if (!draftLineHasDraftQuantity(row, orderType)) return;
     const itemId = row.productionOrderItemId;
@@ -85,21 +156,15 @@ export function buildPartialReleaseLinesPayload(draftLines, orderType) {
   });
   return Array.from(byItem.values());
 }
-
 function zeroCinchoSizes(row) {
   const sizes = {};
-  const keys = row.orderedSizes
-    ? Object.keys(row.orderedSizes)
-    : row.sizes
-      ? Object.keys(row.sizes)
-      : [];
+  const keys = row.orderedSizes ? Object.keys(row.orderedSizes) : row.sizes ? Object.keys(row.sizes) : [];
   keys.forEach((size) => {
     sizes[size] = 0;
   });
   return sizes;
 }
-
-export function initDraftLinesFromAvailability(availabilityRows, orderType) {
+function initDraftLinesFromAvailability(availabilityRows, orderType) {
   return (availabilityRows || []).map((row) => {
     if (sizeMapHasKeys(row.orderedSizes)) {
       return {
@@ -112,7 +177,7 @@ export function initDraftLinesFromAvailability(availabilityRows, orderType) {
         orderedSizes: row.orderedSizes,
         pendingSizes: row.pendingSizes,
         included: false,
-        sizes: zeroCinchoSizes(row),
+        sizes: zeroCinchoSizes(row)
       };
     }
     return {
@@ -123,33 +188,28 @@ export function initDraftLinesFromAvailability(availabilityRows, orderType) {
       orderedTotal: row.orderedTotal,
       pendingTotal: row.pendingTotal,
       included: false,
-      quantity: 0,
+      quantity: 0
     };
   });
 }
-
-/** Misma lógica que el backend: tallas con cantidad > 0, o quantity > 0. */
-export function partialReleaseLineHasQuantity(line, orderType) {
+function partialReleaseLineHasQuantity(line, orderType) {
   if (!line) return false;
   if (sizeMapHasKeys(line.sizes)) {
     return sizeMapHasPositiveQty(line.sizes);
   }
   return Number(line.quantity || 0) > 0;
 }
-
 function suggestedQtyForRow(row, sizeKey) {
   if (sizeKey != null) {
-    const pending =
-      row.pendingSizes?.[sizeKey] != null ? Number(row.pendingSizes[sizeKey]) : 0;
-    if (pending > 0) return pending;
+    const pending2 = row.pendingSizes?.[sizeKey] != null ? Number(row.pendingSizes[sizeKey]) : 0;
+    if (pending2 > 0) return pending2;
     return row.orderedSizes?.[sizeKey] != null ? Number(row.orderedSizes[sizeKey]) : 0;
   }
   const pending = Number(row.pendingTotal) || 0;
   if (pending > 0) return pending;
   return Number(row.orderedTotal) || 0;
 }
-
-export function applyDraftLineIncluded(row, included, orderType) {
+function applyDraftLineIncluded(row, included, orderType) {
   if (!included) {
     if (lineUsesSizeBreakdown(row)) {
       return { ...row, included: false, sizes: zeroCinchoSizes(row) };
@@ -159,8 +219,8 @@ export function applyDraftLineIncluded(row, included, orderType) {
   if (lineUsesSizeBreakdown(row)) {
     const sizes = { ...zeroCinchoSizes(row) };
     Object.keys(sizes).forEach((size) => {
-      const suggested = suggestedQtyForRow(row, size);
-      sizes[size] = suggested > 0 ? suggested : 0;
+      const suggested2 = suggestedQtyForRow(row, size);
+      sizes[size] = suggested2 > 0 ? suggested2 : 0;
     });
     const hasAny = Object.values(sizes).some((q) => Number(q) > 0);
     return { ...row, included: hasAny, sizes };
@@ -169,62 +229,52 @@ export function applyDraftLineIncluded(row, included, orderType) {
   return {
     ...row,
     included: suggested > 0,
-    quantity: suggested > 0 ? suggested : 0,
+    quantity: suggested > 0 ? suggested : 0
   };
 }
-
-export function applyDraftSizeIncluded(row, sizeKey, included) {
+function applyDraftSizeIncluded(row, sizeKey, included) {
   const suggested = suggestedQtyForRow(row, sizeKey);
-  const sizes = { ...(row.sizes || {}) };
+  const sizes = { ...row.sizes || {} };
   sizes[sizeKey] = included && suggested > 0 ? suggested : 0;
   const rowIncluded = Object.values(sizes).some((q) => Number(q) > 0);
   return { ...row, sizes, included: rowIncluded };
 }
-
-export function countDraftTotalUnits(draftLines, orderType) {
+function countDraftTotalUnits(draftLines, orderType) {
   return (draftLines || []).reduce(
     (sum, row) => sum + sumDraftLineQuantity(row, orderType),
     0
   );
 }
-
-export function maxDraftLineQuantity(row, sizeKey) {
+function maxDraftLineQuantity(row, sizeKey) {
   if (sizeKey != null) {
-    const ordered =
-      row.orderedSizes?.[sizeKey] != null ? Number(row.orderedSizes[sizeKey]) : null;
-    if (ordered != null && ordered > 0) return ordered;
-    const pending =
-      row.pendingSizes?.[sizeKey] != null ? Number(row.pendingSizes[sizeKey]) : null;
-    return pending != null && pending > 0 ? pending : undefined;
+    const ordered2 = row.orderedSizes?.[sizeKey] != null ? Number(row.orderedSizes[sizeKey]) : null;
+    if (ordered2 != null && ordered2 > 0) return ordered2;
+    const pending2 = row.pendingSizes?.[sizeKey] != null ? Number(row.pendingSizes[sizeKey]) : null;
+    return pending2 != null && pending2 > 0 ? pending2 : void 0;
   }
   const ordered = row.orderedTotal != null ? Number(row.orderedTotal) : null;
   if (ordered != null && ordered > 0) return ordered;
   const pending = row.pendingTotal != null ? Number(row.pendingTotal) : null;
-  return pending != null && pending > 0 ? pending : undefined;
+  return pending != null && pending > 0 ? pending : void 0;
 }
-
-export function validateDraftLines(draftLines, orderType) {
+function validateDraftLines(draftLines, orderType) {
   const rows = draftLines || [];
   const totalUnits = rows.reduce(
     (sum, row) => sum + sumDraftLineQuantity(row, orderType),
     0
   );
-
   if (totalUnits <= 0) {
     return {
       ok: false,
-      message: "Marque al menos un producto e indique cantidad mayor a cero.",
+      message: "Marque al menos un producto e indique cantidad mayor a cero."
     };
   }
   return { ok: true, totalUnits };
 }
-
-export function countPartialReleaseLineRows(release) {
+function countPartialReleaseLineRows(release) {
   return (release?.lines || []).length;
 }
-
-/** Busca la liberación parcial ligada a un envío (por shipmentId o partialReleaseId). */
-export function findLinkedPartialRelease(shipment, releases) {
+function findLinkedPartialRelease(shipment, releases) {
   const rows = releases || [];
   if (!shipment?.id) return null;
   const byShipment = rows.find(
@@ -236,15 +286,9 @@ export function findLinkedPartialRelease(shipment, releases) {
   }
   return null;
 }
-
-/** Envío ligado a una liberación parcial (por id o por shipmentId en el parcial). */
-export function isPartialReleaseShipment(shipment, linkedRelease) {
+function isPartialReleaseShipment(shipment, linkedRelease) {
   if (!linkedRelease?.lines?.length || !shipment?.id) return false;
-  if (
-    shipment.partialReleaseId != null &&
-    shipment.partialReleaseId !== "" &&
-    String(shipment.partialReleaseId) === String(linkedRelease.id)
-  ) {
+  if (shipment.partialReleaseId != null && shipment.partialReleaseId !== "" && String(shipment.partialReleaseId) === String(linkedRelease.id)) {
     return true;
   }
   if (linkedRelease.shipmentId != null && String(linkedRelease.shipmentId) === String(shipment.id)) {
@@ -252,9 +296,7 @@ export function isPartialReleaseShipment(shipment, linkedRelease) {
   }
   return false;
 }
-
-/** Envíos visibles al enfocar un parcial: nunca cae al documento completo de la OP. */
-export function filterShipmentsByPartialReleaseId(docs, focusId, releases) {
+function filterShipmentsByPartialReleaseId(docs, focusId, releases) {
   if (!focusId) return docs || [];
   const rows = docs || [];
   return rows.filter((s) => {
@@ -263,21 +305,17 @@ export function filterShipmentsByPartialReleaseId(docs, focusId, releases) {
     return linked && String(linked.id) === String(focusId);
   });
 }
-
-/** Documento sintético de la OP completa: solo si no hay envíos ni parciales. */
-export function shouldUseSyntheticFullOrderDocument({
+function shouldUseSyntheticFullOrderDocument({
   realShipmentCount = 0,
   partialReleaseCount = 0,
-  focusedPartialReleaseId = "",
+  focusedPartialReleaseId = ""
 } = {}) {
   if (Number(realShipmentCount) > 0) return false;
   if (focusedPartialReleaseId) return false;
   if (Number(partialReleaseCount) > 0) return false;
   return true;
 }
-
-/** Líneas del parcial para listado/impresión; null si no aplica reemplazo. */
-export function resolvePartialReleaseShipmentProducts(shipment, linkedRelease, orderType) {
+function resolvePartialReleaseShipmentProducts(shipment, linkedRelease, orderType) {
   if (!linkedRelease?.lines?.length || !shipment?.id) return null;
   const products = buildShipmentProductsFromPartialReleaseLines(linkedRelease.lines, orderType);
   if (!products.length) return null;
@@ -286,11 +324,7 @@ export function resolvePartialReleaseShipmentProducts(shipment, linkedRelease, o
   }
   return null;
 }
-
-/**
- * Productos a mostrar en impresión / exportación (parcial si aplica, no la OP completa).
- */
-export function resolveShipmentLinesForPrint(shipment, order, partialList) {
+function resolveShipmentLinesForPrint(shipment, order, partialList) {
   if (!shipment) return [];
   if (Array.isArray(shipment._printProducts) && shipment._printProducts.length > 0) {
     return shipment._printProducts;
@@ -303,16 +337,14 @@ export function resolveShipmentLinesForPrint(shipment, order, partialList) {
   }
   return shipment.products || [];
 }
-
-/** Productos de impresión / envío a partir de líneas guardadas del parcial (no la OP completa). */
-export function buildShipmentProductsFromPartialReleaseLines(lines, orderType) {
+function buildShipmentProductsFromPartialReleaseLines(lines, orderType) {
   const products = [];
   (lines || []).forEach((line) => {
     if (!partialReleaseLineHasQuantity(line, orderType)) return;
     if (sizeMapHasKeys(line.sizes)) {
       Object.entries(line.sizes).forEach(([size, qty]) => {
-        const q = Number(qty);
-        if (q > 0) {
+        const q2 = Number(qty);
+        if (q2 > 0) {
           products.push({
             productId: line.productId,
             productCode: line.productCode,
@@ -320,7 +352,7 @@ export function buildShipmentProductsFromPartialReleaseLines(lines, orderType) {
             colorId: line.colorId,
             colorName: line.colorName,
             size: String(size).trim().toUpperCase(),
-            quantity: q,
+            quantity: q2
           });
         }
       });
@@ -335,28 +367,25 @@ export function buildShipmentProductsFromPartialReleaseLines(lines, orderType) {
         colorId: line.colorId,
         colorName: line.colorName,
         size: "",
-        quantity: q,
+        quantity: q
       });
     }
   });
   return products;
 }
-
-export function countPartialReleaseSavedLines(release, orderType) {
+function countPartialReleaseSavedLines(release, orderType) {
   if (release?.savedLineCount != null && release.savedLineCount !== "") {
     return Number(release.savedLineCount) || 0;
   }
   return (release?.lines || []).filter((line) => partialReleaseLineHasQuantity(line, orderType)).length;
 }
-
-export function releaseLineCount(release) {
+function releaseLineCount(release) {
   if (release?.lineCount != null && release.lineCount !== "") {
     return Number(release.lineCount) || 0;
   }
   return countPartialReleaseLineRows(release);
 }
-
-export function releaseTotalUnits(release, orderType) {
+function releaseTotalUnits(release, orderType) {
   if (release?.totalUnits != null && release.totalUnits !== "") {
     return Number(release.totalUnits) || 0;
   }
@@ -365,33 +394,26 @@ export function releaseTotalUnits(release, orderType) {
     0
   );
 }
-
-export function sumPartialReleaseLineQuantity(line, orderType) {
+function sumPartialReleaseLineQuantity(line, orderType) {
   if (!partialReleaseLineHasQuantity(line, orderType)) return 0;
   if (sizeMapHasKeys(line.sizes)) {
     return Object.values(line.sizes).reduce((s, q) => s + Math.max(0, Number(q) || 0), 0);
   }
   return Math.max(0, Number(line.quantity || 0));
 }
-
-export function initDraftLinesFromRelease(release, orderType, availabilityRows = []) {
-  const savedByItemId = new Map();
+function initDraftLinesFromRelease(release, orderType, availabilityRows = []) {
+  const savedByItemId = /* @__PURE__ */ new Map();
   (release?.lines || []).forEach((line) => {
     if (line?.productionOrderItemId != null) {
       savedByItemId.set(String(line.productionOrderItemId), line);
     }
   });
-
-  const baseRows =
-    (availabilityRows || []).length > 0
-      ? availabilityRows
-      : release?.lines || [];
-
+  const baseRows = (availabilityRows || []).length > 0 ? availabilityRows : release?.lines || [];
   const merged = baseRows.map((base) => {
     const saved = savedByItemId.get(String(base.productionOrderItemId));
     const line = saved || base;
     const useSizes = lineUsesSizeBreakdown(line) || lineUsesSizeBreakdown(base);
-    let sizes = useSizes ? { ...(line.sizes || {}) } : undefined;
+    let sizes = useSizes ? { ...line.sizes || {} } : void 0;
     if (useSizes && (!sizes || !Object.keys(sizes).length) && (line.orderedSizes || base.orderedSizes)) {
       sizes = zeroCinchoSizes(line.orderedSizes ? line : base);
     }
@@ -405,9 +427,7 @@ export function initDraftLinesFromRelease(release, orderType, availabilityRows =
     if (useSizes && !saved) {
       sizes = zeroCinchoSizes(base.orderedSizes ? base : line);
     }
-    const hasQty = saved
-      ? partialReleaseLineHasQuantity({ ...line, sizes, quantity: line.quantity }, orderType)
-      : false;
+    const hasQty = saved ? partialReleaseLineHasQuantity({ ...line, sizes, quantity: line.quantity }, orderType) : false;
     return {
       productionOrderItemId: line.productionOrderItemId ?? base.productionOrderItemId,
       productCode: line.productCode ?? base.productCode,
@@ -418,32 +438,56 @@ export function initDraftLinesFromRelease(release, orderType, availabilityRows =
       orderedSizes: line.orderedSizes ?? base.orderedSizes,
       pendingSizes: line.pendingSizes ?? base.pendingSizes,
       included: hasQty,
-      quantity: useSizes ? undefined : saved ? line.quantity || 0 : 0,
-      sizes,
+      quantity: useSizes ? void 0 : saved ? line.quantity || 0 : 0,
+      sizes
     };
   });
-
   if (merged.length > 0) {
     return merged;
   }
   return initDraftLinesFromAvailability(availabilityRows, orderType);
 }
-
-/** Líneas con cantidad > 0 para vista de solo lectura (generar envío). */
-export function draftLinesForReviewFromRelease(release, orderType) {
-  return (release?.lines || [])
-    .filter((line) => partialReleaseLineHasQuantity(line, orderType))
-    .map((line) => ({
-      productionOrderItemId: line.productionOrderItemId,
-      productCode: line.productCode,
-      productName: line.productName,
-      colorName: line.colorName,
-      orderedTotal: line.orderedTotal,
-      pendingTotal: line.pendingTotal,
-      orderedSizes: line.orderedSizes,
-      pendingSizes: line.pendingSizes,
-      included: true,
-      quantity: line.quantity,
-      sizes: line.sizes ? { ...line.sizes } : undefined,
-    }));
+function draftLinesForReviewFromRelease(release, orderType) {
+  return (release?.lines || []).filter((line) => partialReleaseLineHasQuantity(line, orderType)).map((line) => ({
+    productionOrderItemId: line.productionOrderItemId,
+    productCode: line.productCode,
+    productName: line.productName,
+    colorName: line.colorName,
+    orderedTotal: line.orderedTotal,
+    pendingTotal: line.pendingTotal,
+    orderedSizes: line.orderedSizes,
+    pendingSizes: line.pendingSizes,
+    included: true,
+    quantity: line.quantity,
+    sizes: line.sizes ? { ...line.sizes } : void 0
+  }));
 }
+// Annotate the CommonJS export names for ESM import in node:
+0 && (module.exports = {
+  applyDraftLineIncluded,
+  applyDraftSizeIncluded,
+  buildPartialReleaseLinesPayload,
+  buildShipmentProductsFromPartialReleaseLines,
+  countDraftTotalUnits,
+  countPartialReleaseLineRows,
+  countPartialReleaseSavedLines,
+  draftLineHasDraftQuantity,
+  draftLinesForReviewFromRelease,
+  filterShipmentsByPartialReleaseId,
+  findLinkedPartialRelease,
+  initDraftLinesFromAvailability,
+  initDraftLinesFromRelease,
+  isPartialReleaseShipment,
+  lineUsesSizeBreakdown,
+  maxDraftLineQuantity,
+  orderAllowsPartialReleases,
+  partialReleaseLineHasQuantity,
+  releaseLineCount,
+  releaseTotalUnits,
+  resolvePartialReleaseShipmentProducts,
+  resolveShipmentLinesForPrint,
+  shouldUseSyntheticFullOrderDocument,
+  sumDraftLineQuantity,
+  sumPartialReleaseLineQuantity,
+  validateDraftLines
+});

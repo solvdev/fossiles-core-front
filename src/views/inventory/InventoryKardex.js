@@ -165,6 +165,13 @@ function InventoryKardex({
       TRANSFER_OUT: { color: "warning", text: "Transferencia Salida" },
       ADJUSTMENT: { color: "secondary", text: "Ajuste" },
       RETURN: { color: "primary", text: "Devolución" },
+      ONLINE_SALE_DISPATCH: { color: "primary", text: "Despacho venta online" },
+      ONLINE_SALE_DISPATCH_REVERSAL: { color: "info", text: "Anulación despacho online" },
+      ONLINE_SALE_PREPARE: { color: "primary", text: "Preparación venta online" },
+      ONLINE_SALE_PREPARE_REVERSAL: { color: "info", text: "Anulación preparación online" },
+      ONLINE_SALE_RETURN: { color: "primary", text: "Devolución venta online" },
+      SHIPMENT: { color: "warning", text: "Envío" },
+      SHIPMENT_REVERSAL: { color: "info", text: "Anulación envío" },
     };
 
     const config = typeMap[type] || { color: "default", text: type };

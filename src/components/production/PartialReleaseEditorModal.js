@@ -18,7 +18,6 @@ import {
   generatePartialReleaseShipment,
   updatePartialRelease,
 } from "services/productionOrderService";
-import { isCinchoOrderType } from "utils/cinchoProductionHelper";
 import {
   applyDraftLineIncluded,
   applyDraftSizeIncluded,
@@ -27,6 +26,7 @@ import {
   draftLinesForReviewFromRelease,
   initDraftLinesFromAvailability,
   initDraftLinesFromRelease,
+  lineUsesSizeBreakdown,
   maxDraftLineQuantity,
   sumPartialReleaseLineQuantity,
 } from "utils/partialReleaseHelper";
@@ -56,7 +56,6 @@ function PartialReleaseEditorModal({
   const orderType = order?.orderType;
   const prepareKind = classifyPrepareOrder(order);
   const requiresKiosk = prepareKind === "OPCK" || prepareKind === "OPK";
-  const cincho = isCinchoOrderType(orderType);
   const readOnly = mode === "review-generate";
 
   const [label, setLabel] = useState("");
@@ -389,7 +388,11 @@ function PartialReleaseEditorModal({
                   <th>Pendiente</th>
                 </>
               )}
-              <th>{cincho ? "Tallas / cant." : "Cantidad"}</th>
+              <th>
+                {draftLines.some((row) => lineUsesSizeBreakdown(row))
+                  ? "Tallas / cant."
+                  : "Cantidad"}
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -410,7 +413,7 @@ function PartialReleaseEditorModal({
                   >
                     {!readOnly && (
                       <td className="align-middle">
-                        {cincho && row.orderedSizes ? (
+                        {lineUsesSizeBreakdown(row) ? (
                           <span className="small text-muted">por talla →</span>
                         ) : (
                           <div className="custom-control custom-checkbox">
@@ -419,7 +422,7 @@ function PartialReleaseEditorModal({
                               className="custom-control-input"
                               id={`inc-${row.productionOrderItemId}`}
                               checked={!!row.included}
-                              disabled={(maxQty ?? 0) <= 0 && !cincho}
+                              disabled={(maxQty ?? 0) <= 0 && !lineUsesSizeBreakdown(row)}
                               onChange={(e) => toggleRowIncluded(row, e.target.checked)}
                             />
                             <label
@@ -442,7 +445,7 @@ function PartialReleaseEditorModal({
                       </>
                     )}
                     <td>
-                      {cincho && (row.orderedSizes || row.sizes) ? (
+                      {lineUsesSizeBreakdown(row) ? (
                         renderCinchoIncludeCell(row)
                       ) : readOnly ? (
                         <strong>{sumPartialReleaseLineQuantity(row, orderType)}</strong>

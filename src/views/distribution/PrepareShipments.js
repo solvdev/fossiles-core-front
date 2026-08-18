@@ -65,10 +65,12 @@ import {
   resolveOpvUnitPriceForSize,
 } from "utils/prepareShipmentsOrderHelper";
 import {
+  filterShipmentsByPartialReleaseId,
   findLinkedPartialRelease,
   orderAllowsPartialReleases,
   resolvePartialReleaseShipmentProducts,
   resolveShipmentLinesForPrint,
+  shouldUseSyntheticFullOrderDocument,
 } from "utils/partialReleaseHelper";
 import PrepareShipmentsCustomerBlock from "components/distribution/PrepareShipmentsCustomerBlock";
 import CreateStandaloneKioskShipmentModal from "components/distribution/CreateStandaloneKioskShipmentModal";
@@ -131,9 +133,18 @@ const buildPrepareShipmentProductsExtra = (order) => (shipment, linked) => {
     linked,
     order?.orderType
   );
+  const isPartial = Boolean(
+    partialProducts ||
+      shipment?.partialReleaseId ||
+      (linked && isPartialReleaseShipmentDoc(shipment))
+  );
   if (partialProducts) {
     const priced = applyOrderItemPricesToShipmentProducts(order, partialProducts);
-    return { products: priced, _printProducts: priced };
+    return {
+      products: priced,
+      _printProducts: priced,
+      packingItems: Array.isArray(shipment?.packingItems) ? shipment.packingItems : [],
+    };
   }
   if (classifyPrepareOrder(order) === "OPV") {
     return {
@@ -141,8 +152,12 @@ const buildPrepareShipmentProductsExtra = (order) => (shipment, linked) => {
         order,
         mapShipmentProductsForOpvPrint(shipment)
       ),
-      packingItems: order.packingItems,
-      shippingCost: order.shippingCost,
+      packingItems: isPartial
+        ? Array.isArray(shipment?.packingItems)
+          ? shipment.packingItems
+          : []
+        : order.packingItems,
+      shippingCost: isPartial ? Number(shipment?.shippingCost || 0) : order.shippingCost,
     };
   }
   return {};
@@ -704,12 +719,7 @@ function PrepareShipments() {
   const filterShipmentsForFocusedPartial = useCallback((docs, partialList) => {
     const focusId = focusedPartialReleaseIdRef.current;
     if (!focusId || !docs?.length) return docs;
-    const filtered = docs.filter((s) => {
-      if (String(s.partialReleaseId || "") === String(focusId)) return true;
-      const linked = findLinkedPartialRelease(s, partialList?.releases);
-      return linked && String(linked.id) === String(focusId);
-    });
-    return filtered.length ? filtered : docs;
+    return filterShipmentsByPartialReleaseId(docs, focusId, partialList?.releases);
   }, []);
 
   const filterShipmentsForFocusedId = useCallback((docs) => {
@@ -1143,7 +1153,13 @@ function PrepareShipments() {
 
       if (printable.length > 0) {
         commitEnrichedShipments(printable, partialList, order);
-      } else if (pendingConfirm.length > 0) {
+      } else if (
+        !shouldUseSyntheticFullOrderDocument({
+          realShipmentCount: printable.length,
+          partialReleaseCount: (partialList?.releases || []).length,
+          focusedPartialReleaseId: focusedPartialReleaseIdRef.current,
+        })
+      ) {
         setShipments([]);
         setCopiesByShipment({});
         setSelectedRows({});
