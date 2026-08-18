@@ -138,12 +138,14 @@ const buildPrepareShipmentProductsExtra = (order) => (shipment, linked) => {
       shipment?.partialReleaseId ||
       (linked && isPartialReleaseShipmentDoc(shipment))
   );
+  const shippingCost = Number(shipment?.shippingCost || order?.shippingCost || 0);
   if (partialProducts) {
     const priced = applyOrderItemPricesToShipmentProducts(order, partialProducts);
     return {
       products: priced,
       _printProducts: priced,
       packingItems: Array.isArray(shipment?.packingItems) ? shipment.packingItems : [],
+      shippingCost,
     };
   }
   if (classifyPrepareOrder(order) === "OPV") {
@@ -157,7 +159,7 @@ const buildPrepareShipmentProductsExtra = (order) => (shipment, linked) => {
           ? shipment.packingItems
           : []
         : order.packingItems,
-      shippingCost: isPartial ? Number(shipment?.shippingCost || 0) : order.shippingCost,
+      shippingCost,
     };
   }
   return {};
@@ -2280,9 +2282,7 @@ function PrepareShipments() {
           docs.push({
             ...shipment,
             shippingCost: Number(
-              isPartialReleaseShipmentDoc(shipment)
-                ? (shipment.shippingCost ?? 0)
-                : (shipment.shippingCost ?? selectedProductionOrder?.shippingCost ?? 0)
+              shipment.shippingCost || selectedProductionOrder?.shippingCost || 0
             ),
             _printProducts: printProducts,
             _printPackingItems: printPacking,
