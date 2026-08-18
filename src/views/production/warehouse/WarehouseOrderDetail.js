@@ -159,6 +159,14 @@ const WarehouseOrderDetail = ({
         <br />
         Piezas: {progress.produced}/{progress.total} contabilizadas · pendientes {progress.pending}
         {receiptClosed && <Badge color="dark" className="ml-2">Recepción cerrada</Badge>}
+        {order.observations && (
+          <>
+            <br />
+            <small>
+              <strong>Observaciones:</strong> {order.observations}
+            </small>
+          </>
+        )}
       </Alert>
 
       <Progress value={progress.pct} color={progress.pct >= 100 ? "success" : "info"} className="mb-3" style={{ height: 8 }} />
@@ -249,6 +257,14 @@ const WarehouseOrderDetail = ({
                     <strong>{shipment.customerName}</strong>
                     <br />
                     <small>Venta #{shipment.saleNumber} · {shipment.address}</small>
+                    {shipment.observations && (
+                      <>
+                        <br />
+                        <small className="text-warning">
+                          <strong>Obs.:</strong> {shipment.observations}
+                        </small>
+                      </>
+                    )}
                     <br />
                     <span style={SALE_STATUS_STYLES[shipment.saleStatus] || DEFAULT_BADGE_STYLE}>
                       {shipment.saleStatus}

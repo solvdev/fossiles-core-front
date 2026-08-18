@@ -154,6 +154,11 @@ function OrganizerItemRow({ order, item, inDraft, onAdd, onJumpToAssignment, onA
         {sizesText && (
           <div className="text-muted" style={{ fontSize: 11 }}>Tallas OP: {sizesText}</div>
         )}
+        {item.observations && (
+          <div className="text-warning" style={{ fontSize: 11, marginTop: 2 }}>
+            Obs.: {item.observations}
+          </div>
+        )}
         {assignments.length > 0 && (
           <div style={{ fontSize: 11, marginTop: 4 }}>
             {assignments.map((a, idx) => {
@@ -411,6 +416,11 @@ export default function OrganizerOrderBrowser({
                 </Badge>
                 {order.deliveryDate && (
                   <small className="text-muted">Entrega: {formatDateGt(order.deliveryDate)}</small>
+                )}
+                {order.observations && (
+                  <div className="w-100 mt-1 small text-warning">
+                    <strong>Obs.:</strong> {order.observations}
+                  </div>
                 )}
                 <span className="ml-auto text-muted">{expanded ? "▾" : "▸"}</span>
               </div>

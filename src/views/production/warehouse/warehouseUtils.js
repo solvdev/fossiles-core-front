@@ -189,7 +189,7 @@ const buildOrderSearchHaystack = (order) => {
     .map((item) => `${item?.productCode || ""} ${item?.productName || ""} ${item?.colorName || ""}`)
     .join(" ");
   const customerBits = (order?.customerShipments || [])
-    .map((s) => `${s?.customerName || ""} ${s?.saleNumber || ""} ${s?.address || ""}`)
+    .map((s) => `${s?.customerName || ""} ${s?.saleNumber || ""} ${s?.address || ""} ${s?.observations || ""}`)
     .join(" ");
   const kioskBits = (order?.kioskShipments || [])
     .map((s) => `${s?.shipmentNumber || ""} ${s?.locationName || ""}`)

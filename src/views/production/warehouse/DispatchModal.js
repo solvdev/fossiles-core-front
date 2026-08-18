@@ -46,6 +46,12 @@ const DispatchModal = ({
           <strong>Venta:</strong> #{sale?.saleNumber}
           <br />
           <strong>Dirección:</strong> {sale?.address}
+          {sale?.observations && (
+            <>
+              <br />
+              <strong>Observaciones:</strong> {sale.observations}
+            </>
+          )}
         </p>
         <FormGroup>
           <Label>Transporte</Label>
