@@ -34,6 +34,7 @@ import {
   posVariantStockQty,
   variantLineKeyFor,
 } from "../pos/posUtils";
+import { isPackagingProductCode } from "utils/kioskPackagingHelper";
 import ExchangeCheckoutModal from "./ExchangeCheckoutModal";
 import "../KioskSales.css";
 
@@ -54,10 +55,11 @@ const impliedDiscountPercent = (catalogSalePrice, paidUnitPrice) => {
   return Math.round((1 - paid / catalog) * 1000) / 10;
 };
 
-/** Solo variantes con stock; una fila por producto+color+herraje (queda la de mayor qty). */
+/** Solo variantes con stock y sin empaques SUM; una fila por producto+color+herraje. */
 const dedupeSellableInventory = (rows) => {
   const byKey = new Map();
   (rows || []).forEach((row) => {
+    if (isPackagingProductCode(row?.productCode)) return;
     if (!posVariantHasStock(row)) return;
     const key = variantLineKeyFor(row.productId, row.colorId, row.hardwareCondition);
     const prev = byKey.get(key);
@@ -172,9 +174,19 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
     [sale, selectedItemId]
   );
 
+  const exchangeableSaleItems = useMemo(
+    () => (sale?.items || []).filter((item) => !isPackagingProductCode(item.productCode)),
+    [sale]
+  );
+
+  const exchangeableProducts = useMemo(
+    () => (products || []).filter((product) => !isPackagingProductCode(product.code)),
+    [products]
+  );
+
   const selectedReturnedProduct = useMemo(
-    () => (products || []).find((product) => String(product.id) === String(returnedProductId)) || null,
-    [products, returnedProductId]
+    () => (exchangeableProducts || []).find((product) => String(product.id) === String(returnedProductId)) || null,
+    [exchangeableProducts, returnedProductId]
   );
 
   const selectedVariant = useMemo(() => {
@@ -271,6 +283,10 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
   };
 
   const selectReturnedItem = (item) => {
+    if (isPackagingProductCode(item?.productCode)) {
+      setError("Los empaques SUM no entran en el cambio. Selecciona el producto.");
+      return;
+    }
     resetError();
     setSelectedItemId(String(item.id));
     setReturnedQty(String(item.quantity || 1));
@@ -665,15 +681,19 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
                     <div className="kiosk-exchange-field">
                       <span className="kiosk-exchange-label">Producto</span>
                       <ProductSelector
-                        products={products}
+                        products={exchangeableProducts}
                         value={returnedProductId}
                         onChange={(product) => {
+                          if (product && isPackagingProductCode(product.code)) {
+                            setError("Los empaques SUM no entran en el cambio.");
+                            return;
+                          }
                           setReturnedProductId(product?.id != null ? String(product.id) : "");
                           setReturnedSoldWithDiscount(false);
                           setReturnedDiscountPreset("");
                           setReturnedDiscountOther("");
                         }}
-                        placeholder="Buscar por código o nombre…"
+                        placeholder="Buscar producto (sin empaques SUM)…"
                       />
                     </div>
                     <div className="kiosk-exchange-field">
@@ -718,6 +738,12 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
                 <span className="kiosk-exchange-pill">{sale.saleDate}</span>
                 <span className="kiosk-exchange-pill">Total {formatCurrency(sale.totalAmount)}</span>
               </div>
+              <div className="kiosk-exchange-hint">
+                <span className="kiosk-exchange-hint-icon" aria-hidden>i</span>
+                <span>
+                  Selecciona la línea del producto a cambiar. Los empaques SUM no entran en el cambio.
+                </span>
+              </div>
               <div className="kiosk-exchange-table-wrap">
                 <Table responsive size="sm">
                   <thead>
@@ -730,7 +756,7 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
                     </tr>
                   </thead>
                   <tbody>
-                    {(sale.items || []).map((item) => {
+                    {exchangeableSaleItems.map((item) => {
                       const isSelected = String(selectedItemId) === String(item.id);
                       return (
                         <tr
@@ -756,6 +782,11 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
                   </tbody>
                 </Table>
               </div>
+              {exchangeableSaleItems.length === 0 && (
+                <Alert color="warning" className="py-2">
+                  Esta venta no tiene productos cambiables (solo empaques SUM u otras líneas excluidas).
+                </Alert>
+              )}
               <div className="kiosk-exchange-panel mb-3">
                 <div className="kiosk-exchange-field" style={{ maxWidth: 180 }}>
                   <span className="kiosk-exchange-label">Cantidad devuelta</span>
@@ -780,7 +811,8 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
               <div className="kiosk-exchange-hint">
                 <span className="kiosk-exchange-hint-icon" aria-hidden>i</span>
                 <span>
-                  Selecciona el producto nuevo del inventario del kiosko. Se valora a precio de venta normal.
+                  Selecciona el producto nuevo del inventario del kiosko (sin empaques SUM). Se valora a precio de
+                  venta normal.
                 </span>
               </div>
               <div className="kiosk-exchange-panel">
