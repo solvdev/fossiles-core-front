@@ -289,6 +289,25 @@ export const dispatchCustomerShipment = async (productionOrderId, onlineSaleId, 
   }
 };
 
+export const cancelCustomerDispatch = async (productionOrderId, onlineSaleId, data = {}) => {
+  const response = await fetch(
+    `${API_URL}/production-orders/${productionOrderId}/cancel-customer-dispatch/${onlineSaleId}`,
+    {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        ...getAuthHeader(),
+      },
+      body: JSON.stringify(data || {}),
+    }
+  );
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({ message: 'Error al anular envío' }));
+    throw new Error(errorData.message || 'Error al anular envío');
+  }
+  return response.json();
+};
+
 export const getWarehouseWorkspace = async (productionOrderId) => {
   try {
     const response = await fetch(`${API_URL}/production-orders/${productionOrderId}/warehouse-workspace`, {

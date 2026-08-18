@@ -5,6 +5,7 @@ import {
 import {
   closeWarehouseReceipt,
   dispatchCustomerShipment,
+  cancelCustomerDispatch,
   getWarehouseWorkspace,
   updateWarehouseUnitsReceipt,
 } from "../../../services/productionOrderService";
@@ -139,6 +140,27 @@ const WarehouseOrderDetail = ({
       if (onRefresh) onRefresh();
     } catch (err) {
       showError(err.message || "No se pudo cerrar la recepción");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleCancelDispatch = async (shipment) => {
+    if (!shipment?.onlineSaleId || !order?.productionOrderId) return;
+    const ok = window.confirm(
+      `¿Anular el envío de la venta #${shipment.saleNumber || shipment.onlineSaleId}? El stock regresará a bodega de devoluciones.`
+    );
+    if (!ok) return;
+    setSaving(true);
+    try {
+      await cancelCustomerDispatch(order.productionOrderId, shipment.onlineSaleId, {
+        reason: "Anulación de envío desde bodega PT",
+      });
+      showSuccess("Envío anulado. Stock en bodega de devoluciones.");
+      await loadWorkspace();
+      if (onRefresh) onRefresh();
+    } catch (err) {
+      showError(err.message || "No se pudo anular el envío");
     } finally {
       setSaving(false);
     }
@@ -279,6 +301,17 @@ const WarehouseOrderDetail = ({
                         onClick={() => setDispatchModal({ open: true, sale: shipment })}
                       >
                         Despachar
+                      </Button>
+                    )}
+                    {shipment.saleStatus === "ENVIADO" && (
+                      <Button
+                        size="sm"
+                        color="warning"
+                        outline
+                        disabled={saving}
+                        onClick={() => void handleCancelDispatch(shipment)}
+                      >
+                        Anular envío
                       </Button>
                     )}
                   </Col>

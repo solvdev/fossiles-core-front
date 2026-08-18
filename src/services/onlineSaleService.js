@@ -314,6 +314,20 @@ export const voidOnlineSale = async (id, reason) => {
   return response.json();
 };
 
+/** Anula despacho ENVIADO: stock a bodega devoluciones. */
+export const cancelOnlineSaleDispatch = async (id, reason) => {
+  const response = await fetch(`${API_URL}/online-sales/${id}/cancel-dispatch`, {
+    method: 'PUT',
+    headers: headers(),
+    body: JSON.stringify({ reason: reason || null })
+  });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ message: 'Error al anular envío' }));
+    throw new Error(err.message || 'Error al anular envío');
+  }
+  return response.json();
+};
+
 export const registerOnlineSaleShipment = async (id, data) => {
   const response = await fetch(`${API_URL}/online-sales/${id}/shipment`, {
     method: 'PUT',

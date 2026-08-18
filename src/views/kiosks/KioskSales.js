@@ -25,10 +25,13 @@ import {
   getKioskPosContext,
   getKioskPromotions,
   getKioskProductAvailability,
+  getKioskSaleById,
   getMyKioskSales,
   getOldestPendingFelSale,
   getPendingDepositSummary,
+  updateKioskSaleInvoiceContact,
 } from "services/kioskPosService";
+import { issueTaxInvoiceFromKioskSale } from "services/taxInvoiceService";
 import { countShipmentsInTransit } from "services/productDistributionService";
 import { getTodayYmdGuatemala } from "utils/dateTimeHelper";
 import { isPackagingProductCode } from "utils/kioskPackagingHelper";
@@ -63,6 +66,8 @@ import {
   parseCheckoutPromotionPayload,
   resolveSelectedPromotion,
   saleNeedsFelCertification,
+  getSaleInternalNumber,
+  normalizeFelReceptorEmail,
 } from "./pos/posUtils";
 import { getHardwareConditionLabel } from "utils/productCinchoHelper";
 import "./KioskSales.css";
@@ -509,13 +514,15 @@ function KioskSales() {
       const promoPayload = checkoutData.chargeWithoutDiscount
         ? { promotionId: null, manualDiscountPercent: null }
         : parseCheckoutPromotionPayload(checkoutData.promotionId ?? selectedPromotionId);
-      const sale = await createKioskPosSale({
+      const invoiceEmail = normalizeFelReceptorEmail(checkoutData.invoiceEmail);
+      const invoicePhone = String(checkoutData.invoicePhone || "").trim() || null;
+      let sale = await createKioskPosSale({
         kioskLocationId: selectedKioskId ? Number(selectedKioskId) : null,
         customerTaxId: normalizedTaxId,
         customerName: invoiceName || null,
         address: null,
-        phone: null,
-        email: null,
+        phone: invoicePhone,
+        email: invoiceEmail || null,
         paymentMethod: checkoutData.paymentMethod || "EFECTIVO",
         amountReceived: checkoutData.amountReceived,
         cashAmount: checkoutData.cashAmount,
@@ -556,19 +563,52 @@ function KioskSales() {
         }),
       });
 
+      if (saleNeedsFelCertification(sale)) {
+        try {
+          await updateKioskSaleInvoiceContact(sale.id, locationId, {
+            email: invoiceEmail || null,
+            phone: invoicePhone,
+          });
+          await issueTaxInvoiceFromKioskSale(sale.id);
+          let refreshed = await getKioskSaleById(sale.id, locationId);
+          if (!getSaleInternalNumber(refreshed)) {
+            await new Promise((resolve) => setTimeout(resolve, 400));
+            refreshed = await getKioskSaleById(sale.id, locationId);
+          }
+          sale = refreshed || sale;
+          if (invoiceEmail) {
+            showSuccess("Venta registrada y factura certificada. Se enviará copia al correo.");
+          } else {
+            showSuccess("Venta registrada y factura electrónica certificada.");
+          }
+        } catch (felErr) {
+          setCheckoutOpen(false);
+          setCart([]);
+          setNotes("");
+          setComments("");
+          setSelectedPromotionId("");
+          upsertSaleInList(sale);
+          setPendingFelSale(sale);
+          await loadInitial(selectedKioskId || undefined);
+          showError(
+            felErr.message
+              || "La venta quedó registrada pero no se pudo certificar. Completa la certificación para continuar."
+          );
+          return;
+        }
+      } else {
+        showSuccess(`Venta ${sale.saleNumber || ""} registrada correctamente.`.trim());
+      }
+
       setCheckoutOpen(false);
       setCart([]);
       setNotes("");
       setComments("");
       setSelectedPromotionId("");
+      setPendingFelSale(null);
+      setLastSale(sale);
+      upsertSaleInList(sale);
       await loadInitial(selectedKioskId || undefined);
-
-      if (saleNeedsFelCertification(sale)) {
-        setPendingFelSale(sale);
-      } else {
-        setLastSale(sale);
-        showSuccess(`Venta ${sale.saleNumber || ""} registrada correctamente.`.trim());
-      }
     } catch (err) {
       showError(err.message || "No se pudo registrar la venta.");
     } finally {

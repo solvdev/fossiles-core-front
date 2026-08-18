@@ -12,7 +12,7 @@ import {
   getOnlineSalesByDate, getOnlineSalesByDateRange, getDailySummary,
   getEligibleForProduction, createProductionOrderFromSales, processFulfillment,
   previewFulfillment, getSaleItemsPreview, resolveMixedSale,
-  importOnlineSales, returnOnlineSale, voidOnlineSale, registerOnlineSaleShipment,
+  importOnlineSales, returnOnlineSale, voidOnlineSale, cancelOnlineSaleDispatch, registerOnlineSaleShipment,
   getReturnInventory, getReturnEvents, getReturnForPrint,
   createOnlineSaleExchange,
   PAYMENT_METHODS, SALESPERSONS, SOCIAL_NETWORKS, SHIPPING_CARRIERS, SALE_STATUSES
@@ -572,10 +572,12 @@ function OnlineSales() {
   // Devolución / Anulación
   const [showReturnModal, setShowReturnModal] = useState(false);
   const [showVoidModal, setShowVoidModal] = useState(false);
+  const [showCancelDispatchModal, setShowCancelDispatchModal] = useState(false);
   const [actionSaleId, setActionSaleId] = useState(null);
   const [returnReason, setReturnReason] = useState("");
   const [returnCondition, setReturnCondition] = useState("BUENO");
   const [voidReason, setVoidReason] = useState("");
+  const [cancelDispatchReason, setCancelDispatchReason] = useState("");
   const [felInvoiceLoadingId, setFelInvoiceLoadingId] = useState(null);
   const [felXmlDownloading, setFelXmlDownloading] = useState(false);
   const [felInvoiceModal, setFelInvoiceModal] = useState(null);
@@ -1444,8 +1446,26 @@ function OnlineSales() {
     if (!actionSaleId) return;
     try {
       await voidOnlineSale(actionSaleId, voidReason);
-      showNotification("Venta ANULADA exitosamente");
+      showNotification("Venta ANULADA. Si había stock preparado/despachado, regresó a bodega de devoluciones.");
       setShowVoidModal(false);
+      loadSales();
+    } catch (e) {
+      setError(e.message);
+    }
+  };
+
+  const openCancelDispatchModal = (saleId) => {
+    setActionSaleId(saleId);
+    setCancelDispatchReason("");
+    setShowCancelDispatchModal(true);
+  };
+
+  const handleCancelDispatch = async () => {
+    if (!actionSaleId) return;
+    try {
+      await cancelOnlineSaleDispatch(actionSaleId, cancelDispatchReason);
+      showNotification("Envío anulado. Stock regresó a bodega de devoluciones; la venta puede despacharse de nuevo.");
+      setShowCancelDispatchModal(false);
       loadSales();
     } catch (e) {
       setError(e.message);
@@ -2791,6 +2811,12 @@ function OnlineSales() {
                                 <i className="nc-icon nc-refresh-69" />
                               </Button>{" "}</>
                             )}
+                            {sale.status === "ENVIADO" && (
+                              <><Button color="warning" size="sm" className="btn-icon btn-round" title="Anular envío (stock → devoluciones)"
+                                onClick={() => openCancelDispatchModal(sale.id)} style={{ padding: "3px 7px" }}>
+                                <i className="nc-icon nc-simple-remove" />
+                              </Button>{" "}</>
+                            )}
                             {sale.status === "DEVOLUCION" && (
                               <><Button color="primary" size="sm" className="btn-icon btn-round" title="Registrar CAMBIO (Q0)"
                                 onClick={() => openExchangeModal(sale)} style={{ padding: "3px 7px" }}>
@@ -2799,7 +2825,7 @@ function OnlineSales() {
                             )}
                             {sale.status !== "DEVOLUCION" && sale.status !== "ANULADA"
                               && sale.status !== "ENVIADO" && sale.status !== "ENTREGADO" && (
-                              <><Button color="warning" size="sm" className="btn-icon btn-round" title="Anular"
+                              <><Button color="warning" size="sm" className="btn-icon btn-round" title="Anular (stock → devoluciones si aplica)"
                                 onClick={() => openVoidModal(sale.id)} style={{ padding: "3px 7px" }}>
                                 <i className="nc-icon nc-simple-delete" />
                               </Button>{" "}</>
@@ -4556,7 +4582,8 @@ function OnlineSales() {
         </ModalHeader>
         <ModalBody>
           <p className="text-muted mb-3">
-            La venta se marcará como anulada y se descontará del resumen contable.
+            La venta se marcará como anulada. Si ya se había descontado inventario (preparación o despacho),
+            ese stock regresará a la <strong>bodega de devoluciones</strong>.
           </p>
           <FormGroup>
             <Label>Razón de la anulación</Label>
@@ -4568,6 +4595,29 @@ function OnlineSales() {
         <ModalFooter>
           <Button color="secondary" onClick={() => setShowVoidModal(false)}>Cancelar</Button>
           <Button color="danger" onClick={handleVoid}>Confirmar Anulación</Button>
+        </ModalFooter>
+      </Modal>
+
+      {/* ═══ MODAL ANULAR ENVÍO ═══ */}
+      <Modal isOpen={showCancelDispatchModal} toggle={() => setShowCancelDispatchModal(false)}>
+        <ModalHeader toggle={() => setShowCancelDispatchModal(false)}>
+          Anular envío
+        </ModalHeader>
+        <ModalBody>
+          <p className="text-muted mb-3">
+            Se anula el despacho (estado ENVIADO). El stock regresa a <strong>bodega de devoluciones</strong>
+            y la venta queda lista para volver a despachar (OPL o directo).
+          </p>
+          <FormGroup>
+            <Label>Razón</Label>
+            <Input type="textarea" rows={3} value={cancelDispatchReason}
+              onChange={e => setCancelDispatchReason(e.target.value)}
+              placeholder="Ej: Guía incorrecta, se despachó por error..." />
+          </FormGroup>
+        </ModalBody>
+        <ModalFooter>
+          <Button color="secondary" onClick={() => setShowCancelDispatchModal(false)}>Cancelar</Button>
+          <Button color="warning" onClick={handleCancelDispatch}>Confirmar anulación de envío</Button>
         </ModalFooter>
       </Modal>
 
