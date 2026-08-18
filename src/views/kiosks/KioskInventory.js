@@ -1589,7 +1589,7 @@ function KioskInventory() {
                 <>
                   <Alert color="info" className="py-2">
                     Consulta en qué kioskos está un producto (existencias de <code>kiosco_stock</code>).
-                    Disponible para ADMIN y LOGÍSTICA.
+                    Disponible para administración, logística y venta en línea.
                   </Alert>
                   <Row className="align-items-end mb-3">
                     <Col md="5">

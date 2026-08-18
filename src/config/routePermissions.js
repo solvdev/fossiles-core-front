@@ -62,9 +62,9 @@ export const routePermissions = {
   '/admin/receipt-confirmation': 'SHIPMENT_RECEIPT_CONFIRM',
 
   // KIOSCOS
-  '/admin/kiosk-inventory': 'KIOSK_INVENTORY_VIEW',
-  '/admin/kiosk-sales': 'KIOSK_SALE_VIEW',
-  '/admin/kiosk-returns': 'KIOSK_RETURN_VIEW',
+  '/admin/kiosk-inventory': 'KIOSCOS.INVENTARIO_KIOSKO.VER',
+  '/admin/kiosk-sales': 'KIOSCOS.VENTAS_KIOSKO.VER',
+  '/admin/kiosk-returns': 'KIOSCOS.DEVOLUCIONES_REINTEGROS.VER',
 
   // VENTAS
   '/admin/total-sales': 'SALES_TOTAL_VIEW',

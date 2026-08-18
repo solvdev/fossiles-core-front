@@ -240,6 +240,18 @@ function RolesForm({ roleId, onSuccess, onCancel }) {
         p.code.startsWith('PRODUCT_READ') ||
         p.code.startsWith('PRODUCT_RECIPE')
       ).forEach(p => suggestions.add(p.id));
+    } else if (
+      (roleNameUpper.includes('VENTA') && roleNameUpper.includes('LINEA')) ||
+      (roleNameUpper.includes('SALES') && roleNameUpper.includes('ONLINE'))
+    ) {
+      availablePermissions.filter(p =>
+        p.code.startsWith('DASHBOARD_SALES') ||
+        p.code.startsWith('SALES') ||
+        p.code.startsWith('KIOSK') ||
+        p.code.startsWith('KIOSCOS') ||
+        p.code.startsWith('CUSTOMER_READ') ||
+        p.code.startsWith('PRODUCT_READ')
+      ).forEach(p => suggestions.add(p.id));
     } else if (roleNameUpper.includes('VENTA') || roleNameUpper.includes('SALES') || roleNameUpper.includes('VENDEDOR')) {
       availablePermissions.filter(p => 
         p.code.startsWith('DASHBOARD_SALES') ||
