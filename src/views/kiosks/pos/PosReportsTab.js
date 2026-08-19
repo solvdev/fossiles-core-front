@@ -48,7 +48,7 @@ import {
   getSaleInternalNumber,
   isSalePendingDeposit,
   formatSaleCardPaymentDetail,
-  saleNeedsFelCertification,
+  isKioskSalePendingFel,
 } from "./posUtils";
 
 const REPORT_TYPES = {
@@ -960,7 +960,7 @@ function PosReportsTab({
                 const isVoid = String(sale.status || "").toUpperCase() === "VOID";
                 const pendingDeposit = isSalePendingDeposit(sale);
                 const showVoidButton = canVoidSaleRow(sale, cashSession);
-                const needsFel = !isVoid && saleNeedsFelCertification(sale);
+                const needsFel = isKioskSalePendingFel(sale, kioskLocationId);
                 const depositLabel = pendingDeposit
                   ? "Pendiente"
                   : sale.depositSlipNumber
@@ -1296,6 +1296,7 @@ function PosReportsTab({
         isOpen={Boolean(certifyTargetSale)}
         sale={certifyTargetSale}
         kioskLocationId={kioskLocationId}
+        onClose={() => setCertifyTargetSale(null)}
         onComplete={(refreshed) => {
           setCertifyTargetSale(null);
           if (saleDetail?.id === refreshed?.id) setSaleDetail(refreshed);

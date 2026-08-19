@@ -30,7 +30,7 @@ import {
   POS_CARD_BRANDS,
   DEFAULT_POS_CARD_BRAND,
   formatSaleCardPaymentDetail,
-  saleNeedsFelCertification,
+  isKioskSalePendingFel,
 } from "./posUtils";
 import PosInvoiceEmailModal from "./PosInvoiceEmailModal";
 
@@ -232,8 +232,7 @@ function PosSaleDetailModal({
   const canDownloadFelReport = Boolean(felUuid);
   const needsFelCertification =
     Boolean(sale?.id)
-    && !isVoid
-    && saleNeedsFelCertification(sale);
+    && isKioskSalePendingFel(sale, kioskLocationId);
 
   const handleDownloadFelReport = () => {
     try {
@@ -895,7 +894,7 @@ function PosSaleDetailModal({
             </Button>
           </div>
         )}
-        <Button color="secondary" onClick={onClose} disabled={felCertOpen}>
+        <Button color="secondary" onClick={onClose}>
           Cerrar
         </Button>
       </ModalFooter>
@@ -905,6 +904,7 @@ function PosSaleDetailModal({
       isOpen={felCertOpen}
       sale={sale}
       kioskLocationId={kioskLocationId}
+      onClose={() => setFelCertOpen(false)}
       onComplete={async (refreshed) => {
         setFelCertOpen(false);
         if (onSaleUpdated) await onSaleUpdated(refreshed);

@@ -1684,6 +1684,19 @@
   background: #fee2e2;
 }
 
+.kiosk-pos-pending-fel-alert {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.kiosk-pos-pending-fel-btn {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
 .kiosk-pos-pending-deposit-badge {
   white-space: normal;
   max-width: 220px;

@@ -481,6 +481,18 @@ export const normalizeFelReceptorEmail = (raw) =>
 export const saleNeedsFelCertification = (sale) =>
   !sale?.invoice?.felUuid && !sale?.felUuid;
 
+export const getSaleKioskId = (sale) => sale?.kioskId ?? sale?.kioskLocationId ?? null;
+
+/** Solo ventas de ese kiosco, vigentes y sin FEL certificado. */
+export const isKioskSalePendingFel = (sale, kioskLocationId) => {
+  if (!sale || kioskLocationId == null || kioskLocationId === "") return false;
+  const saleKioskId = getSaleKioskId(sale);
+  if (saleKioskId == null || String(saleKioskId) !== String(kioskLocationId)) return false;
+  const status = String(sale.status || "").toUpperCase();
+  if (status === "VOID" || status === "ANULADA") return false;
+  return saleNeedsFelCertification(sale);
+};
+
 export const getSaleInternalNumber = (sale) =>
   sale?.internalNumber || sale?.invoice?.internalNumber || "";
 

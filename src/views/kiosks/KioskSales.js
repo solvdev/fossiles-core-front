@@ -66,6 +66,7 @@ import {
   parseCheckoutPromotionPayload,
   resolveSelectedPromotion,
   saleNeedsFelCertification,
+  isKioskSalePendingFel,
   getSaleInternalNumber,
   normalizeFelReceptorEmail,
 } from "./pos/posUtils";
@@ -98,6 +99,7 @@ function KioskSales() {
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [lastSale, setLastSale] = useState(null);
   const [pendingFelSale, setPendingFelSale] = useState(null);
+  const [felCertModalOpen, setFelCertModalOpen] = useState(false);
   const [promoForm, setPromoForm] = useState({
     name: "",
     description: "",
@@ -149,7 +151,7 @@ function KioskSales() {
     }
     try {
       const pending = await getOldestPendingFelSale(locationId);
-      if (pending && saleNeedsFelCertification(pending)) {
+      if (pending && isKioskSalePendingFel(pending, locationId)) {
         setPendingFelSale(pending);
         return pending;
       }
@@ -272,6 +274,8 @@ function KioskSales() {
     setAvailabilityKey("");
     setAvailabilityRows([]);
     setLastSale(null);
+    setPendingFelSale(null);
+    setFelCertModalOpen(false);
     await loadInitial(nextKioskId || undefined);
   };
 
@@ -589,6 +593,7 @@ function KioskSales() {
           setSelectedPromotionId("");
           upsertSaleInList(sale);
           setPendingFelSale(sale);
+          setFelCertModalOpen(true);
           await loadInitial(selectedKioskId || undefined);
           showError(
             felErr.message
@@ -772,7 +777,10 @@ function KioskSales() {
   };
 
   const handleFelInvoiceComplete = async (sale) => {
-    setLastSale(sale);
+    setFelCertModalOpen(false);
+    if (cart.length === 0) {
+      setLastSale(sale);
+    }
     upsertSaleInList(sale);
     const locationId = selectedKioskId || context?.kioskId;
     try {
@@ -949,11 +957,20 @@ function KioskSales() {
                           Debes <strong>abrir caja</strong> (pestaña Caja, fondo {formatCurrency(selectedKioskOpeningCash)}) antes de registrar ventas.
                         </Alert>
                       )}
-                      {pendingFelSale && (
-                        <Alert color="danger" className="mb-3">
-                          Venta pendiente de certificar FEL:{" "}
-                          <strong>{pendingFelSale.saleNumber || `#${pendingFelSale.id}`}</strong>
-                          . Debes certificarla antes de registrar otra venta (correlativo).
+                      {isKioskSalePendingFel(pendingFelSale, selectedKioskId || context?.kioskId) && (
+                        <Alert color="warning" className="mb-3 kiosk-pos-pending-fel-alert">
+                          <div>
+                            Venta pendiente de certificar FEL:{" "}
+                            <strong>{pendingFelSale.saleNumber || `#${pendingFelSale.id}`}</strong>
+                            . Debes certificarla antes de cobrar otra venta (correlativo).
+                          </div>
+                          <Button
+                            color="danger"
+                            className="kiosk-pos-pending-fel-btn"
+                            onClick={() => setFelCertModalOpen(true)}
+                          >
+                            Certificar factura
+                          </Button>
                         </Alert>
                       )}
                       {lastSale ? (
@@ -974,8 +991,8 @@ function KioskSales() {
                               colorFilter={colorFilter}
                               onColorFilterChange={setColorFilter}
                               cartQtyByColorKey={cartQtyByColorKey}
-                              onAddProduct={cashSessionOpen && !pendingFelSale ? addToCart : () => {}}
-                              onPickSizedVariant={cashSessionOpen && !pendingFelSale ? setCinchoPickVariant : () => {}}
+                              onAddProduct={cashSessionOpen ? addToCart : () => {}}
+                              onPickSizedVariant={cashSessionOpen ? setCinchoPickVariant : () => {}}
                             />
                           </div>
                           <div className="kiosk-pos-layout-cart">
@@ -988,7 +1005,7 @@ function KioskSales() {
                               onCheckout={() => void openCheckout()}
                               onCancelSale={cancelSale}
                               onApplyPromotion={() => void openCheckout()}
-                              disabled={!cashSessionOpen || saving || Boolean(pendingFelSale)}
+                              disabled={!cashSessionOpen || saving}
                               canEditPrices={canEditPosPrices}
                             />
                           </div>
@@ -1162,10 +1179,14 @@ function KioskSales() {
                   )}
 
                   <PosInvoiceEmailModal
-                    isOpen={Boolean(pendingFelSale)}
+                    isOpen={
+                      felCertModalOpen
+                      && isKioskSalePendingFel(pendingFelSale, selectedKioskId || context?.kioskId)
+                    }
                     sale={pendingFelSale}
                     kioskLocationId={selectedKioskId || context?.kioskId}
                     onComplete={handleFelInvoiceComplete}
+                    onClose={() => setFelCertModalOpen(false)}
                   />
                 </>
               )}

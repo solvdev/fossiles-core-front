@@ -34,6 +34,7 @@ import {
   posVariantSizeEntries,
   posVariantStockQty,
   saleNeedsFelCertification,
+  isKioskSalePendingFel,
   variantLineKeyFor,
 } from "../pos/posUtils";
 import { isPackagingProductCode } from "utils/kioskPackagingHelper";
@@ -575,6 +576,13 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
     finishExchange(result);
   };
 
+  const dismissPendingFelAndFinish = () => {
+    const result = pendingCompleteResult;
+    setPendingFelSale(null);
+    setPendingCompleteResult(null);
+    if (result) finishExchange(result);
+  };
+
   const handleComplete = async (payment) => {
     if (!displayPreview) return;
     if (!String(physicalSlipNumber || "").trim()) {
@@ -585,7 +593,7 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
       setSaving(true);
       if (hasPriceDifference) {
         const pending = await getOldestPendingFelSale(kioskLocationId);
-        if (pending && saleNeedsFelCertification(pending)) {
+        if (pending && isKioskSalePendingFel(pending, kioskLocationId)) {
           setError(
             `Hay una venta pendiente de certificar FEL (${pending.saleNumber || `#${pending.id}`}). Certifícala en el POS antes de cobrar este cambio.`
           );
@@ -648,12 +656,12 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
     <>
       <Modal
         isOpen={isOpen}
-        toggle={pendingFelSale ? undefined : onClose}
+        toggle={pendingFelSale ? dismissPendingFelAndFinish : onClose}
         size="lg"
         className="kiosk-exchange-modal"
         contentClassName="kiosk-pos-page"
       >
-        <ModalHeader toggle={pendingFelSale ? undefined : onClose}>Nueva boleta de cambio</ModalHeader>
+        <ModalHeader toggle={pendingFelSale ? dismissPendingFelAndFinish : onClose}>Nueva boleta de cambio</ModalHeader>
         <ModalBody>
           <div className="kiosk-exchange-steps" aria-label="Progreso">
             {visibleSteps.map((item, index) => {
@@ -1105,6 +1113,7 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
         sale={pendingFelSale}
         kioskLocationId={kioskLocationId}
         onComplete={handleFelInvoiceComplete}
+        onClose={dismissPendingFelAndFinish}
       />
     </>
   );

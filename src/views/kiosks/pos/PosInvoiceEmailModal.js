@@ -6,10 +6,9 @@ import { showError, showSuccess } from "utils/notificationHelper";
 import { formatCurrency, getSaleInternalNumber, normalizeFelReceptorEmail } from "./posUtils";
 
 /**
- * Obligatorio tras una venta que requiere FEL.
- * No se puede cerrar por backdrop, Escape, X ni Cancelar: hay que certificar (con o sin correo).
+ * Certificación FEL (con o sin correo). Si se pasa onClose, se puede cerrar y seguir usando el POS.
  */
-function PosInvoiceEmailModal({ isOpen, sale, kioskLocationId, onComplete }) {
+function PosInvoiceEmailModal({ isOpen, sale, kioskLocationId, onComplete, onClose }) {
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
   const [saving, setSaving] = useState(false);
@@ -74,14 +73,16 @@ function PosInvoiceEmailModal({ isOpen, sale, kioskLocationId, onComplete }) {
       isOpen={isOpen}
       centered
       backdrop="static"
-      keyboard={false}
+      keyboard={Boolean(onClose)}
+      toggle={onClose}
       className="kiosk-pos-checkout-modal"
     >
-      <ModalHeader>Certificar factura electrónica</ModalHeader>
+      <ModalHeader toggle={onClose}>Certificar factura electrónica</ModalHeader>
       <ModalBody>
         <Alert color="warning" className="py-2">
           La venta <strong>{sale.saleNumber}</strong> ({formatCurrency(sale.totalAmount)}) ya está registrada.
-          Debe certificar la factura para continuar (con correo o sin correo).
+          Certifique la factura con correo o sin correo. Puede cerrar y seguir usando el POS;
+          no podrá cobrar otra venta hasta certificar.
         </Alert>
         {error && <Alert color="danger">{error}</Alert>}
         <FormGroup>
@@ -120,6 +121,11 @@ function PosInvoiceEmailModal({ isOpen, sale, kioskLocationId, onComplete }) {
         <Button color="secondary" outline onClick={() => handleSubmit(true)} disabled={saving}>
           {saving ? <Spinner size="sm" /> : "Certificar sin correo"}
         </Button>
+        {onClose && (
+          <Button color="link" className="ml-auto" onClick={onClose} disabled={saving}>
+            Cerrar
+          </Button>
+        )}
       </ModalFooter>
     </Modal>
   );
