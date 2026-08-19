@@ -48,7 +48,8 @@ import {
   getSaleInternalNumber,
   isSalePendingDeposit,
   formatSaleCardPaymentDetail,
-  isKioskSalePendingFel,
+  canCertifyKioskSaleFel,
+  saleNeedsFelCertification,
 } from "./posUtils";
 
 const REPORT_TYPES = {
@@ -929,7 +930,7 @@ function PosReportsTab({
 
           <p className="text-muted small mt-3 mb-2">
             Toca una venta para ver el detalle. Con caja abierta puedes anular ventas del turno desde la columna Acciones.
-            Si falta FEL, usa <strong>Certificar</strong> antes de seguir vendiendo.
+            Si falta FEL y la venta tiene menos de 5 días, usa <strong>Certificar</strong>. SAT no certifica documentos más antiguos.
           </p>
 
           <Table responsive className="kiosk-pos-sales-table">
@@ -960,7 +961,8 @@ function PosReportsTab({
                 const isVoid = String(sale.status || "").toUpperCase() === "VOID";
                 const pendingDeposit = isSalePendingDeposit(sale);
                 const showVoidButton = canVoidSaleRow(sale, cashSession);
-                const needsFel = isKioskSalePendingFel(sale, kioskLocationId);
+                const missingFel = !isVoid && saleNeedsFelCertification(sale);
+                const canCertifyFel = canCertifyKioskSaleFel(sale, kioskLocationId);
                 const depositLabel = pendingDeposit
                   ? "Pendiente"
                   : sale.depositSlipNumber
@@ -981,7 +983,7 @@ function PosReportsTab({
                     key={`${sale.id}-${internalNumber || "sin-interno"}-${sale.felUuid || sale.invoice?.felUuid || ""}`}
                     className={`kiosk-pos-sales-row${isVoid ? " kiosk-pos-sales-row-void" : ""}${
                       pendingDeposit ? " kiosk-pos-sales-row-pending-deposit" : ""
-                    }${needsFel ? " kiosk-pos-sales-row-pending-fel" : ""}`}
+                    }${canCertifyFel ? " kiosk-pos-sales-row-pending-fel" : ""}`}
                     onClick={() => openSaleDetail(sale)}
                     role="button"
                     tabIndex={0}
@@ -1003,8 +1005,15 @@ function PosReportsTab({
                           Prueba
                         </span>
                       )}
-                      {needsFel && (
-                        <span className="badge badge-danger ml-1" title="Sin factura electrónica">
+                      {missingFel && (
+                        <span
+                          className="badge badge-danger ml-1"
+                          title={
+                            canCertifyFel
+                              ? "Sin factura electrónica"
+                              : "Sin FEL: SAT no permite certificar documentos de hace más de 5 días"
+                          }
+                        >
                           Sin FEL
                         </span>
                       )}
@@ -1037,7 +1046,7 @@ function PosReportsTab({
                       )}
                     </td>
                     <td className="kiosk-pos-sales-actions-cell" onClick={(e) => e.stopPropagation()}>
-                      {needsFel && (
+                      {canCertifyFel && (
                         <Button
                           color="primary"
                           size="sm"
@@ -1068,7 +1077,7 @@ function PosReportsTab({
                         >
                           Anular
                         </Button>
-                      ) : !pendingDeposit && !needsFel ? (
+                      ) : !pendingDeposit && !canCertifyFel ? (
                         <span className="text-muted small">—</span>
                       ) : null}
                     </td>

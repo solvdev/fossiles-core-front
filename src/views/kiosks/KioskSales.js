@@ -67,6 +67,7 @@ import {
   resolveSelectedPromotion,
   saleNeedsFelCertification,
   isKioskSalePendingFel,
+  isFelBackdateWindowError,
   getSaleInternalNumber,
   normalizeFelReceptorEmail,
 } from "./pos/posUtils";
@@ -481,14 +482,6 @@ function KioskSales() {
       return;
     }
     const locationId = selectedKioskId || context?.kioskId;
-    const pendingBefore = await loadPendingFelSale(locationId);
-    if (pendingBefore) {
-      setCheckoutOpen(false);
-      showError(
-        `Hay una venta pendiente de certificar FEL (${pendingBefore.saleNumber || `#${pendingBefore.id}`}). Certifícala antes de continuar.`
-      );
-      return;
-    }
     const normalizedTaxId = checkoutData.customerTaxId || "CF";
     const invoiceName = checkoutData.customerName || (normalizedTaxId === "CF" ? "CONSUMIDOR FINAL" : "");
     if (normalizedTaxId !== "CF" && !invoiceName) {
@@ -592,12 +585,20 @@ function KioskSales() {
           setComments("");
           setSelectedPromotionId("");
           upsertSaleInList(sale);
-          setPendingFelSale(sale);
-          setFelCertModalOpen(true);
+          const backdateBlocked = isFelBackdateWindowError(felErr.message);
+          if (!backdateBlocked && isKioskSalePendingFel(sale, locationId)) {
+            setPendingFelSale(sale);
+            setFelCertModalOpen(true);
+          } else {
+            setPendingFelSale(null);
+            setFelCertModalOpen(false);
+          }
           await loadInitial(selectedKioskId || undefined);
           showError(
-            felErr.message
-              || "La venta quedó registrada pero no se pudo certificar. Completa la certificación para continuar."
+            backdateBlocked
+              ? "La venta quedó registrada. SAT no permite certificar documentos de hace más de 5 días; puedes seguir vendiendo."
+              : (felErr.message
+                || "La venta quedó registrada pero no se pudo certificar. Puedes certificarla desde el aviso o desde Reportes.")
           );
           return;
         }
@@ -765,14 +766,6 @@ function KioskSales() {
 
   const openCheckout = async () => {
     if (!cashSessionOpen || saving) return;
-    const locationId = selectedKioskId || context?.kioskId;
-    const pending = await loadPendingFelSale(locationId);
-    if (pending) {
-      showError(
-        `Hay una venta pendiente de certificar FEL (${pending.saleNumber || `#${pending.id}`}). Certifícala antes de continuar.`
-      );
-      return;
-    }
     setCheckoutOpen(true);
   };
 
@@ -962,7 +955,7 @@ function KioskSales() {
                           <div>
                             Venta pendiente de certificar FEL:{" "}
                             <strong>{pendingFelSale.saleNumber || `#${pendingFelSale.id}`}</strong>
-                            . Debes certificarla antes de cobrar otra venta (correlativo).
+                            . Debes certificarla cuando puedas; no impide seguir vendiendo.
                           </div>
                           <Button
                             color="danger"

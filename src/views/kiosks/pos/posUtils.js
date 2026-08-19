@@ -8,6 +8,7 @@ import {
 import { hasInventorySizeBreakdown } from "utils/inventoryVariantHelper";
 import { isPackagingProductCode } from "utils/kioskPackagingHelper";
 import { normalizeHardwareCondition, shouldShowInKioskPhysicalCount } from "utils/productCinchoHelper";
+import { getSaleYmdGuatemala, getTodayYmdGuatemala, shiftYmdGuatemala } from "utils/dateTimeHelper";
 
 export const POS_CATALOG_VIEWS = [
   { value: "PRODUCTS", label: "Productos" },
@@ -483,15 +484,50 @@ export const saleNeedsFelCertification = (sale) =>
 
 export const getSaleKioskId = (sale) => sale?.kioskId ?? sale?.kioskLocationId ?? null;
 
-/** Solo ventas de ese kiosco, vigentes y sin FEL certificado. */
-export const isKioskSalePendingFel = (sale, kioskLocationId) => {
+/** SAT/INFILE: no certifica documentos con más de 5 días de antigüedad (FEL-GUI-12). */
+export const FEL_MAX_BACKDATE_DAYS = 5;
+
+export const isKioskExchangeDifferenceSale = (sale) => {
+  const name = String(sale?.promotionName || "").trim().toLowerCase();
+  return name.startsWith("boleta de cambio") || Number(sale?.exchangeCreditAmount) > 0;
+};
+
+export const saleIsWithinFelBackdateWindow = (sale) => {
+  const saleYmd = getSaleYmdGuatemala(sale);
+  if (!saleYmd) return false;
+  return saleYmd >= shiftYmdGuatemala(getTodayYmdGuatemala(), -FEL_MAX_BACKDATE_DAYS);
+};
+
+export const isFelBackdateWindowError = (message) => {
+  const text = String(message || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toUpperCase();
+  return text.includes("FEL-GUI-12")
+    || text.includes("CINCO DIAS")
+    || text.includes("ANTIGUEDAD DEL DOCUMENTO");
+};
+
+const saleIsActiveOnKiosk = (sale, kioskLocationId) => {
   if (!sale || kioskLocationId == null || kioskLocationId === "") return false;
   const saleKioskId = getSaleKioskId(sale);
   if (saleKioskId == null || String(saleKioskId) !== String(kioskLocationId)) return false;
   const status = String(sale.status || "").toUpperCase();
-  if (status === "VOID" || status === "ANULADA") return false;
-  return saleNeedsFelCertification(sale);
+  return status !== "VOID" && status !== "ANULADA";
 };
+
+/** Recordatorio en POS: venta normal del kiosco, sin FEL, aún certificable. */
+export const isKioskSalePendingFel = (sale, kioskLocationId) =>
+  saleIsActiveOnKiosk(sale, kioskLocationId)
+  && !isKioskExchangeDifferenceSale(sale)
+  && saleIsWithinFelBackdateWindow(sale)
+  && saleNeedsFelCertification(sale);
+
+/** Botón certificar (incluye cambio con diferencia si sigue en plazo FEL). */
+export const canCertifyKioskSaleFel = (sale, kioskLocationId) =>
+  saleIsActiveOnKiosk(sale, kioskLocationId)
+  && saleIsWithinFelBackdateWindow(sale)
+  && saleNeedsFelCertification(sale);
 
 export const getSaleInternalNumber = (sale) =>
   sale?.internalNumber || sale?.invoice?.internalNumber || "";

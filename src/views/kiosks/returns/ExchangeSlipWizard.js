@@ -20,7 +20,6 @@ import {
   lookupKioskSale,
   previewKioskExchange,
 } from "services/kioskExchangeService";
-import { getOldestPendingFelSale } from "services/kioskPosService";
 import {
   buildKioskExchangeSlipPrintHtml,
   openExchangeSlipPrintWindow,
@@ -34,7 +33,6 @@ import {
   posVariantSizeEntries,
   posVariantStockQty,
   saleNeedsFelCertification,
-  isKioskSalePendingFel,
   variantLineKeyFor,
 } from "../pos/posUtils";
 import { isPackagingProductCode } from "utils/kioskPackagingHelper";
@@ -591,15 +589,6 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
     }
     try {
       setSaving(true);
-      if (hasPriceDifference) {
-        const pending = await getOldestPendingFelSale(kioskLocationId);
-        if (pending && isKioskSalePendingFel(pending, kioskLocationId)) {
-          setError(
-            `Hay una venta pendiente de certificar FEL (${pending.saleNumber || `#${pending.id}`}). Certifícala en el POS antes de cobrar este cambio.`
-          );
-          return;
-        }
-      }
       const result = await completeKioskExchange(buildCompleteRequest(payment));
       setCheckoutOpen(false);
       openExchangeSlipPrintWindow(buildKioskExchangeSlipPrintHtml(result.slip, displayPreview));

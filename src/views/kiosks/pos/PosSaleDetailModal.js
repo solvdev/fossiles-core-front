@@ -30,7 +30,7 @@ import {
   POS_CARD_BRANDS,
   DEFAULT_POS_CARD_BRAND,
   formatSaleCardPaymentDetail,
-  isKioskSalePendingFel,
+  canCertifyKioskSaleFel,
 } from "./posUtils";
 import PosInvoiceEmailModal from "./PosInvoiceEmailModal";
 
@@ -232,7 +232,7 @@ function PosSaleDetailModal({
   const canDownloadFelReport = Boolean(felUuid);
   const needsFelCertification =
     Boolean(sale?.id)
-    && isKioskSalePendingFel(sale, kioskLocationId);
+    && canCertifyKioskSaleFel(sale, kioskLocationId);
 
   const handleDownloadFelReport = () => {
     try {

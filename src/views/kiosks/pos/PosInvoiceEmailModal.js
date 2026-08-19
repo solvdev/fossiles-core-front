@@ -3,7 +3,7 @@ import { Alert, Button, FormGroup, Input, Label, Modal, ModalBody, ModalFooter, 
 import { updateKioskSaleInvoiceContact, getKioskSaleById } from "services/kioskPosService";
 import { issueTaxInvoiceFromKioskSale } from "services/taxInvoiceService";
 import { showError, showSuccess } from "utils/notificationHelper";
-import { formatCurrency, getSaleInternalNumber, normalizeFelReceptorEmail } from "./posUtils";
+import { formatCurrency, getSaleInternalNumber, isFelBackdateWindowError, normalizeFelReceptorEmail } from "./posUtils";
 
 /**
  * Certificación FEL (con o sin correo). Si se pasa onClose, se puede cerrar y seguir usando el POS.
@@ -58,7 +58,10 @@ function PosInvoiceEmailModal({ isOpen, sale, kioskLocationId, onComplete, onClo
       }
       if (onComplete) onComplete(refreshed);
     } catch (err) {
-      const msg = err.message || "No se pudo certificar la factura.";
+      const raw = err.message || "No se pudo certificar la factura.";
+      const msg = isFelBackdateWindowError(raw)
+        ? "SAT no permite certificar esta venta: tiene más de 5 días. Cierra y continúa vendiendo; no bloquea el POS."
+        : raw;
       setError(msg);
       showError(msg);
     } finally {
@@ -81,8 +84,7 @@ function PosInvoiceEmailModal({ isOpen, sale, kioskLocationId, onComplete, onClo
       <ModalBody>
         <Alert color="warning" className="py-2">
           La venta <strong>{sale.saleNumber}</strong> ({formatCurrency(sale.totalAmount)}) ya está registrada.
-          Certifique la factura con correo o sin correo. Puede cerrar y seguir usando el POS;
-          no podrá cobrar otra venta hasta certificar.
+          Certifique la factura con correo o sin correo. Puede cerrar y seguir vendiendo.
         </Alert>
         {error && <Alert color="danger">{error}</Alert>}
         <FormGroup>
