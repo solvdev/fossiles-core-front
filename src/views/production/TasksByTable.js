@@ -32,6 +32,9 @@ import {
   getDaySaleCandidates,
   addDaySaleItemsToTask,
   updateTaskStartedAt,
+  runAutoPlan,
+  getBlockedLeatherLines,
+  getDaySalesSummary,
 } from "services/taskService";
 import { getProductionOrders } from "services/productionOrderService";
 import {
@@ -131,9 +134,12 @@ function TasksByTable() {
   const [selectedLeatherItems, setSelectedLeatherItems] = useState([]);
   const [leatherSelectionCount, setLeatherSelectionCount] = useState("");
   const [savingLeatherItems, setSavingLeatherItems] = useState(false);
+  const [autoPlanning, setAutoPlanning] = useState(false);
+  const [blockedLeather, setBlockedLeather] = useState([]);
+  const [daySalesSummary, setDaySalesSummary] = useState(null);
 
   // Redistribuir manual (aparte del cronograma)
-  const [redistributeDate, setRedistributeDate] = useState(new Date().toISOString().split("T")[0]);
+  const [redistributeDate, setRedistributeDate] = useState(getTodayYmdGuatemala());
   const [editStartModal, setEditStartModal] = useState({ open: false, task: null, value: "" });
 
   const loadDesksCount = useCallback(async () => {
@@ -159,7 +165,12 @@ function TasksByTable() {
   useEffect(() => {
     loadTasks();
     loadProductionOrders();
+    loadDayPlanPanels();
   }, []);
+
+  useEffect(() => {
+    loadDayPlanPanels();
+  }, [loadDayPlanPanels]);
 
   useEffect(() => {
     loadDesksCount();
@@ -197,6 +208,20 @@ function TasksByTable() {
       setLoading(false);
     }
   }, []);
+
+  const loadDayPlanPanels = useCallback(async () => {
+    const day = filterDate || getTodayYmdGuatemala();
+    try {
+      const [blocked, summary] = await Promise.all([
+        getBlockedLeatherLines(),
+        getDaySalesSummary(day),
+      ]);
+      setBlockedLeather(blocked || []);
+      setDaySalesSummary(summary || null);
+    } catch (err) {
+      console.error("Error loading day plan panels:", err);
+    }
+  }, [filterDate]);
 
   const loadProductionOrders = async () => {
     try {
@@ -426,7 +451,7 @@ function TasksByTable() {
   const handleAutoAssignDesk = async (taskId) => {
     const centerTasks = buildTableCenterTasks(tasks, productionOrders);
     const task = centerTasks.find((t) => t.id === taskId);
-    const targetDate = task?.scheduledDate || new Date().toISOString().split("T")[0];
+    const targetDate = task?.scheduledDate || getTodayYmdGuatemala();
 
     let bestDesk = 1;
     let bestLoad = Infinity;
@@ -451,6 +476,29 @@ function TasksByTable() {
       showSuccess(`Asignada a Mesa ${bestDesk} (${(bestLoad).toFixed(1)}h carga)`);
     } catch (err) {
       showError(err.message);
+    }
+  };
+
+  const handleAutoPlan = async () => {
+    try {
+      setAutoPlanning(true);
+      const result = await runAutoPlan();
+      const created = (result?.createdTaskIds || []).filter(Boolean);
+      const centro = result?.centroTasksCreated || 0;
+      const cincho = result?.cinchoTasksCreated || 0;
+      const blocked = (result?.blockedNoLeather || []).length;
+      showSuccess(
+        `Generadas ${centro} tarea(s) de centro y ${cincho} de cinchos.`
+          + (blocked ? ` ${blocked} línea(s) en cola sin cuero.` : "")
+      );
+      await Promise.all([loadTasks(), loadProductionOrders(), loadDayPlanPanels()]);
+      if (created.length > 0) {
+        setPrintBatchTaskIds(created);
+      }
+    } catch (err) {
+      showError(err.message || "No se pudo generar y asignar");
+    } finally {
+      setAutoPlanning(false);
     }
   };
 
@@ -683,7 +731,12 @@ function TasksByTable() {
         && t.status !== "AWAITING_WAREHOUSE"
         && matchesSearchTerm(t)
         && matchesQuickPreset(t)
-    ),
+    ).sort((a, b) => {
+      const aOpl = String(a.productionOrderCode || "").toUpperCase().startsWith("OPL") ? 0 : 1;
+      const bOpl = String(b.productionOrderCode || "").toUpperCase().startsWith("OPL") ? 0 : 1;
+      if (aOpl !== bOpl) return aOpl - bOpl;
+      return (a.id || 0) - (b.id || 0);
+    }),
     [tableCenterTasks, matchesSearchTerm, matchesQuickPreset]
   );
 
@@ -1459,12 +1512,87 @@ function TasksByTable() {
                     <i className="nc-icon nc-refresh-69 mr-1" />
                     Actualizar
                   </Button>
+                  <Button
+                    color="success"
+                    size="sm"
+                    className="mb-0"
+                    onClick={handleAutoPlan}
+                    disabled={loading || autoPlanning}
+                    title="Parte las OPs pendientes por unidades por tarea y asigna mesa"
+                  >
+                    <i className="nc-icon nc-check-2 mr-1" />
+                    {autoPlanning ? "Generando…" : "Generar y asignar"}
+                  </Button>
                 </div>
               </div>
             </CardHeader>
             <CardBody>
               {error && <Alert color="danger">{error}</Alert>}
               {deskConfigWarning && <Alert color="warning" className="mb-2">{deskConfigWarning}</Alert>}
+              {viewMode === "operation" && (
+                <Row className="mb-3">
+                  <Col md="6">
+                    <Card className="mb-0" style={{ border: "1px solid #ffe8a3" }}>
+                      <CardBody className="py-2">
+                        <small className="text-muted d-block mb-1"><strong>Cola sin cuero</strong></small>
+                        {(blockedLeather || []).length === 0 ? (
+                          <small className="text-muted">No hay líneas bloqueadas por receta o ft².</small>
+                        ) : (
+                          <ul className="mb-0 pl-3" style={{ fontSize: 12 }}>
+                            {blockedLeather.slice(0, 12).map((row) => (
+                              <li key={`${row.productionOrderItemId}-${row.productCode}`}>
+                                {row.productionOrderCode} · {row.productCode} × {row.remainingQuantity}
+                                {row.reason ? ` — ${row.reason}` : ""}
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </CardBody>
+                    </Card>
+                  </Col>
+                  <Col md="6">
+                    <Card className="mb-0">
+                      <CardBody className="py-2">
+                        <small className="text-muted d-block mb-1">
+                          <strong>Ventas del día</strong>
+                          {daySalesSummary?.date ? ` (${formatDateGt(daySalesSummary.date)})` : ""}
+                        </small>
+                        <Row>
+                          <Col>
+                            <small className="d-block font-weight-bold">Van a producción</small>
+                            {(daySalesSummary?.goingToProduction || []).length === 0 ? (
+                              <small className="text-muted">Ninguna</small>
+                            ) : (
+                              <ul className="mb-0 pl-3" style={{ fontSize: 12 }}>
+                                {(daySalesSummary.goingToProduction || []).map((row) => (
+                                  <li key={`go-${row.productionOrderId}`}>
+                                    {row.onlineSale ? "OPL " : ""}{row.code}
+                                    {row.reason ? ` — ${row.reason}` : ""}
+                                  </li>
+                                ))}
+                              </ul>
+                            )}
+                          </Col>
+                          <Col>
+                            <small className="d-block font-weight-bold">No van</small>
+                            {(daySalesSummary?.notGoingToProduction || []).length === 0 ? (
+                              <small className="text-muted">Ninguna</small>
+                            ) : (
+                              <ul className="mb-0 pl-3" style={{ fontSize: 12 }}>
+                                {(daySalesSummary.notGoingToProduction || []).map((row) => (
+                                  <li key={`no-${row.productionOrderId}`}>
+                                    {row.code}{row.reason ? ` — ${row.reason}` : ""}
+                                  </li>
+                                ))}
+                              </ul>
+                            )}
+                          </Col>
+                        </Row>
+                      </CardBody>
+                    </Card>
+                  </Col>
+                </Row>
+              )}
               <Card className="mb-3" style={{ border: "1px solid #e2e8f0", backgroundColor: "#f8fafc" }}>
                 <CardBody className="py-2">
                   <div className="d-flex flex-wrap align-items-center justify-content-between" style={{ gap: 8 }}>
@@ -1735,7 +1863,7 @@ function TasksByTable() {
                               </small>
                               <Row>
                                 {deskOptions.slice(0, numDesks).map((d) => {
-                                  const todayStr = filterDate || new Date().toISOString().split("T")[0];
+                                  const todayStr = filterDate || getTodayYmdGuatemala();
                                   const load = tableCenterTasks
                                     .filter((t) => t.desk === d && t.scheduledDate === todayStr && t.status !== "CANCELLED")
                                     .reduce((sum, t) => sum + getTaskBaseHours(t), 0);

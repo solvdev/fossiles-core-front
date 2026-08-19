@@ -25,8 +25,10 @@ function ProductionTimes() {
   const [filterCategory, setFilterCategory] = useState("all");
   const [searchTerm, setSearchTerm] = useState("");
   const [editingProductId, setEditingProductId] = useState(null);
+  const [editingField, setEditingField] = useState(null); // minutes | units
   const [tempMinutes, setTempMinutes] = useState("");
-  const [pendingChanges, setPendingChanges] = useState({}); // { productId: { minutes, originalMinutes } }
+  const [tempUnits, setTempUnits] = useState("");
+  const [pendingChanges, setPendingChanges] = useState({}); // { productId: { minutes, originalMinutes, unitsPerTask, originalUnits, product } }
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -49,50 +51,65 @@ function ProductionTimes() {
     }
   };
 
-  const handleStartEdit = (product) => {
-    setEditingProductId(product.id);
-    const timeInMinutes = getTimeInMinutes(product.prdTime);
-    const minutesStr = timeInMinutes !== null ? timeInMinutes.toString() : "";
-    setTempMinutes(minutesStr);
-    
-    // Si ya hay cambios pendientes para este producto, mantenerlos
-    if (pendingChanges[product.id]) {
-      setTempMinutes(pendingChanges[product.id].minutes.toString());
+  const displayUnits = (product) => {
+    if (pendingChanges[product.id]?.unitsPerTask != null) {
+      return pendingChanges[product.id].unitsPerTask;
     }
+    return product.unitsPerTask != null ? product.unitsPerTask : 2;
+  };
+
+  const upsertPending = (product, patch) => {
+    const timeInMinutes = getTimeInMinutes(product.prdTime);
+    const originalMinutes = timeInMinutes !== null ? timeInMinutes : null;
+    const originalUnits = product.unitsPerTask != null ? product.unitsPerTask : null;
+    const current = pendingChanges[product.id] || {
+      minutes: originalMinutes,
+      originalMinutes,
+      unitsPerTask: originalUnits != null ? originalUnits : 2,
+      originalUnits,
+      product,
+    };
+    const next = { ...current, product, ...patch };
+    const minutesChanged = next.minutes !== next.originalMinutes
+      && !(next.minutes == null && next.originalMinutes == null);
+    const unitsChanged = next.unitsPerTask !== (next.originalUnits != null ? next.originalUnits : 2)
+      || (next.originalUnits == null && next.unitsPerTask !== 2);
+    if (!minutesChanged && !unitsChanged) {
+      const copy = { ...pendingChanges };
+      delete copy[product.id];
+      setPendingChanges(copy);
+      return;
+    }
+    setPendingChanges({ ...pendingChanges, [product.id]: next });
+  };
+
+  const handleStartEdit = (product, field) => {
+    setEditingProductId(product.id);
+    setEditingField(field);
+    const timeInMinutes = getTimeInMinutes(product.prdTime);
+    const minutesStr = pendingChanges[product.id]?.minutes != null
+      ? String(pendingChanges[product.id].minutes)
+      : (timeInMinutes !== null ? timeInMinutes.toString() : "");
+    setTempMinutes(minutesStr);
+    setTempUnits(String(displayUnits(product)));
   };
 
   const handleCancelEdit = () => {
     setEditingProductId(null);
+    setEditingField(null);
     setTempMinutes("");
+    setTempUnits("");
   };
 
   const handleTimeChange = (product, newMinutes) => {
-    const timeInMinutes = getTimeInMinutes(product.prdTime);
-    const originalMinutes = timeInMinutes !== null ? timeInMinutes : null;
-    // No redondear minutos, mantener la precisión del usuario
     const newMinutesNum = newMinutes === "" ? null : parseFloat(newMinutes);
-    
-    // Verificar si hay cambio (comparar con tolerancia para evitar problemas de precisión)
-    const hasChanged = newMinutesNum !== null && originalMinutes !== null
-      ? Math.abs(newMinutesNum - originalMinutes) > 0.001
-      : newMinutesNum !== originalMinutes;
-    
-    if (!hasChanged && (newMinutes === "" && originalMinutes === null)) {
-      // No hay cambio, eliminar de pendingChanges
-      const newPending = { ...pendingChanges };
-      delete newPending[product.id];
-      setPendingChanges(newPending);
-    } else if (hasChanged) {
-      // Hay cambio, agregar a pendingChanges
-      setPendingChanges({
-        ...pendingChanges,
-        [product.id]: {
-          minutes: newMinutesNum,
-          originalMinutes: originalMinutes,
-          product: product,
-        },
-      });
-    }
+    upsertPending(product, { minutes: newMinutesNum });
+  };
+
+  const handleUnitsChange = (product, raw) => {
+    const parsed = raw === "" ? 2 : parseInt(raw, 10);
+    const units = Number.isFinite(parsed) && parsed >= 1 ? parsed : 2;
+    upsertPending(product, { unitsPerTask: units });
   };
 
   const handleSaveBatch = async () => {
@@ -101,13 +118,14 @@ function ProductionTimes() {
     try {
       setSaving(true);
       const updates = Object.values(pendingChanges).map((change) => {
-        // Convertir minutos a horas y redondear a 2 decimales SOLO para guardar en BD
-        const timeInHours = Math.round((change.minutes / 60) * 100) / 100;
+        const minutes = change.minutes != null ? change.minutes : getTimeInMinutes(change.product.prdTime);
+        const timeInHours = minutes != null ? Math.round((minutes / 60) * 100) / 100 : change.product.prdTime;
         return updateProduct(change.product.id, {
           code: change.product.code,
           name: change.product.name,
           categoryId: change.product.categoryId,
-          prdTime: timeInHours, // Guardamos en horas con 2 decimales
+          prdTime: timeInHours,
+          unitsPerTask: change.unitsPerTask != null ? change.unitsPerTask : 2,
           salePrice: change.product.salePrice,
           status: change.product.status,
         });
@@ -118,8 +136,7 @@ function ProductionTimes() {
       const count = Object.keys(pendingChanges).length;
       showSuccess(`Se actualizaron ${count} producto${count !== 1 ? "s" : ""} correctamente`);
       setPendingChanges({});
-      setEditingProductId(null);
-      setTempMinutes("");
+      handleCancelEdit();
       loadData();
     } catch (err) {
       showError(err.message || "Error al actualizar los tiempos de producción");
@@ -130,8 +147,7 @@ function ProductionTimes() {
 
   const handleDiscardChanges = () => {
     setPendingChanges({});
-    setEditingProductId(null);
-    setTempMinutes("");
+    handleCancelEdit();
   };
 
   const handleKeyPress = (e) => {
@@ -303,12 +319,13 @@ function ProductionTimes() {
                             <th>Nombre</th>
                             <th>Tiempo (minutos)</th>
                             <th>Tiempo (horas)</th>
+                            <th>Unidades por tarea</th>
                           </tr>
                         </thead>
                         <tbody>
                           {categoryData.products.length === 0 ? (
                             <tr>
-                              <td colSpan="4" className="text-center text-muted">
+                              <td colSpan="5" className="text-center text-muted">
                                 No hay productos en esta categoría
                               </td>
                             </tr>
@@ -318,6 +335,9 @@ function ProductionTimes() {
                               const timeInHours = getTimeInHours(product.prdTime);
                               const isEditing = editingProductId === product.id;
                               
+                              const isEditingMinutes = isEditing && editingField === "minutes";
+                              const isEditingUnits = isEditing && editingField === "units";
+                              
                               return (
                                 <tr key={product.id}>
                                   <td>
@@ -325,7 +345,7 @@ function ProductionTimes() {
                                   </td>
                                   <td>{product.name}</td>
                                   <td>
-                                    {isEditing ? (
+                                    {isEditingMinutes ? (
                                       <Input
                                         type="number"
                                         step="0.01"
@@ -342,7 +362,7 @@ function ProductionTimes() {
                                       />
                                     ) : (
                                       <div
-                                        onClick={() => handleStartEdit(product)}
+                                        onClick={() => handleStartEdit(product, "minutes")}
                                         style={{ 
                                           cursor: "pointer", 
                                           padding: "5px", 
@@ -354,7 +374,7 @@ function ProductionTimes() {
                                         }}
                                         title={pendingChanges[product.id] ? "Cambio pendiente - Click para editar" : "Click para editar"}
                                       >
-                                        {pendingChanges[product.id] ? (
+                                        {pendingChanges[product.id]?.minutes != null ? (
                                           <strong>{Math.round(pendingChanges[product.id].minutes)} min</strong>
                                         ) : timeInMinutes !== null ? (
                                           <strong>{Math.round(timeInMinutes)} min</strong>
@@ -368,7 +388,7 @@ function ProductionTimes() {
                                     )}
                                   </td>
                                   <td>
-                                    {isEditing ? (
+                                    {isEditingMinutes ? (
                                       <span className="text-muted">
                                         {tempMinutes && !isNaN(parseFloat(tempMinutes))
                                           ? `= ${(parseFloat(tempMinutes) / 60).toFixed(2)} hrs`
@@ -376,7 +396,7 @@ function ProductionTimes() {
                                       </span>
                                     ) : (
                                       (() => {
-                                        const displayMinutes = pendingChanges[product.id] 
+                                        const displayMinutes = pendingChanges[product.id]?.minutes != null
                                           ? pendingChanges[product.id].minutes 
                                           : timeInMinutes;
                                         const displayHours = displayMinutes !== null ? displayMinutes / 60 : null;
@@ -386,6 +406,42 @@ function ProductionTimes() {
                                           <span className="text-muted">-</span>
                                         );
                                       })()
+                                    )}
+                                  </td>
+                                  <td>
+                                    {isEditingUnits ? (
+                                      <Input
+                                        type="number"
+                                        step="1"
+                                        min="1"
+                                        value={tempUnits}
+                                        onChange={(e) => {
+                                          setTempUnits(e.target.value);
+                                          handleUnitsChange(product, e.target.value);
+                                        }}
+                                        onKeyDown={handleKeyPress}
+                                        autoFocus
+                                        style={{ width: "90px" }}
+                                        className="d-inline-block"
+                                      />
+                                    ) : (
+                                      <div
+                                        onClick={() => handleStartEdit(product, "units")}
+                                        style={{
+                                          cursor: "pointer",
+                                          padding: "5px",
+                                          border: pendingChanges[product.id]?.unitsPerTask != null ? "2px solid #ffc107" : "1px dashed #ccc",
+                                          borderRadius: "4px",
+                                          display: "inline-block",
+                                          minWidth: "72px",
+                                        }}
+                                        title="Cuántas unidades de este producto caben en una tarea (default 2)"
+                                      >
+                                        <strong>{displayUnits(product)}</strong>
+                                        {product.unitsPerTask == null && pendingChanges[product.id]?.unitsPerTask == null && (
+                                          <span className="text-muted"> (def.)</span>
+                                        )}
+                                      </div>
                                     )}
                                   </td>
                                 </tr>
@@ -404,7 +460,8 @@ function ProductionTimes() {
       </Row>
       <div className="mt-3">
         <small className="text-muted">
-          <i className="fa fa-info-circle" /> Click en el tiempo en minutos para editarlo. 
+          <i className="fa fa-info-circle" /> Click en minutos o en unidades por tarea para editar.
+          Default 2 unidades si no está configurado.
           Los cambios se guardan en lote usando el botón "Guardar Cambios" cuando hay modificaciones pendientes.
           Presione Escape para cancelar la edición actual.
         </small>

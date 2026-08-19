@@ -12,6 +12,8 @@ import DraftTaskPanel from "./organizer/DraftTaskPanel";
 import PendingTasksBacklog from "./organizer/PendingTasksBacklog";
 import RedistributeBoard from "./components/RedistributeBoard";
 import useMoveTaskItem from "./hooks/useMoveTaskItem";
+import TaskTicketPrint from "./TaskTicketPrint";
+import { runAutoPlan } from "services/taskService";
 
 /**
  * Organizador de Tareas: reemplaza la generación automática del Centro de
@@ -20,6 +22,8 @@ import useMoveTaskItem from "./hooks/useMoveTaskItem";
  */
 export default function TaskOrganizer() {
   const [activeTab, setActiveTab] = useState("organize");
+  const [autoPlanning, setAutoPlanning] = useState(false);
+  const [printBatchTaskIds, setPrintBatchTaskIds] = useState(null);
   const navigate = useNavigate();
   const org = useTaskOrganizer();
   const onMove = useMoveTaskItem(org.setTasks);
@@ -69,6 +73,25 @@ export default function TaskOrganizer() {
     await Promise.all([org.loadOrders(), org.loadTasks()]);
   };
 
+  const handleAutoPlan = async () => {
+    try {
+      setAutoPlanning(true);
+      const result = await runAutoPlan();
+      const created = (result?.createdTaskIds || []).filter(Boolean);
+      showSuccess(
+        `Generadas ${(result?.centroTasksCreated || 0)} de centro y ${(result?.cinchoTasksCreated || 0)} de cinchos.`
+      );
+      await Promise.all([org.loadOrders(), org.loadTasks()]);
+      if (created.length > 0) {
+        setPrintBatchTaskIds(created);
+      }
+    } catch (err) {
+      showError(err.message || "No se pudo generar y asignar");
+    } finally {
+      setAutoPlanning(false);
+    }
+  };
+
   return (
     <div className="content">
       <Row className="mb-2">
@@ -76,12 +99,17 @@ export default function TaskOrganizer() {
           <div>
             <h4 className="mb-0">Organizador de Tareas</h4>
             <small className="text-muted">
-              Arma tareas por cantidades, créalas y asígnalas a mesas. Sin reparto automático.
+              Arma tareas por cantidades o usa Generar y asignar para el reparto automático.
             </small>
           </div>
-          <Button size="sm" color="secondary" outline onClick={() => navigate("/admin/tasks-by-station")}>
-            Ir al Centro de Producción
-          </Button>
+          <div className="d-flex" style={{ gap: 8 }}>
+            <Button size="sm" color="success" onClick={handleAutoPlan} disabled={autoPlanning}>
+              {autoPlanning ? "Generando…" : "Generar y asignar"}
+            </Button>
+            <Button size="sm" color="secondary" outline onClick={() => navigate("/admin/tasks-by-station")}>
+              Ir al Centro de Producción
+            </Button>
+          </div>
         </Col>
       </Row>
 
@@ -239,6 +267,13 @@ export default function TaskOrganizer() {
           />
         </TabPane>
       </TabContent>
+      {printBatchTaskIds?.length > 0 && (
+        <TaskTicketPrint
+          taskIds={printBatchTaskIds}
+          autoPrintOnLoad
+          onClose={() => setPrintBatchTaskIds(null)}
+        />
+      )}
     </div>
   );
 }

@@ -373,3 +373,35 @@ export const clearAllDesks = async (date) => {
   return response.json();
 };
 
+export const runAutoPlan = async (productionOrderId) => {
+  const query = productionOrderId != null ? `?productionOrderId=${encodeURIComponent(productionOrderId)}` : '';
+  const response = await fetch(`${API_URL}/tasks/auto-plan${query}`, {
+    method: 'POST',
+    headers: headers(),
+  });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ message: 'Error al generar y asignar' }));
+    throw new Error(err.message || 'Error al generar y asignar');
+  }
+  return response.json();
+};
+
+export const getBlockedLeatherLines = async () => {
+  const response = await fetch(`${API_URL}/tasks/blocked-leather`, { headers: headers() });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ message: 'Error al cargar cola sin cuero' }));
+    throw new Error(err.message || 'Error al cargar cola sin cuero');
+  }
+  return response.json();
+};
+
+export const getDaySalesSummary = async (date) => {
+  const query = date ? `?date=${encodeURIComponent(date)}` : '';
+  const response = await fetch(`${API_URL}/tasks/day-sales-summary${query}`, { headers: headers() });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ message: 'Error al cargar resumen del día' }));
+    throw new Error(err.message || 'Error al cargar resumen del día');
+  }
+  return response.json();
+};
+
