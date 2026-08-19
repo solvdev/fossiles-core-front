@@ -162,40 +162,6 @@ function TasksByTable() {
     }
   }, [filterDate]);
 
-  useEffect(() => {
-    loadTasks();
-    loadProductionOrders();
-    loadDayPlanPanels();
-  }, []);
-
-  useEffect(() => {
-    loadDayPlanPanels();
-  }, [loadDayPlanPanels]);
-
-  useEffect(() => {
-    loadDesksCount();
-  }, [filterDate, loadDesksCount]);
-
-  useEffect(() => {
-    const orderIdFromUrl = searchParams.get("orderId");
-    if (!orderIdFromUrl || productionOrdersForFilter.length === 0) return;
-    const exists = productionOrdersForFilter.some((o) => Number(o.id) === Number(orderIdFromUrl));
-    if (!exists) return;
-
-    setFilterProductionOrderId(String(orderIdFromUrl));
-    setViewMode("operation");
-    setShowDetailedList(false);
-
-    const next = new URLSearchParams(searchParams);
-    next.delete("orderId");
-    setSearchParams(next, { replace: true });
-  }, [searchParams, setSearchParams, productionOrdersForFilter]);
-
-  useEffect(() => {
-    if (!showLeatherModal) return;
-    setLeatherSelectionCount(String(selectedLeatherItems.length));
-  }, [selectedLeatherItems, showLeatherModal]);
-
   const loadTasks = useCallback(async () => {
     try {
       setLoading(true);
@@ -261,6 +227,39 @@ function TasksByTable() {
       console.error("Error loading production orders:", err);
     }
   };
+
+  useEffect(() => {
+    loadTasks();
+    loadProductionOrders();
+  }, []);
+
+  useEffect(() => {
+    loadDayPlanPanels();
+  }, [loadDayPlanPanels]);
+
+  useEffect(() => {
+    loadDesksCount();
+  }, [filterDate, loadDesksCount]);
+
+  useEffect(() => {
+    const orderIdFromUrl = searchParams.get("orderId");
+    if (!orderIdFromUrl || productionOrdersForFilter.length === 0) return;
+    const exists = productionOrdersForFilter.some((o) => Number(o.id) === Number(orderIdFromUrl));
+    if (!exists) return;
+
+    setFilterProductionOrderId(String(orderIdFromUrl));
+    setViewMode("operation");
+    setShowDetailedList(false);
+
+    const next = new URLSearchParams(searchParams);
+    next.delete("orderId");
+    setSearchParams(next, { replace: true });
+  }, [searchParams, setSearchParams, productionOrdersForFilter]);
+
+  useEffect(() => {
+    if (!showLeatherModal) return;
+    setLeatherSelectionCount(String(selectedLeatherItems.length));
+  }, [selectedLeatherItems, showLeatherModal]);
 
   const mapFromSupervisorResponse = useCallback((res) => {
     const m = {};
