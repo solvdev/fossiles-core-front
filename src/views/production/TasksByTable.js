@@ -229,8 +229,21 @@ function TasksByTable() {
   };
 
   useEffect(() => {
-    loadTasks();
-    loadProductionOrders();
+    let cancelled = false;
+    (async () => {
+      setAutoPlanning(true);
+      try {
+        await runAutoPlan();
+      } catch (err) {
+        console.error("Auto-plan al abrir centro:", err);
+      }
+      if (cancelled) return;
+      setAutoPlanning(false);
+      await Promise.all([loadTasks(), loadProductionOrders(), loadDayPlanPanels()]);
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -475,29 +488,6 @@ function TasksByTable() {
       showSuccess(`Asignada a Mesa ${bestDesk} (${(bestLoad).toFixed(1)}h carga)`);
     } catch (err) {
       showError(err.message);
-    }
-  };
-
-  const handleAutoPlan = async () => {
-    try {
-      setAutoPlanning(true);
-      const result = await runAutoPlan();
-      const created = (result?.createdTaskIds || []).filter(Boolean);
-      const centro = result?.centroTasksCreated || 0;
-      const cincho = result?.cinchoTasksCreated || 0;
-      const blocked = (result?.blockedNoLeather || []).length;
-      showSuccess(
-        `Generadas ${centro} tarea(s) de centro y ${cincho} de cinchos.`
-          + (blocked ? ` ${blocked} línea(s) en cola sin cuero.` : "")
-      );
-      await Promise.all([loadTasks(), loadProductionOrders(), loadDayPlanPanels()]);
-      if (created.length > 0) {
-        setPrintBatchTaskIds(created);
-      }
-    } catch (err) {
-      showError(err.message || "No se pudo generar y asignar");
-    } finally {
-      setAutoPlanning(false);
     }
   };
 
@@ -1507,20 +1497,9 @@ function TasksByTable() {
                     <i className="nc-icon nc-badge mr-1" />
                     Encargados
                   </Button>
-                  <Button color="info" size="sm" className="mb-0" onClick={loadTasks} disabled={loading}>
+                  <Button color="info" size="sm" className="mb-0" onClick={loadTasks} disabled={loading || autoPlanning}>
                     <i className="nc-icon nc-refresh-69 mr-1" />
                     Actualizar
-                  </Button>
-                  <Button
-                    color="success"
-                    size="sm"
-                    className="mb-0"
-                    onClick={handleAutoPlan}
-                    disabled={loading || autoPlanning}
-                    title="Parte las OPs pendientes por unidades por tarea y asigna mesa"
-                  >
-                    <i className="nc-icon nc-check-2 mr-1" />
-                    {autoPlanning ? "Generando…" : "Generar y asignar"}
                   </Button>
                 </div>
               </div>
@@ -1528,6 +1507,11 @@ function TasksByTable() {
             <CardBody>
               {error && <Alert color="danger">{error}</Alert>}
               {deskConfigWarning && <Alert color="warning" className="mb-2">{deskConfigWarning}</Alert>}
+              {autoPlanning && (
+                <Alert color="info" className="mb-2 py-2">
+                  Generando y asignando las tareas del día…
+                </Alert>
+              )}
               {viewMode === "operation" && (
                 <Row className="mb-3">
                   <Col md="6">
@@ -1594,20 +1578,12 @@ function TasksByTable() {
               )}
               <Card className="mb-3" style={{ border: "1px solid #e2e8f0", backgroundColor: "#f8fafc" }}>
                 <CardBody className="py-2">
-                  <div className="d-flex flex-wrap align-items-center justify-content-between" style={{ gap: 8 }}>
-                    <span style={{ fontSize: 13 }}>
-                      <strong>Las tareas se arman en el Organizador de Tareas</strong>
-                      <span className="text-muted"> — busca OPs, suma productos hasta las {MAX_HOURS_PER_DESK}h (extras OPL encima) y crea la tarea; luego asígnala a mesa aquí o en su tablero.</span>
+                  <span style={{ fontSize: 13 }}>
+                    <strong>Las tareas se generan solas</strong>
+                    <span className="text-muted">
+                      {" "}— al iniciar el día (00:05 GT) y al abrir este centro. Se parten por unidades por tarea y se asignan a mesa. Lo que falte de cuero queda en la cola.
                     </span>
-                    <Button
-                      color="success"
-                      size="sm"
-                      className="mb-0"
-                      onClick={() => navigate("/admin/task-organizer")}
-                    >
-                      <i className="nc-icon nc-simple-add mr-1" /> Ir al Organizador de Tareas
-                    </Button>
-                  </div>
+                  </span>
                 </CardBody>
               </Card>
 
@@ -1638,27 +1614,17 @@ function TasksByTable() {
                 <Col md="8">
                   {filteredOrderForView && filteredOrderPendingItems.length > 0 && (
                     <Alert color="warning" className="mb-0 py-2" style={{ fontSize: 13 }}>
-                      <div className="d-flex flex-wrap align-items-center justify-content-between" style={{ gap: 8 }}>
-                        <span>
-                          <strong>{filteredOrderForView.code}</strong>
-                          {" — "}
-                          {filteredOrderPendingItems.length} producto
-                          {filteredOrderPendingItems.length !== 1 ? "s" : ""} sin tarea en mesas
-                          {filteredOrderPendingItems.length <= 3 && (
-                            <span className="text-muted">
-                              {": "}
-                              {filteredOrderPendingItems.map((it) => it.productName || it.productCode).join(", ")}
-                            </span>
-                          )}
+                      <strong>{filteredOrderForView.code}</strong>
+                      {" — "}
+                      {filteredOrderPendingItems.length} producto
+                      {filteredOrderPendingItems.length !== 1 ? "s" : ""} sin tarea
+                      {filteredOrderPendingItems.length <= 3 && (
+                        <span className="text-muted">
+                          {": "}
+                          {filteredOrderPendingItems.map((it) => it.productName || it.productCode).join(", ")}
                         </span>
-                        <Button
-                          color="success"
-                          size="sm"
-                          onClick={() => navigate("/admin/task-organizer")}
-                        >
-                          Armar tarea en el Organizador
-                        </Button>
-                      </div>
+                      )}
+                      <span className="text-muted">. Entran al plan automático cuando haya cuero.</span>
                     </Alert>
                   )}
                   {filteredOrderForView && filteredOrderPendingItems.length === 0 && (
@@ -2822,13 +2788,13 @@ function TasksByTable() {
             Diseñado para usuarios nuevos: siga estos 4 pasos para trabajar sin errores.
           </Alert>
           <ol className="mb-2" style={{ paddingLeft: "18px" }}>
-            <li className="mb-1"><strong>Armar y crear tareas</strong> en el Organizador de Tareas (cantidades por producto hasta 4h; extras OPL encima del cupo).</li>
-            <li className="mb-1"><strong>Asignar mesas</strong> arrastrando en el tablero del Organizador o aquí en Redistribuir.</li>
+            <li className="mb-1"><strong>Tareas automáticas</strong> al inicio del día y al abrir el centro (partidas y asignadas a mesa).</li>
+            <li className="mb-1"><strong>Redistribuir</strong> solo si hay que mover una línea entre mesas o fechas.</li>
             <li className="mb-1"><strong>Completar prerequisitos</strong>: cuero y troquelado (materiales se entrega en Vista Materiales).</li>
             <li className="mb-1"><strong>Monitorear cronograma</strong> y cambiar estados (iniciar, pausar, completar).</li>
           </ol>
           <Alert color="light" style={{ border: "1px solid #e2e8f0" }}>
-            Consejo: las tareas que queden sin mesa o de días anteriores se retoman en la pestaña Pendientes del Organizador.
+            Consejo: las líneas sin cuero esperan en la cola; al ingresar cuero el plan las toma solo.
           </Alert>
         </ModalBody>
       </Modal>

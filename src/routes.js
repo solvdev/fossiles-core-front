@@ -671,8 +671,7 @@ const routes = [
         component: <TaskOrganizer />,
         layout: "/admin",
         module: "PRODUCCION",
-        // Mismo permiso que Centro de Producción: si no, ProtectedRoute
-        // redirige al dashboard y parece que el botón "abre" Producción.
+        showInSidebar: false,
         permissions: {
           view: "PRODUCCION.TAREAS_ESTACION.VER",
         },
