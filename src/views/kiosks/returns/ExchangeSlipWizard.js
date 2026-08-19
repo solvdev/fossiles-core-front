@@ -24,6 +24,7 @@ import {
   buildKioskExchangeSlipPrintHtml,
   openExchangeSlipPrintWindow,
 } from "utils/kioskExchangeSlipPrint";
+import { applyExchangePackagingCredit } from "utils/kioskExchangeSettlement";
 import {
   formatCurrency,
   formatQty,
@@ -504,17 +505,24 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
     if (!(returnedUnit > 0) || !(givenUnit > 0)) return preview;
     const returnedQuantity = Number(preview.returned?.quantity || 0);
     const givenQuantity = Number(preview.given?.quantity || 0);
-    const packagingReturned = Number(preview.packagingReturnedAmount || 0);
     const productReturned = Number((returnedUnit * returnedQuantity).toFixed(2));
     const productGiven = Number((givenUnit * givenQuantity).toFixed(2));
-    const returnedAmount = Number((productReturned + packagingReturned).toFixed(2));
-    const givenAmount = productGiven;
-    const differenceAmount = Number((givenAmount - returnedAmount).toFixed(2));
+    const packagingCredit = Number(
+      preview.packagingCreditAmount != null
+        ? preview.packagingCreditAmount
+        : preview.packagingReturnedAmount || 0
+    );
+    const settlement = applyExchangePackagingCredit({
+      productReturnedAmount: productReturned,
+      productGivenAmount: productGiven,
+      packagingCredit,
+    });
     return {
       ...preview,
-      returnedAmount,
-      givenAmount,
-      differenceAmount,
+      returnedAmount: settlement.returnedAmount,
+      givenAmount: settlement.givenAmount,
+      differenceAmount: settlement.differenceAmount,
+      packagingReturnedAmount: settlement.packagingReturnedAmount,
       packagingGivenAmount: 0,
       returned: {
         ...preview.returned,
@@ -957,8 +965,13 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
                   <strong>{formatCurrency(displayPreview.returnedAmount)}</strong>
                   {Number(displayPreview.packagingReturnedAmount || 0) > 0 ? (
                     <p className="kiosk-exchange-help mb-0 mt-1">
-                      Incluye empaque de factura {formatCurrency(displayPreview.packagingReturnedAmount)} (sin
-                      descuento / sin stock)
+                      Incluye empaque de factura {formatCurrency(displayPreview.packagingReturnedAmount)} porque hay
+                      diferencia de precio del producto (sin descuento / sin stock)
+                    </p>
+                  ) : Number(displayPreview.packagingCreditAmount || 0) > 0 ? (
+                    <p className="kiosk-exchange-help mb-0 mt-1">
+                      Empaque de factura {formatCurrency(displayPreview.packagingCreditAmount)} no entra: los
+                      productos tienen el mismo precio.
                     </p>
                   ) : null}
                 </div>
@@ -979,7 +992,9 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
                     </FormGroup>
                   ) : null}
                   <strong>{formatCurrency(displayPreview.givenAmount)}</strong>
-                  <p className="kiosk-exchange-help mb-0 mt-1">Solo producto (sin empaque)</p>
+                  <p className="kiosk-exchange-help mb-0 mt-1">
+                    Solo producto. El empaque se acredita en el ingreso si hay diferencia de precio.
+                  </p>
                 </div>
                 <div className="kiosk-exchange-summary-card is-diff">
                   <h6>Diferencia</h6>
