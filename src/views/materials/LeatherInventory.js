@@ -1,10 +1,12 @@
-import React, { useState, useEffect, useMemo, useCallback } from "react";
+import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useSearchParams } from "react-router-dom";
 import {
   Button, Card, CardHeader, CardBody, CardTitle, Table, Alert,
   Modal, ModalHeader, ModalBody, ModalFooter, FormGroup, Label, Input,
   Row, Col, Badge, Nav, NavItem, NavLink, TabContent, TabPane, Spinner,
+  InputGroup, InputGroupAddon, InputGroupText,
 } from "reactstrap";
+import FilterableSelect from "components/distribution/FilterableSelect";
 import { useTable, useFilters, useGlobalFilter, useSortBy, usePagination } from "react-table";
 import { matchSorter } from "match-sorter";
 import {
@@ -28,6 +30,40 @@ const formatQ = (n) =>
   n != null ? "Q " + Number(n).toLocaleString("es-GT", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "—";
 const today = () => new Date().toISOString().split("T")[0];
 const DEFAULT_RECEIVER_NAME = "DAVID FERNANDO GARCIA MORALES";
+const RECEPTION_DEFAULTS_KEY = "fossiles.leatherReception.defaults";
+
+function loadReceptionDefaults() {
+  try {
+    const raw = localStorage.getItem(RECEPTION_DEFAULTS_KEY);
+    return raw ? JSON.parse(raw) || {} : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveReceptionDefaults(data) {
+  try {
+    localStorage.setItem(RECEPTION_DEFAULTS_KEY, JSON.stringify({
+      supplierId: data.supplierId || "",
+      deliveredBy: data.deliveredBy || "",
+      receivedBy: data.receivedBy || "",
+    }));
+  } catch {
+    /* ignore quota / private mode */
+  }
+}
+
+function emptyReceptionForm() {
+  const defaults = loadReceptionDefaults();
+  return {
+    movementDate: today(),
+    supplierId: defaults.supplierId || "",
+    purchaseDocument: "",
+    deliveredBy: defaults.deliveredBy || DEFAULT_RECEIVER_NAME,
+    receivedBy: defaults.receivedBy || "",
+    observations: "",
+  };
+}
 
 function DefaultColumnFilter({ column: { filterValue, setFilter } }) {
   return (
@@ -75,18 +111,11 @@ function LeatherInventory() {
 
   // ─── Modal Recepción ──────────────────────────────────────────
   const [showReceptionModal, setShowReceptionModal] = useState(false);
-  const [receptionForm, setReceptionForm] = useState({
-    movementDate: today(),
-    supplierId: "",
-    purchaseDocument: "",
-    deliveredBy: DEFAULT_RECEIVER_NAME,
-    receivedBy: "",
-    observations: "",
-  });
+  const [receptionForm, setReceptionForm] = useState(() => emptyReceptionForm());
   const [receptionDraft, setReceptionDraft] = useState({ materialId: "", quantity: "", unitCost: "" });
-  const [receptionMaterialSearch, setReceptionMaterialSearch] = useState("");
   const [receptionItems, setReceptionItems] = useState([]);
   const [savingReception, setSavingReception] = useState(false);
+  const receptionQtyRef = useRef(null);
 
   // ─── Modal Entrega ─────────────────────────────────────────────
   const [showDeliveryModal, setShowDeliveryModal] = useState(false);
@@ -146,6 +175,26 @@ function LeatherInventory() {
       null
     );
   }, [materialOptions, leatherOptionLabel]);
+
+  const lastUnitCostByMaterial = useMemo(() => {
+    const map = {};
+    (movements || [])
+      .filter((m) => m.movementType === "ENTRADA" && m.unitCost != null)
+      .sort((a, b) => String(a.movementDate || "").localeCompare(String(b.movementDate || "")))
+      .forEach((m) => {
+        map[Number(m.materialId)] = Number(m.unitCost);
+      });
+    return map;
+  }, [movements]);
+
+  const supplierSelectOptions = useMemo(
+    () => (suppliers || []).map((s) => ({
+      value: String(s.id),
+      label: s.name,
+      searchText: `${s.name || ""} ${s.nit || ""} ${s.code || ""}`,
+    })),
+    [suppliers]
+  );
 
   const topUsedLeatherOptions = useMemo(() => {
     const usage = {};
@@ -239,17 +288,20 @@ function LeatherInventory() {
 
   // ─── Guardar Recepción ─────────────────────────────────────────
   const resetReceptionModal = () => {
-    setReceptionForm({
-      movementDate: today(),
-      supplierId: "",
-      purchaseDocument: "",
-      deliveredBy: DEFAULT_RECEIVER_NAME,
-      receivedBy: "",
-      observations: "",
-    });
+    setReceptionForm(emptyReceptionForm());
     setReceptionDraft({ materialId: "", quantity: "", unitCost: "" });
-    setReceptionMaterialSearch("");
     setReceptionItems([]);
+  };
+
+  const selectReceptionLeather = (materialId) => {
+    const id = materialId ? String(materialId) : "";
+    const last = id ? lastUnitCostByMaterial[Number(id)] : null;
+    setReceptionDraft((p) => ({
+      ...p,
+      materialId: id,
+      unitCost: last != null && Number.isFinite(last) ? String(last) : "",
+    }));
+    setTimeout(() => receptionQtyRef.current?.focus(), 50);
   };
 
   const addReceptionItem = () => {
@@ -260,22 +312,48 @@ function LeatherInventory() {
       showError("Seleccione cuero y cantidad válida para agregar.");
       return;
     }
+    const normalizedCost = unitCost != null && Number.isFinite(unitCost) ? unitCost : null;
 
-    setReceptionItems(prev => [
-      ...prev,
-      {
-        materialId,
-        quantity,
-        unitCost: unitCost != null && Number.isFinite(unitCost) ? unitCost : null,
-      },
-    ]);
-    setReceptionDraft({ materialId: "", quantity: "", unitCost: "" });
-    setReceptionMaterialSearch("");
+    setReceptionItems((prev) => {
+      const sameIdx = prev.findIndex((it) => {
+        if (Number(it.materialId) !== materialId) return false;
+        if (it.unitCost == null && normalizedCost == null) return true;
+        return Number(it.unitCost) === Number(normalizedCost);
+      });
+      if (sameIdx >= 0) {
+        return prev.map((it, i) => (
+          i === sameIdx ? { ...it, quantity: Number(it.quantity) + quantity } : it
+        ));
+      }
+      return [...prev, { materialId, quantity, unitCost: normalizedCost }];
+    });
+    setReceptionDraft((p) => ({ ...p, quantity: "" }));
+    setTimeout(() => receptionQtyRef.current?.focus(), 30);
   };
 
   const removeReceptionItem = (idx) => {
-    setReceptionItems(prev => prev.filter((_, i) => i !== idx));
+    setReceptionItems((prev) => prev.filter((_, i) => i !== idx));
   };
+
+  const updateReceptionItem = (idx, patch) => {
+    setReceptionItems((prev) => prev.map((it, i) => (i === idx ? { ...it, ...patch } : it)));
+  };
+
+  const openReceptionModal = useCallback((materialId) => {
+    setReceptionForm(emptyReceptionForm());
+    setReceptionItems([]);
+    if (materialId) {
+      const last = lastUnitCostByMaterial[Number(materialId)];
+      setReceptionDraft({
+        materialId: String(materialId),
+        quantity: "",
+        unitCost: last != null && Number.isFinite(last) ? String(last) : "",
+      });
+    } else {
+      setReceptionDraft({ materialId: "", quantity: "", unitCost: "" });
+    }
+    setShowReceptionModal(true);
+  }, [lastUnitCostByMaterial]);
 
   const togglePrimaryLeather = async (materialId) => {
     const id = Number(materialId);
@@ -354,10 +432,25 @@ function LeatherInventory() {
         savedMovements.push(saved);
       }
 
-      if (savedMovements.length === 1) {
-        const matName = materialOptions.find(m => Number(m.id) === Number(savedMovements[0].materialId))?.name || "";
-        printReceptionReceipt({ ...savedMovements[0], materialName: matName || savedMovements[0].materialName });
-      }
+      saveReceptionDefaults(receptionForm);
+      const supplierName = suppliers.find((s) => String(s.id) === String(receptionForm.supplierId))?.name
+        || savedMovements[0]?.supplierName
+        || "";
+      printReceptionReceipt({
+        movementDate: receptionForm.movementDate,
+        supplierName,
+        purchaseDocument: receptionForm.purchaseDocument,
+        deliveredBy: receptionForm.deliveredBy.trim(),
+        receivedBy: receptionForm.receivedBy.trim(),
+        observations: receptionForm.observations,
+        items: savedMovements.map((saved) => ({
+          id: saved.id,
+          materialName: materialOptions.find((m) => Number(m.id) === Number(saved.materialId))?.name || saved.materialName,
+          quantity: saved.quantity,
+          unitCost: saved.unitCost,
+          balanceAfter: saved.balanceAfter,
+        })),
+      });
       showSuccess(`Recepción registrada correctamente (${savedMovements.length} tipo${savedMovements.length > 1 ? "s" : ""} de cuero).`);
       setShowReceptionModal(false);
       resetReceptionModal();
@@ -868,11 +961,33 @@ function LeatherInventory() {
     const fmtN = (n) => n != null ? Number(n).toLocaleString("es-GT", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "—";
     const fmtQ = (n) => n != null ? "Q " + fmtN(n) : "—";
 
-    const totalCost = movement.quantity && movement.unitCost
-      ? Number(movement.quantity) * Number(movement.unitCost) : null;
+    const items = Array.isArray(movement.items) && movement.items.length
+      ? movement.items
+      : [{
+          id: movement.id,
+          materialName: movement.materialName,
+          quantity: movement.quantity,
+          unitCost: movement.unitCost,
+          balanceAfter: movement.balanceAfter,
+        }];
+    const totalQty = items.reduce((s, it) => s + Number(it.quantity || 0), 0);
+    const totalCost = items.reduce((s, it) => {
+      if (it.unitCost == null || it.quantity == null) return s;
+      return s + Number(it.quantity) * Number(it.unitCost);
+    }, 0);
+    const hasCost = items.some((it) => it.unitCost != null);
+    const titleId = items.length === 1 && items[0].id ? `#${items[0].id}` : `(${items.length} cueros)`;
+    const rows = items.map((it) => `
+      <tr>
+        <td style="border:1px solid #ccc;padding:6px 8px;">${it.materialName || "—"}</td>
+        <td style="border:1px solid #ccc;padding:6px 8px;text-align:right;">${fmtN(it.quantity)}</td>
+        <td style="border:1px solid #ccc;padding:6px 8px;text-align:right;">${it.unitCost != null ? fmtQ(it.unitCost) : "—"}</td>
+        <td style="border:1px solid #ccc;padding:6px 8px;text-align:right;">${it.unitCost != null ? fmtQ(Number(it.quantity || 0) * Number(it.unitCost)) : "—"}</td>
+        <td style="border:1px solid #ccc;padding:6px 8px;text-align:right;">${it.balanceAfter != null ? fmtN(it.balanceAfter) : "—"}</td>
+      </tr>`).join("");
 
     const html = `<!DOCTYPE html><html><head>
-      <title>Recepción de Cuero #${movement.id || ""}</title>
+      <title>Recepción de Cuero ${titleId}</title>
       <style>
         @media print { @page { margin: 1.2cm; } body { margin:0; } }
         body { font-family: Arial, Helvetica, sans-serif; padding: 20px; color: #222; font-size: 13px; }
@@ -884,6 +999,8 @@ function LeatherInventory() {
         .info-grid .label { font-weight: 700; white-space: nowrap; }
         .highlight { background: #e8f5e9; border: 1px solid #a5d6a7; border-radius: 6px; padding: 10px 14px; margin: 14px 0; text-align: center; }
         .highlight .big { font-size: 22px; font-weight: 800; }
+        table.items { width: 100%; border-collapse: collapse; font-size: 12px; margin: 12px 0; }
+        table.items th { background: #f0f0f0; border: 1px solid #ccc; padding: 6px 8px; text-align: left; }
         .signatures { display: flex; justify-content: space-between; margin-top: 50px; }
         .sig-box { width: 40%; text-align: center; }
         .sig-line { border-top: 1px solid #333; margin-top: 50px; padding-top: 6px; font-size: 12px; }
@@ -892,11 +1009,10 @@ function LeatherInventory() {
     </head><body>
       <div class="header">
         <h1>Comprobante de Recepción de Cuero</h1>
-        <p>Recepción #${movement.id || "—"} · ${fmtDate(movement.movementDate)}</p>
+        <p>Recepción ${titleId} · ${fmtDate(movement.movementDate)}</p>
       </div>
 
       <div class="info-grid">
-        <div class="item"><span class="label">Tipo de Cuero:</span> ${movement.materialName || "—"}</div>
         <div class="item"><span class="label">Proveedor:</span> ${movement.supplierName || "—"}</div>
         <div class="item"><span class="label">Documento:</span> ${movement.purchaseDocument || "—"}</div>
         <div class="item"><span class="label">Entregado por:</span> ${movement.deliveredBy || "—"}</div>
@@ -904,11 +1020,23 @@ function LeatherInventory() {
         ${movement.observations ? `<div class="item" style="grid-column:span 2;"><span class="label">Observaciones:</span> ${movement.observations}</div>` : ""}
       </div>
 
+      <table class="items">
+        <thead>
+          <tr>
+            <th>Tipo de cuero</th>
+            <th style="text-align:right;">Cantidad (ft²)</th>
+            <th style="text-align:right;">Costo/ft²</th>
+            <th style="text-align:right;">Total</th>
+            <th style="text-align:right;">Saldo después</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+
       <div class="highlight">
-        <div>Cantidad de cuero recibido</div>
-        <div class="big">${fmtN(movement.quantity)} ft²</div>
-        ${movement.unitCost ? `<div style="font-size:12px;margin-top:4px;">Costo: ${fmtQ(movement.unitCost)}/ft²${totalCost ? ` · Total: ${fmtQ(totalCost)}` : ""}</div>` : ""}
-        ${movement.balanceAfter != null ? `<div style="font-size:11px;color:#555;margin-top:4px;">Saldo después de recepción: ${fmtN(movement.balanceAfter)} ft²</div>` : ""}
+        <div>Total recibido</div>
+        <div class="big">${fmtN(totalQty)} ft²</div>
+        ${hasCost ? `<div style="font-size:12px;margin-top:4px;">Costo total: ${fmtQ(totalCost)}</div>` : ""}
       </div>
 
       <div class="signatures">
@@ -995,6 +1123,38 @@ function LeatherInventory() {
     const inv = inventory.find(i => i.materialId === Number(materialId));
     return inv ? Number(inv.quantityAvailable) : 0;
   };
+
+  const receptionLeatherPool = useMemo(() => {
+    if (!receptionForm.supplierId) return materialOptions;
+    const bySupplier = (materialOptions || []).filter(
+      (m) => String(m.supplierId || "") === String(receptionForm.supplierId)
+    );
+    return bySupplier.length > 0 ? bySupplier : materialOptions;
+  }, [materialOptions, receptionForm.supplierId]);
+
+  const receptionLeatherSelectOptions = useMemo(
+    () => (receptionLeatherPool || []).map((m) => {
+      const stock = getAvailableStock(m.id);
+      return {
+        value: String(m.id),
+        label: `${m.name} (${m.sku || "-"}) · ${formatNum(stock)} ft²`,
+        searchText: `${m.name || ""} ${m.sku || ""}`,
+      };
+    }),
+    [receptionLeatherPool, inventory]
+  );
+
+  const receptionTotals = useMemo(() => {
+    const ft2 = receptionItems.reduce((s, it) => s + Number(it.quantity || 0), 0);
+    const withCost = receptionItems.filter((it) => it.unitCost != null);
+    const money = withCost.reduce((s, it) => s + Number(it.quantity || 0) * Number(it.unitCost || 0), 0);
+    return { ft2, money, missingCost: withCost.length !== receptionItems.length && receptionItems.length > 0 };
+  }, [receptionItems]);
+
+  const selectedReceptionLeather = useMemo(
+    () => materialOptions.find((m) => String(m.id) === String(receptionDraft.materialId)) || null,
+    [materialOptions, receptionDraft.materialId]
+  );
 
   // ─── Órdenes activas ──────────────────────────────────────────
   const activeOrders = useMemo(() =>
@@ -1119,7 +1279,20 @@ function LeatherInventory() {
             : <Badge color="success">OK</Badge>;
       },
     },
-  ], []);
+    {
+      Header: "", id: "receive", disableSortBy: true, disableFilters: true,
+      Cell: ({ row }) => (
+        <Button
+          color="success"
+          size="sm"
+          outline
+          onClick={() => openReceptionModal(row.original.materialId)}
+        >
+          Recibir
+        </Button>
+      ),
+    },
+  ], [openReceptionModal]);
 
   const invFilterTypes = useMemo(() => ({
     fuzzyText: fuzzyTextFilterFn,
@@ -1164,7 +1337,7 @@ function LeatherInventory() {
         </Col>
         <Col className="text-right">
           <Button color="success" size="sm" className="mr-2"
-            onClick={() => setShowReceptionModal(true)}>
+            onClick={() => openReceptionModal()}>
             <i className="nc-icon nc-simple-add" /> Recepción
           </Button>
           <Button color="info" size="sm"
@@ -1691,98 +1864,220 @@ function LeatherInventory() {
       </Modal>
 
       {/* ═══ MODAL RECEPCIÓN DE CUERO ═══ */}
-      <Modal isOpen={showReceptionModal} toggle={() => { setShowReceptionModal(false); resetReceptionModal(); }} size="lg">
+      <Modal isOpen={showReceptionModal} toggle={() => { setShowReceptionModal(false); resetReceptionModal(); }} size="xl">
         <ModalHeader toggle={() => { setShowReceptionModal(false); resetReceptionModal(); }}>
           <i className="nc-icon nc-simple-add text-success" style={{ marginRight: 6 }} />
-          Recepción de Cuero (Compra)
+          Recepción de Cuero
         </ModalHeader>
         <ModalBody>
+          <div className="rounded border p-3 mb-3" style={{ background: "#f8f9fb" }}>
+            <Row>
+              <Col md="3">
+                <FormGroup className="mb-2">
+                  <Label className="small text-muted mb-1">Fecha</Label>
+                  <Input type="date" value={receptionForm.movementDate}
+                    onChange={e => setReceptionForm(p => ({ ...p, movementDate: e.target.value }))} />
+                </FormGroup>
+              </Col>
+              <Col md="5">
+                <FormGroup className="mb-2">
+                  <Label className="small text-muted mb-1">Proveedor</Label>
+                  <FilterableSelect
+                    value={receptionForm.supplierId}
+                    onChange={(id) => setReceptionForm((p) => ({ ...p, supplierId: id }))}
+                    options={supplierSelectOptions}
+                    placeholder="Buscar proveedor..."
+                    emptyLabel="— Sin proveedor —"
+                  />
+                </FormGroup>
+              </Col>
+              <Col md="4">
+                <FormGroup className="mb-2">
+                  <Label className="small text-muted mb-1">Documento de compra</Label>
+                  <Input type="text" placeholder="Ej: FAC-001" value={receptionForm.purchaseDocument}
+                    onChange={e => setReceptionForm(p => ({ ...p, purchaseDocument: e.target.value }))} />
+                </FormGroup>
+              </Col>
+            </Row>
+            <Row>
+              <Col md="4">
+                <FormGroup className="mb-0">
+                  <Label className="small text-muted mb-1">Entregado por *</Label>
+                  <Input type="text" placeholder="Quien entrega" value={receptionForm.deliveredBy}
+                    onChange={e => setReceptionForm(p => ({ ...p, deliveredBy: e.target.value }))} />
+                </FormGroup>
+              </Col>
+              <Col md="4">
+                <FormGroup className="mb-0">
+                  <Label className="small text-muted mb-1">Recibido por *</Label>
+                  <Input type="text" placeholder="Quien recibe" value={receptionForm.receivedBy}
+                    onChange={e => setReceptionForm(p => ({ ...p, receivedBy: e.target.value }))} />
+                </FormGroup>
+              </Col>
+              <Col md="4">
+                <FormGroup className="mb-0">
+                  <Label className="small text-muted mb-1">Observaciones</Label>
+                  <Input type="text" placeholder="Opcional" value={receptionForm.observations}
+                    onChange={e => setReceptionForm(p => ({ ...p, observations: e.target.value }))} />
+                </FormGroup>
+              </Col>
+            </Row>
+          </div>
+
           {quickLeatherOptions.length > 0 && (
-            <Alert color="light" className="py-2">
-              <strong>Acceso rápido:</strong>
-              <div className="mt-1">
-                {quickLeatherOptions.map((m) => (
-                  <Button
-                    key={`quick-reception-${m.id}`}
-                    size="sm"
-                    color={Number(receptionDraft.materialId) === Number(m.id) ? "primary" : "light"}
-                    className="mr-1 mb-1"
-                    onClick={() => {
-                      setReceptionDraft((p) => ({ ...p, materialId: String(m.id) }));
-                      setReceptionMaterialSearch(leatherOptionLabel(m));
-                    }}
-                  >
-                    {primaryLeatherIds.includes(Number(m.id)) ? "★ " : ""}{m.name}
-                  </Button>
-                ))}
-              </div>
-            </Alert>
+            <div className="mb-3">
+              <small className="text-muted d-block mb-1">Cueros frecuentes — clic para cargar y escribir cantidad</small>
+              {quickLeatherOptions.map((m) => (
+                <Button
+                  key={`quick-reception-${m.id}`}
+                  size="sm"
+                  color={Number(receptionDraft.materialId) === Number(m.id) ? "primary" : "light"}
+                  className="mr-1 mb-1"
+                  onClick={() => selectReceptionLeather(m.id)}
+                >
+                  {primaryLeatherIds.includes(Number(m.id)) ? "★ " : ""}{m.name}
+                  <span className="ml-1 text-muted" style={{ fontWeight: 400 }}>
+                    {formatNum(getAvailableStock(m.id))} ft²
+                  </span>
+                </Button>
+              ))}
+            </div>
           )}
-          <Row>
+
+          <Row className="align-items-end">
             <Col md="5">
               <FormGroup>
-                <Label>Tipo de Cuero</Label>
-                <Input
-                  type="text"
-                  list="reception-leather-list"
-                  placeholder="Escriba para buscar cuero..."
-                  value={receptionMaterialSearch}
-                  onChange={e => {
-                    const text = e.target.value;
-                    setReceptionMaterialSearch(text);
-                    const selected = resolveMaterialBySearch(text);
-                    setReceptionDraft((p) => ({ ...p, materialId: selected ? String(selected.id) : "" }));
-                  }}
+                <Label>Tipo de cuero</Label>
+                <FilterableSelect
+                  value={receptionDraft.materialId}
+                  onChange={selectReceptionLeather}
+                  options={receptionLeatherSelectOptions}
+                  placeholder="Buscar por nombre o SKU..."
+                  emptyLabel="— Seleccione cuero —"
                 />
-                <datalist id="reception-leather-list">
-                  {materialOptions.map(m => (
-                    <option key={m.id} value={leatherOptionLabel(m)} />
-                  ))}
-                </datalist>
+                {receptionForm.supplierId && receptionLeatherPool.length < materialOptions.length && (
+                  <small className="text-muted">Filtrado por proveedor seleccionado</small>
+                )}
+                {selectedReceptionLeather && (
+                  <small className="d-block mt-1">
+                    Stock actual: <strong>{formatNum(getAvailableStock(selectedReceptionLeather.id))} ft²</strong>
+                    {lastUnitCostByMaterial[Number(selectedReceptionLeather.id)] != null && (
+                      <> · último costo {formatQ(lastUnitCostByMaterial[Number(selectedReceptionLeather.id)])}/ft²</>
+                    )}
+                  </small>
+                )}
               </FormGroup>
             </Col>
             <Col md="3">
               <FormGroup>
-                <Label>Cantidad (ft²)</Label>
-                <Input type="number" step="0.001" min="0" value={receptionDraft.quantity}
-                  onChange={e => setReceptionDraft(p => ({ ...p, quantity: e.target.value }))} />
+                <Label>Cantidad</Label>
+                <InputGroup>
+                  <Input
+                    innerRef={receptionQtyRef}
+                    type="number"
+                    step="0.001"
+                    min="0"
+                    value={receptionDraft.quantity}
+                    placeholder="0.000"
+                    onChange={e => setReceptionDraft(p => ({ ...p, quantity: e.target.value }))}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        addReceptionItem();
+                      }
+                    }}
+                  />
+                  <InputGroupAddon addonType="append">
+                    <InputGroupText>ft²</InputGroupText>
+                  </InputGroupAddon>
+                </InputGroup>
               </FormGroup>
             </Col>
             <Col md="2">
               <FormGroup>
-                <Label>Costo por ft²</Label>
-                <Input type="number" step="0.01" min="0" value={receptionDraft.unitCost}
-                  onChange={e => setReceptionDraft(p => ({ ...p, unitCost: e.target.value }))} />
+                <Label>Costo / ft²</Label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={receptionDraft.unitCost}
+                  placeholder="Opcional"
+                  onChange={e => setReceptionDraft(p => ({ ...p, unitCost: e.target.value }))}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      addReceptionItem();
+                    }
+                  }}
+                />
               </FormGroup>
             </Col>
             <Col md="2" className="d-flex align-items-end">
-              <Button color="primary" block onClick={addReceptionItem}>
-                + Agregar
-              </Button>
+              <FormGroup className="w-100">
+                <Button color="primary" block onClick={addReceptionItem}>
+                  Agregar
+                </Button>
+              </FormGroup>
             </Col>
           </Row>
-          {receptionItems.length > 0 && (
+
+          {receptionItems.length === 0 ? (
+            <Alert color="light" className="py-2">
+              Agregue uno o más cueros. Enter en cantidad suma la línea. El mismo cuero se agrupa.
+            </Alert>
+          ) : (
             <Table bordered size="sm" className="mb-3">
               <thead style={{ background: "#f5f5f5" }}>
                 <tr>
                   <th>Cuero</th>
-                  <th className="text-right">Cantidad (ft²)</th>
-                  <th className="text-right">Costo/ft²</th>
+                  <th style={{ width: 140 }}>Cantidad (ft²)</th>
+                  <th style={{ width: 140 }}>Costo/ft²</th>
                   <th className="text-right">Total</th>
-                  <th style={{ width: 70 }}>Acción</th>
+                  <th className="text-right" style={{ width: 110 }}>Nuevo saldo</th>
+                  <th style={{ width: 70 }} />
                 </tr>
               </thead>
               <tbody>
                 {receptionItems.map((it, idx) => {
                   const mat = materialOptions.find(m => Number(m.id) === Number(it.materialId));
                   const rowTotal = it.unitCost != null ? Number(it.unitCost) * Number(it.quantity || 0) : null;
+                  const incomingSame = receptionItems
+                    .filter((row) => Number(row.materialId) === Number(it.materialId))
+                    .reduce((s, row) => s + Number(row.quantity || 0), 0);
+                  const nextBalance = getAvailableStock(it.materialId) + incomingSame;
                   return (
                     <tr key={`${it.materialId}-${idx}`}>
-                      <td>{mat?.name || "—"}</td>
-                      <td className="text-right">{formatNum(it.quantity, 3)}</td>
-                      <td className="text-right">{it.unitCost != null ? formatQ(it.unitCost) : "—"}</td>
-                      <td className="text-right">{rowTotal != null ? formatQ(rowTotal) : "—"}</td>
-                      <td className="text-center">
+                      <td>
+                        <strong>{mat?.name || "—"}</strong>
+                        {mat?.sku ? <div className="small text-muted">{mat.sku}</div> : null}
+                      </td>
+                      <td>
+                        <Input
+                          type="number"
+                          bsSize="sm"
+                          step="0.001"
+                          min="0"
+                          value={it.quantity}
+                          onChange={(e) => updateReceptionItem(idx, { quantity: Number(e.target.value) || 0 })}
+                        />
+                      </td>
+                      <td>
+                        <Input
+                          type="number"
+                          bsSize="sm"
+                          step="0.01"
+                          min="0"
+                          value={it.unitCost == null ? "" : it.unitCost}
+                          placeholder="—"
+                          onChange={(e) => {
+                            const raw = e.target.value;
+                            updateReceptionItem(idx, { unitCost: raw === "" ? null : Number(raw) });
+                          }}
+                        />
+                      </td>
+                      <td className="text-right align-middle">{rowTotal != null ? formatQ(rowTotal) : "—"}</td>
+                      <td className="text-right align-middle">{formatNum(nextBalance)}</td>
+                      <td className="text-center align-middle">
                         <Button color="danger" size="sm" onClick={() => removeReceptionItem(idx)}>
                           <i className="nc-icon nc-simple-remove" />
                         </Button>
@@ -1793,74 +2088,23 @@ function LeatherInventory() {
               </tbody>
             </Table>
           )}
-          <Row>
-            <Col md="4">
-              <FormGroup>
-                <Label>Fecha</Label>
-                <Input type="date" value={receptionForm.movementDate}
-                  onChange={e => setReceptionForm(p => ({ ...p, movementDate: e.target.value }))} />
-              </FormGroup>
-            </Col>
-            <Col md="4">
-              <FormGroup>
-                <Label>Proveedor</Label>
-                <Input type="select" value={receptionForm.supplierId}
-                  onChange={e => setReceptionForm(p => ({ ...p, supplierId: e.target.value }))}>
-                  <option value="">Seleccione...</option>
-                  {suppliers.map(s => (
-                    <option key={s.id} value={s.id}>{s.name}</option>
-                  ))}
-                </Input>
-              </FormGroup>
-            </Col>
-            <Col md="4">
-              <FormGroup>
-                <Label>Documento de Compra</Label>
-                <Input type="text" placeholder="Ej: FAC-001" value={receptionForm.purchaseDocument}
-                  onChange={e => setReceptionForm(p => ({ ...p, purchaseDocument: e.target.value }))} />
-              </FormGroup>
-            </Col>
-          </Row>
-          <Row>
-            <Col md="4">
-              <FormGroup>
-                <Label>Entregado por *</Label>
-                <Input type="text" placeholder="Nombre de quien entrega" value={receptionForm.deliveredBy}
-                  onChange={e => setReceptionForm(p => ({ ...p, deliveredBy: e.target.value }))} />
-              </FormGroup>
-            </Col>
-            <Col md="4">
-              <FormGroup>
-                <Label>Recibido por *</Label>
-                <Input type="text" placeholder="Nombre de quien recibe" value={receptionForm.receivedBy}
-                  onChange={e => setReceptionForm(p => ({ ...p, receivedBy: e.target.value }))} />
-              </FormGroup>
-            </Col>
-            <Col md="4">
-              <FormGroup>
-                <Label>Observaciones</Label>
-                <Input type="textarea" rows="2" value={receptionForm.observations}
-                  onChange={e => setReceptionForm(p => ({ ...p, observations: e.target.value }))} />
-              </FormGroup>
-            </Col>
-          </Row>
+
           {receptionItems.length > 0 && (
-            <Alert color="success" className="mt-2">
-              <strong>Total de recepción:</strong> {
-                formatQ(
-                  receptionItems.reduce((sum, it) => {
-                    if (it.unitCost == null) return sum;
-                    return sum + Number(it.quantity || 0) * Number(it.unitCost || 0);
-                  }, 0)
-                )
-              }
+            <Alert color="success" className="mt-2 mb-0">
+              <strong>{formatNum(receptionTotals.ft2)} ft²</strong>
+              {" · "}
+              {receptionTotals.missingCost
+                ? <span>Costo parcial: {formatQ(receptionTotals.money)}</span>
+                : <span>Costo total: {formatQ(receptionTotals.money)}</span>}
+              {" · "}
+              {receptionItems.length} tipo{receptionItems.length === 1 ? "" : "s"}
             </Alert>
           )}
         </ModalBody>
         <ModalFooter>
           <Button color="secondary" onClick={() => { setShowReceptionModal(false); resetReceptionModal(); }}>Cancelar</Button>
           <Button color="success" onClick={handleSaveReception} disabled={savingReception || receptionItems.length === 0}>
-            {savingReception ? <Spinner size="sm" /> : "Registrar Recepción"}
+            {savingReception ? <Spinner size="sm" /> : `Registrar recepción (${receptionItems.length})`}
           </Button>
         </ModalFooter>
       </Modal>
