@@ -2,16 +2,18 @@ name: Deploy Frontend
 
 on:
   push:
-    branches: [main]
+    branches: [main, develop]
   workflow_dispatch:
 
 concurrency:
-  group: deploy-frontend
+  group: deploy-frontend-${{ github.ref_name }}
   cancel-in-progress: false
 
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
+    env:
+      DEPLOY_PATH: ${{ github.ref_name == 'develop' && '/var/www/front-test/build/' || '/var/www/front/build/' }}
     steps:
       - name: Marcar inicio
         run: echo "DEPLOY_START=$(date +%s)" >> "$GITHUB_ENV"
@@ -88,11 +90,12 @@ jobs:
           set -euo pipefail
           test -d build
           test -f build/index.html
+          echo "Rama ${{ github.ref_name }} → $DEPLOY_PATH" | tee -a /tmp/deploy.log
           rsync -avz --delete \
             --rsync-path="sudo rsync" \
             -e "ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no" \
             build/ \
-            ${{ secrets.SSH_USER }}@${{ secrets.FRONT_HOST }}:/var/www/front/build/ \
+            ${{ secrets.SSH_USER }}@${{ secrets.FRONT_HOST }}:"$DEPLOY_PATH" \
             2>&1 | tee -a /tmp/deploy.log
 
       - name: Recargar Nginx
@@ -165,12 +168,14 @@ jobs:
               --arg autor "${{ github.actor }}" \
               --arg duracion "${MIN}m ${SEC}s" \
               --arg sitio "http://${{ secrets.FRONT_HOST }}" \
+              --arg destino "$DEPLOY_PATH" \
               '{embeds: [{
                 title: $titulo, url: $url, color: $color,
                 fields: [
                   {name: "Rama", value: $rama, inline: true},
                   {name: "Duración", value: $duracion, inline: true},
                   {name: "Sitio", value: $sitio, inline: true},
+                  {name: "Destino", value: $destino, inline: true},
                   {name: "Autor", value: $autor, inline: true},
                   {name: "Commit", value: ("[`" + $commit + "`](" + $commiturl + ")"), inline: true}
                 ],
