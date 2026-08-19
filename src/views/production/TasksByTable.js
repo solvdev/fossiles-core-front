@@ -35,6 +35,7 @@ import {
   runAutoPlan,
   getBlockedLeatherLines,
   getDaySalesSummary,
+  getOplDispatchSummary,
 } from "services/taskService";
 import { getProductionOrders } from "services/productionOrderService";
 import {
@@ -51,6 +52,7 @@ import TaskTicketPrint from "./TaskTicketPrint";
 import DownloadOpsModal, { mergeOrdersForDownload } from "components/production/DownloadOpsModal";
 import { taskSkipsMaterials } from "utils/materialRequirementHelper";
 import { formatDateGt, formatDateTimeGt, getTodayYmdGuatemala } from "utils/dateTimeHelper";
+import { openOplDispatchSummaryPrintWindow, downloadOplDispatchSummaryExcel } from "utils/oplDispatchSummaryExport";
 import { formatProductionOrderSelectLabel } from "utils/productionOrderDisplayHelper";
 import { openProductionTasksSheetPrintWindow, downloadProductionTasksSheetExcel } from "utils/productionTasksSheetPrintHtml";
 import { buildProductionTasksSheetPrintModel } from "utils/productionTasksSheetPrintData";
@@ -137,6 +139,7 @@ function TasksByTable() {
   const [autoPlanning, setAutoPlanning] = useState(false);
   const [blockedLeather, setBlockedLeather] = useState([]);
   const [daySalesSummary, setDaySalesSummary] = useState(null);
+  const [oplDispatchSummary, setOplDispatchSummary] = useState(null);
 
   // Redistribuir manual (aparte del cronograma)
   const [redistributeDate, setRedistributeDate] = useState(getTodayYmdGuatemala());
@@ -178,12 +181,14 @@ function TasksByTable() {
   const loadDayPlanPanels = useCallback(async () => {
     const day = filterDate || getTodayYmdGuatemala();
     try {
-      const [blocked, summary] = await Promise.all([
+      const [blocked, summary, opl] = await Promise.all([
         getBlockedLeatherLines(),
         getDaySalesSummary(day),
+        getOplDispatchSummary(day),
       ]);
       setBlockedLeather(blocked || []);
       setDaySalesSummary(summary || null);
+      setOplDispatchSummary(opl || null);
     } catch (err) {
       console.error("Error loading day plan panels:", err);
     }
@@ -1513,68 +1518,165 @@ function TasksByTable() {
                 </Alert>
               )}
               {viewMode === "operation" && (
-                <Row className="mb-3">
-                  <Col md="6">
-                    <Card className="mb-0" style={{ border: "1px solid #ffe8a3" }}>
-                      <CardBody className="py-2">
-                        <small className="text-muted d-block mb-1"><strong>Cola sin cuero</strong></small>
-                        {(blockedLeather || []).length === 0 ? (
-                          <small className="text-muted">No hay líneas bloqueadas por receta o ft².</small>
-                        ) : (
-                          <ul className="mb-0 pl-3" style={{ fontSize: 12 }}>
-                            {blockedLeather.slice(0, 12).map((row) => (
-                              <li key={`${row.productionOrderItemId}-${row.productCode}`}>
-                                {row.productionOrderCode} · {row.productCode} × {row.remainingQuantity}
-                                {row.reason ? ` — ${row.reason}` : ""}
-                              </li>
-                            ))}
-                          </ul>
-                        )}
-                      </CardBody>
-                    </Card>
-                  </Col>
-                  <Col md="6">
-                    <Card className="mb-0">
-                      <CardBody className="py-2">
-                        <small className="text-muted d-block mb-1">
-                          <strong>Ventas del día</strong>
-                          {daySalesSummary?.date ? ` (${formatDateGt(daySalesSummary.date)})` : ""}
+                <>
+                  <Card className="mb-3" style={{ border: "1px solid #c5e1a5", background: "#f8fff4" }}>
+                    <CardBody className="py-2">
+                      <div className="d-flex flex-wrap align-items-start justify-content-between" style={{ gap: 8 }}>
+                        <div>
+                          <small className="text-muted d-block mb-1">
+                            <strong>Ventas de ayer a despachar hoy</strong>
+                            {oplDispatchSummary?.saleDate && oplDispatchSummary?.dispatchDate
+                              ? ` — todas las ventas pedidas el ${formatDateGt(oplDispatchSummary.saleDate)}, salen el ${formatDateGt(oplDispatchSummary.dispatchDate)}`
+                              : ""}
+                          </small>
+                          <small className="d-block">
+                            {(oplDispatchSummary?.saleCount || 0)} ventas · {(oplDispatchSummary?.oplSaleCount || 0)} con OPL · {(oplDispatchSummary?.stockSaleCount || 0)} sin OPL · {(oplDispatchSummary?.unitCount || 0)} unidades
+                            {oplDispatchSummary?.excludedCount
+                              ? ` · ${oplDispatchSummary.excludedCount} anuladas/devueltas`
+                              : ""}
+                          </small>
+                        </div>
+                        <div className="d-flex" style={{ gap: 6 }}>
+                          <Button
+                            color="secondary"
+                            outline
+                            size="sm"
+                            className="mb-0"
+                            disabled={!oplDispatchSummary}
+                            onClick={() => openOplDispatchSummaryPrintWindow(oplDispatchSummary)}
+                          >
+                            Imprimir
+                          </Button>
+                          <Button
+                            color="success"
+                            size="sm"
+                            className="mb-0"
+                            disabled={!oplDispatchSummary}
+                            onClick={() => downloadOplDispatchSummaryExcel(oplDispatchSummary)}
+                          >
+                            Descargar Excel
+                          </Button>
+                        </div>
+                      </div>
+                      {(oplDispatchSummary?.sales || []).length === 0 ? (
+                        <small className="text-muted d-block mt-2">No hay ventas en línea del día anterior.</small>
+                      ) : (
+                        <Table size="sm" className="mb-0 mt-2" responsive>
+                          <thead>
+                            <tr>
+                              <th>Venta</th>
+                              <th>Cliente</th>
+                              <th>Salida</th>
+                              <th>OPL</th>
+                              <th>Productos</th>
+                              <th className="text-center">Cant.</th>
+                              <th>Estado</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {(oplDispatchSummary.sales || []).slice(0, 40).map((sale) => {
+                              const qty = (sale.lines || []).reduce((s, l) => s + Number(l.quantity || 0), 0);
+                              return (
+                                <tr key={sale.onlineSaleId}>
+                                  <td>{sale.saleNumber || sale.onlineSaleId}</td>
+                                  <td>
+                                    {sale.customerName || "—"}
+                                    {sale.phone ? <small className="d-block text-muted">{sale.phone}</small> : null}
+                                  </td>
+                                  <td>
+                                    {sale.dispatchKind === "OPL" && "Genera OPL"}
+                                    {sale.dispatchKind === "STOCK" && "Sin OPL (stock)"}
+                                    {sale.dispatchKind === "MIXTA" && "Mixta"}
+                                    {sale.dispatchKind === "ANULADA" && "Anulada"}
+                                    {sale.dispatchKind === "PENDIENTE" && "Pendiente"}
+                                    {!sale.dispatchKind && "—"}
+                                  </td>
+                                  <td>{sale.productionOrderCode || "—"}</td>
+                                  <td style={{ fontSize: 12 }}>
+                                    {(sale.lines || []).map((l, i) => (
+                                      <div key={`${sale.onlineSaleId}-${i}`}>
+                                        {[l.productCode, l.productName, l.colorName, l.size].filter(Boolean).join(" · ")}
+                                      </div>
+                                    ))}
+                                  </td>
+                                  <td className="text-center font-weight-bold">{qty}</td>
+                                  <td>{sale.status || "—"}</td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </Table>
+                      )}
+                      {(oplDispatchSummary?.sales || []).length > 40 && (
+                        <small className="text-muted d-block mt-1">
+                          Mostrando 40 de {oplDispatchSummary.sales.length}. El Excel trae todas.
                         </small>
-                        <Row>
-                          <Col>
-                            <small className="d-block font-weight-bold">Van a producción</small>
-                            {(daySalesSummary?.goingToProduction || []).length === 0 ? (
-                              <small className="text-muted">Ninguna</small>
-                            ) : (
-                              <ul className="mb-0 pl-3" style={{ fontSize: 12 }}>
-                                {(daySalesSummary.goingToProduction || []).map((row) => (
-                                  <li key={`go-${row.productionOrderId}`}>
-                                    {row.onlineSale ? "OPL " : ""}{row.code}
-                                    {row.reason ? ` — ${row.reason}` : ""}
-                                  </li>
-                                ))}
-                              </ul>
-                            )}
-                          </Col>
-                          <Col>
-                            <small className="d-block font-weight-bold">No van</small>
-                            {(daySalesSummary?.notGoingToProduction || []).length === 0 ? (
-                              <small className="text-muted">Ninguna</small>
-                            ) : (
-                              <ul className="mb-0 pl-3" style={{ fontSize: 12 }}>
-                                {(daySalesSummary.notGoingToProduction || []).map((row) => (
-                                  <li key={`no-${row.productionOrderId}`}>
-                                    {row.code}{row.reason ? ` — ${row.reason}` : ""}
-                                  </li>
-                                ))}
-                              </ul>
-                            )}
-                          </Col>
-                        </Row>
-                      </CardBody>
-                    </Card>
-                  </Col>
-                </Row>
+                      )}
+                    </CardBody>
+                  </Card>
+                  <Row className="mb-3">
+                    <Col md="6">
+                      <Card className="mb-0" style={{ border: "1px solid #ffe8a3" }}>
+                        <CardBody className="py-2">
+                          <small className="text-muted d-block mb-1"><strong>Cola sin cuero</strong></small>
+                          {(blockedLeather || []).length === 0 ? (
+                            <small className="text-muted">No hay líneas bloqueadas por receta o ft².</small>
+                          ) : (
+                            <ul className="mb-0 pl-3" style={{ fontSize: 12 }}>
+                              {blockedLeather.slice(0, 12).map((row) => (
+                                <li key={`${row.productionOrderItemId}-${row.productCode}`}>
+                                  {row.productionOrderCode} · {row.productCode} × {row.remainingQuantity}
+                                  {row.reason ? ` — ${row.reason}` : ""}
+                                </li>
+                              ))}
+                            </ul>
+                          )}
+                        </CardBody>
+                      </Card>
+                    </Col>
+                    <Col md="6">
+                      <Card className="mb-0">
+                        <CardBody className="py-2">
+                          <small className="text-muted d-block mb-1">
+                            <strong>OP de venta del día</strong>
+                            {daySalesSummary?.date ? ` (${formatDateGt(daySalesSummary.date)})` : ""}
+                          </small>
+                          <Row>
+                            <Col>
+                              <small className="d-block font-weight-bold">Van a producción</small>
+                              {(daySalesSummary?.goingToProduction || []).length === 0 ? (
+                                <small className="text-muted">Ninguna</small>
+                              ) : (
+                                <ul className="mb-0 pl-3" style={{ fontSize: 12 }}>
+                                  {(daySalesSummary.goingToProduction || []).map((row) => (
+                                    <li key={`go-${row.productionOrderId}`}>
+                                      {row.onlineSale ? "OPL " : ""}{row.code}
+                                      {row.reason ? ` — ${row.reason}` : ""}
+                                    </li>
+                                  ))}
+                                </ul>
+                              )}
+                            </Col>
+                            <Col>
+                              <small className="d-block font-weight-bold">No van</small>
+                              {(daySalesSummary?.notGoingToProduction || []).length === 0 ? (
+                                <small className="text-muted">Ninguna</small>
+                              ) : (
+                                <ul className="mb-0 pl-3" style={{ fontSize: 12 }}>
+                                  {(daySalesSummary.notGoingToProduction || []).map((row) => (
+                                    <li key={`no-${row.productionOrderId}`}>
+                                      {row.code}{row.reason ? ` — ${row.reason}` : ""}
+                                    </li>
+                                  ))}
+                                </ul>
+                              )}
+                            </Col>
+                          </Row>
+                        </CardBody>
+                      </Card>
+                    </Col>
+                  </Row>
+                </>
               )}
               <Card className="mb-3" style={{ border: "1px solid #e2e8f0", backgroundColor: "#f8fafc" }}>
                 <CardBody className="py-2">

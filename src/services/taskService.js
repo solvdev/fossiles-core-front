@@ -405,3 +405,13 @@ export const getDaySalesSummary = async (date) => {
   return response.json();
 };
 
+export const getOplDispatchSummary = async (dispatchDate) => {
+  const query = dispatchDate ? `?dispatchDate=${encodeURIComponent(dispatchDate)}` : '';
+  const response = await fetch(`${API_URL}/tasks/opl-dispatch-summary${query}`, { headers: headers() });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ message: 'Error al cargar resumen OPL' }));
+    throw new Error(err.message || 'Error al cargar resumen OPL');
+  }
+  return response.json();
+};
+
