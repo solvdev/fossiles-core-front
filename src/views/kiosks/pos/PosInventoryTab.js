@@ -19,13 +19,23 @@ import { getKioscoStock } from "services/kioscoInventoryService";
 import { getProducts } from "services/productService";
 import { getProductCategories } from "services/productCategoryService";
 import { formatInventorySizesLine } from "utils/inventoryVariantHelper";
-import { filterVisibleKioskStockRows } from "utils/productCinchoHelper";
+import {
+  filterVisibleKioskStockRows,
+  getHardwareConditionLabel,
+  isPackagingProductCode,
+  normalizeCinchoType,
+  normalizeHardwareCondition,
+} from "utils/productCinchoHelper";
 import {
   PRODUCT_AUDIENCE_OPTIONS,
   getProductAudienceLabel,
   normalizeAudienceCategory,
   productMatchesAudienceFilter,
 } from "utils/productAudienceHelper";
+import {
+  buildKioskInventorySummaryGroups,
+  productMatchesSummaryGroupKey,
+} from "utils/kioskInventorySummary";
 import { showError } from "utils/notificationHelper";
 import { FilterableSelect } from "components/distribution/FilterableSelect";
 import { formatQty } from "./posUtils";
@@ -61,6 +71,9 @@ const sortVariants = (variants) =>
       sensitivity: "base",
     });
     if (colorCompare !== 0) return colorCompare;
+    const hwA = normalizeHardwareCondition(a.hardwareCondition) || "NUEVO";
+    const hwB = normalizeHardwareCondition(b.hardwareCondition) || "NUEVO";
+    if (hwA !== hwB) return hwA.localeCompare(hwB);
     return safeText(a.productCode).localeCompare(safeText(b.productCode), "es", { sensitivity: "base" });
   });
 
@@ -77,6 +90,10 @@ const buildProducts = (rows) => {
         productCategoryId: row.productCategoryId ?? null,
         productCategoryName: row.productCategoryName,
         audienceCategory: normalizeAudienceCategory(row.audienceCategory),
+        cinchoType: normalizeCinchoType(row.cinchoType),
+        cinchoForKids: Boolean(row.cinchoForKids),
+        packaging: Boolean(row.packaging) || isPackagingProductCode(row.productCode),
+        sizes: row.sizes && typeof row.sizes === "object" ? row.sizes : null,
         variants: [],
       });
     }
@@ -89,6 +106,18 @@ const buildProducts = (rows) => {
     }
     if (row.audienceCategory) {
       group.audienceCategory = normalizeAudienceCategory(row.audienceCategory);
+    }
+    if (!group.cinchoType && row.cinchoType) {
+      group.cinchoType = normalizeCinchoType(row.cinchoType);
+    }
+    if (row.cinchoForKids) {
+      group.cinchoForKids = true;
+    }
+    if (row.packaging || isPackagingProductCode(row.productCode)) {
+      group.packaging = true;
+    }
+    if (!group.sizes && row.sizes && typeof row.sizes === "object") {
+      group.sizes = row.sizes;
     }
     group.variants.push(row);
   });
@@ -121,7 +150,8 @@ const buildProducts = (rows) => {
     });
 };
 
-const inventoryKey = (productId, colorId) => `${productId || "p"}:${colorId ?? "none"}`;
+const inventoryKey = (productId, colorId, hardwareCondition) =>
+  `${productId || "p"}:${colorId ?? "none"}:${normalizeHardwareCondition(hardwareCondition) || "NUEVO"}`;
 
 const normalizeKioscoRows = (rows) =>
   (rows || []).map((row) => ({
@@ -132,6 +162,10 @@ const normalizeKioscoRows = (rows) =>
     productCategoryId: row.productCategoryId ?? row.categoryId ?? null,
     productCategoryName: row.productCategoryName || row.categoryName || "",
     audienceCategory: normalizeAudienceCategory(row.audienceCategory),
+    cinchoType: normalizeCinchoType(row.cinchoType),
+    cinchoForKids: Boolean(row.cinchoForKids),
+    hardwareCondition: normalizeHardwareCondition(row.hardwareCondition) || "NUEVO",
+    packaging: Boolean(row.packaging) || isPackagingProductCode(row.productCode),
     colorId: row.colorId,
     colorName: row.colorName,
     quantity: safeNumber(row.currentStock),
@@ -146,7 +180,10 @@ const mergeInventoryRows = (kioscoRows, legacyRows, productMetaById) => {
 
   const legacyByKey = new Map();
   (legacyRows || []).forEach((row) => {
-    legacyByKey.set(inventoryKey(row.productId, row.colorId), row);
+    legacyByKey.set(
+      inventoryKey(row.productId, row.colorId, row.hardwareCondition),
+      row
+    );
   });
 
   const enrichMeta = (row) => {
@@ -155,15 +192,27 @@ const mergeInventoryRows = (kioscoRows, legacyRows, productMetaById) => {
       if (row.productCategoryId == null) row.productCategoryId = meta.categoryId;
       if (!row.productCategoryName) row.productCategoryName = meta.categoryName || "";
       row.audienceCategory = normalizeAudienceCategory(meta.audienceCategory);
+      if (!row.cinchoType && meta.cinchoType) {
+        row.cinchoType = normalizeCinchoType(meta.cinchoType);
+      }
+      if (meta.cinchoForKids) {
+        row.cinchoForKids = true;
+      }
+      if (meta.packaging) {
+        row.packaging = true;
+      }
     } else {
       row.audienceCategory = normalizeAudienceCategory(row.audienceCategory);
+      row.cinchoType = normalizeCinchoType(row.cinchoType);
+      row.cinchoForKids = Boolean(row.cinchoForKids);
+      row.packaging = Boolean(row.packaging) || isPackagingProductCode(row.productCode);
     }
     return row;
   };
 
   const mergedByKey = new Set();
   merged.forEach((row) => {
-    const key = inventoryKey(row.productId, row.colorId);
+    const key = inventoryKey(row.productId, row.colorId, row.hardwareCondition);
     mergedByKey.add(key);
     const legacy = legacyByKey.get(key);
     if (legacy) {
@@ -173,18 +222,22 @@ const mergeInventoryRows = (kioscoRows, legacyRows, productMetaById) => {
       if (legacy.audienceCategory) {
         row.audienceCategory = normalizeAudienceCategory(legacy.audienceCategory);
       }
+      if (!row.hardwareCondition && legacy.hardwareCondition) {
+        row.hardwareCondition = normalizeHardwareCondition(legacy.hardwareCondition) || "NUEVO";
+      }
     }
     enrichMeta(row);
   });
 
   (legacyRows || []).forEach((legacy) => {
-    const key = inventoryKey(legacy.productId, legacy.colorId);
+    const key = inventoryKey(legacy.productId, legacy.colorId, legacy.hardwareCondition);
     if (mergedByKey.has(key)) return;
     merged.push(
       enrichMeta({
         ...legacy,
         productCategoryId: legacy.productCategoryId ?? null,
         audienceCategory: normalizeAudienceCategory(legacy.audienceCategory),
+        hardwareCondition: normalizeHardwareCondition(legacy.hardwareCondition) || "NUEVO",
         quantity: safeNumber(legacy.quantity),
         min: safeNumber(legacy.min),
       })
@@ -196,6 +249,8 @@ const mergeInventoryRows = (kioscoRows, legacyRows, productMetaById) => {
 
 function PosInventoryTab({ kioskLocationId, kioskName, active }) {
   const [inventoryView, setInventoryView] = useState("STOCK");
+  const [stockMode, setStockMode] = useState("SUMMARY");
+  const [selectedSummaryGroup, setSelectedSummaryGroup] = useState(null);
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState("");
@@ -229,6 +284,9 @@ function PosInventoryTab({ kioskLocationId, kioskName, active }) {
           categoryId,
           categoryName: categoryId != null ? categoryNameById.get(categoryId) || "" : "",
           audienceCategory: normalizeAudienceCategory(p.audienceCategory),
+          cinchoType: normalizeCinchoType(p.cinchoType),
+          cinchoForKids: Boolean(p.cinchoForKids),
+          packaging: Boolean(p.packaging) || isPackagingProductCode(p.code || p.productCode),
         });
       });
       setRows(
@@ -273,9 +331,10 @@ function PosInventoryTab({ kioskLocationId, kioskName, active }) {
   }, [products]);
 
   const filteredProducts = useMemo(() => {
+    const applyAdvanced = stockMode !== "SUMMARY";
     return products
       .map((product) => {
-        if (categoryFilter) {
+        if (applyAdvanced && categoryFilter) {
           if (categoryFilter === "none") {
             if (product.productCategoryId != null) return null;
           } else if (String(product.productCategoryId) !== String(categoryFilter)) {
@@ -287,13 +346,15 @@ function PosInventoryTab({ kioskLocationId, kioskName, active }) {
         }
         const filteredVariants = product.variants.filter((variant) => {
           const status = variantStatus(variant);
-          if (stockFilter === "LOW" && !status.low) return false;
-          if (stockFilter === "OUT" && status.label !== "Sin stock") return false;
+          if (applyAdvanced && stockFilter === "LOW" && !status.low) return false;
+          if (applyAdvanced && stockFilter === "OUT" && status.label !== "Sin stock") return false;
           if (!query) return true;
           const text = normalize(
             `${product.productCode || ""} ${product.productName || ""} ${product.productCategoryName || ""} ${
               getProductAudienceLabel(product.audienceCategory)
-            } ${variant.colorName || ""} ${formatInventorySizesLine(variant.sizes) || ""}`
+            } ${variant.colorName || ""} ${getHardwareConditionLabel(variant.hardwareCondition)} ${
+              formatInventorySizesLine(variant.sizes) || ""
+            }`
           );
           return text.includes(query);
         });
@@ -305,20 +366,36 @@ function PosInventoryTab({ kioskLocationId, kioskName, active }) {
         };
       })
       .filter(Boolean);
-  }, [products, query, stockFilter, categoryFilter, audienceFilter]);
+  }, [products, query, stockFilter, categoryFilter, audienceFilter, stockMode]);
 
-  const summary = useMemo(() => {
-    const allVariants = filteredProducts.flatMap((p) => p.variants);
-    const lowVariants = allVariants.filter((variant) => variantStatus(variant).low).length;
-    const sizeVariants = allVariants.filter((variant) => formatInventorySizesLine(variant.sizes)).length;
-    return {
-      products: filteredProducts.length,
-      variants: allVariants.length,
-      totalQuantity: allVariants.reduce((sum, variant) => sum + safeNumber(variant.quantity), 0),
-      lowVariants,
-      sizeVariants,
-    };
-  }, [filteredProducts]);
+  const summaryGroups = useMemo(
+    () => buildKioskInventorySummaryGroups(filteredProducts),
+    [filteredProducts]
+  );
+
+  const detailProducts = useMemo(() => {
+    if (stockMode === "CATEGORY" && selectedSummaryGroup?.key) {
+      return filteredProducts.filter((p) =>
+        productMatchesSummaryGroupKey(p, selectedSummaryGroup.key)
+      );
+    }
+    return filteredProducts;
+  }, [stockMode, selectedSummaryGroup, filteredProducts]);
+
+  const openSummary = () => {
+    setStockMode("SUMMARY");
+    setSelectedSummaryGroup(null);
+  };
+
+  const openCategory = (group) => {
+    setSelectedSummaryGroup(group);
+    setStockMode("CATEGORY");
+  };
+
+  const openAllDetail = () => {
+    setSelectedSummaryGroup(null);
+    setStockMode("ALL");
+  };
 
   if (!kioskLocationId) {
     return (
@@ -356,62 +433,101 @@ function PosInventoryTab({ kioskLocationId, kioskName, active }) {
           <CardHeader className="d-flex flex-wrap align-items-center justify-content-between">
             <div>
               <CardTitle tag="h5" className="mb-1">
-                Inventario detallado{kioskName ? ` — ${kioskName}` : ""}
+                {stockMode === "SUMMARY"
+                  ? `Consulta de stock${kioskName ? ` — ${kioskName}` : ""}`
+                  : stockMode === "CATEGORY" && selectedSummaryGroup
+                    ? selectedSummaryGroup.label
+                    : `Inventario detallado${kioskName ? ` — ${kioskName}` : ""}`}
               </CardTitle>
               <small className="text-muted">
-                Detalle por producto, color y tallas. Separa por categoría (ej. Billeteras) y línea
-                (Dama / Caballero / Unisex).
+                {stockMode === "SUMMARY"
+                  ? "Totales por categoría y línea. Toca una tarjeta para ver el detalle."
+                  : "Detalle por producto, color y tallas."}
               </small>
             </div>
-            <Button color="default" size="sm" onClick={() => void loadInventory()} disabled={loading}>
-              {loading ? <Spinner size="sm" /> : <i className="nc-icon nc-refresh-69" />} Recargar
-            </Button>
+            <div className="d-flex flex-wrap" style={{ gap: 8 }}>
+              {stockMode !== "SUMMARY" ? (
+                <Button color="secondary" outline size="sm" onClick={openSummary}>
+                  Volver al resumen
+                </Button>
+              ) : (
+                <Button color="secondary" outline size="sm" onClick={openAllDetail}>
+                  Ver todo el detalle
+                </Button>
+              )}
+              <Button color="default" size="sm" onClick={() => void loadInventory()} disabled={loading}>
+                {loading ? <Spinner size="sm" /> : <i className="nc-icon nc-refresh-69" />} Recargar
+              </Button>
+            </div>
           </CardHeader>
           <CardBody>
-            <Row className="kiosk-pos-inventory-summary mb-3">
-              <Col md="2" sm="6" xs="6">
-                <div className="kiosk-pos-inventory-summary-item">
-                  <span className="label">Productos</span>
-                  <strong>{summary.products}</strong>
-                </div>
-              </Col>
-              <Col md="2" sm="6" xs="6">
-                <div className="kiosk-pos-inventory-summary-item">
-                  <span className="label">Variantes</span>
-                  <strong>{summary.variants}</strong>
-                </div>
-              </Col>
-              <Col md="2" sm="6" xs="6">
-                <div className="kiosk-pos-inventory-summary-item">
-                  <span className="label">Unidades</span>
-                  <strong>{formatQty(summary.totalQuantity)}</strong>
-                </div>
-              </Col>
-              <Col md="3" sm="6" xs="6">
-                <div className="kiosk-pos-inventory-summary-item">
-                  <span className="label">Variantes con talla</span>
-                  <strong>{summary.sizeVariants}</strong>
-                </div>
-              </Col>
-              <Col md="3" sm="12" xs="12">
-                <div className="kiosk-pos-inventory-summary-item warning">
-                  <span className="label">Stock bajo / sin stock</span>
-                  <strong>{summary.lowVariants}</strong>
-                </div>
-              </Col>
-            </Row>
+            {stockMode !== "SUMMARY" ? (
+              <Row className="kiosk-pos-inventory-summary mb-3">
+                <Col md="2" sm="6" xs="6">
+                  <div className="kiosk-pos-inventory-summary-item">
+                    <span className="label">Productos</span>
+                    <strong>{detailProducts.length}</strong>
+                  </div>
+                </Col>
+                <Col md="2" sm="6" xs="6">
+                  <div className="kiosk-pos-inventory-summary-item">
+                    <span className="label">Variantes</span>
+                    <strong>
+                      {detailProducts.reduce((sum, p) => sum + (p.variants?.length || 0), 0)}
+                    </strong>
+                  </div>
+                </Col>
+                <Col md="2" sm="6" xs="6">
+                  <div className="kiosk-pos-inventory-summary-item">
+                    <span className="label">Unidades</span>
+                    <strong>
+                      {formatQty(
+                        detailProducts.reduce((sum, p) => sum + safeNumber(p.totalQuantity), 0)
+                      )}
+                    </strong>
+                  </div>
+                </Col>
+                <Col md="3" sm="6" xs="6">
+                  <div className="kiosk-pos-inventory-summary-item warning">
+                    <span className="label">Stock bajo / sin stock</span>
+                    <strong>
+                      {detailProducts
+                        .flatMap((p) => p.variants)
+                        .filter((v) => variantStatus(v).low).length}
+                    </strong>
+                  </div>
+                </Col>
+              </Row>
+            ) : null}
 
             <Row className="mb-3 align-items-end">
-              <Col md="3">
-                <Label className="mb-1 small">Categoría</Label>
-                <FilterableSelect
-                  options={categoryOptions}
-                  value={categoryFilter}
-                  onChange={setCategoryFilter}
-                  placeholder="Ej. Billeteras..."
-                />
-              </Col>
-              <Col md="3" className="mt-2 mt-md-0">
+              {stockMode !== "SUMMARY" ? (
+                <>
+                  <Col md="3">
+                    <Label className="mb-1 small">Categoría</Label>
+                    <FilterableSelect
+                      options={categoryOptions}
+                      value={categoryFilter}
+                      onChange={setCategoryFilter}
+                      placeholder="Ej. Billeteras..."
+                    />
+                  </Col>
+                  <Col md="2" className="mt-2 mt-md-0">
+                    <Label className="mb-1 small">Nivel de stock</Label>
+                    <Input
+                      className="kiosk-pos-input-lg"
+                      type="select"
+                      value={stockFilter}
+                      onChange={(e) => setStockFilter(e.target.value)}
+                    >
+                      <option value="ALL">Todos los niveles</option>
+                      <option value="LOW">Stock bajo / sin stock</option>
+                      <option value="OUT">Solo sin stock</option>
+                    </Input>
+                  </Col>
+                </>
+              ) : null}
+              <Col md={stockMode === "SUMMARY" ? "6" : "3"} className="mt-2 mt-md-0">
                 <Label className="mb-1 small">Línea</Label>
                 <div className="d-flex flex-wrap" style={{ gap: 6 }}>
                   <Button
@@ -437,20 +553,7 @@ function PosInventoryTab({ kioskLocationId, kioskName, active }) {
                   ))}
                 </div>
               </Col>
-              <Col md="2" className="mt-2 mt-md-0">
-                <Label className="mb-1 small">Nivel de stock</Label>
-                <Input
-                  className="kiosk-pos-input-lg"
-                  type="select"
-                  value={stockFilter}
-                  onChange={(e) => setStockFilter(e.target.value)}
-                >
-                  <option value="ALL">Todos los niveles</option>
-                  <option value="LOW">Stock bajo / sin stock</option>
-                  <option value="OUT">Solo sin stock</option>
-                </Input>
-              </Col>
-              <Col md="4" className="mt-2 mt-md-0">
+              <Col md={stockMode === "SUMMARY" ? "6" : "4"} className="mt-2 mt-md-0">
                 <Label className="mb-1 small">Buscar</Label>
                 <Input
                   className="kiosk-pos-input-lg"
@@ -466,13 +569,51 @@ function PosInventoryTab({ kioskLocationId, kioskName, active }) {
               <div className="text-center py-4">
                 <Spinner size="sm" /> Cargando inventario...
               </div>
-            ) : filteredProducts.length === 0 ? (
+            ) : stockMode === "SUMMARY" ? (
+              summaryGroups.length === 0 ? (
+                <Alert color="warning" className="mb-0">
+                  No hay datos que mostrar con los filtros actuales.
+                </Alert>
+              ) : (
+                <div className="kiosk-pos-inventory-board">
+                  {summaryGroups.map((group) => (
+                    <button
+                      key={group.key}
+                      type="button"
+                      className={`kiosk-pos-inventory-board-card${
+                        group.lowCount > 0 ? " has-low" : ""
+                      }${group.units <= 0 ? " is-empty" : ""}`}
+                      onClick={() => openCategory(group)}
+                    >
+                      <span className="kiosk-pos-inventory-board-label">{group.label}</span>
+                      <span className="kiosk-pos-inventory-board-units">
+                        {formatQty(group.units)}
+                      </span>
+                      <span className="kiosk-pos-inventory-board-meta">
+                        {group.products} productos · {group.variants} colores
+                      </span>
+                      {group.key !== "PACKAGING" && (group.unitsNuevo > 0 || group.unitsViejo > 0) ? (
+                        <span className="kiosk-pos-inventory-board-hardware">
+                          <span>Nuevo {formatQty(group.unitsNuevo)}</span>
+                          <span>Viejo {formatQty(group.unitsViejo)}</span>
+                        </span>
+                      ) : null}
+                      {group.lowCount > 0 ? (
+                        <span className="kiosk-pos-inventory-board-warn">
+                          {group.lowCount} con stock bajo / sin stock
+                        </span>
+                      ) : null}
+                    </button>
+                  ))}
+                </div>
+              )
+            ) : detailProducts.length === 0 ? (
               <Alert color="warning" className="mb-0">
                 No hay datos que mostrar con los filtros actuales.
               </Alert>
             ) : (
               <div className="kiosk-pos-inventory-products">
-                {filteredProducts.map((product) => (
+                {detailProducts.map((product) => (
                   <Card key={product.key} className="kiosk-pos-inventory-product-card">
                     <CardHeader className="py-2">
                       <div className="d-flex flex-wrap align-items-center justify-content-between">
@@ -498,6 +639,7 @@ function PosInventoryTab({ kioskLocationId, kioskName, active }) {
                         <thead>
                           <tr>
                             <th>Color</th>
+                            <th>Herraje</th>
                             <th>Tallas</th>
                             <th className="text-right">Stock</th>
                             <th className="text-right">Mínimo</th>
@@ -507,14 +649,26 @@ function PosInventoryTab({ kioskLocationId, kioskName, active }) {
                         <tbody>
                           {product.variants.map((variant) => {
                             const status = variantStatus(variant);
+                            const hw = normalizeHardwareCondition(variant.hardwareCondition) || "NUEVO";
+                            const isPackaging =
+                              product.packaging || isPackagingProductCode(product.productCode);
                             return (
                               <tr
-                                key={`${product.key}-${variant.id || `${variant.colorId || "none"}-${variant.locationId || "loc"}`}`}
+                                key={`${product.key}-${variant.id || `${variant.colorId || "none"}-${hw}-${variant.locationId || "loc"}`}`}
                                 className={status.low ? "kiosk-pos-inventory-row-low" : ""}
                               >
                                 <td>
                                   {safeText(variant.colorName) || (
                                     <span className="text-muted">Sin color</span>
+                                  )}
+                                </td>
+                                <td>
+                                  {isPackaging ? (
+                                    <span className="text-muted">—</span>
+                                  ) : (
+                                    <Badge color={hw === "VIEJO" ? "secondary" : "success"} pill>
+                                      {hw === "VIEJO" ? "Viejo" : "Nuevo"}
+                                    </Badge>
                                   )}
                                 </td>
                                 <td className="kiosk-pos-inventory-size-cell">
