@@ -1054,6 +1054,16 @@
   color: var(--pos-text-secondary, #6b7280);
 }
 
+.kiosk-pos-inventory-board-hardware {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 8px;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: #374151;
+}
+
 .kiosk-pos-inventory-board-warn {
   margin-top: 6px;
   font-size: 0.75rem;
