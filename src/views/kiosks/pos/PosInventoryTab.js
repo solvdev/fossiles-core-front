@@ -21,8 +21,10 @@ import { getProductCategories } from "services/productCategoryService";
 import { formatInventorySizesLine } from "utils/inventoryVariantHelper";
 import {
   filterVisibleKioskStockRows,
+  getHardwareConditionLabel,
   isPackagingProductCode,
   normalizeCinchoType,
+  normalizeHardwareCondition,
 } from "utils/productCinchoHelper";
 import {
   PRODUCT_AUDIENCE_OPTIONS,
@@ -69,6 +71,9 @@ const sortVariants = (variants) =>
       sensitivity: "base",
     });
     if (colorCompare !== 0) return colorCompare;
+    const hwA = normalizeHardwareCondition(a.hardwareCondition) || "NUEVO";
+    const hwB = normalizeHardwareCondition(b.hardwareCondition) || "NUEVO";
+    if (hwA !== hwB) return hwA.localeCompare(hwB);
     return safeText(a.productCode).localeCompare(safeText(b.productCode), "es", { sensitivity: "base" });
   });
 
@@ -145,7 +150,8 @@ const buildProducts = (rows) => {
     });
 };
 
-const inventoryKey = (productId, colorId) => `${productId || "p"}:${colorId ?? "none"}`;
+const inventoryKey = (productId, colorId, hardwareCondition) =>
+  `${productId || "p"}:${colorId ?? "none"}:${normalizeHardwareCondition(hardwareCondition) || "NUEVO"}`;
 
 const normalizeKioscoRows = (rows) =>
   (rows || []).map((row) => ({
@@ -158,7 +164,7 @@ const normalizeKioscoRows = (rows) =>
     audienceCategory: normalizeAudienceCategory(row.audienceCategory),
     cinchoType: normalizeCinchoType(row.cinchoType),
     cinchoForKids: Boolean(row.cinchoForKids),
-    hardwareCondition: row.hardwareCondition || "NUEVO",
+    hardwareCondition: normalizeHardwareCondition(row.hardwareCondition) || "NUEVO",
     packaging: Boolean(row.packaging) || isPackagingProductCode(row.productCode),
     colorId: row.colorId,
     colorName: row.colorName,
@@ -174,7 +180,10 @@ const mergeInventoryRows = (kioscoRows, legacyRows, productMetaById) => {
 
   const legacyByKey = new Map();
   (legacyRows || []).forEach((row) => {
-    legacyByKey.set(inventoryKey(row.productId, row.colorId), row);
+    legacyByKey.set(
+      inventoryKey(row.productId, row.colorId, row.hardwareCondition),
+      row
+    );
   });
 
   const enrichMeta = (row) => {
@@ -203,7 +212,7 @@ const mergeInventoryRows = (kioscoRows, legacyRows, productMetaById) => {
 
   const mergedByKey = new Set();
   merged.forEach((row) => {
-    const key = inventoryKey(row.productId, row.colorId);
+    const key = inventoryKey(row.productId, row.colorId, row.hardwareCondition);
     mergedByKey.add(key);
     const legacy = legacyByKey.get(key);
     if (legacy) {
@@ -213,18 +222,22 @@ const mergeInventoryRows = (kioscoRows, legacyRows, productMetaById) => {
       if (legacy.audienceCategory) {
         row.audienceCategory = normalizeAudienceCategory(legacy.audienceCategory);
       }
+      if (!row.hardwareCondition && legacy.hardwareCondition) {
+        row.hardwareCondition = normalizeHardwareCondition(legacy.hardwareCondition) || "NUEVO";
+      }
     }
     enrichMeta(row);
   });
 
   (legacyRows || []).forEach((legacy) => {
-    const key = inventoryKey(legacy.productId, legacy.colorId);
+    const key = inventoryKey(legacy.productId, legacy.colorId, legacy.hardwareCondition);
     if (mergedByKey.has(key)) return;
     merged.push(
       enrichMeta({
         ...legacy,
         productCategoryId: legacy.productCategoryId ?? null,
         audienceCategory: normalizeAudienceCategory(legacy.audienceCategory),
+        hardwareCondition: normalizeHardwareCondition(legacy.hardwareCondition) || "NUEVO",
         quantity: safeNumber(legacy.quantity),
         min: safeNumber(legacy.min),
       })
@@ -339,7 +352,9 @@ function PosInventoryTab({ kioskLocationId, kioskName, active }) {
           const text = normalize(
             `${product.productCode || ""} ${product.productName || ""} ${product.productCategoryName || ""} ${
               getProductAudienceLabel(product.audienceCategory)
-            } ${variant.colorName || ""} ${formatInventorySizesLine(variant.sizes) || ""}`
+            } ${variant.colorName || ""} ${getHardwareConditionLabel(variant.hardwareCondition)} ${
+              formatInventorySizesLine(variant.sizes) || ""
+            }`
           );
           return text.includes(query);
         });
@@ -577,6 +592,12 @@ function PosInventoryTab({ kioskLocationId, kioskName, active }) {
                       <span className="kiosk-pos-inventory-board-meta">
                         {group.products} productos · {group.variants} colores
                       </span>
+                      {group.key !== "PACKAGING" && (group.unitsNuevo > 0 || group.unitsViejo > 0) ? (
+                        <span className="kiosk-pos-inventory-board-hardware">
+                          <span>Nuevo {formatQty(group.unitsNuevo)}</span>
+                          <span>Viejo {formatQty(group.unitsViejo)}</span>
+                        </span>
+                      ) : null}
                       {group.lowCount > 0 ? (
                         <span className="kiosk-pos-inventory-board-warn">
                           {group.lowCount} con stock bajo / sin stock
@@ -618,6 +639,7 @@ function PosInventoryTab({ kioskLocationId, kioskName, active }) {
                         <thead>
                           <tr>
                             <th>Color</th>
+                            <th>Herraje</th>
                             <th>Tallas</th>
                             <th className="text-right">Stock</th>
                             <th className="text-right">Mínimo</th>
@@ -627,14 +649,26 @@ function PosInventoryTab({ kioskLocationId, kioskName, active }) {
                         <tbody>
                           {product.variants.map((variant) => {
                             const status = variantStatus(variant);
+                            const hw = normalizeHardwareCondition(variant.hardwareCondition) || "NUEVO";
+                            const isPackaging =
+                              product.packaging || isPackagingProductCode(product.productCode);
                             return (
                               <tr
-                                key={`${product.key}-${variant.id || `${variant.colorId || "none"}-${variant.locationId || "loc"}`}`}
+                                key={`${product.key}-${variant.id || `${variant.colorId || "none"}-${hw}-${variant.locationId || "loc"}`}`}
                                 className={status.low ? "kiosk-pos-inventory-row-low" : ""}
                               >
                                 <td>
                                   {safeText(variant.colorName) || (
                                     <span className="text-muted">Sin color</span>
+                                  )}
+                                </td>
+                                <td>
+                                  {isPackaging ? (
+                                    <span className="text-muted">—</span>
+                                  ) : (
+                                    <Badge color={hw === "VIEJO" ? "secondary" : "success"} pill>
+                                      {hw === "VIEJO" ? "Viejo" : "Nuevo"}
+                                    </Badge>
                                   )}
                                 </td>
                                 <td className="kiosk-pos-inventory-size-cell">
