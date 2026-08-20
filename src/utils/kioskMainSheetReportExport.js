@@ -1,5 +1,5 @@
 import * as XLSX from "xlsx-js-style";
-import { formatNowGt } from "./dateTimeHelper";
+import { formatDateTimeGt, formatNowGt } from "./dateTimeHelper";
 import {
   buildMainSheetCertificationHeader,
 } from "./kioskMainSheetReviewers";
@@ -45,6 +45,15 @@ export const formatMainSheetShortDate = (value) => {
   const date = parseYmd(value);
   if (!date) return "—";
   return `${date.getDate()}/${date.getMonth() + 1}/${date.getFullYear()}`;
+};
+
+/** Fecha/hora del corte (GT) para hoja principal; fallback a fecha corta. */
+export const formatMainSheetPeriodBound = (at, dateOnly) => {
+  if (at) {
+    const label = formatDateTimeGt(at);
+    return label === "-" ? formatMainSheetShortDate(dateOnly) : label;
+  }
+  return formatMainSheetShortDate(dateOnly);
 };
 
 export const formatMainSheetDailyDate = (value) => {
@@ -217,8 +226,8 @@ export const exportKioskMainSheetToExcel = ({ report }) => {
   };
 
   writeLabelValue(summaryStart + 1, "ENCARGADA", report.encargadaName || "—", { highlight: false });
-  writeLabelValue(summaryStart + 2, "FECHA INICIAL", formatMainSheetShortDate(report.periodFrom), { highlight: false });
-  writeLabelValue(summaryStart + 3, "FECHA FINAL", formatMainSheetShortDate(report.periodTo), { highlight: false });
+  writeLabelValue(summaryStart + 2, "FECHA INICIAL", formatMainSheetPeriodBound(report.periodFromAt, report.periodFrom), { highlight: false });
+  writeLabelValue(summaryStart + 3, "FECHA FINAL", formatMainSheetPeriodBound(report.periodToAt, report.periodTo), { highlight: false });
   writeLabelValue(summaryStart + 4, "FACTURAS DE LA", report.invoiceFrom || "—", { highlight: false });
   writeLabelValue(summaryStart + 5, "A LA", report.invoiceTo || "—", { highlight: false });
   writeLabelValue(summaryStart + 7, "TOTAL VENDIDO", report.totalSold, { money: true });
@@ -334,8 +343,8 @@ export const exportKioskMainSheetToPdf = ({ report }) => {
     <div>
       <div class="summary-title">${escapeHtml(kioskTitle(report))}</div>
       <div class="summary-row plain"><div class="label">ENCARGADA</div><div class="value">${escapeHtml(report.encargadaName || "—")}</div></div>
-      <div class="summary-row plain"><div class="label">FECHA INICIAL</div><div class="value">${escapeHtml(formatMainSheetShortDate(report.periodFrom))}</div></div>
-      <div class="summary-row plain"><div class="label">FECHA FINAL</div><div class="value">${escapeHtml(formatMainSheetShortDate(report.periodTo))}</div></div>
+      <div class="summary-row plain"><div class="label">FECHA INICIAL</div><div class="value">${escapeHtml(formatMainSheetPeriodBound(report.periodFromAt, report.periodFrom))}</div></div>
+      <div class="summary-row plain"><div class="label">FECHA FINAL</div><div class="value">${escapeHtml(formatMainSheetPeriodBound(report.periodToAt, report.periodTo))}</div></div>
       <div class="summary-row plain"><div class="label">FACTURAS DE LA</div><div class="value">${escapeHtml(report.invoiceFrom || "—")}</div></div>
       <div class="summary-row plain"><div class="label">A LA</div><div class="value">${escapeHtml(report.invoiceTo || "—")}</div></div>
       <div class="summary-row"><div class="label">TOTAL VENDIDO</div><div class="value">${escapeHtml(formatMoneyDisplay(report.totalSold))}</div></div>
@@ -355,8 +364,8 @@ export const exportKioskMainSheetToPdf = ({ report }) => {
 
 export const formatMainSheetCountLabel = (session) => {
   if (!session) return "—";
-  const from = formatMainSheetShortDate(session.periodFrom);
-  const to = formatMainSheetShortDate(session.periodTo);
+  const from = formatMainSheetPeriodBound(session.periodFromAt, session.periodFrom);
+  const to = formatMainSheetPeriodBound(session.periodToAt, session.periodTo);
   const status = session.status ? ` · ${session.status}` : "";
   return `${from} al ${to}${status}`;
 };

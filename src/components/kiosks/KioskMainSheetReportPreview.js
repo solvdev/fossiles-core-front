@@ -3,7 +3,6 @@ import { Button, FormGroup, Input, Label, Spinner } from "reactstrap";
 import {
   formatMainSheetCountLabel,
   formatMainSheetDailyDate,
-  formatMainSheetShortDate,
   groupDailySalesByMonth,
 } from "utils/kioskMainSheetReportExport";
 import {
@@ -14,7 +13,7 @@ import {
   toInputDate,
 } from "utils/kioskMainSheetReviewers";
 import { certifyKioskMainSheetReport } from "services/kioskPosService";
-import { formatDateGt } from "utils/dateTimeHelper";
+import { formatDateGt, formatDateTimeGt } from "utils/dateTimeHelper";
 
 const formatMoney = (value) => {
   const n = Number(value || 0);
@@ -25,6 +24,11 @@ const formatDifference = (value) => {
   const n = Number(value || 0);
   if (Math.abs(n) < 0.005) return "Q -";
   return formatMoney(n);
+};
+
+const formatPeriodBound = (at, dateOnly) => {
+  if (at) return formatDateTimeGt(at);
+  return formatDateGt(dateOnly);
 };
 
 const kioskTitle = (report) => {
@@ -120,7 +124,9 @@ function KioskMainSheetReportPreview({ report, physicalCountSession, onReportCha
             {" · "}
             {formatMainSheetCountLabel(physicalCountSession)}
             {" · "}
-            Período {formatDateGt(report.periodFrom)} — {formatDateGt(report.periodTo)}
+            Período {formatPeriodBound(report.periodFromAt, report.periodFrom)} —{" "}
+            {formatPeriodBound(report.periodToAt, report.periodTo)}
+            <span className="ml-1">(hora Guatemala)</span>
           </div>
         )}
 
@@ -296,11 +302,11 @@ function KioskMainSheetReportPreview({ report, physicalCountSession, onReportCha
           </div>
           <div className="kiosk-main-sheet-summary-row plain">
             <span>FECHA INICIAL</span>
-            <strong>{formatMainSheetShortDate(report.periodFrom)}</strong>
+            <strong>{formatPeriodBound(report.periodFromAt, report.periodFrom)}</strong>
           </div>
           <div className="kiosk-main-sheet-summary-row plain">
             <span>FECHA FINAL</span>
-            <strong>{formatMainSheetShortDate(report.periodTo)}</strong>
+            <strong>{formatPeriodBound(report.periodToAt, report.periodTo)}</strong>
           </div>
           <div className="kiosk-main-sheet-summary-row plain">
             <span>FACTURAS DE LA</span>
