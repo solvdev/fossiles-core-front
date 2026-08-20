@@ -89,6 +89,62 @@ export const getTodayYmdGuatemala = () =>
     day: "2-digit",
   }).format(new Date());
 
+/** Ahora en Guatemala para inputs `datetime-local` (YYYY-MM-DDTHH:mm). */
+export const getNowDatetimeLocalGuatemala = () => {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: GT_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(new Date());
+  const get = (type) => parts.find((p) => p.type === type)?.value;
+  return `${get("year")}-${get("month")}-${get("day")}T${get("hour")}:${get("minute")}`;
+};
+
+/** Fin de día GT para `datetime-local` (YYYY-MM-DDTHH:mm) a partir de YMD o datetime. */
+export const getEndOfDayDatetimeLocalGuatemala = (ymdOrDatetime) => {
+  const ymd = String(ymdOrDatetime || getTodayYmdGuatemala()).slice(0, 10);
+  return `${ymd}T23:59`;
+};
+
+/**
+ * Normaliza valor de `datetime-local` o API a ISO LocalDateTime sin zona
+ * (`yyyy-MM-ddTHH:mm:ss`) para enviar al backend (wall-clock GT).
+ */
+export const toApiLocalDateTimeGuatemala = (value) => {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  if (DATE_ONLY_REGEX.test(text)) {
+    return `${text}T00:00:00`;
+  }
+  const match = DATE_TIME_NO_ZONE_REGEX.exec(text);
+  if (match) {
+    const sec = match[6] != null ? String(match[6]).split(".")[0].padStart(2, "0") : "00";
+    return `${match[1]}-${match[2]}-${match[3]}T${match[4]}:${match[5]}:${sec}`;
+  }
+  // Si el browser metió Z/offset, no lo usamos: tomar solo la parte local del string.
+  const stripped = text.replace(/Z$/i, "").replace(/[+-]\d{2}:\d{2}$/, "");
+  const again = DATE_TIME_NO_ZONE_REGEX.exec(stripped);
+  if (again) {
+    const sec = again[6] != null ? String(again[6]).split(".")[0].padStart(2, "0") : "00";
+    return `${again[1]}-${again[2]}-${again[3]}T${again[4]}:${again[5]}:${sec}`;
+  }
+  return text.slice(0, 19);
+};
+
+/** Convierte LocalDateTime API (sin zona) a valor `datetime-local` (YYYY-MM-DDTHH:mm). */
+export const toDatetimeLocalGuatemala = (value) => {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  if (DATE_ONLY_REGEX.test(text)) return `${text}T00:00`;
+  const match = DATE_TIME_NO_ZONE_REGEX.exec(text);
+  if (match) return `${match[1]}-${match[2]}-${match[3]}T${match[4]}:${match[5]}`;
+  return text.slice(0, 16);
+};
+
 /** Primer día del mes actual en Guatemala (YYYY-MM-DD). */
 export const getMonthStartYmdGuatemala = () => {
   const today = getTodayYmdGuatemala();
