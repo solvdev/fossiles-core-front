@@ -242,6 +242,7 @@ function KioskInventoryMovementsPanel({
                   <th className="text-right">Antes</th>
                   <th className="text-right">Después</th>
                   <th>Ref. / boleta</th>
+                  <th>Usuario</th>
                 </tr>
               </thead>
               <tbody>
@@ -269,6 +270,12 @@ function KioskInventoryMovementsPanel({
                       <td className="text-right">{movement.stockBefore ?? "—"}</td>
                       <td className="text-right">{movement.stockAfter ?? "—"}</td>
                       <td>{formatKioscoMovementReference(movement)}</td>
+                      <td className="text-nowrap">
+                        {movement.username || "—"}
+                        {movement.userId != null ? (
+                          <span className="text-muted"> (#{movement.userId})</span>
+                        ) : null}
+                      </td>
                     </tr>
                   );
                 })}
