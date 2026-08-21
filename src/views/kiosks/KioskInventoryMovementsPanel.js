@@ -255,7 +255,7 @@ function KioskInventoryMovementsPanel({
                       </td>
                       <td>
                         <Badge color={MOVEMENT_TYPE_BADGE_COLORS[movementType] || "secondary"}>
-                          {getKioscoMovementTypeLabel(movementType)}
+                          {getKioscoMovementTypeLabel(movementType, movement)}
                         </Badge>
                       </td>
                       <td>{movement.locationName || selectedKioskLabel || "—"}</td>

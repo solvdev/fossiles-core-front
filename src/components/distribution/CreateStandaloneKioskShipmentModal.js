@@ -353,7 +353,13 @@ function CreateStandaloneKioskShipmentModal({ isOpen, toggle, onCreated }) {
           <Col md="3">
             <FormGroup>
               <Label>Observaciones</Label>
-              <Input value={notes} onChange={(e) => setNotes(e.target.value)} />
+              <Input
+                type="textarea"
+                rows={2}
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                placeholder="Salen impresas en el documento del envío"
+              />
             </FormGroup>
           </Col>
         </Row>

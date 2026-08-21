@@ -415,7 +415,13 @@ function CreateStandaloneInternalShipmentModal({ isOpen, toggle, onCreated }) {
           <Col md={requestType === "DEFECTOS" ? 3 : 4}>
             <FormGroup>
               <Label>Observaciones</Label>
-              <Input value={notes} onChange={(e) => setNotes(e.target.value)} />
+              <Input
+                type="textarea"
+                rows={2}
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                placeholder="Salen impresas en el documento del envío"
+              />
             </FormGroup>
           </Col>
         </Row>

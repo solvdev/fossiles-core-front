@@ -470,8 +470,14 @@ function ProductionOrderShipmentGenerateModal({ isOpen, toggle, order, onGenerat
           </FormGroup>
         )}
         <FormGroup>
-          <Label>Notas adicionales</Label>
-          <Input type="textarea" rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} />
+          <Label>Observaciones</Label>
+          <Input
+            type="textarea"
+            rows={2}
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            placeholder="Salen impresas en el documento del envío"
+          />
         </FormGroup>
         {showLfReviewSection && packingItems.length > 0 && (
           <Table size="sm" bordered responsive>
