@@ -747,7 +747,7 @@ export default function KioskLedgerLab() {
                     <td><small>{formatDateTimeGt(m.createdAt)}</small></td>
                     <td>
                       <Badge color={TYPE_BADGE[type] || "light"}>
-                        {getKioscoMovementTypeLabel(type)}
+                        {getKioscoMovementTypeLabel(type, m)}
                       </Badge>
                       {!m.affectsStock && (
                         <Badge color="dark" className="ms-1">no stock</Badge>

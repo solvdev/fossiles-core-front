@@ -10,7 +10,7 @@ import { getInternalEnviPriceNote, parseStandaloneInternalMeta, buildInternalEnv
  * Mismo layout que el documento de venta en línea / envío (shipmentPrintDocumentHtml),
  * con título comercial "ENVIO INTERNO", sin QR — solo constancia.
  */
-export function buildOpShipmentPrintDocumentHtml({ order, shipment, rows, applyHalfPrice, pricingMeta, requestType }) {
+export function buildOpShipmentPrintDocumentHtml({ order, shipment, rows, applyHalfPrice, pricingMeta, requestType, observations }) {
   const orderType = String(order?.orderType || "");
   const isOpi = orderType === "INTERNA";
   const rowList = Array.isArray(rows) ? rows : [];
@@ -87,6 +87,13 @@ export function buildOpShipmentPrintDocumentHtml({ order, shipment, rows, applyH
       ? `Constancia — Destino: ${destino}`
       : "Constancia de envío";
 
+  const printNotes =
+    observations != null && String(observations).trim() !== ""
+      ? String(observations).trim()
+      : standaloneEnvi
+        ? buildInternalEnviPrintNotes(shipment?.notes)
+        : (getStandaloneInternalUserNotes(shipment?.notes) || String(shipment?.notes || "").trim());
+
   const inner = buildShipmentDocumentInnerHtml(sale, {
     docType: "ENVIO",
     docNo,
@@ -97,24 +104,8 @@ export function buildOpShipmentPrintDocumentHtml({ order, shipment, rows, applyH
     docTitleDisplay: "ENVIO INTERNO",
     docSubtitle,
     constanciaInterna: true,
+    shipmentObservations: printNotes,
   });
-
-  const printNotes = standaloneEnvi
-    ? buildInternalEnviPrintNotes(shipment?.notes)
-    : (getStandaloneInternalUserNotes(shipment?.notes) || String(shipment?.notes || "").trim());
-
-  const notesSection =
-    printNotes
-      ? `<div class="section" style="padding:6px 10px;font-size:11px;border-bottom:1px solid #777"><strong>Notas:</strong> ${escapeHtml(
-          printNotes
-        )}</div>`
-      : "";
-
-  const ANCHOR_CLIENT =
-    "\n            <div class=\"section\">\n              <div style=\"display:flex;justify-content:space-between;gap:16px\">";
-  const body = notesSection && inner.includes(ANCHOR_CLIENT)
-    ? inner.replace(ANCHOR_CLIENT, `${notesSection}${ANCHOR_CLIENT}`)
-    : inner;
 
   return `<!DOCTYPE html>
 <html>
@@ -123,7 +114,7 @@ export function buildOpShipmentPrintDocumentHtml({ order, shipment, rows, applyH
     <title>ENVIO INTERNO ${escapeHtml(docNo)}</title>
     <style>${getShipmentDocumentStyles()}</style>
   </head>
-  <body>${body}</body>
+  <body>${inner}</body>
 </html>`;
 }
 

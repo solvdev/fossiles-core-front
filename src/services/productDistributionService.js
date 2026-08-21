@@ -314,6 +314,30 @@ export const updateShipmentDestination = async (shipmentId, payload) => {
   }
 };
 
+export const updateShipmentObservations = async (shipmentId, observations) => {
+  if (!shipmentId || shipmentId === "undefined" || shipmentId === "null") {
+    throw new Error("ID de envío inválido");
+  }
+  const response = await fetch(
+    `${API_URL}/product-distributions/shipments/${shipmentId}/observations`,
+    {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        ...getAuthHeader(),
+      },
+      body: JSON.stringify({ observations: observations == null ? "" : String(observations) }),
+    }
+  );
+  if (!response.ok) {
+    const errorData = await response
+      .json()
+      .catch(() => ({ message: "Error al guardar observaciones del envío" }));
+    throw new Error(errorData.message || "Error al guardar observaciones del envío");
+  }
+  return response.json();
+};
+
 export const cancelShipment = async (id) => {
   if (!id || id === 'undefined' || id === 'null') {
     throw new Error('ID de envío inválido');

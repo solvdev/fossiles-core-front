@@ -22,8 +22,15 @@ export const normalizeKioscoMovementType = (type) => {
   return String(type);
 };
 
-export const getKioscoMovementTypeLabel = (type) => {
+export const getKioscoMovementTypeLabel = (type, movement = null) => {
   const normalized = normalizeKioscoMovementType(type);
+  if (normalized === "CAMBIO" && movement) {
+    const before = Number(movement.stockBefore);
+    const after = Number(movement.stockAfter);
+    if (Number.isFinite(before) && Number.isFinite(after) && before !== after) {
+      return after > before ? "Cambio (entrada)" : "Cambio (salida)";
+    }
+  }
   return KIOSCO_MOVEMENT_TYPE_LABELS[normalized] || normalized || "—";
 };
 

@@ -344,13 +344,14 @@ function OpcGenerateShipmentModal({ isOpen, toggle, order, partialRelease, onGen
           </small>
         </FormGroup>
         <FormGroup>
-          <Label for="opc-ship-notes">Notas adicionales</Label>
+          <Label for="opc-ship-notes">Observaciones</Label>
           <Input
             id="opc-ship-notes"
             type="textarea"
             rows={2}
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
+            placeholder="Salen impresas en el documento del envío"
           />
         </FormGroup>
         <hr />
