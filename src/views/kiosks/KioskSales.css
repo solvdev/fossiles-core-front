@@ -977,6 +977,100 @@
   max-width: 360px;
 }
 
+.kiosk-pos-inventory-board {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+@media (min-width: 768px) {
+  .kiosk-pos-inventory-board {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1200px) {
+  .kiosk-pos-inventory-board {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+.kiosk-pos-inventory-board-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: flex-start;
+  min-height: 132px;
+  width: 100%;
+  padding: 16px 18px;
+  border: 1px solid var(--pos-border);
+  border-radius: var(--pos-radius-md, 12px);
+  background: #fff;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background-color 0.15s ease, transform 0.1s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.kiosk-pos-inventory-board-card:hover,
+.kiosk-pos-inventory-board-card:focus {
+  border-color: var(--pos-primary, #1d9e75);
+  background: #f7fbf9;
+  outline: none;
+}
+
+.kiosk-pos-inventory-board-card:active {
+  transform: scale(0.98);
+}
+
+.kiosk-pos-inventory-board-card.has-low {
+  border-color: #fcd34d;
+  background: #fffbeb;
+}
+
+.kiosk-pos-inventory-board-card.is-empty {
+  opacity: 0.72;
+}
+
+.kiosk-pos-inventory-board-label {
+  font-size: 1rem;
+  font-weight: 600;
+  color: #111827;
+  line-height: 1.25;
+}
+
+.kiosk-pos-inventory-board-units {
+  margin-top: 8px;
+  font-size: 2rem;
+  font-weight: 700;
+  line-height: 1;
+  color: #111827;
+  letter-spacing: -0.02em;
+}
+
+.kiosk-pos-inventory-board-meta {
+  margin-top: 10px;
+  font-size: 0.8125rem;
+  color: var(--pos-text-secondary, #6b7280);
+}
+
+.kiosk-pos-inventory-board-hardware {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 8px;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: #374151;
+}
+
+.kiosk-pos-inventory-board-warn {
+  margin-top: 6px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #92400e;
+}
+
 /* Checkout modal — variables scoped here because Modal renders in a portal (outside .kiosk-pos-page) */
 .kiosk-pos-checkout-modal {
   --pos-primary: #1d9e75;

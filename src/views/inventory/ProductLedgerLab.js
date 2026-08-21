@@ -648,6 +648,7 @@ export default function ProductLedgerLab() {
           <Table size="sm" hover bordered responsive className="mb-0">
             <thead>
               <tr>
+                <th>ID</th>
                 <th>Fecha</th>
                 <th>Tipo</th>
                 <th>Qty</th>
@@ -656,6 +657,8 @@ export default function ProductLedgerLab() {
                 <th>After</th>
                 <th>Before talla</th>
                 <th>After talla</th>
+                <th>Usuario</th>
+                <th>userId</th>
                 <th>Ref</th>
                 <th>Desc</th>
                 <th></th>
@@ -666,6 +669,7 @@ export default function ProductLedgerLab() {
                 const type = m.movementType || "";
                 return (
                   <tr key={m.id}>
+                    <td><small>{m.id}</small></td>
                     <td><small>{formatDateTimeGt(m.movementDate || m.createdAt)}</small></td>
                     <td>
                       <Badge color={TYPE_BADGE[type] || "light"}>{type || "—"}</Badge>
@@ -684,6 +688,8 @@ export default function ProductLedgerLab() {
                         ? (m.sizeStockAfter != null ? m.sizeStockAfter : "—")
                         : "—"}
                     </td>
+                    <td><small>{m.username || "—"}</small></td>
+                    <td><small>{m.createdBy != null ? m.createdBy : "—"}</small></td>
                     <td>
                       <div>
                         <small>
@@ -709,7 +715,7 @@ export default function ProductLedgerLab() {
               })}
               {!loadingMovements && movements.length === 0 && (
                 <tr>
-                  <td colSpan={11} className="text-muted text-center">
+                  <td colSpan={14} className="text-muted text-center">
                     Sin movimientos
                   </td>
                 </tr>
