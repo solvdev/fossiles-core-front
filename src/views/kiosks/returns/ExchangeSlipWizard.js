@@ -330,6 +330,8 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
     givenProductId: selectedVariant?.productId || preview?.given?.productId,
     givenColorId: selectedVariant?.colorId ?? preview?.given?.colorId,
     givenSize: selectedSize || preview?.given?.size || null,
+    givenHardwareCondition:
+      selectedVariant?.hardwareCondition || preview?.given?.hardwareCondition || null,
     returnedQuantity: Number(returnedQty || preview?.returned?.quantity || 1),
     givenQuantity: Number(givenQty || preview?.given?.quantity || returnedQty || 1),
     ...buildDiscountPayload(),
@@ -551,6 +553,8 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
       givenProductId: source.given.productId,
       givenColorId: source.given.colorId,
       givenSize: source.given.size,
+      givenHardwareCondition:
+        selectedVariant?.hardwareCondition || source.given.hardwareCondition || null,
       returnedQuantity: source.returned.quantity,
       givenQuantity: source.given.quantity,
       physicalSlipNumber: physicalSlipNumber.trim(),
