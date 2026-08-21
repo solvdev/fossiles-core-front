@@ -38,7 +38,7 @@ import {
 } from "utils/kioskInventorySummary";
 import { showError } from "utils/notificationHelper";
 import { FilterableSelect } from "components/distribution/FilterableSelect";
-import { formatQty } from "./posUtils";
+import { formatQty, normalizePosHardwareCondition, posVariantStockQty } from "./posUtils";
 import KioskInventoryCountReport from "../KioskInventoryCountReport";
 
 const safeText = (value) => String(value || "").trim();
@@ -54,7 +54,7 @@ const normalize = (value) =>
     .replace(/[\u0300-\u036f]/g, "");
 
 const variantStatus = (variant) => {
-  const stock = safeNumber(variant.quantity);
+  const stock = posVariantStockQty(variant);
   const min = safeNumber(variant.min);
   if (stock <= 0) {
     return { label: "Sin stock", color: "danger", low: true };
@@ -71,8 +71,8 @@ const sortVariants = (variants) =>
       sensitivity: "base",
     });
     if (colorCompare !== 0) return colorCompare;
-    const hwA = normalizeHardwareCondition(a.hardwareCondition) || "NUEVO";
-    const hwB = normalizeHardwareCondition(b.hardwareCondition) || "NUEVO";
+    const hwA = normalizePosHardwareCondition(a.hardwareCondition);
+    const hwB = normalizePosHardwareCondition(b.hardwareCondition);
     if (hwA !== hwB) return hwA.localeCompare(hwB);
     return safeText(a.productCode).localeCompare(safeText(b.productCode), "es", { sensitivity: "base" });
   });
@@ -125,7 +125,7 @@ const buildProducts = (rows) => {
     .map((group) => ({
       ...group,
       variants: sortVariants(group.variants),
-      totalQuantity: group.variants.reduce((sum, variant) => sum + safeNumber(variant.quantity), 0),
+      totalQuantity: group.variants.reduce((sum, variant) => sum + posVariantStockQty(variant), 0),
     }))
     .sort((a, b) => {
       const catCompare = safeText(a.productCategoryName).localeCompare(
@@ -150,42 +150,47 @@ const buildProducts = (rows) => {
     });
 };
 
-const inventoryKey = (productId, colorId, hardwareCondition) =>
-  `${productId || "p"}:${colorId ?? "none"}:${normalizeHardwareCondition(hardwareCondition) || "NUEVO"}`;
+/** Misma regla que catálogo POS: si hay tallas, suma de tallas; si no, currentStock. */
+const resolveSellableQuantity = (currentStock, sizes) => {
+  if (sizes && typeof sizes === "object" && Object.keys(sizes).length > 0) {
+    return Object.values(sizes).reduce((sum, qty) => sum + Math.max(0, safeNumber(qty)), 0);
+  }
+  return safeNumber(currentStock);
+};
 
 const normalizeKioscoRows = (rows) =>
-  (rows || []).map((row) => ({
-    id: row.id,
-    productId: row.productId,
-    productCode: row.productCode,
-    productName: row.productName,
-    productCategoryId: row.productCategoryId ?? row.categoryId ?? null,
-    productCategoryName: row.productCategoryName || row.categoryName || "",
-    audienceCategory: normalizeAudienceCategory(row.audienceCategory),
-    cinchoType: normalizeCinchoType(row.cinchoType),
-    cinchoForKids: Boolean(row.cinchoForKids),
-    hardwareCondition: normalizeHardwareCondition(row.hardwareCondition) || "NUEVO",
-    packaging: Boolean(row.packaging) || isPackagingProductCode(row.productCode),
-    colorId: row.colorId,
-    colorName: row.colorName,
-    quantity: safeNumber(row.currentStock),
-    min: safeNumber(row.minimumStock),
-    sizes: row.sizes && typeof row.sizes === "object" ? row.sizes : null,
-    locationId: row.locationId,
-  }));
-
-const mergeInventoryRows = (kioscoRows, legacyRows, productMetaById) => {
-  const normalizedKiosco = normalizeKioscoRows(kioscoRows);
-  const merged = [...normalizedKiosco];
-
-  const legacyByKey = new Map();
-  (legacyRows || []).forEach((row) => {
-    legacyByKey.set(
-      inventoryKey(row.productId, row.colorId, row.hardwareCondition),
-      row
-    );
+  (rows || []).map((row) => {
+    const sizes = row.sizes && typeof row.sizes === "object" ? row.sizes : null;
+    const hardwareCondition = normalizePosHardwareCondition(row.hardwareCondition);
+    return {
+      id: row.id,
+      productId: row.productId,
+      productCode: row.productCode,
+      productName: row.productName,
+      productCategoryId: row.productCategoryId ?? row.categoryId ?? null,
+      productCategoryName: row.productCategoryName || row.categoryName || "",
+      audienceCategory: normalizeAudienceCategory(row.audienceCategory),
+      cinchoType: normalizeCinchoType(row.cinchoType),
+      cinchoForKids: Boolean(row.cinchoForKids),
+      packaging: Boolean(row.packaging) || isPackagingProductCode(row.productCode),
+      colorId: row.colorId,
+      colorName: row.colorName,
+      hardwareCondition,
+      hardwareLabel: getHardwareConditionLabel(hardwareCondition),
+      quantity: resolveSellableQuantity(row.currentStock, sizes),
+      min: safeNumber(row.minimumStock),
+      sizes,
+      locationId: row.locationId,
+      source: "kiosco",
+    };
   });
 
+/**
+ * Fuente de verdad: kiosco_stock (con herraje NUEVO/VIEJO).
+ * Legacy solo si el kiosko aún no tiene filas en módulo kiosco (migración).
+ * No se mezclan tallas/cantidades legacy sobre filas kiosco (causaba duplicados y stock falso).
+ */
+const buildInventoryRows = (kioscoRows, legacyRows, productMetaById) => {
   const enrichMeta = (row) => {
     const meta = row.productId != null ? productMetaById.get(Number(row.productId)) : null;
     if (meta) {
@@ -210,41 +215,28 @@ const mergeInventoryRows = (kioscoRows, legacyRows, productMetaById) => {
     return row;
   };
 
-  const mergedByKey = new Set();
-  merged.forEach((row) => {
-    const key = inventoryKey(row.productId, row.colorId, row.hardwareCondition);
-    mergedByKey.add(key);
-    const legacy = legacyByKey.get(key);
-    if (legacy) {
-      row.sizes = row.sizes || legacy.sizes || null;
-      row.productCategoryId = row.productCategoryId ?? legacy.productCategoryId ?? null;
-      row.productCategoryName = row.productCategoryName || legacy.productCategoryName || "";
-      if (legacy.audienceCategory) {
-        row.audienceCategory = normalizeAudienceCategory(legacy.audienceCategory);
-      }
-      if (!row.hardwareCondition && legacy.hardwareCondition) {
-        row.hardwareCondition = normalizeHardwareCondition(legacy.hardwareCondition) || "NUEVO";
-      }
-    }
-    enrichMeta(row);
-  });
+  const kioscoNormalized = normalizeKioscoRows(kioscoRows).map(enrichMeta);
+  if (kioscoNormalized.length > 0) {
+    return kioscoNormalized;
+  }
 
-  (legacyRows || []).forEach((legacy) => {
-    const key = inventoryKey(legacy.productId, legacy.colorId, legacy.hardwareCondition);
-    if (mergedByKey.has(key)) return;
-    merged.push(
-      enrichMeta({
-        ...legacy,
-        productCategoryId: legacy.productCategoryId ?? null,
-        audienceCategory: normalizeAudienceCategory(legacy.audienceCategory),
-        hardwareCondition: normalizeHardwareCondition(legacy.hardwareCondition) || "NUEVO",
-        quantity: safeNumber(legacy.quantity),
-        min: safeNumber(legacy.min),
-      })
-    );
+  return (legacyRows || []).map((legacy) => {
+    const hardware = normalizeHardwareCondition(legacy.hardwareCondition) || "NUEVO";
+    return enrichMeta({
+      ...legacy,
+      productCategoryId: legacy.productCategoryId ?? null,
+      audienceCategory: normalizeAudienceCategory(legacy.audienceCategory),
+      cinchoType: normalizeCinchoType(legacy.cinchoType),
+      cinchoForKids: Boolean(legacy.cinchoForKids),
+      packaging: Boolean(legacy.packaging) || isPackagingProductCode(legacy.productCode),
+      hardwareCondition: hardware,
+      hardwareLabel: getHardwareConditionLabel(hardware),
+      quantity: resolveSellableQuantity(legacy.quantity, legacy.sizes),
+      min: safeNumber(legacy.min),
+      sizes: legacy.sizes && typeof legacy.sizes === "object" ? legacy.sizes : null,
+      source: "legacy",
+    });
   });
-
-  return merged;
 };
 
 function PosInventoryTab({ kioskLocationId, kioskName, active }) {
@@ -291,7 +283,7 @@ function PosInventoryTab({ kioskLocationId, kioskName, active }) {
       });
       setRows(
         filterVisibleKioskStockRows(
-          mergeInventoryRows(kioscoData, legacyData, productMetaById)
+          buildInventoryRows(kioscoData, legacyData, productMetaById)
         )
       );
     } catch (err) {
@@ -352,7 +344,7 @@ function PosInventoryTab({ kioskLocationId, kioskName, active }) {
           const text = normalize(
             `${product.productCode || ""} ${product.productName || ""} ${product.productCategoryName || ""} ${
               getProductAudienceLabel(product.audienceCategory)
-            } ${variant.colorName || ""} ${getHardwareConditionLabel(variant.hardwareCondition)} ${
+            } ${variant.colorName || ""} ${variant.hardwareLabel || getHardwareConditionLabel(variant.hardwareCondition)} ${
               formatInventorySizesLine(variant.sizes) || ""
             }`
           );
@@ -362,7 +354,7 @@ function PosInventoryTab({ kioskLocationId, kioskName, active }) {
         return {
           ...product,
           variants: filteredVariants,
-          totalQuantity: filteredVariants.reduce((sum, item) => sum + safeNumber(item.quantity), 0),
+          totalQuantity: filteredVariants.reduce((sum, item) => sum + posVariantStockQty(item), 0),
         };
       })
       .filter(Boolean);
@@ -441,8 +433,8 @@ function PosInventoryTab({ kioskLocationId, kioskName, active }) {
               </CardTitle>
               <small className="text-muted">
                 {stockMode === "SUMMARY"
-                  ? "Totales por categoría y línea. Toca una tarjeta para ver el detalle."
-                  : "Detalle por producto, color y tallas."}
+                  ? "Totales por categoría y línea (stock kiosco real). Toca una tarjeta para ver el detalle."
+                  : "Stock real del módulo kiosco (herraje nuevo/viejo). Misma fuente que la venta POS."}
               </small>
             </div>
             <div className="d-flex flex-wrap" style={{ gap: 8 }}>
@@ -560,7 +552,7 @@ function PosInventoryTab({ kioskLocationId, kioskName, active }) {
                   type="text"
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Código, producto, categoría, línea, color..."
+                  placeholder="Código, producto, categoría, línea, color, herraje..."
                 />
               </Col>
             </Row>
@@ -649,7 +641,8 @@ function PosInventoryTab({ kioskLocationId, kioskName, active }) {
                         <tbody>
                           {product.variants.map((variant) => {
                             const status = variantStatus(variant);
-                            const hw = normalizeHardwareCondition(variant.hardwareCondition) || "NUEVO";
+                            const stockQty = posVariantStockQty(variant);
+                            const hw = normalizePosHardwareCondition(variant.hardwareCondition);
                             const isPackaging =
                               product.packaging || isPackagingProductCode(product.productCode);
                             return (
@@ -677,7 +670,7 @@ function PosInventoryTab({ kioskLocationId, kioskName, active }) {
                                   )}
                                 </td>
                                 <td className="text-right font-weight-bold">
-                                  {formatQty(variant.quantity)}
+                                  {formatQty(stockQty)}
                                 </td>
                                 <td className="text-right">{formatQty(variant.min)}</td>
                                 <td>
