@@ -274,9 +274,13 @@ export const sortVariantsByColor = (variants) => {
   return [...(variants || [])].sort((a, b) => {
     const byOrder = colorIndex(a.colorName) - colorIndex(b.colorName);
     if (byOrder !== 0) return byOrder;
-    return String(a.colorName || "").localeCompare(String(b.colorName || ""), "es", {
+    const byColor = String(a.colorName || "").localeCompare(String(b.colorName || ""), "es", {
       sensitivity: "base",
     });
+    if (byColor !== 0) return byColor;
+    const hwA = normalizePosHardwareCondition(a.hardwareCondition);
+    const hwB = normalizePosHardwareCondition(b.hardwareCondition);
+    return hwA.localeCompare(hwB);
   });
 };
 
