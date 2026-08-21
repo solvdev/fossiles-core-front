@@ -22,6 +22,7 @@ import { formatInventorySizesLine } from "utils/inventoryVariantHelper";
 import {
   filterVisibleKioskStockRows,
   getHardwareConditionLabel,
+  isCinchoProductRow,
   isPackagingProductCode,
   normalizeCinchoType,
   normalizeHardwareCondition,
@@ -186,7 +187,59 @@ const normalizeKioscoRows = (rows) =>
   });
 
 /**
- * Fuente de verdad: kiosco_stock (con herraje NUEVO/VIEJO).
+ * Herraje NUEVO/VIEJO solo aplica a cinchos. En bolsos/otros, filas VIEJO suelen ser
+ * fantasma (mismo color duplicado) y no deben verse en consulta POS.
+ */
+const productUsesHardwareSplit = (row) => {
+  if (!row || row.packaging || isPackagingProductCode(row.productCode)) return false;
+  return isCinchoProductRow({
+    productCode: row.productCode,
+    productName: row.productName,
+    cinchoType: row.cinchoType,
+    cinchoForKids: row.cinchoForKids,
+    packaging: row.packaging,
+    systemSizes: row.sizes,
+  });
+};
+
+/** Una fila por color en no-cinchos: prioriza NUEVO con stock; no suma VIEJO (evita doble conteo). */
+const collapseNonCinchoHardwareRows = (rows) => {
+  const keep = [];
+  const byColor = new Map();
+
+  (rows || []).forEach((row) => {
+    if (productUsesHardwareSplit(row)) {
+      keep.push(row);
+      return;
+    }
+    const key = `${row.productId ?? "p"}:${row.colorId ?? "none"}`;
+    if (!byColor.has(key)) byColor.set(key, []);
+    byColor.get(key).push(row);
+  });
+
+  byColor.forEach((group) => {
+    const withStock = group.filter((r) => posVariantStockQty(r) > 0);
+    const pool = withStock.length > 0 ? withStock : group;
+    const nuevo = pool.find(
+      (r) => normalizePosHardwareCondition(r.hardwareCondition) === "NUEVO"
+    );
+    const picked =
+      nuevo
+      || [...pool].sort((a, b) => posVariantStockQty(b) - posVariantStockQty(a))[0];
+    if (!picked) return;
+    keep.push({
+      ...picked,
+      hardwareCondition: "NUEVO",
+      hardwareLabel: "—",
+      quantity: posVariantStockQty(picked),
+    });
+  });
+
+  return keep;
+};
+
+/**
+ * Fuente de verdad: kiosco_stock (con herraje NUEVO/VIEJO solo en cinchos).
  * Legacy solo si el kiosko aún no tiene filas en módulo kiosco (migración).
  * No se mezclan tallas/cantidades legacy sobre filas kiosco (causaba duplicados y stock falso).
  */
@@ -196,6 +249,8 @@ const buildInventoryRows = (kioscoRows, legacyRows, productMetaById) => {
     if (meta) {
       if (row.productCategoryId == null) row.productCategoryId = meta.categoryId;
       if (!row.productCategoryName) row.productCategoryName = meta.categoryName || "";
+      if (!row.productName && meta.productName) row.productName = meta.productName;
+      if (!row.productCode && meta.productCode) row.productCode = meta.productCode;
       row.audienceCategory = normalizeAudienceCategory(meta.audienceCategory);
       if (!row.cinchoType && meta.cinchoType) {
         row.cinchoType = normalizeCinchoType(meta.cinchoType);
@@ -217,26 +272,28 @@ const buildInventoryRows = (kioscoRows, legacyRows, productMetaById) => {
 
   const kioscoNormalized = normalizeKioscoRows(kioscoRows).map(enrichMeta);
   if (kioscoNormalized.length > 0) {
-    return kioscoNormalized;
+    return collapseNonCinchoHardwareRows(kioscoNormalized);
   }
 
-  return (legacyRows || []).map((legacy) => {
-    const hardware = normalizeHardwareCondition(legacy.hardwareCondition) || "NUEVO";
-    return enrichMeta({
-      ...legacy,
-      productCategoryId: legacy.productCategoryId ?? null,
-      audienceCategory: normalizeAudienceCategory(legacy.audienceCategory),
-      cinchoType: normalizeCinchoType(legacy.cinchoType),
-      cinchoForKids: Boolean(legacy.cinchoForKids),
-      packaging: Boolean(legacy.packaging) || isPackagingProductCode(legacy.productCode),
-      hardwareCondition: hardware,
-      hardwareLabel: getHardwareConditionLabel(hardware),
-      quantity: resolveSellableQuantity(legacy.quantity, legacy.sizes),
-      min: safeNumber(legacy.min),
-      sizes: legacy.sizes && typeof legacy.sizes === "object" ? legacy.sizes : null,
-      source: "legacy",
-    });
-  });
+  return collapseNonCinchoHardwareRows(
+    (legacyRows || []).map((legacy) => {
+      const hardware = normalizeHardwareCondition(legacy.hardwareCondition) || "NUEVO";
+      return enrichMeta({
+        ...legacy,
+        productCategoryId: legacy.productCategoryId ?? null,
+        audienceCategory: normalizeAudienceCategory(legacy.audienceCategory),
+        cinchoType: normalizeCinchoType(legacy.cinchoType),
+        cinchoForKids: Boolean(legacy.cinchoForKids),
+        packaging: Boolean(legacy.packaging) || isPackagingProductCode(legacy.productCode),
+        hardwareCondition: hardware,
+        hardwareLabel: getHardwareConditionLabel(hardware),
+        quantity: resolveSellableQuantity(legacy.quantity, legacy.sizes),
+        min: safeNumber(legacy.min),
+        sizes: legacy.sizes && typeof legacy.sizes === "object" ? legacy.sizes : null,
+        source: "legacy",
+      });
+    })
+  );
 };
 
 function PosInventoryTab({ kioskLocationId, kioskName, active }) {
@@ -275,6 +332,8 @@ function PosInventoryTab({ kioskLocationId, kioskName, active }) {
         productMetaById.set(Number(p.id), {
           categoryId,
           categoryName: categoryId != null ? categoryNameById.get(categoryId) || "" : "",
+          productCode: p.code || p.productCode || "",
+          productName: p.name || p.productName || "",
           audienceCategory: normalizeAudienceCategory(p.audienceCategory),
           cinchoType: normalizeCinchoType(p.cinchoType),
           cinchoForKids: Boolean(p.cinchoForKids),
