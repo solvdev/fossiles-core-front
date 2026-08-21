@@ -98,7 +98,10 @@ function AccountingInvoiceDetail() {
     }
   };
 
-  const canRetry = invoice && ["FAILED", "SKIPPED", "DRAFT"].includes(invoice.status);
+  const canRetry = invoice && (
+    ["FAILED", "SKIPPED", "DRAFT"].includes(invoice.status)
+    || (invoice.status === "VOID" && !invoice.felUuid)
+  );
   const canDownloadXml = invoice?.status === "CERTIFIED" && invoice?.hasCertifiedXml;
   const canDownloadFelReport = invoice?.status === "CERTIFIED" && invoice?.felUuid;
   const canOpenVoid = canVoidFel

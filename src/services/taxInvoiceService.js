@@ -33,8 +33,14 @@ export const listTaxInvoices = async (filters = {}) => {
   return parseJson(response, "No se pudieron cargar las facturas.");
 };
 
-export const getTaxInvoiceSummary = async () => {
-  const response = await fetch(`${API_URL}/tax-invoices/summary`, {
+export const getTaxInvoiceSummary = async (filters = {}) => {
+  const response = await fetch(`${API_URL}/tax-invoices/summary${toQuery({
+    sourceType: filters.sourceType,
+    customerTaxId: filters.customerTaxId,
+    internalNumber: filters.internalNumber,
+    fromDate: filters.fromDate,
+    toDate: filters.toDate,
+  })}`, {
     headers: headers(),
   });
   return parseJson(response, "No se pudo cargar el resumen de facturas.");

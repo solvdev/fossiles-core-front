@@ -187,8 +187,9 @@ const normalizeKioscoRows = (rows) =>
   });
 
 /**
- * Herraje NUEVO/VIEJO solo aplica a cinchos. En bolsos/otros, filas VIEJO suelen ser
- * fantasma (mismo color duplicado) y no deben verse en consulta POS.
+ * Herraje NUEVO/VIEJO aplica sobre todo a cinchos, pero en bolsos/otros también
+ * puede haber stock VIEJO real (p. ej. producto devuelto en un cambio).
+ * Antes se descartaba VIEJO en no-cinchos y el POS mostraba menos unidades que el físico.
  */
 const productUsesHardwareSplit = (row) => {
   if (!row || row.packaging || isPackagingProductCode(row.productCode)) return false;
@@ -202,46 +203,95 @@ const productUsesHardwareSplit = (row) => {
   });
 };
 
-/** Una fila por color en no-cinchos: prioriza NUEVO con stock; no suma VIEJO (evita doble conteo). */
+/**
+ * Cinchos: conserva NUEVO y VIEJO.
+ * No-cinchos: si hay stock en más de un herraje, muestra ambos (stock real de cambios).
+ * Empaques: una fila por color (sin herraje).
+ */
 const collapseNonCinchoHardwareRows = (rows) => {
   const keep = [];
-  const byColor = new Map();
+  const byProductColor = new Map();
 
   (rows || []).forEach((row) => {
     if (productUsesHardwareSplit(row)) {
       keep.push(row);
       return;
     }
-    const key = `${row.productId ?? "p"}:${row.colorId ?? "none"}`;
-    if (!byColor.has(key)) byColor.set(key, []);
-    byColor.get(key).push(row);
+    const key = `${row.productId ?? "p"}:${row.colorId ?? "none"}:${
+      row.packaging || isPackagingProductCode(row.productCode) ? "PKG" : "STD"
+    }`;
+    if (!byProductColor.has(key)) byProductColor.set(key, []);
+    byProductColor.get(key).push(row);
   });
 
-  byColor.forEach((group) => {
+  byProductColor.forEach((group, key) => {
+    const isPackaging = key.endsWith(":PKG");
     const withStock = group.filter((r) => posVariantStockQty(r) > 0);
-    const pool = withStock.length > 0 ? withStock : group;
-    const nuevo = pool.find(
-      (r) => normalizePosHardwareCondition(r.hardwareCondition) === "NUEVO"
-    );
-    const picked =
-      nuevo
-      || [...pool].sort((a, b) => posVariantStockQty(b) - posVariantStockQty(a))[0];
-    if (!picked) return;
-    keep.push({
-      ...picked,
-      hardwareCondition: "NUEVO",
-      hardwareLabel: "—",
-      quantity: posVariantStockQty(picked),
-    });
+
+    if (isPackaging) {
+      const pool = withStock.length > 0 ? withStock : group;
+      const quantity = pool.reduce((sum, r) => sum + posVariantStockQty(r), 0);
+      const base = pool[0] || group[0];
+      if (!base) return;
+      keep.push({
+        ...base,
+        hardwareCondition: "NUEVO",
+        hardwareLabel: "—",
+        quantity,
+      });
+      return;
+    }
+
+    if (withStock.length === 0) {
+      const nuevo = group.find(
+        (r) => normalizePosHardwareCondition(r.hardwareCondition) === "NUEVO"
+      );
+      const picked = nuevo || group[0];
+      if (!picked) return;
+      keep.push({
+        ...picked,
+        hardwareCondition: "NUEVO",
+        hardwareLabel: "—",
+        quantity: 0,
+      });
+      return;
+    }
+
+    if (withStock.length === 1) {
+      const only = withStock[0];
+      const hw = normalizePosHardwareCondition(only.hardwareCondition);
+      keep.push({
+        ...only,
+        hardwareCondition: hw,
+        hardwareLabel: hw === "VIEJO" ? getHardwareConditionLabel(hw) : "—",
+        quantity: posVariantStockQty(only),
+      });
+      return;
+    }
+
+    withStock
+      .sort((a, b) => {
+        const hwA = normalizePosHardwareCondition(a.hardwareCondition);
+        const hwB = normalizePosHardwareCondition(b.hardwareCondition);
+        return hwA.localeCompare(hwB);
+      })
+      .forEach((row) => {
+        const hw = normalizePosHardwareCondition(row.hardwareCondition);
+        keep.push({
+          ...row,
+          hardwareCondition: hw,
+          hardwareLabel: getHardwareConditionLabel(hw),
+          quantity: posVariantStockQty(row),
+        });
+      });
   });
 
   return keep;
 };
 
 /**
- * Fuente de verdad: kiosco_stock (con herraje NUEVO/VIEJO solo en cinchos).
+ * Fuente de verdad: kiosco_stock (herraje NUEVO/VIEJO cuando hay existencias reales).
  * Legacy solo si el kiosko aún no tiene filas en módulo kiosco (migración).
- * No se mezclan tallas/cantidades legacy sobre filas kiosco (causaba duplicados y stock falso).
  */
 const buildInventoryRows = (kioscoRows, legacyRows, productMetaById) => {
   const enrichMeta = (row) => {
