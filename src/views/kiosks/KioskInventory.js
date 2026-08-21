@@ -33,6 +33,7 @@ import {
   registrarKioscoAjuste,
   registrarKioscoAnulacion,
   registrarKioscoDevolucionCliente,
+  registrarKioscoDevolucionACliente,
   registrarKioscoDevolucionDeposito,
   registrarKioscoEntrada,
   registrarKioscoMerma,
@@ -574,7 +575,7 @@ function KioskInventory() {
     }
     if (
       requiresSizeKey &&
-      ["ENTRADA", "VENTA", "MERMA"].includes(form.operation) &&
+      ["ENTRADA", "VENTA", "MERMA", "DEVOLUCION_A_CLIENTE"].includes(form.operation) &&
       !String(form.sizeKey || "").trim()
     ) {
       return "Debes indicar la talla para este producto cincho.";
@@ -604,6 +605,12 @@ function KioskInventory() {
           ...base,
           referenceId: form.referenceId ? Number(form.referenceId) : null,
           physicalSlipNumber: String(form.physicalSlipNumber || "").trim(),
+          reason: String(form.reason || "").trim() || null,
+        };
+      case "DEVOLUCION_A_CLIENTE":
+        return {
+          ...base,
+          referenceId: form.referenceId ? Number(form.referenceId) : null,
           reason: String(form.reason || "").trim() || null,
         };
       case "MERMA":
@@ -654,6 +661,13 @@ function KioskInventory() {
           ...base,
           originalInvoiceId: Number(form.originalInvoiceId),
           apto: Boolean(form.apto),
+        };
+      case "DEVOLUCION_A_CLIENTE":
+        return {
+          ...base,
+          referenceId: form.referenceId ? Number(form.referenceId) : null,
+          reason: String(form.reason || "").trim() || null,
+          sizeKey: String(form.sizeKey || "").trim() || null,
         };
       case "MERMA":
         return {
@@ -718,7 +732,7 @@ function KioskInventory() {
     const locationId = Number(form.locationId);
     const errors = [];
     for (const line of activeLines) {
-      if (form.operation === "VENTA") {
+      if (form.operation === "VENTA" || form.operation === "DEVOLUCION_A_CLIENTE") {
         const row = findStockRow(line.productId, line.colorId, line.hardwareCondition);
         if (!canSell(row, line.quantity)) {
           errors.push(`Sin stock suficiente para producto #${line.productId}.`);
@@ -741,6 +755,8 @@ function KioskInventory() {
           await registrarKioscoVenta(locationId, payload);
         } else if (form.operation === "DEVOLUCION_DEPOSITO") {
           await registrarKioscoDevolucionDeposito(locationId, payload);
+        } else if (form.operation === "DEVOLUCION_A_CLIENTE") {
+          await registrarKioscoDevolucionACliente(locationId, payload);
         } else if (form.operation === "MERMA") {
           await registrarKioscoMerma(locationId, payload);
         } else if (form.operation === "AJUSTE") {
@@ -781,6 +797,11 @@ function KioskInventory() {
         "¿Registrar esta merma?\n\nSe descontará stock del kiosko. Esta acción no se puede deshacer fácilmente."
       );
     }
+    if (op === "DEVOLUCION_A_CLIENTE") {
+      return window.confirm(
+        "¿Registrar devolución a cliente?\n\nSe descontará stock del kiosko (producto entregado al cliente)."
+      );
+    }
     // ENTRADA solo confirma en envío unitario (sin líneas múltiples).
     if (op === "ENTRADA" && !supportsBulkLines(op)) {
       return window.confirm("¿Registrar esta entrada de stock?");
@@ -814,6 +835,8 @@ function KioskInventory() {
           await registrarKioscoDevolucionDeposito(Number(form.locationId), payload);
         } else if (form.operation === "DEVOLUCION_CLIENTE") {
           await registrarKioscoDevolucionCliente(Number(form.locationId), payload);
+        } else if (form.operation === "DEVOLUCION_A_CLIENTE") {
+          await registrarKioscoDevolucionACliente(Number(form.locationId), payload);
         } else if (form.operation === "MERMA") {
           await registrarKioscoMerma(Number(form.locationId), payload);
         } else if (form.operation === "ANULACION") {
@@ -1334,7 +1357,7 @@ function KioskInventory() {
 
                       {!supportsBulkLines(form.operation) &&
                       requiresSizeKey &&
-                      ["ENTRADA", "VENTA", "MERMA"].includes(form.operation) ? (
+                      ["ENTRADA", "VENTA", "MERMA", "DEVOLUCION_A_CLIENTE"].includes(form.operation) ? (
                         <FormGroup>
                           <Label>Talla</Label>
                           <Input
@@ -1355,7 +1378,9 @@ function KioskInventory() {
                         </FormGroup>
                       ) : null}
 
-                      {form.operation === "ENTRADA" || form.operation === "CAMBIO" ? (
+                      {form.operation === "ENTRADA" ||
+                      form.operation === "CAMBIO" ||
+                      form.operation === "DEVOLUCION_A_CLIENTE" ? (
                         <FormGroup>
                           <Label>Referencia (opcional)</Label>
                           <Input
@@ -1433,13 +1458,23 @@ function KioskInventory() {
                       {form.operation === "MERMA" ||
                       form.operation === "AJUSTE" ||
                       form.operation === "ANULACION" ||
-                      form.operation === "CAMBIO" ? (
+                      form.operation === "CAMBIO" ||
+                      form.operation === "DEVOLUCION_A_CLIENTE" ? (
                         <FormGroup>
-                          <Label>{form.operation === "CAMBIO" ? "Motivo (opcional)" : "Motivo"}</Label>
+                          <Label>
+                            {form.operation === "CAMBIO" || form.operation === "DEVOLUCION_A_CLIENTE"
+                              ? "Motivo (opcional)"
+                              : "Motivo"}
+                          </Label>
                           <Input
                             type="text"
                             value={form.reason}
                             onChange={(e) => onFormChange("reason", e.target.value)}
+                            placeholder={
+                              form.operation === "DEVOLUCION_A_CLIENTE"
+                                ? "Ej: producto entregado al cliente"
+                                : undefined
+                            }
                           />
                         </FormGroup>
                       ) : null}
