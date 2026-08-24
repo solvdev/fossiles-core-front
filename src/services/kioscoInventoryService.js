@@ -126,6 +126,9 @@ export const registrarKioscoDevolucionDeposito = async (locationId, payload) =>
 export const registrarKioscoDevolucionCliente = async (locationId, payload) =>
   apiRequest(`/kiosco-inventory/${locationId}/devolucion-cliente`, { method: "POST", body: payload });
 
+export const registrarKioscoDevolucionACliente = async (locationId, payload) =>
+  apiRequest(`/kiosco-inventory/${locationId}/devolucion-a-cliente`, { method: "POST", body: payload });
+
 export const registrarKioscoTraslado = async (payload) =>
   apiRequest(`/kiosco-inventory/traslado`, { method: "POST", body: payload });
 

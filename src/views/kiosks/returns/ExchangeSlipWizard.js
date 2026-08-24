@@ -24,7 +24,7 @@ import {
   buildKioskExchangeSlipPrintHtml,
   openExchangeSlipPrintWindow,
 } from "utils/kioskExchangeSlipPrint";
-import { applyExchangePackagingCredit } from "utils/kioskExchangeSettlement";
+import { applyExchangePackagingCredit, sumGivenLineAmounts } from "utils/kioskExchangeSettlement";
 import {
   formatCurrency,
   formatQty,
@@ -94,11 +94,12 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
   const [productSearch, setProductSearch] = useState("");
   const [selectedVariantKey, setSelectedVariantKey] = useState("");
   const [selectedSize, setSelectedSize] = useState("");
+  const [draftGivenQty, setDraftGivenQty] = useState("1");
+  const [givenLines, setGivenLines] = useState([]);
   const [returnedQty, setReturnedQty] = useState("1");
-  const [givenQty, setGivenQty] = useState("1");
   const [preview, setPreview] = useState(null);
   const [editReturnedUnitPrice, setEditReturnedUnitPrice] = useState("");
-  const [editGivenUnitPrice, setEditGivenUnitPrice] = useState("");
+  const [editGivenUnitPrices, setEditGivenUnitPrices] = useState({});
   const [reason, setReason] = useState("");
   const [observations, setObservations] = useState("");
   const [physicalSlipNumber, setPhysicalSlipNumber] = useState("");
@@ -128,11 +129,12 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
     setProductSearch("");
     setSelectedVariantKey("");
     setSelectedSize("");
+    setDraftGivenQty("1");
+    setGivenLines([]);
     setReturnedQty("1");
-    setGivenQty("1");
     setPreview(null);
     setEditReturnedUnitPrice("");
-    setEditGivenUnitPrice("");
+    setEditGivenUnitPrices({});
     setReason("");
     setObservations("");
     setPhysicalSlipNumber("");
@@ -288,7 +290,7 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
       setSelectedItemId(firstId);
       if (firstId && result.items[0]) {
         setReturnedQty(String(result.items[0].quantity || 1));
-        setGivenQty(String(result.items[0].quantity || 1));
+        setDraftGivenQty(String(result.items[0].quantity || 1));
       }
       setStep(2);
     } catch (err) {
@@ -312,7 +314,54 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
     resetError();
     setSelectedItemId(String(item.id));
     setReturnedQty(String(item.quantity || 1));
-    setGivenQty(String(item.quantity || 1));
+    setDraftGivenQty(String(item.quantity || 1));
+  };
+
+  const addGivenLine = () => {
+    resetError();
+    if (!selectedVariant) {
+      setError("Selecciona un producto del inventario para agregarlo.");
+      return;
+    }
+    if (posVariantNeedsSizePick(selectedVariant) && !selectedSize) {
+      setError("Selecciona la talla del producto a entregar.");
+      return;
+    }
+    const qty = Number(draftGivenQty || returnedQty || 1);
+    if (!(qty > 0)) {
+      setError("La cantidad entregada debe ser mayor a cero.");
+      return;
+    }
+    const lineKey = `${variantLineKeyFor(
+      selectedVariant.productId,
+      selectedVariant.colorId,
+      selectedVariant.hardwareCondition
+    )}|${selectedSize || ""}`;
+    if (givenLines.some((line) => line.lineKey === lineKey)) {
+      setError("Ese producto ya está en la lista de entrega.");
+      return;
+    }
+    setGivenLines((prev) => [
+      ...prev,
+      {
+        lineKey,
+        productId: selectedVariant.productId,
+        colorId: selectedVariant.colorId,
+        size: selectedSize || null,
+        hardwareCondition: selectedVariant.hardwareCondition || null,
+        quantity: qty,
+        productCode: selectedVariant.productCode,
+        productName: selectedVariant.productName,
+        colorName: selectedVariant.colorName,
+      },
+    ]);
+    setSelectedVariantKey("");
+    setSelectedSize("");
+    setDraftGivenQty(String(returnedQty || 1));
+  };
+
+  const removeGivenLine = (lineKey) => {
+    setGivenLines((prev) => prev.filter((line) => line.lineKey !== lineKey));
   };
 
   const buildDiscountPayload = () => ({
@@ -320,21 +369,40 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
     returnedDiscountPercent: returnedSoldWithDiscount ? resolvedDiscountPercent : 0,
   });
 
-  const buildPreviewPayload = (priceOverrides = {}) => ({
-    kioskLocationId,
-    originalSaleId: sale?.id || null,
-    originalSaleItemId: selectedItem?.id || null,
-    returnedProductId: selectedReturnedProduct?.id || null,
-    returnedColorId: returnedColorId ? Number(returnedColorId) : null,
-    returnedSize: returnedSize.trim() || null,
-    givenProductId: selectedVariant?.productId || preview?.given?.productId,
-    givenColorId: selectedVariant?.colorId ?? preview?.given?.colorId,
-    givenSize: selectedSize || preview?.given?.size || null,
-    returnedQuantity: Number(returnedQty || preview?.returned?.quantity || 1),
-    givenQuantity: Number(givenQty || preview?.given?.quantity || returnedQty || 1),
-    ...buildDiscountPayload(),
-    ...priceOverrides,
-  });
+  const buildPreviewPayload = (priceOverrides = {}) => {
+    const items = givenLines.map((line) => {
+      const item = {
+        productId: line.productId,
+        colorId: line.colorId,
+        size: line.size,
+        hardwareCondition: line.hardwareCondition,
+        quantity: Number(line.quantity || 1),
+      };
+      const editedUnit = Number(editGivenUnitPrices[line.lineKey]);
+      if (canEditPrices && editedUnit > 0) {
+        item.unitPrice = editedUnit;
+      }
+      return item;
+    });
+    const primary = items[0] || {};
+    return {
+      kioskLocationId,
+      originalSaleId: sale?.id || null,
+      originalSaleItemId: selectedItem?.id || null,
+      returnedProductId: selectedReturnedProduct?.id || null,
+      returnedColorId: returnedColorId ? Number(returnedColorId) : null,
+      returnedSize: returnedSize.trim() || null,
+      givenItems: items,
+      givenProductId: primary.productId,
+      givenColorId: primary.colorId,
+      givenSize: primary.size || null,
+      givenHardwareCondition: primary.hardwareCondition || null,
+      returnedQuantity: Number(returnedQty || preview?.returned?.quantity || 1),
+      givenQuantity: Number(primary.quantity || returnedQty || 1),
+      ...buildDiscountPayload(),
+      ...priceOverrides,
+    };
+  };
 
   const visibleSteps = useMemo(() => {
     if (exchangeMode === "FREE") {
@@ -450,12 +518,8 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
       setError("Selecciona el producto que ingresa al kiosko.");
       return;
     }
-    if (!selectedVariant) {
-      setError("Selecciona el producto nuevo haciendo clic en una fila de la lista.");
-      return;
-    }
-    if (posVariantNeedsSizePick(selectedVariant) && !selectedSize) {
-      setError("Selecciona la talla del producto nuevo.");
+    if (!givenLines.length) {
+      setError("Agrega al menos un producto a entregar.");
       return;
     }
     try {
@@ -463,7 +527,13 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
       const result = await previewKioskExchange(buildPreviewPayload());
       setPreview(result);
       setEditReturnedUnitPrice(String(result?.returned?.unitPrice ?? ""));
-      setEditGivenUnitPrice(String(result?.given?.unitPrice ?? ""));
+      const priceMap = {};
+      const lines = result?.givenItems?.length ? result.givenItems : result?.given ? [result.given] : [];
+      lines.forEach((line, index) => {
+        const key = givenLines[index]?.lineKey || `given-${index}`;
+        priceMap[key] = String(line?.unitPrice ?? "");
+      });
+      setEditGivenUnitPrices(priceMap);
       setStep(4);
     } catch (err) {
       setError(err.message || "No se pudo calcular la boleta.");
@@ -476,20 +546,17 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
     resetError();
     if (!preview) return;
     const returnedUnit = Number(editReturnedUnitPrice);
-    const givenUnit = Number(editGivenUnitPrice);
-    if (!(returnedUnit > 0) || !(givenUnit > 0)) {
-      setError("Los precios unitarios deben ser mayores a cero.");
+    if (!(returnedUnit > 0)) {
+      setError("El precio unitario del producto que ingresa debe ser mayor a cero.");
       return;
     }
     try {
       setLoading(true);
       const result = await previewKioskExchange(buildPreviewPayload({
         returnedUnitPrice: returnedUnit,
-        givenUnitPrice: givenUnit,
       }));
       setPreview(result);
       setEditReturnedUnitPrice(String(result?.returned?.unitPrice ?? returnedUnit));
-      setEditGivenUnitPrice(String(result?.given?.unitPrice ?? givenUnit));
     } catch (err) {
       setError(err.message || "No se pudieron aplicar los precios.");
     } finally {
@@ -499,14 +566,26 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
 
   const displayPreview = useMemo(() => {
     if (!preview) return null;
-    if (!canEditPrices) return preview;
+    const givenItems = preview.givenItems?.length
+      ? preview.givenItems
+      : preview.given
+        ? [preview.given]
+        : [];
+    if (!canEditPrices) {
+      return { ...preview, givenItems };
+    }
     const returnedUnit = Number(editReturnedUnitPrice);
-    const givenUnit = Number(editGivenUnitPrice);
-    if (!(returnedUnit > 0) || !(givenUnit > 0)) return preview;
+    if (!(returnedUnit > 0)) return { ...preview, givenItems };
     const returnedQuantity = Number(preview.returned?.quantity || 0);
-    const givenQuantity = Number(preview.given?.quantity || 0);
     const productReturned = Number((returnedUnit * returnedQuantity).toFixed(2));
-    const productGiven = Number((givenUnit * givenQuantity).toFixed(2));
+    const editedGivenItems = givenItems.map((line, index) => {
+      const key = givenLines[index]?.lineKey;
+      const unit = Number(editGivenUnitPrices[key] || line.unitPrice || 0);
+      const qty = Number(line.quantity || 0);
+      const lineTotal = Number((unit * qty).toFixed(2));
+      return { ...line, unitPrice: unit, lineTotal };
+    });
+    const productGiven = sumGivenLineAmounts(editedGivenItems);
     const packagingCredit = Number(
       preview.packagingCreditAmount != null
         ? preview.packagingCreditAmount
@@ -529,18 +608,29 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
         unitPrice: returnedUnit,
         lineTotal: productReturned,
       },
-      given: {
-        ...preview.given,
-        unitPrice: givenUnit,
-        lineTotal: productGiven,
-      },
+      given: editedGivenItems[0] || preview.given,
+      givenItems: editedGivenItems,
     };
-  }, [preview, canEditPrices, editReturnedUnitPrice, editGivenUnitPrice]);
+  }, [preview, canEditPrices, editReturnedUnitPrice, editGivenUnitPrices, givenLines]);
 
-  const hasPriceDifference = Number(displayPreview?.differenceAmount || 0) > 0;
+  const differenceAmount = Number(displayPreview?.differenceAmount || 0);
+  const hasPriceDifference = differenceAmount > 0.009;
+  const hasZeroDifference = Math.abs(differenceAmount) <= 0.009;
+  const hasNegativeDifference = differenceAmount < -0.009;
 
   const buildCompleteRequest = (payment = {}) => {
     const source = displayPreview || preview;
+    const items = (source.givenItems?.length ? source.givenItems : source.given ? [source.given] : []).map(
+      (line, index) => ({
+        productId: line.productId,
+        colorId: line.colorId,
+        size: line.size,
+        hardwareCondition: givenLines[index]?.hardwareCondition || line.hardwareCondition || null,
+        quantity: line.quantity,
+        ...(canEditPrices && Number(line.unitPrice) > 0 ? { unitPrice: Number(line.unitPrice) } : {}),
+      })
+    );
+    const primary = items[0] || {};
     const payload = {
       kioskLocationId,
       originalSaleId: sale?.id || null,
@@ -548,11 +638,13 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
       returnedProductId: selectedReturnedProduct?.id || null,
       returnedColorId: returnedColorId ? Number(returnedColorId) : null,
       returnedSize: returnedSize.trim() || null,
-      givenProductId: source.given.productId,
-      givenColorId: source.given.colorId,
-      givenSize: source.given.size,
+      givenItems: items,
+      givenProductId: primary.productId,
+      givenColorId: primary.colorId,
+      givenSize: primary.size || null,
+      givenHardwareCondition: primary.hardwareCondition || null,
       returnedQuantity: source.returned.quantity,
-      givenQuantity: source.given.quantity,
+      givenQuantity: primary.quantity,
       physicalSlipNumber: physicalSlipNumber.trim(),
       reason: payment.reason || reason,
       observations: payment.observations || observations,
@@ -561,9 +653,7 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
     Object.assign(payload, buildDiscountPayload());
     if (canEditPrices) {
       const returnedUnit = Number(editReturnedUnitPrice);
-      const givenUnit = Number(editGivenUnitPrice);
       if (returnedUnit > 0) payload.returnedUnitPrice = returnedUnit;
-      if (givenUnit > 0) payload.givenUnitPrice = givenUnit;
     }
     return payload;
   };
@@ -783,7 +873,7 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
                           value={returnedQty}
                           onChange={(e) => {
                             setReturnedQty(e.target.value);
-                            setGivenQty(e.target.value);
+                            setDraftGivenQty(e.target.value);
                           }}
                         />
                       </div>
@@ -882,7 +972,7 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
                     value={returnedQty}
                     onChange={(e) => {
                       setReturnedQty(e.target.value);
-                      setGivenQty(e.target.value);
+                      setDraftGivenQty(e.target.value);
                     }}
                   />
                 </div>
@@ -896,13 +986,12 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
               <div className="kiosk-exchange-hint">
                 <span className="kiosk-exchange-hint-icon" aria-hidden>i</span>
                 <span>
-                  Selecciona el producto nuevo del inventario del kiosko (sin empaques SUM). Se valora a precio de
-                  venta normal.
+                  Puedes entregar uno o varios productos. Si el valor entregado es mayor se cobra; si es igual, sin cobro; nunca negativo.
                 </span>
               </div>
               <div className="kiosk-exchange-panel">
                 <div className="kiosk-exchange-field">
-                  <span className="kiosk-exchange-label">Producto nuevo</span>
+                  <span className="kiosk-exchange-label">Agregar producto a entregar</span>
                   <FilterableSelect
                     value={selectedVariantKey}
                     onChange={(value) => selectGivenVariant(value)}
@@ -914,15 +1003,6 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
                 </div>
                 {inventoryOptions.length === 0 && (
                   <p className="kiosk-exchange-help mb-0">No hay productos con stock para esa búsqueda.</p>
-                )}
-                {selectedVariant && (
-                  <div className="kiosk-exchange-selected">
-                    <strong>{selectedVariant.productCode}</strong>
-                    {" · "}
-                    {selectedVariant.productName}
-                    {selectedVariant.colorName ? ` · ${selectedVariant.colorName}` : ""}
-                    {selectedSize ? ` · T.${selectedSize}` : ""}
-                  </div>
                 )}
                 {selectedVariant && posVariantNeedsSizePick(selectedVariant) && (
                   <div className="kiosk-exchange-field mt-3" style={{ maxWidth: 280 }}>
@@ -939,7 +1019,53 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
                     />
                   </div>
                 )}
+                <div className="kiosk-exchange-field mt-3" style={{ maxWidth: 160 }}>
+                  <span className="kiosk-exchange-label">Cantidad</span>
+                  <Input
+                    type="number"
+                    min="1"
+                    step="1"
+                    value={draftGivenQty}
+                    onChange={(e) => setDraftGivenQty(e.target.value)}
+                  />
+                </div>
+                <Button color="primary" outline className="mt-3" onClick={addGivenLine}>
+                  Agregar a la entrega
+                </Button>
               </div>
+              {givenLines.length > 0 && (
+                <div className="kiosk-exchange-panel mt-3">
+                  <p className="kiosk-exchange-panel-title">Productos a entregar ({givenLines.length})</p>
+                  <Table size="sm" responsive className="mb-0">
+                    <thead>
+                      <tr>
+                        <th>Producto</th>
+                        <th>Cant.</th>
+                        <th />
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {givenLines.map((line) => (
+                        <tr key={line.lineKey}>
+                          <td>
+                            <strong>{line.productCode}</strong>
+                            {" · "}
+                            {line.productName}
+                            {line.colorName ? ` · ${line.colorName}` : ""}
+                            {line.size ? ` · T.${line.size}` : ""}
+                          </td>
+                          <td>{formatQty(line.quantity)}</td>
+                          <td className="text-right">
+                            <Button color="link" className="text-danger p-0" onClick={() => removeGivenLine(line.lineKey)}>
+                              Quitar
+                            </Button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </Table>
+                </div>
+              )}
             </>
           )}
 
@@ -976,31 +1102,48 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
                   ) : null}
                 </div>
                 <div className="kiosk-exchange-summary-card">
-                  <h6>Egreso</h6>
-                  <p>{displayPreview.given.productCode} · {displayPreview.given.productName}</p>
-                  <p>Cant. {formatQty(displayPreview.given.quantity)}</p>
-                  {canEditPrices ? (
-                    <FormGroup className="mb-2 mt-2">
-                      <span className="kiosk-exchange-label">Precio unitario</span>
-                      <Input
-                        type="number"
-                        min="0.01"
-                        step="0.01"
-                        value={editGivenUnitPrice}
-                        onChange={(e) => setEditGivenUnitPrice(e.target.value)}
-                      />
-                    </FormGroup>
-                  ) : null}
-                  <strong>{formatCurrency(displayPreview.givenAmount)}</strong>
-                  <p className="kiosk-exchange-help mb-0 mt-1">
-                    Solo producto. El empaque se acredita en el ingreso si hay diferencia de precio.
+                  <h6>Egreso ({(displayPreview.givenItems || [displayPreview.given]).filter(Boolean).length})</h6>
+                  {(displayPreview.givenItems || (displayPreview.given ? [displayPreview.given] : [])).map((line, index) => {
+                    const key = givenLines[index]?.lineKey || `given-${index}`;
+                    return (
+                      <div key={key} className="mb-2">
+                        <p className="mb-0">
+                          {line.productCode} · {line.productName}
+                          {line.size ? ` · T.${line.size}` : ""}
+                        </p>
+                        <p className="mb-1">Cant. {formatQty(line.quantity)}</p>
+                        {canEditPrices ? (
+                          <FormGroup className="mb-1">
+                            <span className="kiosk-exchange-label">P. unit.</span>
+                            <Input
+                              type="number"
+                              min="0.01"
+                              step="0.01"
+                              value={editGivenUnitPrices[key] ?? String(line.unitPrice ?? "")}
+                              onChange={(e) =>
+                                setEditGivenUnitPrices((prev) => ({ ...prev, [key]: e.target.value }))
+                              }
+                            />
+                          </FormGroup>
+                        ) : null}
+                        <strong>{formatCurrency(line.lineTotal)}</strong>
+                      </div>
+                    );
+                  })}
+                  <p className="mt-2 mb-0">
+                    Total egreso: <strong>{formatCurrency(displayPreview.givenAmount)}</strong>
                   </p>
                 </div>
-                <div className="kiosk-exchange-summary-card is-diff">
+                <div className={`kiosk-exchange-summary-card${hasNegativeDifference ? "" : " is-diff"}`}>
                   <h6>Diferencia</h6>
                   <div className="kiosk-exchange-diff-value">
                     {formatCurrency(displayPreview.differenceAmount)}
                   </div>
+                  {hasNegativeDifference && (
+                    <p className="text-danger small mt-2 mb-0">
+                      No se permite diferencia negativa. Agrega productos de mayor valor.
+                    </p>
+                  )}
                   {canEditPrices ? (
                     <Button
                       color="secondary"
@@ -1032,7 +1175,7 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
                     placeholder="Ej: BC-0042"
                   />
                 </div>
-                {!hasPriceDifference && (
+                {!hasPriceDifference && !hasNegativeDifference && (
                   <>
                     <div className="kiosk-exchange-hint mt-3">
                       <span className="kiosk-exchange-hint-icon" aria-hidden>i</span>
@@ -1081,16 +1224,16 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
             </Button>
           )}
           {step === 3 && (
-            <Button color="primary" onClick={() => void handlePreview()} disabled={loading}>
+            <Button color="primary" onClick={() => void handlePreview()} disabled={loading || !givenLines.length}>
               Ver resumen
             </Button>
           )}
-          {step === 4 && displayPreview && hasPriceDifference && (
+          {step === 4 && displayPreview && hasPriceDifference && !hasNegativeDifference && (
             <Button color="success" onClick={handleOpenCheckout}>
               Cobrar y confirmar
             </Button>
           )}
-          {step === 4 && displayPreview && !hasPriceDifference && (
+          {step === 4 && displayPreview && hasZeroDifference && (
             <Button color="success" onClick={() => void handleSubmitAuthorizationRequest()} disabled={saving}>
               {saving ? "Enviando..." : "Enviar solicitud de cambio"}
             </Button>

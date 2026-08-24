@@ -1,7 +1,14 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Input } from "reactstrap";
 
-function PosAdminKioskPicker({ kiosks, selectedKioskId, selectedLabel, onSelect }) {
+function PosAdminKioskPicker({
+  kiosks,
+  selectedKioskId,
+  selectedLabel,
+  onSelect,
+  allowAll = false,
+  allLabel = "Todos los kioskos",
+}) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const wrapperRef = useRef(null);
@@ -36,10 +43,12 @@ function PosAdminKioskPicker({ kiosks, selectedKioskId, selectedLabel, onSelect 
   };
 
   const handleSelect = (kioskId) => {
-    onSelect(String(kioskId));
+    onSelect(kioskId === "" || kioskId == null ? "" : String(kioskId));
     setOpen(false);
     setQuery("");
   };
+
+  const allSelected = allowAll && !selectedKioskId;
 
   return (
     <div className="kiosk-pos-kiosk-picker" ref={wrapperRef}>
@@ -50,7 +59,9 @@ function PosAdminKioskPicker({ kiosks, selectedKioskId, selectedLabel, onSelect 
         aria-expanded={open}
         aria-haspopup="listbox"
       >
-        <span className="kiosk-pos-kiosk-picker-label">{selectedLabel || "Kiosko"}</span>
+        <span className="kiosk-pos-kiosk-picker-label">
+          {allSelected ? allLabel : selectedLabel || "Kiosko"}
+        </span>
         <span className="kiosk-pos-kiosk-picker-caret" aria-hidden>
           ▾
         </span>
@@ -73,6 +84,17 @@ function PosAdminKioskPicker({ kiosks, selectedKioskId, selectedLabel, onSelect 
             }}
           />
           <div className="kiosk-pos-kiosk-picker-list">
+            {allowAll && (
+              <button
+                type="button"
+                role="option"
+                aria-selected={allSelected}
+                className={`kiosk-pos-kiosk-picker-item${allSelected ? " active" : ""}`}
+                onClick={() => handleSelect("")}
+              >
+                {allLabel}
+              </button>
+            )}
             {filteredKiosks.length === 0 ? (
               <div className="kiosk-pos-kiosk-picker-empty">Sin coincidencias</div>
             ) : (

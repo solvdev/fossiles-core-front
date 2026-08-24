@@ -1,5 +1,7 @@
 import {
   applyExchangePackagingCredit,
+  isExchangeDifferenceAllowed,
+  sumGivenLineAmounts,
 } from "../kioskExchangeSettlement";
 
 describe("applyExchangePackagingCredit", () => {
@@ -31,7 +33,7 @@ describe("applyExchangePackagingCredit", () => {
     });
   });
 
-  it("includes packaging when the given product is cheaper", () => {
+  it("computes negative difference when given is cheaper (UI/API must block)", () => {
     const result = applyExchangePackagingCredit({
       productReturnedAmount: 250,
       productGivenAmount: 180,
@@ -43,5 +45,28 @@ describe("applyExchangePackagingCredit", () => {
       givenAmount: 180,
       differenceAmount: -85,
     });
+    expect(isExchangeDifferenceAllowed(result.differenceAmount)).toBe(false);
+  });
+});
+
+describe("sumGivenLineAmounts", () => {
+  it("sums multiple given lines", () => {
+    expect(
+      sumGivenLineAmounts([
+        { quantity: 1, unitPrice: 250 },
+        { quantity: 2, unitPrice: 40 },
+      ])
+    ).toBe(330);
+  });
+});
+
+describe("isExchangeDifferenceAllowed", () => {
+  it("allows zero and positive", () => {
+    expect(isExchangeDifferenceAllowed(0)).toBe(true);
+    expect(isExchangeDifferenceAllowed(10)).toBe(true);
+  });
+
+  it("rejects negative", () => {
+    expect(isExchangeDifferenceAllowed(-0.01)).toBe(false);
   });
 });

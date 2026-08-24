@@ -5,7 +5,7 @@ import {
   normalizeCinchoType,
   normalizeHardwareCondition,
 } from "utils/productCinchoHelper";
-import { POS_CATEGORY_ORDER } from "views/kiosks/pos/posUtils";
+import { POS_CATEGORY_ORDER, posVariantStockQty } from "views/kiosks/pos/posUtils";
 
 const PACKAGING_KEY = "PACKAGING";
 
@@ -21,7 +21,7 @@ const isWalletCategory = (name) => {
 };
 
 const isVariantLow = (variant) => {
-  const stock = safeNumber(variant?.quantity);
+  const stock = posVariantStockQty(variant);
   const min = safeNumber(variant?.min);
   if (stock <= 0) return true;
   return min > 0 && stock <= min;
@@ -96,7 +96,6 @@ const categorySortIndex = (label) => {
 /**
  * Agrupa productos del inventario kiosko para el resumen fácil de encargadas.
  * @param {object[]} products — salida de buildProducts (productos con variants)
- * @returns {{ key: string, label: string, units: number, unitsNuevo: number, unitsViejo: number, products: number, variants: number, lowCount: number, productKeys: string[] }[]}
  */
 export function buildKioskInventorySummaryGroups(products) {
   const byKey = new Map();
@@ -123,7 +122,7 @@ export function buildKioskInventorySummaryGroups(products) {
     group.products += 1;
     group.variants += variants.length;
     variants.forEach((v) => {
-      const qty = safeNumber(v.quantity);
+      const qty = posVariantStockQty(v);
       group.units += qty;
       const hw = normalizeHardwareCondition(v.hardwareCondition) || "NUEVO";
       if (hw === "VIEJO") group.unitsViejo += qty;
@@ -143,7 +142,6 @@ export function buildKioskInventorySummaryGroups(products) {
   });
 }
 
-/** Filtra la lista de productos a los keys de un grupo del resumen. */
 export function filterProductsBySummaryGroup(products, group) {
   if (!group?.productKeys?.length) return [];
   const keys = new Set(group.productKeys);

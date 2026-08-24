@@ -107,10 +107,10 @@ function AccountingInvoices() {
   });
   const [knownInternalNumbers, setKnownInternalNumbers] = useState([]);
 
-  const loadSummary = async () => {
+  const loadSummary = async (nextFilters = filters) => {
     try {
       setSummaryLoading(true);
-      const data = await getTaxInvoiceSummary();
+      const data = await getTaxInvoiceSummary(nextFilters);
       setSummary(data);
     } catch (err) {
       setSummary(null);
@@ -133,9 +133,12 @@ function AccountingInvoices() {
     }
   };
 
+  const reloadListAndSummary = async (nextFilters = filters) => {
+    await Promise.all([loadInvoices(nextFilters), loadSummary(nextFilters)]);
+  };
+
   useEffect(() => {
-    loadSummary();
-    loadInvoices();
+    reloadListAndSummary();
   }, []);
 
   useEffect(() => {
@@ -179,11 +182,11 @@ function AccountingInvoices() {
       status: "",
     };
     setFilters(nextFilters);
-    loadInvoices(nextFilters);
+    reloadListAndSummary(nextFilters);
   };
 
   const handleApplyFilters = () => {
-    loadInvoices(filters);
+    reloadListAndSummary(filters);
   };
 
   const handleFilterKeyDown = (event) => {
@@ -230,7 +233,7 @@ function AccountingInvoices() {
         showSuccess(
           `Backfill listo: ${result?.created || 0} creado(s), ${result?.failed || 0} fallido(s).`
         );
-        await Promise.all([loadInvoices(filters), loadSummary()]);
+        await reloadListAndSummary(filters);
       }
     } catch (err) {
       const msg =
@@ -255,7 +258,7 @@ function AccountingInvoices() {
       setCertifyingId(invoice.id);
       setError("");
       await retryTaxInvoice(invoice.id);
-      await Promise.all([loadInvoices(), loadSummary()]);
+      await reloadListAndSummary();
     } catch (err) {
       setError(err.message || "No se pudo certificar la factura.");
     } finally {
@@ -287,8 +290,10 @@ function AccountingInvoices() {
   const canCertifyInvoice = (invoice) =>
     canCertify
     && invoice
-    && UNSIGNED_STATUSES.has(invoice.status)
-    && invoice.status !== "VOID";
+    && (
+      UNSIGNED_STATUSES.has(invoice.status)
+      || (invoice.status === "VOID" && !invoice.felUuid)
+    );
 
   const canVoidInvoice = (invoice) =>
     canVoidFel
@@ -296,6 +301,20 @@ function AccountingInvoices() {
     && invoice.status === "CERTIFIED"
     && invoice.felUuid
     && invoice.felDirectVoidAllowed !== false;
+
+  const summaryCards = [
+    { id: "", label: "Total", value: summary?.total || 0, className: "text-muted" },
+    { id: "SIGNED", label: "Firmadas", value: summary?.certified || 0, className: "text-success" },
+    { id: "UNSIGNED", label: "Sin firmar", value: summary?.unsigned || 0, className: "text-warning" },
+    { id: "ERROR", label: "Con error", value: summary?.failed || 0, className: "text-danger" },
+    {
+      id: "UNSIGNED",
+      label: "Borrador / omitida",
+      value: (summary?.draft || 0) + (summary?.skipped || 0),
+      className: "text-muted",
+    },
+    { id: "VOID", label: "Anuladas", value: summary?.voided || 0, className: "text-dark" },
+  ];
 
   return (
     <div className="content">
@@ -307,32 +326,32 @@ function AccountingInvoices() {
           {summaryLoading ? (
             <div className="text-center py-3"><Spinner size="sm" color="primary" /></div>
           ) : summary ? (
-            <Row>
-              <Col md="2" sm="4" xs="6" className="mb-3">
-                <div className="text-muted small">Total</div>
-                <div className="h4 mb-0">{summary.total || 0}</div>
-              </Col>
-              <Col md="2" sm="4" xs="6" className="mb-3">
-                <div className="text-success small">Firmadas</div>
-                <div className="h4 mb-0 text-success">{summary.certified || 0}</div>
-              </Col>
-              <Col md="2" sm="4" xs="6" className="mb-3">
-                <div className="text-warning small">Sin firmar</div>
-                <div className="h4 mb-0 text-warning">{summary.unsigned || 0}</div>
-              </Col>
-              <Col md="2" sm="4" xs="6" className="mb-3">
-                <div className="text-danger small">Con error</div>
-                <div className="h4 mb-0 text-danger">{summary.failed || 0}</div>
-              </Col>
-              <Col md="2" sm="4" xs="6" className="mb-3">
-                <div className="text-muted small">Borrador / omitida</div>
-                <div className="h4 mb-0">{(summary.draft || 0) + (summary.skipped || 0)}</div>
-              </Col>
-              <Col md="2" sm="4" xs="6" className="mb-3">
-                <div className="text-dark small">Anuladas</div>
-                <div className="h4 mb-0">{summary.voided || 0}</div>
-              </Col>
-            </Row>
+            <>
+              <Row>
+                {summaryCards.map((card) => {
+                  const active = filters.certificationFilter === card.id;
+                  return (
+                    <Col md="2" sm="4" xs="6" className="mb-3" key={`${card.label}-${card.id || "ALL"}`}>
+                      <button
+                        type="button"
+                        className={`btn btn-link text-left p-0 w-100 ${active ? "font-weight-bold" : ""}`}
+                        style={{ textDecoration: "none", color: "inherit" }}
+                        onClick={() => handleCertificationTab(card.id)}
+                        title={`Filtrar: ${card.label}`}
+                      >
+                        <div className={`${card.className} small`}>{card.label}</div>
+                        <div className={`h4 mb-0 ${card.className}`}>{card.value}</div>
+                      </button>
+                    </Col>
+                  );
+                })}
+              </Row>
+              {(filters.fromDate || filters.toDate || filters.sourceType || filters.internalNumber || filters.customerTaxId) && (
+                <div className="small text-muted">
+                  Resumen acotado a los filtros de origen / NIT / número / fechas activos.
+                </div>
+              )}
+            </>
           ) : (
             <Alert color="warning" className="mb-0">
               No se pudo cargar el resumen. Verifica que el backend esté actualizado.
@@ -681,8 +700,7 @@ function AccountingInvoices() {
         isOpen={restoreOpen}
         onClose={() => setRestoreOpen(false)}
         onSuccess={() => {
-          loadInvoices(filters);
-          loadSummary();
+          reloadListAndSummary(filters);
         }}
       />
 
@@ -691,8 +709,7 @@ function AccountingInvoices() {
         onClose={() => setVoidTargetInvoice(null)}
         invoice={voidTargetInvoice}
         onSuccess={() => {
-          loadInvoices(filters);
-          loadSummary();
+          reloadListAndSummary(filters);
         }}
       />
     </div>

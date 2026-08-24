@@ -70,10 +70,60 @@ const statusLabel = (status) => {
   return status || "—";
 };
 
+const formatKioskLabel = (row) => {
+  const code = row?.kioskCode || "";
+  const name = row?.kioskName || row?.locationName || "";
+  if (code && name) return `${code} · ${name}`;
+  return name || code || "—";
+};
+
+const slipMatchesSearch = (row, query) => {
+  const q = String(query || "").trim().toLowerCase();
+  if (!q) return true;
+  const haystack = [
+    row.slipNumber,
+    row.kioskCode,
+    row.kioskName,
+    row.originalSaleNumber,
+    row.returnedProductName,
+    row.returnedProductCode,
+    row.givenProductName,
+    row.givenProductCode,
+    row.reason,
+    row.createdByName,
+    row.status,
+    statusLabel(row.status),
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+  return haystack.includes(q);
+};
+
+const depositMatchesSearch = (row, query) => {
+  const q = String(query || "").trim().toLowerCase();
+  if (!q) return true;
+  const haystack = [
+    row.locationName,
+    row.productCode,
+    row.productName,
+    row.colorName,
+    row.reason,
+    row.username,
+    formatKioscoMovementReference(row),
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+  return haystack.includes(q);
+};
+
 function KioskReturns() {
   const { hasAnyRole } = useAuth();
   const [activeTab, setActiveTab] = useState("EXCHANGES");
   const [selectedKiosk, setSelectedKiosk] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState("");
   const [posContext, setPosContext] = useState(null);
   const [exchanges, setExchanges] = useState([]);
   const [returns, setReturns] = useState([]);
@@ -97,47 +147,65 @@ function KioskReturns() {
     isAdmin
     || hasAnyRole(["ADMIN", "ADMINISTRADOR", "LOGISTICA", "LOGISTICO", "LOGIST"]);
   const canApproveExchanges = canAuthorizeExchanges;
+  /** Admin/logística (y roles con acceso global POS): listado de todos los kioskos. */
+  const canViewAllKiosks = isAdmin;
   const adminKiosks = useMemo(
     () => (Array.isArray(posContext?.kiosks) ? posContext.kiosks : []),
     [posContext]
   );
 
   const selectedKioskCode = useMemo(() => {
-    if (isAdmin) {
+    if (canViewAllKiosks) {
+      if (!selectedKiosk) return "";
       const match = adminKiosks.find((k) => String(k.kioskId) === String(selectedKiosk));
-      return match?.kioskCode || posContext?.kioskCode || "";
+      return match?.kioskCode || "";
     }
     return posContext?.kioskCode || "";
-  }, [isAdmin, adminKiosks, selectedKiosk, posContext]);
+  }, [canViewAllKiosks, adminKiosks, selectedKiosk, posContext]);
 
   const selectedKioskName = useMemo(() => {
-    if (isAdmin) {
+    if (canViewAllKiosks) {
+      if (!selectedKiosk) return "";
       const match = adminKiosks.find((k) => String(k.kioskId) === String(selectedKiosk));
-      return match?.kioskName || posContext?.kioskName || "";
+      return match?.kioskName || "";
     }
     return posContext?.kioskName || "";
-  }, [isAdmin, adminKiosks, selectedKiosk, posContext]);
+  }, [canViewAllKiosks, adminKiosks, selectedKiosk, posContext]);
 
   const selectedKioskLabel = useMemo(() => {
+    if (canViewAllKiosks && !selectedKiosk) return "Todos los kioskos";
     if (!selectedKioskName && !selectedKioskCode) return "Kiosko";
     if (selectedKioskCode && selectedKioskName) return `${selectedKioskCode} · ${selectedKioskName}`;
     return selectedKioskName || selectedKioskCode;
-  }, [selectedKioskCode, selectedKioskName]);
+  }, [canViewAllKiosks, selectedKiosk, selectedKioskCode, selectedKioskName]);
 
-  const loadDepositReturns = async (kioskId) => {
-    if (!kioskId) return [];
-    const movements = await getKioscoMovimientos(Number(kioskId)).catch(() => []);
-    return (Array.isArray(movements) ? movements : [])
-      .filter((movement) => String(movement.movementType || "").toUpperCase() === "DEVOLUCION_DEPOSITO")
+  const loadDepositReturns = async (kioskId, kioskList = []) => {
+    const loadOne = async (id) => {
+      const movements = await getKioscoMovimientos(Number(id)).catch(() => []);
+      return (Array.isArray(movements) ? movements : [])
+        .filter((movement) => String(movement.movementType || "").toUpperCase() === "DEVOLUCION_DEPOSITO");
+    };
+    if (kioskId) {
+      return (await loadOne(kioskId)).sort(
+        (a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0)
+      );
+    }
+    const ids = (kioskList || []).map((k) => k.kioskId).filter(Boolean);
+    if (!ids.length) return [];
+    const batches = await Promise.all(ids.map((id) => loadOne(id)));
+    return batches
+      .flat()
       .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
   };
 
   const loadData = async (
     kioskId = selectedKiosk,
     manageReturns = canManageReturns,
-    authorizeExchanges = canAuthorizeExchanges
+    authorizeExchanges = canAuthorizeExchanges,
+    viewAll = canViewAllKiosks,
+    kioskList = adminKiosks
   ) => {
-    if (!kioskId) {
+    if (!kioskId && !viewAll) {
       setExchanges([]);
       setReturns([]);
       setDepositReturns([]);
@@ -148,12 +216,12 @@ function KioskReturns() {
     try {
       setLoading(true);
       setError("");
-      const kioskLocationId = Number(kioskId);
+      const kioskLocationId = kioskId ? Number(kioskId) : undefined;
       const [exchangeRows, authorizationRows, reintegroRows, depositRows] = await Promise.all([
         listKioskExchanges(kioskLocationId),
         authorizeExchanges ? listPendingAuthorizations(kioskLocationId) : Promise.resolve([]),
         manageReturns ? listPendingReintegros(kioskLocationId) : Promise.resolve([]),
-        manageReturns ? loadDepositReturns(kioskId) : Promise.resolve([]),
+        manageReturns ? loadDepositReturns(kioskId, kioskList) : Promise.resolve([]),
       ]);
       const allRows = Array.isArray(exchangeRows) ? exchangeRows : [];
       setExchanges(allRows.filter((row) => String(row.slipType || "EXCHANGE").toUpperCase() === "EXCHANGE"));
@@ -176,16 +244,43 @@ function KioskReturns() {
     try {
       setLoading(true);
       setError("");
-      const ctx = await getKioskPosContext(kioskIdOverride || selectedKiosk || undefined, {});
+      const ctx = await getKioskPosContext(
+        kioskIdOverride || (selectedKiosk || undefined),
+        {}
+      );
       setPosContext(ctx || null);
-      const resolvedId = ctx?.kioskId ? String(ctx.kioskId) : kioskIdOverride ? String(kioskIdOverride) : "";
+      const adminAccess = Boolean(ctx?.admin);
+      const authorizeAccess =
+        adminAccess
+        || hasAnyRole(["ADMIN", "ADMINISTRADOR", "LOGISTICA", "LOGISTICO", "LOGIST"]);
+      const kioskList = Array.isArray(ctx?.kiosks) ? ctx.kiosks : [];
+
+      if (adminAccess && (kioskIdOverride === "" || kioskIdOverride == null) && !selectedKiosk) {
+        setSelectedKiosk("");
+        await loadData(null, adminAccess, authorizeAccess, true, kioskList);
+        return;
+      }
+
+      if (adminAccess && kioskIdOverride === "") {
+        setSelectedKiosk("");
+        await loadData(null, adminAccess, authorizeAccess, true, kioskList);
+        return;
+      }
+
+      const resolvedId = kioskIdOverride
+        ? String(kioskIdOverride)
+        : ctx?.kioskId
+          ? String(ctx.kioskId)
+          : "";
+      if (adminAccess && !kioskIdOverride) {
+        // Primera carga admin/logística: listado general, sin forzar un kiosko.
+        setSelectedKiosk("");
+        await loadData(null, adminAccess, authorizeAccess, true, kioskList);
+        return;
+      }
       if (resolvedId) {
         setSelectedKiosk(resolvedId);
-        const adminAccess = Boolean(ctx?.admin);
-        const authorizeAccess =
-          adminAccess
-          || hasAnyRole(["ADMIN", "ADMINISTRADOR", "LOGISTICA", "LOGISTICO", "LOGIST"]);
-        await loadData(resolvedId, adminAccess, authorizeAccess);
+        await loadData(resolvedId, adminAccess, authorizeAccess, adminAccess, kioskList);
       }
     } catch (err) {
       setError(err.message || "Error al cargar el kiosko.");
@@ -211,9 +306,63 @@ function KioskReturns() {
   }, [canAuthorizeExchanges, canManageReturns, activeTab]);
 
   const handleKioskChange = async (nextKioskId) => {
-    setSelectedKiosk(String(nextKioskId));
-    await loadContext(nextKioskId);
+    const next = nextKioskId ? String(nextKioskId) : "";
+    setSelectedKiosk(next);
+    await loadContext(next);
   };
+
+  const openExchangeWizard = () => {
+    if (!selectedKiosk) {
+      setError("Selecciona un kiosko para registrar la boleta de cambio.");
+      return;
+    }
+    setError("");
+    setExchangeWizardOpen(true);
+  };
+
+  const openReturnWizard = () => {
+    if (!selectedKiosk) {
+      setError("Selecciona un kiosko para registrar la devolución.");
+      return;
+    }
+    setError("");
+    setReturnWizardOpen(true);
+  };
+
+  const filteredExchanges = useMemo(
+    () =>
+      exchanges.filter(
+        (row) =>
+          slipMatchesSearch(row, searchQuery)
+          && (!statusFilter || String(row.status || "").toUpperCase() === statusFilter)
+      ),
+    [exchanges, searchQuery, statusFilter]
+  );
+
+  const filteredReturns = useMemo(
+    () =>
+      returns.filter(
+        (row) =>
+          slipMatchesSearch(row, searchQuery)
+          && (!statusFilter || String(row.status || "").toUpperCase() === statusFilter)
+      ),
+    [returns, searchQuery, statusFilter]
+  );
+
+  const filteredDepositReturns = useMemo(
+    () => depositReturns.filter((row) => depositMatchesSearch(row, searchQuery)),
+    [depositReturns, searchQuery]
+  );
+
+  const filteredPendingReintegros = useMemo(
+    () => pendingReintegros.filter((row) => slipMatchesSearch(row, searchQuery)),
+    [pendingReintegros, searchQuery]
+  );
+
+  const filteredPendingAuthorizations = useMemo(
+    () => pendingAuthorizations.filter((row) => slipMatchesSearch(row, searchQuery)),
+    [pendingAuthorizations, searchQuery]
+  );
 
   const handleReintegrate = async (slip) => {
     try {
@@ -286,8 +435,9 @@ function KioskReturns() {
                   <Button
                     color="primary"
                     className="btn-round mr-2"
-                    onClick={() => setExchangeWizardOpen(true)}
+                    onClick={openExchangeWizard}
                     disabled={!selectedKiosk}
+                    title={!selectedKiosk && canViewAllKiosks ? "Elige un kiosko en el filtro para registrar" : undefined}
                   >
                     <i className="nc-icon nc-simple-add" /> Boleta de cambio
                   </Button>
@@ -295,8 +445,9 @@ function KioskReturns() {
                     <Button
                       color="info"
                       className="btn-round"
-                      onClick={() => setReturnWizardOpen(true)}
+                      onClick={openReturnWizard}
                       disabled={!selectedKiosk}
+                      title={!selectedKiosk && canViewAllKiosks ? "Elige un kiosko en el filtro para registrar" : undefined}
                     >
                       <i className="nc-icon nc-simple-add" /> Devolución
                     </Button>
@@ -312,13 +463,15 @@ function KioskReturns() {
                   : "Boletas de cambio: devuelve un producto a precio vendido y factura el nuevo a precio catálogo. Las devoluciones a bodega las gestiona supervisión."}
               </p>
               <Row className="mb-3 align-items-end">
-                <Col md="5">
-                  <label>Kiosko</label>
-                  {isAdmin && adminKiosks.length > 0 ? (
+                <Col md={canViewAllKiosks ? "4" : "5"}>
+                  <Label>Kiosko</Label>
+                  {canViewAllKiosks && adminKiosks.length > 0 ? (
                     <PosAdminKioskPicker
                       kiosks={adminKiosks}
                       selectedKioskId={selectedKiosk}
                       selectedLabel={selectedKioskLabel}
+                      allowAll
+                      allLabel="Todos los kioskos"
                       onSelect={(id) => void handleKioskChange(id)}
                     />
                   ) : (
@@ -330,7 +483,40 @@ function KioskReturns() {
                     </div>
                   )}
                 </Col>
+                {canViewAllKiosks && (
+                  <>
+                    <Col md="4">
+                      <Label>Buscar</Label>
+                      <Input
+                        type="search"
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        placeholder="Boleta, venta, producto, kiosko…"
+                      />
+                    </Col>
+                    <Col md="4">
+                      <Label>Estado</Label>
+                      <Input
+                        type="select"
+                        value={statusFilter}
+                        onChange={(e) => setStatusFilter(e.target.value)}
+                      >
+                        <option value="">Todos</option>
+                        <option value="COMPLETED">Completado</option>
+                        <option value="PENDING_AUTHORIZATION">Pendiente autorización</option>
+                        <option value="PENDING_REINTEGRO">Pendiente reintegro</option>
+                        <option value="REINTEGRATED">Reintegrado a bodega</option>
+                        <option value="REJECTED">Rechazado</option>
+                      </Input>
+                    </Col>
+                  </>
+                )}
               </Row>
+              {canViewAllKiosks && !selectedKiosk && (
+                <p className="text-muted small mb-3">
+                  Viendo el listado de todos los kioskos. Para registrar un cambio o devolución, elige un kiosko en el filtro.
+                </p>
+              )}
 
               <Nav tabs className="mb-3">
                 <NavItem>
@@ -340,6 +526,7 @@ function KioskReturns() {
                     style={{ cursor: "pointer" }}
                   >
                     Boletas de cambio
+                    {filteredExchanges.length > 0 ? ` (${filteredExchanges.length})` : ""}
                   </NavLink>
                 </NavItem>
                 {canManageReturns && (
@@ -351,7 +538,7 @@ function KioskReturns() {
                         style={{ cursor: "pointer" }}
                       >
                         Devoluciones a bodega
-                        {depositReturns.length > 0 ? ` (${depositReturns.length})` : ""}
+                        {filteredDepositReturns.length > 0 ? ` (${filteredDepositReturns.length})` : ""}
                       </NavLink>
                     </NavItem>
                     <NavItem>
@@ -361,6 +548,7 @@ function KioskReturns() {
                         style={{ cursor: "pointer" }}
                       >
                         Devoluciones de cliente
+                        {filteredReturns.length > 0 ? ` (${filteredReturns.length})` : ""}
                       </NavLink>
                     </NavItem>
                     <NavItem>
@@ -370,7 +558,7 @@ function KioskReturns() {
                         style={{ cursor: "pointer" }}
                       >
                         Pendientes reintegro
-                        {pendingReintegros.length > 0 ? ` (${pendingReintegros.length})` : ""}
+                        {filteredPendingReintegros.length > 0 ? ` (${filteredPendingReintegros.length})` : ""}
                       </NavLink>
                     </NavItem>
                   </>
@@ -383,7 +571,7 @@ function KioskReturns() {
                       style={{ cursor: "pointer" }}
                     >
                       Autorizaciones pendientes
-                      {pendingAuthorizations.length > 0 ? ` (${pendingAuthorizations.length})` : ""}
+                      {filteredPendingAuthorizations.length > 0 ? ` (${filteredPendingAuthorizations.length})` : ""}
                     </NavLink>
                   </NavItem>
                 )}
@@ -393,7 +581,7 @@ function KioskReturns() {
                 <TabPane tabId="EXCHANGES">
                   {loading ? (
                     <p>Cargando...</p>
-                  ) : exchanges.length === 0 ? (
+                  ) : filteredExchanges.length === 0 ? (
                     <p>No hay boletas de cambio registradas.</p>
                   ) : (
                     <Table responsive>
@@ -410,10 +598,10 @@ function KioskReturns() {
                         </tr>
                       </thead>
                       <tbody>
-                        {exchanges.map((row) => (
+                        {filteredExchanges.map((row) => (
                           <tr key={row.id}>
                             <td>{row.slipNumber}</td>
-                            <td>{row.kioskName}</td>
+                            <td>{formatKioskLabel(row)}</td>
                             <td>{row.originalSaleNumber}</td>
                             <td>{row.returnedProductName}</td>
                             <td>{row.givenProductName}</td>
@@ -434,7 +622,7 @@ function KioskReturns() {
                 <TabPane tabId="DEPOSIT_RETURNS">
                   {loading ? (
                     <p>Cargando...</p>
-                  ) : depositReturns.length === 0 ? (
+                  ) : filteredDepositReturns.length === 0 ? (
                     <p>
                       No hay devoluciones a bodega registradas
                       {selectedKiosk ? " para este kiosko" : ""}.
@@ -445,7 +633,7 @@ function KioskReturns() {
                       <thead className="text-primary">
                         <tr>
                           <th>Fecha</th>
-                          {!selectedKiosk && <th>Kiosko</th>}
+                          <th>Kiosko</th>
                           <th>Producto</th>
                           <th>Color</th>
                           <th>Cant.</th>
@@ -456,10 +644,10 @@ function KioskReturns() {
                         </tr>
                       </thead>
                       <tbody>
-                        {depositReturns.map((row) => (
+                        {filteredDepositReturns.map((row) => (
                           <tr key={row.id}>
                             <td>{row.createdAt ? formatDateTimeGt(row.createdAt) : "—"}</td>
-                            {!selectedKiosk && <td>{row.locationName || "—"}</td>}
+                            <td>{row.locationName || "—"}</td>
                             <td>
                               {row.productCode ? `${row.productCode} · ` : ""}
                               {row.productName || row.productId || "—"}
@@ -480,7 +668,7 @@ function KioskReturns() {
                 <TabPane tabId="RETURNS">
                   {loading ? (
                     <p>Cargando...</p>
-                  ) : returns.length === 0 ? (
+                  ) : filteredReturns.length === 0 ? (
                     <p>No hay devoluciones de cliente registradas.</p>
                   ) : (
                     <Table responsive>
@@ -498,10 +686,10 @@ function KioskReturns() {
                         </tr>
                       </thead>
                       <tbody>
-                        {returns.map((row) => (
+                        {filteredReturns.map((row) => (
                           <tr key={row.id}>
                             <td>{row.slipNumber}</td>
-                            <td>{row.kioskName}</td>
+                            <td>{formatKioskLabel(row)}</td>
                             <td>{row.originalSaleNumber}</td>
                             <td>{row.returnedProductName}</td>
                             <td>{formatQty(row.returnedQuantity)}</td>
@@ -523,7 +711,7 @@ function KioskReturns() {
                 <TabPane tabId="REINTEGROS">
                   {loading ? (
                     <p>Cargando...</p>
-                  ) : pendingReintegros.length === 0 ? (
+                  ) : filteredPendingReintegros.length === 0 ? (
                     <p>
                       No hay devoluciones pendientes de reintegro a bodega.
                       {" "}Al registrar una devolución de cliente apta, confirma aquí la salida del kiosko para que aparezca en <strong>Sal.</strong> del conteo.
@@ -541,10 +729,10 @@ function KioskReturns() {
                         </tr>
                       </thead>
                       <tbody>
-                        {pendingReintegros.map((row) => (
+                        {filteredPendingReintegros.map((row) => (
                           <tr key={row.id}>
                             <td>{row.slipNumber}</td>
-                            <td>{row.kioskName}</td>
+                            <td>{formatKioskLabel(row)}</td>
                             <td>{row.returnedProductName}</td>
                             <td>{formatQty(row.returnedQuantity)}</td>
                             <td>{row.reason || "—"}</td>
@@ -569,7 +757,7 @@ function KioskReturns() {
                   <TabPane tabId="AUTHORIZATIONS">
                     {loading ? (
                       <p>Cargando...</p>
-                    ) : pendingAuthorizations.length === 0 ? (
+                    ) : filteredPendingAuthorizations.length === 0 ? (
                       <p>No hay cambios pendientes de autorización.</p>
                     ) : (
                       <Table responsive>
@@ -585,10 +773,10 @@ function KioskReturns() {
                           </tr>
                         </thead>
                         <tbody>
-                          {pendingAuthorizations.map((row) => (
+                          {filteredPendingAuthorizations.map((row) => (
                             <tr key={row.id}>
                               <td>{row.slipNumber}</td>
-                              <td>{row.kioskName}</td>
+                              <td>{formatKioskLabel(row)}</td>
                               <td>{row.createdByName || "—"}</td>
                               <td>{row.returnedProductName}</td>
                               <td>{row.givenProductName}</td>

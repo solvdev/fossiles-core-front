@@ -31,6 +31,7 @@ import {
   getShipmentById,
   lookupShipmentsByNumber,
   repairDeliveredShipmentReceiptInventory,
+  updateShipmentObservations,
 } from "services/productDistributionService";
 import * as XLSX from "xlsx-js-style";
 import { getProducts } from "services/productService";
@@ -49,6 +50,7 @@ import { formatShipmentReceiptRepairMessage } from "utils/shipmentReceiptRepairH
 import { isCinchoOrderType, isOpcFamilyProductionOrderCode } from "utils/cinchoProductionHelper";
 import { isLuisFelipeVendorFlow } from "utils/luisFelipeVendorHelper";
 import { extractDestinationFromShipmentNotes } from "utils/opcShipmentHelper";
+import { extractShipmentUserObservation } from "utils/shipmentNotesObservationHelper";
 import {
   PRINT_FONT_FAMILY,
   PRINT_PAPER_HEIGHT_MM,
@@ -76,6 +78,7 @@ import PrepareShipmentsCustomerBlock from "components/distribution/PrepareShipme
 import CreateStandaloneKioskShipmentModal from "components/distribution/CreateStandaloneKioskShipmentModal";
 import EditShipmentProductsModal from "components/distribution/EditShipmentProductsModal";
 import { FilterableSelect } from "components/distribution/FilterableSelect";
+import ShipmentPrintObservationsModal from "components/distribution/ShipmentPrintObservationsModal";
 import OpvShipmentPriceReviewModal from "components/production/OpvShipmentPriceReviewModal";
 import ProductionOrderPartialReleasesPanel from "components/production/ProductionOrderPartialReleasesPanel";
 import ProductionOrderShipmentGenerateModal, {
@@ -703,6 +706,9 @@ function PrepareShipments() {
   const [editProductsShipment, setEditProductsShipment] = useState(null);
   const [opvPriceReviewOpen, setOpvPriceReviewOpen] = useState(false);
   const [opvPendingPrint, setOpvPendingPrint] = useState(false);
+  const [printObsModalOpen, setPrintObsModalOpen] = useState(false);
+  const [printObsInitial, setPrintObsInitial] = useState("");
+  const [printObservationsOverride, setPrintObservationsOverride] = useState(null);
   const [packingQtyByShipment, setPackingQtyByShipment] = useState({});
   const [savingPacking, setSavingPacking] = useState(false);
   const [selectedProductionOrder, setSelectedProductionOrder] = useState(null);
@@ -1976,7 +1982,9 @@ function PrepareShipments() {
     setShipments(updatedShipments);
     setOpvPendingPrint(false);
     if (shouldPrint) {
-      void executeOpvPrint(order, updatedShipments);
+      void executeOpvPrint(order, updatedShipments).finally(() => {
+        setPrintObservationsOverride(null);
+      });
       return;
     }
     try {
@@ -2417,6 +2425,10 @@ function PrepareShipments() {
           createdByName: resolveCreatedByName(shipmentDoc),
           generatedByName: resolveGeneratedByName(shipmentDoc),
           qrDataUrl,
+          shipmentObservations:
+            printObservationsOverride != null
+              ? printObservationsOverride
+              : extractShipmentUserObservation(shipmentDoc?.notes),
         });
       })
     );
@@ -2443,6 +2455,41 @@ function PrepareShipments() {
       showError("Selecciona al menos un envio para imprimir");
       return;
     }
+    const initial =
+      docs.length === 1 ? extractShipmentUserObservation(docs[0]?.notes) : "";
+    setPrintObsInitial(initial);
+    setPrintObsModalOpen(true);
+  };
+
+  const persistPrintObservations = async (observationsText) => {
+    const ids = selectedShipmentIds
+      .map((id) => Number(id))
+      .filter((id) => Number.isFinite(id) && id > 0);
+    if (!ids.length) return;
+    const updatedRows = await Promise.all(
+      ids.map(async (id) => {
+        try {
+          return await updateShipmentObservations(id, observationsText);
+        } catch (_err) {
+          return null;
+        }
+      })
+    );
+    setShipments((prev) =>
+      (prev || []).map((row) => {
+        const refreshed = updatedRows.find((u) => u && Number(u.id) === Number(row.id));
+        return refreshed ? { ...row, notes: refreshed.notes } : row;
+      })
+    );
+  };
+
+  const executePrintSelected = (observationsText = "") => {
+    const docs = buildPrintableDocs();
+    if (docs.length === 0) {
+      showError("Selecciona al menos un envio para imprimir");
+      return;
+    }
+    setPrintObservationsOverride(observationsText);
 
     if (luisFelipePrintFlow) {
       openOpvPriceReview(true);
@@ -2468,12 +2515,14 @@ function PrepareShipments() {
           rows,
           pricingMeta: standaloneMeta || { requestType: "PLANILLA", discountPercent: 50 },
           requestType: standaloneMeta?.requestType,
+          observations: observationsText,
         });
         if (!openOpShipmentPrintWindow(html)) {
           showError("Permita ventanas emergentes para imprimir.");
           return;
         }
       }
+      setPrintObservationsOverride(null);
       return;
     }
 
@@ -2523,6 +2572,11 @@ function PrepareShipments() {
           shipment._printProducts || shipment.products || []
         );
         const notesPayload = parseShipmentMetaNotes(shipment.notes);
+        const observationText =
+          observationsText
+          || extractShipmentUserObservation(shipment.notes)
+          || distributionDescription
+          || "-";
         const shipmentPackingItems = shipment._printPackingItems || resolveShipmentPackingItems(shipment);
         const packingRows = shipmentPackingItems
           .map((item) => {
@@ -2731,7 +2785,7 @@ function PrepareShipments() {
 
             <table class="meta footer-meta">
               <tr>
-                <td colspan="5"><strong>Observacion:</strong> ${notesPayload.baseNotes || distributionDescription || "-"}</td>
+                <td colspan="5"><strong>Observacion:</strong> ${observationText}</td>
               </tr>
               <tr>
                 <td colspan="2"><strong>Vo. Bo.:</strong></td>
@@ -2890,6 +2944,8 @@ function PrepareShipments() {
     printWindow.document.close();
       } catch (err) {
         showError(err?.message || "Error al preparar la impresion");
+      } finally {
+        setPrintObservationsOverride(null);
       }
     })();
   };
@@ -3043,7 +3099,7 @@ function PrepareShipments() {
               ["Total c/envio", "", "", "", "", "", grandTotal > 0 ? formatCurrency(grandTotal) : "Q0.00"],
             ]
           : []),
-        ["Observacion:", notesPayload.baseNotes || distributionDescription || "-", "", "", "", "", ""],
+        ["Observacion:", extractShipmentUserObservation(shipment.notes) || distributionDescription || "-", "", "", "", "", ""],
         ["Vo. Bo.:", "", "", "", "Recibido:", "", ""],
       ];
 
@@ -4575,6 +4631,7 @@ function PrepareShipments() {
         toggle={() => {
           setOpvPriceReviewOpen(false);
           setOpvPendingPrint(false);
+          setPrintObservationsOverride(null);
         }}
         orderId={selectedProductionOrder?.id}
         productCatalogById={productCatalogById}
@@ -4583,6 +4640,23 @@ function PrepareShipments() {
         reviewTitle={priceReviewScope.title}
         confirmLabel={opvPendingPrint ? "Guardar e imprimir" : "Guardar precios"}
         onSaved={handleOpvPricesSaved}
+      />
+
+      <ShipmentPrintObservationsModal
+        isOpen={printObsModalOpen}
+        toggle={() => setPrintObsModalOpen(false)}
+        initialValue={printObsInitial}
+        shipmentCount={selectedShipmentIds.length || 1}
+        confirmLabel={luisFelipePrintFlow ? "Continuar" : "Guardar e imprimir"}
+        onConfirm={async (observationsText) => {
+          try {
+            await persistPrintObservations(observationsText);
+            setPrintObsModalOpen(false);
+            executePrintSelected(observationsText);
+          } catch (err) {
+            showError(err?.message || "No se pudieron guardar las observaciones");
+          }
+        }}
       />
 
       <CreateStandaloneKioskShipmentModal
