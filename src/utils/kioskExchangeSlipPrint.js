@@ -62,9 +62,17 @@ export function buildKioskExchangeSlipPrintHtml(slip, preview) {
       : slip?.givenAmount,
     lineTotal: slip?.givenAmount,
   };
+  const givenLines = preview?.givenItems?.length
+    ? preview.givenItems
+    : slip?.givenItems?.length
+      ? slip.givenItems
+      : [given];
   const ingreso = preview?.returnedAmount ?? slip?.returnedAmount;
   const egreso = preview?.givenAmount ?? slip?.givenAmount;
   const diferencia = preview?.differenceAmount ?? slip?.differenceAmount;
+  const diferenciaLabel = Number(diferencia || 0) > 0.009
+    ? "Diferencia cobrada"
+    : "Diferencia";
 
   return `<!DOCTYPE html>
 <html lang="es">
@@ -110,17 +118,17 @@ export function buildKioskExchangeSlipPrintHtml(slip, preview) {
     <tfoot><tr><th colspan="3">Total ingreso</th><th class="num">${fmtMoney(ingreso)}</th></tr></tfoot>
   </table>
 
-  <div class="section-title">Egreso — producto entregado</div>
+  <div class="section-title">Egreso — producto(s) entregado(s)</div>
   <table>
     <thead><tr><th>Artículo</th><th>Cant.</th><th>P. unit.</th><th>Total</th></tr></thead>
-    <tbody>${buildProductRows([given], "givenAmount")}</tbody>
+    <tbody>${buildProductRows(givenLines, "givenAmount")}</tbody>
     <tfoot><tr><th colspan="3">Total egreso</th><th class="num">${fmtMoney(egreso)}</th></tr></tfoot>
   </table>
 
   <table class="summary">
     <tr><td>Ingreso</td><td class="num">${fmtMoney(ingreso)}</td></tr>
     <tr><td>Egreso</td><td class="num">${fmtMoney(egreso)}</td></tr>
-    <tr><th>Diferencia cobrada</th><th class="num">${fmtMoney(diferencia)}</th></tr>
+    <tr><th>${diferenciaLabel}</th><th class="num">${fmtMoney(diferencia)}</th></tr>
   </table>
 
   ${slip?.observations ? `<p style="margin-top:16px;"><strong>Observaciones:</strong> ${escapeHtml(slip.observations)}</p>` : ""}

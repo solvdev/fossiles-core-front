@@ -111,6 +111,7 @@ function KioskInventory() {
   const [activeTab, setActiveTab] = useState("INVENTARIO");
   const [stockViewFilter, setStockViewFilter] = useState("ALL");
   const [lineItems, setLineItems] = useState([createEmptyLineItem()]);
+  const [cambioGivenLines, setCambioGivenLines] = useState([]);
   const [originStockRows, setOriginStockRows] = useState([]);
   const [boletaLocked, setBoletaLocked] = useState(false);
   const [lookingUpBoleta, setLookingUpBoleta] = useState(false);
@@ -292,6 +293,12 @@ function KioskInventory() {
       cancelled = true;
     };
   }, [form.operation, form.locationOriginId]);
+
+  useEffect(() => {
+    if (form.operation !== "CAMBIO") {
+      setCambioGivenLines([]);
+    }
+  }, [form.operation]);
 
   useEffect(() => {
     if (form.operation !== "TRASLADO") return;
@@ -535,9 +542,22 @@ function KioskInventory() {
     if (form.operation === "CAMBIO") {
       if (!form.locationId) return "Debes seleccionar un kiosko.";
       if (!form.returnedProductId) return "Debes seleccionar el producto que devuelve el cliente.";
-      if (!form.productId) return "Debes seleccionar el producto que se entrega al cliente.";
+      const givenCount = cambioGivenLines.length || (form.productId ? 1 : 0);
+      if (!givenCount) return "Agrega al menos un producto a entregar.";
       if (!Number.isInteger(Number(form.quantity)) || Number(form.quantity) <= 0) {
         return "La cantidad debe ser un entero mayor a cero.";
+      }
+      const returnedProduct = products.find((p) => String(p.id) === String(form.returnedProductId));
+      const returnedPrice = Number(returnedProduct?.salePrice || 0) * Number(form.quantity);
+      const givenSum = (cambioGivenLines.length
+        ? cambioGivenLines
+        : [{ productId: form.productId, quantity: form.quantity }]
+      ).reduce((sum, line) => {
+        const product = products.find((p) => String(p.id) === String(line.productId));
+        return sum + Number(product?.salePrice || 0) * Number(line.quantity || form.quantity || 0);
+      }, 0);
+      if (givenSum + 0.009 < returnedPrice) {
+        return "La diferencia no puede ser negativa. El valor entregado debe ser igual o mayor al devuelto.";
       }
       return "";
     }
@@ -682,17 +702,36 @@ function KioskInventory() {
           reason: String(form.reason || "").trim(),
           productLeftKiosk: Boolean(form.productLeftKiosk),
         };
-      case "CAMBIO":
+      case "CAMBIO": {
+        const givenItems = (cambioGivenLines.length
+          ? cambioGivenLines
+          : [{
+              productId: form.productId,
+              colorId: form.colorId,
+              quantity: form.quantity,
+            }]
+        ).map((line) => ({
+          productId: Number(line.productId),
+          colorId: line.colorId ? Number(line.colorId) : null,
+          quantity: Number(line.quantity || form.quantity),
+          sizeKey: String(line.sizeKey || form.sizeKey || "").trim() || null,
+          hardwareCondition: normalizeHardwareCondition(line.hardwareCondition || form.hardwareCondition) || null,
+        }));
+        const primary = givenItems[0] || {};
         return {
           returnedProductId: Number(form.returnedProductId),
           returnedColorId: form.returnedColorId ? Number(form.returnedColorId) : null,
-          givenProductId: Number(form.productId),
-          givenColorId: form.colorId ? Number(form.colorId) : null,
+          givenItems,
+          givenProductId: primary.productId,
+          givenColorId: primary.colorId ?? null,
           quantity: Number(form.quantity),
+          returnedQuantity: Number(form.quantity),
           referenceId: form.referenceId ? Number(form.referenceId) : null,
           reason: String(form.reason || "").trim() || null,
           userId: form.userId ? Number(form.userId) : null,
+          validateNonNegativePriceDifference: true,
         };
+      }
       case "TRASLADO":
         return {
           locationOriginId: Number(form.locationOriginId),
@@ -882,6 +921,7 @@ function KioskInventory() {
       }));
       setBoletaLocked(false);
       setBoletaHint("");
+      setCambioGivenLines([]);
       if (supportsBulkLines(form.operation)) {
         setLineItems([createEmptyLineItem()]);
       }
@@ -1123,8 +1163,12 @@ function KioskInventory() {
                               disabled={loadingCatalogs}
                             />
                           </FormGroup>
+                          <Alert color="info" className="py-2">
+                            Puedes entregar uno o varios productos. El valor entregado no puede ser menor al
+                            devuelto (precios de catálogo).
+                          </Alert>
                           <FormGroup>
-                            <Label>Producto entregado al cliente</Label>
+                            <Label>Agregar producto entregado</Label>
                             <ProductSelector
                               products={products}
                               value={form.productId}
@@ -1144,6 +1188,76 @@ function KioskInventory() {
                               disabled={loadingCatalogs}
                             />
                           </FormGroup>
+                          <Button
+                            color="secondary"
+                            outline
+                            size="sm"
+                            className="mb-3"
+                            type="button"
+                            onClick={() => {
+                              if (!form.productId) {
+                                setError("Selecciona el producto a entregar antes de agregarlo.");
+                                return;
+                              }
+                              const qty = Number(form.quantity || 1);
+                              if (!(qty > 0)) {
+                                setError("Indica una cantidad válida.");
+                                return;
+                              }
+                              const product = products.find((p) => String(p.id) === String(form.productId));
+                              setCambioGivenLines((prev) => [
+                                ...prev,
+                                {
+                                  id: `${Date.now()}-${form.productId}`,
+                                  productId: form.productId,
+                                  colorId: form.colorId,
+                                  quantity: qty,
+                                  productCode: product?.code,
+                                  productName: product?.name,
+                                  sizeKey: form.sizeKey,
+                                  hardwareCondition: form.hardwareCondition,
+                                },
+                              ]);
+                              onFormChange("productId", "");
+                              onFormChange("colorId", "");
+                              setError("");
+                            }}
+                          >
+                            Agregar a la entrega
+                          </Button>
+                          {cambioGivenLines.length > 0 && (
+                            <Table size="sm" className="mb-3">
+                              <thead>
+                                <tr>
+                                  <th>Producto</th>
+                                  <th>Cant.</th>
+                                  <th />
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {cambioGivenLines.map((line) => (
+                                  <tr key={line.id}>
+                                    <td>
+                                      {line.productCode || `#${line.productId}`} · {line.productName || ""}
+                                    </td>
+                                    <td>{line.quantity}</td>
+                                    <td>
+                                      <Button
+                                        color="link"
+                                        className="text-danger p-0"
+                                        type="button"
+                                        onClick={() =>
+                                          setCambioGivenLines((prev) => prev.filter((row) => row.id !== line.id))
+                                        }
+                                      >
+                                        Quitar
+                                      </Button>
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </Table>
+                          )}
                         </>
                       ) : supportsBulkLines(form.operation) ? (
                         <>
