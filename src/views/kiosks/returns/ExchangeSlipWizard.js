@@ -615,7 +615,6 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
 
   const differenceAmount = Number(displayPreview?.differenceAmount || 0);
   const hasPriceDifference = differenceAmount > 0.009;
-  const hasZeroDifference = Math.abs(differenceAmount) <= 0.009;
   const hasNegativeDifference = differenceAmount < -0.009;
 
   const buildCompleteRequest = (payment = {}) => {
@@ -986,7 +985,7 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
               <div className="kiosk-exchange-hint">
                 <span className="kiosk-exchange-hint-icon" aria-hidden>i</span>
                 <span>
-                  Puedes entregar uno o varios productos. Si el valor entregado es mayor se cobra; si es igual, sin cobro; nunca negativo.
+                  Puedes entregar uno o varios productos. Si el valor entregado es mayor se cobra; si es igual, sin cobro; si es menor queda saldo a favor (sin reembolso).
                 </span>
               </div>
               <div className="kiosk-exchange-panel">
@@ -1134,14 +1133,14 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
                     Total egreso: <strong>{formatCurrency(displayPreview.givenAmount)}</strong>
                   </p>
                 </div>
-                <div className={`kiosk-exchange-summary-card${hasNegativeDifference ? "" : " is-diff"}`}>
+                <div className={`kiosk-exchange-summary-card${hasNegativeDifference || hasPriceDifference ? " is-diff" : ""}`}>
                   <h6>Diferencia</h6>
                   <div className="kiosk-exchange-diff-value">
                     {formatCurrency(displayPreview.differenceAmount)}
                   </div>
                   {hasNegativeDifference && (
-                    <p className="text-danger small mt-2 mb-0">
-                      No se permite diferencia negativa. Agrega productos de mayor valor.
+                    <p className="text-warning small mt-2 mb-0">
+                      Saldo a favor del cliente: {formatCurrency(Math.abs(differenceAmount))}. No se reembolsa dinero; queda registrado en la boleta.
                     </p>
                   )}
                   {canEditPrices ? (
@@ -1175,12 +1174,14 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
                     placeholder="Ej: BC-0042"
                   />
                 </div>
-                {!hasPriceDifference && !hasNegativeDifference && (
+                {!hasPriceDifference && (
                   <>
                     <div className="kiosk-exchange-hint mt-3">
                       <span className="kiosk-exchange-hint-icon" aria-hidden>i</span>
                       <span>
-                        Sin diferencia: no hay cobro. Supervisora debe autorizar antes de mover inventario.
+                        {hasNegativeDifference
+                          ? "Saldo a favor: no hay cobro ni reembolso. Supervisora debe autorizar antes de mover inventario."
+                          : "Sin diferencia: no hay cobro. Supervisora debe autorizar antes de mover inventario."}
                       </span>
                     </div>
                     <div className="kiosk-exchange-field mt-3">
@@ -1233,7 +1234,7 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
               Cobrar y confirmar
             </Button>
           )}
-          {step === 4 && displayPreview && hasZeroDifference && (
+          {step === 4 && displayPreview && !hasPriceDifference && (
             <Button color="success" onClick={() => void handleSubmitAuthorizationRequest()} disabled={saving}>
               {saving ? "Enviando..." : "Enviar solicitud de cambio"}
             </Button>

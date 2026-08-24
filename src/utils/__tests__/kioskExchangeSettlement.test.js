@@ -33,7 +33,7 @@ describe("applyExchangePackagingCredit", () => {
     });
   });
 
-  it("computes negative difference when given is cheaper (UI/API must block)", () => {
+  it("computes negative difference as customer credit (no refund)", () => {
     const result = applyExchangePackagingCredit({
       productReturnedAmount: 250,
       productGivenAmount: 180,
@@ -45,7 +45,7 @@ describe("applyExchangePackagingCredit", () => {
       givenAmount: 180,
       differenceAmount: -85,
     });
-    expect(isExchangeDifferenceAllowed(result.differenceAmount)).toBe(false);
+    expect(isExchangeDifferenceAllowed(result.differenceAmount)).toBe(true);
   });
 });
 
@@ -66,7 +66,7 @@ describe("isExchangeDifferenceAllowed", () => {
     expect(isExchangeDifferenceAllowed(10)).toBe(true);
   });
 
-  it("rejects negative", () => {
-    expect(isExchangeDifferenceAllowed(-0.01)).toBe(false);
+  it("allows negative (customer credit)", () => {
+    expect(isExchangeDifferenceAllowed(-0.01)).toBe(true);
   });
 });

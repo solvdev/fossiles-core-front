@@ -72,7 +72,9 @@ export function buildKioskExchangeSlipPrintHtml(slip, preview) {
   const diferencia = preview?.differenceAmount ?? slip?.differenceAmount;
   const diferenciaLabel = Number(diferencia || 0) > 0.009
     ? "Diferencia cobrada"
-    : "Diferencia";
+    : Number(diferencia || 0) < -0.009
+      ? "Saldo a favor del cliente"
+      : "Diferencia";
 
   return `<!DOCTYPE html>
 <html lang="es">
