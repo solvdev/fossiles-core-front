@@ -38,7 +38,8 @@ export function applyExchangePackagingCredit({
   };
 }
 
-/** Regla de negocio: solo diferencia ≥ 0 (cobro o sin diferencia). */
+/** Toda diferencia es válida; negativa = saldo a favor del cliente (sin reembolso). */
 export function isExchangeDifferenceAllowed(differenceAmount) {
-  return roundExchangeMoney(differenceAmount) >= 0;
+  const value = roundExchangeMoney(differenceAmount);
+  return Number.isFinite(value);
 }
