@@ -547,18 +547,6 @@ function KioskInventory() {
       if (!Number.isInteger(Number(form.quantity)) || Number(form.quantity) <= 0) {
         return "La cantidad debe ser un entero mayor a cero.";
       }
-      const returnedProduct = products.find((p) => String(p.id) === String(form.returnedProductId));
-      const returnedPrice = Number(returnedProduct?.salePrice || 0) * Number(form.quantity);
-      const givenSum = (cambioGivenLines.length
-        ? cambioGivenLines
-        : [{ productId: form.productId, quantity: form.quantity }]
-      ).reduce((sum, line) => {
-        const product = products.find((p) => String(p.id) === String(line.productId));
-        return sum + Number(product?.salePrice || 0) * Number(line.quantity || form.quantity || 0);
-      }, 0);
-      if (givenSum + 0.009 < returnedPrice) {
-        return "La diferencia no puede ser negativa. El valor entregado debe ser igual o mayor al devuelto.";
-      }
       return "";
     }
     if (form.operation === "TRASLADO") {
@@ -729,7 +717,6 @@ function KioskInventory() {
           referenceId: form.referenceId ? Number(form.referenceId) : null,
           reason: String(form.reason || "").trim() || null,
           userId: form.userId ? Number(form.userId) : null,
-          validateNonNegativePriceDifference: true,
         };
       }
       case "TRASLADO":
