@@ -2,6 +2,8 @@ import React, { useEffect, useMemo, useState } from "react";
 import { Input, Label, Modal, ModalBody } from "reactstrap";
 import { lookupTaxpayerByNit } from "services/kioskPosService";
 import {
+  DEFAULT_POS_CARD_BRAND,
+  POS_CARD_BRANDS,
   formatCurrency,
   formatFelCustomerName,
   formatVoucherDiffAlert,
@@ -34,6 +36,7 @@ function ExchangeCheckoutModal({
   const [amountReceived, setAmountReceived] = useState("");
   const [cashAmount, setCashAmount] = useState("");
   const [cardAmount, setCardAmount] = useState("");
+  const [cardBrand, setCardBrand] = useState(DEFAULT_POS_CARD_BRAND);
   const [cardAuthNumber, setCardAuthNumber] = useState("");
   const [cardLast4, setCardLast4] = useState("");
   const [cardVoucherAmount, setCardVoucherAmount] = useState("");
@@ -48,6 +51,7 @@ function ExchangeCheckoutModal({
     setAmountReceived("");
     setCashAmount("");
     setCardAmount("");
+    setCardBrand(DEFAULT_POS_CARD_BRAND);
     setCardAuthNumber("");
     setCardLast4("");
     setCardVoucherAmount("");
@@ -105,7 +109,8 @@ function ExchangeCheckoutModal({
   const cardDataIncomplete =
     requiresCardData
     && (
-      !cardAuthNumber.trim()
+      !cardBrand.trim()
+      || !cardAuthNumber.trim()
       || !/^\d{4}$/.test(cardLast4.trim())
       || !(Number(cardVoucherAmount || 0) > 0)
     );
@@ -183,6 +188,7 @@ function ExchangeCheckoutModal({
       amountReceived: amountReceived ? Number(amountReceived) : totalDue > 0 ? totalDue : 0,
       cashAmount: cashAmount ? Number(cashAmount) : null,
       cardAmount: cardAmount ? Number(cardAmount) : null,
+      cardBrand: requiresCardData ? cardBrand.trim() : null,
       cardAuthNumber: requiresCardData ? cardAuthNumber.trim() : null,
       cardLast4: requiresCardData ? cardLast4.trim() : null,
       cardVoucherAmount: requiresCardData ? Number(cardVoucherAmount) : null,
@@ -351,6 +357,21 @@ function ExchangeCheckoutModal({
           <div className="kiosk-pos-checkout-section">
             <div className="kiosk-pos-mixto-grid">
               <div>
+                <Label className="kiosk-pos-label">Marca de tarjeta</Label>
+                <Input
+                  type="select"
+                  className="kiosk-pos-input-lg"
+                  value={cardBrand}
+                  onChange={(e) => setCardBrand(e.target.value)}
+                >
+                  {POS_CARD_BRANDS.map((brand) => (
+                    <option key={brand.value} value={brand.value}>
+                      {brand.label}
+                    </option>
+                  ))}
+                </Input>
+              </div>
+              <div>
                 <Label className="kiosk-pos-label">Número de voucher</Label>
                 <Input
                   className="kiosk-pos-input-lg"
@@ -459,6 +480,21 @@ function ExchangeCheckoutModal({
               )}
               {requiresCardData && (
                 <>
+                  <div>
+                    <Label className="kiosk-pos-label">Marca de tarjeta</Label>
+                    <Input
+                      type="select"
+                      className="kiosk-pos-input-lg"
+                      value={cardBrand}
+                      onChange={(e) => setCardBrand(e.target.value)}
+                    >
+                      {POS_CARD_BRANDS.map((brand) => (
+                        <option key={brand.value} value={brand.value}>
+                          {brand.label}
+                        </option>
+                      ))}
+                    </Input>
+                  </div>
                   <div>
                     <Label className="kiosk-pos-label">Número de voucher</Label>
                     <Input
