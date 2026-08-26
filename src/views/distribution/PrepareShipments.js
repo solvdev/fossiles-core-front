@@ -48,6 +48,7 @@ import {
 import { showError, showSuccess, showWarning } from "utils/notificationHelper";
 import { formatShipmentReceiptRepairMessage } from "utils/shipmentReceiptRepairHelper";
 import { isCinchoOrderType, isOpcFamilyProductionOrderCode } from "utils/cinchoProductionHelper";
+import { resolveCinchoUnitPriceWithSize } from "utils/productCinchoHelper";
 import { isLuisFelipeVendorFlow } from "utils/luisFelipeVendorHelper";
 import { extractDestinationFromShipmentNotes } from "utils/opcShipmentHelper";
 import { extractShipmentUserObservation } from "utils/shipmentNotesObservationHelper";
@@ -1909,41 +1910,37 @@ function PrepareShipments() {
         }) || orderItems.find((row) => Number(row.productId) === Number(item?.productId));
 
       if (orderItem) {
-        const hasSizedMap =
-          orderItem.unitPrices &&
-          typeof orderItem.unitPrices === "object" &&
-          Object.keys(orderItem.unitPrices).length > 0;
-        if (hasSizedMap) {
+        const preferSeller = isLuisFelipeVendorFlow(order?.orderType, order?.sellerName);
+        if (sizeKey) {
           const fromOrderSized = resolveOpvUnitPriceForSize(
             orderItem,
             sizeKey,
             productCatalogById,
-            isLuisFelipeVendorFlow(order?.orderType, order?.sellerName)
+            preferSeller
           );
           if (Number.isFinite(fromOrderSized) && fromOrderSized >= 0) return fromOrderSized;
-        } else if (!sizeKey) {
-          const fromOrder = Number(orderItem.unitPrice);
-          if (Number.isFinite(fromOrder) && fromOrder > 0) return fromOrder;
         }
-      }
-
-      const fromItem = Number(item?.unitPrice);
-      if (Number.isFinite(fromItem) && fromItem > 0) return fromItem;
-
-      if (orderItem) {
         const fromOrder = Number(orderItem.unitPrice);
         if (Number.isFinite(fromOrder) && fromOrder > 0) return fromOrder;
       }
 
+      const fromItem = Number(item?.unitPrice);
+      if (Number.isFinite(fromItem) && fromItem > 0) {
+        return sizeKey
+          ? resolveCinchoUnitPriceWithSize(fromItem, sizeKey)
+          : fromItem;
+      }
+
       const productId = Number(item?.productId);
       if (!Number.isFinite(productId) || productId <= 0) {
-        return Number(item?.price || 0);
+        const fallback = Number(item?.price || 0);
+        return sizeKey ? resolveCinchoUnitPriceWithSize(fallback, sizeKey) : fallback;
       }
       const useSeller = isLuisFelipeVendorFlow(order?.orderType, order?.sellerName);
-      if (useSeller) {
-        return Number(sellerPriceById[productId] || productPriceById[productId] || item?.price || 0);
-      }
-      return Number(productPriceById[productId] || item?.price || 0);
+      const catalog = useSeller
+        ? Number(sellerPriceById[productId] || productPriceById[productId] || item?.price || 0)
+        : Number(productPriceById[productId] || item?.price || 0);
+      return sizeKey ? resolveCinchoUnitPriceWithSize(catalog, sizeKey) : catalog;
     },
     [productCatalogById, productPriceById, sellerPriceById]
   );
