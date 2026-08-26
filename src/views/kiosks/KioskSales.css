@@ -2077,6 +2077,13 @@
   line-height: 1.1;
 }
 
+.kiosk-pos-cincho-size-price {
+  margin-top: 2px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--pos-text-primary, #1e293b);
+}
+
 .kiosk-pos-cincho-size-stock {
   margin-top: 4px;
   font-size: 0.7rem;

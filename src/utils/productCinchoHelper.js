@@ -8,6 +8,24 @@ export const KIDS_CINCHO_SIZES = ["16", "18", "20", "22", "24", "26", "28", "30"
 export const resolveCinchoSizesForProduct = (product) =>
   product?.cinchoForKids ? KIDS_CINCHO_SIZES : ADULT_CINCHO_SIZES;
 
+/**
+ * Recargo POS por talla de cincho (sobre precio de catálogo):
+ * 44–48 → Q50; 50+ → Q100.
+ */
+export const cinchoSizePriceSurcharge = (size) => {
+  const n = Number(String(size ?? "").trim());
+  if (!Number.isFinite(n)) return 0;
+  if (n >= 50) return 100;
+  if (n >= 44) return 50;
+  return 0;
+};
+
+export const resolveCinchoUnitPriceWithSize = (basePrice, size) => {
+  const base = Number(basePrice || 0);
+  if (!(base > 0)) return 0;
+  return Math.round((base + cinchoSizePriceSurcharge(size)) * 100) / 100;
+};
+
 export const CINCHO_COUNT_LOCATION = {
   VITRINE: "E",
   WAREHOUSE: "BO",

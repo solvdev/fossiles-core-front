@@ -35,7 +35,7 @@ import { issueTaxInvoiceFromKioskSale } from "services/taxInvoiceService";
 import { countShipmentsInTransit } from "services/productDistributionService";
 import { getTodayYmdGuatemala } from "utils/dateTimeHelper";
 import { isPackagingProductCode } from "utils/kioskPackagingHelper";
-import { filterVisibleKioskStockRows } from "utils/productCinchoHelper";
+import { filterVisibleKioskStockRows, resolveCinchoUnitPriceWithSize } from "utils/productCinchoHelper";
 import { showError, showSuccess } from "utils/notificationHelper";
 import PosAdminKioskPicker from "./pos/PosAdminKioskPicker";
 import PosCatalogPanel from "./pos/PosCatalogPanel";
@@ -314,7 +314,10 @@ function KioskSales() {
           line.key === key ? { ...line, quantity: nextQty } : line
         );
       }
-      const catalogUnitPrice = Number(inventoryItem.suggestedUnitPrice || 0);
+      const basePrice = Number(inventoryItem.suggestedUnitPrice || 0);
+      const catalogUnitPrice = size
+        ? resolveCinchoUnitPriceWithSize(basePrice, size)
+        : basePrice;
       return [
         ...prev,
         {

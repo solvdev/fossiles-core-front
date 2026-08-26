@@ -1,5 +1,6 @@
 import React, { useMemo } from "react";
 import { Button, Modal, ModalBody } from "reactstrap";
+import { cinchoSizePriceSurcharge, resolveCinchoUnitPriceWithSize } from "utils/productCinchoHelper";
 import {
   formatCurrency,
   formatQty,
@@ -10,6 +11,11 @@ import {
 
 function PosCinchoPickModal({ isOpen, variant, cartQtyBySize, onPickSize, onClose }) {
   const sizeEntries = useMemo(() => posVariantSizeEntries(variant), [variant]);
+  const basePrice = Number(variant?.suggestedUnitPrice || 0);
+  const hasAnySurcharge = useMemo(
+    () => sizeEntries.some((entry) => cinchoSizePriceSurcharge(entry.size) > 0),
+    [sizeEntries]
+  );
 
   if (!variant) return null;
 
@@ -65,6 +71,8 @@ function PosCinchoPickModal({ isOpen, variant, cartQtyBySize, onPickSize, onClos
               const inCart = Number(cartQtyBySize?.[size] || 0);
               const outOfStock = quantity <= 0;
               const lowStock = quantity > 0 && quantity <= 2;
+              const sizePrice = resolveCinchoUnitPriceWithSize(basePrice, size);
+              const showSizePrice = hasAnySurcharge && basePrice > 0;
               return (
                 <button
                   key={size}
@@ -77,6 +85,9 @@ function PosCinchoPickModal({ isOpen, variant, cartQtyBySize, onPickSize, onClos
                 >
                   {inCart > 0 && <span className="kiosk-pos-qty-badge">{formatQty(inCart)}</span>}
                   <span className="kiosk-pos-cincho-size-label">{size}</span>
+                  {showSizePrice && (
+                    <span className="kiosk-pos-cincho-size-price">{formatCurrency(sizePrice)}</span>
+                  )}
                   <span className="kiosk-pos-cincho-size-stock">{formatQty(quantity)} disp.</span>
                 </button>
               );
