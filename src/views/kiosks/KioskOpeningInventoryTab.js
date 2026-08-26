@@ -157,26 +157,58 @@ function countOpeningCaptureStats(items) {
   };
 }
 
+const EXTRA_SIZE_MIN = 16;
+const EXTRA_SIZE_MAX = 70;
+
 function OpeningInventorySizeModal({ isOpen, toggle, productLabel, sizeKeys, initialSizes, onApply, disabled }) {
   const [draft, setDraft] = useState({});
+  const [orderedKeys, setOrderedKeys] = useState([]);
+  const [extraSizeInput, setExtraSizeInput] = useState("");
+  const [extraSizeError, setExtraSizeError] = useState("");
 
   useEffect(() => {
     if (!isOpen) return;
+    const keys = sortSizeKeys(sizeKeys || []);
     const next = {};
-    (sizeKeys || []).forEach((size) => {
+    keys.forEach((size) => {
       next[size] = String(normalizeQty(initialSizes?.[size]));
     });
     setDraft(next);
+    setOrderedKeys(keys);
+    setExtraSizeInput("");
+    setExtraSizeError("");
   }, [isOpen, initialSizes, sizeKeys]);
 
   const total = sumSizeCounts(
     Object.fromEntries(Object.entries(draft).map(([k, v]) => [k, normalizeQty(v)]))
   );
 
+  const handleAddSize = () => {
+    const raw = String(extraSizeInput || "").trim();
+    if (!/^\d+$/.test(raw)) {
+      setExtraSizeError("Ingresa un número entero.");
+      return;
+    }
+    const n = Number(raw);
+    if (n < EXTRA_SIZE_MIN || n > EXTRA_SIZE_MAX) {
+      setExtraSizeError(`La talla debe estar entre ${EXTRA_SIZE_MIN} y ${EXTRA_SIZE_MAX}.`);
+      return;
+    }
+    const key = String(n);
+    if (orderedKeys.includes(key)) {
+      setExtraSizeError(`La talla ${key} ya está en la lista.`);
+      return;
+    }
+    setOrderedKeys((prev) => sortSizeKeys([...prev, key]));
+    setDraft((prev) => ({ ...prev, [key]: "0" }));
+    setExtraSizeInput("");
+    setExtraSizeError("");
+  };
+
   const handleApply = () => {
     const sizes = {};
-    Object.entries(draft).forEach(([size, value]) => {
-      sizes[size] = normalizeQty(value);
+    orderedKeys.forEach((size) => {
+      sizes[size] = normalizeQty(draft[size]);
     });
     onApply(sizes, total);
   };
@@ -185,7 +217,7 @@ function OpeningInventorySizeModal({ isOpen, toggle, productLabel, sizeKeys, ini
     <Modal isOpen={isOpen} toggle={toggle} centered>
       <ModalHeader toggle={toggle}>Tallas — {productLabel || "Producto"}</ModalHeader>
       <ModalBody>
-        <Table size="sm" className="mb-0">
+        <Table size="sm" className="mb-2">
           <thead>
             <tr>
               <th>Talla</th>
@@ -193,7 +225,7 @@ function OpeningInventorySizeModal({ isOpen, toggle, productLabel, sizeKeys, ini
             </tr>
           </thead>
           <tbody>
-            {(sizeKeys || []).map((size) => (
+            {orderedKeys.map((size) => (
               <tr key={size}>
                 <td>{size}</td>
                 <td className="text-right">
@@ -221,6 +253,39 @@ function OpeningInventorySizeModal({ isOpen, toggle, productLabel, sizeKeys, ini
             </tr>
           </tbody>
         </Table>
+        {!disabled && (
+          <div className="d-flex align-items-start flex-wrap" style={{ gap: 8 }}>
+            <Input
+              type="number"
+              min={EXTRA_SIZE_MIN}
+              max={EXTRA_SIZE_MAX}
+              step="1"
+              bsSize="sm"
+              placeholder="Ej. 48"
+              style={{ width: 100 }}
+              value={extraSizeInput}
+              onChange={(e) => {
+                const next = e.target.value;
+                if (next === "" || /^\d+$/.test(next)) {
+                  setExtraSizeInput(next);
+                  setExtraSizeError("");
+                }
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  handleAddSize();
+                }
+              }}
+            />
+            <Button color="secondary" outline size="sm" type="button" onClick={handleAddSize}>
+              Agregar talla
+            </Button>
+            {extraSizeError ? (
+              <div className="text-danger small w-100 mb-0">{extraSizeError}</div>
+            ) : null}
+          </div>
+        )}
       </ModalBody>
       <ModalFooter>
         <Button color="secondary" outline size="sm" onClick={toggle}>Cancelar</Button>
