@@ -32,6 +32,7 @@ const WarehouseOrderDetail = ({
   order,
   mode = "receipt",
   onRefresh,
+  onOrderSummaryUpdate,
 }) => {
   const [workspace, setWorkspace] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -146,6 +147,12 @@ const WarehouseOrderDetail = ({
     });
   };
 
+  const mergeServerSummary = (summary) => {
+    if (!summary) return;
+    setWorkspace((prev) => (prev ? { ...prev, summary } : prev));
+    onOrderSummaryUpdate?.(order.productionOrderId, summary);
+  };
+
   const refreshAfterMutation = async () => {
     await loadWorkspace({ silent: true });
     if (onRefresh) onRefresh({ silent: true });
@@ -155,7 +162,7 @@ const WarehouseOrderDetail = ({
     if (!unitList?.length) return;
     setSaving(true);
     try {
-      await updateWarehouseUnitsReceipt(order.productionOrderId, {
+      const result = await updateWarehouseUnitsReceipt(order.productionOrderId, {
         units: unitList.map((u) => ({
           unitId: u.id,
           receiptStatus,
@@ -169,8 +176,8 @@ const WarehouseOrderDetail = ({
         receiptStatus,
         rejectionReason
       );
+      mergeServerSummary(result?.summary);
       setSelection({});
-      await refreshAfterMutation();
     } catch (err) {
       showError(err.message || "Error al actualizar recepción");
     } finally {
@@ -223,9 +230,15 @@ const WarehouseOrderDetail = ({
   };
 
   const setSelectedQty = (group, qty) => {
+    const n = clampQty(qty, group.pendingUnits.length);
     setSelection((prev) => {
       if (!(group.key in prev)) return prev;
-      return { ...prev, [group.key]: clampQty(qty, group.pendingUnits.length) };
+      if (n <= 0) {
+        const next = { ...prev };
+        delete next[group.key];
+        return next;
+      }
+      return { ...prev, [group.key]: n };
     });
   };
 
@@ -302,40 +315,46 @@ const WarehouseOrderDetail = ({
       <Progress value={progress.pct} color={progress.pct >= 100 ? "success" : "info"} className="mb-3" style={{ height: 8 }} />
 
       {mode === "receipt" && !receiptClosed && (
-        <div className="d-flex flex-wrap mb-3" style={{ gap: 8 }}>
-          <Button
-            size="sm"
-            color="success"
-            disabled={saving || selectedPieceCount <= 0}
-            onClick={() => void receiveSelected()}
-          >
-            {saving ? <Spinner size="sm" /> : `Recibir seleccionados (${selectedPieceCount})`}
-          </Button>
-          <Button
-            size="sm"
-            color="secondary"
-            outline
-            disabled={saving || pendingVisibleGroups.length === 0}
-            onClick={selectVisiblePending}
-          >
-            Seleccionar visibles ({pendingVisibleGroups.length})
-          </Button>
-          <Button
-            size="sm"
-            color="secondary"
-            outline
-            disabled={saving || selectedGroupCount === 0}
-            onClick={clearSelection}
-          >
-            Limpiar selección
-          </Button>
-          <Button size="sm" color="success" outline disabled={saving || pendingUnits.length === 0} onClick={() => void receiveAllPending()}>
-            Recibir todas pendientes ({pendingUnits.length})
-          </Button>
-          <Button size="sm" color="dark" outline disabled={saving || progress.pending > 0} onClick={() => void handleCloseReceipt()}>
-            Cerrar recepción en bodega
-          </Button>
-        </div>
+        <>
+          <div className="d-flex flex-wrap align-items-center justify-content-between mb-3" style={{ gap: 8 }}>
+            <div className="text-muted small">
+              {pendingVisibleGroups.length > 0
+                ? "Toca cada lote para marcarlo. Ajusta cantidad si no recibes todo el lote."
+                : "No hay lotes pendientes con este filtro."}
+            </div>
+            <div className="d-flex flex-wrap" style={{ gap: 8 }}>
+              {pendingVisibleGroups.length > 0 && selectedGroupCount === 0 && (
+                <Button
+                  size="sm"
+                  color="link"
+                  className="p-0"
+                  disabled={saving}
+                  onClick={selectVisiblePending}
+                >
+                  Marcar todos los visibles ({pendingVisibleGroups.length})
+                </Button>
+              )}
+              <Button
+                size="sm"
+                color="success"
+                outline
+                disabled={saving || pendingUnits.length === 0}
+                onClick={() => void receiveAllPending()}
+              >
+                Recibir todo de la OP ({pendingUnits.length})
+              </Button>
+              <Button
+                size="sm"
+                color="dark"
+                outline
+                disabled={saving || progress.pending > 0}
+                onClick={() => void handleCloseReceipt()}
+              >
+                Cerrar recepción
+              </Button>
+            </div>
+          </div>
+        </>
       )}
 
       {mode === "orders" && !receiptClosed && progress.pending === 0 && (
@@ -404,6 +423,46 @@ const WarehouseOrderDetail = ({
             onRejectQty={rejectGroupQty}
           />
         ))
+      )}
+
+      {canSelectLots && selectedPieceCount > 0 && (
+        <div
+          className="d-flex flex-wrap align-items-center justify-content-between rounded shadow mt-2 px-3 py-3"
+          style={{
+            gap: 12,
+            background: "linear-gradient(135deg, #1e7e34 0%, #28a745 100%)",
+            color: "#fff",
+            position: "sticky",
+            bottom: 8,
+            zIndex: 10,
+          }}
+        >
+          <div>
+            <div style={{ fontWeight: 700, fontSize: 17 }}>
+              {selectedGroupCount} lote{selectedGroupCount === 1 ? "" : "s"} · {selectedPieceCount} pieza{selectedPieceCount === 1 ? "" : "s"}
+            </div>
+            <div className="small" style={{ opacity: 0.9 }}>Confirmar recepción en bodega</div>
+          </div>
+          <div className="d-flex flex-wrap" style={{ gap: 8 }}>
+            <Button
+              color="light"
+              outline
+              disabled={saving}
+              onClick={clearSelection}
+              style={{ borderColor: "rgba(255,255,255,0.6)", color: "#fff" }}
+            >
+              Limpiar
+            </Button>
+            <Button
+              color="light"
+              disabled={saving}
+              onClick={() => void receiveSelected()}
+              style={{ fontWeight: 700, minWidth: 160, fontSize: 16 }}
+            >
+              {saving ? <Spinner size="sm" /> : `Recibir ${selectedPieceCount}`}
+            </Button>
+          </div>
+        </div>
       )}
 
       {mode === "orders" && order.dispatchType === "CUSTOMER_SHIPMENTS" && order.customerShipments?.length > 0 && (

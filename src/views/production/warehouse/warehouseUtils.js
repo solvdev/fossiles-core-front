@@ -275,10 +275,11 @@ export const filterOrders = (orders, {
 export const PAGE_SIZE_RECEIPT = 20;
 
 export const getOrderQtyProgress = (order, summary) => {
-  if (summary) {
-    const total = Number(summary.totalUnits || 0);
-    const produced = Number(summary.receivedUnits || 0) + Number(summary.rejectedUnits || 0);
-    const pending = Number(summary.pendingUnits || 0);
+  const ws = summary || order?.warehouseWorkspaceSummary;
+  if (ws) {
+    const total = Number(ws.totalUnits || 0);
+    const produced = Number(ws.receivedUnits || 0) + Number(ws.rejectedUnits || 0);
+    const pending = Number(ws.pendingUnits || 0);
     const pct = total > 0 ? Math.round((produced / total) * 100) : 0;
     return { total, produced, pending, pct };
   }
@@ -294,6 +295,8 @@ export const getOrderQtyProgress = (order, summary) => {
 };
 
 export const getPendingReceiptQty = (order) => {
+  const ws = order?.warehouseWorkspaceSummary;
+  if (ws) return Number(ws.pendingUnits || 0);
   return (order.items || []).reduce((sum, item) => {
     const planned = Number(item.quantity || 0);
     const received = Number(item.warehouseReceivedQty || 0);

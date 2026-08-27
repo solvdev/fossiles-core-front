@@ -38,6 +38,21 @@ const WarehouseView = () => {
     [orders]
   );
 
+  const patchOrderSummary = useCallback((orderId, summary) => {
+    if (!orderId || !summary) return;
+    setOrders((prev) => prev.map((o) => {
+      if (o.productionOrderId !== orderId) return o;
+      const produced = Number(summary.receivedUnits || 0) + Number(summary.rejectedUnits || 0);
+      const total = Number(summary.totalUnits || o.totalQuantity || 0);
+      return {
+        ...o,
+        warehouseWorkspaceSummary: summary,
+        totalQuantity: total > 0 ? total : o.totalQuantity,
+        warehouseReceivedQty: produced,
+      };
+    }));
+  }, []);
+
   return (
     <div className="content">
       <Row>
@@ -111,10 +126,18 @@ const WarehouseView = () => {
                   </Nav>
                   <TabContent activeTab={activeTab}>
                     <TabPane tabId="receipt">
-                      <WarehouseReceiptTab orders={orders} onRefresh={fetchData} />
+                      <WarehouseReceiptTab
+                        orders={orders}
+                        onRefresh={fetchData}
+                        onOrderSummaryUpdate={patchOrderSummary}
+                      />
                     </TabPane>
                     <TabPane tabId="orders">
-                      <WarehouseOrdersTab orders={orders} onRefresh={fetchData} />
+                      <WarehouseOrdersTab
+                        orders={orders}
+                        onRefresh={fetchData}
+                        onOrderSummaryUpdate={patchOrderSummary}
+                      />
                     </TabPane>
                   </TabContent>
                 </>
