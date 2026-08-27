@@ -22,6 +22,12 @@ import {
 } from "./warehouseUtils";
 import DispatchModal from "./DispatchModal";
 
+const clampQty = (raw, max) => {
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < 0) return 0;
+  return Math.min(Math.floor(n), max);
+};
+
 const WarehouseOrderDetail = ({
   order,
   mode = "receipt",
@@ -33,27 +39,31 @@ const WarehouseOrderDetail = ({
   const [dispatchModal, setDispatchModal] = useState({ open: false, sale: null });
   const [unitSearch, setUnitSearch] = useState("");
   const [unitStatusFilter, setUnitStatusFilter] = useState(mode === "receipt" ? "PENDING" : "ALL");
+  /** @type {[Record<string, number>, Function]} groupKey → qty a recibir */
+  const [selection, setSelection] = useState({});
 
-  const loadWorkspace = useCallback(async () => {
+  const loadWorkspace = useCallback(async (options = {}) => {
     if (!order?.productionOrderId) return;
-    setLoading(true);
+    const silent = options?.silent === true;
+    if (!silent) setLoading(true);
     try {
       const data = await getWarehouseWorkspace(order.productionOrderId);
       setWorkspace(data);
     } catch (err) {
       showError(err.message || "Error al cargar piezas de la orden");
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, [order?.productionOrderId]);
 
   useEffect(() => {
-    loadWorkspace();
+    void loadWorkspace();
   }, [loadWorkspace]);
 
   useEffect(() => {
     setUnitSearch("");
     setUnitStatusFilter(mode === "receipt" ? "PENDING" : "ALL");
+    setSelection({});
   }, [order?.productionOrderId, mode]);
 
   const units = workspace?.units || [];
@@ -82,6 +92,65 @@ const WarehouseOrderDetail = ({
 
   const visibleGroups = useMemo(() => groupWarehouseUnits(visibleUnits), [visibleUnits]);
 
+  const pendingVisibleGroups = useMemo(
+    () => visibleGroups.filter((g) => Number(g.pendingCount || 0) > 0),
+    [visibleGroups]
+  );
+
+  const selectedPieceCount = useMemo(() => {
+    let total = 0;
+    pendingVisibleGroups.forEach((group) => {
+      if (!(group.key in selection)) return;
+      total += clampQty(selection[group.key], group.pendingUnits.length);
+    });
+    return total;
+  }, [pendingVisibleGroups, selection]);
+
+  const selectedGroupCount = useMemo(
+    () => pendingVisibleGroups.filter((g) => g.key in selection).length,
+    [pendingVisibleGroups, selection]
+  );
+
+  const patchUnitsLocally = (unitIds, receiptStatus, rejectionReason) => {
+    const idSet = new Set(unitIds);
+    setWorkspace((prev) => {
+      if (!prev?.units) return prev;
+      const nextUnits = prev.units.map((u) => {
+        if (!idSet.has(u.id)) return u;
+        return {
+          ...u,
+          receiptStatus,
+          rejectionReason: receiptStatus === "REJECTED" ? rejectionReason : null,
+        };
+      });
+      const receivedUnits = nextUnits.filter((u) => u.receiptStatus === "RECEIVED").length;
+      const rejectedUnits = nextUnits.filter((u) => u.receiptStatus === "REJECTED").length;
+      const shippedUnits = nextUnits.filter((u) => !!u.shippedAt || u.shipped).length;
+      const pendingUnitsCount = nextUnits.filter(
+        (u) => (u.receiptStatus || "PENDING") === "PENDING" && !u.shippedAt
+      ).length;
+      return {
+        ...prev,
+        units: nextUnits,
+        summary: prev.summary
+          ? {
+            ...prev.summary,
+            receivedUnits,
+            rejectedUnits,
+            shippedUnits,
+            pendingUnits: pendingUnitsCount,
+            totalUnits: nextUnits.length,
+          }
+          : prev.summary,
+      };
+    });
+  };
+
+  const refreshAfterMutation = async () => {
+    await loadWorkspace({ silent: true });
+    if (onRefresh) onRefresh({ silent: true });
+  };
+
   const applyUnitStatus = async (unitList, receiptStatus, rejectionReason) => {
     if (!unitList?.length) return;
     setSaving(true);
@@ -95,22 +164,18 @@ const WarehouseOrderDetail = ({
       });
       const label = receiptStatus === "REJECTED" ? "rechazada(s)" : "recibida(s)";
       showSuccess(`${unitList.length} pieza(s) ${label}.`);
-      await loadWorkspace();
-      if (onRefresh) onRefresh();
+      patchUnitsLocally(
+        unitList.map((u) => u.id),
+        receiptStatus,
+        rejectionReason
+      );
+      setSelection({});
+      await refreshAfterMutation();
     } catch (err) {
       showError(err.message || "Error al actualizar recepción");
     } finally {
       setSaving(false);
     }
-  };
-
-  const receiveGroupQty = async (group, qty) => {
-    const n = Math.min(Math.max(Number(qty) || 0, 0), group.pendingUnits.length);
-    if (n <= 0) {
-      showError("Indique cuántas piezas recibir.");
-      return;
-    }
-    await applyUnitStatus(group.pendingUnits.slice(0, n), "RECEIVED");
   };
 
   const rejectGroupQty = async (group, qty, rejectionReason) => {
@@ -131,13 +196,55 @@ const WarehouseOrderDetail = ({
     await applyUnitStatus(pendingUnits, "RECEIVED");
   };
 
+  const receiveSelected = async () => {
+    const toReceive = [];
+    pendingVisibleGroups.forEach((group) => {
+      if (!(group.key in selection)) return;
+      const n = clampQty(selection[group.key], group.pendingUnits.length);
+      if (n <= 0) return;
+      toReceive.push(...group.pendingUnits.slice(0, n));
+    });
+    if (toReceive.length === 0) {
+      showError("Seleccione al menos un lote con cantidad a recibir.");
+      return;
+    }
+    await applyUnitStatus(toReceive, "RECEIVED");
+  };
+
+  const toggleSelectGroup = (group) => {
+    setSelection((prev) => {
+      if (group.key in prev) {
+        const next = { ...prev };
+        delete next[group.key];
+        return next;
+      }
+      return { ...prev, [group.key]: group.pendingUnits.length };
+    });
+  };
+
+  const setSelectedQty = (group, qty) => {
+    setSelection((prev) => {
+      if (!(group.key in prev)) return prev;
+      return { ...prev, [group.key]: clampQty(qty, group.pendingUnits.length) };
+    });
+  };
+
+  const selectVisiblePending = () => {
+    const next = {};
+    pendingVisibleGroups.forEach((group) => {
+      next[group.key] = group.pendingUnits.length;
+    });
+    setSelection(next);
+  };
+
+  const clearSelection = () => setSelection({});
+
   const handleCloseReceipt = async () => {
     setSaving(true);
     try {
       await closeWarehouseReceipt(order.productionOrderId);
       showSuccess("Recepción en bodega cerrada.");
-      await loadWorkspace();
-      if (onRefresh) onRefresh();
+      await refreshAfterMutation();
     } catch (err) {
       showError(err.message || "No se pudo cerrar la recepción");
     } finally {
@@ -157,8 +264,7 @@ const WarehouseOrderDetail = ({
         reason: "Anulación de envío desde bodega PT",
       });
       showSuccess("Envío anulado. Stock en bodega de devoluciones.");
-      await loadWorkspace();
-      if (onRefresh) onRefresh();
+      await refreshAfterMutation();
     } catch (err) {
       showError(err.message || "No se pudo anular el envío");
     } finally {
@@ -169,6 +275,8 @@ const WarehouseOrderDetail = ({
   if (loading) {
     return <div className="text-center py-3"><Spinner size="sm" /> Cargando piezas...</div>;
   }
+
+  const canSelectLots = mode === "receipt" && !receiptClosed;
 
   return (
     <div className="mt-2">
@@ -195,6 +303,32 @@ const WarehouseOrderDetail = ({
 
       {mode === "receipt" && !receiptClosed && (
         <div className="d-flex flex-wrap mb-3" style={{ gap: 8 }}>
+          <Button
+            size="sm"
+            color="success"
+            disabled={saving || selectedPieceCount <= 0}
+            onClick={() => void receiveSelected()}
+          >
+            {saving ? <Spinner size="sm" /> : `Recibir seleccionados (${selectedPieceCount})`}
+          </Button>
+          <Button
+            size="sm"
+            color="secondary"
+            outline
+            disabled={saving || pendingVisibleGroups.length === 0}
+            onClick={selectVisiblePending}
+          >
+            Seleccionar visibles ({pendingVisibleGroups.length})
+          </Button>
+          <Button
+            size="sm"
+            color="secondary"
+            outline
+            disabled={saving || selectedGroupCount === 0}
+            onClick={clearSelection}
+          >
+            Limpiar selección
+          </Button>
           <Button size="sm" color="success" outline disabled={saving || pendingUnits.length === 0} onClick={() => void receiveAllPending()}>
             Recibir todas pendientes ({pendingUnits.length})
           </Button>
@@ -262,7 +396,11 @@ const WarehouseOrderDetail = ({
             readOnly={mode === "orders" || receiptClosed}
             receiptClosed={receiptClosed}
             saving={saving}
-            onReceiveQty={receiveGroupQty}
+            selectable={canSelectLots}
+            selected={group.key in selection}
+            selectedQty={selection[group.key]}
+            onToggleSelect={toggleSelectGroup}
+            onSelectedQtyChange={setSelectedQty}
             onRejectQty={rejectGroupQty}
           />
         ))
@@ -345,8 +483,7 @@ const WarehouseOrderDetail = ({
         onClose={() => setDispatchModal({ open: false, sale: null })}
         onSuccess={async () => {
           setDispatchModal({ open: false, sale: null });
-          await loadWorkspace();
-          if (onRefresh) onRefresh();
+          await refreshAfterMutation();
         }}
         dispatchCustomerShipment={dispatchCustomerShipment}
       />

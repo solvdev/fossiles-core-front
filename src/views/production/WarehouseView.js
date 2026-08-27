@@ -15,8 +15,9 @@ const WarehouseView = () => {
   const [statusFilter, setStatusFilter] = useState("");
   const [activeTab, setActiveTab] = useState("receipt");
 
-  const fetchData = useCallback(async () => {
-    setLoading(true);
+  const fetchData = useCallback(async (options = {}) => {
+    const silent = options?.silent === true;
+    if (!silent) setLoading(true);
     setError(null);
     try {
       const data = await getWarehouseView(statusFilter || undefined);
@@ -24,12 +25,12 @@ const WarehouseView = () => {
     } catch (err) {
       setError(err.message);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, [statusFilter]);
 
   useEffect(() => {
-    fetchData();
+    void fetchData();
   }, [fetchData]);
 
   const pendingReceiptCount = useMemo(
@@ -67,7 +68,7 @@ const WarehouseView = () => {
                   </Input>
                 </Col>
                 <Col md="3" className="text-md-right mt-3 mt-md-0">
-                  <Button color="primary" onClick={fetchData} disabled={loading}>
+                  <Button color="primary" onClick={() => void fetchData()} disabled={loading}>
                     <i className="nc-icon nc-refresh-69 mr-1" />
                     Actualizar
                   </Button>
