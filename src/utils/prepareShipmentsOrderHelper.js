@@ -49,6 +49,10 @@ export function orderHasConfirmedShipment(shipments) {
 
 /** OP pendiente de preparar envío (incluye documento OPV/OPI anulado sin envío activo). */
 export function orderIsPendingForPrepare(order, shipments) {
+  const kind = classifyPrepareOrder(order);
+  if (kind === "OPI" && String(order?.status || "").trim().toUpperCase() === "DRAFT") {
+    return false;
+  }
   if (order?.vendorShipmentVoidedAt) {
     return !orderHasConfirmedShipment(shipments);
   }
