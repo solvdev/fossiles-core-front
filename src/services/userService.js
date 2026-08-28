@@ -202,3 +202,59 @@ export const createMultipleUsers = async (usersData) => {
   return results;
 };
 
+/**
+ * Obtiene los usuarios con estado de conexión y última actividad
+ * @param {number} windowMinutes - Ventana de minutos para considerar conectado (por defecto 5)
+ */
+export const getConnectedUsers = async (windowMinutes = 5) => {
+  try {
+    const response = await fetch(`${API_URL}/users/connected?windowMinutes=${windowMinutes}`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        ...getAuthHeader()
+      }
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({ message: 'Error al obtener usuarios conectados' }));
+      throw new Error(errorData.message || 'Error al obtener usuarios conectados');
+    }
+
+    return await response.json();
+  } catch (error) {
+    console.error('Get connected users error:', error);
+    throw error;
+  }
+};
+
+/**
+ * Obtiene las 10 últimas acciones de un usuario
+ * @param {number|string} userId
+ */
+export const getUserRecentActions = async (userId) => {
+  if (!userId) {
+    throw new Error('ID de usuario inválido');
+  }
+  try {
+    const response = await fetch(`${API_URL}/users/${userId}/recent-actions`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        ...getAuthHeader()
+      }
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({ message: 'Error al obtener acciones recientes' }));
+      throw new Error(errorData.message || 'Error al obtener acciones recientes');
+    }
+
+    return await response.json();
+  } catch (error) {
+    console.error('Get user recent actions error:', error);
+    throw error;
+  }
+};
+
+
