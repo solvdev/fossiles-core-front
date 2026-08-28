@@ -35,6 +35,7 @@ export default function BroadcastAnnouncementModal({ isOpen, toggle, onBroadcast
     "El servidor se reiniciará en breve para aplicar actualizaciones. Por favor guarde sus operaciones pendientes."
   );
   const [durationMinutes, setDurationMinutes] = useState(5);
+  const [announcementType, setAnnouncementType] = useState("RESTART_WARNING"); // RESTART_WARNING, MAINTENANCE, INFO, URGENT
 
   const loadCurrentStatus = useCallback(async () => {
     try {
@@ -78,7 +79,7 @@ export default function BroadcastAnnouncementModal({ isOpen, toggle, onBroadcast
     return () => clearInterval(interval);
   }, [activeAnnouncement, remainingSeconds]);
 
-  const handleSendBroadcast = async (mins, customTitle, customMsg) => {
+  const handleSendBroadcast = async (mins, customTitle, customMsg, customType) => {
     try {
       setSending(true);
       setError("");
@@ -89,13 +90,14 @@ export default function BroadcastAnnouncementModal({ isOpen, toggle, onBroadcast
         customMsg ||
         message ||
         `El servidor se reiniciará en ${mins} minutos. Por favor guarde sus cambios.`;
+      const finalType = customType || announcementType || "RESTART_WARNING";
 
       const res = await broadcastAnnouncement({
         title: finalTitle,
         message: finalMsg,
         durationMinutes: mins || 5,
-        announcementType: "RESTART_WARNING",
-        targetAction: "RESTART",
+        announcementType: finalType,
+        targetAction: finalType === "RESTART_WARNING" ? "RESTART" : "NONE",
       });
 
       setActiveAnnouncement(res);
@@ -306,28 +308,22 @@ export default function BroadcastAnnouncementModal({ isOpen, toggle, onBroadcast
 
               {isCustomMode && (
                 <div className="p-3 bg-light rounded border mt-2">
-                  <FormGroup>
-                    <Label className="font-weight-bold">Título de la Alerta</Label>
-                    <Input
-                      type="text"
-                      value={title}
-                      onChange={(e) => setTitle(e.target.value)}
-                      placeholder="Ej. Mantenimiento del Sistema"
-                    />
-                  </FormGroup>
-
-                  <FormGroup>
-                    <Label className="font-weight-bold">Mensaje para los usuarios</Label>
-                    <Input
-                      type="textarea"
-                      rows="2"
-                      value={message}
-                      onChange={(e) => setMessage(e.target.value)}
-                      placeholder="Instrucciones para los usuarios..."
-                    />
-                  </FormGroup>
-
                   <Row>
+                    <Col md="6">
+                      <FormGroup>
+                        <Label className="font-weight-bold">Tipo de Aviso</Label>
+                        <Input
+                          type="select"
+                          value={announcementType}
+                          onChange={(e) => setAnnouncementType(e.target.value)}
+                        >
+                          <option value="RESTART_WARNING">🚨 Reinicio del Servidor / Sistema</option>
+                          <option value="MAINTENANCE">🛠️ Mantenimiento Programado</option>
+                          <option value="URGENT">⚠️ Alerta Urgente / Importante</option>
+                          <option value="INFO">📢 Comunicado / Notificación Informativa</option>
+                        </Input>
+                      </FormGroup>
+                    </Col>
                     <Col md="6">
                       <FormGroup>
                         <Label className="font-weight-bold">Tiempo de Cuenta Regresiva (Minutos)</Label>
@@ -340,20 +336,40 @@ export default function BroadcastAnnouncementModal({ isOpen, toggle, onBroadcast
                         />
                       </FormGroup>
                     </Col>
-                    <Col md="6" className="d-flex align-items-end">
-                      <FormGroup className="w-100">
-                        <Button
-                          color="primary"
-                          block
-                          onClick={() => handleSendBroadcast(durationMinutes, title, message)}
-                          disabled={sending || !title.trim() || !message.trim()}
-                        >
-                          {sending ? <Spinner size="sm" className="mr-1" /> : <i className="nc-icon nc-send mr-1" />}
-                          Emitir Alerta Personalizada
-                        </Button>
-                      </FormGroup>
-                    </Col>
                   </Row>
+
+                  <FormGroup>
+                    <Label className="font-weight-bold">Título de la Alerta</Label>
+                    <Input
+                      type="text"
+                      value={title}
+                      onChange={(e) => setTitle(e.target.value)}
+                      placeholder="Ej. Mantenimiento del Sistema, Actualización de Inventario, etc."
+                    />
+                  </FormGroup>
+
+                  <FormGroup>
+                    <Label className="font-weight-bold">Mensaje para los usuarios</Label>
+                    <Input
+                      type="textarea"
+                      rows="2"
+                      value={message}
+                      onChange={(e) => setMessage(e.target.value)}
+                      placeholder="Escribe las instrucciones detalladas para los usuarios..."
+                    />
+                  </FormGroup>
+
+                  <div className="text-right">
+                    <Button
+                      color="primary"
+                      onClick={() => handleSendBroadcast(durationMinutes, title, message, announcementType)}
+                      disabled={sending || !title.trim() || !message.trim()}
+                      className="btn-round"
+                    >
+                      {sending ? <Spinner size="sm" className="mr-1" /> : <i className="nc-icon nc-send mr-1" />}
+                      Emitir Alerta Personalizada
+                    </Button>
+                  </div>
                 </div>
               )}
             </div>

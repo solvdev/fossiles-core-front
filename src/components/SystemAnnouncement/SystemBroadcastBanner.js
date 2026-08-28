@@ -110,6 +110,36 @@ export default function SystemBroadcastBanner() {
   };
 
   const isUrgent = remainingSeconds <= 60;
+  const type = announcement.announcementType || "RESTART_WARNING";
+
+  const getBannerColor = () => {
+    if (isUrgent) return "#d63031"; // Rojo intenso
+    switch (type) {
+      case "MAINTENANCE":
+        return "#e67e22"; // Naranja mantenimiento
+      case "URGENT":
+        return "#c0392b"; // Rojo oscuro
+      case "INFO":
+        return "#2980b9"; // Azul informativo
+      case "RESTART_WARNING":
+      default:
+        return "#e17055"; // Coral reinicio
+    }
+  };
+
+  const getBannerIcon = () => {
+    switch (type) {
+      case "MAINTENANCE":
+        return "nc-settings";
+      case "URGENT":
+        return "nc-alert-circle-i";
+      case "INFO":
+        return "nc-chat-33";
+      case "RESTART_WARNING":
+      default:
+        return "nc-bell-55";
+    }
+  };
 
   return (
     <div
@@ -119,7 +149,7 @@ export default function SystemBroadcastBanner() {
         left: 0,
         right: 0,
         zIndex: 99999,
-        backgroundColor: isUrgent ? "#d63031" : "#e17055",
+        backgroundColor: getBannerColor(),
         color: "#ffffff",
         boxShadow: "0 4px 15px rgba(0,0,0,0.3)",
         borderBottom: "2px solid rgba(255,255,255,0.4)",
@@ -157,8 +187,8 @@ export default function SystemBroadcastBanner() {
       {/* Lado izquierdo: Icono y Mensaje */}
       <div style={{ display: "flex", alignItems: "center", gap: "12px", flex: 1, minWidth: "260px" }}>
         <i
-          className="nc-icon nc-bell-55"
-          style={{ fontSize: "24px", color: "#fff", animation: "fa-spin 2s infinite linear" }}
+          className={`nc-icon ${getBannerIcon()}`}
+          style={{ fontSize: "24px", color: "#fff" }}
         />
         <div>
           <div style={{ fontWeight: 800, fontSize: "15px", textTransform: "uppercase", letterSpacing: "0.5px" }}>
