@@ -26,6 +26,7 @@ import Sidebar from "components/Sidebar/Sidebar.js";
 import FixedPlugin from "components/FixedPlugin/FixedPlugin.js";
 import ProtectedRoute from "components/ProtectedRoute.js";
 import DefaultLandingRedirect from "components/DefaultLandingRedirect.js";
+import SystemBroadcastBanner from "components/SystemAnnouncement/SystemBroadcastBanner.js";
 import { setNotificationRef } from "utils/notificationHelper";
 
 import routes from "routes.js";
@@ -142,6 +143,7 @@ function Admin(props) {
   };
   return (
     <div className="wrapper">
+      <SystemBroadcastBanner />
       <NotificationAlert ref={notificationAlert} />
       <Sidebar
         {...props}

@@ -20,6 +20,7 @@ import {
 } from "reactstrap";
 import { getConnectedUsers, getUserRecentActions } from "services/userService";
 import { formatDateTimeGt } from "utils/dateTimeHelper";
+import BroadcastAnnouncementModal from "components/SystemAnnouncement/BroadcastAnnouncementModal";
 
 function ConnectedUsers() {
   const [users, setUsers] = useState([]);
@@ -29,6 +30,7 @@ function ConnectedUsers() {
   const [filterState, setFilterState] = useState("ALL"); // ALL, ONLINE, OFFLINE
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [lastRefreshedAt, setLastRefreshedAt] = useState(new Date());
+  const [broadcastModalOpen, setBroadcastModalOpen] = useState(false);
 
   // Modal de 10 últimas acciones
   const [selectedUser, setSelectedUser] = useState(null);
@@ -267,6 +269,15 @@ function ConnectedUsers() {
                   >
                     <i className={`fa fa-refresh mr-1 ${autoRefresh ? "fa-spin" : ""}`} />
                     {autoRefresh ? "Auto (20s)" : "Pausado"}
+                  </Button>
+                  <Button
+                    color="danger"
+                    size="sm"
+                    className="btn-round mr-2"
+                    onClick={() => setBroadcastModalOpen(true)}
+                  >
+                    <i className="nc-icon nc-bell-55 mr-1" />
+                    Aviso de Reinicio
                   </Button>
                   <Button
                     color="primary"
@@ -678,6 +689,12 @@ function ConnectedUsers() {
           </Button>
         </ModalFooter>
       </Modal>
+
+      {/* MODAL DE EMISIÓN DE ALERTA DE REINICIO */}
+      <BroadcastAnnouncementModal
+        isOpen={broadcastModalOpen}
+        toggle={() => setBroadcastModalOpen(!broadcastModalOpen)}
+      />
     </div>
   );
 }
