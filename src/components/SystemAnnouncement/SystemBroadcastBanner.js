@@ -35,29 +35,39 @@ export default function SystemBroadcastBanner() {
   const [remainingSeconds, setRemainingSeconds] = useState(null);
   const lastAnnounceIdRef = useRef(null);
 
-  // Cargar anuncio inicial
-  const loadInitialAnnouncement = useCallback(async () => {
-    const active = await getActiveAnnouncement();
-    if (active && active.isActive && active.remainingSeconds > 0) {
-      setAnnouncement(active);
-      setRemainingSeconds(active.remainingSeconds);
-      lastAnnounceIdRef.current = active.id;
-    } else {
-      setAnnouncement(null);
-      setRemainingSeconds(null);
+  // Cargar anuncio activo
+  const checkActiveAnnouncement = useCallback(async () => {
+    try {
+      const active = await getActiveAnnouncement();
+      if (active && active.isActive && active.remainingSeconds > 0) {
+        setAnnouncement(active);
+        setRemainingSeconds(active.remainingSeconds);
+        if (lastAnnounceIdRef.current !== active.id) {
+          lastAnnounceIdRef.current = active.id;
+          playAlertBeep();
+        }
+      } else {
+        if (lastAnnounceIdRef.current) {
+          lastAnnounceIdRef.current = null;
+        }
+        setAnnouncement(null);
+        setRemainingSeconds(null);
+      }
+    } catch (e) {
+      // Ignorar errores de red en polling silencioso
     }
   }, []);
 
   useEffect(() => {
-    loadInitialAnnouncement();
+    checkActiveAnnouncement();
 
+    // 1. Suscripción en tiempo real vía Server-Sent Events (SSE)
     const unsubscribe = subscribeToAnnouncements(
       (newAnnounce) => {
-        if (newAnnounce && newAnnounce.isActive) {
+        if (newAnnounce && newAnnounce.isActive && newAnnounce.remainingSeconds > 0) {
           setAnnouncement(newAnnounce);
           setRemainingSeconds(newAnnounce.remainingSeconds || 0);
 
-          // Si es un anuncio nuevo, emitir sonido
           if (lastAnnounceIdRef.current !== newAnnounce.id) {
             lastAnnounceIdRef.current = newAnnounce.id;
             playAlertBeep();
@@ -65,19 +75,27 @@ export default function SystemBroadcastBanner() {
         } else {
           setAnnouncement(null);
           setRemainingSeconds(null);
+          lastAnnounceIdRef.current = null;
         }
       },
       () => {
         // Al descartar alerta
         setAnnouncement(null);
         setRemainingSeconds(null);
+        lastAnnounceIdRef.current = null;
       }
     );
 
+    // 2. Polling ultra-rápido de respaldo cada 4 segundos (garantiza recepción push instantánea incluso con proxies)
+    const pollInterval = setInterval(() => {
+      checkActiveAnnouncement();
+    }, 4000);
+
     return () => {
       unsubscribe();
+      clearInterval(pollInterval);
     };
-  }, [loadInitialAnnouncement]);
+  }, [checkActiveAnnouncement]);
 
   // Reloj de cuenta regresiva segundo a segundo
   useEffect(() => {
