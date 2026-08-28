@@ -10,6 +10,7 @@ export const routePermissions = {
 
   // SEGURIDAD & USUARIOS
   '/admin/users': 'USER_READ',
+  '/admin/connected-users': 'USER_READ',
   '/admin/roles': 'ROLE_READ',
   '/admin/permissions': 'PERMISSION_READ',
   '/admin/user-roles': 'USER_ROLE_ASSIGN',

@@ -14,6 +14,7 @@ import SalesDashboard from "views/sales/SalesDashboard.js";
 
 // Seguridad & Usuarios
 import UsersList from "views/admin/UsersList.js";
+import ConnectedUsers from "views/admin/ConnectedUsers.js";
 import RolesList from "views/admin/RolesList.js";
 import PermissionsList from "views/admin/PermissionsList.js";
 import UserRolesForm from "views/admin/UserRolesForm.js";
@@ -212,6 +213,16 @@ const routes = [
           create: "SEGURIDAD.USUARIOS.CREAR",
           edit: "SEGURIDAD.USUARIOS.EDITAR",
           delete: "SEGURIDAD.USUARIOS.ELIMINAR",
+        },
+      },
+      {
+        path: "/connected-users",
+        name: "Usuarios Conectados",
+        mini: "UC",
+        component: <ConnectedUsers />,
+        layout: "/admin",
+        permissions: {
+          view: "SEGURIDAD.USUARIOS.VER",
         },
       },
       {
