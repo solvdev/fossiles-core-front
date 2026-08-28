@@ -1397,6 +1397,11 @@ function PrepareShipments() {
         const printable = (realShipments || []).filter(isShipmentRowForPrepareList);
         if (printable.length > 0) {
           commitEnrichedShipments(printable, null, order);
+        } else if (String(order?.status || "").trim().toUpperCase() === "DRAFT") {
+          setError("La orden INTERNA (OPI) está en borrador. Contabilidad debe autorizar la producción desde Autorizar envíos internos.");
+          setShipments([]);
+          setCopiesByShipment({});
+          setSelectedRows({});
         } else if (order.vendorShipmentVoidedAt) {
           setShipments([]);
           setCopiesByShipment({});
@@ -3463,7 +3468,12 @@ function PrepareShipments() {
     if (selectedOpiOrderId) {
       const order = await getProductionOrderById(selectedOpiOrderId);
       setSelectedProductionOrder(order);
-      if (order.vendorShipmentVoidedAt) {
+      if (String(order?.status || "").trim().toUpperCase() === "DRAFT") {
+        setError("La orden INTERNA (OPI) está en borrador. Contabilidad debe autorizar la producción desde Autorizar envíos internos.");
+        setShipments([]);
+        setCopiesByShipment({});
+        setSelectedRows({});
+      } else if (order.vendorShipmentVoidedAt) {
         setShipments([]);
         setCopiesByShipment({});
         setSelectedRows({});

@@ -91,3 +91,19 @@ export const listExistingEnviShipments = async () => {
   });
   return parseJson(response, "No se pudieron cargar los ENVI existentes.");
 };
+
+export const printSlipBatch = async (quantity = 50) => {
+  const response = await fetch(`${API_URL}/internal-shipment-requests/slips/print`, {
+    method: "POST",
+    headers: headers(),
+    body: JSON.stringify({ quantity }),
+  });
+  return parseJson(response, "No se pudo generar el talonario de boletas.");
+};
+
+export const getSlipSummary = async () => {
+  const response = await fetch(`${API_URL}/internal-shipment-requests/slips/summary`, {
+    headers: headers(),
+  });
+  return parseJson(response, "No se pudo obtener el resumen de boletas.");
+};
