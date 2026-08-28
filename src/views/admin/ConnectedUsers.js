@@ -155,10 +155,13 @@ function ConnectedUsers() {
     }
   };
 
-  const getRelativeTimeText = (minutesSince) => {
+  const getRelativeTimeText = (minutesSince, isOnline) => {
     if (minutesSince === null || minutesSince === undefined) return "Sin actividad registrada";
-    if (minutesSince <= 0) return "Activo ahora";
-    if (minutesSince === 1) return "Hace 1 minuto";
+    if (isOnline) {
+      if (minutesSince <= 1) return "Activo ahora";
+      return `Activo (hace ${minutesSince} min)`;
+    }
+    if (minutesSince <= 0 || minutesSince === 1) return "Hace 1 minuto";
     if (minutesSince < 60) return `Hace ${minutesSince} minutos`;
     const hours = Math.floor(minutesSince / 60);
     if (hours === 1) return "Hace 1 hora";
@@ -450,7 +453,7 @@ function ConnectedUsers() {
         <Row>
           {filteredUsers.map((user) => {
             const isOnline = Boolean(user.isOnline);
-            const relativeTime = getRelativeTimeText(user.minutesSinceLastActivity);
+            const relativeTime = getRelativeTimeText(user.minutesSinceLastActivity, isOnline);
             const lastAction = user.lastAction;
 
             return (
@@ -598,7 +601,7 @@ function ConnectedUsers() {
                   {selectedUser.isOnline ? "En línea ahora" : "Desconectado"}
                 </strong>
                 <span className="text-muted ml-2">
-                  ({getRelativeTimeText(selectedUser.minutesSinceLastActivity)})
+                  ({getRelativeTimeText(selectedUser.minutesSinceLastActivity, selectedUser.isOnline)})
                 </span>
               </div>
               <Button
