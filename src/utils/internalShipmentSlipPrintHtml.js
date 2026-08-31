@@ -35,14 +35,9 @@ function buildSingleSlipHtml(slipNumber) {
 
       <div class="slip-body">
         <div class="form-row">
-          <div class="form-field flex-2">
+          <div class="form-field flex-1">
             <span class="field-label">Fecha:</span>
             <span class="field-line"></span>
-          </div>
-          <div class="form-field flex-3">
-            <span class="field-label">Tipo:</span>
-            <span class="checkbox-box">[ &nbsp; ] PLANILLA (50%)</span>
-            <span class="checkbox-box">[ &nbsp; ] DEFECTOS</span>
           </div>
         </div>
 
@@ -60,22 +55,23 @@ function buildSingleSlipHtml(slipNumber) {
           </div>
         </div>
 
-        <table class="items-table">
-          <thead>
-            <tr>
-              <th style="width:100px;">Código</th>
-              <th>Producto / Descripción</th>
-              <th style="width:110px;">Color</th>
-              <th style="width:60px;">Talla</th>
-              <th style="width:70px;">Cantidad</th>
-              <th style="width:150px;">Observaciones</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${singleProductRow}
-          </tbody>
-        </table>
-        <div class="slip-hint">Un (1) solo producto por boleta. Si necesita más, use una boleta adicional.</div>
+        <div class="items-table-wrap">
+          <table class="items-table">
+            <thead>
+              <tr>
+                <th style="width:100px;">Código</th>
+                <th>Producto / Descripción</th>
+                <th style="width:110px;">Color</th>
+                <th style="width:60px;">Talla</th>
+                <th style="width:70px;">Cantidad</th>
+                <th style="width:150px;">Observaciones</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${singleProductRow}
+            </tbody>
+          </table>
+        </div>
 
         <div class="signatures-row">
           <div class="sig-box">
@@ -269,8 +265,6 @@ export function buildSlipsBookletPrintHtml(slipNumbers = []) {
       gap: 6px;
     }
     .flex-1 { flex: 1; }
-    .flex-2 { flex: 2; }
-    .flex-3 { flex: 3; }
     .field-label {
       font-weight: bold;
       font-size: 10px;
@@ -283,15 +277,16 @@ export function buildSlipsBookletPrintHtml(slipNumbers = []) {
       height: 14px;
       display: inline-block;
     }
-    .checkbox-box {
-      font-size: 10px;
-      font-weight: bold;
-      margin-right: 12px;
+    .items-table-wrap {
+      flex: 1;
+      display: flex;
+      margin: 8px 0 6px 0;
+      min-height: 0;
     }
     .items-table {
       width: 100%;
+      height: 100%;
       border-collapse: collapse;
-      margin: 8px 0 6px 0;
     }
     .items-table th, .items-table td {
       border: 1px solid #444;
@@ -306,13 +301,7 @@ export function buildSlipsBookletPrintHtml(slipNumbers = []) {
       font-size: 9px;
     }
     .items-table td {
-      height: 26px;
-    }
-    .slip-hint {
-      font-size: 8px;
-      color: #777;
-      font-style: italic;
-      margin-bottom: 4px;
+      vertical-align: top;
     }
     .signatures-row {
       display: flex;
