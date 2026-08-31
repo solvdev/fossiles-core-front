@@ -86,14 +86,25 @@ export default function SystemBroadcastBanner() {
       }
     );
 
-    // 2. Polling ultra-rápido de respaldo cada 4 segundos (garantiza recepción push instantánea incluso con proxies)
+    // 2. Polling de respaldo ligero cada 45 segundos (evita saturar la red)
     const pollInterval = setInterval(() => {
       checkActiveAnnouncement();
-    }, 4000);
+    }, 45000);
+
+    // 3. Revisión inmediata cuando el usuario vuelve a la pestaña o ventana
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        checkActiveAnnouncement();
+      }
+    };
+    window.addEventListener("focus", handleVisibilityChange);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
 
     return () => {
       unsubscribe();
       clearInterval(pollInterval);
+      window.removeEventListener("focus", handleVisibilityChange);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
   }, [checkActiveAnnouncement]);
 
