@@ -1956,6 +1956,40 @@
   border-color: #178a66;
 }
 
+.kiosk-pos-page .badge.badge-light,
+.kiosk-pos-page .badge.bg-light,
+.kiosk-pos-sale-detail-modal .badge.badge-light,
+.kiosk-pos-checkout-modal .badge.badge-light,
+.kiosk-pos-cash-close-modal .badge.badge-light,
+.kiosk-pos-receipt-modal .badge.badge-light,
+.kiosk-pos-void-sale-modal .badge.badge-light,
+.shipment-receipt-panel .badge.badge-light,
+.shipment-receipt-detail .badge.badge-light,
+.kiosk-pos-size-badge {
+  background-color: #0f766e !important;
+  color: #ffffff !important;
+  border: 1px solid #0d5f58 !important;
+  font-weight: 700 !important;
+  font-size: 0.8125rem !important;
+  letter-spacing: 0.3px;
+  padding: 3px 8px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  border-radius: 6px !important;
+}
+
+.kiosk-pos-hw-badge {
+  background-color: #475569 !important;
+  color: #ffffff !important;
+  border: 1px solid #334155 !important;
+  font-weight: 600 !important;
+  font-size: 0.75rem !important;
+  padding: 3px 7px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  border-radius: 6px !important;
+}
+
 .kiosk-pos-sales-actions-cell {
   vertical-align: middle;
   white-space: nowrap;
