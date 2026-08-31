@@ -1,27 +1,30 @@
 import { escapeHtml } from "utils/shipmentPrintDocumentHtml";
+import fossilesLogoMark from "assets/img/fossiles-logo-mark.png";
 
 function buildSingleSlipHtml(slipNumber) {
-  const blankRows = Array.from({ length: 5 }, (_, i) => `
+  const singleProductRow = `
     <tr>
-      <td style="text-align:center;height:24px;">${i + 1}</td>
+      <td style="width:100px;"></td>
       <td></td>
-      <td></td>
-      <td></td>
-      <td style="text-align:center;"></td>
-      <td style="text-align:center;"></td>
-      <td></td>
+      <td style="width:110px;"></td>
+      <td style="width:60px;"></td>
+      <td style="width:70px;text-align:center;"></td>
+      <td style="width:150px;"></td>
     </tr>
-  `).join("");
+  `;
 
   return `
     <div class="slip-card">
       <div class="slip-header">
         <div class="header-brand">
-          <div class="brand-title">FOSSILES</div>
-          <div class="brand-sub">CONTROL DE DISTRIBUCIÓN INTERNA</div>
+          <img src="${fossilesLogoMark}" alt="Fossiles" class="brand-logo" />
+          <div class="brand-text">
+            <div class="brand-title">FOSSILES</div>
+            <div class="brand-sub">CONTROL DE DISTRIBUCIÓN INTERNA</div>
+          </div>
         </div>
         <div class="header-center">
-          <div class="doc-title">BOLETA DE SOLICITUD DE ENVÍO INTERNO</div>
+          <div class="doc-title">BOLETA DE SOLICITUD DE PRODUCTO</div>
           <div class="doc-sub">Documento físico de solicitud previa a autorización</div>
         </div>
         <div class="header-correlative">
@@ -44,16 +47,8 @@ function buildSingleSlipHtml(slipNumber) {
         </div>
 
         <div class="form-row">
-          <div class="form-field flex-3">
+          <div class="form-field flex-1">
             <span class="field-label">Colaborador / Destino:</span>
-            <span class="field-line"></span>
-          </div>
-          <div class="form-field flex-1">
-            <span class="field-label">DPI:</span>
-            <span class="field-line"></span>
-          </div>
-          <div class="form-field flex-1">
-            <span class="field-label">Tel:</span>
             <span class="field-line"></span>
           </div>
         </div>
@@ -68,7 +63,6 @@ function buildSingleSlipHtml(slipNumber) {
         <table class="items-table">
           <thead>
             <tr>
-              <th style="width:30px;">#</th>
               <th style="width:100px;">Código</th>
               <th>Producto / Descripción</th>
               <th style="width:110px;">Color</th>
@@ -78,9 +72,10 @@ function buildSingleSlipHtml(slipNumber) {
             </tr>
           </thead>
           <tbody>
-            ${blankRows}
+            ${singleProductRow}
           </tbody>
         </table>
+        <div class="slip-hint">Un (1) solo producto por boleta. Si necesita más, use una boleta adicional.</div>
 
         <div class="signatures-row">
           <div class="sig-box">
@@ -108,12 +103,20 @@ function buildSingleSlipHtml(slipNumber) {
 export function buildSlipsBookletPrintHtml(slipNumbers = []) {
   const slips = Array.isArray(slipNumbers) ? slipNumbers : [];
 
-  // Agrupamos de 2 en 2 por página carta
+  // Cada boleta ocupa exactamente media hoja carta (215.9mm x 139.7mm); 2 boletas por página carta completa.
   const pages = [];
   for (let i = 0; i < slips.length; i += 2) {
     const pair = slips.slice(i, i + 2);
-    const slipHtmls = pair.map((num) => buildSingleSlipHtml(num)).join('<div class="cut-divider"><span>✂ - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - ✂</span></div>');
-    pages.push(`<div class="print-page">${slipHtmls}</div>`);
+    const halves = pair
+      .map(
+        (num, idx) => `
+      <div class="slip-half ${idx === 0 ? "top" : "bottom"}">
+        ${buildSingleSlipHtml(num)}
+      </div>
+    `
+      )
+      .join("");
+    pages.push(`<div class="print-page">${halves}</div>`);
   }
 
   return `<!DOCTYPE html>
@@ -124,7 +127,7 @@ export function buildSlipsBookletPrintHtml(slipNumbers = []) {
   <style>
     @page {
       size: letter portrait;
-      margin: 10mm 12mm;
+      margin: 0;
     }
     * {
       box-sizing: border-box;
@@ -137,25 +140,47 @@ export function buildSlipsBookletPrintHtml(slipNumbers = []) {
       color: #111;
       background: #fff;
     }
+    /* Página carta completa (215.9mm x 279.4mm) con 2 boletas de media hoja cada una */
     .print-page {
-      page-break-after: always;
+      width: 215.9mm;
+      height: 279.4mm;
       display: flex;
       flex-direction: column;
-      justify-content: space-between;
-      min-height: 250mm;
-      padding-bottom: 5mm;
+      page-break-after: always;
+      overflow: hidden;
     }
     .print-page:last-child {
       page-break-after: auto;
     }
-    .cut-divider {
-      text-align: center;
-      color: #777;
-      font-size: 10px;
-      margin: 6px 0;
+    /* Cada boleta: exactamente media hoja carta (215.9mm x 139.7mm) */
+    .slip-half {
+      width: 100%;
+      height: 139.7mm;
+      box-sizing: border-box;
+      padding: 8mm 10mm;
+      position: relative;
+      display: flex;
+    }
+    .slip-half.bottom {
+      border-top: 1px dashed #888;
+    }
+    .slip-half.bottom::before {
+      content: "✂ CORTE AQUÍ ✂";
+      position: absolute;
+      top: -8px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: #fff;
+      padding: 0 8px;
+      font-size: 9px;
       letter-spacing: 2px;
+      color: #888;
     }
     .slip-card {
+      width: 100%;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
       border: 1.5px solid #222;
       border-radius: 4px;
       padding: 10px 14px;
@@ -169,6 +194,22 @@ export function buildSlipsBookletPrintHtml(slipNumbers = []) {
       border-bottom: 1.5px solid #333;
       padding-bottom: 6px;
       margin-bottom: 8px;
+    }
+    .header-brand {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .brand-logo {
+      width: 28px;
+      height: 28px;
+      flex-shrink: 0;
+      object-fit: contain;
+    }
+    .slip-body {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
     }
     .brand-title {
       font-size: 16px;
@@ -264,11 +305,20 @@ export function buildSlipsBookletPrintHtml(slipNumbers = []) {
       text-transform: uppercase;
       font-size: 9px;
     }
+    .items-table td {
+      height: 26px;
+    }
+    .slip-hint {
+      font-size: 8px;
+      color: #777;
+      font-style: italic;
+      margin-bottom: 4px;
+    }
     .signatures-row {
       display: flex;
       justify-content: space-between;
       gap: 20px;
-      margin-top: 14px;
+      margin-top: auto;
       padding: 0 10px;
     }
     .sig-box {
