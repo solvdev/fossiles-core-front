@@ -42,7 +42,7 @@ const shipmentMatchesSearch = (shipment, query) => {
   if (header.includes(query)) return true;
   const inProducts = (shipment.products || []).some((product) =>
     normalizePosLabel(
-      `${product.productCode || ""} ${product.productName || ""} ${product.colorName || ""} ${product.categoryName || ""}`
+      `${product.productCode || ""} ${product.productName || ""} ${product.colorName || ""} ${product.categoryName || ""} ${product.size || product.sizeLabel || product.sizeKey || ""}`
     ).includes(query)
   );
   if (inProducts) return true;
@@ -270,6 +270,7 @@ export function ShipmentReceiptList({
               <div className="shipment-receipt-previews mb-2">
                 {previews.map((product) => {
                   const imageUrl = resolveImageUrl(product.productImageUrl);
+                  const previewSize = String(product.size || product.sizeLabel || product.sizeKey || product.talla || "").trim();
                   return (
                     <div key={`${shipment.id}-${product.productId}-${product.id}`} className="shipment-receipt-thumb">
                       {imageUrl ? (
@@ -279,7 +280,10 @@ export function ShipmentReceiptList({
                           <i className="nc-icon nc-image" />
                         </div>
                       )}
-                      <span className="shipment-receipt-thumb-code">{product.productCode}</span>
+                      <span className="shipment-receipt-thumb-code">
+                        {product.productCode}
+                        {previewSize ? ` · T${previewSize}` : ""}
+                      </span>
                     </div>
                   );
                 })}
@@ -509,6 +513,10 @@ export function ShipmentReceiptDetail({
             const hasIssue = received < sent || Boolean((lineNotesByDetail[product.id] || "").trim());
             const lineNote = lineNotesByDetail[product.id] || "";
             const imageUrl = resolveImageUrl(product.productImageUrl);
+            const sizeText = String(
+              product.size || product.sizeLabel || product.sizeKey || product.talla || ""
+            ).trim();
+            const hw = String(product.hardwareCondition || "").trim().toUpperCase();
 
             return (
               <tr
@@ -529,22 +537,22 @@ export function ShipmentReceiptDetail({
                       </div>
                     )}
                     <div>
-                      <strong>{product.productCode || "-"}</strong>
+                      <div className="d-flex align-items-center flex-wrap" style={{ gap: "4px" }}>
+                        <strong>{product.productCode || "-"}</strong>
+                        {sizeText ? (
+                          <Badge color="light" className="kiosk-pos-size-badge">
+                            Talla {sizeText}
+                          </Badge>
+                        ) : null}
+                        {hw ? (
+                          <Badge color="secondary" className="kiosk-pos-hw-badge">
+                            {hw === "VIEJO" ? "Herraje viejo" : "Herraje nuevo"}
+                          </Badge>
+                        ) : null}
+                      </div>
                       <div className="small text-muted">{product.productName || "-"}</div>
                       {product.categoryName ? (
                         <div className="small text-muted">{product.categoryName}</div>
-                      ) : null}
-                      {product.size ? (
-                        <Badge color="light" className="mt-1 mr-1">
-                          Talla {product.size}
-                        </Badge>
-                      ) : null}
-                      {product.hardwareCondition ? (
-                        <Badge color="secondary" className="mt-1">
-                          {String(product.hardwareCondition).toUpperCase() === "VIEJO"
-                            ? "Herraje viejo"
-                            : "Herraje nuevo"}
-                        </Badge>
                       ) : null}
                     </div>
                   </div>
