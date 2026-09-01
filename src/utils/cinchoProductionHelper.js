@@ -144,6 +144,21 @@ export function taskForTableCenterView(task, orderById) {
   return { ...task, items: filtered, quantity, estimatedHours };
 }
 
+/**
+ * Tareas vivas del centro de producción: descarta cinchos y, además, CANCELLED y COMPLETED.
+ *
+ * Ese descarte de estados terminales es la razón de que el Centro de Producción y el
+ * Organizador no puedan mostrar ni contar tareas completadas: pasa antes que cualquier
+ * filtro de la pantalla. Si algún día hace falta consultarlas desde aquí, no basta con
+ * quitar el filtro — hay que revisar también los calculos de carga por mesa y el selector
+ * de jornada, que hoy dan por hecho que solo llegan tareas activas.
+ *
+ * El historico de completadas se consulta en Trazabilidad por OP y en Bandejas por Fase.
+ *
+ * Ojo: los consumidores que necesitan saber que cantidad ya se produjo (collectAssignedQuantities
+ * en taskPlanningHelper) NO deben usar esta lista, sino la lista cruda, porque cuentan las
+ * tareas completadas como cantidad ya cubierta.
+ */
 export function buildTableCenterTasks(tasks, productionOrders) {
   const orderById = buildProductionOrderIdMap(productionOrders);
   return (tasks || [])

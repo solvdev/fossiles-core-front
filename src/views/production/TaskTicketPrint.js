@@ -1,12 +1,303 @@
 import React, { useState, useEffect, useRef } from "react";
+import { Button, Spinner } from "reactstrap";
 import { getTaskTicket, getTicketsByProductionOrder } from "services/taskService";
 import { showError } from "utils/notificationHelper";
-import { formatDateGt, formatDateTimeGt, formatNowGt } from "utils/dateTimeHelper";
+import { formatDateGt, formatDateTimeGt } from "utils/dateTimeHelper";
 import { deskDisplayLabel, resolveDeskSupervisorNameForTicket } from "utils/deskSupervisorDisplay";
 import {
   addWorkDurationSkippingLunch,
   formatProductionDuration,
 } from "utils/productionTimeHelper";
+
+/**
+ * Hoja de estilos de la boleta. La usan tanto la vista previa en pantalla como la
+ * ventana de impresión, de modo que lo que ve el usuario es lo que sale impreso.
+ * Todo cuelga de `.tkt-root` para no afectar al resto de la aplicación.
+ */
+const TICKET_STYLESHEET = `
+  .tkt-root {
+    --tkt-ink: #2c2c2c;
+    --tkt-muted: #8b8b8b;
+    --tkt-line: #e0e0e0;
+    --tkt-rule: #333;
+    --tkt-soft: #f7f8f9;
+    --tkt-accent: #51cbce;
+    --tkt-danger: #ef8157;
+    color: var(--tkt-ink);
+    font-family: "Montserrat", "Helvetica Neue", Arial, sans-serif;
+    font-size: 12px;
+    line-height: 1.45;
+  }
+
+  .tkt-root .ticket {
+    background: #fff;
+    border: 1px solid var(--tkt-line);
+    border-radius: 8px;
+    padding: 20px 22px;
+    margin-bottom: 18px;
+  }
+  .tkt-root .ticket:last-child { margin-bottom: 0; }
+
+  .tkt-root .header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    border-bottom: 2px solid var(--tkt-rule);
+    padding-bottom: 10px;
+    margin-bottom: 14px;
+  }
+  .tkt-root .header h1 {
+    font-size: 15px;
+    font-weight: 700;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    margin: 0;
+    color: var(--tkt-muted);
+  }
+  .tkt-root .header h2 {
+    font-size: 22px;
+    font-weight: 700;
+    margin: 0;
+    letter-spacing: .02em;
+  }
+
+  .tkt-root .tkt-kpis {
+    display: grid;
+    grid-template-columns: 1fr 2fr 1fr;
+    gap: 10px;
+    margin-bottom: 14px;
+  }
+  .tkt-root .highlight {
+    background: var(--tkt-soft);
+    border: 1px solid var(--tkt-line);
+    border-radius: 6px;
+    padding: 8px 12px;
+    text-align: center;
+    min-width: 0;
+  }
+  .tkt-root .highlight > div:first-child {
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: .09em;
+    text-transform: uppercase;
+    color: var(--tkt-muted);
+    margin-bottom: 2px;
+  }
+  .tkt-root .highlight .big {
+    font-size: 17px;
+    font-weight: 700;
+    line-height: 1.2;
+    overflow-wrap: anywhere;
+  }
+  /* La mesa con nombre de encargado necesita menos cuerpo para no romper la caja. */
+  .tkt-root .highlight .big--sm { font-size: 14px; }
+
+  .tkt-root .info-grid,
+  .tkt-root .end-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px 24px;
+    padding-bottom: 12px;
+    margin-bottom: 12px;
+    border-bottom: 1px dashed var(--tkt-line);
+  }
+  .tkt-root .end-grid { border-bottom: 0; margin-bottom: 0; }
+  .tkt-root .info-item { display: flex; gap: 6px; min-width: 0; }
+  .tkt-root .info-label { font-weight: 600; color: var(--tkt-muted); white-space: nowrap; }
+  .tkt-root .info-value { overflow-wrap: anywhere; }
+
+  .tkt-root .notes-section {
+    background: var(--tkt-soft);
+    border-left: 3px solid var(--tkt-accent);
+    border-radius: 0 4px 4px 0;
+    padding: 8px 12px;
+    margin-bottom: 14px;
+    font-size: 11px;
+  }
+  .tkt-root .tkt-notes-label { font-weight: 700; }
+
+  .tkt-root .section-title {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: .09em;
+    text-transform: uppercase;
+    color: var(--tkt-muted);
+    border-bottom: 1px solid var(--tkt-rule);
+    padding-bottom: 4px;
+    margin-bottom: 10px;
+  }
+
+  .tkt-root .tkt-table-wrap { overflow-x: auto; margin-bottom: 12px; }
+  .tkt-root .tkt-table-title {
+    font-weight: 700;
+    font-size: 11px;
+    margin-bottom: 5px;
+  }
+  .tkt-root .tkt-row-total td {
+    font-weight: 700;
+    background: var(--tkt-soft);
+    border-top: 1px solid var(--tkt-rule);
+  }
+  .tkt-root .tkt-grand-total {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    border: 1px solid var(--tkt-rule);
+    border-radius: 6px;
+    background: var(--tkt-soft);
+    padding: 9px 14px;
+    margin-bottom: 14px;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+  }
+  .tkt-root .tkt-grand-total strong { font-size: 15px; letter-spacing: 0; }
+  .tkt-root table { width: 100%; border-collapse: collapse; font-size: 11px; }
+  .tkt-root th {
+    background: var(--tkt-soft);
+    text-align: left;
+    font-weight: 700;
+    font-size: 9px;
+    letter-spacing: .05em;
+    text-transform: uppercase;
+    color: var(--tkt-muted);
+    padding: 6px 8px;
+    border-bottom: 1px solid var(--tkt-rule);
+    white-space: nowrap;
+  }
+  .tkt-root td { padding: 6px 8px; border-bottom: 1px solid var(--tkt-line); }
+  .tkt-root td.number, .tkt-root th.number { text-align: right; white-space: nowrap; }
+  .tkt-root tbody tr:last-child td { border-bottom: 0; }
+
+  .tkt-root .observations-area { margin-top: 4px; }
+  .tkt-root .tkt-breakdown { font-size: 11px; color: #5b5b5b; margin-bottom: 6px; }
+  .tkt-root .tkt-empty {
+    text-align: center;
+    color: var(--tkt-muted);
+    font-size: 11px;
+    padding: 14px 0;
+    margin: 0 0 12px;
+    border: 1px dashed var(--tkt-line);
+    border-radius: 6px;
+  }
+  .tkt-root .obs-lines { margin-top: 10px; }
+  .tkt-root .obs-line {
+    border-bottom: 1px solid var(--tkt-line);
+    height: 22px;
+  }
+
+  .tkt-root .late-badge {
+    background: #fdf0ea;
+    border: 1px solid var(--tkt-danger);
+    color: #a8442a;
+    border-radius: 6px;
+    padding: 8px 12px;
+    margin-top: 12px;
+    font-size: 11px;
+    font-weight: 600;
+    text-align: center;
+  }
+
+  .tkt-root .signature-area {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 28px;
+    margin-top: 34px;
+  }
+  .tkt-root .signature-line { text-align: center; }
+  .tkt-root .signature-line hr {
+    border: 0;
+    border-top: 1px solid var(--tkt-rule);
+    margin: 0 0 5px;
+  }
+  .tkt-root .signature-line span {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    color: var(--tkt-muted);
+  }
+
+  .tkt-root .footer {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-top: 16px;
+    padding-top: 8px;
+    border-top: 1px solid var(--tkt-line);
+    font-size: 9px;
+    color: var(--tkt-muted);
+  }
+
+  /* Solo pantalla: en papel el ancho lo fija la hoja, no la ventana del navegador. */
+  @media screen and (max-width: 600px) {
+    .tkt-root .header { flex-direction: column; align-items: flex-start; gap: 2px; }
+    .tkt-root .tkt-kpis,
+    .tkt-root .info-grid,
+    .tkt-root .end-grid,
+    .tkt-root .signature-area { grid-template-columns: minmax(0, 1fr); }
+    .tkt-root .signature-area { gap: 22px; }
+    .tkt-root .ticket { padding: 14px; }
+  }
+`;
+
+/**
+ * Ajustes exclusivos del documento que se manda a la impresora.
+ *
+ * Orientación vertical: la boleta es un formulario en columna. El HTML anterior no
+ * declaraba ninguna regla @page, así que la orientación quedaba a lo que tuviera
+ * puesto el navegador o la impresora. Aquí se fija, pero no el tamaño de papel, para
+ * que siga valiendo tanto A4 como Carta.
+ *
+ * Los bloques de cierre llevan `page-break-inside: avoid`: cuando una boleta con muchos
+ * productos necesite una segunda hoja, el corte cae entre filas y no parte firmás ni pie.
+ */
+const PRINT_ONLY_STYLESHEET = `
+  @page { size: portrait; margin: 12mm; }
+  body { margin: 0; background: #fff; }
+  .tkt-root { font-size: 11px; }
+  .tkt-root .ticket {
+    border: 1px solid #333;
+    border-radius: 0;
+    margin-bottom: 0;
+    padding: 18px 20px;
+    page-break-after: always;
+  }
+  .tkt-root .ticket:last-child { page-break-after: auto; }
+
+  .tkt-root .header { padding-bottom: 9px; margin-bottom: 13px; }
+  .tkt-root .tkt-kpis { gap: 10px; margin-bottom: 13px; }
+  .tkt-root .highlight { padding: 8px 10px; }
+  .tkt-root .info-grid { gap: 5px 24px; padding-bottom: 11px; margin-bottom: 12px; }
+  .tkt-root .notes-section { padding: 8px 11px; margin-bottom: 13px; }
+  .tkt-root .section-title { margin-bottom: 9px; }
+  .tkt-root .tkt-table-wrap { overflow-x: visible; margin-bottom: 12px; }
+  .tkt-root td, .tkt-root th { padding: 5px 7px; }
+  .tkt-root .tkt-grand-total { padding: 8px 12px; margin-bottom: 13px; }
+  .tkt-root .obs-line { height: 20px; }
+  .tkt-root .signature-area { margin-top: 28px; }
+  .tkt-root .footer { margin-top: 14px; padding-top: 7px; }
+
+  /* Rejilla completa: la boleta se rellena a mano en la mesa y las divisiones ayudan. */
+  .tkt-root table, .tkt-root td, .tkt-root th { border: 1px solid #bdbdbd; }
+  .tkt-root th { border-bottom-color: #333; }
+
+  .tkt-root .tkt-kpis,
+  .tkt-root .tkt-grand-total,
+  .tkt-root .observations-area,
+  .tkt-root .end-grid,
+  .tkt-root .signature-area,
+  .tkt-root .footer { page-break-inside: avoid; }
+  .tkt-root tr { page-break-inside: avoid; }
+  /* Si la lista de productos se parte, la cabecera se repite en la hoja siguiente. */
+  .tkt-root thead { display: table-header-group; }
+
+  .tkt-root .highlight { background: #f2f2f2 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .tkt-root th { background: #f2f2f2 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .no-print { display: none !important; }
+`;
 
 function TaskTicketPrint({ taskId, taskIds, productionOrderId, supervisorByDesk, onClose, autoPrintOnLoad }) {
   const [tickets, setTickets] = useState([]);
@@ -49,146 +340,50 @@ function TaskTicketPrint({ taskId, taskIds, productionOrderId, supervisorByDesk,
 
   const handlePrint = () => {
     const printContent = printRef.current;
-    const printWindow = window.open("", "_blank", "width=800,height=600");
+    if (!printContent) return;
+
+    const printWindow = window.open("", "_blank", "width=900,height=700");
+    if (!printWindow) {
+      showError("El navegador bloqueó la ventana de impresión. Habilite las ventanas emergentes para este sitio.");
+      return;
+    }
 
     printWindow.document.write(`
       <html>
         <head>
+          <meta charset="utf-8" />
           <title>Boleta de Tarea</title>
-          <style>
-            * { margin: 0; padding: 0; box-sizing: border-box; }
-            body { font-family: Arial, sans-serif; font-size: 12px; color: #000; }
-            .ticket { 
-              page-break-after: always; 
-              padding: 15px; 
-              max-width: 800px; 
-              margin: 0 auto;
-              border: 2px solid #000;
-              margin-bottom: 10px;
-            }
-            .ticket:last-child { page-break-after: auto; }
-            .header { 
-              text-align: center; 
-              border-bottom: 2px solid #000; 
-              padding-bottom: 8px; 
-              margin-bottom: 10px; 
-            }
-            .header h1 { font-size: 18px; margin-bottom: 2px; }
-            .header h2 { font-size: 14px; font-weight: normal; }
-            .info-grid { 
-              display: grid; 
-              grid-template-columns: 1fr 1fr; 
-              gap: 4px 16px; 
-              margin-bottom: 10px;
-              border-bottom: 1px dashed #999;
-              padding-bottom: 8px;
-            }
-            .info-item { display: flex; }
-            .info-label { font-weight: bold; min-width: 130px; }
-            .highlight { 
-              background-color: #f0f0f0; 
-              padding: 6px 10px; 
-              text-align: center; 
-              margin-bottom: 10px;
-              border: 1px solid #ccc;
-            }
-            .highlight .big { font-size: 22px; font-weight: bold; }
-            .section-title { 
-              font-size: 13px; 
-              font-weight: bold; 
-              border-bottom: 1px solid #000; 
-              padding-bottom: 3px; 
-              margin: 10px 0 6px 0;
-            }
-            table { 
-              width: 100%; 
-              border-collapse: collapse; 
-              margin-bottom: 8px; 
-            }
-            th, td { 
-              border: 1px solid #333; 
-              padding: 4px 6px; 
-              text-align: left; 
-              font-size: 11px;
-            }
-            th { background-color: #e0e0e0; font-weight: bold; }
-            td.number { text-align: right; }
-            .notes-section {
-              background-color: #f8f8f8;
-              border: 1px solid #ccc;
-              padding: 6px 10px;
-              margin-bottom: 10px;
-              font-size: 11px;
-            }
-            .observations-area { margin-top: 10px; }
-            .obs-lines { padding: 4px 0; }
-            .obs-line { border-bottom: 1px solid #bbb; height: 22px; margin-bottom: 2px; }
-            .end-grid {
-              display: grid;
-              grid-template-columns: 1fr 1fr;
-              gap: 4px 16px;
-              margin-top: 10px;
-              border: 1px solid #ccc;
-              padding: 8px 10px;
-              background-color: #fafafa;
-            }
-            .late-badge {
-              background-color: #fff3cd;
-              border: 1px solid #ffc107;
-              padding: 3px 8px;
-              font-size: 10px;
-              font-weight: bold;
-              color: #856404;
-              text-align: center;
-              margin-top: 6px;
-            }
-            .signature-area {
-              margin-top: 40px;
-              display: flex;
-              justify-content: space-around;
-            }
-            .signature-line {
-              text-align: center;
-              width: 200px;
-            }
-            .signature-line hr {
-              border: none;
-              border-top: 1px solid #000;
-              margin-bottom: 4px;
-            }
-            .footer { 
-              margin-top: 12px; 
-              border-top: 1px solid #999;
-              padding-top: 6px;
-              display: flex; 
-              justify-content: space-between; 
-              font-size: 10px;
-              color: #666;
-            }
-            @media print {
-              body { margin: 0; }
-              .ticket { border: 2px solid #000; }
-              .no-print { display: none; }
-            }
-          </style>
+          <style>${TICKET_STYLESHEET}${PRINT_ONLY_STYLESHEET}</style>
         </head>
         <body>
-          ${printContent.innerHTML}
-          <script>
-            window.onload = function() { window.print(); window.close(); }
-          </script>
+          <div class="tkt-root">${printContent.innerHTML}</div>
         </body>
       </html>
     `);
-
     printWindow.document.close();
+
+    // El diálogo se lanza solo cuando el documento terminó de pintarse; cerrarlo antes
+    // deja la vista previa en blanco. El cierre queda atado a onafterprint, y si el
+    // navegador no lo emite la ventana permanece abierta en vez de desaparecer.
+    const launchPrint = () => {
+      printWindow.focus();
+      printWindow.print();
+    };
+    printWindow.onafterprint = () => printWindow.close();
+
+    if (printWindow.document.readyState === "complete") {
+      printWindow.requestAnimationFrame(() => printWindow.requestAnimationFrame(launchPrint));
+    } else {
+      printWindow.addEventListener("load", launchPrint, { once: true });
+    }
   };
 
   useEffect(() => {
     if (!autoPrintOnLoad || loading || tickets.length === 0 || autoPrintedRef.current) return;
     autoPrintedRef.current = true;
-    const timer = setTimeout(() => handlePrint(), 400);
-    return () => clearTimeout(timer);
+    // Un frame de margen para que printRef ya tenga el contenido montado.
+    const raf = requestAnimationFrame(() => handlePrint());
+    return () => cancelAnimationFrame(raf);
   }, [autoPrintOnLoad, loading, tickets]);
 
   const formatDate = (dateStr) => {
@@ -201,11 +396,27 @@ function TaskTicketPrint({ taskId, taskIds, productionOrderId, supervisorByDesk,
     return formatDateTimeGt(dtStr);
   };
 
-  const calcExpectedEnd = (ticket) => {
-    if (!ticket.scheduledDate || !ticket.startTime || !ticket.estimatedHours) return null;
+  /**
+   * Momento real de arranque. Se toma de `startedAt`, que fija el backend al pulsar
+   * Iniciar; `scheduledDate + startTime` solo sirve de respaldo para boletas antiguas
+   * y da la fecha equivocada si la tarea se inicia un día distinto al programado.
+   */
+  const resolveStart = (ticket) => {
+    if (ticket.startedAt) {
+      const d = new Date(ticket.startedAt);
+      if (!Number.isNaN(d.getTime())) return d;
+    }
+    if (!ticket.scheduledDate || !ticket.startTime) return null;
     const [hh, mm] = ticket.startTime.split(":").map(Number);
-    const start = new Date(ticket.scheduledDate + "T00:00:00");
-    start.setHours(hh, mm, 0, 0);
+    const d = new Date(ticket.scheduledDate + "T00:00:00");
+    d.setHours(hh, mm, 0, 0);
+    return d;
+  };
+
+  const calcExpectedEnd = (ticket) => {
+    if (!ticket.estimatedHours) return null;
+    const start = resolveStart(ticket);
+    if (!start) return null;
     return addWorkDurationSkippingLunch(start, ticket.estimatedHours);
   };
 
@@ -235,66 +446,73 @@ function TaskTicketPrint({ taskId, taskIds, productionOrderId, supervisorByDesk,
 
   if (loading) {
     return (
-      <div style={{ padding: "20px", textAlign: "center" }}>
-        <p>Cargando boleta(s)...</p>
+      <div className="d-flex flex-column align-items-center justify-content-center text-muted" style={{ padding: "48px 20px" }}>
+        <Spinner color="info" />
+        <span className="mt-3" style={{ fontSize: 13 }}>Cargando boleta(s)…</span>
       </div>
     );
   }
 
   if (tickets.length === 0) {
     return (
-      <div style={{ padding: "20px", textAlign: "center" }}>
-        <p>No se encontraron datos para la boleta.</p>
+      <div className="d-flex flex-column align-items-center justify-content-center text-center" style={{ padding: "48px 20px" }}>
+        <i className="nc-icon nc-paper text-muted" style={{ fontSize: 34 }} />
+        <p className="text-muted mt-3 mb-0" style={{ fontSize: 13 }}>
+          No se encontraron datos para la boleta.
+        </p>
         {onClose && (
-          <button onClick={onClose} style={{ marginTop: "10px", padding: "6px 16px" }}>
+          <Button color="secondary" outline size="sm" className="mt-3" onClick={onClose}>
             Cerrar
-          </button>
+          </Button>
         )}
       </div>
     );
   }
 
+  const printLabel = tickets.length > 1 ? `Imprimir ${tickets.length} boletas` : "Imprimir boleta";
+
   return (
-    <div>
-      {/* Controls */}
-      <div style={{ padding: "10px", textAlign: "center", borderBottom: "1px solid #ddd", marginBottom: "10px" }}>
-        <button
-          onClick={handlePrint}
-          style={{
-            padding: "8px 24px",
-            backgroundColor: "#51cbce",
-            color: "white",
-            border: "none",
-            borderRadius: "4px",
-            cursor: "pointer",
-            fontSize: "14px",
-            marginRight: "10px",
-          }}
-        >
-          🖨️ Imprimir {tickets.length > 1 ? `(${tickets.length} boletas)` : "Boleta"}
-        </button>
-        {onClose && (
-          <button
-            onClick={onClose}
-            style={{
-              padding: "8px 24px",
-              backgroundColor: "#999",
-              color: "white",
-              border: "none",
-              borderRadius: "4px",
-              cursor: "pointer",
-              fontSize: "14px",
-            }}
-          >
-            Cerrar
-          </button>
-        )}
+    <div className="tkt-root">
+      <style>{TICKET_STYLESHEET}</style>
+
+      {/* Barra de acciones: fija al desplazar para no perder el botón en lotes largos */}
+      <div
+        className="no-print d-flex align-items-center justify-content-between"
+        style={{
+          position: "sticky",
+          top: 0,
+          zIndex: 2,
+          gap: 12,
+          padding: "12px 16px",
+          background: "#fff",
+          borderBottom: "1px solid #e0e0e0",
+          borderRadius: "6px 6px 0 0",
+        }}
+      >
+        <div className="d-flex align-items-center" style={{ gap: 8, minWidth: 0 }}>
+          <i className="nc-icon nc-paper" style={{ fontSize: 16, color: "#51cbce" }} />
+          <span style={{ fontWeight: 600, fontSize: 13 }}>Vista previa</span>
+          <span className="text-muted" style={{ fontSize: 12 }}>
+            {tickets.length > 1 ? `${tickets.length} boletas` : tickets[0]?.taskCode}
+          </span>
+        </div>
+        <div className="d-flex align-items-center" style={{ gap: 8 }}>
+          <Button color="info" size="sm" className="mb-0" onClick={handlePrint}>
+            <i className="nc-icon nc-paper mr-1" /> {printLabel}
+          </Button>
+          {onClose && (
+            <Button color="secondary" outline size="sm" className="mb-0" onClick={onClose}>
+              Cerrar
+            </Button>
+          )}
+        </div>
       </div>
 
-      {/* Printable content */}
-      <div ref={printRef}>
+      {/* Contenido imprimible: su HTML es el que se clona a la ventana de impresión */}
+      <div ref={printRef} style={{ padding: 16, background: "#f4f5f7" }}>
         {tickets.map((ticket) => {
           const deskSupervisorName = resolveDeskSupervisorNameForTicket(ticket, supervisorByDesk);
+          const startReal = resolveStart(ticket);
           const expectedEnd = calcExpectedEnd(ticket);
           const late = isLateDelivery(ticket);
           const actualDuration = calcActualDuration(ticket);
@@ -319,13 +537,10 @@ function TaskTicketPrint({ taskId, taskIds, productionOrderId, supervisorByDesk,
               </div>
 
               {/* Highlight: Mesa, OP y tiempo */}
-              <div style={{ display: "flex", gap: "10px", marginBottom: "10px" }}>
-                <div className="highlight" style={{ flex: 1 }}>
-                  <div style={{ fontSize: "10px" }}>MESA</div>
-                  <div
-                    className="big"
-                    style={{ fontSize: deskSupervisorName ? "16px" : undefined }}
-                  >
+              <div className="tkt-kpis">
+                <div className="highlight">
+                  <div>MESA</div>
+                  <div className={deskSupervisorName ? "big big--sm" : "big"}>
                     {ticket.desk
                       ? deskDisplayLabel(
                           ticket.desk,
@@ -334,12 +549,12 @@ function TaskTicketPrint({ taskId, taskIds, productionOrderId, supervisorByDesk,
                       : "—"}
                   </div>
                 </div>
-                <div className="highlight" style={{ flex: 2 }}>
-                  <div style={{ fontSize: "10px" }}>ORDEN DE PRODUCCIÓN</div>
+                <div className="highlight">
+                  <div>ORDEN DE PRODUCCIÓN</div>
                   <div className="big">{ticket.productionOrderCode || "—"}</div>
                 </div>
-                <div className="highlight" style={{ flex: 1 }}>
-                  <div style={{ fontSize: "10px" }}>TIEMPO EST.</div>
+                <div className="highlight">
+                  <div>TIEMPO EST.</div>
                   <div className="big">{totalEstDisplay}</div>
                 </div>
               </div>
@@ -347,10 +562,11 @@ function TaskTicketPrint({ taskId, taskIds, productionOrderId, supervisorByDesk,
               {/* Info */}
               <div className="info-grid">
                 <div className="info-item">
-                  <span className="info-label">Fecha Inicio:</span>
+                  <span className="info-label">Inicio:</span>
                   <span className="info-value">
-                    {formatDate(ticket.scheduledDate)}
-                    {ticket.startTime ? ` — ${ticket.startTime}` : ""}
+                    {/* Fecha y hora del arranque real: mezclar la fecha programada con la
+                        hora real daba dos datos de dias distintos en la misma linea. */}
+                    {startReal ? formatDateTimeGt(startReal) : formatDate(ticket.scheduledDate)}
                   </span>
                 </div>
                 <div className="info-item">
@@ -383,7 +599,7 @@ function TaskTicketPrint({ taskId, taskIds, productionOrderId, supervisorByDesk,
               {/* Notas de la orden */}
               {ticket.orderObservations && (
                 <div className="notes-section">
-                  <span style={{ fontWeight: "bold" }}>Notas de la Orden: </span>
+                  <span className="tkt-notes-label">Notas de la Orden: </span>
                   <span>{ticket.orderObservations}</span>
                 </div>
               )}
@@ -401,10 +617,8 @@ function TaskTicketPrint({ taskId, taskIds, productionOrderId, supervisorByDesk,
                         0
                       );
                       return (
-                        <div style={{ marginBottom: "8px" }}>
-                          <div style={{ fontWeight: "bold", fontSize: "11px", marginBottom: "4px" }}>
-                            {title}
-                          </div>
+                        <div className="tkt-table-wrap">
+                          <div className="tkt-table-title">{title}</div>
                           <table>
                             <thead>
                               <tr>
@@ -412,10 +626,10 @@ function TaskTicketPrint({ taskId, taskIds, productionOrderId, supervisorByDesk,
                                 <th>Código</th>
                                 <th>Producto</th>
                                 <th>Color</th>
-                                <th style={{ textAlign: "right" }}>Cantidad</th>
-                                <th style={{ textAlign: "right" }}>Tiempo/Ud</th>
-                                <th style={{ textAlign: "right" }}>Tiempo Total</th>
-                                <th style={{ textAlign: "right" }}>Avance</th>
+                                <th className="number">Cantidad</th>
+                                <th className="number">Tiempo/Ud</th>
+                                <th className="number">Tiempo Total</th>
+                                <th className="number">Avance</th>
                               </tr>
                             </thead>
                             <tbody>
@@ -437,8 +651,8 @@ function TaskTicketPrint({ taskId, taskIds, productionOrderId, supervisorByDesk,
                                   </tr>
                                 );
                               })}
-                              <tr style={{ fontWeight: "bold", backgroundColor: "#f0f0f0" }}>
-                                <td colSpan="6" style={{ textAlign: "right" }}>{totalLabel}</td>
+                              <tr className="tkt-row-total">
+                                <td colSpan="6" className="number">{totalLabel}</td>
                                 <td className="number">{formatProductionDuration(tableTotalHours)}</td>
                                 <td className="number">{formatProductionDuration(tableTotalHours)}</td>
                               </tr>
@@ -452,32 +666,22 @@ function TaskTicketPrint({ taskId, taskIds, productionOrderId, supervisorByDesk,
                       <>
                         {renderItemsTable(regularItems, "Productos Normales", "TOTAL NORMALES")}
                         {renderItemsTable(dayItems, "Productos Del Dia", "TOTAL DEL DIA")}
-                        <table>
-                          <tbody>
-                            <tr style={{ fontWeight: "bold", backgroundColor: "#e9ecef" }}>
-                              <td style={{ textAlign: "right", border: "1px solid #333", padding: "4px 6px" }}>
-                                TIEMPO TOTAL ESTIMADO
-                              </td>
-                              <td style={{ textAlign: "right", border: "1px solid #333", padding: "4px 6px", width: "130px" }}>
-                                {totalEstDisplay}
-                              </td>
-                            </tr>
-                          </tbody>
-                        </table>
+                        <div className="tkt-grand-total">
+                          <span>Tiempo total estimado</span>
+                          <strong>{totalEstDisplay}</strong>
+                        </div>
                       </>
                     );
                   })()}
                 </>
               ) : (
-                <p style={{ textAlign: "center", color: "#999", padding: "10px" }}>
-                  Sin productos registrados.
-                </p>
+                <p className="tkt-empty">Sin productos registrados.</p>
               )}
 
               {/* Observaciones a mano */}
               <div className="observations-area">
                 <div className="section-title">OBSERVACIONES</div>
-                <div style={{ fontSize: "11px", marginBottom: "6px", color: "#444" }}>
+                <div className="tkt-breakdown">
                   <strong>Tiempo total estimado:</strong> {totalEstDisplay}
                   {extraEstHours > 0 && (
                     <span>
@@ -530,7 +734,6 @@ function TaskTicketPrint({ taskId, taskIds, productionOrderId, supervisorByDesk,
 
               {/* Footer */}
               <div className="footer">
-                <span>Impreso: {formatNowGt()}</span>
                 <span>Mesa {ticket.desk || "-"} · {ticket.taskCode}</span>
               </div>
             </div>
