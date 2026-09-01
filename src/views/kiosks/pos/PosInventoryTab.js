@@ -21,8 +21,11 @@ import { getProductCategories } from "services/productCategoryService";
 import { formatInventorySizesLine } from "utils/inventoryVariantHelper";
 import {
   filterVisibleKioskStockRows,
+  getHardwareConditionLabel,
+  isCinchoProductRow,
   isPackagingProductCode,
   normalizeCinchoType,
+  normalizeHardwareCondition,
 } from "utils/productCinchoHelper";
 import {
   PRODUCT_AUDIENCE_OPTIONS,
@@ -36,7 +39,7 @@ import {
 } from "utils/kioskInventorySummary";
 import { showError } from "utils/notificationHelper";
 import { FilterableSelect } from "components/distribution/FilterableSelect";
-import { formatQty } from "./posUtils";
+import { formatQty, normalizePosHardwareCondition, posVariantStockQty } from "./posUtils";
 import KioskInventoryCountReport from "../KioskInventoryCountReport";
 
 const safeText = (value) => String(value || "").trim();
@@ -52,7 +55,7 @@ const normalize = (value) =>
     .replace(/[\u0300-\u036f]/g, "");
 
 const variantStatus = (variant) => {
-  const stock = safeNumber(variant.quantity);
+  const stock = posVariantStockQty(variant);
   const min = safeNumber(variant.min);
   if (stock <= 0) {
     return { label: "Sin stock", color: "danger", low: true };
@@ -69,6 +72,9 @@ const sortVariants = (variants) =>
       sensitivity: "base",
     });
     if (colorCompare !== 0) return colorCompare;
+    const hwA = normalizePosHardwareCondition(a.hardwareCondition);
+    const hwB = normalizePosHardwareCondition(b.hardwareCondition);
+    if (hwA !== hwB) return hwA.localeCompare(hwB);
     return safeText(a.productCode).localeCompare(safeText(b.productCode), "es", { sensitivity: "base" });
   });
 
@@ -120,7 +126,7 @@ const buildProducts = (rows) => {
     .map((group) => ({
       ...group,
       variants: sortVariants(group.variants),
-      totalQuantity: group.variants.reduce((sum, variant) => sum + safeNumber(variant.quantity), 0),
+      totalQuantity: group.variants.reduce((sum, variant) => sum + posVariantStockQty(variant), 0),
     }))
     .sort((a, b) => {
       const catCompare = safeText(a.productCategoryName).localeCompare(
@@ -145,43 +151,156 @@ const buildProducts = (rows) => {
     });
 };
 
-const inventoryKey = (productId, colorId) => `${productId || "p"}:${colorId ?? "none"}`;
+/** Misma regla que catálogo POS: si hay tallas, suma de tallas; si no, currentStock. */
+const resolveSellableQuantity = (currentStock, sizes) => {
+  if (sizes && typeof sizes === "object" && Object.keys(sizes).length > 0) {
+    return Object.values(sizes).reduce((sum, qty) => sum + Math.max(0, safeNumber(qty)), 0);
+  }
+  return safeNumber(currentStock);
+};
 
 const normalizeKioscoRows = (rows) =>
-  (rows || []).map((row) => ({
-    id: row.id,
-    productId: row.productId,
-    productCode: row.productCode,
-    productName: row.productName,
-    productCategoryId: row.productCategoryId ?? row.categoryId ?? null,
-    productCategoryName: row.productCategoryName || row.categoryName || "",
-    audienceCategory: normalizeAudienceCategory(row.audienceCategory),
-    cinchoType: normalizeCinchoType(row.cinchoType),
-    cinchoForKids: Boolean(row.cinchoForKids),
-    hardwareCondition: row.hardwareCondition || "NUEVO",
-    packaging: Boolean(row.packaging) || isPackagingProductCode(row.productCode),
-    colorId: row.colorId,
-    colorName: row.colorName,
-    quantity: safeNumber(row.currentStock),
-    min: safeNumber(row.minimumStock),
-    sizes: row.sizes && typeof row.sizes === "object" ? row.sizes : null,
-    locationId: row.locationId,
-  }));
-
-const mergeInventoryRows = (kioscoRows, legacyRows, productMetaById) => {
-  const normalizedKiosco = normalizeKioscoRows(kioscoRows);
-  const merged = [...normalizedKiosco];
-
-  const legacyByKey = new Map();
-  (legacyRows || []).forEach((row) => {
-    legacyByKey.set(inventoryKey(row.productId, row.colorId), row);
+  (rows || []).map((row) => {
+    const sizes = row.sizes && typeof row.sizes === "object" ? row.sizes : null;
+    const hardwareCondition = normalizePosHardwareCondition(row.hardwareCondition);
+    return {
+      id: row.id,
+      productId: row.productId,
+      productCode: row.productCode,
+      productName: row.productName,
+      productCategoryId: row.productCategoryId ?? row.categoryId ?? null,
+      productCategoryName: row.productCategoryName || row.categoryName || "",
+      audienceCategory: normalizeAudienceCategory(row.audienceCategory),
+      cinchoType: normalizeCinchoType(row.cinchoType),
+      cinchoForKids: Boolean(row.cinchoForKids),
+      packaging: Boolean(row.packaging) || isPackagingProductCode(row.productCode),
+      colorId: row.colorId,
+      colorName: row.colorName,
+      hardwareCondition,
+      hardwareLabel: getHardwareConditionLabel(hardwareCondition),
+      quantity: resolveSellableQuantity(row.currentStock, sizes),
+      min: safeNumber(row.minimumStock),
+      sizes,
+      locationId: row.locationId,
+      source: "kiosco",
+    };
   });
 
+/**
+ * Herraje NUEVO/VIEJO aplica sobre todo a cinchos, pero en bolsos/otros también
+ * puede haber stock VIEJO real (p. ej. producto devuelto en un cambio).
+ * Antes se descartaba VIEJO en no-cinchos y el POS mostraba menos unidades que el físico.
+ */
+const productUsesHardwareSplit = (row) => {
+  if (!row || row.packaging || isPackagingProductCode(row.productCode)) return false;
+  return isCinchoProductRow({
+    productCode: row.productCode,
+    productName: row.productName,
+    cinchoType: row.cinchoType,
+    cinchoForKids: row.cinchoForKids,
+    packaging: row.packaging,
+    systemSizes: row.sizes,
+  });
+};
+
+/**
+ * Cinchos: conserva NUEVO y VIEJO.
+ * No-cinchos: si hay stock en más de un herraje, muestra ambos (stock real de cambios).
+ * Empaques: una fila por color (sin herraje).
+ */
+const collapseNonCinchoHardwareRows = (rows) => {
+  const keep = [];
+  const byProductColor = new Map();
+
+  (rows || []).forEach((row) => {
+    if (productUsesHardwareSplit(row)) {
+      keep.push(row);
+      return;
+    }
+    const key = `${row.productId ?? "p"}:${row.colorId ?? "none"}:${
+      row.packaging || isPackagingProductCode(row.productCode) ? "PKG" : "STD"
+    }`;
+    if (!byProductColor.has(key)) byProductColor.set(key, []);
+    byProductColor.get(key).push(row);
+  });
+
+  byProductColor.forEach((group, key) => {
+    const isPackaging = key.endsWith(":PKG");
+    const withStock = group.filter((r) => posVariantStockQty(r) > 0);
+
+    if (isPackaging) {
+      const pool = withStock.length > 0 ? withStock : group;
+      const quantity = pool.reduce((sum, r) => sum + posVariantStockQty(r), 0);
+      const base = pool[0] || group[0];
+      if (!base) return;
+      keep.push({
+        ...base,
+        hardwareCondition: "NUEVO",
+        hardwareLabel: "—",
+        quantity,
+      });
+      return;
+    }
+
+    if (withStock.length === 0) {
+      const nuevo = group.find(
+        (r) => normalizePosHardwareCondition(r.hardwareCondition) === "NUEVO"
+      );
+      const picked = nuevo || group[0];
+      if (!picked) return;
+      keep.push({
+        ...picked,
+        hardwareCondition: "NUEVO",
+        hardwareLabel: "—",
+        quantity: 0,
+      });
+      return;
+    }
+
+    if (withStock.length === 1) {
+      const only = withStock[0];
+      const hw = normalizePosHardwareCondition(only.hardwareCondition);
+      keep.push({
+        ...only,
+        hardwareCondition: hw,
+        hardwareLabel: hw === "VIEJO" ? getHardwareConditionLabel(hw) : "—",
+        quantity: posVariantStockQty(only),
+      });
+      return;
+    }
+
+    withStock
+      .sort((a, b) => {
+        const hwA = normalizePosHardwareCondition(a.hardwareCondition);
+        const hwB = normalizePosHardwareCondition(b.hardwareCondition);
+        return hwA.localeCompare(hwB);
+      })
+      .forEach((row) => {
+        const hw = normalizePosHardwareCondition(row.hardwareCondition);
+        keep.push({
+          ...row,
+          hardwareCondition: hw,
+          hardwareLabel: getHardwareConditionLabel(hw),
+          quantity: posVariantStockQty(row),
+        });
+      });
+  });
+
+  return keep;
+};
+
+/**
+ * Fuente de verdad: kiosco_stock (herraje NUEVO/VIEJO cuando hay existencias reales).
+ * Legacy solo si el kiosko aún no tiene filas en módulo kiosco (migración).
+ */
+const buildInventoryRows = (kioscoRows, legacyRows, productMetaById) => {
   const enrichMeta = (row) => {
     const meta = row.productId != null ? productMetaById.get(Number(row.productId)) : null;
     if (meta) {
       if (row.productCategoryId == null) row.productCategoryId = meta.categoryId;
       if (!row.productCategoryName) row.productCategoryName = meta.categoryName || "";
+      if (!row.productName && meta.productName) row.productName = meta.productName;
+      if (!row.productCode && meta.productCode) row.productCode = meta.productCode;
       row.audienceCategory = normalizeAudienceCategory(meta.audienceCategory);
       if (!row.cinchoType && meta.cinchoType) {
         row.cinchoType = normalizeCinchoType(meta.cinchoType);
@@ -201,37 +320,30 @@ const mergeInventoryRows = (kioscoRows, legacyRows, productMetaById) => {
     return row;
   };
 
-  const mergedByKey = new Set();
-  merged.forEach((row) => {
-    const key = inventoryKey(row.productId, row.colorId);
-    mergedByKey.add(key);
-    const legacy = legacyByKey.get(key);
-    if (legacy) {
-      row.sizes = row.sizes || legacy.sizes || null;
-      row.productCategoryId = row.productCategoryId ?? legacy.productCategoryId ?? null;
-      row.productCategoryName = row.productCategoryName || legacy.productCategoryName || "";
-      if (legacy.audienceCategory) {
-        row.audienceCategory = normalizeAudienceCategory(legacy.audienceCategory);
-      }
-    }
-    enrichMeta(row);
-  });
+  const kioscoNormalized = normalizeKioscoRows(kioscoRows).map(enrichMeta);
+  if (kioscoNormalized.length > 0) {
+    return collapseNonCinchoHardwareRows(kioscoNormalized);
+  }
 
-  (legacyRows || []).forEach((legacy) => {
-    const key = inventoryKey(legacy.productId, legacy.colorId);
-    if (mergedByKey.has(key)) return;
-    merged.push(
-      enrichMeta({
+  return collapseNonCinchoHardwareRows(
+    (legacyRows || []).map((legacy) => {
+      const hardware = normalizeHardwareCondition(legacy.hardwareCondition) || "NUEVO";
+      return enrichMeta({
         ...legacy,
         productCategoryId: legacy.productCategoryId ?? null,
         audienceCategory: normalizeAudienceCategory(legacy.audienceCategory),
-        quantity: safeNumber(legacy.quantity),
+        cinchoType: normalizeCinchoType(legacy.cinchoType),
+        cinchoForKids: Boolean(legacy.cinchoForKids),
+        packaging: Boolean(legacy.packaging) || isPackagingProductCode(legacy.productCode),
+        hardwareCondition: hardware,
+        hardwareLabel: getHardwareConditionLabel(hardware),
+        quantity: resolveSellableQuantity(legacy.quantity, legacy.sizes),
         min: safeNumber(legacy.min),
-      })
-    );
-  });
-
-  return merged;
+        sizes: legacy.sizes && typeof legacy.sizes === "object" ? legacy.sizes : null,
+        source: "legacy",
+      });
+    })
+  );
 };
 
 function PosInventoryTab({ kioskLocationId, kioskName, active }) {
@@ -270,6 +382,8 @@ function PosInventoryTab({ kioskLocationId, kioskName, active }) {
         productMetaById.set(Number(p.id), {
           categoryId,
           categoryName: categoryId != null ? categoryNameById.get(categoryId) || "" : "",
+          productCode: p.code || p.productCode || "",
+          productName: p.name || p.productName || "",
           audienceCategory: normalizeAudienceCategory(p.audienceCategory),
           cinchoType: normalizeCinchoType(p.cinchoType),
           cinchoForKids: Boolean(p.cinchoForKids),
@@ -278,7 +392,7 @@ function PosInventoryTab({ kioskLocationId, kioskName, active }) {
       });
       setRows(
         filterVisibleKioskStockRows(
-          mergeInventoryRows(kioscoData, legacyData, productMetaById)
+          buildInventoryRows(kioscoData, legacyData, productMetaById)
         )
       );
     } catch (err) {
@@ -339,7 +453,9 @@ function PosInventoryTab({ kioskLocationId, kioskName, active }) {
           const text = normalize(
             `${product.productCode || ""} ${product.productName || ""} ${product.productCategoryName || ""} ${
               getProductAudienceLabel(product.audienceCategory)
-            } ${variant.colorName || ""} ${formatInventorySizesLine(variant.sizes) || ""}`
+            } ${variant.colorName || ""} ${variant.hardwareLabel || getHardwareConditionLabel(variant.hardwareCondition)} ${
+              formatInventorySizesLine(variant.sizes) || ""
+            }`
           );
           return text.includes(query);
         });
@@ -347,7 +463,7 @@ function PosInventoryTab({ kioskLocationId, kioskName, active }) {
         return {
           ...product,
           variants: filteredVariants,
-          totalQuantity: filteredVariants.reduce((sum, item) => sum + safeNumber(item.quantity), 0),
+          totalQuantity: filteredVariants.reduce((sum, item) => sum + posVariantStockQty(item), 0),
         };
       })
       .filter(Boolean);
@@ -426,8 +542,8 @@ function PosInventoryTab({ kioskLocationId, kioskName, active }) {
               </CardTitle>
               <small className="text-muted">
                 {stockMode === "SUMMARY"
-                  ? "Totales por categoría y línea. Toca una tarjeta para ver el detalle."
-                  : "Detalle por producto, color y tallas."}
+                  ? "Totales por categoría y línea (stock kiosco real). Toca una tarjeta para ver el detalle."
+                  : "Stock real del módulo kiosco (herraje nuevo/viejo). Misma fuente que la venta POS."}
               </small>
             </div>
             <div className="d-flex flex-wrap" style={{ gap: 8 }}>
@@ -545,7 +661,7 @@ function PosInventoryTab({ kioskLocationId, kioskName, active }) {
                   type="text"
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Código, producto, categoría, línea, color..."
+                  placeholder="Código, producto, categoría, línea, color, herraje..."
                 />
               </Col>
             </Row>
@@ -577,6 +693,12 @@ function PosInventoryTab({ kioskLocationId, kioskName, active }) {
                       <span className="kiosk-pos-inventory-board-meta">
                         {group.products} productos · {group.variants} colores
                       </span>
+                      {group.key !== "PACKAGING" && (group.unitsNuevo > 0 || group.unitsViejo > 0) ? (
+                        <span className="kiosk-pos-inventory-board-hardware">
+                          <span>Nuevo {formatQty(group.unitsNuevo)}</span>
+                          <span>Viejo {formatQty(group.unitsViejo)}</span>
+                        </span>
+                      ) : null}
                       {group.lowCount > 0 ? (
                         <span className="kiosk-pos-inventory-board-warn">
                           {group.lowCount} con stock bajo / sin stock
@@ -618,6 +740,7 @@ function PosInventoryTab({ kioskLocationId, kioskName, active }) {
                         <thead>
                           <tr>
                             <th>Color</th>
+                            <th>Herraje</th>
                             <th>Tallas</th>
                             <th className="text-right">Stock</th>
                             <th className="text-right">Mínimo</th>
@@ -627,14 +750,27 @@ function PosInventoryTab({ kioskLocationId, kioskName, active }) {
                         <tbody>
                           {product.variants.map((variant) => {
                             const status = variantStatus(variant);
+                            const stockQty = posVariantStockQty(variant);
+                            const hw = normalizePosHardwareCondition(variant.hardwareCondition);
+                            const isPackaging =
+                              product.packaging || isPackagingProductCode(product.productCode);
                             return (
                               <tr
-                                key={`${product.key}-${variant.id || `${variant.colorId || "none"}-${variant.locationId || "loc"}`}`}
+                                key={`${product.key}-${variant.id || `${variant.colorId || "none"}-${hw}-${variant.locationId || "loc"}`}`}
                                 className={status.low ? "kiosk-pos-inventory-row-low" : ""}
                               >
                                 <td>
                                   {safeText(variant.colorName) || (
                                     <span className="text-muted">Sin color</span>
+                                  )}
+                                </td>
+                                <td>
+                                  {isPackaging ? (
+                                    <span className="text-muted">—</span>
+                                  ) : (
+                                    <Badge color={hw === "VIEJO" ? "secondary" : "success"} pill>
+                                      {hw === "VIEJO" ? "Viejo" : "Nuevo"}
+                                    </Badge>
                                   )}
                                 </td>
                                 <td className="kiosk-pos-inventory-size-cell">
@@ -643,7 +779,7 @@ function PosInventoryTab({ kioskLocationId, kioskName, active }) {
                                   )}
                                 </td>
                                 <td className="text-right font-weight-bold">
-                                  {formatQty(variant.quantity)}
+                                  {formatQty(stockQty)}
                                 </td>
                                 <td className="text-right">{formatQty(variant.min)}</td>
                                 <td>

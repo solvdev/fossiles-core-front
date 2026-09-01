@@ -117,18 +117,6 @@ export const moveTaskItem = async (taskItemId, targetDesk, targetDate) => {
   return response.json();
 };
 
-export const updateTaskStartedAt = async (taskId, startedAt) => {
-  const response = await fetch(`${API_URL}/tasks/${taskId}/started-at`, {
-    method: 'PUT',
-    headers: headers(),
-    body: JSON.stringify({ startedAt }),
-  });
-  if (!response.ok) {
-    const err = await response.json().catch(() => ({ message: 'Error al actualizar hora de inicio' }));
-    throw new Error(err.message || 'Error al actualizar hora de inicio');
-  }
-  return response.json();
-};
 
 export const toggleDieCut = async (id, dieCutReady) => {
   const response = await fetch(`${API_URL}/tasks/${id}/die-cut`, {

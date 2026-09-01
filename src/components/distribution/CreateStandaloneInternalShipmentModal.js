@@ -40,6 +40,7 @@ const emptyLine = () => ({
 });
 
 function CreateStandaloneInternalShipmentModal({ isOpen, toggle, onCreated }) {
+  const [slipNumber, setSlipNumber] = useState("");
   const [recipientName, setRecipientName] = useState("");
   const [employeeId, setEmployeeId] = useState("");
   const [planillaEligibility, setPlanillaEligibility] = useState(null);
@@ -59,6 +60,7 @@ function CreateStandaloneInternalShipmentModal({ isOpen, toggle, onCreated }) {
   const [saving, setSaving] = useState(false);
 
   const resetForm = useCallback(() => {
+    setSlipNumber("");
     setRecipientName("");
     setEmployeeId("");
     setPlanillaEligibility(null);
@@ -226,6 +228,11 @@ function CreateStandaloneInternalShipmentModal({ isOpen, toggle, onCreated }) {
       showError("Indique el nombre del colaborador");
       return;
     }
+
+    if (!String(slipNumber || "").trim()) {
+      showError("Debe ingresar el número de boleta física de solicitud (BLS).");
+      return;
+    }
     const payloadLines = lines
       .map((row) => ({
         productId: Number(row.productId),
@@ -268,6 +275,7 @@ function CreateStandaloneInternalShipmentModal({ isOpen, toggle, onCreated }) {
     try {
       const created = await createInternalShipmentRequest({
         requestType,
+        slipNumber: String(slipNumber).trim(),
         employeeId: requestType === "PLANILLA" ? Number(employeeId) : null,
         discountPercent: pricingMeta.discountPercent ?? null,
         discountAmount: pricingMeta.discountAmount ?? null,
@@ -307,7 +315,17 @@ function CreateStandaloneInternalShipmentModal({ isOpen, toggle, onCreated }) {
           </div>
         )}
         <Row>
-          <Col md="6">
+          <Col md="3">
+            <FormGroup>
+              <Label>No. Boleta física (BLS) *</Label>
+              <Input
+                placeholder="Ej. BLS-00001"
+                value={slipNumber}
+                onChange={(e) => setSlipNumber(e.target.value.toUpperCase())}
+              />
+            </FormGroup>
+          </Col>
+          <Col md="5">
             <FormGroup>
               <Label>Colaborador *</Label>
               {requestType === "PLANILLA" ? (
@@ -340,15 +358,15 @@ function CreateStandaloneInternalShipmentModal({ isOpen, toggle, onCreated }) {
               )}
             </FormGroup>
           </Col>
-          <Col md="3">
+          <Col md="2">
             <FormGroup>
               <Label>Teléfono</Label>
               <Input value={recipientPhone} onChange={(e) => setRecipientPhone(e.target.value)} />
             </FormGroup>
           </Col>
-          <Col md="3">
+          <Col md="2">
             <FormGroup>
-              <Label>NIT</Label>
+              <Label>DPI / NIT</Label>
               <Input value={recipientTaxId} onChange={(e) => setRecipientTaxId(e.target.value)} />
             </FormGroup>
           </Col>
@@ -415,7 +433,13 @@ function CreateStandaloneInternalShipmentModal({ isOpen, toggle, onCreated }) {
           <Col md={requestType === "DEFECTOS" ? 3 : 4}>
             <FormGroup>
               <Label>Observaciones</Label>
-              <Input value={notes} onChange={(e) => setNotes(e.target.value)} />
+              <Input
+                type="textarea"
+                rows={2}
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                placeholder="Salen impresas en el documento del envío"
+              />
             </FormGroup>
           </Col>
         </Row>

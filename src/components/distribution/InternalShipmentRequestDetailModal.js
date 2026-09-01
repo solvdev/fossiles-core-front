@@ -140,6 +140,9 @@ function InternalShipmentRequestDetailModal({
         ) : (
           <>
             <div className="mb-3" style={{ fontSize: 13 }}>
+              {request.slipNumber && (
+                <div><strong>Boleta física (BLS):</strong> <Badge color="primary">{request.slipNumber}</Badge></div>
+              )}
               <div><strong>Colaborador:</strong> {request.recipientName || "—"}</div>
               <div><strong>Teléfono:</strong> {request.recipientPhone || "—"}</div>
               <div><strong>NIT/DPI:</strong> {request.recipientTaxId || "—"}</div>

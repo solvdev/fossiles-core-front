@@ -2,6 +2,8 @@ import React, { useEffect, useMemo, useState } from "react";
 import { Input, Label, Modal, ModalBody } from "reactstrap";
 import { lookupTaxpayerByNit } from "services/kioskPosService";
 import {
+  DEFAULT_POS_CARD_BRAND,
+  POS_CARD_BRANDS,
   formatCurrency,
   formatFelCustomerName,
   formatVoucherDiffAlert,
@@ -34,6 +36,7 @@ function ExchangeCheckoutModal({
   const [amountReceived, setAmountReceived] = useState("");
   const [cashAmount, setCashAmount] = useState("");
   const [cardAmount, setCardAmount] = useState("");
+  const [cardBrand, setCardBrand] = useState(DEFAULT_POS_CARD_BRAND);
   const [cardAuthNumber, setCardAuthNumber] = useState("");
   const [cardLast4, setCardLast4] = useState("");
   const [cardVoucherAmount, setCardVoucherAmount] = useState("");
@@ -48,6 +51,7 @@ function ExchangeCheckoutModal({
     setAmountReceived("");
     setCashAmount("");
     setCardAmount("");
+    setCardBrand(DEFAULT_POS_CARD_BRAND);
     setCardAuthNumber("");
     setCardLast4("");
     setCardVoucherAmount("");
@@ -92,12 +96,21 @@ function ExchangeCheckoutModal({
     paymentMethod === "EFECTIVO" &&
     Number(amountReceived || 0) < totalDue;
 
+  const mixtoCash = Number(cashAmount || 0);
+  const mixtoCard = Number(cardAmount || 0);
+  const mixtoCovered = mixtoCash + mixtoCard;
+  const mixtoInsufficient =
+    totalDue > 0 &&
+    paymentMethod === "MIXTO" &&
+    mixtoCovered + 0.009 < totalDue;
+
   const requiresCardData =
     paymentMethod === "TARJETA" || (paymentMethod === "MIXTO" && Number(cardAmount || 0) > 0);
   const cardDataIncomplete =
     requiresCardData
     && (
-      !cardAuthNumber.trim()
+      !cardBrand.trim()
+      || !cardAuthNumber.trim()
       || !/^\d{4}$/.test(cardLast4.trim())
       || !(Number(cardVoucherAmount || 0) > 0)
     );
@@ -116,7 +129,7 @@ function ExchangeCheckoutModal({
     normalizeNit(customerTaxId) !== "CF" && !String(customerName || "").trim();
 
   const canConfirm =
-    !saving && !cashInsufficient && !nitInvalid && !invoiceIncomplete && !taxLookupLoading && !cardDataIncomplete;
+    !saving && !cashInsufficient && !mixtoInsufficient && !nitInvalid && !invoiceIncomplete && !taxLookupLoading && !cardDataIncomplete;
 
   const handleTaxIdChange = (value) => {
     setCustomerTaxId(value);
@@ -126,7 +139,14 @@ function ExchangeCheckoutModal({
     }
   };
 
-  const setExact = () => setAmountReceived(String(totalDue.toFixed(2)));
+  const setExact = () => {
+    const exact = String(totalDue.toFixed(2));
+    setAmountReceived(exact);
+    if (paymentMethod === "MIXTO") {
+      setCashAmount(exact);
+      setCardAmount("0");
+    }
+  };
 
   const addCash = (value) => {
     const current = Number(amountReceived || 0);
@@ -168,6 +188,7 @@ function ExchangeCheckoutModal({
       amountReceived: amountReceived ? Number(amountReceived) : totalDue > 0 ? totalDue : 0,
       cashAmount: cashAmount ? Number(cashAmount) : null,
       cardAmount: cardAmount ? Number(cardAmount) : null,
+      cardBrand: requiresCardData ? cardBrand.trim() : null,
       cardAuthNumber: requiresCardData ? cardAuthNumber.trim() : null,
       cardLast4: requiresCardData ? cardLast4.trim() : null,
       cardVoucherAmount: requiresCardData ? Number(cardVoucherAmount) : null,
@@ -336,6 +357,21 @@ function ExchangeCheckoutModal({
           <div className="kiosk-pos-checkout-section">
             <div className="kiosk-pos-mixto-grid">
               <div>
+                <Label className="kiosk-pos-label">Marca de tarjeta</Label>
+                <Input
+                  type="select"
+                  className="kiosk-pos-input-lg"
+                  value={cardBrand}
+                  onChange={(e) => setCardBrand(e.target.value)}
+                >
+                  {POS_CARD_BRANDS.map((brand) => (
+                    <option key={brand.value} value={brand.value}>
+                      {brand.label}
+                    </option>
+                  ))}
+                </Input>
+              </div>
+              <div>
                 <Label className="kiosk-pos-label">Número de voucher</Label>
                 <Input
                   className="kiosk-pos-input-lg"
@@ -383,6 +419,20 @@ function ExchangeCheckoutModal({
           <div className="kiosk-pos-checkout-section">
             <div className="kiosk-pos-mixto-grid">
               <div>
+                <Label className="kiosk-pos-label">Efectivo (parte)</Label>
+                <Input
+                  className="kiosk-pos-input-lg"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={cashAmount}
+                  onChange={(e) => {
+                    setCashAmount(e.target.value);
+                    if (!amountReceived) setAmountReceived(e.target.value);
+                  }}
+                />
+              </div>
+              <div>
                 <Label className="kiosk-pos-label">Tarjeta (parte)</Label>
                 <Input
                   className="kiosk-pos-input-lg"
@@ -404,6 +454,11 @@ function ExchangeCheckoutModal({
                   onChange={(e) => setAmountReceived(e.target.value)}
                 />
               </div>
+              {mixtoInsufficient && (
+                <div className="full-width text-danger small">
+                  Efectivo + tarjeta deben cubrir {formatCurrency(totalDue)}.
+                </div>
+              )}
               {totalDue > 0 && (
                 <div className="full-width">
                   <div className="kiosk-pos-quick-cash">
@@ -425,6 +480,21 @@ function ExchangeCheckoutModal({
               )}
               {requiresCardData && (
                 <>
+                  <div>
+                    <Label className="kiosk-pos-label">Marca de tarjeta</Label>
+                    <Input
+                      type="select"
+                      className="kiosk-pos-input-lg"
+                      value={cardBrand}
+                      onChange={(e) => setCardBrand(e.target.value)}
+                    >
+                      {POS_CARD_BRANDS.map((brand) => (
+                        <option key={brand.value} value={brand.value}>
+                          {brand.label}
+                        </option>
+                      ))}
+                    </Input>
+                  </div>
                   <div>
                     <Label className="kiosk-pos-label">Número de voucher</Label>
                     <Input
@@ -458,26 +528,26 @@ function ExchangeCheckoutModal({
                   </div>
                 </>
               )}
+              {showVoucherDiff && (
+                <div
+                  className="alert alert-warning py-2 mt-2 mb-0 full-width"
+                  role="alert"
+                  style={{ fontSize: "0.9rem" }}
+                >
+                  <strong>{formatVoucherDiffAlert(voucherDiff, expectedCardAmount)}</strong>
+                </div>
+              )}
+              <div className="full-width">
+                <div className="kiosk-pos-change-box">
+                  <div className="kiosk-pos-change-label">Cambio (efectivo)</div>
+                  {changePreview > 0 ? (
+                    <div className="kiosk-pos-change-value">{formatCurrency(changePreview)}</div>
+                  ) : (
+                    <div className="kiosk-pos-change-empty">— Sin cambio —</div>
+                  )}
+                </div>
+              </div>
             </div>
-            {showVoucherDiff && (
-              <div
-                className="alert alert-warning py-2 mt-2 mb-0"
-                role="alert"
-                style={{ fontSize: "0.9rem" }}
-              >
-                <strong>{formatVoucherDiffAlert(voucherDiff, expectedCardAmount)}</strong>
-              </div>
-            )}
-            {totalDue > 0 && (
-              <div className="kiosk-pos-change-box mt-3">
-                <div className="kiosk-pos-change-label">Cambio efectivo</div>
-                {changePreview > 0 ? (
-                  <div className="kiosk-pos-change-value">{formatCurrency(changePreview)}</div>
-                ) : (
-                  <div className="kiosk-pos-change-empty">— Sin cambio —</div>
-                )}
-              </div>
-            )}
           </div>
         )}
       </ModalBody>
@@ -491,7 +561,10 @@ function ExchangeCheckoutModal({
         {cashInsufficient && (
           <p className="kiosk-pos-confirm-hint">El monto recibido no cubre el total</p>
         )}
-        {!cashInsufficient && cardDataIncomplete && (
+        {mixtoInsufficient && (
+          <p className="kiosk-pos-confirm-hint">Efectivo + tarjeta deben cubrir el total</p>
+        )}
+        {!cashInsufficient && !mixtoInsufficient && cardDataIncomplete && (
           <p className="kiosk-pos-confirm-hint">Indica número de voucher, últimos 4 dígitos y monto del voucher</p>
         )}
       </div>

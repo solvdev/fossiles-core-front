@@ -1,11 +1,24 @@
 .kiosk-pos-page {
   --pos-primary: #1d9e75;
   --pos-primary-soft: #e1f5ee;
-  --pos-border: rgba(0, 0, 0, 0.08);
+  --pos-border: rgba(0, 0, 0, 0.16);
   --pos-radius-sm: 8px;
   --pos-radius-md: 12px;
-  --pos-text-secondary: #6b7280;
+  --pos-text-secondary: #52606d;
   --pos-warning: #f59e0b;
+}
+
+/* Alerta de aviso (ej. "Debes abrir caja") con alto contraste */
+.kiosk-pos-page .alert-warning {
+  background-color: #fef3c7;
+  border: 1.5px solid #d97706;
+  color: #78350f;
+  font-size: 0.9375rem;
+  font-weight: 500;
+}
+
+.kiosk-pos-page .alert-warning strong {
+  font-weight: 700;
 }
 
 /* Topbar */
@@ -38,12 +51,12 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 4px 10px;
-  font-size: 0.8125rem;
-  font-weight: 500;
-  color: #374151;
+  padding: 5px 12px;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: #1f2937;
   background: #fff;
-  border: 0.5px solid var(--pos-border);
+  border: 1px solid var(--pos-border);
   border-radius: var(--pos-radius-sm);
   cursor: pointer;
   max-width: 220px;
@@ -96,11 +109,12 @@
   display: block;
   width: 100%;
   text-align: left;
-  padding: 9px 12px;
+  padding: 10px 12px;
   border: none;
   background: transparent;
-  font-size: 0.875rem;
-  color: #374151;
+  font-size: 0.9375rem;
+  font-weight: 500;
+  color: #1f2937;
   cursor: pointer;
 }
 
@@ -119,10 +133,10 @@
 .kiosk-pos-kiosk-badge {
   display: inline-flex;
   align-items: center;
-  padding: 4px 10px;
-  font-size: 0.8125rem;
-  font-weight: 500;
-  color: var(--pos-primary);
+  padding: 5px 12px;
+  font-size: 0.875rem;
+  font-weight: 700;
+  color: #0f6b52;
   background: var(--pos-primary-soft);
   border-radius: var(--pos-radius-sm);
   white-space: nowrap;
@@ -132,15 +146,15 @@
 }
 
 .kiosk-pos-topbar-user {
-  font-size: 0.875rem;
-  font-weight: 400;
+  font-size: 0.9375rem;
+  font-weight: 500;
   color: var(--pos-text-secondary);
   white-space: nowrap;
 }
 
 .kiosk-pos-topbar-user strong {
-  font-weight: 500;
-  color: #374151;
+  font-weight: 700;
+  color: #1f2937;
 }
 
 .kiosk-pos-topbar-tabs {
@@ -154,12 +168,12 @@
 }
 
 .kiosk-pos-tabs .nav-link {
-  font-weight: 500;
-  font-size: 0.875rem;
-  color: var(--pos-text-secondary);
-  border: 0.5px solid var(--pos-border);
+  font-weight: 600;
+  font-size: 0.9375rem;
+  color: #374151;
+  border: 1px solid var(--pos-border);
   border-radius: var(--pos-radius-sm);
-  padding: 8px 16px;
+  padding: 9px 16px;
   margin-right: 4px;
 }
 
@@ -167,6 +181,7 @@
   background: var(--pos-primary);
   border-color: var(--pos-primary);
   color: #fff;
+  box-shadow: 0 2px 0 rgba(0, 0, 0, 0.08) inset;
 }
 
 /* Blocks & layout */
@@ -207,11 +222,16 @@
 
 .kiosk-pos-search-input {
   padding-left: 38px !important;
-  min-height: 44px;
-  font-size: 0.9375rem;
+  min-height: 46px;
+  font-size: 1rem;
   font-weight: 400;
-  border: 0.5px solid var(--pos-border);
+  color: #111827;
+  border: 1px solid var(--pos-border);
   border-radius: var(--pos-radius-sm);
+}
+
+.kiosk-pos-search-input::placeholder {
+  color: #6b7280;
 }
 
 /* Filter rows */
@@ -221,9 +241,9 @@
 
 .kiosk-pos-filter-label {
   display: block;
-  font-size: 0.75rem;
-  font-weight: 500;
-  color: var(--pos-text-secondary);
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: #374151;
   margin-bottom: 6px;
   text-transform: uppercase;
   letter-spacing: 0.03em;
@@ -232,45 +252,46 @@
 .kiosk-pos-chips {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 8px;
 }
 
 .kiosk-pos-chip {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  border: 0.5px solid var(--pos-border);
+  border: 1px solid #d1d5db;
   background: #fff;
   border-radius: var(--pos-radius-sm);
-  padding: 6px 12px;
-  font-weight: 400;
-  font-size: 0.8125rem;
+  padding: 7px 14px;
+  font-weight: 500;
+  font-size: 0.875rem;
   cursor: pointer;
-  color: #374151;
+  color: #1f2937;
 }
 
 .kiosk-pos-chip.active {
   background: var(--pos-primary);
-  border-color: var(--pos-primary);
+  border: 2px solid var(--pos-primary);
   color: #fff;
+  font-weight: 700;
 }
 
 .kiosk-pos-chip.disabled {
-  opacity: 0.4;
+  opacity: 0.5;
   cursor: not-allowed;
   pointer-events: none;
 }
 
 .kiosk-pos-color-dot {
-  width: 10px;
-  height: 10px;
+  width: 15px;
+  height: 15px;
   border-radius: 50%;
   flex-shrink: 0;
-  border: 0.5px solid rgba(0, 0, 0, 0.12);
+  border: 1.5px solid rgba(0, 0, 0, 0.25);
 }
 
 .kiosk-pos-chip.active .kiosk-pos-color-dot {
-  border-color: rgba(255, 255, 255, 0.5);
+  border-color: rgba(255, 255, 255, 0.7);
 }
 
 /* Product grid */
@@ -284,7 +305,7 @@
   position: relative;
   width: 100%;
   text-align: left;
-  border: 0.5px solid var(--pos-border);
+  border: 1px solid #d1d5db;
   background: #ffffff;
   border-radius: var(--pos-radius-md);
   padding: 10px;
@@ -299,7 +320,7 @@
   position: relative;
   width: 100%;
   text-align: left;
-  border: 0.5px solid var(--pos-border);
+  border: 1px solid #d1d5db;
   background: #ffffff;
   border-radius: var(--pos-radius-md);
   padding: 10px;
@@ -315,7 +336,7 @@
   position: relative;
   width: 100%;
   text-align: left;
-  border: 0.5px solid var(--pos-border);
+  border: 1px solid #d1d5db;
   background: #ffffff;
   border-radius: var(--pos-radius-md);
   padding: 12px;
@@ -333,25 +354,27 @@
 }
 
 .kiosk-pos-packaging-code {
-  font-size: 0.75rem;
-  color: var(--pos-text-secondary);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: #4b5563;
   margin-bottom: 4px;
 }
 
 .kiosk-pos-packaging-stock {
   margin-top: 8px;
-  font-size: 0.75rem;
-  color: var(--pos-text-secondary);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: #374151;
 }
 
 .kiosk-pos-packaging-stock.low {
-  color: #d97706;
-  font-weight: 500;
+  color: #92400e;
+  font-weight: 700;
 }
 
 .kiosk-pos-packaging-stock.out {
-  color: #dc2626;
-  font-weight: 500;
+  color: #b91c1c;
+  font-weight: 700;
 }
 
 .kiosk-pos-variant-chips {
@@ -365,14 +388,15 @@
   position: relative;
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 5px;
   max-width: 100%;
-  padding: 4px 6px;
-  border: 0.5px solid var(--pos-border);
+  padding: 6px 9px;
+  border: 1px solid #cbd5e1;
   border-radius: var(--pos-radius-sm);
   background: #fafafa;
-  font-size: 0.6875rem;
-  line-height: 1.2;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  line-height: 1.25;
   color: var(--pos-text-secondary);
   cursor: pointer;
   text-align: left;
@@ -411,22 +435,31 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: #374151;
-  font-weight: 500;
+  color: #1f2937;
+  font-weight: 700;
 }
 
 .kiosk-pos-variant-chip-stock {
   flex-shrink: 0;
-  font-weight: 500;
+  font-weight: 700;
+  color: var(--pos-primary);
+}
+
+.kiosk-pos-variant-chip.low-stock .kiosk-pos-variant-chip-stock {
+  color: #b45309;
+}
+
+.kiosk-pos-variant-chip.disabled .kiosk-pos-variant-chip-stock {
   color: var(--pos-text-secondary);
 }
 
 .kiosk-pos-variant-chip .kiosk-pos-qty-badge {
-  top: -6px;
-  right: -4px;
-  min-width: 18px;
-  height: 18px;
-  font-size: 0.625rem;
+  top: -7px;
+  right: -5px;
+  min-width: 20px;
+  height: 20px;
+  font-size: 0.6875rem;
+  font-weight: 700;
   padding: 0 4px;
 }
 
@@ -456,15 +489,15 @@
 }
 
 .kiosk-pos-product-code {
-  font-size: 0.6875rem;
-  font-weight: 400;
-  color: var(--pos-text-secondary);
-  line-height: 1.2;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: #4b5563;
+  line-height: 1.25;
 }
 
 .kiosk-pos-item-name {
-  font-weight: 500;
-  font-size: 0.8125rem;
+  font-weight: 700;
+  font-size: 0.9375rem;
   line-height: 1.3;
   margin-top: 2px;
   color: #111827;
@@ -473,34 +506,34 @@
 .kiosk-pos-item-sub {
   margin-top: 4px;
   color: var(--pos-text-secondary);
-  font-size: 0.8125rem;
-  font-weight: 400;
+  font-size: 0.875rem;
+  font-weight: 500;
 }
 
 .kiosk-pos-item-price {
   margin-top: 6px;
-  color: var(--pos-primary);
-  font-weight: 500;
-  font-size: 0.875rem;
+  color: #0f6b52;
+  font-weight: 700;
+  font-size: 1rem;
 }
 
 .kiosk-pos-stock-badge {
   display: inline-block;
   margin-top: 6px;
-  padding: 2px 8px;
-  font-size: 0.6875rem;
-  font-weight: 500;
+  padding: 3px 9px;
+  font-size: 0.8125rem;
+  font-weight: 700;
   border-radius: var(--pos-radius-sm);
 }
 
 .kiosk-pos-stock-badge.neutral {
   background: #f3f4f6;
-  color: var(--pos-text-secondary);
+  color: #374151;
 }
 
 .kiosk-pos-stock-badge.warning {
   background: #fef3c7;
-  color: #b45309;
+  color: #92400e;
 }
 
 .kiosk-pos-qty-badge {
@@ -543,8 +576,8 @@
 }
 
 .kiosk-pos-cart-header-title {
-  font-size: 0.9375rem;
-  font-weight: 500;
+  font-size: 1.0625rem;
+  font-weight: 700;
   color: #111827;
   margin: 0;
 }
@@ -554,9 +587,9 @@
   align-items: center;
   gap: 4px;
   padding: 4px 8px;
-  font-size: 0.75rem;
-  font-weight: 400;
-  color: var(--pos-text-secondary);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: #52606d;
   background: none;
   border: none;
   cursor: pointer;
@@ -573,11 +606,11 @@
   width: 100%;
   padding: 8px 10px;
   margin-bottom: 10px;
-  font-size: 0.8125rem;
-  font-weight: 400;
+  font-size: 0.875rem;
+  font-weight: 500;
   color: #374151;
   background: #fafafa;
-  border: 0.5px solid var(--pos-border);
+  border: 1px solid var(--pos-border);
   border-radius: var(--pos-radius-sm);
   cursor: pointer;
   text-align: left;
@@ -614,13 +647,13 @@
 }
 
 .kiosk-pos-cart-empty p {
-  font-size: 0.8125rem;
-  font-weight: 400;
+  font-size: 0.9375rem;
+  font-weight: 500;
   margin: 0;
 }
 
 .kiosk-pos-cart-line {
-  border: 0.5px solid var(--pos-border);
+  border: 1px solid #d1d5db;
   border-radius: var(--pos-radius-sm);
   padding: 8px;
   margin-bottom: 8px;
@@ -648,9 +681,9 @@
 .kiosk-pos-price-mode-chip {
   border: none;
   border-radius: 999px;
-  padding: 4px 10px;
-  font-size: 0.6875rem;
-  font-weight: 600;
+  padding: 5px 12px;
+  font-size: 0.8125rem;
+  font-weight: 700;
   line-height: 1.2;
   white-space: nowrap;
   cursor: pointer;
@@ -669,9 +702,9 @@
 .kiosk-pos-line-remove {
   border: none;
   background: transparent;
-  color: #e03131;
-  font-size: 0.75rem;
-  font-weight: 600;
+  color: #c92a2a;
+  font-size: 0.8125rem;
+  font-weight: 700;
   padding: 4px 2px;
   cursor: pointer;
   white-space: nowrap;
@@ -713,9 +746,9 @@
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  font-weight: 600;
-  font-size: 0.875rem;
-  color: #374151;
+  font-weight: 700;
+  font-size: 0.9375rem;
+  color: #111827;
   min-width: 72px;
   white-space: nowrap;
 }
@@ -729,9 +762,9 @@
 .kiosk-pos-promo-link {
   display: block;
   margin-bottom: 10px;
-  font-size: 0.8125rem;
-  font-weight: 400;
-  color: var(--pos-primary);
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #0f6b52;
   background: none;
   border: none;
   padding: 0;
@@ -753,18 +786,18 @@
 .kiosk-pos-totals-row {
   display: flex;
   justify-content: space-between;
-  font-size: 0.8125rem;
-  font-weight: 400;
-  color: var(--pos-text-secondary);
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: #374151;
 }
 
 .kiosk-pos-totals-row.total {
-  font-size: 1rem;
-  font-weight: 500;
+  font-size: 1.5rem;
+  font-weight: 700;
   color: #111827;
   padding-top: 8px;
   margin-top: 4px;
-  border-top: 0.5px solid var(--pos-border);
+  border-top: 1px solid var(--pos-border);
 }
 
 .kiosk-pos-totals-divider {
@@ -776,23 +809,24 @@
 
 /* Buttons */
 .kiosk-pos-label {
-  font-size: 0.875rem;
-  font-weight: 500;
-  color: #374151;
+  font-size: 0.9375rem;
+  font-weight: 700;
+  color: #1f2937;
 }
 
 .kiosk-pos-input-lg {
   min-height: 44px;
-  font-size: 0.9375rem;
-  font-weight: 400;
+  font-size: 1rem;
+  font-weight: 500;
+  color: #111827;
   border-radius: var(--pos-radius-sm);
-  border: 0.5px solid var(--pos-border);
+  border: 1px solid var(--pos-border);
 }
 
 .kiosk-pos-btn-main {
-  min-height: 52px;
-  font-size: 15px;
-  font-weight: 500;
+  min-height: 56px;
+  font-size: 1.0625rem;
+  font-weight: 700;
   border-radius: var(--pos-radius-sm);
   background: var(--pos-primary) !important;
   border-color: var(--pos-primary) !important;
@@ -801,16 +835,21 @@
   align-items: center;
   justify-content: center;
   gap: 8px;
+  box-shadow: 0 2px 6px rgba(29, 158, 117, 0.25);
 }
 
 .kiosk-pos-btn-main:disabled {
-  opacity: 0.5;
+  opacity: 1;
+  background: #e5e7eb !important;
+  border-color: #d1d5db !important;
+  color: #6b7280 !important;
+  box-shadow: none;
 }
 
 .kiosk-pos-btn-lg {
-  min-height: 40px;
-  font-size: 0.875rem;
-  font-weight: 500;
+  min-height: 44px;
+  font-size: 0.9375rem;
+  font-weight: 700;
   border-radius: var(--pos-radius-sm);
 }
 
@@ -1054,6 +1093,16 @@
   color: var(--pos-text-secondary, #6b7280);
 }
 
+.kiosk-pos-inventory-board-hardware {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 8px;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: #374151;
+}
+
 .kiosk-pos-inventory-board-warn {
   margin-top: 6px;
   font-size: 0.75rem;
@@ -1165,26 +1214,26 @@
 }
 
 .kiosk-pos-metric-value {
-  font-size: 1.375rem;
-  font-weight: 500;
+  font-size: 1.5rem;
+  font-weight: 700;
   color: #111827;
   line-height: 1.2;
 }
 
 .kiosk-pos-metric-value.strikethrough {
-  font-size: 0.9375rem;
+  font-size: 1rem;
   text-decoration: line-through;
   color: var(--pos-text-secondary);
 }
 
 .kiosk-pos-metric-value.primary {
-  font-size: 1.5rem;
-  color: #1d9e75;
+  font-size: 1.625rem;
+  color: #0f6b52;
 }
 
 .kiosk-pos-metric-label {
-  font-size: 0.6875rem;
-  font-weight: 400;
+  font-size: 0.8125rem;
+  font-weight: 600;
   color: var(--pos-text-secondary);
   margin-top: 2px;
 }
@@ -1221,12 +1270,12 @@
 .kiosk-pos-payment-tab {
   flex: 1;
   min-width: 72px;
-  padding: 10px 6px;
-  font-size: 0.8125rem;
-  font-weight: 500;
+  padding: 11px 6px;
+  font-size: 0.9375rem;
+  font-weight: 700;
   text-align: center;
   background: #fff;
-  border: 1px solid var(--pos-border);
+  border: 1.5px solid var(--pos-border);
   border-radius: var(--pos-radius-sm);
   cursor: pointer;
   color: #374151;
@@ -1276,9 +1325,10 @@
 .kiosk-pos-quick-btn {
   flex: 1;
   min-width: 64px;
-  min-height: 40px;
+  min-height: 42px;
   padding: 8px 10px;
-  font-size: 0.875rem;
+  font-size: 0.9375rem;
+  font-weight: 700;
   border-radius: var(--pos-radius-sm);
   cursor: pointer;
   line-height: 1.2;
@@ -1286,16 +1336,14 @@
 
 .kiosk-pos-quick-exact {
   background: #fff;
-  border: 1.5px solid #1d9e75;
-  color: #1d9e75;
-  font-weight: 500;
+  border: 2px solid #0f6b52;
+  color: #0f6b52;
 }
 
 .kiosk-pos-quick-add {
   background: #f3f4f6;
-  border: 1px solid var(--pos-border);
+  border: 1.5px solid #9ca3af;
   color: #374151;
-  font-weight: 400;
 }
 
 .kiosk-pos-change-box {
@@ -1308,22 +1356,22 @@
 }
 
 .kiosk-pos-change-label {
-  font-size: 0.6875rem;
-  font-weight: 400;
+  font-size: 0.8125rem;
+  font-weight: 600;
   color: var(--pos-text-secondary);
   margin-bottom: 4px;
 }
 
 .kiosk-pos-change-value {
-  font-size: 1.375rem;
-  font-weight: 500;
-  color: #1d9e75;
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #0f6b52;
 }
 
 .kiosk-pos-change-empty {
-  font-size: 0.875rem;
-  font-weight: 400;
-  color: #6b7280;
+  font-size: 0.9375rem;
+  font-weight: 500;
+  color: #52606d;
 }
 
 .kiosk-pos-notes-toggle {
@@ -1371,12 +1419,12 @@
 
 .kiosk-pos-btn-cancel {
   width: 100%;
-  min-height: 44px;
+  min-height: 46px;
   font-size: 0.9375rem;
-  font-weight: 400;
-  color: #6b7280;
+  font-weight: 600;
+  color: #374151;
   background: #fff;
-  border: 1px solid var(--pos-border);
+  border: 1.5px solid var(--pos-border);
   border-radius: var(--pos-radius-sm);
   cursor: pointer;
 }
@@ -1387,14 +1435,15 @@
 
 .kiosk-pos-btn-confirm {
   width: 100%;
-  min-height: 52px;
-  font-size: 16px;
-  font-weight: 500;
+  min-height: 54px;
+  font-size: 1.0625rem;
+  font-weight: 700;
   color: #fff !important;
   background: #1d9e75 !important;
   border: none;
   border-radius: var(--pos-radius-sm);
   cursor: pointer;
+  box-shadow: 0 2px 6px rgba(29, 158, 117, 0.25);
 }
 
 .kiosk-pos-btn-confirm:hover:not(:disabled) {
@@ -1402,16 +1451,17 @@
 }
 
 .kiosk-pos-btn-confirm:disabled {
-  opacity: 0.45;
+  opacity: 1;
   cursor: not-allowed;
-  background: #1d9e75 !important;
-  color: #fff !important;
+  background: #e5e7eb !important;
+  color: #6b7280 !important;
+  box-shadow: none;
 }
 
 .kiosk-pos-confirm-hint {
-  font-size: 0.75rem;
-  font-weight: 400;
-  color: #ef4444;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: #c92a2a;
   text-align: center;
   margin-top: -4px;
 }
@@ -1906,6 +1956,40 @@
   border-color: #178a66;
 }
 
+.kiosk-pos-page .badge.badge-light,
+.kiosk-pos-page .badge.bg-light,
+.kiosk-pos-sale-detail-modal .badge.badge-light,
+.kiosk-pos-checkout-modal .badge.badge-light,
+.kiosk-pos-cash-close-modal .badge.badge-light,
+.kiosk-pos-receipt-modal .badge.badge-light,
+.kiosk-pos-void-sale-modal .badge.badge-light,
+.shipment-receipt-panel .badge.badge-light,
+.shipment-receipt-detail .badge.badge-light,
+.kiosk-pos-size-badge {
+  background-color: #0f766e !important;
+  color: #ffffff !important;
+  border: 1px solid #0d5f58 !important;
+  font-weight: 700 !important;
+  font-size: 0.8125rem !important;
+  letter-spacing: 0.3px;
+  padding: 3px 8px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  border-radius: 6px !important;
+}
+
+.kiosk-pos-hw-badge {
+  background-color: #475569 !important;
+  color: #ffffff !important;
+  border: 1px solid #334155 !important;
+  font-weight: 600 !important;
+  font-size: 0.75rem !important;
+  padding: 3px 7px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  border-radius: 6px !important;
+}
+
 .kiosk-pos-sales-actions-cell {
   vertical-align: middle;
   white-space: nowrap;
@@ -2065,6 +2149,13 @@
   font-size: 1.25rem;
   font-weight: 700;
   line-height: 1.1;
+}
+
+.kiosk-pos-cincho-size-price {
+  margin-top: 2px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--pos-text-primary, #1e293b);
 }
 
 .kiosk-pos-cincho-size-stock {
@@ -2459,3 +2550,99 @@
     justify-content: center;
   }
 }
+
+.kiosk-pos-inventory-board {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+@media (min-width: 768px) {
+  .kiosk-pos-inventory-board {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1200px) {
+  .kiosk-pos-inventory-board {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+.kiosk-pos-inventory-board-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: flex-start;
+  min-height: 132px;
+  width: 100%;
+  padding: 16px 18px;
+  border: 1px solid var(--pos-border);
+  border-radius: var(--pos-radius-md, 12px);
+  background: #fff;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background-color 0.15s ease, transform 0.1s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.kiosk-pos-inventory-board-card:hover,
+.kiosk-pos-inventory-board-card:focus {
+  border-color: var(--pos-primary, #1d9e75);
+  background: #f7fbf9;
+  outline: none;
+}
+
+.kiosk-pos-inventory-board-card:active {
+  transform: scale(0.98);
+}
+
+.kiosk-pos-inventory-board-card.has-low {
+  border-color: #fcd34d;
+  background: #fffbeb;
+}
+
+.kiosk-pos-inventory-board-card.is-empty {
+  opacity: 0.72;
+}
+
+.kiosk-pos-inventory-board-label {
+  font-size: 1rem;
+  font-weight: 600;
+  color: #111827;
+  line-height: 1.25;
+}
+
+.kiosk-pos-inventory-board-units {
+  margin-top: 8px;
+  font-size: 2rem;
+  font-weight: 700;
+  line-height: 1;
+  color: #111827;
+  letter-spacing: -0.02em;
+}
+
+.kiosk-pos-inventory-board-meta {
+  margin-top: 10px;
+  font-size: 0.8125rem;
+  color: var(--pos-text-secondary, #6b7280);
+}
+
+.kiosk-pos-inventory-board-hardware {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 8px;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: #374151;
+}
+
+.kiosk-pos-inventory-board-warn {
+  margin-top: 6px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #92400e;
+}
+
+

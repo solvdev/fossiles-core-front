@@ -1,0 +1,248 @@
+import React, { useState, useEffect, useRef, useCallback } from "react";
+import {
+  getActiveAnnouncement,
+  subscribeToAnnouncements,
+} from "services/systemAnnouncementService";
+
+// Función para emitir sonido suave de alerta usando Web Audio API
+const playAlertBeep = () => {
+  try {
+    const AudioContext = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContext) return;
+    const ctx = new AudioContext();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(587.33, ctx.currentTime); // D5
+    osc.frequency.exponentialRampToValueAtTime(880, ctx.currentTime + 0.15); // A5
+
+    gain.gain.setValueAtTime(0.15, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.35);
+
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+
+    osc.start();
+    osc.stop(ctx.currentTime + 0.35);
+  } catch (e) {
+    // Ignorar si el navegador bloquea audio antes de interacción
+  }
+};
+
+export default function SystemBroadcastBanner() {
+  const [announcement, setAnnouncement] = useState(null);
+  const [remainingSeconds, setRemainingSeconds] = useState(null);
+  const lastAnnounceIdRef = useRef(null);
+
+  // Cargar anuncio activo
+  const checkActiveAnnouncement = useCallback(async () => {
+    try {
+      const active = await getActiveAnnouncement();
+      if (active && active.isActive && active.remainingSeconds > 0) {
+        setAnnouncement(active);
+        setRemainingSeconds(active.remainingSeconds);
+        if (lastAnnounceIdRef.current !== active.id) {
+          lastAnnounceIdRef.current = active.id;
+          playAlertBeep();
+        }
+      } else {
+        if (lastAnnounceIdRef.current) {
+          lastAnnounceIdRef.current = null;
+        }
+        setAnnouncement(null);
+        setRemainingSeconds(null);
+      }
+    } catch (e) {
+      // Ignorar errores de red en polling silencioso
+    }
+  }, []);
+
+  useEffect(() => {
+    checkActiveAnnouncement();
+
+    // 1. Suscripción en tiempo real vía Server-Sent Events (SSE)
+    const unsubscribe = subscribeToAnnouncements(
+      (newAnnounce) => {
+        if (newAnnounce && newAnnounce.isActive && newAnnounce.remainingSeconds > 0) {
+          setAnnouncement(newAnnounce);
+          setRemainingSeconds(newAnnounce.remainingSeconds || 0);
+
+          if (lastAnnounceIdRef.current !== newAnnounce.id) {
+            lastAnnounceIdRef.current = newAnnounce.id;
+            playAlertBeep();
+          }
+        } else {
+          setAnnouncement(null);
+          setRemainingSeconds(null);
+          lastAnnounceIdRef.current = null;
+        }
+      },
+      () => {
+        // Al descartar alerta
+        setAnnouncement(null);
+        setRemainingSeconds(null);
+        lastAnnounceIdRef.current = null;
+      }
+    );
+
+    // 2. Polling de respaldo ligero cada 45 segundos (evita saturar la red)
+    const pollInterval = setInterval(() => {
+      checkActiveAnnouncement();
+    }, 45000);
+
+    // 3. Revisión inmediata cuando el usuario vuelve a la pestaña o ventana
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        checkActiveAnnouncement();
+      }
+    };
+    window.addEventListener("focus", handleVisibilityChange);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      unsubscribe();
+      clearInterval(pollInterval);
+      window.removeEventListener("focus", handleVisibilityChange);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [checkActiveAnnouncement]);
+
+  // Reloj de cuenta regresiva segundo a segundo
+  useEffect(() => {
+    if (!announcement || remainingSeconds === null || remainingSeconds <= 0) {
+      return;
+    }
+
+    const interval = setInterval(() => {
+      setRemainingSeconds((prev) => {
+        if (prev === null || prev <= 1) {
+          clearInterval(interval);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [announcement, remainingSeconds]);
+
+  if (!announcement || remainingSeconds === null) {
+    return null;
+  }
+
+  const formatCountdown = (secs) => {
+    if (secs <= 0) return "00:00";
+    const m = Math.floor(secs / 60);
+    const s = secs % 60;
+    return `${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
+  };
+
+  const isUrgent = remainingSeconds <= 60;
+  const type = announcement.announcementType || "RESTART_WARNING";
+
+  const getBannerColor = () => {
+    if (isUrgent) return "#d63031"; // Rojo intenso
+    switch (type) {
+      case "MAINTENANCE":
+        return "#e67e22"; // Naranja mantenimiento
+      case "URGENT":
+        return "#c0392b"; // Rojo oscuro
+      case "INFO":
+        return "#2980b9"; // Azul informativo
+      case "RESTART_WARNING":
+      default:
+        return "#e17055"; // Coral reinicio
+    }
+  };
+
+  const getBannerIcon = () => {
+    switch (type) {
+      case "MAINTENANCE":
+        return "nc-settings";
+      case "URGENT":
+        return "nc-alert-circle-i";
+      case "INFO":
+        return "nc-chat-33";
+      case "RESTART_WARNING":
+      default:
+        return "nc-bell-55";
+    }
+  };
+
+  return (
+    <div
+      style={{
+        position: "fixed",
+        top: 0,
+        left: 0,
+        right: 0,
+        zIndex: 99999,
+        backgroundColor: getBannerColor(),
+        color: "#ffffff",
+        boxShadow: "0 4px 15px rgba(0,0,0,0.3)",
+        borderBottom: "2px solid rgba(255,255,255,0.4)",
+        padding: "10px 20px",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        flexWrap: "wrap",
+        gap: "10px",
+        animation: isUrgent ? "pulse-banner 1.5s infinite" : "none",
+        fontFamily: "'Montserrat', sans-serif",
+      }}
+    >
+      <style>{`
+        @keyframes pulse-banner {
+          0% { background-color: #d63031; }
+          50% { background-color: #e84118; }
+          100% { background-color: #d63031; }
+        }
+        .countdown-badge-live {
+          background: #ffffff;
+          color: #d63031;
+          font-weight: 800;
+          font-size: 18px;
+          padding: 4px 14px;
+          border-radius: 20px;
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          letter-spacing: 1px;
+          box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+        }
+      `}</style>
+
+      {/* Lado izquierdo: Icono y Mensaje */}
+      <div style={{ display: "flex", alignItems: "center", gap: "12px", flex: 1, minWidth: "260px" }}>
+        <i
+          className={`nc-icon ${getBannerIcon()}`}
+          style={{ fontSize: "24px", color: "#fff" }}
+        />
+        <div>
+          <div style={{ fontWeight: 800, fontSize: "15px", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+            {announcement.title || "AVISO DEL SISTEMA"}
+          </div>
+          <div style={{ fontSize: "13px", opacity: 0.95, lineHeight: 1.3 }}>
+            {announcement.message || "Por favor guarde todos sus cambios antes del reinicio."}
+          </div>
+        </div>
+      </div>
+
+      {/* Lado derecho: Cuenta Regresiva */}
+      <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+        {remainingSeconds > 0 ? (
+          <div className="countdown-badge-live">
+            <i className="nc-icon nc-time-alarm" style={{ fontSize: "16px" }} />
+            <span>{formatCountdown(remainingSeconds)}</span>
+          </div>
+        ) : (
+          <div className="countdown-badge-live" style={{ backgroundColor: "#2d3436", color: "#fff" }}>
+            <i className="nc-icon nc-refresh-69" />
+            <span>Reinicio en curso...</span>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}

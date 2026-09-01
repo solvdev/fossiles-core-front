@@ -2,7 +2,7 @@ export const KIOSCO_MOVEMENT_TYPE_LABELS = {
   ENTRADA: "Entrada",
   VENTA: "Venta",
   DEVOLUCION_DEPOSITO: "Dev. bodega",
-  DEVOLUCION_CLIENTE: "Dev. cliente",
+  DEVOLUCION_CLIENTE: "Dev. de cliente",
   DEVOLUCION_A_CLIENTE: "Dev. a cliente",
   TRASLADO_SALIDA: "Traslado salida",
   TRASLADO_ENTRADA: "Traslado entrada",
@@ -22,8 +22,15 @@ export const normalizeKioscoMovementType = (type) => {
   return String(type);
 };
 
-export const getKioscoMovementTypeLabel = (type) => {
+export const getKioscoMovementTypeLabel = (type, movement = null) => {
   const normalized = normalizeKioscoMovementType(type);
+  if (normalized === "CAMBIO" && movement) {
+    const before = Number(movement.stockBefore);
+    const after = Number(movement.stockAfter);
+    if (Number.isFinite(before) && Number.isFinite(after) && before !== after) {
+      return after > before ? "Cambio (entrada)" : "Cambio (salida)";
+    }
+  }
   return KIOSCO_MOVEMENT_TYPE_LABELS[normalized] || normalized || "—";
 };
 

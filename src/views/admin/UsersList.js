@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   Button,
   Card,
@@ -25,6 +26,7 @@ import { getFeatureFlags } from "services/featureFlagsService";
 import UsersForm from "./UsersForm";
 
 function UsersList() {
+  const navigate = useNavigate();
   const [users, setUsers] = useState([]);
   const [departments, setDepartments] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -358,6 +360,14 @@ function UsersList() {
                       <i className="nc-icon nc-sound-wave mr-1" /> Usuarios Conectados
                     </Button>
                   )}
+                  <Button
+                    color="info"
+                    outline
+                    onClick={() => navigate("/admin/connected-users")}
+                    className="btn-round mr-2"
+                  >
+                    <i className="nc-icon nc-sound-wave mr-1" /> Usuarios Conectados
+                  </Button>
                   <Button
                     color="primary"
                     onClick={handleNew}

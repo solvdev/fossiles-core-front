@@ -160,6 +160,10 @@ function ProductionOrderShipmentGenerateModal({ isOpen, toggle, order, onGenerat
       }
 
       if (kind === "OPI") {
+        if (String(orderForGenerate?.status || "").toUpperCase() === "DRAFT") {
+          setError("La orden INTERNA (OPI) está en borrador. Contabilidad debe autorizar la producción desde Autorizar envíos internos.");
+          return;
+        }
         const products = buildShipmentProductsFromOrderItems(orderForGenerate);
         if (products.length === 0) {
           setError("La orden no tiene productos con cantidad.");
@@ -470,8 +474,14 @@ function ProductionOrderShipmentGenerateModal({ isOpen, toggle, order, onGenerat
           </FormGroup>
         )}
         <FormGroup>
-          <Label>Notas adicionales</Label>
-          <Input type="textarea" rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} />
+          <Label>Observaciones</Label>
+          <Input
+            type="textarea"
+            rows={2}
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            placeholder="Salen impresas en el documento del envío"
+          />
         </FormGroup>
         {showLfReviewSection && packingItems.length > 0 && (
           <Table size="sm" bordered responsive>
@@ -508,6 +518,9 @@ function ProductionOrderShipmentGenerateModal({ isOpen, toggle, order, onGenerat
 
 export function canGenerateShipmentForOrder(order) {
   const kind = classifyPrepareOrder(order);
+  if (kind === "OPI" && String(order?.status || "").toUpperCase() === "DRAFT") {
+    return false;
+  }
   return kind === "OPC" || kind === "OPI" || kind === "OPCK" || kind === "OPK";
 }
 

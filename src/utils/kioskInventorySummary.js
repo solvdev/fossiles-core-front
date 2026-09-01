@@ -3,8 +3,9 @@ import {
   isCinchoProductRow,
   isPackagingProductCode,
   normalizeCinchoType,
+  normalizeHardwareCondition,
 } from "utils/productCinchoHelper";
-import { POS_CATEGORY_ORDER } from "views/kiosks/pos/posUtils";
+import { POS_CATEGORY_ORDER, posVariantStockQty } from "views/kiosks/pos/posUtils";
 
 const PACKAGING_KEY = "PACKAGING";
 
@@ -20,7 +21,7 @@ const isWalletCategory = (name) => {
 };
 
 const isVariantLow = (variant) => {
-  const stock = safeNumber(variant?.quantity);
+  const stock = posVariantStockQty(variant);
   const min = safeNumber(variant?.min);
   if (stock <= 0) return true;
   return min > 0 && stock <= min;
@@ -95,7 +96,6 @@ const categorySortIndex = (label) => {
 /**
  * Agrupa productos del inventario kiosko para el resumen fácil de encargadas.
  * @param {object[]} products — salida de buildProducts (productos con variants)
- * @returns {{ key: string, label: string, units: number, products: number, variants: number, lowCount: number, productKeys: string[] }[]}
  */
 export function buildKioskInventorySummaryGroups(products) {
   const byKey = new Map();
@@ -109,6 +109,8 @@ export function buildKioskInventorySummaryGroups(products) {
         key,
         label,
         units: 0,
+        unitsNuevo: 0,
+        unitsViejo: 0,
         products: 0,
         variants: 0,
         lowCount: 0,
@@ -119,7 +121,13 @@ export function buildKioskInventorySummaryGroups(products) {
     const variants = product.variants || [];
     group.products += 1;
     group.variants += variants.length;
-    group.units += variants.reduce((sum, v) => sum + safeNumber(v.quantity), 0);
+    variants.forEach((v) => {
+      const qty = posVariantStockQty(v);
+      group.units += qty;
+      const hw = normalizeHardwareCondition(v.hardwareCondition) || "NUEVO";
+      if (hw === "VIEJO") group.unitsViejo += qty;
+      else group.unitsNuevo += qty;
+    });
     group.lowCount += variants.filter(isVariantLow).length;
     group.productKeys.push(product.key);
   });
@@ -134,7 +142,6 @@ export function buildKioskInventorySummaryGroups(products) {
   });
 }
 
-/** Filtra la lista de productos a los keys de un grupo del resumen. */
 export function filterProductsBySummaryGroup(products, group) {
   if (!group?.productKeys?.length) return [];
   const keys = new Set(group.productKeys);

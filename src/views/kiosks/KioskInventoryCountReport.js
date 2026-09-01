@@ -38,7 +38,15 @@ import {
   saveInternalCountSnapshot,
   startInternalCount,
 } from "services/kioskPosService";
-import { formatDateGt, formatDateTimeGt } from "utils/dateTimeHelper";
+import {
+  formatDateGt,
+  formatDateTimeGt,
+  getEndOfDayDatetimeLocalGuatemala,
+  getNowDatetimeLocalGuatemala,
+  shiftYmdGuatemala,
+  toApiLocalDateTimeGuatemala,
+  toDatetimeLocalGuatemala,
+} from "utils/dateTimeHelper";
 import { exportConteoToExcel, exportConteoToPdf } from "utils/kioscoConteoExport";
 import {
   buildConteoDisplayReport,
@@ -250,6 +258,15 @@ const sumFilteredRows = (rows) => {
 
 const fmt = (v) => formatDateGt(v, { month: "short" });
 const fmtDt = (v) => (v ? formatDateTimeGt(v) : null);
+const fmtPeriodRange = (fromAt, toAt, fromDate, toDate) => {
+  const a = fromAt || fromDate;
+  const b = toAt || toDate;
+  if (!a && !b) return "—";
+  if (fromAt || toAt) {
+    return `${fmtDt(a) || "—"} — ${fmtDt(b) || "—"}`;
+  }
+  return `${fmt(a)} — ${fmt(b)}`;
+};
 
 // ─── Columnas fijas para alinear cabecera y datos ─────────────────────────────
 function CountTableColGroup({ showKardex, kardexColumns, vitrineOnlyView = false }) {
@@ -1009,22 +1026,22 @@ function KioskInventoryCountReport({ locationId, internalMode = false }) {
     setEditedObservations({});
   }, [locationId, loadHistorial, internalMode]);
 
-  // Siguiente conteo: periodFrom = día siguiente al periodTo del último cerrado (sin solape).
+  // Siguiente conteo: día siguiente al último cerrado; si no hay, ahora GT → fin de día GT.
   useEffect(() => {
-    if (internalMode || !historial?.length || from) return;
-    const closed = historial
+    if (internalMode || from || loadingHistorial) return;
+    const closed = (historial || [])
       .filter((s) => String(s.status || "").toUpperCase() === "CERRADO" && s.periodTo)
       .sort((a, b) => String(b.periodTo).localeCompare(String(a.periodTo)));
-    if (!closed.length) return;
-    const lastTo = closed[0].periodTo;
-    const next = new Date(`${lastTo}T12:00:00`);
-    if (Number.isNaN(next.getTime())) return;
-    next.setDate(next.getDate() + 1);
-    const yyyy = next.getFullYear();
-    const mm = String(next.getMonth() + 1).padStart(2, "0");
-    const dd = String(next.getDate()).padStart(2, "0");
-    setFrom(`${yyyy}-${mm}-${dd}`);
-  }, [historial, internalMode, from]);
+    if (closed.length) {
+      const lastTo = String(closed[0].periodTo).slice(0, 10);
+      const nextYmd = shiftYmdGuatemala(lastTo, 1);
+      setFrom(`${nextYmd}T00:00`);
+      setTo(getEndOfDayDatetimeLocalGuatemala(nextYmd));
+      return;
+    }
+    setFrom(getNowDatetimeLocalGuatemala());
+    setTo(getEndOfDayDatetimeLocalGuatemala());
+  }, [historial, loadingHistorial, internalMode, from]);
 
   const openReport = (data, { isPrincipal = true } = {}) => {
     setReport(data);
@@ -1034,8 +1051,12 @@ function KioskInventoryCountReport({ locationId, internalMode = false }) {
     setRemoteSyncNotice("");
     if (isPrincipal && data?.reportType !== "SUBCONTEO") {
       setPrincipalReport(data);
-      if (data?.periodFrom) {
-        setSubcountAsOf((prev) => prev || data.periodTo || "");
+      if (data?.periodToAt || data?.periodTo) {
+        setSubcountAsOf((prev) =>
+          prev
+            || toDatetimeLocalGuatemala(data.periodToAt)
+            || getEndOfDayDatetimeLocalGuatemala(data.periodTo)
+        );
       }
     }
     setEditedCounts({});
@@ -1067,12 +1088,22 @@ function KioskInventoryCountReport({ locationId, internalMode = false }) {
 
   const handleOpen = async () => {
     if (!locationId || !from || !to) {
-      showError("Selecciona un kiosko y un rango de fechas.");
+      showError("Selecciona un kiosko y el rango (fecha y hora Guatemala).");
+      return;
+    }
+    const fromApi = toApiLocalDateTimeGuatemala(from);
+    const toApi = toApiLocalDateTimeGuatemala(to);
+    if (!fromApi || !toApi) {
+      showError("Fecha/hora inválida. Usa hora Guatemala.");
+      return;
+    }
+    if (fromApi > toApi) {
+      showError("La fecha/hora inicial no puede ser posterior a la final.");
       return;
     }
     try {
       setLoading(true);
-      const data = await startKioscoConteo(Number(locationId), from, to);
+      const data = await startKioscoConteo(Number(locationId), fromApi, toApi);
       openReport(data);
       await loadHistorial(locationId);
     } catch (err) {
@@ -1103,23 +1134,31 @@ function KioskInventoryCountReport({ locationId, internalMode = false }) {
       return null;
     }
     if (!subcountAsOf) {
-      showError("Selecciona la fecha de corte del inventario sistema.");
+      showError("Selecciona la fecha y hora de corte del inventario sistema (hora Guatemala).");
       return null;
     }
-    if (subcountAsOf < parentReport.periodFrom || subcountAsOf > parentReport.periodTo) {
-      showError("La fecha de corte debe estar dentro del período del conteo.");
+    const asOfApi = toApiLocalDateTimeGuatemala(subcountAsOf);
+    const periodFromAt =
+      toApiLocalDateTimeGuatemala(parentReport.periodFromAt)
+      || toApiLocalDateTimeGuatemala(`${parentReport.periodFrom}T00:00:00`);
+    const periodToAt =
+      toApiLocalDateTimeGuatemala(parentReport.periodToAt)
+      || toApiLocalDateTimeGuatemala(getEndOfDayDatetimeLocalGuatemala(parentReport.periodTo));
+    if (!asOfApi || asOfApi < periodFromAt || asOfApi > periodToAt) {
+      showError("La fecha/hora de corte debe estar dentro del período del conteo (hora Guatemala).");
       return null;
     }
-    return parentReport;
+    return { parentReport, asOfApi };
   };
 
   const handleViewSubconteo = async () => {
-    const parentReport = resolvePrincipalForSubcount();
-    if (!parentReport) return;
+    const resolved = resolvePrincipalForSubcount();
+    if (!resolved) return;
+    const { parentReport, asOfApi } = resolved;
     try {
       setLoadingSubcount(true);
       setPrincipalReport(parentReport);
-      const data = await getKioscoSubconteo(parentReport.id, subcountAsOf);
+      const data = await getKioscoSubconteo(parentReport.id, asOfApi);
       setReport(data);
       setEditedCounts({});
       setEditedSizeCounts({});
@@ -1136,11 +1175,12 @@ function KioskInventoryCountReport({ locationId, internalMode = false }) {
   };
 
   const handleExportCutoff = async (format) => {
-    const parentReport = resolvePrincipalForSubcount();
-    if (!parentReport) return;
+    const resolved = resolvePrincipalForSubcount();
+    if (!resolved) return;
+    const { parentReport, asOfApi } = resolved;
     try {
       setExportingCutoff(true);
-      const data = await getKioscoSubconteo(parentReport.id, subcountAsOf);
+      const data = await getKioscoSubconteo(parentReport.id, asOfApi);
       if (!data) {
         showError("No hay datos para exportar al corte.");
         return;
@@ -1148,7 +1188,8 @@ function KioskInventoryCountReport({ locationId, internalMode = false }) {
       const payload = buildConteoDisplayReport({
         ...data,
         reportType: data.reportType || "SUBCONTEO",
-        asOfDate: data.asOfDate || subcountAsOf,
+        asOfDate: data.asOfDate || String(asOfApi).slice(0, 10),
+        asOfAt: data.asOfAt || asOfApi,
       });
       const visibleCategories = (payload.categories || [])
         .map((category) => {
@@ -1167,10 +1208,10 @@ function KioskInventoryCountReport({ locationId, internalMode = false }) {
       };
       if (format === "pdf") {
         exportConteoToPdf(exportPayload, { showKardex: true, includeVitrines: false });
-        showSuccess(`PDF inventario al cierre del ${fmt(subcountAsOf)} listo.`);
+        showSuccess(`PDF inventario al corte ${fmtDt(asOfApi) || fmt(subcountAsOf)} listo.`);
       } else {
         exportConteoToExcel(exportPayload, { showKardex: true, includeVitrines: false });
-        showSuccess(`Excel inventario al cierre del ${fmt(subcountAsOf)} descargado.`);
+        showSuccess(`Excel inventario al corte ${fmtDt(asOfApi) || fmt(subcountAsOf)} descargado.`);
       }
     } catch (err) {
       showError(err.message || "No se pudo exportar el inventario al corte.");
@@ -1798,19 +1839,27 @@ function KioskInventoryCountReport({ locationId, internalMode = false }) {
 
       {!internalMode && (
       <Row className="mb-3">
-        <Col md="3">
+        <Col md="4">
           <FormGroup>
-            <Label>Desde</Label>
-            <Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
+            <Label>Desde (hora Guatemala)</Label>
+            <Input
+              type="datetime-local"
+              value={from}
+              onChange={(e) => setFrom(e.target.value)}
+            />
           </FormGroup>
         </Col>
-        <Col md="3">
+        <Col md="4">
           <FormGroup>
-            <Label>Hasta</Label>
-            <Input type="date" value={to} onChange={(e) => setTo(e.target.value)} />
+            <Label>Hasta (hora Guatemala)</Label>
+            <Input
+              type="datetime-local"
+              value={to}
+              onChange={(e) => setTo(e.target.value)}
+            />
           </FormGroup>
         </Col>
-        <Col md="3" className="d-flex align-items-end">
+        <Col md="4" className="d-flex align-items-end">
           <Button color="primary" onClick={() => void handleOpen()} disabled={loading}>
             {loading ? <><Spinner size="sm" className="mr-1" /> Abriendo...</> : "Abrir conteo"}
           </Button>
@@ -1885,7 +1934,7 @@ function KioskInventoryCountReport({ locationId, internalMode = false }) {
                         <td style={{ whiteSpace: "nowrap", fontWeight: isActive ? 700 : 400 }}>
                           {internalMode
                             ? fmt(sessionDate || s.periodFrom)
-                            : <>{fmt(s.periodFrom)} — {fmt(s.periodTo)}</>}
+                            : <>{fmtPeriodRange(s.periodFromAt, s.periodToAt, s.periodFrom, s.periodTo)}</>}}
                         </td>
                         <td>
                           <Badge
@@ -1937,7 +1986,7 @@ function KioskInventoryCountReport({ locationId, internalMode = false }) {
           {internalMode ? (
             loading ? "Cargando conteo interno..." : "No se pudo cargar el conteo interno."
           ) : locationId ? (
-            <>Selecciona el rango de fechas y presiona <strong>Abrir conteo</strong> para crear uno nuevo, o carga uno existente de arriba.</>
+            <>Selecciona fecha y hora Guatemala y presiona <strong>Abrir conteo</strong> para crear uno nuevo, o carga uno existente de arriba.</>
           ) : (
             <>Selecciona un <strong>kiosko</strong> arriba para ver y gestionar los conteos físicos.</>
           )}
@@ -1970,9 +2019,15 @@ function KioskInventoryCountReport({ locationId, internalMode = false }) {
               ) : (
                 <>
                   <span style={{ fontSize: 12, color: "#374151" }}>
-                    <strong>{report.periodFrom ? fmt(report.periodFrom) : "—"}</strong>
-                    {" — "}
-                    <strong>{report.periodTo ? fmt(report.periodTo) : "—"}</strong>
+                    <strong>
+                      {fmtPeriodRange(
+                        report.periodFromAt,
+                        report.periodToAt,
+                        report.periodFrom,
+                        report.periodTo
+                      )}
+                    </strong>
+                    <span className="text-muted ml-1">(hora Guatemala)</span>
                   </span>
                   {(report.status === "REVISADO" || isClosed) && (
                     <span style={{ fontSize: 12, color: "#6b7280" }}>
@@ -2107,9 +2162,10 @@ function KioskInventoryCountReport({ locationId, internalMode = false }) {
             <Alert color="info" className="mb-3" style={{ fontSize: 12 }}>
               <div className="d-flex flex-wrap align-items-center justify-content-between" style={{ gap: 8 }}>
                 <div>
-                  <strong>Subconteo del {fmt(report.asOfDate)}.</strong>{" "}
-                  Kardex del {fmt(report.periodFrom)} al {fmt(report.asOfDate)}. El conteo físico es el del conteo principal;
-                  la columna de inventario sistema refleja el saldo a esa fecha.
+                  <strong>Subconteo al {fmtDt(report.asOfAt) || fmt(report.asOfDate)} (hora Guatemala).</strong>{" "}
+                  Kardex del {fmtDt(report.periodFromAt) || fmt(report.periodFrom)} al{" "}
+                  {fmtDt(report.asOfAt) || fmt(report.asOfDate)}. El conteo físico es el del conteo principal;
+                  la columna de inventario sistema refleja el saldo a esa fecha/hora.
                   la diferencia es físico − sistema (+ sobrante, − faltante).
                   {principalReport && (
                     <Button color="link" className="p-0 ml-2" style={{ fontSize: 12 }} onClick={handleBackToPrincipal}>
@@ -2118,7 +2174,7 @@ function KioskInventoryCountReport({ locationId, internalMode = false }) {
                   )}
                 </div>
                 <Button color="success" size="sm" onClick={handleExportExcel}>
-                  ⬇ Excel inventario al {fmt(report.asOfDate)}
+                  ⬇ Excel inventario al {fmtDt(report.asOfAt) || fmt(report.asOfDate)}
                 </Button>
               </div>
             </Alert>
@@ -2199,34 +2255,40 @@ function KioskInventoryCountReport({ locationId, internalMode = false }) {
             </Col>
           </Row>
 
-          {/* ── Subconteo / inventario a fecha ── */}
+          {/* ── Subconteo / inventario a fecha-hora ── */}
           {!internalMode && !isSubcountView && report && (
             <Row className="mb-3">
-              <Col md="4">
+              <Col md="5">
                 <FormGroup className="mb-0">
                   <Label style={{ fontSize: 12 }}>
-                    Corte inventario sistema (cierre 23:59)
+                    Corte inventario sistema (hora Guatemala)
                   </Label>
                   <Input
-                    type="date"
+                    type="datetime-local"
                     value={subcountAsOf}
-                    min={report.periodFrom || undefined}
-                    max={report.periodTo || undefined}
+                    min={
+                      toDatetimeLocalGuatemala(report.periodFromAt)
+                      || (report.periodFrom ? `${report.periodFrom}T00:00` : undefined)
+                    }
+                    max={
+                      toDatetimeLocalGuatemala(report.periodToAt)
+                      || (report.periodTo ? getEndOfDayDatetimeLocalGuatemala(report.periodTo) : undefined)
+                    }
                     onChange={(e) => setSubcountAsOf(e.target.value)}
                   />
                   <small className="text-muted d-block mt-1" style={{ fontSize: 11 }}>
-                    Saldo del sistema hasta las 23:59 del día elegido (entradas, ventas y demás movimientos).
+                    Saldo del sistema hasta la fecha y hora elegidas (entradas, ventas y demás movimientos).
                   </small>
                 </FormGroup>
               </Col>
-              <Col md="8" className="d-flex align-items-end flex-wrap" style={{ gap: 8 }}>
+              <Col md="7" className="d-flex align-items-end flex-wrap" style={{ gap: 8 }}>
                 <Button
                   color="primary"
                   size="sm"
                   outline
                   onClick={() => void handleViewSubconteo()}
                   disabled={loadingSubcount || exportingCutoff || !subcountAsOf}
-                  title="Ver en pantalla el inventario sistema al cierre (23:59) del día elegido"
+                  title="Ver en pantalla el inventario sistema al corte elegido (hora Guatemala)"
                 >
                   {loadingSubcount ? <Spinner size="sm" /> : "Ver subconteo al corte"}
                 </Button>
@@ -2236,18 +2298,22 @@ function KioskInventoryCountReport({ locationId, internalMode = false }) {
                     outline
                     onClick={() => void handleExportCutoff("excel")}
                     disabled={loadingSubcount || exportingCutoff || !subcountAsOf}
-                    title="Descargar Excel del inventario sistema al cierre (23:59) del día elegido"
+                    title="Descargar Excel del inventario sistema al corte (hora Guatemala)"
                   >
-                    {exportingCutoff ? <Spinner size="sm" /> : `⬇ Excel al ${subcountAsOf ? fmt(subcountAsOf) : "corte"}`}
+                    {exportingCutoff
+                      ? <Spinner size="sm" />
+                      : `⬇ Excel al ${subcountAsOf ? (fmtDt(toApiLocalDateTimeGuatemala(subcountAsOf)) || fmt(subcountAsOf)) : "corte"}`}
                   </Button>
                   <Button
                     color="success"
                     outline
                     onClick={() => void handleExportCutoff("pdf")}
                     disabled={loadingSubcount || exportingCutoff || !subcountAsOf}
-                    title="Descargar PDF del inventario sistema al cierre (23:59) del día elegido"
+                    title="Descargar PDF del inventario sistema al corte (hora Guatemala)"
                   >
-                    {exportingCutoff ? <Spinner size="sm" /> : `🖨 PDF al ${subcountAsOf ? fmt(subcountAsOf) : "corte"}`}
+                    {exportingCutoff
+                      ? <Spinner size="sm" />
+                      : `🖨 PDF al ${subcountAsOf ? (fmtDt(toApiLocalDateTimeGuatemala(subcountAsOf)) || fmt(subcountAsOf)) : "corte"}`}
                   </Button>
                 </ButtonGroup>
               </Col>

@@ -183,6 +183,21 @@ function AdminNavbar(props) {
               </InputGroup>
             </Form>
             <Nav navbar>
+              {canBroadcast && (
+                <NavItem>
+                  <Button
+                    color="danger"
+                    size="sm"
+                    className="btn-round my-auto mx-2 d-flex align-items-center"
+                    onClick={() => setBroadcastModalOpen(true)}
+                    title="Emitir alerta global o aviso de reinicio a todos los usuarios"
+                    style={{ fontWeight: 600, fontSize: "12px", padding: "6px 14px" }}
+                  >
+                    <i className="nc-icon nc-sound-wave mr-1" />
+                    <span>Aviso de Reinicio</span>
+                  </Button>
+                </NavItem>
+              )}
               <NavItem>
                 <NavLink
                   className="btn-magnify"
@@ -267,6 +282,13 @@ function AdminNavbar(props) {
           </Collapse>
         </Container>
       </Navbar>
+
+      {canBroadcast && (
+        <BroadcastAnnouncementModal
+          isOpen={broadcastModalOpen}
+          toggle={() => setBroadcastModalOpen(!broadcastModalOpen)}
+        />
+      )}
     </>
   );
 }
