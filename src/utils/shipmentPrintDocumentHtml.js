@@ -209,11 +209,22 @@ export function buildShipmentDocumentInnerHtml(sale, opts = {}) {
           },
         ];
   const totalItems = items.reduce((sum, it) => sum + (parseInt(it.quantity, 10) || 0), 0);
-  const netAmount = parseFloat(opts.netAmount ?? sale.netAmount) || 0;
-  const totalAmount = parseFloat(opts.totalAmount ?? sale.totalAmount) || 0;
+  const linesNet = items.reduce((sum, it) => {
+    const qty = parseInt(it.quantity, 10) || 1;
+    const unitPrice = parseFloat(it.unitPrice) || 0;
+    const sub = parseFloat(it.subtotal);
+    const lineTotal = Number.isFinite(sub) && it.subtotal != null ? sub : unitPrice * qty;
+    return sum + lineTotal;
+  }, 0);
+  const shippingAmount = parseFloat(opts.shippingCost ?? sale.shippingCost) || 0;
+  // Prefer opts (CAMBIO/devolución Q0, OPV print); otherwise sum printed lines — never stale sale.netAmount.
+  const netAmount = opts.netAmount !== undefined ? parseFloat(opts.netAmount) || 0 : linesNet;
+  const totalAmount =
+    opts.totalAmount !== undefined
+      ? parseFloat(opts.totalAmount) || 0
+      : netAmount + shippingAmount;
   const carrierLabel = SHIPPING_CARRIERS.find((c) => c.value === sale.shippingCarrier)?.label || sale.shippingCarrier || "—";
   const paymentLabel = getSimplePaymentLabel(sale.paymentMethod);
-  const shippingAmount = parseFloat(opts.shippingCost ?? sale.shippingCost) || 0;
   const relatedShipmentNumber = opts.relatedShipmentNumber || "";
   const copyLabel = opts.copyLabel || "";
   const businessTitle = opts.businessTitle || "VENTA EN LINEA FOSSILES";

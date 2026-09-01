@@ -15,8 +15,9 @@ const WarehouseView = () => {
   const [statusFilter, setStatusFilter] = useState("");
   const [activeTab, setActiveTab] = useState("receipt");
 
-  const fetchData = useCallback(async () => {
-    setLoading(true);
+  const fetchData = useCallback(async (options = {}) => {
+    const silent = options?.silent === true;
+    if (!silent) setLoading(true);
     setError(null);
     try {
       const data = await getWarehouseView(statusFilter || undefined);
@@ -24,18 +25,33 @@ const WarehouseView = () => {
     } catch (err) {
       setError(err.message);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, [statusFilter]);
 
   useEffect(() => {
-    fetchData();
+    void fetchData();
   }, [fetchData]);
 
   const pendingReceiptCount = useMemo(
     () => (orders || []).filter((o) => getPendingReceiptQty(o) > 0).length,
     [orders]
   );
+
+  const patchOrderSummary = useCallback((orderId, summary) => {
+    if (!orderId || !summary) return;
+    setOrders((prev) => prev.map((o) => {
+      if (o.productionOrderId !== orderId) return o;
+      const produced = Number(summary.receivedUnits || 0) + Number(summary.rejectedUnits || 0);
+      const total = Number(summary.totalUnits || o.totalQuantity || 0);
+      return {
+        ...o,
+        warehouseWorkspaceSummary: summary,
+        totalQuantity: total > 0 ? total : o.totalQuantity,
+        warehouseReceivedQty: produced,
+      };
+    }));
+  }, []);
 
   return (
     <div className="content">
@@ -67,7 +83,7 @@ const WarehouseView = () => {
                   </Input>
                 </Col>
                 <Col md="3" className="text-md-right mt-3 mt-md-0">
-                  <Button color="primary" onClick={fetchData} disabled={loading}>
+                  <Button color="primary" onClick={() => void fetchData()} disabled={loading}>
                     <i className="nc-icon nc-refresh-69 mr-1" />
                     Actualizar
                   </Button>
@@ -110,10 +126,18 @@ const WarehouseView = () => {
                   </Nav>
                   <TabContent activeTab={activeTab}>
                     <TabPane tabId="receipt">
-                      <WarehouseReceiptTab orders={orders} onRefresh={fetchData} />
+                      <WarehouseReceiptTab
+                        orders={orders}
+                        onRefresh={fetchData}
+                        onOrderSummaryUpdate={patchOrderSummary}
+                      />
                     </TabPane>
                     <TabPane tabId="orders">
-                      <WarehouseOrdersTab orders={orders} onRefresh={fetchData} />
+                      <WarehouseOrdersTab
+                        orders={orders}
+                        onRefresh={fetchData}
+                        onOrderSummaryUpdate={patchOrderSummary}
+                      />
                     </TabPane>
                   </TabContent>
                 </>

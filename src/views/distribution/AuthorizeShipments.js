@@ -27,6 +27,7 @@ import {
 import classnames from "classnames";
 import CreateStandaloneInternalShipmentModal from "components/distribution/CreateStandaloneInternalShipmentModal";
 import InternalShipmentRequestDetailModal from "components/distribution/InternalShipmentRequestDetailModal";
+import PrintSlipBookletModal from "components/distribution/PrintSlipBookletModal";
 import { useAuth } from "contexts/AuthContext";
 import {
   approveInternalShipmentRequest,
@@ -74,6 +75,7 @@ function AuthorizeShipments() {
   const [loadingRequests, setLoadingRequests] = useState(false);
   const [error, setError] = useState("");
   const [createOpen, setCreateOpen] = useState(false);
+  const [printSlipOpen, setPrintSlipOpen] = useState(false);
   const [filters, setFilters] = useState({ status: "", requestType: "" });
   const [actionId, setActionId] = useState(null);
   const [rejectOpen, setRejectOpen] = useState(false);
@@ -214,7 +216,7 @@ function AuthorizeShipments() {
       <Card>
         <CardHeader>
           <Row className="align-items-center">
-            <Col md="8">
+            <Col md="7">
               <CardTitle tag="h4" className="mb-0">
                 {isAccountingView ? "Autorizar envíos internos (ENVI)" : "Solicitudes de envío interno"}
               </CardTitle>
@@ -224,11 +226,21 @@ function AuthorizeShipments() {
                   : "Consulte el estado de sus solicitudes pendientes de autorización por Contabilidad."}
               </p>
             </Col>
-            <Col md="4" className="text-right">
+            <Col md="5" className="text-right">
               {canCreate && (
-                <Button color="primary" className="btn-round" onClick={() => setCreateOpen(true)}>
-                  <i className="nc-icon nc-simple-add" /> Nueva solicitud
-                </Button>
+                <>
+                  <Button
+                    color="secondary"
+                    outline
+                    className="btn-round mr-2"
+                    onClick={() => setPrintSlipOpen(true)}
+                  >
+                    <i className="nc-icon nc-paper" /> Imprimir talonario
+                  </Button>
+                  <Button color="primary" className="btn-round" onClick={() => setCreateOpen(true)}>
+                    <i className="nc-icon nc-simple-add" /> Nueva solicitud
+                  </Button>
+                </>
               )}
             </Col>
           </Row>
@@ -319,6 +331,7 @@ function AuthorizeShipments() {
                   <thead className="text-primary">
                     <tr>
                       <th>#</th>
+                      <th>Boleta (BLS)</th>
                       <th>Fecha</th>
                       <th>Colaborador</th>
                       <th>Tipo</th>
@@ -338,6 +351,7 @@ function AuthorizeShipments() {
                         onClick={() => setDetailRequestId(req.id)}
                       >
                         <td>{req.id}</td>
+                        <td>{req.slipNumber ? <Badge color="primary">{req.slipNumber}</Badge> : "—"}</td>
                         <td>{req.requestedAt ? formatDateTimeGt(req.requestedAt) : "—"}</td>
                         <td>{req.recipientName || "—"}</td>
                         <td>{formatInternalRequestTypeLabel(req)}</td>
@@ -509,6 +523,14 @@ function AuthorizeShipments() {
         toggle={() => setCreateOpen(false)}
         onCreated={() => {
           setCreateOpen(false);
+          loadRequests();
+        }}
+      />
+
+      <PrintSlipBookletModal
+        isOpen={printSlipOpen}
+        toggle={() => setPrintSlipOpen(false)}
+        onPrinted={() => {
           loadRequests();
         }}
       />

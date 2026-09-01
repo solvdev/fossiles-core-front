@@ -1,6 +1,7 @@
 import { isCinchoOrderType } from "utils/cinchoProductionHelper";
 import { isLuisFelipeSeller, isLuisFelipeVendorFlow } from "utils/luisFelipeVendorHelper";
 import { getTodayYmdGuatemala } from "utils/dateTimeHelper";
+import { resolveCinchoUnitPriceWithSize } from "utils/productCinchoHelper";
 
 export const PRINT_PAPER_WIDTH_MM = 216;
 export const PRINT_PAPER_HEIGHT_MM = 279.4;
@@ -48,6 +49,10 @@ export function orderHasConfirmedShipment(shipments) {
 
 /** OP pendiente de preparar envío (incluye documento OPV/OPI anulado sin envío activo). */
 export function orderIsPendingForPrepare(order, shipments) {
+  const kind = classifyPrepareOrder(order);
+  if (kind === "OPI" && String(order?.status || "").trim().toUpperCase() === "DRAFT") {
+    return false;
+  }
   if (order?.vendorShipmentVoidedAt) {
     return !orderHasConfirmedShipment(shipments);
   }
@@ -86,7 +91,7 @@ function normalizeSizeKey(size) {
   return String(size || "").trim().toUpperCase();
 }
 
-/** Precio unitario por talla desde unitPrices del ítem, con fallback a unitPrice / catálogo. */
+/** Precio unitario por talla desde unitPrices del ítem, con fallback a unitPrice / catálogo + recargo. */
 export function resolveOpvUnitPriceForSize(item, size, productCatalogById = {}, preferSellerPrice = false) {
   const sizeKey = normalizeSizeKey(size);
   const unitPrices =
@@ -102,7 +107,8 @@ export function resolveOpvUnitPriceForSize(item, size, productCatalogById = {}, 
       if (Number.isFinite(n) && n >= 0) return n;
     }
   }
-  return resolveDefaultOpvUnitPrice(item, productCatalogById, preferSellerPrice);
+  const base = resolveDefaultOpvUnitPrice(item, productCatalogById, preferSellerPrice);
+  return resolveCinchoUnitPriceWithSize(base, size);
 }
 
 /**
@@ -297,15 +303,10 @@ export function applyOrderItemPricesToShipmentProducts(order, products) {
       next.unitPrices = Object.fromEntries(
         Object.entries(item.unitPrices).map(([k, v]) => [normalizeSizeKey(k), Number(v) || 0])
       );
-      const sized = resolveOpvUnitPriceForSize(item, p.size, {}, preferSellerPrice);
-      if (Number.isFinite(sized) && sized >= 0) {
-        next.unitPrice = sized;
-      }
-      return next;
     }
-    const fromOrder = Number(item.unitPrice);
-    if (Number.isFinite(fromOrder) && fromOrder > 0) {
-      next.unitPrice = fromOrder;
+    const sized = resolveOpvUnitPriceForSize(item, p.size, {}, preferSellerPrice);
+    if (Number.isFinite(sized) && sized >= 0) {
+      next.unitPrice = sized;
     }
     return next;
   });

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   Button,
   Card,
@@ -24,6 +25,7 @@ import { encrypt } from "services/encryptionService";
 import UsersForm from "./UsersForm";
 
 function UsersList() {
+  const navigate = useNavigate();
   const [users, setUsers] = useState([]);
   const [departments, setDepartments] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -336,6 +338,14 @@ function UsersList() {
                   <CardTitle tag="h4">Gestión de Usuarios</CardTitle>
                 </Col>
                 <Col md="6" className="text-right">
+                  <Button
+                    color="info"
+                    outline
+                    onClick={() => navigate("/admin/connected-users")}
+                    className="btn-round mr-2"
+                  >
+                    <i className="nc-icon nc-sound-wave mr-1" /> Usuarios Conectados
+                  </Button>
                   <Button
                     color="primary"
                     onClick={handleNew}

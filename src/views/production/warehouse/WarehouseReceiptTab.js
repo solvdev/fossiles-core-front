@@ -21,7 +21,7 @@ import {
   getOrderQtyProgress,
 } from "./warehouseUtils";
 
-const WarehouseReceiptTab = ({ orders, onRefresh }) => {
+const WarehouseReceiptTab = ({ orders, onRefresh, onOrderSummaryUpdate }) => {
   const [orderTypeFilter, setOrderTypeFilter] = useState("ALL");
   const [searchTerm, setSearchTerm] = useState("");
   const [recent, setRecent] = useState("30");
@@ -265,7 +265,12 @@ const WarehouseReceiptTab = ({ orders, onRefresh }) => {
               <Collapse isOpen={isOpen}>
                 {isOpen && (
                   <div className="border-top px-3 pb-3" style={{ background: "#fcfcfc" }}>
-                    <WarehouseOrderDetail order={order} mode="receipt" onRefresh={onRefresh} />
+                    <WarehouseOrderDetail
+                      order={order}
+                      mode="receipt"
+                      onRefresh={onRefresh}
+                      onOrderSummaryUpdate={onOrderSummaryUpdate}
+                    />
                   </div>
                 )}
               </Collapse>
