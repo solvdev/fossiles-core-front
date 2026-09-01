@@ -20,6 +20,7 @@ import {
   ModalBody,
   ModalHeader,
   ModalFooter,
+  Spinner,
 } from "reactstrap";
 import Select from "react-select";
 import {
@@ -31,7 +32,6 @@ import {
   scheduleTask,
   getDaySaleCandidates,
   addDaySaleItemsToTask,
-  updateTaskStartedAt,
   runAutoPlan,
   getBlockedLeatherLines,
   getDaySalesSummary,
@@ -86,11 +86,237 @@ const BADGE_READABLE_ON_LIGHT = {
   fontWeight: 600,
 };
 
+/**
+ * Estilos del tablero de mesas. Se aislan bajo `.tbs` para no alterar otras vistas y
+ * conviven con Paper Dashboard: solo ajustan densidad, jerarquia y estados.
+ */
+const STATION_STYLESHEET = `
+  .tbs {
+    --tbs-line: #e9ecef;
+    --tbs-line-soft: #f1f3f5;
+    --tbs-muted: #8b9096;
+    --tbs-ink: #32363b;
+    --tbs-accent: #51cbce;
+  }
+
+  /* ---------- Tablero ----------
+     Columnas CSS en vez de rejilla: con la rejilla, todas las mesas de una fila
+     adoptan la altura de la más cargada y dejan huecos enormes. Aquí las tarjetas
+     fluyen y rellenan el espacio, sin filas y sin coste de reflow. */
+  .tbs-board { column-gap: 16px; column-count: 1; }
+  .tbs-board-item { break-inside: avoid; page-break-inside: avoid; margin-bottom: 16px; }
+  @media (min-width: 768px)  { .tbs-board { column-count: 2; } }
+  @media (min-width: 1200px) { .tbs-board { column-count: 3; } }
+  @media (min-width: 1600px) { .tbs-board { column-count: 4; } }
+
+  /* ---------- Tarjeta de mesa ---------- */
+  .tbs-desk {
+    border: 1px solid var(--tbs-line);
+    border-radius: 10px;
+    background: #fff;
+    box-shadow: 0 1px 2px rgba(16,24,40,.04);
+    overflow: hidden;
+    transition: box-shadow .18s ease;
+  }
+  .tbs-desk:hover { box-shadow: 0 4px 14px rgba(16,24,40,.07); }
+  .tbs-desk-top {
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    padding: 9px 12px 8px;
+    border-bottom: 1px solid var(--tbs-line-soft);
+  }
+  .tbs-desk-name { font-size: 12.5px; font-weight: 700; color: var(--tbs-ink); letter-spacing: -.01em; }
+  .tbs-desk-load { font-size: 10.5px; color: var(--tbs-muted); white-space: nowrap; }
+  .tbs-desk-load b { color: var(--tbs-ink); font-weight: 700; }
+  .tbs-desk-bar { height: 3px; background: var(--tbs-line-soft); }
+  .tbs-desk-bar > i { display: block; height: 100%; transition: width .35s ease; }
+  .tbs-desk-body { padding: 9px; }
+
+  /* ---------- Tarjeta de tarea ---------- */
+  .tbs-task {
+    position: relative;
+    border: 1px solid var(--tbs-line);
+    border-radius: 8px;
+    background: #fff;
+    padding: 9px 11px 9px 13px;
+    margin-bottom: 7px;
+    cursor: pointer;
+    transition: box-shadow .16s ease, transform .16s ease, border-color .16s ease;
+  }
+  .tbs-task::before {
+    content: ""; position: absolute; left: 0; top: 8px; bottom: 8px; width: 3px;
+    border-radius: 0 3px 3px 0; background: var(--tbs-state, #ced4da);
+  }
+  .tbs-task:last-child { margin-bottom: 0; }
+  .tbs-task:hover { border-color: #d3dade; box-shadow: 0 3px 12px rgba(16,24,40,.08); transform: translateY(-1px); }
+  .tbs-task:focus-visible { outline: 2px solid var(--tbs-accent); outline-offset: 2px; }
+  .tbs-task--cancelled { opacity: .6; }
+
+  .tbs-task-head { display: flex; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; gap: 4px 8px; }
+  .tbs-task-prod {
+    font-size: 12.5px; font-weight: 700; color: var(--tbs-ink);
+    line-height: 1.3; min-width: 0; letter-spacing: -.01em;
+  }
+  .tbs-task-prod .tbs-color { font-weight: 500; color: var(--tbs-muted); }
+  .tbs-qty {
+    flex-shrink: 0; font-size: 10px; font-weight: 700; color: var(--tbs-ink);
+    background: #f4f6f7; border: 1px solid var(--tbs-line);
+    border-radius: 5px; padding: 2px 7px; white-space: nowrap;
+  }
+  .tbs-task-sub {
+    display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+    margin-top: 3px; font-size: 10px; color: var(--tbs-muted);
+  }
+  .tbs-op {
+    font-weight: 700; color: #5b6167; background: #f4f6f7;
+    border-radius: 4px; padding: 1px 6px; letter-spacing: .01em;
+  }
+
+  /* Paper Dashboard pone margin: 10px 1px a .btn (_buttons.scss:9) y margin-bottom: 5px
+     a .badge (_badges.scss:11). Dentro de la tarjeta eso separa las filas hasta 20px y
+     rompe la densidad del tablero. */
+  .tbs-task .btn,
+  .tbs-task .badge,
+  .tbs-desk .btn,
+  .tbs-desk .badge { margin: 0; }
+
+  /* Fases */
+  .tbs-phases { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; margin-top: 8px; }
+  .tbs-phases > * { display: inline-flex; align-items: center; gap: 4px; }
+  .tbs-phases .badge { font-size: 9px; padding: 3px 7px; border-radius: 5px; font-weight: 600; }
+  .tbs-phases .btn { font-size: 9px; padding: 2px 8px; line-height: 1.5; border-radius: 5px; font-weight: 600; }
+
+  /* Pie en dos filas: la columna de mesa es estrecha y una sola fila recortaba
+     los botones de estado en cuanto entraban tres o mas. */
+  .tbs-task-foot { margin-top: 9px; padding-top: 8px; border-top: 1px solid var(--tbs-line-soft); }
+  /* Todo puede envolverse: en columnas muy estrechas los controles bajan de línea
+     en lugar de salirse de la tarjeta. */
+  .tbs-foot-top {
+    display: flex; align-items: center; justify-content: space-between;
+    flex-wrap: wrap; gap: 6px 8px; margin-bottom: 7px;
+  }
+  .tbs-time { font-size: 11px; font-weight: 700; color: var(--tbs-ink); white-space: nowrap; }
+  .tbs-time small { font-weight: 500; color: var(--tbs-muted); }
+  .tbs-side { display: flex; align-items: center; flex-wrap: wrap; gap: 5px; margin-left: auto; }
+
+  /* Acciones de estado: ocupan el ancho y reparten, nunca se salen */
+  .tbs-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 5px; }
+  .tbs-actions > div { display: flex; align-items: center; flex-wrap: wrap; gap: 5px; width: 100%; }
+  .tbs-actions .btn {
+    font-size: 10px; padding: 4px 10px; line-height: 1.45; border-radius: 5px;
+    font-weight: 600; flex: 1 1 auto; min-width: 0; white-space: nowrap;
+  }
+
+  /* Botón "Del día": accion frecuente, necesita etiqueta legible */
+  .tbs-day-btn {
+    display: inline-flex; align-items: center; gap: 4px;
+    font-size: 9.5px; font-weight: 700; letter-spacing: .02em; text-transform: uppercase;
+    color: #8a6a00; background: #fff8e6; border: 1px solid #f2dfa8;
+    border-radius: 5px; padding: 3px 8px; line-height: 1.5; white-space: nowrap;
+    transition: background .15s ease, border-color .15s ease;
+  }
+  .tbs-day-btn:hover { background: #fdefc9; border-color: #e8cd85; color: #7a5d00; }
+
+  .tbs-icon-btn {
+    border: 1px solid var(--tbs-line); background: #fff; color: #7a8085;
+    border-radius: 5px; width: 25px; height: 23px; padding: 0; line-height: 1;
+    display: inline-flex; align-items: center; justify-content: center; font-size: 11px;
+    transition: background .15s ease, color .15s ease, border-color .15s ease;
+  }
+  .tbs-icon-btn:hover { background: #f4f6f7; color: var(--tbs-ink); border-color: #d3dade; }
+
+  /* Pie de carga progresiva: señala que faltan tareas y las trae al acercarse */
+  .tbs-more {
+    display: flex; align-items: center; justify-content: center; gap: 7px;
+    width: 100%; border: 1px dashed var(--tbs-line); border-radius: 7px;
+    background: transparent; color: var(--tbs-muted); padding: 7px; margin-top: 2px;
+    font-size: 10.5px; font-weight: 600;
+    transition: background .15s ease, color .15s ease, border-color .15s ease;
+  }
+  .tbs-more:hover { background: #f7f9fa; color: var(--tbs-ink); border-color: #ccd2d7; }
+  .tbs-spin {
+    width: 11px; height: 11px; border-radius: 50%;
+    border: 2px solid var(--tbs-line); border-top-color: var(--tbs-accent);
+    animation: tbs-rot .7s linear infinite;
+  }
+  @keyframes tbs-rot { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { .tbs-spin { animation: none; } }
+
+  /* ---------- Selector de jornada ---------- */
+  .tbs-days { display: flex; gap: 7px; overflow-x: auto; padding: 2px 0 6px; scrollbar-width: none; }
+  .tbs-days::-webkit-scrollbar { height: 0; }
+  .tbs-day {
+    flex: 0 0 auto; min-width: 66px; border: 1px solid var(--tbs-line); background: #fff;
+    border-radius: 9px; padding: 6px 10px; text-align: center; cursor: pointer;
+    box-shadow: 0 1px 2px rgba(16,24,40,.03);
+    transition: border-color .16s ease, background .16s ease, box-shadow .16s ease, transform .16s ease;
+  }
+  .tbs-day:hover { border-color: #bfe2e3; background: #f8fdfd; transform: translateY(-1px); }
+  .tbs-day--on {
+    border-color: var(--tbs-accent); background: #edfafa;
+    box-shadow: 0 0 0 1px var(--tbs-accent) inset, 0 2px 8px rgba(81,203,206,.18);
+  }
+  .tbs-day--today .tbs-day-dow { color: var(--tbs-accent); }
+  .tbs-day-dow { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: .07em; color: var(--tbs-muted); }
+  .tbs-day-num { font-size: 16px; font-weight: 700; line-height: 1.2; color: var(--tbs-ink); }
+  .tbs-day-count { font-size: 9px; color: var(--tbs-muted); white-space: nowrap; }
+
+  /* ---------- Detalle ---------- */
+  .tbs-modal .modal-content { border: 0; border-radius: 12px; overflow: hidden; box-shadow: 0 18px 50px rgba(16,24,40,.18); }
+  .tbs-modal .modal-header { border-bottom: 0; padding: 0; display: block; }
+  .tbs-modal .modal-body { padding: 18px 22px 22px; }
+  .tbs-modal .modal-footer { border-top: 1px solid var(--tbs-line-soft); padding: 12px 22px; }
+
+  .tbs-dtl-head { padding: 16px 22px 14px; border-bottom: 1px solid var(--tbs-line-soft); position: relative; }
+  .tbs-dtl-head::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 3px; background: var(--tbs-state, #ced4da); }
+  .tbs-dtl-code { font-size: 19px; font-weight: 700; letter-spacing: -.02em; color: var(--tbs-ink); line-height: 1.2; }
+  .tbs-dtl-sub { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
+  .tbs-pill {
+    font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em;
+    border-radius: 20px; padding: 3px 11px; border: 1px solid transparent;
+  }
+
+  .tbs-detail-sec {
+    font-size: 9.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .09em;
+    color: var(--tbs-muted); margin: 20px 0 10px; display: flex; align-items: center; gap: 8px;
+  }
+  .tbs-detail-sec::after { content: ""; flex: 1; height: 1px; background: var(--tbs-line-soft); }
+  .tbs-detail-sec:first-child { margin-top: 0; }
+
+  .tbs-detail-grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 10px 22px; }
+  .tbs-detail-grid .lbl { font-size: 9.5px; text-transform: uppercase; letter-spacing: .05em; color: var(--tbs-muted); margin-bottom: 1px; }
+  .tbs-detail-grid .val { font-size: 13px; font-weight: 600; color: var(--tbs-ink); overflow-wrap: anywhere; }
+
+  .tbs-item-row {
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+    background: #f8fafb; border: 1px solid var(--tbs-line-soft);
+    border-radius: 7px; padding: 8px 11px; margin-bottom: 6px; font-size: 12.5px;
+  }
+  .tbs-item-row:last-child { margin-bottom: 0; }
+
+  .tbs-flag { display: flex; align-items: center; gap: 7px; font-size: 12.5px; font-weight: 600; color: var(--tbs-ink); }
+  .tbs-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+
+  @media (max-width: 576px) {
+    .tbs-detail-grid { grid-template-columns: minmax(0,1fr); }
+    .tbs-task-foot { flex-wrap: wrap; }
+  }
+`;
+
 function TasksByTable() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const [tasks, setTasks] = useState([]);
+  /**
+   * `loading` es solo la primera carga, cuando todavia no hay nada que pintar.
+   * `refreshing` es el refresco en segundo plano: el tablero se queda en pantalla
+   * y el aviso va en la cabecera, para no perder la vista ni el scroll.
+   */
   const [loading, setLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  /** { [taskId]: nuevoEstado } mientras el cambio esta en vuelo. */
+  const [statusChanging, setStatusChanging] = useState({});
+  /** Carga de órdenes de producción: alimenta las mesas de cinchos y el filtro por OP. */
+  const [loadingOrders, setLoadingOrders] = useState(false);
   const [error, setError] = useState("");
   const [deskConfigWarning, setDeskConfigWarning] = useState("");
   const [viewMode, setViewMode] = useState("operation"); // "operation" | "schedule" | "redistribute"
@@ -143,7 +369,22 @@ function TasksByTable() {
 
   // Redistribuir manual (aparte del cronograma)
   const [redistributeDate, setRedistributeDate] = useState(getTodayYmdGuatemala());
-  const [editStartModal, setEditStartModal] = useState({ open: false, task: null, value: "" });
+  /** Tarea abierta en el panel de detalle; la tarjeta solo muestra lo esencial. */
+  const [detailTask, setDetailTask] = useState(null);
+  /**
+   * Cuántas tareas se pintan por mesa. Crece sola al acercarse el final de la columna,
+   * de modo que una jornada con muchas tareas no monta cientos de tarjetas de golpe
+   * ni necesita barras de scroll internas.
+   */
+  const [deskVisible, setDeskVisible] = useState({});
+  const DESK_PAGE = 5;
+  /**
+   * Tope de la carga automática: a partir de aquí hace falta un clic, para que una mesa
+   * muy cargada no estire el tablero varias pantallas sin que el usuario lo pida. El valor
+   * es una decisión de interfaz, no una medida: en la copia de coretest hay mesa-días de
+   * hasta 20 tareas, así que en esos casos el pie "ver N más" si aparece.
+   */
+  const DESK_AUTO_MAX = 8;
 
   const loadDesksCount = useCallback(async () => {
     try {
@@ -165,16 +406,22 @@ function TasksByTable() {
     }
   }, [filterDate]);
 
-  const loadTasks = useCallback(async () => {
+  /**
+   * `GET /api/tasks` devuelve el listado completo y tarda; por eso hay dos modos.
+   * En segundo plano (`background`) el tablero no se desmonta: se actualiza en su
+   * sitio cuando llegan los datos y el usuario no pierde la vista ni el scroll.
+   */
+  const loadTasks = useCallback(async ({ background = false } = {}) => {
+    const marcar = background ? setRefreshing : setLoading;
     try {
-      setLoading(true);
+      marcar(true);
       setError("");
       const data = await getTasks();
       setTasks(data || []);
     } catch (err) {
       setError(err.message || "Error al cargar tareas");
     } finally {
-      setLoading(false);
+      marcar(false);
     }
   }, []);
 
@@ -194,7 +441,14 @@ function TasksByTable() {
     }
   }, [filterDate]);
 
+  /**
+   * `GET /api/production-orders` tarda decenas de segundos (33,8 s con 1.266 órdenes en
+   * la copia de coretest). De el dependen las mesas de cinchos y el filtro por orden, así
+   * que el tablero se pinta antes y esos bloques aparecen después: hay que avisarlo o
+   * parece que la pantalla ya terminó de cargar.
+   */
   const loadProductionOrders = async () => {
+    setLoadingOrders(true);
     try {
       const data = await getProductionOrders();
       const activeStatuses = new Set(["PENDING", "IN_PROGRESS", "DRAFT"]);
@@ -230,21 +484,31 @@ function TasksByTable() {
       );
     } catch (err) {
       console.error("Error loading production orders:", err);
+    } finally {
+      setLoadingOrders(false);
     }
   };
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
+      // Primero pintar: el tablero aparece con lo que ya hay en la base en vez de
+      // dejar la pantalla vacia mientras el planificador automático hace su pasada.
+      await Promise.all([loadTasks(), loadProductionOrders(), loadDayPlanPanels()]);
+      if (cancelled) return;
+
+      // Y después el auto-plan, en segundo plano. Puede crear tareas, así que al
+      // terminar se refresca sin desmontar lo que el usuario ya esta viendo.
       setAutoPlanning(true);
       try {
         await runAutoPlan();
       } catch (err) {
         console.error("Auto-plan al abrir centro:", err);
+      } finally {
+        if (!cancelled) setAutoPlanning(false);
       }
       if (cancelled) return;
-      setAutoPlanning(false);
-      await Promise.all([loadTasks(), loadProductionOrders(), loadDayPlanPanels()]);
+      await Promise.all([loadTasks({ background: true }), loadDayPlanPanels()]);
     })();
     return () => {
       cancelled = true;
@@ -258,6 +522,14 @@ function TasksByTable() {
   useEffect(() => {
     loadDesksCount();
   }, [filterDate, loadDesksCount]);
+
+  // "Esperando bodega" solo se ofrece en la lista detallada. Si estaba elegido y el usuario
+  // pasa al cronograma, el desplegable se quedaria con un valor sin opcion: se vuelve a Todos.
+  useEffect(() => {
+    if (viewMode !== "operation" && filterStatus === "AWAITING_WAREHOUSE") {
+      setFilterStatus("all");
+    }
+  }, [viewMode, filterStatus]);
 
   useEffect(() => {
     const orderIdFromUrl = searchParams.get("orderId");
@@ -327,49 +599,35 @@ function TasksByTable() {
   // ==================== HANDLERS ====================
 
   const handleStatusChange = async (taskId, newStatus) => {
+    // Un segundo clic mientras el primero viaja duplicaria la petición.
+    if (statusChanging[taskId]) return;
+    setStatusChanging((prev) => ({ ...prev, [taskId]: newStatus }));
     try {
       const updated = await updateTaskStatus(taskId, newStatus);
+      // La tarjeta cambia de estado en cuanto responde el backend (~150 ms).
       setTasks((prev) => prev.map((t) => (t.id === taskId ? updated : t)));
-      if (newStatus === "COMPLETED" || updated?.status === "AWAITING_WAREHOUSE") {
-        await loadTasks();
-      }
       if (updated?.status === "AWAITING_WAREHOUSE") {
         showSuccess("Trabajo terminado en mesa. Pendiente recepción en bodega PT.");
       } else {
         showSuccess("Estado actualizado");
       }
+      // Completar libera la mesa y el backend reasígna otras tareas pendientes, así que
+      // hace falta releer el listado. Va en segundo plano y sin await: el aviso ya se dio
+      // y el tablero sigue en pantalla mientras llega.
+      if (newStatus === "COMPLETED" || updated?.status === "AWAITING_WAREHOUSE") {
+        loadTasks({ background: true });
+      }
     } catch (err) {
       showError(err.message);
+    } finally {
+      setStatusChanging((prev) => {
+        const siguiente = { ...prev };
+        delete siguiente[taskId];
+        return siguiente;
+      });
     }
   };
 
-  const openEditStartedAt = (task) => {
-    if (!task?.id) return;
-    const current = task.startedAt ? String(task.startedAt).slice(0, 19) : "";
-    // datetime-local espera "YYYY-MM-DDTHH:mm"
-    const normalized = current ? current.slice(0, 16) : "";
-    setEditStartModal({ open: true, task, value: normalized });
-  };
-
-  const saveEditedStartedAt = async () => {
-    const task = editStartModal.task;
-    const value = editStartModal.value;
-    if (!task?.id) return;
-    if (!value) {
-      showError("Seleccione fecha y hora.");
-      return;
-    }
-    try {
-      // Backend espera LocalDateTime ISO (segundos opcionales). Mandamos con ":00".
-      const startedAt = `${value}:00`;
-      const updated = await updateTaskStartedAt(task.id, startedAt);
-      setTasks((prev) => prev.map((t) => (t.id === task.id ? updated : t)));
-      showSuccess("Hora de inicio actualizada");
-      setEditStartModal({ open: false, task: null, value: "" });
-    } catch (err) {
-      showError(err.message || "No se pudo actualizar la hora de inicio");
-    }
-  };
 
   // Drag & drop de ítems entre mesas/fechas (optimista + rollback), compartido con el Organizador.
   const handleMoveTaskItem = useMoveTaskItem(setTasks);
@@ -441,7 +699,7 @@ function TasksByTable() {
           deliverableIds.map((itemId) => setTaskItemLeatherDelivery(leatherTask.id, itemId, true))
         );
         showSuccess(`Cuero entregado para ${deliverableIds.length} producto(s).`);
-        await loadTasks();
+        await loadTasks({ background: true });
       }
       setShowLeatherModal(false);
       setLeatherTask(null);
@@ -622,6 +880,65 @@ function TasksByTable() {
     [tableCenterTasks]
   );
 
+  /**
+   * Días con actividad y su carga, para el selector superior. Convive con el desplegable
+   * "Fecha" de la fila de filtros: los dos escriben el mismo estado `filterDate`, así que
+   * se mantienen sincronizados. El chip añade lo que el desplegable no da: ver de un vistazo
+   * cuanta carga tiene cada jornada sin tener que abrirlo.
+   */
+  const dayChips = useMemo(() => {
+    const hoy = getTodayYmdGuatemala();
+    const acc = new Map();
+    tableCenterTasks.forEach((t) => {
+      if (!t.scheduledDate) return;
+      const cur = acc.get(t.scheduledDate) || { tareas: 0, horas: 0, pendientes: 0 };
+      cur.tareas += 1;
+      if (t.status !== "CANCELLED") cur.horas += getTaskBaseHours(t);
+      if (t.status === "PENDING") cur.pendientes += 1;
+      acc.set(t.scheduledDate, cur);
+    });
+    const DOW = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
+    return uniqueDates.map((ymd) => {
+      const [y, m, d] = ymd.split("-").map(Number);
+      const fecha = new Date(y, m - 1, d);
+      const datos = acc.get(ymd) || { tareas: 0, horas: 0, pendientes: 0 };
+      return { ymd, dow: DOW[fecha.getDay()], dia: d, esHoy: ymd === hoy, ...datos };
+    });
+  }, [tableCenterTasks, uniqueDates]);
+
+  /**
+   * Carga progresiva por mesa: cuando el pie de una columna se acerca a la pantalla,
+   * se añade otro bloque de tarjetas. Antes se pintaban todas de golpe.
+   */
+  useEffect(() => {
+    if (typeof IntersectionObserver === "undefined") return undefined;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const alcanzados = entries
+          .filter((e) => e.isIntersecting)
+          .map((e) => ({ key: e.target.dataset.tbsKey, total: Number(e.target.dataset.tbsTotal) || 0 }))
+          .filter((x) => x.key);
+        if (!alcanzados.length) return;
+        setDeskVisible((prev) => {
+          const siguiente = { ...prev };
+          let cambio = false;
+          alcanzados.forEach(({ key, total }) => {
+            const actual = siguiente[key] || DESK_PAGE;
+            // Más allá del tope automático el usuario decide con un clic.
+            if (actual < total && actual < DESK_AUTO_MAX) {
+              siguiente[key] = Math.min(actual + DESK_PAGE, total, DESK_AUTO_MAX);
+              cambio = true;
+            }
+          });
+          return cambio ? siguiente : prev;
+        });
+      },
+      { rootMargin: "150px 0px" }
+    );
+    document.querySelectorAll("[data-tbs-key]").forEach((el) => observer.observe(el));
+    return () => observer.disconnect();
+  }, [tasks, filterDate, viewMode, deskVisible]);
+
   const productionOrderFilterOptions = useMemo(() => {
     const map = new Map();
     (productionOrdersForFilter || []).forEach((o) => {
@@ -762,6 +1079,23 @@ function TasksByTable() {
     [deskSupervisorsByDate]
   );
 
+  /**
+   * La boleta solo se imprime a partir del arranque: lleva la hora de inicio real y la
+   * entrega estimada calculada desde ella, datos que no existen mientras está pendiente.
+   */
+  const taskYaIniciada = (task) => Boolean(task?.startedAt);
+
+  /**
+   * Ids de las boletas imprimibles de una fecha: con mesa y ya iniciadas. Mismo criterio
+   * que la boleta individual, para que el botón de lote se oculte cuando no hay nada que
+   * imprimir en vez de abrir y avisar después.
+   */
+  const boletasImprimiblesEnFecha = (date) =>
+    getOrganizerDayBoletaTasks(tableCenterTasks, date)
+      .filter(taskYaIniciada)
+      .map((t) => t.id)
+      .filter(Boolean);
+
   const openPrintForTask = (task) => {
     const dateKey = task.scheduledDate || getTodayYmdGuatemala();
     setPrintSupervisorByDesk(supervisorMapForDate(dateKey));
@@ -772,11 +1106,9 @@ function TasksByTable() {
   const openPrintBoletasForDate = (date) => {
     setPrintTaskId(null);
     setPrintSupervisorByDesk(supervisorMapForDate(date));
-    const ids = getOrganizerDayBoletaTasks(tableCenterTasks, date)
-      .map((t) => t.id)
-      .filter(Boolean);
+    const ids = boletasImprimiblesEnFecha(date);
     if (!ids.length) {
-      showError("No hay boletas del organizador (con mesa) para esta fecha.");
+      showError("No hay tareas iniciadas con mesa en esta fecha; la boleta se imprime desde que la tarea arranca.");
       return;
     }
     setPrintBatchTaskIds(ids);
@@ -1045,14 +1377,21 @@ function TasksByTable() {
     }
   };
 
+  /**
+   * Contadores de la cabecera. Solo cuentan tareas vivas: `tableCenterTasks` ya descarta
+   * COMPLETED y CANCELLED en el origen (cinchoProductionHelper.buildTableCenterTasks), así
+   * que esta pantalla no puede contar completadas — antes se devolvia `completed: 0` fijo.
+   * En su lugar se expone "esperando bodega", que si esta en los datos y hoy no se veia.
+   */
   const stats = useMemo(() => {
     const active = tableCenterTasks.filter((t) => t.status !== "CANCELLED" && t.status !== "COMPLETED");
     const pending = active.filter((t) => t.status === "PENDING").length;
     const inProgress = active.filter((t) => t.status === "IN_PROGRESS").length;
+    const awaitingWarehouse = active.filter((t) => t.status === "AWAITING_WAREHOUSE").length;
     const dieCut = active.filter((t) => t.dieCutReady).length;
     const unassigned = active.filter((t) => !t.desk).length;
     const totalMin = active.reduce((sum, t) => sum + Math.round((t.estimatedHours || 0) * 60), 0);
-    return { pending, inProgress, completed: 0, dieCut, unassigned, totalMin, total: active.length };
+    return { pending, inProgress, awaitingWarehouse, dieCut, unassigned, totalMin, total: active.length };
   }, [tableCenterTasks]);
 
   const daySaleModalOrderCodes = useMemo(() => {
@@ -1162,7 +1501,12 @@ function TasksByTable() {
     const done = hasPhaseReached(task, "MATERIALS");
     if (taskSkipsMaterials(task)) return <Badge color="info">No requiere</Badge>;
     if (done) return <Badge color="success">Materiales OK</Badge>;
-    return <Badge color="warning">Pendiente en Vista Materiales</Badge>;
+    // En compacto el chip convive con otros dos: el texto largo rompe la fila.
+    return (
+      <Badge color="warning" title="Pendiente en Vista Materiales">
+        {compact ? "Materiales" : "Pendiente en Vista Materiales"}
+      </Badge>
+    );
   };
 
   const renderStatusActions = (task, compact = false) => {
@@ -1176,34 +1520,58 @@ function TasksByTable() {
     if (task.status === "COMPLETED" || task.status === "CANCELLED") {
       return getStatusBadge(task.status);
     }
-
     const buttonSize = "sm";
     const commonStyle = compact
       ? { fontSize: "10px", padding: "1px 4px", height: "22px" }
       : { fontSize: "11px", padding: "2px 6px" };
 
+    // Estado al que se esta cambiando esta tarea, si hay una petición en vuelo.
+    const enCurso = statusChanging[task.id];
+
+    /**
+     * Botón de cambio de estado con acuse inmedíato: el que se pulsa muestra el spinner
+     * del sistema y sus compañeros se bloquean, para que no haya dudas de que el clic
+     * entro ni margen para pulsar dos veces.
+     */
+    const botonEstado = ({ estado, color, outline, etiqueta, enMarcha, title }) => (
+      <Button
+        color={color}
+        outline={outline}
+        size={buttonSize}
+        style={commonStyle}
+        disabled={!!enCurso}
+        onClick={() => handleStatusChange(task.id, estado)}
+        title={enCurso ? "Aplicando el cambio…" : title}
+      >
+        {enCurso === estado ? (
+          <>
+            <Spinner size="sm" style={{ width: 10, height: 10, borderWidth: 1.5 }} className="mr-1" />
+            {enMarcha}
+          </>
+        ) : (
+          etiqueta
+        )}
+      </Button>
+    );
+
     if (task.status === "PENDING") {
       return (
         <div className="d-flex align-items-center" style={{ gap: 4, flexWrap: "wrap" }}>
-          <Button
-            color="info"
-            size={buttonSize}
-            style={commonStyle}
-            onClick={() => handleStatusChange(task.id, "IN_PROGRESS")}
-            title="Iniciar tarea (puede iniciar sin esperar otros estados)"
-          >
-            Iniciar
-          </Button>
-          <Button
-            color="danger"
-            outline
-            size={buttonSize}
-            style={commonStyle}
-            onClick={() => handleStatusChange(task.id, "CANCELLED")}
-            title="Cancelar tarea"
-          >
-            Cancelar
-          </Button>
+          {botonEstado({
+            estado: "IN_PROGRESS",
+            color: "info",
+            etiqueta: "Iniciar",
+            enMarcha: "Iniciando…",
+            title: "Iniciar tarea (puede iniciar sin esperar otros estados)",
+          })}
+          {botonEstado({
+            estado: "CANCELLED",
+            color: "danger",
+            outline: true,
+            etiqueta: "Cancelar",
+            enMarcha: "Cancelando…",
+            title: "Cancelar tarea",
+          })}
         </div>
       );
     }
@@ -1211,35 +1579,21 @@ function TasksByTable() {
     if (task.status === "IN_PROGRESS") {
       return (
         <div className="d-flex align-items-center" style={{ gap: 4, flexWrap: "wrap" }}>
-          <Button
-            color="secondary"
-            outline
-            size={buttonSize}
-            style={commonStyle}
-            onClick={() => openEditStartedAt(task)}
-            title="Editar hora de inicio"
-          >
-            Hora
-          </Button>
-          <Button
-            color="success"
-            size={buttonSize}
-            style={commonStyle}
-            onClick={() => handleStatusChange(task.id, "COMPLETED")}
-            title="Completar tarea"
-          >
-            Completar
-          </Button>
-          <Button
-            color="warning"
-            outline
-            size={buttonSize}
-            style={commonStyle}
-            onClick={() => handleStatusChange(task.id, "PENDING")}
-            title="Pausar y volver a pendiente"
-          >
-            Pausar
-          </Button>
+          {botonEstado({
+            estado: "COMPLETED",
+            color: "success",
+            etiqueta: "Completar",
+            enMarcha: "Completando…",
+            title: "Completar tarea",
+          })}
+          {botonEstado({
+            estado: "PENDING",
+            color: "warning",
+            outline: true,
+            etiqueta: "Pausar",
+            enMarcha: "Pausando…",
+            title: "Pausar y volver a pendiente",
+          })}
         </div>
       );
     }
@@ -1307,7 +1661,8 @@ function TasksByTable() {
   // ==================== RENDER ====================
 
   return (
-    <div className="content">
+    <div className="content tbs">
+      <style>{STATION_STYLESHEET}</style>
       {/* ========== STATS ========== */}
       <Row className="mb-3">
         <Col>
@@ -1329,8 +1684,8 @@ function TasksByTable() {
                   <strong style={{ fontSize: "20px", color: "#17a2b8" }}>{stats.inProgress}</strong>
                 </div>
                 <div className="px-3">
-                  <small className="text-muted d-block">Completadas</small>
-                  <strong style={{ fontSize: "20px", color: "#28a745" }}>{stats.completed}</strong>
+                  <small className="text-muted d-block">Esperando bodega</small>
+                  <strong style={{ fontSize: "20px", color: "#6c757d" }}>{stats.awaitingWarehouse}</strong>
                 </div>
                 <div className="px-3">
                   <small className="text-muted d-block">✂️ Troqueladas</small>
@@ -1502,9 +1857,20 @@ function TasksByTable() {
                     <i className="nc-icon nc-badge mr-1" />
                     Encargados
                   </Button>
-                  <Button color="info" size="sm" className="mb-0" onClick={loadTasks} disabled={loading || autoPlanning}>
-                    <i className="nc-icon nc-refresh-69 mr-1" />
-                    Actualizar
+                  <Button
+                    color="info"
+                    size="sm"
+                    className="mb-0"
+                    onClick={() => loadTasks({ background: true })}
+                    disabled={loading || refreshing || autoPlanning}
+                    title={refreshing ? "Actualizando el listado…" : "Volver a leer las tareas"}
+                  >
+                    {refreshing ? (
+                      <Spinner size="sm" className="mr-1" />
+                    ) : (
+                      <i className="nc-icon nc-refresh-69 mr-1" />
+                    )}
+                    {refreshing ? "Actualizando…" : "Actualizar"}
                   </Button>
                 </div>
               </div>
@@ -1513,7 +1879,8 @@ function TasksByTable() {
               {error && <Alert color="danger">{error}</Alert>}
               {deskConfigWarning && <Alert color="warning" className="mb-2">{deskConfigWarning}</Alert>}
               {autoPlanning && (
-                <Alert color="info" className="mb-2 py-2">
+                <Alert color="info" className="mb-2 py-2 d-flex align-items-center" style={{ gap: 8 }}>
+                  <Spinner size="sm" color="info" style={{ width: 14, height: 14, borderWidth: 2 }} />
                   Generando y asignando las tareas del día…
                 </Alert>
               )}
@@ -1739,6 +2106,36 @@ function TasksByTable() {
               </Row>
 
               {/* ========== FILTERS / PRESETS ========== */}
+              {(viewMode === "operation" || viewMode === "schedule") && dayChips.length > 1 && (
+                <div className="mb-3">
+                  <Label className="d-block mb-1"><small>Jornada</small></Label>
+                  <div className="tbs-days">
+                    <button
+                      type="button"
+                      className={`tbs-day ${filterDate === "" ? "tbs-day--on" : ""}`}
+                      onClick={() => setFilterDate("")}
+                      title="Ver todas las jornadas"
+                    >
+                      <div className="tbs-day-dow">Todas</div>
+                      <div className="tbs-day-num">{dayChips.length}</div>
+                      <div className="tbs-day-count">días</div>
+                    </button>
+                    {dayChips.map((d) => (
+                      <button
+                        key={d.ymd}
+                        type="button"
+                        className={`tbs-day ${filterDate === d.ymd ? "tbs-day--on" : ""} ${d.esHoy ? "tbs-day--today" : ""}`}
+                        onClick={() => setFilterDate(filterDate === d.ymd ? "" : d.ymd)}
+                        title={`${formatDate(d.ymd)} · ${d.tareas} tarea(s) · ${formatProductionDuration(d.horas)}${d.pendientes ? ` · ${d.pendientes} pendiente(s)` : ""}`}
+                      >
+                        <div className="tbs-day-dow">{d.esHoy ? "Hoy" : d.dow}</div>
+                        <div className="tbs-day-num">{d.dia}</div>
+                        <div className="tbs-day-count">{d.tareas} · {formatProductionDuration(d.horas)}</div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
               {(viewMode === "operation" || viewMode === "schedule") && (
                 <Row className="mb-3 align-items-end">
                   <Col md={viewMode === "operation" ? "5" : "3"} className="mb-2 mb-md-0">
@@ -1806,8 +2203,16 @@ function TasksByTable() {
                             <option value="all">Todos</option>
                             <option value="PENDING">Pendiente</option>
                             <option value="IN_PROGRESS">En Proceso</option>
-                            <option value="COMPLETED">Completada</option>
-                            <option value="CANCELLED">Cancelada</option>
+                            {/* Completada y Cancelada no se ofrecen: buildTableCenterTasks las
+                                descarta antes de que llegue el filtro, asi que nunca podian dar
+                                resultados. El historico esta en Trazabilidad por OP y en Bandejas
+                                por Fase.
+                                "Esperando bodega" solo se ofrece en la lista detallada: esas
+                                tareas se quedan sin mesa al completarse y el cronograma agrupa
+                                por mesa, asi que alli tampoco podrian aparecer. */}
+                            {viewMode === "operation" && (
+                              <option value="AWAITING_WAREHOUSE">Esperando bodega</option>
+                            )}
                           </Input>
                         </FormGroup>
                       </Col>
@@ -1846,8 +2251,42 @@ function TasksByTable() {
                 </small>
               )}
 
-              {loading ? (
-                <div className="text-center py-4"><p>Cargando tareas...</p></div>
+              {/* Aviso de refresco: ocupa una línea fija encima del tablero, no lo tapa.
+                  Se usa tras completar una tarea o al pulsar Actualizar. */}
+              {refreshing && tasks.length > 0 && (
+                <div
+                  className="d-flex align-items-center mb-2"
+                  style={{ gap: 8, fontSize: 12, color: "#8b9096" }}
+                  role="status"
+                  aria-live="polite"
+                >
+                  <Spinner size="sm" color="info" style={{ width: 13, height: 13, borderWidth: 2 }} />
+                  Actualizando el listado…
+                </div>
+              )}
+
+              {/* Las órdenes de producción llegan mucho más tarde que las tareas y de ellas
+                  dependen las mesas de cinchos y el filtro por OP. Sin este aviso la pantalla
+                  parece terminada y de pronto aparecen bloques nuevos. */}
+              {loadingOrders && (
+                <div
+                  className="d-flex align-items-center mb-2"
+                  style={{ gap: 8, fontSize: 12, color: "#8b9096" }}
+                  role="status"
+                  aria-live="polite"
+                >
+                  <Spinner size="sm" color="info" style={{ width: 13, height: 13, borderWidth: 2 }} />
+                  Cargando órdenes de producción y mesas de cinchos…
+                </div>
+              )}
+
+              {/* Solo se bloquea la vista cuando aun no hay nada que enseñar. Con tareas ya
+                  cargadas el refresco ocurre debajo y el tablero permanece en pantalla. */}
+              {loading && tasks.length === 0 ? (
+                <div className="text-center py-5">
+                  <Spinner color="info" />
+                  <p className="mt-3 mb-0 text-muted" style={{ fontSize: 13 }}>Cargando tareas…</p>
+                </div>
               ) : tableCenterTasks.length === 0 ? (
                 <div className="text-center py-5">
                   <i className="nc-icon nc-box-2" style={{ fontSize: "48px", color: "#ccc" }} />
@@ -2044,7 +2483,7 @@ function TasksByTable() {
                                           color="warning"
                                           size="sm"
                                           onClick={() => openDaySaleModal(task)}
-                                          title="Agregar productos de venta del dia"
+                                          title="Agregar productos de venta del día"
                                           style={{ fontWeight: 700 }}
                                         >
                                           + Del Dia
@@ -2114,20 +2553,24 @@ function TasksByTable() {
                           const deskMap = scheduleByDate[date] || {};
                           const deskKeys = Object.keys(deskMap);
                           const taskCount = Object.values(deskMap).flat().length;
+                          // El botón de lote sigue la misma regla que la boleta individual:
+                          // si no hay ningúna tarea iniciada esa fecha, no se muestra.
+                          const esHoy = date === getTodayYmdGuatemala();
+                          const boletasDelDia = esHoy ? boletasImprimiblesEnFecha(date) : [];
                           return (
                             <Card key={date} className="mb-3" style={{ border: "1px solid #e0e0e0" }}>
                               <CardHeader style={{ backgroundColor: "#f8f9fa", padding: "8px 16px" }}>
                                 <div className="d-flex justify-content-between align-items-center">
                                   <div>
                                     <strong style={{ fontSize: "14px" }}>{formatDate(date)}</strong>
-                                    {date === getTodayYmdGuatemala() && (
+                                    {esHoy && boletasDelDia.length > 0 && (
                                       <Button
                                         color="default"
                                         size="sm"
                                         className="ml-2"
                                         outline
                                         onClick={() => openPrintBoletasForDate(date)}
-                                        title="Imprimir boletas del organizador (solo tareas con mesa de esta fecha)"
+                                        title="Imprimir las boletas de esta fecha (solo tareas con mesa y ya iniciadas)"
                                       >
                                         <i className="nc-icon nc-paper" /> Boletas del día
                                       </Button>
@@ -2157,7 +2600,7 @@ function TasksByTable() {
                                     >
                                       Tareas (mesas)
                                     </div>
-                                    <Row>
+                                    <div className="tbs-board">
                                   {deskKeys
                                     .sort((a, b) => parseInt(a) - parseInt(b))
                                     .map((desk) => {
@@ -2168,133 +2611,152 @@ function TasksByTable() {
                                       const capacityPct = Math.min((totalHours / MAX_HOURS_PER_DESK) * 100, 100);
 
                                       const supMap = supervisorMapForDate(date);
+                                      const cupoColor =
+                                        capacityPct >= 90 ? "#ef8157" : capacityPct >= 60 ? "#fbc658" : "#6bd098";
+                                      const claveMesa = date + "|" + desk;
+                                      const tope = deskVisible[claveMesa] || DESK_PAGE;
+                                      const visibles = deskTasks.slice(0, tope);
+                                      const ocultas = deskTasks.length - visibles.length;
                                       return (
-                                        <Col key={desk} md="4" lg="3" className="mb-2">
-                                          <Card
-                                            className="m-0"
-                                            style={{
-                                              border: "1px solid #dee2e6",
-                                              borderLeft: `4px solid ${
-                                                capacityPct >= 90 ? "#dc3545" :
-                                                capacityPct >= 60 ? "#ffc107" : "#28a745"
-                                              }`,
-                                            }}
-                                          >
-                                            <CardBody className="p-2">
-                                              <div className="d-flex justify-content-between align-items-center mb-1">
-                                                <strong>{deskDisplayLabel(Number(desk), supMap)}</strong>
-                                                <small className="text-muted">
-                                                  {formatProductionDuration(totalHours)} / {formatProductionDuration(MAX_HOURS_PER_DESK)}
-                                                </small>
-                                              </div>
-                                              <Progress
-                                                value={capacityPct}
-                                                color={capacityPct >= 90 ? "danger" : capacityPct >= 60 ? "warning" : "success"}
-                                                style={{ height: "6px", marginBottom: "8px" }}
-                                              />
-                                              {deskTasks.map((task) => {
+                                        <div key={desk} className="tbs-board-item">
+                                          <div className="tbs-desk">
+                                            <div className="tbs-desk-top">
+                                              <span className="tbs-desk-name">
+                                                {deskDisplayLabel(Number(desk), supMap)}
+                                              </span>
+                                              <span className="tbs-desk-load">
+                                                <b>{formatProductionDuration(totalHours)}</b>
+                                                {" / "}{formatProductionDuration(MAX_HOURS_PER_DESK)}
+                                                {"  \u00b7  "}{deskTasks.length}
+                                              </span>
+                                            </div>
+                                            <div className="tbs-desk-bar">
+                                              <i style={{ width: capacityPct + "%", background: cupoColor }} />
+                                            </div>
+                                            <div className="tbs-desk-body">
+                                              {visibles.map((task) => {
                                                 const items = getTaskItems(task);
+                                                const totalTaskHours = task.estimatedHours || 0;
+                                                const extraHours = getTaskExtraHours(task);
+                                                const baseTaskHours = Math.max(totalTaskHours - extraHours, 0);
+                                                const tiempo = extraHours > 0
+                                                  ? formatProductionDuration(baseTaskHours) + " + " + formatProductionDuration(extraHours)
+                                                  : formatProductionDuration(baseTaskHours);
+                                                const tono =
+                                                  task.status === "COMPLETED" ? { mod: "", line: "#6bd098" } :
+                                                  task.status === "IN_PROGRESS" ? { mod: "", line: "#51bcda" } :
+                                                  task.status === "CANCELLED" ? { mod: "tbs-task--cancelled", line: "#ef8157" } :
+                                                  !task.dieCutReady ? { mod: "", line: "#f5a3c7" } : { mod: "", line: "#fbc658" };
+                                                // Cualquier punto de la tarjeta abre el detalle salvo los controles
+                                                // reales; filtrar por el destino evita zonas muertas en los huecos.
+                                                const abrirDetalle = (e) => {
+                                                  if (e.target.closest("button, a, input, select, textarea, label, .btn")) return;
+                                                  setDetailTask(task);
+                                                };
                                                 return (
                                                   <div
                                                     key={task.id}
-                                                    className="p-2 mb-1"
-                                                    style={{
-                                                      backgroundColor:
-                                                        task.status === "COMPLETED" ? "#d4edda" :
-                                                        task.status === "IN_PROGRESS" ? "#cce5ff" :
-                                                        task.status === "CANCELLED" ? "#f8d7da" :
-                                                        !task.dieCutReady ? "#fce4ec" : "#fff3cd",
-                                                      borderRadius: "4px",
-                                                      fontSize: "12px",
+                                                    className={"tbs-task " + tono.mod}
+                                                    style={{ "--tbs-state": tono.line }}
+                                                    role="button"
+                                                    tabIndex={0}
+                                                    title="Ver detalle de la tarea"
+                                                    onClick={abrirDetalle}
+                                                    onKeyDown={(e) => {
+                                                      if (e.key === "Enter" || e.key === " ") {
+                                                        e.preventDefault();
+                                                        setDetailTask(task);
+                                                      }
                                                     }}
                                                   >
-                                                    {/* Row 1: Products + qty */}
-                                                    <div className="d-flex justify-content-between align-items-start">
-                                                      <div>
-                                                        <span style={{ marginRight: 4 }}>{renderPhaseControl(task, "LEATHER", true)}</span>
-                                                        <span style={{ marginRight: 4 }}>{renderPhaseControl(task, "DIE_CUT", true)}</span>
-                                                        <span style={{ marginRight: 6 }}>{renderPhaseControl(task, "MATERIALS", true)}</span>
+                                                    <div className="tbs-task-head">
+                                                      <div className="tbs-task-prod">
                                                         {items.map((item, i) => (
                                                           <span key={i}>
-                                                            {i > 0 && ", "}
-                                                            <strong>{item.productCode}</strong>
-                                                            {item.colorName && <small className="text-dark">({item.colorName})</small>}
+                                                            {i > 0 && <span className="tbs-color">, </span>}
+                                                            {item.productCode}
+                                                            {item.colorName && (
+                                                              <span className="tbs-color"> {"\u00b7"} {item.colorName}</span>
+                                                            )}
                                                           </span>
                                                         ))}
                                                       </div>
-                                                      <div className="d-flex align-items-center" style={{ gap: 4 }}>
-                                                        <Badge
-                                                          color="light"
-                                                          className="text-dark border"
-                                                          style={{ ...BADGE_READABLE_ON_LIGHT, fontSize: "10px" }}
-                                                        >
-                                                          {task.quantity} uds
-                                                        </Badge>
-                                                        <Button
-                                                          color="warning"
-                                                          size="sm"
-                                                          className="px-2"
-                                                          title="Agregar productos de venta del dia"
-                                                          onClick={() => openDaySaleModal(task)}
-                                                          style={{ fontSize: "11px", lineHeight: 1.5, fontWeight: 600 }}
-                                                        >
-                                                          + Del Dia
-                                                        </Button>
+                                                      <span className="tbs-qty">{task.quantity} uds</span>
+                                                    </div>
+
+                                                    <div className="tbs-task-sub">
+                                                      <span className="tbs-op">{task.productionOrderCode}</span>
+                                                      {task.startTime && <span>Inicio {task.startTime}</span>}
+                                                    </div>
+
+                                                    <div className="tbs-phases">
+                                                      {renderPhaseControl(task, "LEATHER", true)}
+                                                      {renderPhaseControl(task, "DIE_CUT", true)}
+                                                      {renderPhaseControl(task, "MATERIALS", true)}
+                                                    </div>
+
+                                                    <div className="tbs-task-foot">
+                                                      <div className="tbs-foot-top">
+                                                        <span className="tbs-time" title="Tiempo base + extra de venta del día">
+                                                          {tiempo}
+                                                        </span>
+                                                        <div className="tbs-side">
+                                                          <button
+                                                            type="button"
+                                                            className="tbs-day-btn"
+                                                            title="Agregar productos de venta del día"
+                                                            onClick={() => openDaySaleModal(task)}
+                                                          >
+                                                            <i className="nc-icon nc-simple-add" /> Del día
+                                                          </button>
+                                                          {taskYaIniciada(task) && (
+                                                            <button
+                                                              type="button"
+                                                              className="tbs-icon-btn"
+                                                              title="Imprimir boleta"
+                                                              onClick={() => openPrintForTask(task)}
+                                                            >
+                                                              <i className="nc-icon nc-single-copy-04" />
+                                                            </button>
+                                                          )}
+                                                        </div>
                                                       </div>
-                                                    </div>
-
-                                                    {/* Row 2: Time + PO */}
-                                                    <div className="d-flex justify-content-between mt-1">
-                                                      <small className="text-dark">
-                                                        {(() => {
-                                                          const totalHours = task.estimatedHours || 0;
-                                                          const extraHours = getTaskExtraHours(task);
-                                                          const baseHours = Math.max(totalHours - extraHours, 0);
-                                                          return extraHours > 0
-                                                            ? `${formatProductionDuration(baseHours)}+${formatProductionDuration(extraHours)}`
-                                                            : formatProductionDuration(baseHours);
-                                                        })()}
-                                                        {task.startTime && (
-                                                          <span className="ml-1">🕐 {task.startTime}</span>
-                                                        )}
-                                                      </small>
-                                                      <Badge
-                                                        color="light"
-                                                        className="text-dark border"
-                                                        style={{ ...BADGE_READABLE_ON_LIGHT, fontSize: "10px" }}
-                                                      >
-                                                        {task.productionOrderCode}
-                                                      </Badge>
-                                                    </div>
-
-                                                    {/* Row 3: Actions */}
-                                                    <div className="d-flex align-items-center mt-1" style={{ gap: "4px" }}>
-                                                      <small className="text-dark" title="Hora de inicio automática">
-                                                        {task.startTime || "Auto al iniciar"}
-                                                      </small>
-                                                      <div style={{ flex: 1, minWidth: 120 }}>
+                                                      <div className="tbs-actions">
                                                         {renderStatusActions(task, true)}
                                                       </div>
-                                                      <Button
-                                                        color="link"
-                                                        size="sm"
-                                                        className="p-0"
-                                                        title="Imprimir boleta"
-                                                        onClick={() => openPrintForTask(task)}
-                                                        style={{ fontSize: "14px", lineHeight: 1 }}
-                                                      >
-                                                        <i className="nc-icon nc-single-copy-04" />
-                                                      </Button>
                                                     </div>
                                                   </div>
                                                 );
                                               })}
-                                            </CardBody>
-                                          </Card>
-                                        </Col>
+                                              {ocultas > 0 && (
+                                                <button
+                                                  type="button"
+                                                  className="tbs-more"
+                                                  data-tbs-key={claveMesa}
+                                                  data-tbs-total={deskTasks.length}
+                                                  title={
+                                                    tope >= DESK_AUTO_MAX
+                                                      ? "Mesa muy cargada: pulsa para ver el resto"
+                                                      : "Se cargan solas al desplazar; púlsalo para verlas ya"
+                                                  }
+                                                  onClick={() =>
+                                                    setDeskVisible((prev) => ({
+                                                      ...prev,
+                                                      [claveMesa]: deskTasks.length,
+                                                    }))
+                                                  }
+                                                >
+                                                  {tope < DESK_AUTO_MAX && <span className="tbs-spin" />}
+                                                  {tope >= DESK_AUTO_MAX ? "Ver las " : ""}
+                                                  {ocultas} tarea{ocultas === 1 ? "" : "s"} más
+                                                </button>
+                                              )}
+                                            </div>
+                                          </div>
+                                        </div>
                                       );
                                     })}
-                                    </Row>
+                                    </div>
                                   </>
                                 )}
                                 {deskKeys.length === 0 &&
@@ -2438,21 +2900,23 @@ function TasksByTable() {
                                         <Button
                                           color="warning"
                                           size="sm"
-                                          title="Agregar productos de venta del dia"
+                                          title="Agregar productos de venta del día"
                                           onClick={() => openDaySaleModal(task)}
                                           style={{ padding: "4px 10px", fontSize: "12px", fontWeight: 600 }}
                                         >
                                           + Del Dia
                                         </Button>
-                                        <Button
-                                          color="info"
-                                          size="sm"
-                                          title="Imprimir boleta"
-                                          onClick={() => openPrintForTask(task)}
-                                          style={{ padding: "2px 6px" }}
-                                        >
-                                          <i className="nc-icon nc-single-copy-04" />
-                                        </Button>
+                                        {taskYaIniciada(task) && (
+                                          <Button
+                                            color="info"
+                                            size="sm"
+                                            title="Imprimir boleta"
+                                            onClick={() => openPrintForTask(task)}
+                                            style={{ padding: "2px 6px" }}
+                                          >
+                                            <i className="nc-icon nc-single-copy-04" />
+                                          </Button>
+                                        )}
                                       </div>
                                     </td>
                                   </tr>
@@ -2505,40 +2969,185 @@ function TasksByTable() {
         </ModalBody>
       </Modal>
 
-      {/* Edit startedAt Modal */}
+      {/* Detalle de tarea: concentra los campos que la tarjeta ya no muestra */}
       <Modal
-        isOpen={editStartModal.open}
-        toggle={() => setEditStartModal({ open: false, task: null, value: "" })}
+        isOpen={!!detailTask}
+        toggle={() => setDetailTask(null)}
+        size="lg"
+        scrollable
+        centered
+        fade
+        className="tbs-modal"
       >
-        <ModalHeader toggle={() => setEditStartModal({ open: false, task: null, value: "" })}>
-          Editar hora de inicio {editStartModal.task?.code ? `· ${editStartModal.task.code}` : ""}
+        <ModalHeader toggle={() => setDetailTask(null)} tag="div" close={<span />}>
+          {(() => {
+            const est = {
+              PENDING: { txt: "Pendiente", bg: "#fff6e0", fg: "#8a6a00", bd: "#f2dfa8", line: "#fbc658" },
+              IN_PROGRESS: { txt: "En proceso", bg: "#e8f6fb", fg: "#1f7d99", bd: "#bde3f0", line: "#51bcda" },
+              COMPLETED: { txt: "Completada", bg: "#e9f8ef", fg: "#1e7f45", bd: "#bde8cd", line: "#6bd098" },
+              CANCELLED: { txt: "Cancelada", bg: "#fdeeea", fg: "#a2432a", bd: "#f5cfc3", line: "#ef8157" },
+              AWAITING_WAREHOUSE: { txt: "Esperando bodega", bg: "#f0f1f3", fg: "#54595f", bd: "#dfe2e5", line: "#9aa0a6" },
+            }[detailTask?.status] || { txt: detailTask?.status || "-", bg: "#f0f1f3", fg: "#54595f", bd: "#dfe2e5", line: "#ced4da" };
+            return (
+              <div className="tbs-dtl-head" style={{ "--tbs-state": est.line }}>
+                <div className="d-flex align-items-start justify-content-between" style={{ gap: 12 }}>
+                  <div style={{ minWidth: 0 }}>
+                    <div className="tbs-dtl-code">{detailTask?.code || "Tarea"}</div>
+                    <div className="tbs-dtl-sub">
+                      <span className="tbs-pill" style={{ background: est.bg, color: est.fg, borderColor: est.bd }}>
+                        {est.txt}
+                      </span>
+                      {detailTask?.productionOrderCode && (
+                        <span className="tbs-op">{detailTask.productionOrderCode}</span>
+                      )}
+                      {detailTask?.desk && (
+                        <span className="text-muted" style={{ fontSize: 11.5 }}>
+                          {deskDisplayLabel(detailTask.desk, supervisorMapForUi)}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    className="tbs-icon-btn"
+                    onClick={() => setDetailTask(null)}
+                    title="Cerrar"
+                    aria-label="Cerrar"
+                  >
+                    <i className="nc-icon nc-simple-remove" />
+                  </button>
+                </div>
+              </div>
+            );
+          })()}
         </ModalHeader>
         <ModalBody>
-          <FormGroup>
-            <Label>Inicio (fecha + hora)</Label>
-            <Input
-              type="datetime-local"
-              value={editStartModal.value || ""}
-              onChange={(e) => setEditStartModal((p) => ({ ...p, value: e.target.value }))}
-            />
-            <small className="text-muted">
-              Solo aplica para tareas en proceso o completadas.
-            </small>
-          </FormGroup>
-          <div className="d-flex justify-content-end" style={{ gap: 8 }}>
-            <Button
-              color="secondary"
-              outline
-              onClick={() => setEditStartModal({ open: false, task: null, value: "" })}
-            >
-              Cancelar
-            </Button>
-            <Button color="primary" onClick={saveEditedStartedAt}>
-              Guardar
-            </Button>
-          </div>
+          {detailTask && (() => {
+            const items = getTaskItems(detailTask);
+            const extraHours = getTaskExtraHours(detailTask);
+            const totalHours = detailTask.estimatedHours || 0;
+            const baseHours = Math.max(totalHours - extraHours, 0);
+            const dato = (label, valor) => (
+              <div>
+                <div className="lbl">{label}</div>
+                <div className="val">{valor === null || valor === undefined || valor === "" ? "-" : valor}</div>
+              </div>
+            );
+            const si = (v) => (v ? "Sí" : "No");
+            /** Fase con indicador de color: se lee más rápido que un "Sí/No". */
+            const fase = (label, hecho, textoFijo) => (
+              <div>
+                <div className="lbl">{label}</div>
+                <div className="tbs-flag">
+                  <span
+                    className="tbs-dot"
+                    style={{ background: textoFijo ? "#adb5bd" : hecho ? "#6bd098" : "#f0ad4e" }}
+                  />
+                  {textoFijo || si(hecho)}
+                </div>
+              </div>
+            );
+            return (
+              <>
+                <div className="tbs-detail-sec">Identificación</div>
+                <div className="tbs-detail-grid">
+                  {dato("Código de tarea", detailTask.code)}
+                  {dato("Orden de producción", detailTask.productionOrderCode)}
+                  {dato("Cantidad", detailTask.quantity ? detailTask.quantity + " uds" : null)}
+                  {dato("Productos", items.length)}
+                </div>
+                {items.length > 0 && (
+                  <div className="mt-3">
+                    {items.map((item, i) => (
+                      <div key={i} className="tbs-item-row">
+                        <strong>{item.productCode}</strong>
+                        {item.productName && <span className="text-muted">{item.productName}</span>}
+                        {item.colorName && (
+                          <span className="tbs-op" style={{ textTransform: "none" }}>{item.colorName}</span>
+                        )}
+                        {item.daySaleExtra && (
+                          <span className="tbs-pill" style={{ background: "#fff8e6", color: "#8a6a00", borderColor: "#f2dfa8" }}>
+                            Del día
+                          </span>
+                        )}
+                        <span className="ml-auto font-weight-bold">×{item.quantity}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <div className="tbs-detail-sec">Planificación</div>
+                <div className="tbs-detail-grid">
+                  {dato("Mesa asignada", detailTask.desk ? deskDisplayLabel(detailTask.desk, supervisorMapForUi) : "Sin mesa")}
+                  {dato("Fecha programada", detailTask.scheduledDate ? formatDate(detailTask.scheduledDate) : null)}
+                  {dato("Fecha de entrega", detailTask.deliveryDate ? formatDate(detailTask.deliveryDate) : null)}
+                  {dato("Tiempo estimado", extraHours > 0
+                    ? formatProductionDuration(baseHours) + " + " + formatProductionDuration(extraHours) + " del dia"
+                    : formatProductionDuration(baseHours))}
+                </div>
+
+                <div className="tbs-detail-sec">Ejecución</div>
+                <div className="tbs-detail-grid">
+                  {dato("Hora de inicio", detailTask.startedAt ? formatDateTimeGt(detailTask.startedAt) : (detailTask.startTime || null))}
+                  {dato("Hora de fin", detailTask.completedAt ? formatDateTimeGt(detailTask.completedAt) : null)}
+                  {dato("Duración real", detailTask.actualDurationMinutes
+                    ? formatProductionDuration(detailTask.actualDurationMinutes / 60)
+                    : null)}
+                  {dato("Mesa trabajada", detailTask.workedDesk || null)}
+                </div>
+
+                <div className="tbs-detail-sec">Avance de fases</div>
+                <div className="tbs-detail-grid">
+                  {fase("Cuero entregado", detailTask.leatherDelivered)}
+                  {fase(
+                    "Materiales entregados",
+                    taskSkipsMaterials(detailTask) ? null : detailTask.materialsDelivered,
+                    taskSkipsMaterials(detailTask) ? "No requiere" : null
+                  )}
+                  {fase("Troquel listo", detailTask.dieCutReady)}
+                  {dato("Fecha de troquel", detailTask.dieCutDate ? formatDate(detailTask.dieCutDate) : null)}
+                </div>
+
+                {(detailTask.wasteQuantity || detailTask.wasteNotes) && (
+                  <>
+                    <div className="tbs-detail-sec">Merma</div>
+                    <div className="tbs-detail-grid">
+                      {dato("Cantidad", detailTask.wasteQuantity)}
+                      {dato("Motivo", detailTask.wasteNotes)}
+                    </div>
+                  </>
+                )}
+
+                {detailTask.observations && (
+                  <>
+                    <div className="tbs-detail-sec">Observaciones</div>
+                    <div style={{ fontSize: 12.5 }}>{detailTask.observations}</div>
+                  </>
+                )}
+              </>
+            );
+          })()}
         </ModalBody>
+        <ModalFooter>
+          {taskYaIniciada(detailTask) && (
+            <Button
+              color="info"
+              size="sm"
+              onClick={() => {
+                const t = detailTask;
+                setDetailTask(null);
+                if (t) openPrintForTask(t);
+              }}
+            >
+              <i className="nc-icon nc-single-copy-04 mr-1" /> Imprimir boleta
+            </Button>
+          )}
+          <Button color="secondary" outline size="sm" onClick={() => setDetailTask(null)}>
+            Cerrar
+          </Button>
+        </ModalFooter>
       </Modal>
+
 
       <Modal
         isOpen={showDaySaleModal}
