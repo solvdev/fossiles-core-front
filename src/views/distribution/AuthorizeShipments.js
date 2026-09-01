@@ -129,6 +129,9 @@ function AuthorizeShipments() {
       setDetailRequestId(null);
     } catch (err) {
       showError(err.message || "No se pudo aprobar la solicitud.");
+      // Si el backend acaba de generar una OPI por faltante de stock, refrescamos
+      // la lista para que se muestre de inmediato el botón "Autorizar prod.".
+      await loadRequests();
       throw err;
     } finally {
       setActionId(null);

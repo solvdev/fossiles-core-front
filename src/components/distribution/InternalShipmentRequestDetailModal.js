@@ -58,6 +58,16 @@ function InternalShipmentRequestDetailModal({
     };
   }, [isOpen, requestId]);
 
+  const reloadRequest = async () => {
+    if (!requestId) return;
+    try {
+      const data = await getInternalShipmentRequestById(requestId);
+      setRequest(data);
+    } catch {
+      // Si falla el refresco, se conserva el detalle mostrado previamente.
+    }
+  };
+
   const priceMeta = useMemo(() => {
     if (!request) return null;
     return {
@@ -94,6 +104,8 @@ function InternalShipmentRequestDetailModal({
       onClose();
     } catch (err) {
       showError(err.message || "No se pudo autorizar.");
+      // Puede que el backend haya generado la OPI por faltante de stock: refrescamos el detalle.
+      await reloadRequest();
     }
   };
 

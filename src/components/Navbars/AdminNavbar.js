@@ -37,13 +37,32 @@ import {
   Container,
 } from "reactstrap";
 import { logout, getUserData } from "services/authService";
+import { useAuth } from "contexts/AuthContext";
+import BroadcastAnnouncementModal from "components/SystemAnnouncement/BroadcastAnnouncementModal";
+import { getFeatureFlags } from "services/featureFlagsService";
 
 function AdminNavbar(props) {
   const [collapseOpen, setCollapseOpen] = React.useState(false);
   const [sidebarOpen, setSidebarOpen] = React.useState(false);
   const [color, setColor] = React.useState("navbar-transparent");
+  const [broadcastModalOpen, setBroadcastModalOpen] = React.useState(false);
+  const [announcementsEnabled, setAnnouncementsEnabled] = React.useState(true);
   const location = useLocation();
   const navigate = useNavigate();
+  const { hasRole, hasAnyRole } = useAuth();
+
+  React.useEffect(() => {
+    let cancelled = false;
+    getFeatureFlags().then((flags) => {
+      if (!cancelled) setAnnouncementsEnabled(flags.systemAnnouncementsEnabled !== false);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const canBroadcast = announcementsEnabled
+    && hasAnyRole(["ADMIN", "ADMINISTRADOR", "ADMINISTRACION", "RRHH", "SUPERVISORA"]);
   
   // Obtener datos del usuario
   const userData = getUserData();

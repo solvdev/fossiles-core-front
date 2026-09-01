@@ -21,6 +21,7 @@ import {
 import { getUsers, changeUserStatus, getUserById, updateUser } from "services/userService";
 import { getDepartments } from "services/departmentService";
 import { encrypt } from "services/encryptionService";
+import { getFeatureFlags } from "services/featureFlagsService";
 import UsersForm from "./UsersForm";
 
 function UsersList() {
@@ -32,6 +33,17 @@ function UsersList() {
   const [selectedUserId, setSelectedUserId] = useState(null);
   const [deleteModal, setDeleteModal] = useState(false);
   const [userToDelete, setUserToDelete] = useState(null);
+  const [connectedUsersEnabled, setConnectedUsersEnabled] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    getFeatureFlags().then((flags) => {
+      if (!cancelled) setConnectedUsersEnabled(flags.userActivityTrackingEnabled !== false);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   const [deleting, setDeleting] = useState(false);
   const [filterName, setFilterName] = useState("");
   const [filterDepartmentId, setFilterDepartmentId] = useState("");
@@ -336,6 +348,16 @@ function UsersList() {
                   <CardTitle tag="h4">Gestión de Usuarios</CardTitle>
                 </Col>
                 <Col md="6" className="text-right">
+                  {connectedUsersEnabled && (
+                    <Button
+                      color="info"
+                      outline
+                      onClick={() => navigate("/admin/connected-users")}
+                      className="btn-round mr-2"
+                    >
+                      <i className="nc-icon nc-sound-wave mr-1" /> Usuarios Conectados
+                    </Button>
+                  )}
                   <Button
                     color="primary"
                     onClick={handleNew}
