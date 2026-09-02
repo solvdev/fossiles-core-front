@@ -500,6 +500,37 @@ function KioskInventory() {
     return sortSizeKeys([...new Set([...resolveCinchoSizesForProduct(product), ...existingSizes])]);
   };
 
+  /**
+   * Disponible real para la combinación producto+color+herraje(+talla) elegida en la línea,
+   * más variantes alternas del mismo producto con stock (para detectar "seleccioné el color/
+   * herraje equivocado" cuando el usuario jura que sí hay stock en el kiosko).
+   */
+  const getLineAvailability = (line) => {
+    if (!line.productId) return { row: null, availableQty: null, alternates: [] };
+    const row = findStockRow(line.productId, line.colorId, line.hardwareCondition);
+    const needsSize = lineNeedsSize(line);
+    const sizeKey = String(line.sizeKey || "").trim();
+    let availableQty = null;
+    if (needsSize) {
+      availableQty = sizeKey ? Number(row?.sizes?.[sizeKey] ?? 0) : null;
+    } else {
+      availableQty = row ? Number(row.currentStock ?? 0) : 0;
+    }
+
+    const rows = form.operation === "TRASLADO" ? originStockRows : stockRows;
+    const rowTotal = (candidate) =>
+      hasInventorySizeBreakdown(candidate.sizes)
+        ? Object.values(candidate.sizes || {}).reduce((sum, qty) => sum + Number(qty || 0), 0)
+        : Number(candidate.currentStock || 0);
+    const alternates = rows.filter((candidate) => {
+      if (Number(candidate.productId) !== Number(line.productId)) return false;
+      if (row && candidate.id === row.id) return false;
+      return rowTotal(candidate) > 0;
+    });
+
+    return { row, availableQty, alternates };
+  };
+
   const updateLineItem = (lineId, key, value) => {
     setLineItems((prev) =>
       prev.map((line) => (line.id === lineId ? { ...line, [key]: value } : line))
@@ -1377,7 +1408,7 @@ function KioskInventory() {
                                           </Input>
                                         </td>
                                       ) : null}
-                                      <td style={{ width: 72 }}>
+                                      <td style={{ width: 100 }}>
                                         <Input
                                           type="number"
                                           bsSize="sm"
@@ -1388,6 +1419,28 @@ function KioskInventory() {
                                             updateLineItem(line.id, "quantity", e.target.value)
                                           }
                                         />
+                                        {line.productId ? (() => {
+                                          const { availableQty, alternates } = getLineAvailability(line);
+                                          if (availableQty == null) return null;
+                                          return (
+                                            <>
+                                              <small className={availableQty > 0 ? "text-muted" : "text-danger"}>
+                                                Disp: {availableQty}
+                                              </small>
+                                              {availableQty <= 0 && alternates.length > 0 ? (
+                                                <div className="text-warning" style={{ fontSize: 11, lineHeight: 1.2 }}>
+                                                  Hay stock en: {alternates.map((alt) => (
+                                                    `${alt.colorName || "sin color"}`
+                                                    + (alt.hardwareCondition && normalizeHardwareCondition(alt.hardwareCondition) !== "NUEVO"
+                                                      ? ` (${getHardwareConditionLabel(alt.hardwareCondition)})`
+                                                      : "")
+                                                    + `: ${alt.currentStock}`
+                                                  )).join(", ")}
+                                                </div>
+                                              ) : null}
+                                            </>
+                                          );
+                                        })() : null}
                                       </td>
                                       <td style={{ width: 36 }}>
                                         <Button
