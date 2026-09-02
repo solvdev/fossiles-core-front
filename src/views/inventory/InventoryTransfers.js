@@ -32,6 +32,7 @@ import {
   createInventoryTransfer,
   createBulkInventoryTransfer,
 } from "services/inventoryService";
+import { registrarKioscoTraslado } from "services/kioscoInventoryService";
 import { getLocations } from "services/locationService";
 import { getProducts } from "services/productService";
 import { getMaterials } from "services/materialService";
@@ -60,6 +61,11 @@ function DefaultColumnFilter({
     </FormGroup>
   );
 }
+
+const isKioskLocationId = (locations, locationId) => {
+  const location = locations.find((l) => String(l.id) === String(locationId));
+  return String(location?.categoria || "").toUpperCase().trim() === "KIOSKO";
+};
 
 function InventoryTransfers() {
   const [transfers, setTransfers] = useState([]);
@@ -187,24 +193,40 @@ function InventoryTransfers() {
       return;
     }
 
+    const bothKiosks =
+      transferMode === "product" &&
+      isKioskLocationId(locations, formData.fromLocationId) &&
+      isKioskLocationId(locations, formData.toLocationId);
+
     try {
       setLoading(true);
-      const transferData = {
-        fromLocationId: parseInt(formData.fromLocationId),
-        toLocationId: parseInt(formData.toLocationId),
-        quantity: parseFloat(formData.quantity),
-        reason: formData.reason || "Transferencia manual",
-        physicalSlipNumber: formData.physicalSlipNumber.trim(),
-        ...(transferMode === "product" 
-          ? { 
-              productId: parseInt(formData.productId),
-              colorId: formData.colorId ? parseInt(formData.colorId) : null,
-            }
-          : { materialId: parseInt(formData.materialId) }
-        ),
-      };
-
-      await createInventoryTransfer(transferData);
+      if (bothKiosks) {
+        // Entre kioskos la fuente de verdad es kiosco_stock, no el inventario legacy.
+        await registrarKioscoTraslado({
+          locationOriginId: parseInt(formData.fromLocationId),
+          locationDestinationId: parseInt(formData.toLocationId),
+          productId: parseInt(formData.productId),
+          colorId: formData.colorId ? parseInt(formData.colorId) : null,
+          quantity: parseFloat(formData.quantity),
+          physicalSlipNumber: formData.physicalSlipNumber.trim(),
+        });
+      } else {
+        const transferData = {
+          fromLocationId: parseInt(formData.fromLocationId),
+          toLocationId: parseInt(formData.toLocationId),
+          quantity: parseFloat(formData.quantity),
+          reason: formData.reason || "Transferencia manual",
+          physicalSlipNumber: formData.physicalSlipNumber.trim(),
+          ...(transferMode === "product"
+            ? {
+                productId: parseInt(formData.productId),
+                colorId: formData.colorId ? parseInt(formData.colorId) : null,
+              }
+            : { materialId: parseInt(formData.materialId) }
+          ),
+        };
+        await createInventoryTransfer(transferData);
+      }
       showSuccess("Transferencia creada exitosamente");
       setShowCreateModal(false);
       resetForm();
@@ -246,26 +268,44 @@ function InventoryTransfers() {
       return;
     }
 
+    const bothKiosks =
+      transferMode === "product" &&
+      isKioskLocationId(locations, bulkFormData.fromLocationId) &&
+      isKioskLocationId(locations, bulkFormData.toLocationId);
+
     try {
       setLoading(true);
-      const bulkTransferData = {
-        fromLocationId: parseInt(bulkFormData.fromLocationId),
-        toLocationId: parseInt(bulkFormData.toLocationId),
-        reason: bulkFormData.reason || "Transferencia masiva",
-        physicalSlipNumber: bulkFormData.physicalSlipNumber.trim(),
-        items: bulkItems.map((item) => ({
-          ...(transferMode === "product"
-            ? { 
-                productId: parseInt(item.productId),
-                colorId: item.colorId ? parseInt(item.colorId) : null,
-              }
-            : { materialId: parseInt(item.materialId) }
-          ),
-          quantity: parseFloat(item.quantity),
-        })),
-      };
-
-      await createBulkInventoryTransfer(bulkTransferData);
+      if (bothKiosks) {
+        // Entre kioskos la fuente de verdad es kiosco_stock, no el inventario legacy.
+        await registrarKioscoTraslado({
+          locationOriginId: parseInt(bulkFormData.fromLocationId),
+          locationDestinationId: parseInt(bulkFormData.toLocationId),
+          physicalSlipNumber: bulkFormData.physicalSlipNumber.trim(),
+          items: bulkItems.map((item) => ({
+            productId: parseInt(item.productId),
+            colorId: item.colorId ? parseInt(item.colorId) : null,
+            quantity: parseFloat(item.quantity),
+          })),
+        });
+      } else {
+        const bulkTransferData = {
+          fromLocationId: parseInt(bulkFormData.fromLocationId),
+          toLocationId: parseInt(bulkFormData.toLocationId),
+          reason: bulkFormData.reason || "Transferencia masiva",
+          physicalSlipNumber: bulkFormData.physicalSlipNumber.trim(),
+          items: bulkItems.map((item) => ({
+            ...(transferMode === "product"
+              ? {
+                  productId: parseInt(item.productId),
+                  colorId: item.colorId ? parseInt(item.colorId) : null,
+                }
+              : { materialId: parseInt(item.materialId) }
+            ),
+            quantity: parseFloat(item.quantity),
+          })),
+        };
+        await createBulkInventoryTransfer(bulkTransferData);
+      }
       showSuccess(`Transferencia masiva creada exitosamente (${bulkItems.length} ítems)`);
       setShowBulkModal(false);
       resetBulkForm();
