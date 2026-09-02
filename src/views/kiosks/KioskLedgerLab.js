@@ -22,6 +22,7 @@ import { getLocations } from "services/locationService";
 import {
   ledgerLabCreateMovement,
   ledgerLabDeleteMovement,
+  ledgerLabGetReplayAllKiosksStatus,
   ledgerLabListMovements,
   ledgerLabListStocks,
   ledgerLabReplayAllKiosks,
@@ -191,7 +192,10 @@ export default function KioskLedgerLab() {
     hardwareCondition: "NUEVO",
   });
   const [saving, setSaving] = useState(false);
+  const [replayAllJob, setReplayAllJob] = useState(null);
   const movementsRequestIdRef = React.useRef(0);
+  const replayAllPrevStatusRef = React.useRef(null);
+  const replayAllRunning = replayAllJob?.status === "RUNNING";
 
   const kioskOptions = useMemo(() => {
     const opts = (locations || [])
@@ -296,6 +300,46 @@ export default function KioskLedgerLab() {
     if (!allowed) return;
     loadMovements();
   }, [allowed, loadMovements]);
+
+  useEffect(() => {
+    if (!allowed) return undefined;
+    let cancelled = false;
+    ledgerLabGetReplayAllKiosksStatus()
+      .then((job) => {
+        if (!cancelled) setReplayAllJob(job);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [allowed]);
+
+  useEffect(() => {
+    if (!allowed || !replayAllRunning) return undefined;
+    const timer = setInterval(() => {
+      ledgerLabGetReplayAllKiosksStatus()
+        .then(setReplayAllJob)
+        .catch(() => {});
+    }, 2000);
+    return () => clearInterval(timer);
+  }, [allowed, replayAllRunning]);
+
+  useEffect(() => {
+    const status = replayAllJob?.status;
+    const prev = replayAllPrevStatusRef.current;
+    replayAllPrevStatusRef.current = status;
+    if (prev !== "RUNNING") return;
+    if (status === "DONE") {
+      showSuccess(
+        `Replay all kioscos listo: ${replayAllJob?.stockCount ?? 0} stocks recalculados `
+        + `en ${replayAllJob?.locationsDone ?? 0} kioscos.`
+      );
+      loadStocks();
+      loadMovements();
+    } else if (status === "ERROR") {
+      showError(replayAllJob?.errorMessage || "Replay all kioscos falló.");
+    }
+  }, [replayAllJob, loadStocks, loadMovements]);
 
   const selectedStock = useMemo(
     () => stocks.find((s) => String(s.id) === String(selectedStockId)) || null,
@@ -424,23 +468,16 @@ export default function KioskLedgerLab() {
   const handleReplayAllKiosks = async () => {
     if (!window.confirm(
       "¿Recalcular stock_before/after y current_stock de TODOS los kioscos?\n\n"
-      + "Esto recorre cada kiosko y puede tardar varios minutos."
+      + "Corre en segundo plano (varios minutos). Puedes dejar esta pantalla abierta; el progreso se actualiza aquí."
     )) {
       return;
     }
-    setSaving(true);
     try {
-      const result = await ledgerLabReplayAllKiosks();
-      showSuccess(
-        `Replay all kioscos listo: ${result?.stockCount ?? 0} stocks recalculados `
-        + `en ${result?.locationCount ?? 0} kioscos.`
-      );
-      await loadStocks();
-      await loadMovements();
+      const job = await ledgerLabReplayAllKiosks();
+      setReplayAllJob(job);
+      showSuccess("Replay de todos los kioscos iniciado.");
     } catch (err) {
-      showError(err.message || "Replay all kioscos falló.");
-    } finally {
-      setSaving(false);
+      showError(err.message || "No se pudo iniciar el replay de todos los kioscos.");
     }
   };
 
@@ -549,13 +586,20 @@ export default function KioskLedgerLab() {
           <Button
             color="danger"
             size="sm"
-            outline
+            outline={!replayAllRunning}
             className="me-1"
             onClick={handleReplayAllKiosks}
-            disabled={saving}
-            title="Recalcula todos los kiosco_stock de TODOS los kioscos"
+            disabled={saving || replayAllRunning}
+            title="Recalcula todos los kiosco_stock de TODOS los kioscos (en segundo plano)"
           >
-            Replay stock TODOS los kioscos
+            {replayAllRunning ? (
+              <>
+                <Spinner size="sm" className="me-1" />
+                Replay {replayAllJob.locationsDone}/{replayAllJob.locationsTotal}
+              </>
+            ) : (
+              "Replay stock TODOS los kioscos"
+            )}
           </Button>
           <Button
             color="success"
@@ -580,6 +624,22 @@ export default function KioskLedgerLab() {
       <Alert color="warning" className="py-2 px-3 mb-2">
         Mutaciones directas al ledger. Crear/editar/borrar movimiento hace <strong>Replay stock</strong> automático; el botón manual queda como recuperación.
       </Alert>
+
+      {replayAllRunning && (
+        <Alert color="info" className="py-2 px-3 mb-2">
+          Replay de todos los kioscos en curso:
+          {" "}
+          {replayAllJob.locationsDone ?? 0}/{replayAllJob.locationsTotal ?? 0}
+          {replayAllJob.currentLocationName ? ` · ${replayAllJob.currentLocationName}` : ""}
+          {" "}
+          · {replayAllJob.stockCount ?? 0} stocks
+        </Alert>
+      )}
+      {replayAllJob?.status === "ERROR" && (
+        <Alert color="danger" className="py-2 px-3 mb-2">
+          Replay de todos los kioscos falló: {replayAllJob.errorMessage || "error desconocido"}
+        </Alert>
+      )}
 
       <Row className="g-2 mb-2">
         <Col md={3}>
