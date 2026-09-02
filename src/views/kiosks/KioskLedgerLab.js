@@ -24,6 +24,7 @@ import {
   ledgerLabDeleteMovement,
   ledgerLabListMovements,
   ledgerLabListStocks,
+  ledgerLabReplayAllKiosks,
   ledgerLabReplayAllStocks,
   ledgerLabReplayStock,
   ledgerLabSplitOpeningBySizes,
@@ -420,6 +421,29 @@ export default function KioskLedgerLab() {
     }
   };
 
+  const handleReplayAllKiosks = async () => {
+    if (!window.confirm(
+      "¿Recalcular stock_before/after y current_stock de TODOS los kioscos?\n\n"
+      + "Esto recorre cada kiosko y puede tardar varios minutos."
+    )) {
+      return;
+    }
+    setSaving(true);
+    try {
+      const result = await ledgerLabReplayAllKiosks();
+      showSuccess(
+        `Replay all kioscos listo: ${result?.stockCount ?? 0} stocks recalculados `
+        + `en ${result?.locationCount ?? 0} kioscos.`
+      );
+      await loadStocks();
+      await loadMovements();
+    } catch (err) {
+      showError(err.message || "Replay all kioscos falló.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const hasSizesData = Boolean(
     selectedStock?.sizesData
     && String(selectedStock.sizesData).trim()
@@ -521,6 +545,17 @@ export default function KioskLedgerLab() {
             title="Recalcula todos los kiosco_stock del kiosko seleccionado"
           >
             Replay stock all
+          </Button>
+          <Button
+            color="danger"
+            size="sm"
+            outline
+            className="me-1"
+            onClick={handleReplayAllKiosks}
+            disabled={saving}
+            title="Recalcula todos los kiosco_stock de TODOS los kioscos"
+          >
+            Replay stock TODOS los kioscos
           </Button>
           <Button
             color="success"
