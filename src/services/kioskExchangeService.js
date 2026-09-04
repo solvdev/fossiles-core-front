@@ -50,9 +50,9 @@ export const getKioskExchangeById = async (id, kioskLocationId) => {
   return parseJson(response, "No se pudo cargar la boleta de cambio.");
 };
 
-export const lookupKioskSale = async (query, kioskLocationId) => {
+export const lookupKioskSale = async (query, kioskLocationId, { allKiosks } = {}) => {
   const response = await fetch(
-    `${API_URL}/kiosk-pos/sales/lookup${toQuery({ query, kioskLocationId })}`,
+    `${API_URL}/kiosk-pos/sales/lookup${toQuery({ query, kioskLocationId, allKiosks: allKiosks ? true : undefined })}`,
     { headers: headers() }
   );
   return parseJson(response, "No se encontró la venta indicada.");
