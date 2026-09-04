@@ -22,7 +22,7 @@ import {
   getProductionOrdersByType,
   getProductionOrdersByStatus 
 } from "services/productionOrderService";
-import { getTasks } from "services/taskService";
+import { getTaskOrderDateRanges } from "services/taskService";
 import { formatDateGt, formatDateDdMmYyGt } from "utils/dateTimeHelper";
 import { exportRowsToCsv } from "utils/reportExportHelper";
 import ProductionOrderForm from "./ProductionOrderForm";
@@ -72,7 +72,7 @@ function ProductionOrdersList() {
   const [selectedOrderId, setSelectedOrderId] = useState(null);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [orderToDelete, setOrderToDelete] = useState(null);
-  const [tasks, setTasks] = useState([]);
+  const [orderDateRanges, setOrderDateRanges] = useState({});
 
   useEffect(() => {
     loadOrders();
@@ -99,9 +99,13 @@ function ProductionOrdersList() {
       } else {
         data = await getProductionOrders();
       }
-      const taskData = await getTasks();
+      const ranges = await getTaskOrderDateRanges();
+      const rangesByOrder = {};
+      (ranges || []).forEach((r) => {
+        if (r.productionOrderId != null) rangesByOrder[r.productionOrderId] = r;
+      });
       setOrders(data || []);
-      setTasks(taskData || []);
+      setOrderDateRanges(rangesByOrder);
     } catch (err) {
       setError(err.message || "Error al cargar las órdenes de producción");
       showError(err.message || "Error al cargar las órdenes de producción");
@@ -322,30 +326,10 @@ function ProductionOrdersList() {
   };
 
   const getOrderProcessDates = (orderId, fallbackStart, fallbackDelivery) => {
-    const orderTasks = tasks.filter((task) => Number(task.productionOrderId) === Number(orderId));
-
-    const toMs = (value) => {
-      if (!value) return null;
-      const parsed = new Date(value).getTime();
-      return Number.isFinite(parsed) ? parsed : null;
-    };
-
-    const startCandidates = [];
-    orderTasks.forEach((task) => {
-      const started = toMs(task.startedAt);
-      const scheduled = toMs(task.scheduledDate);
-      if (started != null) startCandidates.push(started);
-      if (scheduled != null) startCandidates.push(scheduled);
-    });
-
-    const deliveryCandidates = [];
-    orderTasks.forEach((task) => {
-      const completed = toMs(task.completedAt);
-      if (completed != null) deliveryCandidates.push(completed);
-    });
+    const range = orderDateRanges[orderId];
     return {
-      startValue: startCandidates.length ? new Date(Math.min(...startCandidates)).toISOString() : fallbackStart,
-      deliveryValue: deliveryCandidates.length ? new Date(Math.max(...deliveryCandidates)).toISOString() : fallbackDelivery,
+      startValue: range?.startDate || fallbackStart,
+      deliveryValue: range?.deliveryDate || fallbackDelivery,
     };
   };
 

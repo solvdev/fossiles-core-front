@@ -17,6 +17,7 @@ import {
   computeInternalEnviUnitPrice,
   formatInternalRequestTypeLabel,
   needsOpiProductionAuthorization,
+  PAYMENT_METHOD_LABELS,
 } from "utils/standaloneInternalShipmentHelper";
 import { showError, showSuccess } from "utils/notificationHelper";
 
@@ -135,6 +136,9 @@ function InternalShipmentRequestDetailModal({
               <div><strong>Teléfono:</strong> {request.recipientPhone || "—"}</div>
               <div><strong>NIT/DPI:</strong> {request.recipientTaxId || "—"}</div>
               <div><strong>Tipo:</strong> {formatInternalRequestTypeLabel(request)}</div>
+              {request.paymentMethod && (
+                <div><strong>Forma de pago:</strong> {PAYMENT_METHOD_LABELS[request.paymentMethod] || request.paymentMethod}</div>
+              )}
               <div><strong>Estado solicitud:</strong>{" "}
                 <Badge color={request.status === "PENDIENTE" ? "warning" : request.status === "APROBADA" ? "success" : "danger"}>
                   {request.status}

@@ -179,12 +179,10 @@ function CustomersForm({ customerId, isOpen, toggle, onSuccess }) {
         ...formData,
         routeLocationCode: formData.routeLocationCode || "",
       };
-      if (customerId) {
-        await updateCustomer(customerId, payload);
-      } else {
-        await createCustomer(payload);
-      }
-      onSuccess();
+      const saved = customerId
+        ? await updateCustomer(customerId, payload)
+        : await createCustomer(payload);
+      onSuccess(saved);
       toggle();
       resetForm();
     } catch (err) {

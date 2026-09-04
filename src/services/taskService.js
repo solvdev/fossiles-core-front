@@ -19,6 +19,16 @@ export const getTasks = async () => {
   return response.json();
 };
 
+/** Fechas de inicio/entrega reales por OP (agregado liviano, no trae todas las tareas). */
+export const getTaskOrderDateRanges = async () => {
+  const response = await fetch(`${API_URL}/tasks/order-date-ranges`, { headers: headers() });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ message: 'Error al obtener fechas de tareas' }));
+    throw new Error(err.message || 'Error al obtener fechas de tareas');
+  }
+  return response.json();
+};
+
 export const getTaskById = async (id) => {
   const response = await fetch(`${API_URL}/tasks/${id}`, { headers: headers() });
   if (!response.ok) {

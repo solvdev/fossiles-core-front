@@ -84,7 +84,8 @@ function formatProductionOrderTypeSheetLabel(orderType, productionOrderCode) {
 
 function flattenTaskLines(task, orderMap) {
   const opCode = String(task.productionOrderCode || "").trim();
-  const po = orderMap.get(Number(task.productionOrderId));
+  const productionOrderId = Number(task.productionOrderId);
+  const po = orderMap.get(productionOrderId);
   const tipo = formatProductionOrderTypeSheetLabel(po?.orderType, opCode);
   const items = Array.isArray(task.items) && task.items.length > 0 ? task.items : null;
 
@@ -100,6 +101,9 @@ function flattenTaskLines(task, orderMap) {
         productName: String(it.productName || "").trim(),
         colorName,
         qty: Number(it.quantity || 0),
+        observations: String(it.observations || "").trim(),
+        taskObservations: String(task.observations || "").trim(),
+        productionOrderId,
         opCode,
         desk: task.desk,
         tipo,
@@ -116,6 +120,9 @@ function flattenTaskLines(task, orderMap) {
     productName: String(task.productName || "").trim(),
     colorName: String(task.colorName || "").trim(),
     qty: Number(task.quantity || 0),
+    observations: String(task.observations || "").trim(),
+    taskObservations: String(task.observations || "").trim(),
+    productionOrderId,
     opCode,
     desk: task.desk,
     tipo,
@@ -182,6 +189,7 @@ export function buildProductionTasksSheetPrintModel(tasks, productionOrders, opt
       mesas: new Set(),
       tipos: new Set(),
       statuses: new Set(),
+      observations: new Set(),
       qtyByNormKey: new Map(),
     };
     if (ln.productName && (!g.productName || ln.productName.length > g.productName.length)) {
@@ -190,6 +198,16 @@ export function buildProductionTasksSheetPrintModel(tasks, productionOrders, opt
     if (ln.opCode) g.opCodes.add(ln.opCode);
     if (ln.desk != null && ln.desk !== "") g.mesas.add(Number(ln.desk));
     g.tipos.add(ln.tipo);
+    const po = Number.isFinite(ln.productionOrderId) ? orderMap.get(ln.productionOrderId) : null;
+    const orderObs = String(po?.observations || "").trim();
+    if (ln.observations) g.observations.add(ln.observations);
+    if (ln.taskObservations) g.observations.add(ln.taskObservations);
+    if (orderObs) g.observations.add(orderObs);
+    (po?.items || []).forEach((it) => {
+      if (String(it.productCode || "").trim().toUpperCase() !== ln.productKey) return;
+      const itemObs = String(it.observations || "").trim();
+      if (itemObs) g.observations.add(itemObs);
+    });
     if (ln.status) g.statuses.add(String(ln.status).toUpperCase());
     const nk = normalizeColorKey(ln.colorName);
     if (nk) {
@@ -237,6 +255,7 @@ export function buildProductionTasksSheetPrintModel(tasks, productionOrders, opt
         mesas,
         estado,
         article,
+        observations: [...g.observations].filter(Boolean).join("; "),
         qtyByNormKey,
       };
     });

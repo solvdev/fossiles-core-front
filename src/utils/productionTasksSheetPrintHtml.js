@@ -40,7 +40,8 @@ export function buildProductionTasksSheetTableHtml(model) {
           return `<td class="cell-qty">${escapeHtml(show)}</td>`;
         })
         .join("");
-      return `<tr><td class="cell-center">${tipo}</td><td class="cell-center">${op}</td><td class="cell-mesas">${mesas}</td><td class="cell-center">${st}</td><td class="cell-art">${art}</td>${colorCells}<td class="cell-obs cell-center"></td></tr>`;
+      const obs = escapeHtml(row.observations || "");
+      return `<tr><td class="cell-center">${tipo}</td><td class="cell-center">${op}</td><td class="cell-mesas">${mesas}</td><td class="cell-center">${st}</td><td class="cell-art">${art}</td>${colorCells}<td class="cell-obs">${obs}</td></tr>`;
     })
     .join("");
 
@@ -124,10 +125,13 @@ export function openProductionTasksSheetPrintWindow(model, title = "Hoja de tare
           }
           .tasks-sheet th.cell-obs, .tasks-sheet td.cell-obs {
             min-width: 72px;
-            width: 10%;
+            width: 14%;
             height: 2.2em;
             background: #fff !important;
-            text-align: center;
+            text-align: left;
+            white-space: normal;
+            font-size: 8.5px;
+            line-height: 1.25;
           }
           .tasks-sheet th.cell-obs { font-size: 9px; }
           @media print { .no-print { display: none !important; } }
@@ -173,7 +177,7 @@ export function downloadProductionTasksSheetExcel(model, fileName) {
           const v = Number(row.qtyByNormKey?.[col.normKey] || 0);
           return v > 0 ? v : "";
         }),
-        "",
+        row.observations || "",
       ]);
     });
   }

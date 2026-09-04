@@ -293,6 +293,7 @@ function getBatchPrintDocumentStyles() {
             .section-h { font-size: 13px; margin: 14px 0 8px; border-bottom: 1px solid #ccc; padding-bottom: 4px; }
             .batch-summary thead th { background: #e8eef5; }
             .batch-summary td, .batch-summary th { font-size: 10px; }
+            .batch-observations td { white-space: pre-wrap; }
             .col-op { min-width: 52px; background: #f8fafc; font-weight: 700; }
             .op-cell { vertical-align: top; }
             tr.op-first-row td { border-top: 2px solid #333; }
@@ -395,7 +396,40 @@ function buildBatchIntroHtml(orders, generatedAt) {
   `;
 }
 
-/** Cuadro resumen: una fila por OP (sin observaciones). */
+function orderObservationText(order) {
+  return String(order?.observations || "").trim();
+}
+
+/** Observaciones de cada OP, para que queden escritas en la hoja del lote. */
+function buildBatchOrderObservationsHtml(orders) {
+  const rows = sortProductionOrdersByCode(orders)
+    .map((order) => {
+      const obs = orderObservationText(order);
+      if (!obs) return "";
+      return `
+        <tr>
+          <td><strong>${escapeHtml(order.code || "-")}</strong></td>
+          <td>${escapeHtml(obs).replace(/\n/g, "<br/>")}</td>
+        </tr>`;
+    })
+    .filter(Boolean)
+    .join("");
+  if (!rows) return "";
+  return `
+      <h2 class="section-h">Observaciones</h2>
+      <table class="meta batch-observations">
+        <thead>
+          <tr>
+            <th style="width:18%;">OP</th>
+            <th>Observaciones</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+  `;
+}
+
+/** Cuadro resumen: una fila por OP. */
 function buildBatchClientsSummaryTableHtml(orders, tasks) {
   const sorted = sortProductionOrdersByCode(orders);
   const rows = sorted
@@ -410,6 +444,7 @@ function buildBatchClientsSummaryTableHtml(orders, tasks) {
           <td>${escapeHtml(getTypeLabel(order.orderType))}</td>
           <td>${escapeHtml(processDates.deliveryValue ? formatDateGt(processDates.deliveryValue) : "—")}</td>
           <td class="numeric">${escapeHtml(String(qtyProgress.total))}</td>
+          <td>${escapeHtml(orderObservationText(order) || "—")}</td>
         </tr>`;
     })
     .join("");
@@ -425,6 +460,7 @@ function buildBatchClientsSummaryTableHtml(orders, tasks) {
             <th>Tipo</th>
             <th>Entrega</th>
             <th>Total uds.</th>
+            <th>Observaciones</th>
           </tr>
         </thead>
         <tbody>${rows}</tbody>
@@ -719,10 +755,11 @@ export function buildUnifiedBatchDocumentHtml(orders, options = {}) {
   const intro = includeSummary
     ? buildBatchIntroWithSummaryHtml(sorted, tasks, generatedAt)
     : buildBatchIntroHtml(sorted, generatedAt);
+  const observationsBlock = buildBatchOrderObservationsHtml(sorted);
   const mode = detectBatchTableMode(sorted);
-  if (mode === "cincho") return intro + buildUnifiedCinchoDetailTable(sorted);
-  if (mode === "matrix") return intro + buildUnifiedMatrixDetailTable(sorted);
-  return intro + buildUnifiedFlatDetailTable(sorted);
+  if (mode === "cincho") return intro + observationsBlock + buildUnifiedCinchoDetailTable(sorted);
+  if (mode === "matrix") return intro + observationsBlock + buildUnifiedMatrixDetailTable(sorted);
+  return intro + observationsBlock + buildUnifiedFlatDetailTable(sorted);
 }
 
 /**
@@ -852,7 +889,7 @@ export function buildUnifiedExportRows(orders, tasks = []) {
 
 function buildSummarySheetRows(orders, tasks) {
   return [
-    ["OP", "Cliente", "Vendedor", "Tipo", "Entrega", "Total uds."],
+    ["OP", "Cliente", "Vendedor", "Tipo", "Entrega", "Total uds.", "Observaciones"],
     ...sortProductionOrdersByCode(orders).map((order) => {
       const processDates = getOrderProcessDates(order.id, tasks, order.startDate, order.deliveryDate);
       const qty = getOrderQtyProgress(order.items);
@@ -863,6 +900,7 @@ function buildSummarySheetRows(orders, tasks) {
         getTypeLabel(order.orderType),
         processDates.deliveryValue ? formatDateGt(processDates.deliveryValue) : "—",
         qty.total,
+        orderObservationText(order) || "—",
       ];
     }),
   ];

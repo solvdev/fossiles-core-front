@@ -12,7 +12,8 @@ import {
 } from "reactstrap";
 import { ColorSelector, ProductSelector } from "components/catalog/FilterableCatalogSelectors";
 import { FilterableSelect } from "components/distribution/FilterableSelect";
-import { getKioskPosContext } from "services/kioskPosService";
+import { getKioskPosContext, getKioskSaleById, updateKioskSaleInvoiceContact } from "services/kioskPosService";
+import { issueTaxInvoiceFromKioskSale } from "services/taxInvoiceService";
 import { getProducts } from "services/productService";
 import { getColors } from "services/colorService";
 import {
@@ -28,6 +29,9 @@ import { applyExchangePackagingCredit, sumGivenLineAmounts } from "utils/kioskEx
 import {
   formatCurrency,
   formatQty,
+  getSaleInternalNumber,
+  isFelBackdateWindowError,
+  isKioskSalePendingFel,
   posVariantChipLabel,
   posVariantHasStock,
   posVariantNeedsSizePick,
@@ -36,6 +40,7 @@ import {
   saleNeedsFelCertification,
   variantLineKeyFor,
 } from "../pos/posUtils";
+import { showError, showSuccess } from "utils/notificationHelper";
 import { isPackagingProductCode } from "utils/kioskPackagingHelper";
 import ExchangeCheckoutModal from "./ExchangeCheckoutModal";
 import PosInvoiceEmailModal from "../pos/PosInvoiceEmailModal";
@@ -689,11 +694,46 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
       const result = await completeKioskExchange(buildCompleteRequest(payment));
       setCheckoutOpen(false);
       openExchangeSlipPrintWindow(buildKioskExchangeSlipPrintHtml(result.slip, displayPreview));
-      if (result?.sale && saleNeedsFelCertification(result.sale)) {
-        setPendingCompleteResult(result);
-        setPendingFelSale(result.sale);
-        return;
+
+      let sale = result?.sale;
+      if (sale && saleNeedsFelCertification(sale)) {
+        try {
+          await updateKioskSaleInvoiceContact(sale.id, kioskLocationId, {
+            email: payment.email || null,
+            phone: payment.phone || null,
+          });
+          await issueTaxInvoiceFromKioskSale(sale.id);
+          let refreshed = await getKioskSaleById(sale.id, kioskLocationId);
+          if (!getSaleInternalNumber(refreshed)) {
+            await new Promise((resolve) => setTimeout(resolve, 400));
+            refreshed = await getKioskSaleById(sale.id, kioskLocationId);
+          }
+          sale = refreshed || sale;
+          if (payment.email) {
+            showSuccess("Cambio registrado y factura certificada. Se enviará copia al correo.");
+          } else {
+            showSuccess("Cambio registrado y factura electrónica certificada.");
+          }
+          finishExchange({ ...result, sale });
+          return;
+        } catch (felErr) {
+          const backdateBlocked = isFelBackdateWindowError(felErr.message);
+          if (!backdateBlocked && isKioskSalePendingFel(sale, kioskLocationId)) {
+            setPendingCompleteResult({ ...result, sale });
+            setPendingFelSale(sale);
+          } else {
+            finishExchange({ ...result, sale });
+          }
+          showError(
+            backdateBlocked
+              ? "El cambio quedó registrado. SAT no permite certificar documentos de hace más de 5 días."
+              : (felErr.message
+                || "El cambio quedó registrado pero no se pudo certificar. Puedes certificarlo desde el aviso.")
+          );
+          return;
+        }
       }
+
       finishExchange(result);
     } catch (err) {
       setError(err.message || "No se pudo registrar la boleta de cambio.");

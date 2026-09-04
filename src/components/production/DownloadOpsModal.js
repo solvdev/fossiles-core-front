@@ -156,7 +156,6 @@ function DownloadOpsModal({ isOpen, toggle, orders, tasks, dayDeskTasks = null, 
     if (!picked.length) return [];
     const enriched = await Promise.all(
       picked.map(async (o) => {
-        if (Array.isArray(o.items) && o.items.length > 0) return o;
         try {
           return await getProductionOrderById(o.id);
         } catch {

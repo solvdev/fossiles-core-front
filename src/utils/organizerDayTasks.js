@@ -94,6 +94,33 @@ function lineKey(line) {
   ].join("|");
 }
 
+function findOriginalOrderItem(origItems, line) {
+  const items = origItems || [];
+  if (line?.productionOrderItemId != null) {
+    const byId = items.find((it) => Number(it.id) === Number(line.productionOrderItemId));
+    if (byId) return byId;
+  }
+  if (line?.productId != null && line?.colorId != null) {
+    const byIds = items.find(
+      (it) => Number(it.productId) === Number(line.productId)
+        && Number(it.colorId) === Number(line.colorId)
+    );
+    if (byIds) return byIds;
+  }
+  const code = String(line?.productCode || "").trim().toUpperCase();
+  const color = String(line?.colorName || "").trim().toLowerCase();
+  if (!code) return null;
+  return items.find((it) =>
+    String(it.productCode || "").trim().toUpperCase() === code
+    && String(it.colorName || "").trim().toLowerCase() === color
+  ) || null;
+}
+
+function resolveProjectedItemObservations(origItems, line) {
+  const orig = findOriginalOrderItem(origItems, line);
+  return String(orig?.observations || line?.observations || "").trim();
+}
+
 function mergeSizes(a, b) {
   if (!a && !b) return null;
   const out = { ...(a || {}) };
@@ -120,28 +147,28 @@ export function projectOrdersToOrganizerDay(orders, dayDeskTasks) {
   return (orders || [])
     .filter((o) => byOrder.has(Number(o.id)))
     .map((order) => {
+      const origItems = Array.isArray(order.items) ? order.items : [];
       const merged = new Map();
       byOrder.get(Number(order.id)).forEach((task) => {
         taskLines(task).forEach((line) => {
           if (!line.productCode && line.quantity <= 0) return;
           const key = lineKey(line);
+          const observations = resolveProjectedItemObservations(origItems, line);
           const prev = merged.get(key);
           if (!prev) {
-            merged.set(key, { ...line });
+            merged.set(key, { ...line, observations });
             return;
           }
           prev.quantity = Number(prev.quantity || 0) + Number(line.quantity || 0);
           prev.sizes = mergeSizes(prev.sizes, line.sizes);
-          if (!prev.observations && line.observations) prev.observations = line.observations;
+          if (!prev.observations && observations) prev.observations = observations;
         });
       });
       const items = Array.from(merged.values()).filter((it) => Number(it.quantity || 0) > 0);
-      const note = `Solo líneas del organizador del día (${dayDeskTasks[0]?.scheduledDate || "—"})`;
-      const prevObs = String(order.observations || "").trim();
       return {
         ...order,
         items,
-        observations: prevObs ? `${prevObs}\n${note}` : note,
+        observations: String(order.observations || "").trim() || null,
       };
     });
 }

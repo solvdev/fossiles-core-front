@@ -231,6 +231,9 @@ export const ledgerLabReplayAllStocks = async (locationId) =>
 export const ledgerLabReplayAllKiosks = async () =>
   apiRequest(`/kiosk-ledger-lab/replay-all-kiosks`, { method: "POST" });
 
+export const ledgerLabGetReplayAllKiosksStatus = async () =>
+  apiRequest(`/kiosk-ledger-lab/replay-all-kiosks`);
+
 export const ledgerLabSplitOpeningBySizes = async (stockId) =>
   apiRequest(`/kiosk-ledger-lab/stocks/${stockId}/split-opening-by-sizes`, { method: "POST" });
 

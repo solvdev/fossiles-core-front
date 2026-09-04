@@ -8,6 +8,7 @@ import {
   formatFelCustomerName,
   formatVoucherDiffAlert,
   isValidGuatemalaNit,
+  normalizeFelReceptorEmail,
   normalizeNit,
 } from "../pos/posUtils";
 
@@ -42,6 +43,9 @@ function ExchangeCheckoutModal({
   const [cardVoucherAmount, setCardVoucherAmount] = useState("");
   const [customerTaxId, setCustomerTaxId] = useState("CF");
   const [customerName, setCustomerName] = useState("CONSUMIDOR FINAL");
+  const [invoiceEmail, setInvoiceEmail] = useState("");
+  const [invoicePhone, setInvoicePhone] = useState("");
+  const [invoiceContactError, setInvoiceContactError] = useState("");
   const [taxLookupLoading, setTaxLookupLoading] = useState(false);
   const [taxLookupError, setTaxLookupError] = useState("");
 
@@ -57,6 +61,9 @@ function ExchangeCheckoutModal({
     setCardVoucherAmount("");
     setCustomerTaxId("CF");
     setCustomerName("CONSUMIDOR FINAL");
+    setInvoiceEmail("");
+    setInvoicePhone("");
+    setInvoiceContactError("");
     setTaxLookupError("");
   }, [isOpen]);
 
@@ -183,6 +190,18 @@ function ExchangeCheckoutModal({
 
   const handleConfirm = () => {
     const normalizedTaxId = normalizeNit(customerTaxId || "CF") || "CF";
+    const normalizedEmail = normalizeFelReceptorEmail(invoiceEmail);
+    if (normalizedEmail) {
+      const parts = normalizedEmail.split(";");
+      const invalid = parts.some((part) => !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(part));
+      if (invalid) {
+        setInvoiceContactError(
+          "Ingrese un correo válido. Varios correos: sepárelos con punto y coma (;) sin espacios."
+        );
+        return;
+      }
+    }
+    setInvoiceContactError("");
     onConfirm({
       paymentMethod,
       amountReceived: amountReceived ? Number(amountReceived) : totalDue > 0 ? totalDue : 0,
@@ -195,6 +214,8 @@ function ExchangeCheckoutModal({
       customerTaxId: normalizedTaxId,
       customerName:
         normalizedTaxId === "CF" ? "CONSUMIDOR FINAL" : String(customerName || "").trim(),
+      email: normalizedEmail || null,
+      phone: String(invoicePhone || "").trim() || null,
       requestInvoice: true,
       reason: reason || null,
       observations: observations || null,
@@ -294,8 +315,36 @@ function ExchangeCheckoutModal({
           {invoiceIncomplete && !taxLookupError && (
             <div className="text-warning small mt-1">Consulte el NIT para obtener el nombre en factura</div>
           )}
+          <Label className="kiosk-pos-label mt-2 small mb-1">
+            Correo para factura <span className="text-muted">(opcional)</span>
+          </Label>
+          <Input
+            type="email"
+            className="kiosk-pos-input-lg"
+            value={invoiceEmail}
+            onChange={(e) => {
+              setInvoiceEmail(e.target.value);
+              setInvoiceContactError("");
+            }}
+            placeholder="cliente@correo.com"
+            disabled={saving}
+          />
+          <small className="text-muted d-block mt-1">
+            Varios correos: punto y coma sin espacios. Vacío = certificar sin envío.
+          </small>
+          <Label className="kiosk-pos-label mt-2 small mb-1">
+            Teléfono / celular <span className="text-muted">(opcional)</span>
+          </Label>
+          <Input
+            className="kiosk-pos-input-lg"
+            value={invoicePhone}
+            onChange={(e) => setInvoicePhone(e.target.value)}
+            placeholder="Ej. 50212345678"
+            disabled={saving}
+          />
+          {invoiceContactError && <div className="text-danger small mt-1">{invoiceContactError}</div>}
           <div className="text-muted small mt-2">
-            Toda venta genera factura electrónica. Por defecto CF; consulte NIT si el cliente la pide a nombre.
+            Al confirmar se genera la venta y se certifica la factura electrónica de una vez.
           </div>
         </div>
 
@@ -553,11 +602,14 @@ function ExchangeCheckoutModal({
       </ModalBody>
       <div className="kiosk-pos-checkout-footer">
         <button type="button" className="kiosk-pos-btn-confirm" onClick={handleConfirm} disabled={!canConfirm}>
-          {saving ? "Procesando..." : `Confirmar ${formatCurrency(totalDue)}`}
+          {saving ? "Procesando..." : `Confirmar y facturar ${formatCurrency(totalDue)}`}
         </button>
         <button type="button" className="kiosk-pos-btn-cancel" onClick={onClose} disabled={saving}>
           Cancelar
         </button>
+        <p className="kiosk-pos-confirm-hint mb-0">
+          Al confirmar se registra el cobro y se certifica la factura electrónica.
+        </p>
         {cashInsufficient && (
           <p className="kiosk-pos-confirm-hint">El monto recibido no cubre el total</p>
         )}

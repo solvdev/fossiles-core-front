@@ -306,6 +306,7 @@ function AuthorizeShipments() {
                     >
                       <option value="">Todos</option>
                       <option value="PLANILLA">Planilla</option>
+                      <option value="ADMINISTRACION">Administración</option>
                       <option value="DEFECTOS">Defectos</option>
                       <option value="OPI">Producción OPI</option>
                     </Input>

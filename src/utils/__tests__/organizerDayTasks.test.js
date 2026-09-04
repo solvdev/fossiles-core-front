@@ -133,6 +133,33 @@ describe("projectOrdersToOrganizerDay", () => {
     expect(projected.find((o) => o.code === "OPK-1").items[0].quantity).toBe(3);
     expect(projected.find((o) => o.code === "OPL-9").items[0].quantity).toBe(1);
   });
+
+  test("conserva observaciones de la OP y de cada línea", () => {
+    const dayTasks = getOrganizerDayDeskTasks(
+      [
+        task({
+          id: 1,
+          productionOrderId: 10,
+          productionOrderCode: "OPK-1",
+          items: [{ productionOrderItemId: 101, productCode: "A", colorName: "Negro", quantity: 2 }],
+        }),
+      ],
+      DAY
+    );
+    const orders = [
+      {
+        id: 10,
+        code: "OPK-1",
+        observations: "Prioridad kiosko 12",
+        items: [
+          { id: 101, productCode: "A", colorName: "Negro", quantity: 2, observations: "Sin herraje" },
+        ],
+      },
+    ];
+    const projected = projectOrdersToOrganizerDay(orders, dayTasks);
+    expect(projected[0].observations).toBe("Prioridad kiosko 12");
+    expect(projected[0].items[0].observations).toBe("Sin herraje");
+  });
 });
 
 describe("buildProductionTasksSheetPrintModel", () => {

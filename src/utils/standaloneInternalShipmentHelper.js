@@ -26,6 +26,8 @@ export function parseStandaloneInternalMeta(notes) {
       applyHalfPrice = false;
     } else if (upper.startsWith("REQUEST_TYPE:DEFECTOS")) {
       requestType = "DEFECTOS";
+    } else if (upper.startsWith("REQUEST_TYPE:ADMINISTRACION")) {
+      requestType = "ADMINISTRACION";
     } else if (upper.startsWith("REQUEST_TYPE:PLANILLA")) {
       requestType = "PLANILLA";
     } else if (upper.startsWith("DOCUMENT_DATE:")) {
@@ -66,6 +68,9 @@ export function computeInternalEnviUnitPrice(catalogPrice, meta) {
   if (meta?.discountPercent != null && Number(meta.discountPercent) >= 0) {
     return ref * (Number(meta.discountPercent) / 100);
   }
+  if (meta?.requestType === "ADMINISTRACION") {
+    return ref;
+  }
   if (meta?.requestType === "PLANILLA" || meta?.applyHalfPrice !== false) {
     return ref * 0.5;
   }
@@ -90,9 +95,17 @@ export function getInternalEnviPriceNote(metaOrHalf) {
   return "Precios de referencia de catálogo.";
 }
 
+export const PAYMENT_METHOD_LABELS = {
+  EFECTIVO: "Efectivo",
+  TRANSFERENCIA: "Transferencia",
+  DEPOSITO: "Depósito",
+  DESCUENTO_PLANILLA: "Descuento de planilla",
+};
+
 const REQUEST_TYPE_PRINT_LABELS = {
   PLANILLA: "Planilla",
   DEFECTOS: "Defectos",
+  ADMINISTRACION: "Administración",
 };
 
 /** Texto legible para la sección Notas del ENVIO INTERNO impreso. */
@@ -145,6 +158,9 @@ export function formatInternalRequestTypeLabel(source) {
   }
   if (requestType === "PLANILLA") {
     return "Planilla (50%)";
+  }
+  if (requestType === "ADMINISTRACION") {
+    return "Administración (precio completo)";
   }
   if (source?.discountAmount != null && Number(source.discountAmount) >= 0) {
     return `Defectos (Q${Number(source.discountAmount).toFixed(2)})`;
@@ -222,8 +238,11 @@ export function buildPseudoOrderFromStandaloneShipment(shipment) {
 }
 
 export function buildPricingMetaFromRequest(request) {
-  if (!request || request.requestType !== "DEFECTOS") {
+  if (!request || request.requestType === "PLANILLA") {
     return { requestType: "PLANILLA", discountPercent: 50, applyHalfPrice: true };
+  }
+  if (request.requestType === "ADMINISTRACION") {
+    return { requestType: "ADMINISTRACION", discountPercent: 100, applyHalfPrice: false };
   }
   if (request.discountAmount != null && Number(request.discountAmount) >= 0) {
     return {

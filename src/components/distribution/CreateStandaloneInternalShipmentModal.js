@@ -25,9 +25,14 @@ import {
 } from "services/internalShipmentRequestService";
 import { previewDispatchStock } from "services/productDistributionService";
 import { isCinchoInventoryProductByCodeAndName } from "utils/cinchoProductionHelper";
-import { computeInternalEnviUnitPrice } from "utils/standaloneInternalShipmentHelper";
+import {
+  computeInternalEnviUnitPrice,
+  PAYMENT_METHOD_LABELS,
+} from "utils/standaloneInternalShipmentHelper";
 import { getDefaultShipmentDocumentDate } from "utils/prepareShipmentsOrderHelper";
 import { showError, showSuccess } from "utils/notificationHelper";
+
+const ADMIN_PAYMENT_METHODS = ["EFECTIVO", "TRANSFERENCIA", "DEPOSITO", "DESCUENTO_PLANILLA"];
 
 const emptyLine = () => ({
   key: `line-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
@@ -49,9 +54,8 @@ function CreateStandaloneInternalShipmentModal({ isOpen, toggle, onCreated }) {
   const [recipientTaxId, setRecipientTaxId] = useState("");
   const [notes, setNotes] = useState("");
   const [documentDate, setDocumentDate] = useState(() => getDefaultShipmentDocumentDate());
-  const [requestType, setRequestType] = useState("PLANILLA");
-  const [defectDiscountMode, setDefectDiscountMode] = useState("PERCENT");
-  const [defectDiscountValue, setDefectDiscountValue] = useState("50");
+  const [area, setArea] = useState("PRODUCCION");
+  const [paymentMethod, setPaymentMethod] = useState("");
   const [lines, setLines] = useState([emptyLine()]);
   const [products, setProducts] = useState([]);
   const [employees, setEmployees] = useState([]);
@@ -68,9 +72,8 @@ function CreateStandaloneInternalShipmentModal({ isOpen, toggle, onCreated }) {
     setRecipientTaxId("");
     setNotes("");
     setDocumentDate(getDefaultShipmentDocumentDate());
-    setRequestType("PLANILLA");
-    setDefectDiscountMode("PERCENT");
-    setDefectDiscountValue("50");
+    setArea("PRODUCCION");
+    setPaymentMethod("");
     setLines([emptyLine()]);
   }, []);
 
@@ -97,7 +100,7 @@ function CreateStandaloneInternalShipmentModal({ isOpen, toggle, onCreated }) {
   );
 
   useEffect(() => {
-    if (requestType !== "PLANILLA" || !employeeId) {
+    if (!employeeId) {
       setPlanillaEligibility(null);
       return;
     }
@@ -117,7 +120,7 @@ function CreateStandaloneInternalShipmentModal({ isOpen, toggle, onCreated }) {
     return () => {
       cancelled = true;
     };
-  }, [requestType, employeeId, documentDate]);
+  }, [employeeId, documentDate]);
 
   const refreshLineStock = async (line) => {
     const pid = Number(line.productId);
@@ -202,30 +205,22 @@ function CreateStandaloneInternalShipmentModal({ isOpen, toggle, onCreated }) {
     setLines((prev) => (prev.length <= 1 ? prev : prev.filter((l) => l.key !== key)));
   };
 
-  const getPricingMeta = () => {
-    if (requestType === "PLANILLA") {
-      return { requestType: "PLANILLA", discountPercent: 50 };
-    }
-    const value = Number(defectDiscountValue);
-    if (defectDiscountMode === "AMOUNT") {
-      return { requestType: "DEFECTOS", discountAmount: value };
-    }
-    return { requestType: "DEFECTOS", discountPercent: value };
-  };
+  const getPricingMeta = () =>
+    area === "PRODUCCION"
+      ? { requestType: "PLANILLA", discountPercent: 50 }
+      : { requestType: "ADMINISTRACION", discountPercent: 100 };
 
   const handleSubmit = async () => {
-    const name = String(recipientName || "").trim();
-    if (requestType === "PLANILLA") {
-      if (!employeeId) {
-        showError("Seleccione un empleado de planilla");
-        return;
-      }
-      if (planillaEligibility && planillaEligibility.eligible === false) {
-        showError(planillaEligibility.message || "El empleado ya tiene solicitud planilla este mes.");
-        return;
-      }
-    } else if (!name) {
-      showError("Indique el nombre del colaborador");
+    if (!employeeId) {
+      showError("Seleccione un colaborador");
+      return;
+    }
+    if (planillaEligibility && planillaEligibility.eligible === false) {
+      showError(planillaEligibility.message || "El colaborador ya tiene una solicitud este mes.");
+      return;
+    }
+    if (area === "ADMINISTRACION" && !paymentMethod) {
+      showError("Seleccione la forma de pago");
       return;
     }
 
@@ -257,29 +252,16 @@ function CreateStandaloneInternalShipmentModal({ isOpen, toggle, onCreated }) {
       }
     }
 
-    if (requestType === "DEFECTOS") {
-      const value = Number(defectDiscountValue);
-      if (!Number.isFinite(value) || value <= 0) {
-        showError("Indique un descuento válido para defectos");
-        return;
-      }
-      if (defectDiscountMode === "PERCENT" && value > 100) {
-        showError("El porcentaje no puede ser mayor a 100");
-        return;
-      }
-    }
-
     const productsPayload = payloadLines.map(({ rowKey, ...rest }) => rest);
     const pricingMeta = getPricingMeta();
     setSaving(true);
     try {
       const created = await createInternalShipmentRequest({
-        requestType,
+        requestType: pricingMeta.requestType,
+        area,
+        paymentMethod: area === "PRODUCCION" ? "DESCUENTO_PLANILLA" : paymentMethod,
         slipNumber: String(slipNumber).trim(),
-        employeeId: requestType === "PLANILLA" ? Number(employeeId) : null,
-        discountPercent: pricingMeta.discountPercent ?? null,
-        discountAmount: pricingMeta.discountAmount ?? null,
-        recipientName: requestType === "PLANILLA" ? name || "Colaborador" : name,
+        employeeId: Number(employeeId),
         recipientPhone: recipientPhone.trim() || null,
         recipientTaxId: recipientTaxId.trim() || null,
         notes: notes.trim() || null,
@@ -315,6 +297,38 @@ function CreateStandaloneInternalShipmentModal({ isOpen, toggle, onCreated }) {
           </div>
         )}
         <Row>
+          <Col md="12">
+            <FormGroup tag="fieldset" className="mb-2">
+              <Label>Área *</Label>
+              <div className="d-flex gap-4">
+                {[
+                  { value: "PRODUCCION", label: "Producción" },
+                  { value: "ADMINISTRACION", label: "Administración" },
+                ].map((opt) => (
+                  <FormGroup check key={opt.value}>
+                    <Label check>
+                      <Input
+                        type="radio"
+                        name="area"
+                        checked={area === opt.value}
+                        onChange={() => {
+                          setArea(opt.value);
+                          setPaymentMethod(opt.value === "PRODUCCION" ? "" : "");
+                        }}
+                      />{" "}
+                      {opt.label}
+                    </Label>
+                  </FormGroup>
+                ))}
+              </div>
+              <small className="text-muted">
+                Producción: se descuenta directo de planilla (sin más opciones). Administración: puede pagar en
+                efectivo, transferencia, depósito o descuento de planilla, a precio completo de catálogo.
+              </small>
+            </FormGroup>
+          </Col>
+        </Row>
+        <Row>
           <Col md="3">
             <FormGroup>
               <Label>No. Boleta física (BLS) *</Label>
@@ -328,33 +342,27 @@ function CreateStandaloneInternalShipmentModal({ isOpen, toggle, onCreated }) {
           <Col md="5">
             <FormGroup>
               <Label>Colaborador *</Label>
-              {requestType === "PLANILLA" ? (
-                <>
-                  <FilterableSelect
-                    options={employeeOptions}
-                    value={employeeId}
-                    onChange={(value) => {
-                      setEmployeeId(value);
-                      const emp = employees.find((e) => String(e.id) === String(value));
-                      if (emp) {
-                        setRecipientName(`${emp.firstName || ""} ${emp.lastName || ""}`.trim());
-                        setRecipientPhone(emp.phone || "");
-                        setRecipientTaxId(emp.dpi || "");
-                      }
-                    }}
-                    placeholder="Buscar empleado..."
-                  />
-                  {checkingEligibility && (
-                    <small className="text-muted d-block mt-1">Verificando elegibilidad…</small>
-                  )}
-                  {planillaEligibility && !planillaEligibility.eligible && (
-                    <Alert color="warning" className="py-1 px-2 mt-2 mb-0" style={{ fontSize: 12 }}>
-                      {planillaEligibility.message}
-                    </Alert>
-                  )}
-                </>
-              ) : (
-                <Input value={recipientName} onChange={(e) => setRecipientName(e.target.value)} />
+              <FilterableSelect
+                options={employeeOptions}
+                value={employeeId}
+                onChange={(value) => {
+                  setEmployeeId(value);
+                  const emp = employees.find((e) => String(e.id) === String(value));
+                  if (emp) {
+                    setRecipientName(`${emp.firstName || ""} ${emp.lastName || ""}`.trim());
+                    setRecipientPhone(emp.phone || "");
+                    setRecipientTaxId(emp.dpi || "");
+                  }
+                }}
+                placeholder="Buscar empleado..."
+              />
+              {checkingEligibility && (
+                <small className="text-muted d-block mt-1">Verificando elegibilidad…</small>
+              )}
+              {planillaEligibility && !planillaEligibility.eligible && (
+                <Alert color="warning" className="py-1 px-2 mt-2 mb-0" style={{ fontSize: 12 }}>
+                  {planillaEligibility.message}
+                </Alert>
               )}
             </FormGroup>
           </Col>
@@ -374,63 +382,32 @@ function CreateStandaloneInternalShipmentModal({ isOpen, toggle, onCreated }) {
         <Row>
           <Col md="4">
             <FormGroup>
-              <Label>Tipo de solicitud</Label>
-              <Input
-                type="select"
-                value={requestType}
-                onChange={(e) => {
-                  setRequestType(e.target.value);
-                  if (e.target.value !== "PLANILLA") {
-                    setEmployeeId("");
-                    setPlanillaEligibility(null);
-                  }
-                  if (e.target.value === "DEFECTOS" && !defectDiscountValue) {
-                    setDefectDiscountValue("50");
-                  }
-                }}
-              >
-                <option value="PLANILLA">Planilla (50% descuento)</option>
-                <option value="DEFECTOS">Descuento por defectos</option>
-              </Input>
+              <Label>Forma de pago</Label>
+              {area === "PRODUCCION" ? (
+                <Input value="Descuento de planilla" disabled />
+              ) : (
+                <Input
+                  type="select"
+                  value={paymentMethod}
+                  onChange={(e) => setPaymentMethod(e.target.value)}
+                >
+                  <option value="">Seleccione…</option>
+                  {ADMIN_PAYMENT_METHODS.map((method) => (
+                    <option key={method} value={method}>
+                      {PAYMENT_METHOD_LABELS[method]}
+                    </option>
+                  ))}
+                </Input>
+              )}
             </FormGroup>
           </Col>
-          {requestType === "DEFECTOS" && (
-            <>
-              <Col md="2">
-                <FormGroup>
-                  <Label>Modo descuento</Label>
-                  <Input
-                    type="select"
-                    value={defectDiscountMode}
-                    onChange={(e) => setDefectDiscountMode(e.target.value)}
-                  >
-                    <option value="PERCENT">Porcentaje (%)</option>
-                    <option value="AMOUNT">Monto fijo (Q)</option>
-                  </Input>
-                </FormGroup>
-              </Col>
-              <Col md="2">
-                <FormGroup>
-                  <Label>{defectDiscountMode === "PERCENT" ? "Porcentaje" : "Precio unit. Q"}</Label>
-                  <Input
-                    type="number"
-                    min={0.01}
-                    max={defectDiscountMode === "PERCENT" ? 100 : undefined}
-                    step={defectDiscountMode === "PERCENT" ? 1 : 0.01}
-                    value={defectDiscountValue}
-                    onChange={(e) => setDefectDiscountValue(e.target.value)}
-                  />
-                </FormGroup>
-              </Col>
-            </>
-          )}
-          <Col md={requestType === "DEFECTOS" ? 2 : 4}>
+          <Col md="4">
             <FormGroup>
               <Label>Fecha documento</Label>
               <Input type="date" value={documentDate} onChange={(e) => setDocumentDate(e.target.value)} />
             </FormGroup>
           </Col>
-          <Col md={requestType === "DEFECTOS" ? 3 : 4}>
+          <Col md="4">
             <FormGroup>
               <Label>Observaciones</Label>
               <Input
