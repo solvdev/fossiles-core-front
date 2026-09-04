@@ -284,7 +284,7 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
     }
     try {
       setLoading(true);
-      const result = await lookupKioskSale(saleQuery.trim(), kioskLocationId);
+      const result = await lookupKioskSale(saleQuery.trim(), kioskLocationId, { allKiosks: true });
       setSale(result);
       const firstId = result?.items?.length === 1 ? String(result.items[0].id) : "";
       setSelectedItemId(firstId);
@@ -816,7 +816,7 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
                     <span className="kiosk-exchange-hint-icon" aria-hidden>i</span>
                     <span>
                       Si el cambio es de una venta <strong>anterior al inicio del sistema</strong>, use{" "}
-                      <strong>Cambio libre</strong>.
+                      <strong>Cambio libre</strong>. Puede buscar facturas de cualquier kiosko.
                     </span>
                   </div>
                 </>
@@ -887,7 +887,13 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
           {step === 2 && sale && (
             <>
               <div className="kiosk-exchange-sale-meta">
-                <span className="kiosk-exchange-pill">{sale.saleNumber || "Venta"}</span>
+                <span className="kiosk-exchange-pill">{sale.internalNumber || sale.saleNumber || "Venta"}</span>
+                {sale.kioskName && (
+                  <span className="kiosk-exchange-pill">
+                    {sale.kioskCode ? `${sale.kioskCode} · ` : ""}
+                    {sale.kioskName}
+                  </span>
+                )}
                 <span className="kiosk-exchange-pill">{sale.saleDate}</span>
                 <span className="kiosk-exchange-pill">Total {formatCurrency(sale.totalAmount)}</span>
               </div>
