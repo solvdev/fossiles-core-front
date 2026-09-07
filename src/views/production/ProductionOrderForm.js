@@ -27,6 +27,8 @@ import { getColors } from "services/colorService";
 import { getCustomers } from "services/customerService";
 import { getAuthHeader } from "services/authService";
 import { showSuccess, showError } from "utils/notificationHelper";
+import { FilterableSelect } from "components/distribution/FilterableSelect";
+import CustomersForm from "views/customers/CustomersForm";
 import OpcGenerateShipmentModal from "components/production/OpcGenerateShipmentModal";
 import ProductionOrderPartialReleasesPanel from "components/production/ProductionOrderPartialReleasesPanel";
 import { isCinchoOrderType } from "utils/cinchoProductionHelper";
@@ -124,6 +126,7 @@ function ProductionOrderForm({ orderId, isOpen, toggle, onSuccess }) {
   const [cinchoMaterialsInfo, setCinchoMaterialsInfo] = useState(null);
   const [shipmentModalOpen, setShipmentModalOpen] = useState(false);
   const [opvPriceReviewOpen, setOpvPriceReviewOpen] = useState(false);
+  const [showCustomerCreate, setShowCustomerCreate] = useState(false);
 
   const showItemUnitPrice =
     formData.orderType === "MARCAS" || isLuisFelipeVendorFlow(formData.orderType, formData.sellerName);
@@ -137,6 +140,26 @@ function ProductionOrderForm({ orderId, isOpen, toggle, onSuccess }) {
     });
     return map;
   }, [availableProducts]);
+
+  const customerOptions = useMemo(
+    () =>
+      (availableCustomers || []).map((customer) => ({
+        value: String(customer.id),
+        label: `${customer.name || `Cliente #${customer.id}`}${customer.nit ? ` · NIT ${customer.nit}` : ""}`,
+        searchText: `${customer.name || ""} ${customer.nit || ""} ${customer.phone || ""} ${customer.legacyCode || ""}`,
+      })),
+    [availableCustomers]
+  );
+
+  const applySelectedCustomer = (customer) => {
+    const catalogFields = customerFieldsFromCatalog(customer);
+    setFormData((prev) => ({
+      ...prev,
+      customerId: customer?.id != null ? String(customer.id) : "",
+      customerName: customer?.name || "",
+      ...catalogFields,
+    }));
+  };
 
   useEffect(() => {
     if (isOpen) {
@@ -210,9 +233,19 @@ function ProductionOrderForm({ orderId, isOpen, toggle, onSuccess }) {
     try {
       const customers = await getCustomers();
       setAvailableCustomers(customers || []);
+      return customers || [];
     } catch (err) {
       console.error("Error al cargar clientes:", err);
+      return [];
     }
+  };
+
+  const handleCustomerCreated = async (saved) => {
+    await loadCustomers();
+    if (saved) {
+      applySelectedCustomer(saved);
+    }
+    setShowCustomerCreate(false);
   };
 
   const loadOrder = async () => {
@@ -900,47 +933,39 @@ function ProductionOrderForm({ orderId, isOpen, toggle, onSuccess }) {
           )}
 
           <Row>
-            <Col md="6">
+            <Col md="8">
               <FormGroup>
                 <Label>Cliente</Label>
-                <Input
-                  type="select"
-                  value={formData.customerId}
-                  onChange={(e) => {
-                    const rawId = e.target.value;
+                <FilterableSelect
+                  options={customerOptions}
+                  value={String(formData.customerId || "")}
+                  onChange={(rawId) => {
                     const selected = rawId
                       ? availableCustomers.find((c) => String(c.id) === String(rawId))
                       : null;
-                    const catalogFields = customerFieldsFromCatalog(selected);
-                    setFormData({
-                      ...formData,
-                      customerId: rawId,
-                      customerName: selected?.name || "",
-                      ...catalogFields,
-                    });
+                    applySelectedCustomer(selected);
                   }}
+                  placeholder="Buscar por nombre, NIT o teléfono…"
+                  emptyLabel="Sin cliente"
                   disabled={loading}
-                >
-                  <option value="">Seleccione un cliente (opcional)</option>
-                  {availableCustomers.map((customer) => (
-                    <option key={customer.id} value={customer.id}>
-                      {customer.name}
-                    </option>
-                  ))}
-                </Input>
-                <small className="text-muted">O ingrese el nombre del cliente manualmente abajo</small>
+                />
+                <small className="text-muted">
+                  Busque en el catálogo. Si no existe, créelo: el NIT de facturación puede repetirse.
+                </small>
               </FormGroup>
             </Col>
-            <Col md="6">
-              <FormGroup>
-                <Label>Nombre de Cliente (si no está en la lista)</Label>
-                <Input
-                  type="text"
-                  value={formData.customerName}
-                  onChange={(e) => setFormData({ ...formData, customerName: e.target.value })}
-                  placeholder="Ej: KIOSCOS, TERNOS PALAZZO"
-                  disabled={loading || !!formData.customerId}
-                />
+            <Col md="4" className="d-flex align-items-end">
+              <FormGroup className="w-100">
+                <Button
+                  color="info"
+                  outline
+                  block
+                  type="button"
+                  disabled={loading}
+                  onClick={() => setShowCustomerCreate(true)}
+                >
+                  Crear cliente
+                </Button>
               </FormGroup>
             </Col>
           </Row>
@@ -1711,6 +1736,13 @@ function ProductionOrderForm({ orderId, isOpen, toggle, onSuccess }) {
             : null
         }
         onGenerated={() => setShipmentModalOpen(false)}
+      />
+
+      <CustomersForm
+        isOpen={showCustomerCreate}
+        toggle={() => setShowCustomerCreate(false)}
+        onSuccess={handleCustomerCreated}
+        zIndex={2000}
       />
     </Modal>
   );

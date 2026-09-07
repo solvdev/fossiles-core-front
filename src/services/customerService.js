@@ -27,6 +27,30 @@ export const getCustomers = async () => {
   }
 };
 
+export const getCustomersByNit = async (nit) => {
+  const value = String(nit || "").trim();
+  if (!value) return [];
+  try {
+    const params = new URLSearchParams({ nit: value });
+    const response = await fetch(`${API_URL}/customers/by-nit?${params.toString()}`, {
+      method: "GET",
+      headers: {
+        "Content-Type": "application/json",
+        ...getAuthHeader(),
+      },
+    });
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({ message: "Error al buscar clientes por NIT" }));
+      throw new Error(errorData.message || "Error al buscar clientes por NIT");
+    }
+    const data = await response.json();
+    return Array.isArray(data) ? data : [];
+  } catch (error) {
+    console.error("Get customers by NIT error:", error);
+    throw error;
+  }
+};
+
 export const getCustomerById = async (id) => {
   if (!id || id === 'undefined' || id === 'null') {
     throw new Error('ID de cliente inválido');
