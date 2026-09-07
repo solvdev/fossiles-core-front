@@ -5,7 +5,8 @@ import { showError } from "utils/notificationHelper";
 import { formatDateGt, formatDateTimeGt } from "utils/dateTimeHelper";
 import { deskDisplayLabel, resolveDeskSupervisorNameForTicket } from "utils/deskSupervisorDisplay";
 import {
-  addWorkDurationSkippingLunch,
+  addWorkingTime,
+  workingMinutesBetween,
   formatProductionDuration,
 } from "utils/productionTimeHelper";
 
@@ -417,24 +418,21 @@ function TaskTicketPrint({ taskId, taskIds, productionOrderId, supervisorByDesk,
     if (!ticket.estimatedHours) return null;
     const start = resolveStart(ticket);
     if (!start) return null;
-    return addWorkDurationSkippingLunch(start, ticket.estimatedHours);
+    return addWorkingTime(start, ticket.estimatedHours);
   };
 
+  /**
+   * Tiempo realmente trabajado, en minutos: solo lo que cae dentro de la jornada.
+   * Una tarea que arranca a las 14:00 y termina a las 09:00 del día siguiente son
+   * 5 h de trabajo, no 19 — la noche no cuenta.
+   */
   const calcActualDuration = (ticket) => {
     if (!ticket.completedAt) return null;
-    let start = null;
-    if (ticket.startedAt) {
-      start = new Date(ticket.startedAt);
-    } else if (ticket.scheduledDate && ticket.startTime) {
-      const [hh, mm] = ticket.startTime.split(":").map(Number);
-      start = new Date(ticket.scheduledDate + "T00:00:00");
-      start.setHours(hh, mm, 0, 0);
-    }
-    if (!start || Number.isNaN(start.getTime())) return null;
+    const start = resolveStart(ticket);
+    if (!start) return null;
     const end = new Date(ticket.completedAt);
-    const diffMs = end.getTime() - start.getTime();
-    if (diffMs < 0) return null;
-    return Math.round(diffMs / 60000);
+    if (Number.isNaN(end.getTime()) || end < start) return null;
+    return workingMinutesBetween(start, end);
   };
 
   const isLateDelivery = (ticket) => {

@@ -145,24 +145,26 @@ export function taskForTableCenterView(task, orderById) {
 }
 
 /**
- * Tareas vivas del centro de producción: descarta cinchos y, además, CANCELLED y COMPLETED.
+ * Tareas del centro de producción, sin líneas de cinchos.
  *
- * Ese descarte de estados terminales es la razón de que el Centro de Producción y el
- * Organizador no puedan mostrar ni contar tareas completadas: pasa antes que cualquier
- * filtro de la pantalla. Si algún día hace falta consultarlas desde aquí, no basta con
- * quitar el filtro — hay que revisar también los calculos de carga por mesa y el selector
- * de jornada, que hoy dan por hecho que solo llegan tareas activas.
+ * Por defecto descarta CANCELLED y COMPLETED, y ese descarte es la razón de que el
+ * tablero y el Organizador no puedan mostrar ni contar tareas completadas: ocurre
+ * antes que cualquier filtro de la pantalla.
  *
- * El historico de completadas se consulta en Trazabilidad por OP y en Bandejas por Fase.
+ * `incluirCerradas` levanta ese descarte para quien necesite consultarlas — hoy solo
+ * la sección de tareas cerradas del Centro, que las lista para reimprimir su boleta.
+ * No debe usarse para el tablero: los cálculos de carga por mesa y el selector de
+ * jornada dan por hecho que solo reciben tareas activas.
  *
- * Ojo: los consumidores que necesitan saber que cantidad ya se produjo (collectAssignedQuantities
- * en taskPlanningHelper) NO deben usar esta lista, sino la lista cruda, porque cuentan las
- * tareas completadas como cantidad ya cubierta.
+ * Ojo: quien necesite saber qué cantidad ya se produjo (`collectAssignedQuantities` en
+ * taskPlanningHelper) NO debe usar esta lista, sino la cruda, porque cuenta las tareas
+ * completadas como cantidad ya cubierta.
  */
-export function buildTableCenterTasks(tasks, productionOrders) {
+export function buildTableCenterTasks(tasks, productionOrders, { incluirCerradas = false } = {}) {
   const orderById = buildProductionOrderIdMap(productionOrders);
+  const esTerminal = (t) => t.status === "CANCELLED" || t.status === "COMPLETED";
   return (tasks || [])
-    .filter((t) => t && t.status !== "CANCELLED" && t.status !== "COMPLETED")
+    .filter((t) => t && (incluirCerradas || !esTerminal(t)))
     .map((t) => taskForTableCenterView(t, orderById))
     .filter(Boolean);
 }
