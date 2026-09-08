@@ -84,6 +84,28 @@ function taskLines(task) {
   }];
 }
 
+function findOrderItemObservations(order, line) {
+  const items = Array.isArray(order?.items) ? order.items : [];
+  if (!items.length) return "";
+  if (line.productionOrderItemId != null) {
+    const byId = items.find((oi) => Number(oi.id) === Number(line.productionOrderItemId));
+    const obs = String(byId?.observations || "").trim();
+    if (obs) return obs;
+  }
+  if (line.productId != null) {
+    const byProduct = items.find((oi) => {
+      if (Number(oi.productId) !== Number(line.productId)) return false;
+      if (line.colorId != null && oi.colorId != null) {
+        return Number(oi.colorId) === Number(line.colorId);
+      }
+      return true;
+    });
+    const obs = String(byProduct?.observations || "").trim();
+    if (obs) return obs;
+  }
+  return "";
+}
+
 function lineKey(line) {
   if (line.productionOrderItemId != null) return `poi:${line.productionOrderItemId}`;
   return [
@@ -127,21 +149,24 @@ export function projectOrdersToOrganizerDay(orders, dayDeskTasks) {
           const key = lineKey(line);
           const prev = merged.get(key);
           if (!prev) {
-            merged.set(key, { ...line });
+            merged.set(key, {
+              ...line,
+              observations: String(line.observations || "").trim() || findOrderItemObservations(order, line),
+            });
             return;
           }
           prev.quantity = Number(prev.quantity || 0) + Number(line.quantity || 0);
           prev.sizes = mergeSizes(prev.sizes, line.sizes);
-          if (!prev.observations && line.observations) prev.observations = line.observations;
+          if (!prev.observations) {
+            prev.observations =
+              String(line.observations || "").trim() || findOrderItemObservations(order, line);
+          }
         });
       });
       const items = Array.from(merged.values()).filter((it) => Number(it.quantity || 0) > 0);
-      const note = `Solo líneas del organizador del día (${dayDeskTasks[0]?.scheduledDate || "—"})`;
-      const prevObs = String(order.observations || "").trim();
       return {
         ...order,
         items,
-        observations: prevObs ? `${prevObs}\n${note}` : note,
       };
     });
 }

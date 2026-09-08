@@ -82,6 +82,34 @@ function formatProductionOrderTypeSheetLabel(orderType, productionOrderCode) {
   return "-";
 }
 
+function resolveItemObservations(it, task, orderMap) {
+  const fromLine = String(it?.observations || "").trim();
+  if (fromLine) return fromLine;
+  const po = orderMap.get(Number(task.productionOrderId));
+  const items = Array.isArray(po?.items) ? po.items : [];
+  if (!items.length) return "";
+  const poiId = it?.productionOrderItemId ?? task.productionOrderItemId;
+  if (poiId != null) {
+    const byId = items.find((oi) => Number(oi.id) === Number(poiId));
+    const obs = String(byId?.observations || "").trim();
+    if (obs) return obs;
+  }
+  const productId = it?.productId ?? task.productId;
+  const colorId = it?.colorId ?? task.colorId;
+  if (productId != null) {
+    const byProduct = items.find((oi) => {
+      if (Number(oi.productId) !== Number(productId)) return false;
+      if (colorId != null && oi.colorId != null) {
+        return Number(oi.colorId) === Number(colorId);
+      }
+      return true;
+    });
+    const obs = String(byProduct?.observations || "").trim();
+    if (obs) return obs;
+  }
+  return "";
+}
+
 function flattenTaskLines(task, orderMap) {
   const opCode = String(task.productionOrderCode || "").trim();
   const po = orderMap.get(Number(task.productionOrderId));
@@ -104,6 +132,7 @@ function flattenTaskLines(task, orderMap) {
         desk: task.desk,
         tipo,
         status: task.status,
+        observations: resolveItemObservations(it, task, orderMap),
       });
     }
     return lines;
@@ -120,6 +149,7 @@ function flattenTaskLines(task, orderMap) {
     desk: task.desk,
     tipo,
     status: task.status,
+    observations: resolveItemObservations(null, task, orderMap),
   });
   return lines;
 }
@@ -183,6 +213,7 @@ export function buildProductionTasksSheetPrintModel(tasks, productionOrders, opt
       tipos: new Set(),
       statuses: new Set(),
       qtyByNormKey: new Map(),
+      observations: new Set(),
     };
     if (ln.productName && (!g.productName || ln.productName.length > g.productName.length)) {
       g.productName = ln.productName;
@@ -191,6 +222,7 @@ export function buildProductionTasksSheetPrintModel(tasks, productionOrders, opt
     if (ln.desk != null && ln.desk !== "") g.mesas.add(Number(ln.desk));
     g.tipos.add(ln.tipo);
     if (ln.status) g.statuses.add(String(ln.status).toUpperCase());
+    if (ln.observations) g.observations.add(ln.observations);
     const nk = normalizeColorKey(ln.colorName);
     if (nk) {
       if (!displayByNormKey.has(nk)) displayByNormKey.set(nk, ln.colorName || nk);
@@ -231,6 +263,7 @@ export function buildProductionTasksSheetPrintModel(tasks, productionOrders, opt
       const estado = [...new Set(estadoParts)].sort().join(", ");
       const article = [g.productCode, g.productName].filter(Boolean).join(" ").trim() || g.productCode;
       const qtyByNormKey = Object.fromEntries(g.qtyByNormKey);
+      const observations = [...g.observations].filter(Boolean).join(" · ");
       return {
         tipo: tipos.join(", "),
         ops: ops.join(", "),
@@ -238,6 +271,7 @@ export function buildProductionTasksSheetPrintModel(tasks, productionOrders, opt
         estado,
         article,
         qtyByNormKey,
+        observations,
       };
     });
 

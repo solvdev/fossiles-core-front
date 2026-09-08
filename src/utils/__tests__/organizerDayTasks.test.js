@@ -178,4 +178,37 @@ describe("buildProductionTasksSheetPrintModel", () => {
     expect(opsJoined).toContain("OPK-2");
     expect(opsJoined).not.toContain("OPK-3");
   });
+
+  test("observaciones de la hoja usan observaciones del item, no las de la orden", () => {
+    const tasks = [
+      task({
+        id: 1,
+        productionOrderId: 10,
+        productionOrderCode: "OPCK-1",
+        productCode: "C-10",
+        items: [
+          {
+            productCode: "C-10",
+            productName: "Cartera",
+            colorName: "Negro",
+            quantity: 2,
+            observations: "DISEÑO/METAL",
+          },
+        ],
+      }),
+    ];
+    const orders = [
+      {
+        id: 10,
+        code: "OPCK-1",
+        orderType: "CLIENTE_KIOSKO",
+        observations: "Observación general de la orden",
+        items: [{ id: 1, productId: 1, productCode: "C-10", observations: "DISEÑO/METAL" }],
+      },
+    ];
+    const model = buildProductionTasksSheetPrintModel(tasks, orders, { workDateYmd: DAY });
+    expect(model.rows).toHaveLength(1);
+    expect(model.rows[0].observations).toBe("DISEÑO/METAL");
+    expect(model.rows[0].observations).not.toContain("Observación general");
+  });
 });
