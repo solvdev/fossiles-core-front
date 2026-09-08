@@ -167,6 +167,14 @@ export function canApproveInternalShipment(request) {
   return !needsOpiProductionAuthorization(request);
 }
 
+export function canGenerateOpiForApprovedEnvi(request) {
+  return Boolean(request?.canGenerateOpi);
+}
+
+export function canGenerateOpiForExistingEnvi(shipment) {
+  return Boolean(shipment?.canGenerateOpi && shipment?.internalShipmentRequestId);
+}
+
 export function resolveInternalEnviTypeLabel(shipment) {
   if (shipment?.productionOrderId) {
     return shipment.productionOrderCode
