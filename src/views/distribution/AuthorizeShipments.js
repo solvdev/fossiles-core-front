@@ -32,6 +32,7 @@ import { useAuth } from "contexts/AuthContext";
 import {
   approveInternalShipmentRequest,
   authorizeOpiProduction,
+  generateOpiForInternalShipmentRequest,
   listExistingEnviShipments,
   listInternalShipmentRequests,
   rejectInternalShipmentRequest,
@@ -40,6 +41,8 @@ import { printInternalEnviShipment } from "utils/enviInternalPrintHelper";
 import { formatDateTimeGt } from "utils/dateTimeHelper";
 import {
   canApproveInternalShipment,
+  canGenerateOpiForApprovedEnvi,
+  canGenerateOpiForExistingEnvi,
   formatInternalRequestTypeLabel,
   needsOpiProductionAuthorization,
   resolveInternalEnviCollaborator,
@@ -126,7 +129,17 @@ function AuthorizeShipments() {
       setActionId(request.id);
       setError("");
       const updated = await approveInternalShipmentRequest(request.id);
-      showSuccess(`Solicitud aprobada. ENVI: ${updated?.shipmentNumber || "—"}`);
+      const opiPending = Boolean(updated?.productionOrderId)
+        && String(updated?.status || "").toUpperCase() === "PENDIENTE";
+      if (opiPending) {
+        const opiRef = updated.productionOrderCode || "una OPI";
+        showSuccess(
+          `Sin stock suficiente. Se generó ${opiRef} por el faltante. `
+            + "Autorice su producción y reciba el producto en Bodega PT antes de autorizar el envío."
+        );
+      } else {
+        showSuccess(`Solicitud aprobada. ENVI: ${updated?.shipmentNumber || "—"}`);
+      }
       await Promise.all([loadRequests(), loadExistingEnvi()]);
       setDetailRequestId(null);
     } catch (err) {
@@ -165,10 +178,46 @@ function AuthorizeShipments() {
     await authorizeProduction(request);
   };
 
+  const generateOpi = async (request) => {
+    if (!canApprove || !request?.id) return;
+    try {
+      setActionId(request.id);
+      setError("");
+      const updated = await generateOpiForInternalShipmentRequest(request.id);
+      showSuccess(
+        `Se generó ${updated?.productionOrderCode || "la OPI"}. Autorice su producción.`
+      );
+      await Promise.all([loadRequests(), loadExistingEnvi()]);
+    } catch (err) {
+      showError(err.message || "No se pudo generar la OPI.");
+    } finally {
+      setActionId(null);
+    }
+  };
+
+  const handleGenerateOpi = async (request) => {
+    if (!canApprove || !request?.id) return;
+    const ok = window.confirm(
+      `¿Generar OPI para reponer lo despachado en la solicitud #${request.id}?`
+    );
+    if (!ok) return;
+    await generateOpi(request);
+  };
+
+  const handleGenerateOpiFromShipment = async (shipment) => {
+    if (!canApprove || !shipment?.internalShipmentRequestId) return;
+    const ok = window.confirm(
+      `¿Generar OPI para reponer lo despachado en ${shipment.shipmentNumber || "este ENVI"}?`
+    );
+    if (!ok) return;
+    await generateOpi({ id: shipment.internalShipmentRequestId });
+  };
+
   const handleApprove = async (request) => {
     if (!canApprove || !request?.id) return;
     const ok = window.confirm(
-      `¿Autorizar la solicitud #${request.id} de ${request.recipientName}? Se generará el ENVI y se descontará inventario.`
+      `¿Autorizar la solicitud #${request.id} de ${request.recipientName}? `
+        + "Si hay stock se genera el ENVI; si falta, se crea una OPI por el faltante."
     );
     if (!ok) return;
     await approveRequest(request);
@@ -427,23 +476,47 @@ function AuthorizeShipments() {
                             </>
                           )}
                           {isAccountingView && req.status === "APROBADA" && req.productShipmentId && (
-                            <Button
-                              color="info"
-                              size="sm"
-                              className="btn-round"
-                              onClick={() => {
-                                const shipmentForPrint = existingEnvi.find(
-                                  (s) => Number(s.id) === Number(req.productShipmentId)
-                                );
-                                if (shipmentForPrint) {
-                                  handlePrintEnvi(shipmentForPrint);
-                                } else {
-                                  showError("Recargue la pestaña ENVI existentes para imprimir este documento.");
-                                }
-                              }}
-                            >
-                              Imprimir
-                            </Button>
+                            <>
+                              {canApprove && needsOpiProductionAuthorization(req) && (
+                                <Button
+                                  color="primary"
+                                  size="sm"
+                                  className="btn-round mr-1"
+                                  disabled={actionId === req.id}
+                                  onClick={() => handleAuthorizeProduction(req)}
+                                >
+                                  {actionId === req.id ? <Spinner size="sm" /> : "Autorizar prod."}
+                                </Button>
+                              )}
+                              {canApprove && canGenerateOpiForApprovedEnvi(req) && (
+                                <Button
+                                  color="warning"
+                                  size="sm"
+                                  className="btn-round mr-1"
+                                  disabled={actionId === req.id}
+                                  onClick={() => handleGenerateOpi(req)}
+                                >
+                                  {actionId === req.id ? <Spinner size="sm" /> : "Generar OPI"}
+                                </Button>
+                              )}
+                              <Button
+                                color="info"
+                                size="sm"
+                                className="btn-round"
+                                onClick={() => {
+                                  const shipmentForPrint = existingEnvi.find(
+                                    (s) => Number(s.id) === Number(req.productShipmentId)
+                                  );
+                                  if (shipmentForPrint) {
+                                    handlePrintEnvi(shipmentForPrint);
+                                  } else {
+                                    showError("Recargue la pestaña ENVI existentes para imprimir este documento.");
+                                  }
+                                }}
+                              >
+                                Imprimir
+                              </Button>
+                            </>
                           )}
                         </td>
                       </tr>
@@ -497,7 +570,20 @@ function AuthorizeShipments() {
                               {shipment.status || "—"}
                             </Badge>
                           </td>
-                          <td className="text-right">
+                          <td className="text-right text-nowrap">
+                            {canApprove && canGenerateOpiForExistingEnvi(shipment) && (
+                              <Button
+                                color="warning"
+                                size="sm"
+                                className="btn-round mr-1"
+                                disabled={actionId === shipment.internalShipmentRequestId}
+                                onClick={() => handleGenerateOpiFromShipment(shipment)}
+                              >
+                                {actionId === shipment.internalShipmentRequestId
+                                  ? <Spinner size="sm" />
+                                  : "Generar OPI"}
+                              </Button>
+                            )}
                             <Button
                               color="info"
                               size="sm"
