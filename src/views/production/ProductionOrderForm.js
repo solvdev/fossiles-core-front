@@ -600,7 +600,7 @@ function ProductionOrderForm({ orderId, isOpen, toggle, onSuccess }) {
       const submitData = {
         code: formData.code && formData.code.trim() ? formData.code.trim() : null,
         orderType: formData.orderType,
-        customerId: formData.customerId || null,
+        customerId: isClienteKioskoOrder(formData.orderType) ? null : formData.customerId || null,
         customerName: formData.customerName || null,
         sellerName: formData.sellerName || null,
         startDate: formData.startDate || null,
@@ -668,12 +668,14 @@ function ProductionOrderForm({ orderId, isOpen, toggle, onSuccess }) {
   };
 
   const handleOrderTypeChange = (newType) => {
-    // Limpiar items cuando cambia el tipo
     setFormData({
       ...formData,
       orderType: newType,
       items: [],
       packingItems: isLuisFelipeVendorFlow(newType, formData.sellerName) ? formData.packingItems : [],
+      ...(isClienteKioskoOrder(newType)
+        ? { customerId: "", customerAddress: "", customerPhone: "", customerTaxId: "" }
+        : {}),
     });
     setItemForm(createEmptyItemForm());
   };
@@ -933,41 +935,67 @@ function ProductionOrderForm({ orderId, isOpen, toggle, onSuccess }) {
           )}
 
           <Row>
-            <Col md="8">
-              <FormGroup>
-                <Label>Cliente</Label>
-                <FilterableSelect
-                  options={customerOptions}
-                  value={String(formData.customerId || "")}
-                  onChange={(rawId) => {
-                    const selected = rawId
-                      ? availableCustomers.find((c) => String(c.id) === String(rawId))
-                      : null;
-                    applySelectedCustomer(selected);
-                  }}
-                  placeholder="Buscar por nombre, NIT o teléfono…"
-                  emptyLabel="Sin cliente"
-                  disabled={loading}
-                />
-                <small className="text-muted">
-                  Busque en el catálogo. Si no existe, créelo: el NIT de facturación puede repetirse.
-                </small>
-              </FormGroup>
-            </Col>
-            <Col md="4" className="d-flex align-items-end">
-              <FormGroup className="w-100">
-                <Button
-                  color="info"
-                  outline
-                  block
-                  type="button"
-                  disabled={loading}
-                  onClick={() => setShowCustomerCreate(true)}
-                >
-                  Crear cliente
-                </Button>
-              </FormGroup>
-            </Col>
+            {isClienteKioskoOrder(formData.orderType) ? (
+              <Col md="8">
+                <FormGroup>
+                  <Label>Nombre del cliente</Label>
+                  <Input
+                    type="text"
+                    value={formData.customerName}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        customerName: e.target.value,
+                        customerId: "",
+                      })
+                    }
+                    placeholder="Nombre del cliente (texto libre)"
+                    disabled={loading}
+                  />
+                  <small className="text-muted">
+                    En OPCK se escribe el nombre; no se crea un cliente en el catálogo.
+                  </small>
+                </FormGroup>
+              </Col>
+            ) : (
+              <>
+                <Col md="8">
+                  <FormGroup>
+                    <Label>Cliente</Label>
+                    <FilterableSelect
+                      options={customerOptions}
+                      value={String(formData.customerId || "")}
+                      onChange={(rawId) => {
+                        const selected = rawId
+                          ? availableCustomers.find((c) => String(c.id) === String(rawId))
+                          : null;
+                        applySelectedCustomer(selected);
+                      }}
+                      placeholder="Buscar por nombre, NIT o teléfono…"
+                      emptyLabel="Sin cliente"
+                      disabled={loading}
+                    />
+                    <small className="text-muted">
+                      Busque en el catálogo. Si no existe, créelo: el NIT de facturación puede repetirse.
+                    </small>
+                  </FormGroup>
+                </Col>
+                <Col md="4" className="d-flex align-items-end">
+                  <FormGroup className="w-100">
+                    <Button
+                      color="info"
+                      outline
+                      block
+                      type="button"
+                      disabled={loading}
+                      onClick={() => setShowCustomerCreate(true)}
+                    >
+                      Crear cliente
+                    </Button>
+                  </FormGroup>
+                </Col>
+              </>
+            )}
           </Row>
 
           {isLuisFelipeVendorFlow(formData.orderType, formData.sellerName) && (

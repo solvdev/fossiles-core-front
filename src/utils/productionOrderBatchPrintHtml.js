@@ -179,14 +179,6 @@ export function buildProductionOrderDocSection(order, { tasks, generatedAt } = {
   const detailTableHtml = isCinchoOrderType(order.orderType)
     ? buildCinchoDetailTableHtml(order)
     : buildNormalColorMatrixTableHtml(order);
-  const orderObservation = String(order.observations || "").trim();
-  const orderObservationBlock = orderObservation
-    ? `
-          <div class="order-observation">
-            <strong>Observación:</strong>
-            <div>${escapeHtml(orderObservation)}</div>
-          </div>`
-    : "";
   const at = generatedAt || new Date().toLocaleString("es-GT");
 
   return `
@@ -234,8 +226,6 @@ export function buildProductionOrderDocSection(order, { tasks, generatedAt } = {
               </tr>
             </tbody>
           </table>
-
-          ${orderObservationBlock}
 
           ${detailTableHtml}
         </section>

@@ -477,14 +477,6 @@ function ProductionOrdersList() {
     const detailTableHtml = isCinchoOrderType(order.orderType)
       ? buildCinchoDetailTableHtml(order)
       : buildNormalColorMatrixTableHtml(order);
-    const orderObservation = String(order.observations || "").trim();
-    const orderObservationBlock = orderObservation
-      ? `
-          <div class="order-observation">
-            <strong>Observación:</strong>
-            <div>${escapeHtml(orderObservation)}</div>
-          </div>`
-      : "";
 
     const section = `
         <section class="op-doc">
@@ -531,8 +523,6 @@ function ProductionOrdersList() {
               </tr>
             </tbody>
           </table>
-
-          ${orderObservationBlock}
 
           ${detailTableHtml}
         </section>
