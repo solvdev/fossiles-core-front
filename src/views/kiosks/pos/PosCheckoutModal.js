@@ -14,6 +14,7 @@ import {
   POS_CARD_BRANDS,
   DEFAULT_POS_CARD_BRAND,
   isEntrecuerosPosMode,
+  describeEntrecuerosPriceState,
 } from "./posUtils";
 
 const QUICK_CASH = [50, 100, 200, 500];
@@ -49,6 +50,7 @@ function PosCheckoutModal({
   /** Miraflores: precios editados = total final, sin descuento encima. */
   lockFinalPrices = false,
   posMode = "STANDARD",
+  cart = [],
 }) {
   const [paymentMethod, setPaymentMethod] = useState("EFECTIVO");
   const [amountReceived, setAmountReceived] = useState("");
@@ -77,6 +79,26 @@ function PosCheckoutModal({
   const [requestInvoice, setRequestInvoice] = useState(false);
   const entrecueros = isEntrecuerosPosMode({ posMode });
   const paymentMethods = entrecueros ? ENTRECUEROS_PAYMENT_METHODS : PAYMENT_METHODS;
+  const checkoutTiers = useMemo(() => {
+    if (!entrecueros) return [];
+    const qtyByProduct = {};
+    (cart || []).forEach((line) => {
+      qtyByProduct[line.productId] = (qtyByProduct[line.productId] || 0) + Number(line.quantity || 0);
+    });
+    const seen = new Set();
+    return (cart || []).reduce((rows, line) => {
+      if (seen.has(line.productId)) return rows;
+      seen.add(line.productId);
+      const state = describeEntrecuerosPriceState(line, qtyByProduct[line.productId] || 0);
+      rows.push({
+        productId: line.productId,
+        productName: line.productName,
+        productCode: line.productCode,
+        ...state,
+      });
+      return rows;
+    }, []);
+  }, [cart, entrecueros]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -385,9 +407,32 @@ function PosCheckoutModal({
           </div>
         ) : entrecueros ? (
           <div className="kiosk-pos-checkout-section">
-            <div className="text-muted small">
-              Entrecueros: precio por cantidad, sin descuentos ni promociones.
+            <div className="text-muted small mb-2">
+              Precio por cantidad del mismo código. 4 piezas cobran el precio de 3+.
             </div>
+            {checkoutTiers.map((row) => (
+              <div key={`chk-tier-${row.productId}`} className="kiosk-pos-tier-block mb-2">
+                <div className="kiosk-pos-item-sub mb-1">
+                  {row.productCode} · {formatQty(row.qty)} pzas
+                </div>
+                <div className="kiosk-pos-tier-row">
+                  {row.tiers.map((tier) => (
+                    <span
+                      key={`${row.productId}-${tier.minQty}`}
+                      className={`kiosk-pos-tier-chip ${row.active.minQty === tier.minQty ? "active" : ""}`}
+                    >
+                      {tier.label} {formatCurrency(tier.unitPrice)}
+                    </span>
+                  ))}
+                </div>
+                <div className="kiosk-pos-tier-hint">
+                  Precio vigente {row.active.label}: {formatCurrency(row.active.unitPrice)} c/u
+                  {row.next
+                    ? `. Faltan ${formatQty(row.missing)} para ${row.next.label} a ${formatCurrency(row.next.unitPrice)}.`
+                    : "."}
+                </div>
+              </div>
+            ))}
           </div>
         ) : (
           <div className="kiosk-pos-checkout-section">

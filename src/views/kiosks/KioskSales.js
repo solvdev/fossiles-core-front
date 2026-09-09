@@ -1025,6 +1025,7 @@ function KioskSales() {
                               cartQtyByColorKey={cartQtyByColorKey}
                               onAddProduct={cashSessionOpen ? addToCart : () => {}}
                               onPickSizedVariant={cashSessionOpen ? setCinchoPickVariant : () => {}}
+                              posMode={selectedKioskPosMode}
                             />
                           </div>
                           <div className="kiosk-pos-layout-cart">
@@ -1038,7 +1039,8 @@ function KioskSales() {
                               onCancelSale={cancelSale}
                               onApplyPromotion={() => void openCheckout()}
                               disabled={!cashSessionOpen || saving}
-                              canEditPrices={canEditPosPrices}
+                              canEditPrices={canEditPosPrices && !isEntrecuerosPos}
+                              entrecueros={isEntrecuerosPos}
                             />
                           </div>
                         </div>
@@ -1121,6 +1123,7 @@ function KioskSales() {
                         onConfirm={submitSale}
                         lockFinalPrices={isEntrecuerosPos}
                         posMode={selectedKioskPosMode}
+                        cart={cart}
                       />
                     </>
                   )}
