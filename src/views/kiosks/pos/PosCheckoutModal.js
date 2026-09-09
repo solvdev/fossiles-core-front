@@ -590,14 +590,15 @@ function PosCheckoutModal({
         <div className="kiosk-pos-checkout-section">
           {entrecueros && (
             <>
-              <div className="custom-control custom-checkbox mb-3">
-                <Input
-                  type="checkbox"
-                  id="pos-request-invoice"
-                  checked={requestInvoice}
-                  onChange={(e) => setRequestInvoice(e.target.checked)}
-                />
-                <Label className="custom-control-label" for="pos-request-invoice">
+              <div className="form-check mb-3">
+                <Label className="form-check-label" for="pos-request-invoice">
+                  <Input
+                    type="checkbox"
+                    id="pos-request-invoice"
+                    checked={requestInvoice}
+                    onChange={(e) => setRequestInvoice(e.target.checked)}
+                  />
+                  <span className="form-check-sign" />
                   Facturar FEL
                 </Label>
               </div>
