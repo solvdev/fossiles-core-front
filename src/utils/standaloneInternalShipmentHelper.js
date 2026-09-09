@@ -167,12 +167,24 @@ export function canApproveInternalShipment(request) {
   return !needsOpiProductionAuthorization(request);
 }
 
-export function canGenerateOpiForApprovedEnvi(request) {
-  return Boolean(request?.canGenerateOpi);
+export function canGenerateOpiForApprovedEnvi(request, shipment) {
+  if (!request) return false;
+  if (request.canGenerateOpi === false) return false;
+  if (String(request.status || "").toUpperCase() !== "APROBADA") return false;
+  if (!request.productShipmentId) return false;
+  if (request.productionOrderId) return false;
+  if (String(request.requestType || "").toUpperCase() === "OPI") return false;
+  if (shipment?.productionOrderId) return false;
+  return true;
 }
 
-export function canGenerateOpiForExistingEnvi(shipment) {
-  return Boolean(shipment?.canGenerateOpi && shipment?.internalShipmentRequestId);
+export function canGenerateOpiForExistingEnvi(shipment, request) {
+  if (!shipment) return false;
+  if (shipment.productionOrderId != null) return false;
+  if (shipment.canGenerateOpi === false) return false;
+  if (shipment.canGenerateOpi === true) return true;
+  if (request) return canGenerateOpiForApprovedEnvi(request, shipment);
+  return isStandaloneInternalShipment(shipment);
 }
 
 export function resolveInternalEnviTypeLabel(shipment) {

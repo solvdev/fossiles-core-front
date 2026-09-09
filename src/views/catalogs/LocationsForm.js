@@ -30,6 +30,7 @@ function LocationsForm({ locationId, isOpen, toggle, onSuccess }) {
     felMunicipio: "",
     felDepartamento: "",
     posTestMode: false,
+    posMode: "STANDARD",
     posOpeningCashAmount: "300",
     internalSeriesCode: "",
   });
@@ -86,6 +87,7 @@ function LocationsForm({ locationId, isOpen, toggle, onSuccess }) {
         felMunicipio: location.felMunicipio || "",
         felDepartamento: location.felDepartamento || "",
         posTestMode: Boolean(location.posTestMode),
+        posMode: location.posMode || "STANDARD",
         posOpeningCashAmount: location.posOpeningCashAmount != null ? String(location.posOpeningCashAmount) : "300",
         internalSeriesCode: location.internalSeriesCode || "",
       });
@@ -111,6 +113,7 @@ function LocationsForm({ locationId, isOpen, toggle, onSuccess }) {
       felMunicipio: "",
       felDepartamento: "",
       posTestMode: false,
+      posMode: "STANDARD",
       posOpeningCashAmount: "300",
       internalSeriesCode: "",
     });
@@ -141,6 +144,7 @@ function LocationsForm({ locationId, isOpen, toggle, onSuccess }) {
         felMunicipio: formData.felMunicipio.trim() || null,
         felDepartamento: formData.felDepartamento.trim() || null,
         posTestMode: Boolean(formData.posTestMode),
+        posMode: formData.posMode || "STANDARD",
         posOpeningCashAmount: Number(formData.posOpeningCashAmount || 300),
         internalSeriesCode: formData.internalSeriesCode.trim() || null,
       };
@@ -288,6 +292,32 @@ function LocationsForm({ locationId, isOpen, toggle, onSuccess }) {
             </small>
           </FormGroup>
           <Row>
+            <Col md="4">
+              <FormGroup>
+                <Label>Modalidad POS</Label>
+                <Input
+                  type="select"
+                  value={formData.posMode}
+                  onChange={(e) => {
+                    const posMode = e.target.value;
+                    setFormData({
+                      ...formData,
+                      posMode,
+                      posOpeningCashAmount:
+                        posMode === "ENTRECUEROS" && String(formData.posOpeningCashAmount) === "300"
+                          ? "500"
+                          : formData.posOpeningCashAmount,
+                    });
+                  }}
+                >
+                  <option value="STANDARD">Estándar</option>
+                  <option value="ENTRECUEROS">Entrecueros (marca / mayorista)</option>
+                </Input>
+                <small className="text-muted d-block mt-1">
+                  Entrecueros: solo productos habilitados, precios por cantidad, sin promociones, efectivo y transferencia.
+                </small>
+              </FormGroup>
+            </Col>
             <Col md="4">
               <FormGroup>
                 <Label>Fondo inicial de caja (Q)</Label>

@@ -70,6 +70,8 @@ import {
   isFelBackdateWindowError,
   getSaleInternalNumber,
   normalizeFelReceptorEmail,
+  isEntrecuerosPosMode,
+  applyEntrecuerosCartPrices,
 } from "./pos/posUtils";
 import { getHardwareConditionLabel } from "utils/productCinchoHelper";
 import "./KioskSales.css";
@@ -80,6 +82,14 @@ function KioskSales() {
   const [activeTab, setActiveTab] = useState("POS");
   const [context, setContext] = useState(null);
   const [selectedKioskId, setSelectedKioskId] = useState("");
+  const selectedKioskPosMode = useMemo(() => {
+    if (context?.admin && Array.isArray(context.kiosks)) {
+      const match = context.kiosks.find((k) => String(k.kioskId) === String(selectedKioskId || context.kioskId));
+      if (match?.posMode) return match.posMode;
+    }
+    return context?.posMode;
+  }, [context, selectedKioskId]);
+  const isEntrecuerosPos = isEntrecuerosPosMode({ posMode: selectedKioskPosMode });
   const [cart, setCart] = useState([]);
   const [cinchoPickVariant, setCinchoPickVariant] = useState(null);
   const [sales, setSales] = useState([]);
@@ -310,15 +320,16 @@ function KioskSales() {
         return prev;
       }
       if (existing) {
-        return prev.map((line) =>
+        const next = prev.map((line) =>
           line.key === key ? { ...line, quantity: nextQty } : line
         );
+        return isEntrecuerosPos ? applyEntrecuerosCartPrices(next) : next;
       }
       const basePrice = Number(inventoryItem.suggestedUnitPrice || 0);
       const catalogUnitPrice = size
         ? resolveCinchoUnitPriceWithSize(basePrice, size)
         : basePrice;
-      return [
+      const next = [
         ...prev,
         {
           key,
@@ -339,8 +350,13 @@ function KioskSales() {
           catalogUnitPrice,
           unitPrice: catalogUnitPrice,
           priceEdited: false,
+          entrecuerosPriceUnit: inventoryItem.entrecuerosPriceUnit,
+          entrecuerosPriceQty3: inventoryItem.entrecuerosPriceQty3,
+          entrecuerosPriceQty6: inventoryItem.entrecuerosPriceQty6,
+          entrecuerosPriceQty12: inventoryItem.entrecuerosPriceQty12,
         },
       ];
+      return isEntrecuerosPos ? applyEntrecuerosCartPrices(next) : next;
     });
   };
 
@@ -349,8 +365,8 @@ function KioskSales() {
   };
 
   const updateCartLine = (key, patch) => {
-    setCart((prev) =>
-      prev.map((line) => {
+    setCart((prev) => {
+      const next = prev.map((line) => {
         if (line.key !== key) return line;
         if (patch.quantity != null && Number(patch.quantity) > Number(line.availableQty || 0)) {
           showError(`Cantidad máxima disponible: ${formatQty(line.availableQty)}.`);
@@ -389,11 +405,16 @@ function KioskSales() {
           return { ...line, priceEdited: Boolean(patch.priceEdited) };
         }
         return { ...line, ...patch };
-      })
-    );
+      });
+      return isEntrecuerosPos ? applyEntrecuerosCartPrices(next) : next;
+    });
   };
 
-  const removeCartLine = (key) => setCart((prev) => prev.filter((line) => line.key !== key));
+  const removeCartLine = (key) =>
+    setCart((prev) => {
+      const next = prev.filter((line) => line.key !== key);
+      return isEntrecuerosPos ? applyEntrecuerosCartPrices(next) : next;
+    });
 
 
   const cartQtyByColorKey = useMemo(() => {
@@ -422,7 +443,10 @@ function KioskSales() {
     return map;
   }, [cart, cinchoPickVariant]);
 
-  const checkoutPromotions = useMemo(() => mergePosPromotions(promotions), [promotions]);
+  const checkoutPromotions = useMemo(
+    () => (isEntrecuerosPos ? [] : mergePosPromotions(promotions)),
+    [isEntrecuerosPos, promotions]
+  );
 
   const selectedPromotion = useMemo(
     () => resolveSelectedPromotion(selectedPromotionId, checkoutPromotions),
@@ -437,6 +461,18 @@ function KioskSales() {
       acc.total += qty * price;
       return acc;
     }, { items: 0, total: 0 });
+
+    // Entrecueros: precio de tramo, sin descuento ni promociones.
+    if (isEntrecuerosPos) {
+      return {
+        items: subtotal.items,
+        total: subtotal.total,
+        discount: 0,
+        estimated: subtotal.total,
+        autoApplied: false,
+        promotionName: null,
+      };
+    }
 
     // Líneas priceEdited no entran al descuento (precio final); el resto sí.
     const resolved = resolveCartDiscount(cart, {
@@ -453,7 +489,7 @@ function KioskSales() {
       autoApplied: resolved.autoApplied,
       promotionName: resolved.promotionName,
     };
-  }, [cart, selectedPromotion, promotions]);
+  }, [cart, selectedPromotion, promotions, isEntrecuerosPos]);
 
   const applyReportFilters = async (fromOverride, toOverride) => {
     const from = fromOverride || startDate || getTodayYmdGuatemala();
@@ -540,8 +576,8 @@ function KioskSales() {
         comments: checkoutData.comments,
         promotionId: promoPayload.promotionId,
         manualDiscountPercent: promoPayload.manualDiscountPercent,
-        chargeWithoutDiscount: Boolean(checkoutData.chargeWithoutDiscount),
-        requestInvoice: true,
+        chargeWithoutDiscount: Boolean(checkoutData.chargeWithoutDiscount) || isEntrecuerosPos,
+        requestInvoice: isEntrecuerosPos ? Boolean(checkoutData.requestInvoice) : true,
         saleDate: today,
         items: cart.map((line) => {
           const item = {
@@ -1083,6 +1119,8 @@ function KioskSales() {
                         onCommentsChange={setComments}
                         saving={saving}
                         onConfirm={submitSale}
+                        lockFinalPrices={isEntrecuerosPos}
+                        posMode={selectedKioskPosMode}
                       />
                     </>
                   )}
@@ -1093,6 +1131,7 @@ function KioskSales() {
                       kioskLocationId={selectedKioskId || context?.kioskId}
                       kioskName={selectedKioskName || context?.kioskName}
                       posOpeningCashAmount={selectedKioskOpeningCash}
+                      posMode={selectedKioskPosMode}
                       loading={cashSessionLoading}
                       pendingDepositSummary={pendingDepositSummary}
                       onSessionChange={async () => {
@@ -1140,6 +1179,7 @@ function KioskSales() {
                       kioskLocationId={selectedKioskId || context?.kioskId}
                       kioskName={selectedKioskName || context?.kioskName}
                       kioskCode={selectedKioskCode || context?.kioskCode}
+                      posMode={selectedKioskPosMode}
                       generatedByName={
                         context?.fullName ||
                         [context?.firstName, context?.lastName].filter(Boolean).join(" ").trim() ||
