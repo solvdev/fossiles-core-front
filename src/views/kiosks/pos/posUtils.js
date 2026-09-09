@@ -483,8 +483,10 @@ export const normalizeFelReceptorEmail = (raw) =>
     .filter(Boolean)
     .join(";");
 
-export const saleNeedsFelCertification = (sale) =>
-  !sale?.invoice?.felUuid && !sale?.felUuid;
+export const saleNeedsFelCertification = (sale) => {
+  if (String(sale?.felStatus || "").toUpperCase() === "SKIPPED") return false;
+  return !sale?.invoice?.felUuid && !sale?.felUuid;
+};
 
 export const getSaleKioskId = (sale) => sale?.kioskId ?? sale?.kioskLocationId ?? null;
 
@@ -688,6 +690,9 @@ export const normalizeSalePaymentMethod = (value) => {
   if (normalized.includes("TARJETA") || normalized.includes("CARD")) {
     return "TARJETA";
   }
+  if (normalized.includes("TRANSFER")) {
+    return "TRANSFERENCIA";
+  }
   if (normalized.includes("MIXTO") || normalized.includes("MIXED")) {
     return "MIXTO";
   }
@@ -837,3 +842,55 @@ export const formatSaleCardPaymentDetail = (sale) => {
   if (card2) lines.push(`Tarjeta 2: ${card2}`);
   return lines.join(" | ");
 };
+
+export const POS_MODE_ENTRECUEROS = "ENTRECUEROS";
+
+export const isEntrecuerosPosMode = (source) =>
+  String(source?.posMode || "").toUpperCase() === POS_MODE_ENTRECUEROS;
+
+export const resolveEntrecuerosUnitPrice = (source, qty) => {
+  const n = Number(qty || 0);
+  const p12 = Number(source?.entrecuerosPriceQty12 || 0);
+  const p6 = Number(source?.entrecuerosPriceQty6 || 0);
+  const p3 = Number(source?.entrecuerosPriceQty3 || 0);
+  const p1 = Number(
+    source?.entrecuerosPriceUnit
+    || source?.catalogUnitPrice
+    || source?.suggestedUnitPrice
+    || 0
+  );
+  if (n >= 12 && p12 > 0) return p12;
+  if (n >= 6 && p6 > 0) return p6;
+  if (n >= 3 && p3 > 0) return p3;
+  return p1 > 0 ? p1 : 0;
+};
+
+export const applyEntrecuerosCartPrices = (cart) => {
+  const qtyByProduct = {};
+  (cart || []).forEach((line) => {
+    const id = line.productId;
+    qtyByProduct[id] = (qtyByProduct[id] || 0) + Number(line.quantity || 0);
+  });
+  return (cart || []).map((line) => {
+    const unitPrice = resolveEntrecuerosUnitPrice(line, qtyByProduct[line.productId] || 0);
+    return { ...line, unitPrice, catalogUnitPrice: unitPrice };
+  });
+};
+
+export const saleHasFelInvoice = (sale) =>
+  Boolean(sale?.felUuid || sale?.invoice?.felUuid);
+
+export const saleIsTransferPayment = (sale) => {
+  const method = normalizeSalePaymentMethod(sale?.paymentMethod);
+  if (method === "TRANSFERENCIA") return true;
+  if (method === "MIXTO") return getSaleCardAmount(sale) > 0;
+  return false;
+};
+
+export const saleIsCashPayment = (sale) => {
+  const method = normalizeSalePaymentMethod(sale?.paymentMethod);
+  if (method === "EFECTIVO") return true;
+  if (method === "MIXTO") return getSaleCashAmount(sale) > 0;
+  return false;
+};
+

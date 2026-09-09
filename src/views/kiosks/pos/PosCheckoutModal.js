@@ -13,6 +13,7 @@ import {
   normalizeNit,
   POS_CARD_BRANDS,
   DEFAULT_POS_CARD_BRAND,
+  isEntrecuerosPosMode,
 } from "./posUtils";
 
 const QUICK_CASH = [50, 100, 200, 500];
@@ -20,6 +21,12 @@ const QUICK_CASH = [50, 100, 200, 500];
 const PAYMENT_METHODS = [
   { value: "EFECTIVO", label: "Efectivo" },
   { value: "TARJETA", label: "Tarjeta" },
+  { value: "MIXTO", label: "Mixto" },
+];
+
+const ENTRECUEROS_PAYMENT_METHODS = [
+  { value: "EFECTIVO", label: "Efectivo" },
+  { value: "TRANSFERENCIA", label: "Transferencia" },
   { value: "MIXTO", label: "Mixto" },
 ];
 
@@ -41,6 +48,7 @@ function PosCheckoutModal({
   onConfirm,
   /** Miraflores: precios editados = total final, sin descuento encima. */
   lockFinalPrices = false,
+  posMode = "STANDARD",
 }) {
   const [paymentMethod, setPaymentMethod] = useState("EFECTIVO");
   const [amountReceived, setAmountReceived] = useState("");
@@ -66,6 +74,9 @@ function PosCheckoutModal({
   const [invoiceContactError, setInvoiceContactError] = useState("");
   const [taxLookupLoading, setTaxLookupLoading] = useState(false);
   const [taxLookupError, setTaxLookupError] = useState("");
+  const [requestInvoice, setRequestInvoice] = useState(false);
+  const entrecueros = isEntrecuerosPosMode({ posMode });
+  const paymentMethods = entrecueros ? ENTRECUEROS_PAYMENT_METHODS : PAYMENT_METHODS;
 
   useEffect(() => {
     if (!isOpen) return;
@@ -92,6 +103,7 @@ function PosCheckoutModal({
     setInvoicePhone("");
     setInvoiceContactError("");
     setTaxLookupError("");
+    setRequestInvoice(false);
   }, [isOpen, notes, lockFinalPrices]);
 
   const lookupTaxId = async () => {
@@ -195,7 +207,12 @@ function PosCheckoutModal({
     paymentMethod === "EFECTIVO" && Number(amountReceived || 0) < checkoutTotal;
 
   const requiresCardData =
-    paymentMethod === "TARJETA" || (paymentMethod === "MIXTO" && Number(cardAmount || 0) > 0);
+    !entrecueros
+    && (paymentMethod === "TARJETA" || (paymentMethod === "MIXTO" && Number(cardAmount || 0) > 0));
+  const requiresTransferRef =
+    entrecueros
+    && (paymentMethod === "TRANSFERENCIA" || (paymentMethod === "MIXTO" && Number(cardAmount || 0) > 0));
+  const transferRefIncomplete = requiresTransferRef && !cardAuthNumber.trim();
   const card1DataIncomplete =
     requiresCardData
     && (
@@ -212,6 +229,9 @@ function PosCheckoutModal({
       || Number(card2Amount || 0) <= 0
       || Math.abs(Number(card1Amount || 0) + Number(card2Amount || 0) - checkoutTotal) > 0.009
     );
+  const mixtoInvalid =
+    paymentMethod === "MIXTO"
+    && Math.abs(Number(cashAmount || 0) + Number(cardAmount || 0) - checkoutTotal) > 0.009;
   const card2DataIncomplete =
     paymentMethod === "TARJETA"
     && splitTwoCards
@@ -258,7 +278,9 @@ function PosCheckoutModal({
     && !invoiceIncomplete
     && !taxLookupLoading
     && !cardDataIncomplete
-    && !splitAmountsInvalid;
+    && !transferRefIncomplete
+    && !splitAmountsInvalid
+    && !mixtoInvalid;
 
   const setExact = () => setAmountReceived(String(checkoutTotal.toFixed(2)));
 
@@ -287,12 +309,14 @@ function PosCheckoutModal({
       amountReceived: amountReceived ? Number(amountReceived) : null,
       cashAmount: cashAmount ? Number(cashAmount) : null,
       cardAmount:
-        paymentMethod === "TARJETA" && splitTwoCards
-          ? Number(card1Amount)
-          : cardAmount
-            ? Number(cardAmount)
-            : null,
-      cardAuthNumber: requiresCardData ? cardAuthNumber.trim() : null,
+        paymentMethod === "TRANSFERENCIA"
+          ? checkoutTotal
+          : paymentMethod === "TARJETA" && splitTwoCards
+            ? Number(card1Amount)
+            : cardAmount
+              ? Number(cardAmount)
+              : null,
+      cardAuthNumber: (requiresCardData || requiresTransferRef) ? cardAuthNumber.trim() : null,
       cardLast4: requiresCardData ? cardLast4.trim() : null,
       cardBrand: requiresCardData ? cardBrand.trim() : null,
       cardVoucherAmount: requiresCardData ? Number(cardVoucherAmount) : null,
@@ -317,7 +341,7 @@ function PosCheckoutModal({
           : String(customerName || "").trim(),
       invoiceEmail: normalizedEmail || null,
       invoicePhone: String(invoicePhone || "").trim() || null,
-      requestInvoice: true,
+      requestInvoice: entrecueros ? Boolean(requestInvoice) : true,
     });
   };
 
@@ -353,10 +377,16 @@ function PosCheckoutModal({
           </div>
         </div>
 
-        {lockFinalPrices ? (
+        {lockFinalPrices && !entrecueros ? (
           <div className="kiosk-pos-checkout-section">
             <div className="text-muted small">
               Precios editados: se cobra y factura exactamente el total mostrado (sin descuento adicional).
+            </div>
+          </div>
+        ) : entrecueros ? (
+          <div className="kiosk-pos-checkout-section">
+            <div className="text-muted small">
+              Entrecueros: precio por cantidad, sin descuentos ni promociones.
             </div>
           </div>
         ) : (
@@ -513,9 +543,27 @@ function PosCheckoutModal({
         )}
 
         <div className="kiosk-pos-checkout-section">
+          {entrecueros && (
+            <>
+              <div className="custom-control custom-checkbox mb-3">
+                <Input
+                  type="checkbox"
+                  id="pos-request-invoice"
+                  checked={requestInvoice}
+                  onChange={(e) => setRequestInvoice(e.target.checked)}
+                />
+                <Label className="custom-control-label" for="pos-request-invoice">
+                  Facturar FEL
+                </Label>
+              </div>
+              <div className="text-muted small mb-3">
+                Si no factura, la venta queda con el número interno del sistema y igual rebaja inventario.
+              </div>
+            </>
+          )}
           <Label className="kiosk-pos-label">Forma de pago</Label>
           <div className="kiosk-pos-payment-tabs">
-            {PAYMENT_METHODS.map((method) => (
+            {paymentMethods.map((method) => (
               <button
                 key={method.value}
                 type="button"
@@ -568,6 +616,18 @@ function PosCheckoutModal({
                 <div className="kiosk-pos-change-empty">— Sin cambio —</div>
               )}
             </div>
+          </div>
+        )}
+
+        {paymentMethod === "TRANSFERENCIA" && (
+          <div className="kiosk-pos-checkout-section">
+            <Label className="kiosk-pos-label">Número de referencia</Label>
+            <Input
+              className="kiosk-pos-input-lg"
+              value={cardAuthNumber}
+              onChange={(e) => setCardAuthNumber(e.target.value)}
+              placeholder="No. transferencia o depósito"
+            />
           </div>
         )}
 
@@ -770,7 +830,7 @@ function PosCheckoutModal({
                 />
               </div>
               <div>
-                <Label className="kiosk-pos-label">Tarjeta (parte)</Label>
+                <Label className="kiosk-pos-label">{entrecueros ? "Transferencia (parte)" : "Tarjeta (parte)"}</Label>
                 <Input
                   className="kiosk-pos-input-lg"
                   type="number"
@@ -791,6 +851,17 @@ function PosCheckoutModal({
                   onChange={(e) => setAmountReceived(e.target.value)}
                 />
               </div>
+              {requiresTransferRef && (
+                <div className="full-width">
+                  <Label className="kiosk-pos-label">Número de referencia</Label>
+                  <Input
+                    className="kiosk-pos-input-lg"
+                    value={cardAuthNumber}
+                    onChange={(e) => setCardAuthNumber(e.target.value)}
+                    placeholder="No. transferencia o depósito"
+                  />
+                </div>
+              )}
               {requiresCardData && (
                 <>
                   <div>
@@ -889,19 +960,33 @@ function PosCheckoutModal({
           onClick={handleConfirm}
           disabled={!canConfirm}
         >
-          {saving ? "Procesando..." : `Confirmar y facturar ${formatCurrency(checkoutTotal)}`}
+          {saving
+            ? "Procesando..."
+            : entrecueros && !requestInvoice
+              ? `Confirmar venta ${formatCurrency(checkoutTotal)}`
+              : `Confirmar y facturar ${formatCurrency(checkoutTotal)}`}
         </button>
         <button type="button" className="kiosk-pos-btn-cancel" onClick={onClose} disabled={saving}>
           Cancelar
         </button>
         <p className="kiosk-pos-confirm-hint mb-0">
-          Al confirmar se registra la venta y se certifica la factura electrónica.
+          {entrecueros && !requestInvoice
+            ? "Al confirmar se registra la venta y se rebaja inventario, sin factura FEL."
+            : "Al confirmar se registra la venta y se certifica la factura electrónica."}
         </p>
         {cashInsufficient && (
           <p className="kiosk-pos-confirm-hint">El monto recibido no cubre el total</p>
         )}
+        {!cashInsufficient && transferRefIncomplete && (
+          <p className="kiosk-pos-confirm-hint">Indica el número de referencia de la transferencia o depósito</p>
+        )}
         {!cashInsufficient && cardDataIncomplete && (
           <p className="kiosk-pos-confirm-hint">Indica marca, número de voucher, últimos 4 dígitos y monto del voucher</p>
+        )}
+        {!cashInsufficient && !cardDataIncomplete && !transferRefIncomplete && mixtoInvalid && (
+          <p className="kiosk-pos-confirm-hint">
+            Efectivo + {entrecueros ? "transferencia" : "tarjeta"} deben sumar el total ({formatCurrency(checkoutTotal)})
+          </p>
         )}
         {!cashInsufficient && !cardDataIncomplete && splitAmountsInvalid && (
           <p className="kiosk-pos-confirm-hint">

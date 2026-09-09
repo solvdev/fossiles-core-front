@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Alert,
   Badge,
@@ -32,6 +32,7 @@ import { useAuth } from "contexts/AuthContext";
 import {
   approveInternalShipmentRequest,
   authorizeOpiProduction,
+  generateOpiForInternalShipment,
   generateOpiForInternalShipmentRequest,
   listExistingEnviShipments,
   listInternalShipmentRequests,
@@ -123,6 +124,16 @@ function AuthorizeShipments() {
     loadRequests();
   }, [loadExistingEnvi, loadRequests]);
 
+  const requestByShipmentId = useMemo(() => {
+    const map = new Map();
+    requests.forEach((request) => {
+      if (request?.productShipmentId != null) {
+        map.set(Number(request.productShipmentId), request);
+      }
+    });
+    return map;
+  }, [requests]);
+
   const approveRequest = async (request) => {
     if (!canApprove || !request?.id) return;
     try {
@@ -196,7 +207,11 @@ function AuthorizeShipments() {
   };
 
   const handleGenerateOpi = async (request) => {
-    if (!canApprove || !request?.id) return;
+    if (!canApprove) {
+      showError("Solo Contabilidad puede generar la OPI.");
+      return;
+    }
+    if (!request?.id) return;
     const ok = window.confirm(
       `¿Generar OPI para reponer lo despachado en la solicitud #${request.id}?`
     );
@@ -205,12 +220,34 @@ function AuthorizeShipments() {
   };
 
   const handleGenerateOpiFromShipment = async (shipment) => {
-    if (!canApprove || !shipment?.internalShipmentRequestId) return;
+    if (!canApprove) {
+      showError("Solo Contabilidad puede generar la OPI.");
+      return;
+    }
+    if (!shipment?.id) return;
     const ok = window.confirm(
       `¿Generar OPI para reponer lo despachado en ${shipment.shipmentNumber || "este ENVI"}?`
     );
     if (!ok) return;
-    await generateOpi({ id: shipment.internalShipmentRequestId });
+    const requestId = shipment.internalShipmentRequestId
+      || requestByShipmentId.get(Number(shipment.id))?.id;
+    if (requestId) {
+      await generateOpi({ id: requestId });
+      return;
+    }
+    try {
+      setActionId(shipment.id);
+      setError("");
+      const updated = await generateOpiForInternalShipment(shipment.id);
+      showSuccess(
+        `Se generó ${updated?.productionOrderCode || "la OPI"}. Autorice su producción.`
+      );
+      await Promise.all([loadRequests(), loadExistingEnvi()]);
+    } catch (err) {
+      showError(err.message || "No se pudo generar la OPI.");
+    } finally {
+      setActionId(null);
+    }
   };
 
   const handleApprove = async (request) => {
@@ -488,7 +525,10 @@ function AuthorizeShipments() {
                                   {actionId === req.id ? <Spinner size="sm" /> : "Autorizar prod."}
                                 </Button>
                               )}
-                              {canApprove && canGenerateOpiForApprovedEnvi(req) && (
+                              {canGenerateOpiForApprovedEnvi(
+                                req,
+                                existingEnvi.find((s) => Number(s.id) === Number(req.productShipmentId))
+                              ) && (
                                 <Button
                                   color="warning"
                                   size="sm"
@@ -571,15 +611,24 @@ function AuthorizeShipments() {
                             </Badge>
                           </td>
                           <td className="text-right text-nowrap">
-                            {canApprove && canGenerateOpiForExistingEnvi(shipment) && (
+                            {canGenerateOpiForExistingEnvi(
+                              shipment,
+                              requestByShipmentId.get(Number(shipment.id))
+                            ) && (
                               <Button
                                 color="warning"
                                 size="sm"
                                 className="btn-round mr-1"
-                                disabled={actionId === shipment.internalShipmentRequestId}
+                                disabled={
+                                  actionId === shipment.id
+                                  || actionId === shipment.internalShipmentRequestId
+                                  || actionId === requestByShipmentId.get(Number(shipment.id))?.id
+                                }
                                 onClick={() => handleGenerateOpiFromShipment(shipment)}
                               >
-                                {actionId === shipment.internalShipmentRequestId
+                                {actionId === shipment.id
+                                  || actionId === shipment.internalShipmentRequestId
+                                  || actionId === requestByShipmentId.get(Number(shipment.id))?.id
                                   ? <Spinner size="sm" />
                                   : "Generar OPI"}
                               </Button>

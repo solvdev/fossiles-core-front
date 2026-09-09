@@ -26,6 +26,11 @@ function ProductsForm({ productId, isOpen, toggle, onSuccess }) {
     audienceCategory: "UNISEX",
     cinchoType: "",
     cinchoForKids: false,
+    entrecuerosEnabled: false,
+    entrecuerosPriceUnit: "",
+    entrecuerosPriceQty3: "",
+    entrecuerosPriceQty6: "",
+    entrecuerosPriceQty12: "",
     prdTime: "",
     salePrice: "",
     sellerPrice: "",
@@ -71,6 +76,11 @@ function ProductsForm({ productId, isOpen, toggle, onSuccess }) {
         audienceCategory: product.audienceCategory || "UNISEX",
         cinchoType: product.cinchoType || "",
         cinchoForKids: Boolean(product.cinchoForKids),
+        entrecuerosEnabled: Boolean(product.entrecuerosEnabled),
+        entrecuerosPriceUnit: product.entrecuerosPriceUnit ?? "",
+        entrecuerosPriceQty3: product.entrecuerosPriceQty3 ?? "",
+        entrecuerosPriceQty6: product.entrecuerosPriceQty6 ?? "",
+        entrecuerosPriceQty12: product.entrecuerosPriceQty12 ?? "",
         prdTime: product.prdTime || "",
         salePrice: product.salePrice || "",
         sellerPrice: product.sellerPrice || "",
@@ -93,6 +103,11 @@ function ProductsForm({ productId, isOpen, toggle, onSuccess }) {
       audienceCategory: "UNISEX",
       cinchoType: "",
       cinchoForKids: false,
+      entrecuerosEnabled: false,
+      entrecuerosPriceUnit: "",
+      entrecuerosPriceQty3: "",
+      entrecuerosPriceQty6: "",
+      entrecuerosPriceQty12: "",
       prdTime: "",
       salePrice: "",
       sellerPrice: "",
@@ -124,6 +139,12 @@ function ProductsForm({ productId, isOpen, toggle, onSuccess }) {
     if (!formData.name.trim()) newErrors.name = "El nombre es requerido";
     if (!formData.categoryId) newErrors.categoryId = "La categoría es requerida";
     if (formData.prdTime && isNaN(formData.prdTime)) newErrors.prdTime = "El tiempo debe ser un número válido";
+    if (formData.entrecuerosEnabled) {
+      const unit = Number(formData.entrecuerosPriceUnit);
+      if (!Number.isFinite(unit) || unit <= 0) {
+        newErrors.entrecuerosPriceUnit = "Indique el precio unitario Entrecueros";
+      }
+    }
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
@@ -141,6 +162,19 @@ function ProductsForm({ productId, isOpen, toggle, onSuccess }) {
         audienceCategory: formData.audienceCategory || "UNISEX",
         cinchoType: formData.cinchoType || null,
         cinchoForKids: Boolean(formData.cinchoType) && Boolean(formData.cinchoForKids),
+        entrecuerosEnabled: Boolean(formData.entrecuerosEnabled),
+        entrecuerosPriceUnit: formData.entrecuerosEnabled && formData.entrecuerosPriceUnit
+          ? parseFloat(formData.entrecuerosPriceUnit)
+          : null,
+        entrecuerosPriceQty3: formData.entrecuerosEnabled && formData.entrecuerosPriceQty3
+          ? parseFloat(formData.entrecuerosPriceQty3)
+          : null,
+        entrecuerosPriceQty6: formData.entrecuerosEnabled && formData.entrecuerosPriceQty6
+          ? parseFloat(formData.entrecuerosPriceQty6)
+          : null,
+        entrecuerosPriceQty12: formData.entrecuerosEnabled && formData.entrecuerosPriceQty12
+          ? parseFloat(formData.entrecuerosPriceQty12)
+          : null,
         prdTime: formData.prdTime ? parseFloat(formData.prdTime) : null,
         salePrice: formData.salePrice ? parseFloat(formData.salePrice) : null,
         sellerPrice: formData.sellerPrice ? parseFloat(formData.sellerPrice) : null,
@@ -378,6 +412,82 @@ function ProductsForm({ productId, isOpen, toggle, onSuccess }) {
               </FormGroup>
             </Col>
           </Row>
+          <Row>
+            <Col md="12">
+              <FormGroup check className="mb-2">
+                <Label check>
+                  <Input
+                    type="checkbox"
+                    checked={Boolean(formData.entrecuerosEnabled)}
+                    onChange={(e) =>
+                      setFormData({ ...formData, entrecuerosEnabled: e.target.checked })
+                    }
+                    disabled={loading}
+                  />{" "}
+                  Habilitar en POS Entrecueros (solo marca)
+                </Label>
+                <small className="form-text text-muted d-block">
+                  Si está activo, este producto puede venderse en kioscos con modalidad Entrecueros.
+                </small>
+              </FormGroup>
+            </Col>
+          </Row>
+          {formData.entrecuerosEnabled && (
+            <Row>
+              <Col md="3">
+                <FormGroup>
+                  <Label>Precio unitario *</Label>
+                  <Input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={formData.entrecuerosPriceUnit}
+                    onChange={(e) => setFormData({ ...formData, entrecuerosPriceUnit: e.target.value })}
+                    invalid={!!errors.entrecuerosPriceUnit}
+                  />
+                  {errors.entrecuerosPriceUnit && (
+                    <div className="text-danger small">{errors.entrecuerosPriceUnit}</div>
+                  )}
+                </FormGroup>
+              </Col>
+              <Col md="3">
+                <FormGroup>
+                  <Label>Precio desde 3</Label>
+                  <Input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={formData.entrecuerosPriceQty3}
+                    onChange={(e) => setFormData({ ...formData, entrecuerosPriceQty3: e.target.value })}
+                  />
+                </FormGroup>
+              </Col>
+              <Col md="3">
+                <FormGroup>
+                  <Label>Precio desde 6</Label>
+                  <Input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={formData.entrecuerosPriceQty6}
+                    onChange={(e) => setFormData({ ...formData, entrecuerosPriceQty6: e.target.value })}
+                  />
+                </FormGroup>
+              </Col>
+              <Col md="3">
+                <FormGroup>
+                  <Label>Precio desde 12</Label>
+                  <Input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={formData.entrecuerosPriceQty12}
+                    onChange={(e) => setFormData({ ...formData, entrecuerosPriceQty12: e.target.value })}
+                  />
+                </FormGroup>
+              </Col>
+            </Row>
+          )}
           <FormGroup>
             <Label>Estado</Label>
             <Input
