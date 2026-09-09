@@ -424,10 +424,11 @@ function ProductsForm({ productId, isOpen, toggle, onSuccess }) {
                     }
                     disabled={loading}
                   />{" "}
-                  Habilitar en POS Entrecueros (solo marca)
+                  Habilitar en POS Entrecueros (mismo código Fossiles, precio de marca)
                 </Label>
                 <small className="form-text text-muted d-block">
-                  Si está activo, este producto puede venderse en kioscos con modalidad Entrecueros.
+                  No se crea otro producto. El kiosco normal sigue usando el precio Fossiles;
+                  Entrecueros usa los precios de abajo. Marca solo cinchos, billeteras y sintéticos (otros accesorios).
                 </small>
               </FormGroup>
             </Col>

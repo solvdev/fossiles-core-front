@@ -1,4 +1,4 @@
-import React, { useMemo } from "react";
+import React, { useMemo, useState } from "react";
 import { Alert, Card, CardBody, Input } from "reactstrap";
 import {
   buildCategoryOptions,
@@ -17,6 +17,9 @@ import {
   resolveImageUrl,
   variantLineKeyFor,
   sortPackagingInventory,
+  isEntrecuerosPosMode,
+  ENTRECUEROS_CATALOG_GROUPS,
+  listEntrecuerosPriceTiers,
 } from "./posUtils";
 import { PRODUCT_AUDIENCE_OPTIONS } from "utils/productAudienceHelper";
 
@@ -35,7 +38,10 @@ function PosCatalogPanel({
   cartQtyByColorKey,
   onAddProduct,
   onPickSizedVariant,
+  posMode = "STANDARD",
 }) {
+  const entrecueros = isEntrecuerosPosMode({ posMode });
+  const [catalogGroup, setCatalogGroup] = useState("");
   const categoryOptions = useMemo(() => buildCategoryOptions(inventory), [inventory]);
   const colorOptions = useMemo(() => buildColorOptions(inventory), [inventory]);
   const isPackagingView = catalogView === "PACKAGING";
@@ -44,12 +50,13 @@ function PosCatalogPanel({
     () =>
       filterPosInventory(inventory, {
         search: productSearch,
-        categoryFilter,
+        categoryFilter: entrecueros ? "" : categoryFilter,
         audienceFilter,
         colorFilter,
         catalogView,
+        catalogGroup: entrecueros ? catalogGroup : "",
       }),
-    [inventory, productSearch, categoryFilter, audienceFilter, colorFilter, catalogView]
+    [inventory, productSearch, categoryFilter, audienceFilter, colorFilter, catalogView, catalogGroup, entrecueros]
   );
 
   const groupedProducts = useMemo(
@@ -80,6 +87,7 @@ function PosCatalogPanel({
       onCategoryFilterChange("");
       onAudienceFilterChange("");
       onColorFilterChange("");
+      setCatalogGroup("");
     }
   };
 
@@ -119,24 +127,40 @@ function PosCatalogPanel({
               <div className="kiosk-pos-chips">
                 <button
                   type="button"
-                  className={`kiosk-pos-chip ${!categoryFilter ? "active" : ""}`}
-                  onClick={() => onCategoryFilterChange("")}
+                  className={`kiosk-pos-chip ${entrecueros ? (!catalogGroup ? "active" : "") : (!categoryFilter ? "active" : "")}`}
+                  onClick={() => {
+                    if (entrecueros) setCatalogGroup("");
+                    else onCategoryFilterChange("");
+                  }}
                 >
                   Todas
                 </button>
-                {categoryOptions.map((option) => (
-                  <button
-                    key={`cat-${option.label}-${option.id || "none"}`}
-                    type="button"
-                    className={`kiosk-pos-chip ${
-                      option.id != null && String(categoryFilter) === String(option.id) ? "active" : ""
-                    } ${option.disabled ? "disabled" : ""}`}
-                    onClick={() => handleCategoryClick(option)}
-                    disabled={option.disabled}
-                  >
-                    {option.label}
-                  </button>
-                ))}
+                {entrecueros
+                  ? ENTRECUEROS_CATALOG_GROUPS.map((option) => (
+                    <button
+                      key={`ec-group-${option.value}`}
+                      type="button"
+                      className={`kiosk-pos-chip ${catalogGroup === option.value ? "active" : ""}`}
+                      onClick={() =>
+                        setCatalogGroup(catalogGroup === option.value ? "" : option.value)
+                      }
+                    >
+                      {option.label}
+                    </button>
+                  ))
+                  : categoryOptions.map((option) => (
+                    <button
+                      key={`cat-${option.label}-${option.id || "none"}`}
+                      type="button"
+                      className={`kiosk-pos-chip ${
+                        option.id != null && String(categoryFilter) === String(option.id) ? "active" : ""
+                      } ${option.disabled ? "disabled" : ""}`}
+                      onClick={() => handleCategoryClick(option)}
+                      disabled={option.disabled}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
               </div>
             </div>
 
@@ -270,6 +294,15 @@ function PosCatalogPanel({
                   <div className="kiosk-pos-product-code">{group.productCode}</div>
                   <div className="kiosk-pos-item-name">{group.productName}</div>
                   <div className="kiosk-pos-item-price">{formatCurrency(group.suggestedUnitPrice)}</div>
+                  {entrecueros && listEntrecuerosPriceTiers(group).length > 1 && (
+                    <div className="kiosk-pos-item-tiers">
+                      {listEntrecuerosPriceTiers(group).map((tier) => (
+                        <span key={`tier-${group.productId}-${tier.minQty}`}>
+                          {tier.label} {formatCurrency(tier.unitPrice)}
+                        </span>
+                      ))}
+                    </div>
+                  )}
                   <div className="kiosk-pos-variant-chips">
                     {group.variants.map((variant) => {
                       const variantKey = variantLineKeyFor(

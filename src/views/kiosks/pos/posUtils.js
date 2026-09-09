@@ -162,6 +162,27 @@ export const itemMatchesCategory = (item, categoryFilter) => {
   return String(item.categoryId) === String(categoryFilter);
 };
 
+export const ENTRECUEROS_CATALOG_GROUPS = [
+  { value: "CINCHOS", label: "Cinchos" },
+  { value: "BILLETERAS", label: "Billeteras" },
+  { value: "SINTETICOS", label: "Sintéticos" },
+];
+
+/** Cinchos, billeteras, u otros accesorios (sintéticos) para el POS Entrecueros. */
+export const classifyEntrecuerosCatalogGroup = (item) => {
+  const text = normalizePosLabel(
+    `${item?.categoryName || ""} ${item?.productName || ""}`
+  );
+  if (text.includes("cincho")) return "CINCHOS";
+  if (text.includes("billeter")) return "BILLETERAS";
+  return "SINTETICOS";
+};
+
+export const itemMatchesEntrecuerosGroup = (item, catalogGroup) => {
+  if (!catalogGroup) return true;
+  return classifyEntrecuerosCatalogGroup(item) === catalogGroup;
+};
+
 export const itemMatchesColor = (item, colorFilter) => {
   if (!colorFilter) return true;
   const itemNorm = normalizePosLabel(item.colorName);
@@ -235,7 +256,14 @@ export const buildColorOptions = (inventory) => {
   });
 };
 
-export const filterPosInventory = (inventory, { search, categoryFilter, colorFilter, audienceFilter, catalogView }) => {
+export const filterPosInventory = (inventory, {
+  search,
+  categoryFilter,
+  colorFilter,
+  audienceFilter,
+  catalogView,
+  catalogGroup,
+}) => {
   const query = normalizePosLabel(search);
   return (inventory || []).filter((item) => {
     if (!posVariantHasStock(item)) return false;
@@ -248,7 +276,11 @@ export const filterPosInventory = (inventory, { search, categoryFilter, colorFil
       const text = normalizePosLabel(`${item.productCode || ""} ${item.productName || ""}`);
       return text.includes(query);
     }
-    if (!itemMatchesCategory(item, categoryFilter)) return false;
+    if (catalogGroup) {
+      if (!itemMatchesEntrecuerosGroup(item, catalogGroup)) return false;
+    } else if (!itemMatchesCategory(item, categoryFilter)) {
+      return false;
+    }
     if (!productMatchesAudienceFilter(item, audienceFilter)) return false;
     if (!itemMatchesColor(item, colorFilter)) return false;
     if (!query) return true;
@@ -298,6 +330,10 @@ export const groupInventoryByProduct = (items) => {
         suggestedUnitPrice: item.suggestedUnitPrice,
         categoryId: item.categoryId,
         categoryName: item.categoryName,
+        entrecuerosPriceUnit: item.entrecuerosPriceUnit,
+        entrecuerosPriceQty3: item.entrecuerosPriceQty3,
+        entrecuerosPriceQty6: item.entrecuerosPriceQty6,
+        entrecuerosPriceQty12: item.entrecuerosPriceQty12,
         variants: [],
       });
     }
@@ -848,21 +884,43 @@ export const POS_MODE_ENTRECUEROS = "ENTRECUEROS";
 export const isEntrecuerosPosMode = (source) =>
   String(source?.posMode || "").toUpperCase() === POS_MODE_ENTRECUEROS;
 
-export const resolveEntrecuerosUnitPrice = (source, qty) => {
-  const n = Number(qty || 0);
-  const p12 = Number(source?.entrecuerosPriceQty12 || 0);
-  const p6 = Number(source?.entrecuerosPriceQty6 || 0);
-  const p3 = Number(source?.entrecuerosPriceQty3 || 0);
+export const listEntrecuerosPriceTiers = (source) => {
   const p1 = Number(
     source?.entrecuerosPriceUnit
     || source?.catalogUnitPrice
     || source?.suggestedUnitPrice
     || 0
   );
-  if (n >= 12 && p12 > 0) return p12;
-  if (n >= 6 && p6 > 0) return p6;
-  if (n >= 3 && p3 > 0) return p3;
-  return p1 > 0 ? p1 : 0;
+  const tiers = [{ minQty: 1, label: "1", unitPrice: p1 }];
+  const p3 = Number(source?.entrecuerosPriceQty3 || 0);
+  const p6 = Number(source?.entrecuerosPriceQty6 || 0);
+  const p12 = Number(source?.entrecuerosPriceQty12 || 0);
+  if (p3 > 0) tiers.push({ minQty: 3, label: "3+", unitPrice: p3 });
+  if (p6 > 0) tiers.push({ minQty: 6, label: "6+", unitPrice: p6 });
+  if (p12 > 0) tiers.push({ minQty: 12, label: "12+", unitPrice: p12 });
+  return tiers.filter((tier) => Number(tier.unitPrice) > 0);
+};
+
+export const resolveEntrecuerosUnitPrice = (source, qty) => {
+  const n = Number(qty || 0);
+  const tiers = listEntrecuerosPriceTiers(source);
+  let price = 0;
+  tiers.forEach((tier) => {
+    if (n >= tier.minQty) price = tier.unitPrice;
+  });
+  return price;
+};
+
+export const describeEntrecuerosPriceState = (source, qty) => {
+  const n = Number(qty || 0);
+  const tiers = listEntrecuerosPriceTiers(source);
+  let active = tiers[0] || { minQty: 1, label: "1", unitPrice: 0 };
+  tiers.forEach((tier) => {
+    if (n >= tier.minQty) active = tier;
+  });
+  const next = tiers.find((tier) => tier.minQty > n) || null;
+  const missing = next ? Math.max(next.minQty - n, 0) : 0;
+  return { qty: n, active, next, missing, tiers };
 };
 
 export const applyEntrecuerosCartPrices = (cart) => {

@@ -1,7 +1,11 @@
-import React from "react";
+import React, { useMemo } from "react";
 import { Badge, Button, Card, CardBody, Input } from "reactstrap";
 import { isPackagingProductCode } from "utils/kioskPackagingHelper";
-import { formatCurrency, formatQty } from "./posUtils";
+import {
+  formatCurrency,
+  formatQty,
+  describeEntrecuerosPriceState,
+} from "./posUtils";
 
 function PosCartPanel({
   cart,
@@ -14,7 +18,15 @@ function PosCartPanel({
   onApplyPromotion,
   disabled,
   canEditPrices = false,
+  entrecueros = false,
 }) {
+  const qtyByProduct = useMemo(() => {
+    const map = {};
+    (cart || []).forEach((line) => {
+      map[line.productId] = (map[line.productId] || 0) + Number(line.quantity || 0);
+    });
+    return map;
+  }, [cart]);
   return (
     <Card className="kiosk-pos-block kiosk-pos-cart-panel">
       <CardBody>
@@ -27,10 +39,16 @@ function PosCartPanel({
           )}
         </div>
 
-        <div className="kiosk-pos-customer-btn text-muted small mb-2" style={{ cursor: "default" }}>
-          <i className="nc-icon nc-paper" />
-          Factura electrónica obligatoria (CF por defecto o NIT al cobrar)
-        </div>
+        {entrecueros ? (
+          <div className="text-muted small mb-2" style={{ cursor: "default" }}>
+            Precio por cantidad del mismo código: 1, desde 3, desde 6 y desde 12. 4 piezas cobran el precio de 3+.
+          </div>
+        ) : (
+          <div className="kiosk-pos-customer-btn text-muted small mb-2" style={{ cursor: "default" }}>
+            <i className="nc-icon nc-paper" />
+            Factura electrónica obligatoria (CF por defecto o NIT al cobrar)
+          </div>
+        )}
         {canEditPrices ? (
           <div className="text-muted small mb-2">
             Miraflores: toca la etiqueta <strong>Con desc.</strong> / <strong>Final</strong> en cada
@@ -48,6 +66,10 @@ function PosCartPanel({
             cart.map((line) => {
               const isPackaging = Boolean(line.isPackaging) || isPackagingProductCode(line.productCode);
               const showPriceControls = canEditPrices && !isPackaging;
+              const productQty = qtyByProduct[line.productId] || Number(line.quantity || 0);
+              const priceState = entrecueros
+                ? describeEntrecuerosPriceState(line, productQty)
+                : null;
               return (
               <div key={line.key} className="kiosk-pos-cart-line">
                 <div className="kiosk-pos-line-top">
@@ -121,6 +143,37 @@ function PosCartPanel({
                     {formatCurrency(line.quantity * line.unitPrice)}
                   </div>
                 </div>
+                {priceState && priceState.tiers.length > 0 && (
+                  <div className="kiosk-pos-tier-block">
+                    <div className="kiosk-pos-tier-row">
+                      {priceState.tiers.map((tier) => (
+                        <button
+                          key={`${line.key}-tier-${tier.minQty}`}
+                          type="button"
+                          className={`kiosk-pos-tier-chip ${
+                            priceState.active.minQty === tier.minQty ? "active" : ""
+                          }`}
+                          onClick={() => {
+                            const current = Number(line.quantity || 0);
+                            if (tier.minQty <= current) return;
+                            const nextQty = Math.min(tier.minQty, Number(line.availableQty || 0));
+                            if (nextQty > current) onUpdateLine(line.key, { quantity: nextQty });
+                          }}
+                          title={`${tier.label}: ${formatCurrency(tier.unitPrice)} c/u`}
+                        >
+                          {tier.label} {formatCurrency(tier.unitPrice)}
+                        </button>
+                      ))}
+                    </div>
+                    <div className="kiosk-pos-tier-hint">
+                      {formatQty(productQty)} pzas al precio {priceState.active.label}
+                      {" "}({formatCurrency(priceState.active.unitPrice)} c/u)
+                      {priceState.next
+                        ? `. Faltan ${formatQty(priceState.missing)} para ${priceState.next.label} a ${formatCurrency(priceState.next.unitPrice)}.`
+                        : "."}
+                    </div>
+                  </div>
+                )}
               </div>
               );
             })
@@ -128,9 +181,11 @@ function PosCartPanel({
         </div>
 
         <div className="kiosk-pos-cart-footer">
-          <button type="button" className="kiosk-pos-promo-link" onClick={onApplyPromotion}>
-            ¿Hay promoción? Aplicar descuento
-          </button>
+          {!entrecueros && (
+            <button type="button" className="kiosk-pos-promo-link" onClick={onApplyPromotion}>
+              ¿Hay promoción? Aplicar descuento
+            </button>
+          )}
 
           <div className="kiosk-pos-totals-rows">
             <div className="kiosk-pos-totals-row">
