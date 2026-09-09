@@ -650,7 +650,7 @@ function ProductionOrderForm({ orderId, isOpen, toggle, onSuccess }) {
             ? null
             : formData.customerId || null,
         customerName: formData.customerName || null,
-        sellerName: formData.sellerName || null;
+        sellerName: formData.sellerName || null,
         startDate: formData.startDate || null,
         deliveryDate: formData.deliveryDate || null,
         observations: formData.observations || null,
