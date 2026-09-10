@@ -37,6 +37,7 @@ import { orderAllowsPartialReleases } from "utils/partialReleaseHelper";
 import { resolveDefaultOpvUnitPrice } from "utils/prepareShipmentsOrderHelper";
 import OpvShipmentPriceReviewModal from "components/production/OpvShipmentPriceReviewModal";
 import { getLocations } from "services/locationService";
+import { PRODUCT_BRAND_OPTIONS as BRAND_OPTIONS } from "utils/productBrandHelper";
 
 // Tallas disponibles para cinchos (16-60)
 const AVAILABLE_SIZES = Array.from({ length: 45 }, (_, i) => (i + 16).toString());
@@ -50,7 +51,6 @@ const STATUS_LABELS = {
 };
 
 const SELLER_OPTIONS = ["LUIS FELIPE", "MADELYN"];
-const BRAND_OPTIONS = ["LEVIS", "NAUTICA", "TOMMY HILFIGER", "LACOSTE", "ABERCROMBIE"];
 const isClienteKioskoOrder = (orderType) => orderType === "CLIENTE_KIOSKO";
 const isOnlineSaleOrKioskOrder = (orderType) =>
   orderType === "VENTA_EN_LINEA" || isClienteKioskoOrder(orderType);

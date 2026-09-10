@@ -31,6 +31,8 @@ import {
 import { isCinchoInventoryProduct, isFossCinchosProductCode } from "utils/cinchoProductionHelper";
 import { isPackagingProductCode } from "utils/kioskPackagingHelper";
 import { formatDateTimeGt } from "utils/dateTimeHelper";
+import { ENTRECUEROS_KIOSK_LOCATION_ID } from "utils/partialReleaseHelper";
+import { PRODUCT_BRAND_OPTIONS, normalizeProductBrand } from "utils/productBrandHelper";
 import {
   CINCHO_FILTER_OPTIONS,
   formatCinchoClassification,
@@ -51,12 +53,14 @@ import "./KioskInventory.css";
 
 const OPENING_REASON = "Inventario inicial - migración";
 
-const CATEGORY_OPTIONS = [
-  { value: "ALL", label: "Todos" },
-  { value: "CINCHO", label: "Cinchos" },
-  { value: "PACKAGING", label: "Empaque" },
-  { value: "OTHER", label: "Otros" },
-];
+function categoryOptionsForLocation(isEntreCueros) {
+  return [
+    { value: "ALL", label: "Todos" },
+    { value: "CINCHO", label: "Cinchos" },
+    { value: "PACKAGING", label: "Empaque" },
+    { value: "OTHER", label: isEntreCueros ? "Billeteras / sintéticos" : "Otros" },
+  ];
+}
 
 const DRAFT_CINCHO_FILTER_OPTIONS = CINCHO_FILTER_OPTIONS.filter((opt) => opt.value !== "NONE");
 
@@ -328,6 +332,8 @@ function KioskOpeningInventoryTab({
 
   const readOnly = report?.status === "APLICADO";
   const sessionId = report?.id;
+  const isEntreCueros = Number(locationId) === ENTRECUEROS_KIOSK_LOCATION_ID;
+  const categoryOptions = categoryOptionsForLocation(isEntreCueros);
 
   const productsById = useMemo(() => {
     const map = new Map();
@@ -344,7 +350,9 @@ function KioskOpeningInventoryTab({
 
   const isPackaging = isPackagingProductCode(selectedProduct?.code);
   const needsSizes = productNeedsSizeBreakdown(selectedProduct);
-  const showHardware = selectedProduct && !isPackaging;
+  const selectedIsCincho = isCinchoProduct(selectedProduct);
+  const showHardware = Boolean(selectedProduct && !isPackaging && !isEntreCueros);
+  const showBrand = Boolean(isEntreCueros && selectedProduct && !isPackaging && !selectedIsCincho);
 
   const filteredProducts = useMemo(() => {
     const list = (products || [])
@@ -395,6 +403,8 @@ function KioskOpeningInventoryTab({
         String(row.productCode || "").toLowerCase().includes(q)
         || String(row.productName || "").toLowerCase().includes(q)
         || String(row.colorName || "").toLowerCase().includes(q)
+        || String(row.hardwareCondition || "").toLowerCase().includes(q)
+        || String(row.hardwareLabel || "").toLowerCase().includes(q)
       );
     });
   }, [
@@ -490,7 +500,7 @@ function KioskOpeningInventoryTab({
     }
   };
 
-  const makeColorRow = (color, hardware = "NUEVO") => ({
+  const makeColorRow = (color, hardware = showBrand ? "" : "NUEVO") => ({
     rowId: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
     colorId: color?.id != null ? Number(color.id) : null,
     colorName: color?.name || "—",
@@ -565,7 +575,14 @@ function KioskOpeningInventoryTab({
 
       if (quantity <= 0) continue;
 
-      const hardware = showHardware ? (row.hardware || "NUEVO") : "NUEVO";
+      if (showBrand && !normalizeProductBrand(row.hardware)) {
+        showWarning(`Selecciona la marca para ${row.colorName}.`);
+        return;
+      }
+
+      const hardware = showBrand
+        ? normalizeProductBrand(row.hardware)
+        : (showHardware ? (row.hardware || "NUEVO") : "NUEVO");
       const key = itemKey(selectedProduct.id, isPackaging ? null : row.colorId, hardware);
       entries.push({
         key,
@@ -575,7 +592,9 @@ function KioskOpeningInventoryTab({
         colorId: isPackaging ? null : Number(row.colorId),
         colorName: isPackaging ? "—" : row.colorName,
         hardwareCondition: hardware,
-        hardwareLabel: showHardware ? getHardwareConditionLabel(hardware) : "—",
+        hardwareLabel: showBrand
+          ? hardware
+          : (showHardware ? getHardwareConditionLabel(hardware) : "—"),
         quantity,
         sizes: sizes || null,
         sizesSummary: formatSizesSummary(sizes) || "—",
@@ -796,7 +815,7 @@ function KioskOpeningInventoryTab({
                   </CardHeader>
                   <CardBody>
                     <div className="kiosk-opening-filter-chips mb-2">
-                      {CATEGORY_OPTIONS.map((opt) => (
+                      {categoryOptions.map((opt) => (
                         <button
                           key={opt.value}
                           type="button"
@@ -863,6 +882,7 @@ function KioskOpeningInventoryTab({
                           <strong>{selectedProduct.code}</strong> — {selectedProduct.name}
                           {isPackaging ? <Badge color="secondary" className="ml-1">Empaque</Badge> : null}
                           {needsSizes ? <Badge color="info" className="ml-1">Por tallas</Badge> : null}
+                          {showBrand ? <Badge color="warning" className="ml-1">Con marca</Badge> : null}
                         </div>
 
                         {!isPackaging ? (
@@ -879,7 +899,11 @@ function KioskOpeningInventoryTab({
                               disabled={saving}
                             />
                             <small className="text-muted d-block mt-1">
-                              Puedes agregar varios. Si el mismo color tiene herraje nuevo y viejo, agrégalo dos veces.
+                              {showBrand
+                                ? "Si el mismo color tiene más de una marca, agrégalo una vez por marca."
+                                : showHardware
+                                  ? "Puedes agregar varios. Si el mismo color tiene herraje nuevo y viejo, agrégalo dos veces."
+                                  : "Puedes agregar varios colores."}
                             </small>
                           </FormGroup>
                         ) : null}
@@ -897,6 +921,7 @@ function KioskOpeningInventoryTab({
                                 <tr>
                                   <th>Color</th>
                                   {showHardware ? <th>Herraje</th> : null}
+                                  {showBrand ? <th>Marca</th> : null}
                                   <th className="text-right">{needsSizes ? "Tallas" : "Cant."}</th>
                                   <th />
                                 </tr>
@@ -925,6 +950,24 @@ function KioskOpeningInventoryTab({
                                             Viejo
                                           </button>
                                         </div>
+                                      </td>
+                                    ) : null}
+                                    {showBrand ? (
+                                      <td>
+                                        <Input
+                                          type="select"
+                                          bsSize="sm"
+                                          value={row.hardware || ""}
+                                          disabled={saving}
+                                          onChange={(e) =>
+                                            updateColorRow(row.rowId, { hardware: e.target.value })
+                                          }
+                                        >
+                                          <option value="">Marca…</option>
+                                          {PRODUCT_BRAND_OPTIONS.map((brand) => (
+                                            <option key={brand} value={brand}>{brand}</option>
+                                          ))}
+                                        </Input>
                                       </td>
                                     ) : null}
                                     <td className="text-right">
@@ -993,7 +1036,9 @@ function KioskOpeningInventoryTab({
                       </>
                     ) : (
                       <Alert color="light" className="border mb-0 py-2">
-                        Elige un producto, agrega varios colores y captura cantidad/herraje por fila.
+                        {isEntreCueros
+                          ? "Elige un producto, agrega colores y captura cantidad. En billeteras/sintéticos selecciona también la marca."
+                          : "Elige un producto, agrega varios colores y captura cantidad/herraje por fila."}
                       </Alert>
                     )}
                   </CardBody>
@@ -1114,7 +1159,7 @@ function KioskOpeningInventoryTab({
               <CardBody className="pt-2">
                 <div className="kiosk-opening-draft-filters mb-2">
                   <div className="kiosk-opening-filter-chips">
-                    {CATEGORY_OPTIONS.map((opt) => (
+                    {categoryOptions.map((opt) => (
                       <button
                         key={opt.value}
                         type="button"
@@ -1191,7 +1236,7 @@ function KioskOpeningInventoryTab({
                           <th>Producto</th>
                           <th>Línea</th>
                           <th>Color</th>
-                          <th>Herraje</th>
+                          <th>{isEntreCueros ? "Marca" : "Herraje"}</th>
                           <th>Tallas</th>
                           <th className="text-right">Cant.</th>
                           {!readOnly ? <th /> : null}
@@ -1217,7 +1262,12 @@ function KioskOpeningInventoryTab({
                             </td>
                             <td>{row.colorName || "—"}</td>
                             <td>
-                              <small>{row.hardwareLabel || getHardwareConditionLabel(row.hardwareCondition)}</small>
+                              <small>
+                                {isEntreCueros
+                                  ? (normalizeProductBrand(row.hardwareCondition)
+                                    || (row.hardwareCondition === "NUEVO" ? "—" : (row.hardwareLabel || "—")))
+                                  : (row.hardwareLabel || getHardwareConditionLabel(row.hardwareCondition))}
+                              </small>
                             </td>
                             <td><small>{row.sizesSummary || "—"}</small></td>
                             <td className="text-right">{row.quantity ?? 0}</td>
