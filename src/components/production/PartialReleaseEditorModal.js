@@ -22,6 +22,7 @@ import {
   applyDraftLineIncluded,
   applyDraftSizeIncluded,
   applyGroupSendQty,
+  setDraftLinesIncluded,
   buildPartialReleaseLinesPayload,
   countDraftTotalUnits,
   draftLinesForReviewFromRelease,
@@ -181,6 +182,14 @@ function PartialReleaseEditorModal({
           : r
       )
     );
+  };
+
+  const selectAllPending = () => {
+    setDraftLines((prev) => setDraftLinesIncluded(prev, true, orderType));
+  };
+
+  const clearAllSelected = () => {
+    setDraftLines((prev) => setDraftLinesIncluded(prev, false, orderType));
   };
 
   const toggleSizeIncluded = (row, sizeKey, checked) => {
@@ -349,14 +358,13 @@ function PartialReleaseEditorModal({
           </Alert>
         ) : groupedVariants ? (
           <Alert color="light" className="py-2 small mb-3">
-            Productos iguales (mismo código, color y talla) se agrupan. En{" "}
-            <strong>Enviar</strong> indique cuántas van en este parcial;{" "}
-            <strong>Quedan</strong> es lo que seguirá pendiente para el siguiente.
+            Use <strong>Seleccionar todo</strong> para cargar lo pendiente y baje a cero lo que no va.
+            Productos iguales (mismo código, color y talla) se agrupan.
           </Alert>
         ) : (
           <Alert color="light" className="py-2 small mb-3">
-            Marque <strong>Incluir</strong> en cada producto de este envío. Al marcar, se sugiere todo lo
-            pendiente; puede bajar la cantidad. Deje sin marcar lo que no va en esta entrega.
+            Use <strong>Seleccionar todo</strong> y quite solo lo que no va en esta entrega. Al marcar se
+            sugiere lo pendiente; puede bajar la cantidad.
           </Alert>
         )}
 
@@ -402,16 +410,24 @@ function PartialReleaseEditorModal({
         )}
 
         {!readOnly && (
-          <FormGroup className="mb-3">
-            <Label>Buscar producto</Label>
-            <Input
-              type="search"
-              bsSize="sm"
-              value={lineFilter}
-              onChange={(e) => setLineFilter(e.target.value)}
-              placeholder="Ej: hebilla, cuero..."
-            />
-          </FormGroup>
+          <div className="d-flex flex-wrap align-items-end mb-3" style={{ gap: 8 }}>
+            <FormGroup className="mb-0 flex-grow-1">
+              <Label>Buscar producto</Label>
+              <Input
+                type="search"
+                bsSize="sm"
+                value={lineFilter}
+                onChange={(e) => setLineFilter(e.target.value)}
+                placeholder="Ej: hebilla, cuero..."
+              />
+            </FormGroup>
+            <Button color="primary" outline size="sm" onClick={selectAllPending} className="mb-0">
+              Seleccionar todo
+            </Button>
+            <Button color="secondary" outline size="sm" onClick={clearAllSelected} className="mb-0">
+              Quitar todo
+            </Button>
+          </div>
         )}
 
         {groupedVariants ? (
