@@ -1,9 +1,13 @@
 import {
+  applyGroupSendQty,
   buildPartialReleaseLinesPayload,
   buildShipmentProductsFromPartialReleaseLines,
   filterShipmentsByPartialReleaseId,
+  groupDraftLinesByVariant,
   initDraftLinesFromAvailability,
   initDraftLinesFromRelease,
+  orderUsesVariantGroupedPartialEditor,
+  remainingAfterGroupSend,
   resolveShipmentLinesForPrint,
   shouldUseSyntheticFullOrderDocument,
 } from "./partialReleaseHelper";
@@ -211,3 +215,133 @@ describe("partialReleaseHelper — envío parcial no toma toda la OP", () => {
     ).toBe(true);
   });
 });
+
+describe("partialReleaseHelper — editor agrupado Entre Cueros", () => {
+  const groupedAvailability = [
+    {
+      productionOrderItemId: 21,
+      productId: 100,
+      productCode: "EC-100",
+      productName: "Bota",
+      colorId: 8,
+      colorName: "Negro",
+      orderedTotal: 3,
+      pendingTotal: 3,
+    },
+    {
+      productionOrderItemId: 22,
+      productId: 100,
+      productCode: "EC-100",
+      productName: "Bota",
+      colorId: 8,
+      colorName: "Negro",
+      orderedTotal: 5,
+      pendingTotal: 5,
+    },
+    {
+      productionOrderItemId: 31,
+      productId: 200,
+      productCode: "EC-200",
+      productName: "Zapato",
+      colorId: 9,
+      colorName: "Café",
+      orderedTotal: 10,
+      pendingTotal: 10,
+      orderedSizes: { "38": 4, "39": 6 },
+      pendingSizes: { "38": 4, "39": 6 },
+    },
+  ];
+
+  it("activa el editor agrupado para OPV Entre Cueros o kiosko 42", () => {
+    expect(
+      orderUsesVariantGroupedPartialEditor({
+        orderType: "MARCAS",
+        code: "OPV-1",
+        customerName: "Entre Cueros",
+      })
+    ).toBe(true);
+    expect(orderUsesVariantGroupedPartialEditor({ orderType: "NORMAL" }, 42)).toBe(true);
+    expect(orderUsesVariantGroupedPartialEditor({ orderType: "NORMAL", locationId: 42 })).toBe(true);
+    expect(
+      orderUsesVariantGroupedPartialEditor({
+        orderType: "MARCAS",
+        code: "OPV-1",
+        customerName: "Luis Felipe",
+      })
+    ).toBe(false);
+  });
+
+  it("agrupa líneas iguales por producto, color y talla", () => {
+    const draft = initDraftLinesFromAvailability(groupedAvailability, "MARCAS");
+    const groups = groupDraftLinesByVariant(draft);
+    const boots = groups.find((g) => g.productId === 100);
+    const size38 = groups.find((g) => g.productId === 200 && g.size === "38");
+    const size39 = groups.find((g) => g.productId === 200 && g.size === "39");
+    expect(boots.orderedTotal).toBe(8);
+    expect(boots.pendingTotal).toBe(8);
+    expect(boots.members).toHaveLength(2);
+    expect(size38.orderedTotal).toBe(4);
+    expect(size39.orderedTotal).toBe(6);
+  });
+
+  it("reparte Enviar FIFO entre líneas y deja el resto como Quedan", () => {
+    const draft = initDraftLinesFromAvailability(groupedAvailability, "MARCAS");
+    const groupKey = groupDraftLinesByVariant(draft).find((g) => g.productId === 100).key;
+    const next = applyGroupSendQty(draft, groupKey, 4);
+    expect(next.find((row) => row.productionOrderItemId === 21).quantity).toBe(3);
+    expect(next.find((row) => row.productionOrderItemId === 22).quantity).toBe(1);
+    const group = groupDraftLinesByVariant(next).find((g) => g.productId === 100);
+    expect(group.sendQty).toBe(4);
+    expect(remainingAfterGroupSend(group)).toBe(4);
+  });
+
+  it("no envía más de lo pendiente y el payload sigue siendo por ítem de OP", () => {
+    const draft = initDraftLinesFromAvailability(groupedAvailability, "MARCAS");
+    const bootsKey = groupDraftLinesByVariant(draft).find((g) => g.productId === 100).key;
+    const size38Key = groupDraftLinesByVariant(draft).find((g) => g.productId === 200 && g.size === "38").key;
+    let next = applyGroupSendQty(draft, bootsKey, 99);
+    next = applyGroupSendQty(next, size38Key, 2);
+    const boots = groupDraftLinesByVariant(next).find((g) => g.productId === 100);
+    expect(boots.sendQty).toBe(8);
+    expect(remainingAfterGroupSend(boots)).toBe(0);
+    expect(buildPartialReleaseLinesPayload(next, "MARCAS")).toEqual([
+      { productionOrderItemId: 21, quantity: 3 },
+      { productionOrderItemId: 22, quantity: 5 },
+      { productionOrderItemId: 31, sizes: { "38": 2 } },
+    ]);
+  });
+
+  it("el siguiente parcial trabaja sobre lo pendiente (no sobre el pedido original)", () => {
+    const afterFirst = [
+      {
+        productionOrderItemId: 21,
+        productId: 100,
+        productCode: "EC-100",
+        colorId: 8,
+        colorName: "Negro",
+        orderedTotal: 3,
+        pendingTotal: 0,
+      },
+      {
+        productionOrderItemId: 22,
+        productId: 100,
+        productCode: "EC-100",
+        colorId: 8,
+        colorName: "Negro",
+        orderedTotal: 5,
+        pendingTotal: 4,
+      },
+    ];
+    const draft = initDraftLinesFromAvailability(afterFirst, "MARCAS");
+    const group = groupDraftLinesByVariant(draft).find((g) => g.productId === 100);
+    expect(group.orderedTotal).toBe(8);
+    expect(group.pendingTotal).toBe(4);
+    const next = applyGroupSendQty(draft, group.key, 4);
+    const updated = groupDraftLinesByVariant(next).find((g) => g.productId === 100);
+    expect(updated.sendQty).toBe(4);
+    expect(remainingAfterGroupSend(updated)).toBe(0);
+    expect(next.find((row) => row.productionOrderItemId === 21).quantity).toBe(0);
+    expect(next.find((row) => row.productionOrderItemId === 22).quantity).toBe(4);
+  });
+});
+
