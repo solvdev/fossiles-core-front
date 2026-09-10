@@ -107,6 +107,44 @@ describe("partialReleaseHelper — envío parcial no toma toda la OP", () => {
     expect(draft[1].quantity).toBe(0);
   });
 
+  it("si el envío ya trae cantidades parciales, la impresión no las infla con la OP", () => {
+    const shipment = {
+      id: 99,
+      partialReleaseId: 7,
+      products: [
+        { productId: 10, productCode: "P-10", size: "38", quantity: 2 },
+      ],
+    };
+    const printed = resolveShipmentLinesForPrint(
+      shipment,
+      {
+        orderType: "MARCAS",
+        items: [
+          { productId: 10, sizes: { "38": 4, "39": 6 }, quantity: 10 },
+          { productId: 11, quantity: 5 },
+        ],
+      },
+      {
+        releases: [
+          {
+            id: 7,
+            shipmentId: 99,
+            lines: [
+              {
+                productId: 10,
+                productCode: "P-10",
+                sizes: { "38": 2 },
+                quantity: 2,
+              },
+            ],
+          },
+        ],
+      }
+    );
+    expect(printed).toHaveLength(1);
+    expect(printed[0].quantity).toBe(2);
+  });
+
   it("impresión usa las líneas del parcial, no todos los productos del envío", () => {
     const shipment = {
       id: 99,
