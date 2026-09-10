@@ -30,9 +30,7 @@ function normalizeColorKey(name) {
 function priorityMatch(normKey) {
   for (let i = 0; i < COLOR_PRIORITY.length; i++) {
     const { keys } = COLOR_PRIORITY[i];
-    for (const k of keys) {
-      if (normKey === k || normKey.startsWith(`${k} `)) return i;
-    }
+    if (keys.includes(normKey)) return i;
   }
   return -1;
 }

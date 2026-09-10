@@ -211,4 +211,29 @@ describe("buildProductionTasksSheetPrintModel", () => {
     expect(model.rows[0].observations).toBe("DISEÑO/METAL");
     expect(model.rows[0].observations).not.toContain("Observación general");
   });
+
+  test("no colapsa Negro acabado flores a Negro", () => {
+    const tasks = [
+      task({
+        id: 1,
+        productCode: "B-10",
+        productName: "Billetera",
+        items: [
+          { productCode: "B-10", productName: "Billetera", colorName: "Negro", quantity: 1 },
+          { productCode: "B-10", productName: "Billetera", colorName: "Negro acabado flores", quantity: 2 },
+        ],
+      }),
+    ];
+    const model = buildProductionTasksSheetPrintModel(tasks, [{ id: 10, code: "OPK-1", orderType: "NORMAL" }], {
+      workDateYmd: DAY,
+    });
+    const headers = model.colorColumns.map((c) => c.header);
+    expect(headers).toContain("Negro");
+    expect(headers).toContain("Negro acabado flores");
+    expect(model.rows).toHaveLength(1);
+    const negroKey = model.colorColumns.find((c) => c.header === "Negro").normKey;
+    const floresKey = model.colorColumns.find((c) => c.header === "Negro acabado flores").normKey;
+    expect(model.rows[0].qtyByNormKey[negroKey]).toBe(1);
+    expect(model.rows[0].qtyByNormKey[floresKey]).toBe(2);
+  });
 });
