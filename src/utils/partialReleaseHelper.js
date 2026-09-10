@@ -1,6 +1,9 @@
 import { isCinchoOrderType } from "utils/cinchoProductionHelper";
 import { isLuisFelipeSeller } from "utils/luisFelipeVendorHelper";
-import { isEntreCuerosCustomerOpv } from "utils/prepareShipmentsOrderHelper";
+import { isEntreCuerosCustomer, isEntreCuerosCustomerOpv } from "utils/prepareShipmentsOrderHelper";
+
+/** Kiosko POS Entre Cueros (`locations.id`). */
+export const ENTRECUEROS_KIOSK_LOCATION_ID = 42;
 
 /** OPV (Luis Felipe o Entre Cueros), OPC (cinchos), OPCK u OPK (kiosko). */
 export function orderAllowsPartialReleases(order) {
@@ -12,6 +15,178 @@ export function orderAllowsPartialReleases(order) {
   if (type === "CLIENTE_KIOSKO" || type === "NORMAL") return true;
   const code = String(order.code || "").trim().toUpperCase();
   return code.startsWith("OPK-");
+}
+
+/** Agrupa por producto + color + talla (Entre Cueros / kiosko 42). */
+export function orderUsesVariantGroupedPartialEditor(order, locationId) {
+  if (isEntreCuerosCustomer(order) || isEntreCuerosCustomerOpv(order)) return true;
+  if (Number(locationId) === ENTRECUEROS_KIOSK_LOCATION_ID) return true;
+  if (Number(order?.locationId) === ENTRECUEROS_KIOSK_LOCATION_ID) return true;
+  return false;
+}
+
+function normalizeVariantSize(size) {
+  return String(size || "").trim().toUpperCase();
+}
+
+export function variantGroupKey(row, sizeKey = "") {
+  const productId = row?.productId != null && row.productId !== "" ? Number(row.productId) : 0;
+  const colorId =
+    row?.colorId == null || row.colorId === "" ? "nc" : Number(row.colorId);
+  return `${productId}:${colorId}:${normalizeVariantSize(sizeKey)}`;
+}
+
+function catalogFields(row) {
+  return {
+    productionOrderItemId: row.productionOrderItemId,
+    productId: row.productId,
+    productCode: row.productCode,
+    productName: row.productName,
+    colorId: row.colorId,
+    colorName: row.colorName,
+  };
+}
+
+function lookupSizeQty(map, sizeKey) {
+  if (!map || typeof map !== "object" || sizeKey == null || sizeKey === "") return null;
+  if (map[sizeKey] != null) return Number(map[sizeKey]) || 0;
+  const match = Object.keys(map).find((key) => normalizeVariantSize(key) === normalizeVariantSize(sizeKey));
+  return match != null ? Number(map[match]) || 0 : null;
+}
+
+function memberPending(row, sizeKey) {
+  if (sizeKey) {
+    const pending = lookupSizeQty(row.pendingSizes, sizeKey);
+    if (pending != null) return Math.max(0, pending);
+    const ordered = lookupSizeQty(row.orderedSizes, sizeKey);
+    if (ordered != null) return Math.max(0, ordered);
+    return 0;
+  }
+  const pending = Number(row.pendingTotal);
+  if (Number.isFinite(pending) && pending >= 0) return pending;
+  return Math.max(0, Number(row.orderedTotal) || 0);
+}
+
+function memberOrdered(row, sizeKey) {
+  if (sizeKey) return Math.max(0, lookupSizeQty(row.orderedSizes, sizeKey) || 0);
+  return Math.max(0, Number(row.orderedTotal) || 0);
+}
+
+function memberSend(row, sizeKey) {
+  if (sizeKey) return Math.max(0, lookupSizeQty(row.sizes, sizeKey) || 0);
+  return Math.max(0, Number(row.quantity) || 0);
+}
+
+function explodeDraftLinesToVariants(draftLines) {
+  const variants = [];
+  (draftLines || []).forEach((row) => {
+    if (!row) return;
+    if (lineUsesSizeBreakdown(row)) {
+      const sizeKeys = Object.keys(row.orderedSizes || row.sizes || {});
+      sizeKeys.forEach((size) => {
+        const sizeKey = normalizeVariantSize(size);
+        if (!sizeKey) return;
+        variants.push({
+          row,
+          sizeKey,
+          ordered: memberOrdered(row, size),
+          pending: memberPending(row, size),
+          send: memberSend(row, size),
+        });
+      });
+      return;
+    }
+    variants.push({
+      row,
+      sizeKey: "",
+      ordered: memberOrdered(row, ""),
+      pending: memberPending(row, ""),
+      send: memberSend(row, ""),
+    });
+  });
+  return variants;
+}
+
+/** Filas agrupadas por producto + color + talla para el editor Entre Cueros. */
+export function groupDraftLinesByVariant(draftLines) {
+  const groups = [];
+  const index = new Map();
+  explodeDraftLinesToVariants(draftLines).forEach((variant) => {
+    const key = variantGroupKey(variant.row, variant.sizeKey);
+    let group = index.get(key);
+    if (!group) {
+      group = {
+        key,
+        productId: variant.row.productId,
+        productCode: variant.row.productCode,
+        productName: variant.row.productName,
+        colorId: variant.row.colorId,
+        colorName: variant.row.colorName,
+        size: variant.sizeKey,
+        orderedTotal: 0,
+        pendingTotal: 0,
+        sendQty: 0,
+        members: [],
+      };
+      index.set(key, group);
+      groups.push(group);
+    }
+    group.orderedTotal += variant.ordered;
+    group.pendingTotal += variant.pending;
+    group.sendQty += variant.send;
+    group.members.push(variant);
+  });
+  return groups.sort((a, b) => {
+    const product = String(a.productCode || "").localeCompare(String(b.productCode || ""), "es");
+    if (product !== 0) return product;
+    const color = String(a.colorName || "").localeCompare(String(b.colorName || ""), "es");
+    if (color !== 0) return color;
+    return String(a.size || "").localeCompare(String(b.size || ""), "es", { numeric: true });
+  });
+}
+
+export function remainingAfterGroupSend(group) {
+  return Math.max(0, Number(group?.pendingTotal || 0) - Number(group?.sendQty || 0));
+}
+
+/** Reparte «enviar» entre las líneas del grupo (FIFO por ítem de OP), sin pasar lo pendiente. */
+export function applyGroupSendQty(draftLines, groupKey, sendQty) {
+  const group = groupDraftLinesByVariant(draftLines).find((row) => row.key === groupKey);
+  if (!group) return draftLines || [];
+  const maxSend = Math.max(0, Number(group.pendingTotal) || 0);
+  let remaining = Math.max(0, Math.min(maxSend, Math.floor(Number(sendQty) || 0)));
+  const allocations = new Map();
+  group.members
+    .slice()
+    .sort(
+      (a, b) =>
+        Number(a.row.productionOrderItemId) - Number(b.row.productionOrderItemId)
+    )
+    .forEach((member) => {
+      const cap = Math.max(0, member.pending);
+      const take = Math.min(cap, remaining);
+      remaining -= take;
+      allocations.set(`${member.row.productionOrderItemId}:${member.sizeKey}`, take);
+    });
+
+  return (draftLines || []).map((row) => {
+    const isMember = group.members.some(
+      (member) => member.row.productionOrderItemId === row.productionOrderItemId
+    );
+    if (!isMember) return row;
+    if (lineUsesSizeBreakdown(row)) {
+      const sizes = { ...zeroCinchoSizes(row), ...(row.sizes || {}) };
+      Object.keys({ ...(row.orderedSizes || {}), ...sizes }).forEach((size) => {
+        const sizeKey = normalizeVariantSize(size);
+        if (variantGroupKey(row, sizeKey) !== groupKey) return;
+        sizes[size] = allocations.get(`${row.productionOrderItemId}:${sizeKey}`) ?? 0;
+      });
+      const included = Object.values(sizes).some((qty) => Number(qty) > 0);
+      return { ...row, sizes, included };
+    }
+    const take = allocations.get(`${row.productionOrderItemId}:`) ?? 0;
+    return { ...row, quantity: take, included: take > 0 };
+  });
 }
 
 function sizeMapHasKeys(sizes) {
@@ -103,10 +278,7 @@ export function initDraftLinesFromAvailability(availabilityRows, orderType) {
   return (availabilityRows || []).map((row) => {
     if (sizeMapHasKeys(row.orderedSizes)) {
       return {
-        productionOrderItemId: row.productionOrderItemId,
-        productCode: row.productCode,
-        productName: row.productName,
-        colorName: row.colorName,
+        ...catalogFields(row),
         orderedTotal: row.orderedTotal,
         pendingTotal: row.pendingTotal,
         orderedSizes: row.orderedSizes,
@@ -116,10 +288,7 @@ export function initDraftLinesFromAvailability(availabilityRows, orderType) {
       };
     }
     return {
-      productionOrderItemId: row.productionOrderItemId,
-      productCode: row.productCode,
-      productName: row.productName,
-      colorName: row.colorName,
+      ...catalogFields(row),
       orderedTotal: row.orderedTotal,
       pendingTotal: row.pendingTotal,
       included: false,
@@ -409,10 +578,11 @@ export function initDraftLinesFromRelease(release, orderType, availabilityRows =
       ? partialReleaseLineHasQuantity({ ...line, sizes, quantity: line.quantity }, orderType)
       : false;
     return {
+      ...catalogFields(base),
+      ...catalogFields(line),
       productionOrderItemId: line.productionOrderItemId ?? base.productionOrderItemId,
-      productCode: line.productCode ?? base.productCode,
-      productName: line.productName ?? base.productName,
-      colorName: line.colorName ?? base.colorName,
+      productId: line.productId ?? base.productId,
+      colorId: line.colorId ?? base.colorId,
       orderedTotal: line.orderedTotal ?? base.orderedTotal,
       pendingTotal: line.pendingTotal ?? base.pendingTotal,
       orderedSizes: line.orderedSizes ?? base.orderedSizes,
@@ -434,10 +604,7 @@ export function draftLinesForReviewFromRelease(release, orderType) {
   return (release?.lines || [])
     .filter((line) => partialReleaseLineHasQuantity(line, orderType))
     .map((line) => ({
-      productionOrderItemId: line.productionOrderItemId,
-      productCode: line.productCode,
-      productName: line.productName,
-      colorName: line.colorName,
+      ...catalogFields(line),
       orderedTotal: line.orderedTotal,
       pendingTotal: line.pendingTotal,
       orderedSizes: line.orderedSizes,
