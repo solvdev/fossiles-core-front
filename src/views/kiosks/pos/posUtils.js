@@ -99,8 +99,12 @@ export const formatVoucherDiffAlert = (diff, invoiceAmount) => {
 };
 export const formatQty = (value) => Number(value || 0).toFixed(2);
 
-export const normalizePosHardwareCondition = (value) =>
-  normalizeHardwareCondition(value) || "NUEVO";
+export const normalizePosHardwareCondition = (value) => {
+  const hardware = normalizeHardwareCondition(value);
+  if (hardware) return hardware;
+  const dimension = String(value || "").trim().toUpperCase().replace(/\s+/g, " ");
+  return dimension || "NUEVO";
+};
 
 export const lineKeyFor = (productId, colorId, size, hardwareCondition) => {
   const hw = normalizePosHardwareCondition(hardwareCondition);
@@ -155,10 +159,14 @@ export const posVariantChipLabel = (variant, variantsInProduct = []) => {
   const hardwareValues = new Set(
     sameColor.map((row) => normalizePosHardwareCondition(row?.hardwareCondition))
   );
+  const hw = normalizePosHardwareCondition(variant?.hardwareCondition);
+  const isBrand = hw !== "NUEVO" && hw !== "VIEJO";
+  if (isBrand) {
+    return `${colorName} · ${hw}`;
+  }
   if (hardwareValues.size <= 1) {
     return colorName;
   }
-  const hw = normalizePosHardwareCondition(variant?.hardwareCondition);
   return `${colorName} · ${hw === "VIEJO" ? "Viejo" : "Nuevo"}`;
 };
 

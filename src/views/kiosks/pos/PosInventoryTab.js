@@ -263,7 +263,7 @@ const collapseNonCinchoHardwareRows = (rows) => {
       keep.push({
         ...only,
         hardwareCondition: hw,
-        hardwareLabel: hw === "VIEJO" ? getHardwareConditionLabel(hw) : "—",
+        hardwareLabel: hw === "NUEVO" ? "—" : getHardwareConditionLabel(hw),
         quantity: posVariantStockQty(only),
       });
       return;

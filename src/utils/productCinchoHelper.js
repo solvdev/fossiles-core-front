@@ -72,8 +72,11 @@ export const getCinchoTypeLabel = (value) => {
 
 export const getHardwareConditionLabel = (value) => {
   const normalized = normalizeHardwareCondition(value);
-  if (!normalized) return "—";
-  return HARDWARE_CONDITION_OPTIONS.find((opt) => opt.value === normalized)?.label || normalized;
+  if (normalized) {
+    return HARDWARE_CONDITION_OPTIONS.find((opt) => opt.value === normalized)?.label || normalized;
+  }
+  const brand = String(value || "").trim().toUpperCase().replace(/\s+/g, " ");
+  return brand || "—";
 };
 
 export const formatInventarioFinalByHardware = (byHardware) => {
