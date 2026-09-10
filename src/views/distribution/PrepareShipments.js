@@ -142,7 +142,7 @@ const buildPrepareShipmentProductsExtra = (order) => (shipment, linked) => {
       shipment?.partialReleaseId ||
       (linked && isPartialReleaseShipmentDoc(shipment))
   );
-  const shippingCost = Number(shipment?.shippingCost || order?.shippingCost || 0);
+  const shippingCost = shippingCostForPrepareShipment(shipment, order, linked);
   if (partialProducts) {
     const priced = applyOrderItemPricesToShipmentProducts(order, partialProducts);
     return {
@@ -171,6 +171,21 @@ const buildPrepareShipmentProductsExtra = (order) => (shipment, linked) => {
 
 const isPartialReleaseShipmentDoc = (shipment) =>
   Boolean(shipment?.partialReleaseId || shipment?.partialReleaseLabel);
+
+const shippingCostForPrepareShipment = (shipment, order, linked) => {
+  const fromShipment = Number(shipment?.shippingCost);
+  if (Number.isFinite(fromShipment) && fromShipment > 0) {
+    return fromShipment;
+  }
+  const isPartial = Boolean(
+    shipment?.partialReleaseId || linked || isPartialReleaseShipmentDoc(shipment)
+  );
+  if (isPartial) {
+    const seq = Number(linked?.sequence);
+    if (seq && seq !== 1) return 0;
+  }
+  return Number(order?.shippingCost || 0);
+};
 
 const resolveBeltSizesSource = (shipment, hasApiSizes, beltSizeLines, notesPayload) => {
   if (hasApiSizes) return beltSizeLines;
@@ -604,7 +619,9 @@ const buildOpvOnlineSalePayload = (printDoc, productionOrder, deps) => {
   const netAmount = items.reduce((s, it) => s + Number(it.subtotal || 0), 0);
   const order = productionOrder || {};
   const shippingCost = Number(
-    printDoc.shippingCost ?? order.shippingCost ?? 0
+    printDoc.shippingCost != null && printDoc.shippingCost !== ""
+      ? printDoc.shippingCost
+      : order.shippingCost || 0
   );
   const totalAmount = netAmount + shippingCost;
   const destFromNotes = extractDestinationFromShipmentNotes(printDoc?.notes);
@@ -1977,7 +1994,11 @@ function PrepareShipments() {
         ...s,
         products: priced,
         _printProducts: priced,
-        shippingCost: order.shippingCost ?? s.shippingCost,
+        shippingCost: shippingCostForPrepareShipment(
+          s,
+          order,
+          findLinkedPartialRelease(s, orderPartialReleases?.releases)
+        ),
       };
     });
     setSelectedProductionOrder(order);
@@ -2299,6 +2320,12 @@ function PrepareShipments() {
       if (!selectedRows[shipment.id]) return;
       const copies = Math.max(1, parseInt(copiesByShipment[shipment.id], 10) || 1);
       const printProducts = getShipmentPrintProducts(shipment, activeOrder);
+      const linkedPartial = findLinkedPartialRelease(shipment, orderPartialReleases?.releases);
+      const printShippingCost = shippingCostForPrepareShipment(
+        shipment,
+        activeOrder,
+        linkedPartial
+      );
       if (luisFelipePrintFlow || opiInternalFlow || standaloneInternalFlow) {
         const shipmentPacking = resolveShipmentPackingItems(shipment);
         const orderPacking = Array.isArray(selectedProductionOrder?.packingItems)
@@ -2315,9 +2342,7 @@ function PrepareShipments() {
           const copyLabel = copies > 1 ? `Copia ${copyIdx + 1} de ${copies}` : "";
           docs.push({
             ...shipment,
-            shippingCost: Number(
-              shipment.shippingCost || selectedProductionOrder?.shippingCost || 0
-            ),
+            shippingCost: printShippingCost,
             _printProducts: printProducts,
             _printPackingItems: printPacking,
             _partNumber: 1,
@@ -2352,18 +2377,17 @@ function PrepareShipments() {
           const copyLabel = copies > 1 ? `Copia ${copyIdx + 1} de ${copies}` : "";
           const pageDoc = {
             ...shipment,
+            shippingCost: entreCuerosPrint
+              ? isLastPart && !isPackingOnlyPart
+                ? printShippingCost
+                : 0
+              : printShippingCost,
             _printProducts: productsForPart,
             _printPackingItems: packingForPart,
             _partNumber: partIdx + 1,
             _partTotal: totalParts,
             copyLabel: [partLabel, copyLabel].filter(Boolean).join(" - "),
           };
-          if (entreCuerosPrint) {
-            pageDoc.shippingCost =
-              isLastPart && !isPackingOnlyPart
-                ? Number(shipment.shippingCost ?? selectedProductionOrder?.shippingCost ?? 0)
-                : 0;
-          }
           docs.push(pageDoc);
         }
       }
