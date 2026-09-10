@@ -318,6 +318,10 @@ function suggestedQtyForRow(row, sizeKey) {
   return Number(row.orderedTotal) || 0;
 }
 
+export function setDraftLinesIncluded(draftLines, included, orderType) {
+  return (draftLines || []).map((row) => applyDraftLineIncluded(row, included, orderType));
+}
+
 export function applyDraftLineIncluded(row, included, orderType) {
   if (!included) {
     if (lineUsesSizeBreakdown(row)) {

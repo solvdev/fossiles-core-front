@@ -65,6 +65,30 @@ export const POS_COLOR_SWATCHES = {
 
 export const formatCurrency = (value) => `Q ${Number(value || 0).toFixed(2)}`;
 
+const toSortableDateTime = (value) => {
+  if (!value) return "";
+  const text = String(value).trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return `${text}T00:00:00`;
+  return text.replace(" ", "T");
+};
+
+/** Ventas de un turno anterior no se anulan/editan desde la caja abierta de hoy. */
+export const saleBelongsToOpenCashSession = (sale, cashSession) => {
+  if (!sale || !cashSession) return false;
+  if (sale.cashSessionId != null && Number(sale.cashSessionId) !== Number(cashSession.id)) {
+    return false;
+  }
+  const soldAt = sale.soldAt || sale.saleDate;
+  if (
+    soldAt
+    && cashSession.openedAt
+    && toSortableDateTime(soldAt) < toSortableDateTime(cashSession.openedAt)
+  ) {
+    return false;
+  }
+  return true;
+};
+
 /** Aviso al capturar voucher distinto al monto de factura. */
 export const formatVoucherDiffAlert = (diff, invoiceAmount) => {
   const d = Number(diff || 0);
