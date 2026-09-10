@@ -53,6 +53,7 @@ import {
   computeConteoRowDiferencia,
   formatConteoDiffArrow,
   formatConteoDiffDisplay,
+  formatConteoProductTitle,
   formatConteoSubtotalLabel,
   resolveLivePhysicalTotal,
   resolveLiveRowDiff,
@@ -70,6 +71,7 @@ import {
   hexCss,
 } from "utils/kioscoConteoColorLegend";
 import { PRODUCT_AUDIENCE_OPTIONS, productMatchesAudienceFilter } from "utils/productAudienceHelper";
+import { normalizeProductBrand } from "utils/productBrandHelper";
 import { FilterableSelect } from "components/distribution/FilterableSelect";
 import {
   CINCHO_FILTER_OPTIONS,
@@ -496,7 +498,7 @@ function DataRow({
     <tr>
       <td style={{ fontSize: 12 }}>
         <span style={{ fontWeight: 500 }}>{row.productCode}</span>
-        <span style={{ color: "#6b7280" }}> {row.productName}</span>
+        <span style={{ color: "#6b7280" }}> {formatConteoProductTitle(row)}</span>
       </td>
       <td style={{ fontSize: 12, color: "#6b7280" }}>{row.colorName || "—"}</td>
       <td style={{ fontSize: 11, color: "#374151" }}>
@@ -523,7 +525,9 @@ function DataRow({
         {formatCinchoClassification(row)}
       </td>
       <td style={{ fontSize: 11, color: "#374151", verticalAlign: "middle" }}>
-        {hardwareSplitEnabled ? (
+        {normalizeProductBrand(row.hardwareCondition) ? (
+          <span>{normalizeProductBrand(row.hardwareCondition)}</span>
+        ) : hardwareSplitEnabled ? (
           <HardwareSplitSummaryCell
             row={row}
             hardwareLocationCounts={editedHardwareLocationCounts?.[rKey] ?? row.hardwareLocationCounts}
@@ -1316,7 +1320,7 @@ function KioskInventoryCountReport({ locationId, internalMode = false }) {
     setHardwareModal({
       rowKey: rKey,
       locationKey,
-      productLabel: `${row.productCode || ""} ${row.productName || ""}`.trim(),
+      productLabel: `${row.productCode || ""} ${formatConteoProductTitle(row)}`.trim(),
       initialCounts: (editedHardwareLocationCounts[rKey] || row.hardwareLocationCounts || {})[locationKey],
     });
   };
@@ -1380,6 +1384,7 @@ function KioskInventoryCountReport({ locationId, internalMode = false }) {
         const item = {
           productId: sample.productId,
           colorId: sample.colorId || null,
+          hardwareCondition: sample.hardwareCondition || undefined,
         };
         if (Object.prototype.hasOwnProperty.call(editedHardwareLocationCounts, rKey)) {
           item.hardwareLocationCounts = editedHardwareLocationCounts[rKey];
@@ -1446,6 +1451,7 @@ function KioskInventoryCountReport({ locationId, internalMode = false }) {
       const item = {
         productId: sample.productId,
         colorId: sample.colorId || null,
+        hardwareCondition: sample.hardwareCondition || undefined,
         counts: parentCounts,
         physicalSizes,
       };

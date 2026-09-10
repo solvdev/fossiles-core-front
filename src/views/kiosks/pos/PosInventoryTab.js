@@ -39,7 +39,9 @@ import {
 } from "utils/kioskInventorySummary";
 import { showError } from "utils/notificationHelper";
 import { FilterableSelect } from "components/distribution/FilterableSelect";
-import { formatQty, normalizePosHardwareCondition, posVariantStockQty } from "./posUtils";
+import { formatQty, isEntrecuerosPosMode, normalizePosHardwareCondition, posVariantStockQty } from "./posUtils";
+import { ENTRECUEROS_KIOSK_LOCATION_ID } from "utils/partialReleaseHelper";
+import { normalizeProductBrand } from "utils/productBrandHelper";
 import KioskInventoryCountReport from "../KioskInventoryCountReport";
 
 const safeText = (value) => String(value || "").trim();
@@ -191,8 +193,10 @@ const normalizeKioscoRows = (rows) =>
  * puede haber stock VIEJO real (p. ej. producto devuelto en un cambio).
  * Antes se descartaba VIEJO en no-cinchos y el POS mostraba menos unidades que el físico.
  */
-const productUsesHardwareSplit = (row) => {
+const productUsesHardwareSplit = (row, entreCueros = false) => {
   if (!row || row.packaging || isPackagingProductCode(row.productCode)) return false;
+  if (normalizeProductBrand(row.hardwareCondition)) return true;
+  if (entrecueros) return false;
   return isCinchoProductRow({
     productCode: row.productCode,
     productName: row.productName,
@@ -208,12 +212,12 @@ const productUsesHardwareSplit = (row) => {
  * No-cinchos: si hay stock en más de un herraje, muestra ambos (stock real de cambios).
  * Empaques: una fila por color (sin herraje).
  */
-const collapseNonCinchoHardwareRows = (rows) => {
+const collapseNonCinchoHardwareRows = (rows, entreCueros = false) => {
   const keep = [];
   const byProductColor = new Map();
 
   (rows || []).forEach((row) => {
-    if (productUsesHardwareSplit(row)) {
+    if (productUsesHardwareSplit(row, entreCueros)) {
       keep.push(row);
       return;
     }
@@ -293,7 +297,7 @@ const collapseNonCinchoHardwareRows = (rows) => {
  * Fuente de verdad: kiosco_stock (herraje NUEVO/VIEJO cuando hay existencias reales).
  * Legacy solo si el kiosko aún no tiene filas en módulo kiosco (migración).
  */
-const buildInventoryRows = (kioscoRows, legacyRows, productMetaById) => {
+const buildInventoryRows = (kioscoRows, legacyRows, productMetaById, entreCueros = false) => {
   const enrichMeta = (row) => {
     const meta = row.productId != null ? productMetaById.get(Number(row.productId)) : null;
     if (meta) {
@@ -322,7 +326,7 @@ const buildInventoryRows = (kioscoRows, legacyRows, productMetaById) => {
 
   const kioscoNormalized = normalizeKioscoRows(kioscoRows).map(enrichMeta);
   if (kioscoNormalized.length > 0) {
-    return collapseNonCinchoHardwareRows(kioscoNormalized);
+    return collapseNonCinchoHardwareRows(kioscoNormalized, entreCueros);
   }
 
   return collapseNonCinchoHardwareRows(
@@ -342,11 +346,14 @@ const buildInventoryRows = (kioscoRows, legacyRows, productMetaById) => {
         sizes: legacy.sizes && typeof legacy.sizes === "object" ? legacy.sizes : null,
         source: "legacy",
       });
-    })
+    }),
+    entreCueros
   );
 };
 
-function PosInventoryTab({ kioskLocationId, kioskName, active }) {
+function PosInventoryTab({ kioskLocationId, kioskName, posMode, active }) {
+  const entreCueros = isEntrecuerosPosMode({ posMode })
+    || Number(kioskLocationId) === ENTRECUEROS_KIOSK_LOCATION_ID;
   const [inventoryView, setInventoryView] = useState("STOCK");
   const [stockMode, setStockMode] = useState("SUMMARY");
   const [selectedSummaryGroup, setSelectedSummaryGroup] = useState(null);
@@ -392,7 +399,7 @@ function PosInventoryTab({ kioskLocationId, kioskName, active }) {
       });
       setRows(
         filterVisibleKioskStockRows(
-          buildInventoryRows(kioscoData, legacyData, productMetaById)
+          buildInventoryRows(kioscoData, legacyData, productMetaById, entreCueros)
         )
       );
     } catch (err) {
@@ -401,7 +408,7 @@ function PosInventoryTab({ kioskLocationId, kioskName, active }) {
     } finally {
       setLoading(false);
     }
-  }, [kioskLocationId]);
+  }, [kioskLocationId, entreCueros]);
 
   useEffect(() => {
     if (active !== false && inventoryView === "STOCK") {
@@ -543,7 +550,9 @@ function PosInventoryTab({ kioskLocationId, kioskName, active }) {
               <small className="text-muted">
                 {stockMode === "SUMMARY"
                   ? "Totales por categoría y línea (stock kiosco real). Toca una tarjeta para ver el detalle."
-                  : "Stock real del módulo kiosco (herraje nuevo/viejo). Misma fuente que la venta POS."}
+                  : entreCueros
+                    ? "Stock real del módulo kiosco. En billeteras/sintéticos la columna es la marca."
+                    : "Stock real del módulo kiosco (herraje nuevo/viejo). Misma fuente que la venta POS."}
               </small>
             </div>
             <div className="d-flex flex-wrap" style={{ gap: 8 }}>
@@ -661,7 +670,9 @@ function PosInventoryTab({ kioskLocationId, kioskName, active }) {
                   type="text"
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Código, producto, categoría, línea, color, herraje..."
+                  placeholder={entrecueros
+                    ? "Código, producto, categoría, línea, color, marca..."
+                    : "Código, producto, categoría, línea, color, herraje..."}
                 />
               </Col>
             </Row>
@@ -740,7 +751,7 @@ function PosInventoryTab({ kioskLocationId, kioskName, active }) {
                         <thead>
                           <tr>
                             <th>Color</th>
-                            <th>Herraje</th>
+                            <th>{entrecueros ? "Marca" : "Herraje"}</th>
                             <th>Tallas</th>
                             <th className="text-right">Stock</th>
                             <th className="text-right">Mínimo</th>
@@ -765,8 +776,12 @@ function PosInventoryTab({ kioskLocationId, kioskName, active }) {
                                   )}
                                 </td>
                                 <td>
-                                  {isPackaging ? (
+                                  {isPackaging || (entrecueros && !normalizeProductBrand(variant.hardwareCondition)) ? (
                                     <span className="text-muted">—</span>
+                                  ) : entreCueros ? (
+                                    <Badge color="info" pill>
+                                      {normalizeProductBrand(variant.hardwareCondition)}
+                                    </Badge>
                                   ) : (
                                     <Badge color={hw === "VIEJO" ? "secondary" : "success"} pill>
                                       {hw === "VIEJO" ? "Viejo" : "Nuevo"}
