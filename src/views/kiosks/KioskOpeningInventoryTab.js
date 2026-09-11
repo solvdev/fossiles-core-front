@@ -370,11 +370,12 @@ function KioskOpeningInventoryTab({
   const isPackaging = isPackagingProductCode(selectedProduct?.code);
   const needsSizes = productNeedsSizeBreakdown(selectedProduct);
   const selectedIsCincho = isCinchoProduct(selectedProduct);
+  const selectedIsKidsCincho = Boolean(selectedIsCincho && selectedProduct?.cinchoForKids);
   const selectedIsWallet = isWalletProductName(selectedProduct?.name);
   const showHardware = Boolean(selectedProduct && !isPackaging && !isEntreCueros);
   const showWalletMaterial = Boolean(isEntreCueros && selectedProduct && !isPackaging && selectedIsWallet);
   const showBrand = Boolean(isEntreCueros && selectedProduct && !isPackaging && !selectedIsCincho);
-  const showCinchoAudience = Boolean(isEntreCueros && selectedProduct && !isPackaging && selectedIsCincho);
+  const showCinchoAudience = Boolean(isEntreCueros && selectedProduct && !isPackaging && selectedIsKidsCincho);
 
   const filteredProducts = useMemo(() => {
     const list = (products || [])
@@ -609,7 +610,7 @@ function KioskOpeningInventoryTab({
         return;
       }
       if (showCinchoAudience && !normalizeCinchoAudience(row.hardware)) {
-        showWarning(`Indica si ${row.colorName} es de niño o de dama.`);
+        showWarning(`Indica si ${row.colorName} es Niño o Dama.`);
         return;
       }
 
@@ -949,7 +950,7 @@ function KioskOpeningInventoryTab({
                                 : showBrand
                                   ? "Si el mismo color tiene más de una marca, agrégalo una vez por marca."
                                   : showCinchoAudience
-                                    ? "Si el mismo color es de niño y de dama, agrégalo una vez por cada uno. Tallas: 16 a 32 (las mismas)."
+                                    ? "Cincho de niño: indica Niño o Dama (mismas tallas 16 a 32). Si el mismo color va en ambos, agrégalo una vez por cada uno."
                                     : showHardware
                                       ? "Puedes agregar varios. Si el mismo color tiene herraje nuevo y viejo, agrégalo dos veces."
                                       : "Puedes agregar varios colores."}
@@ -1125,7 +1126,7 @@ function KioskOpeningInventoryTab({
                     ) : (
                       <Alert color="light" className="border mb-0 py-2">
                         {isEntreCueros
-                          ? "Elige un producto, agrega colores y captura cantidad. En billeteras selecciona la marca; en cinchos indica si es de niño o de dama."
+                          ? "Elige un producto, agrega colores y captura cantidad. En billeteras selecciona la marca; Niño/Dama solo en cinchos de niño."
                           : "Elige un producto, agrega varios colores y captura cantidad/herraje por fila."}
                       </Alert>
                     )}
@@ -1409,7 +1410,7 @@ function KioskOpeningInventoryTab({
         initialSizes={sizeModalRow?.sizes || {}}
         onApply={handleSizeModalApply}
         disabled={saving}
-        extraSizeMax={isEntreCueros ? 32 : EXTRA_SIZE_MAX}
+        extraSizeMax={isEntreCueros && selectedIsKidsCincho ? 32 : EXTRA_SIZE_MAX}
       />
     </div>
   );
