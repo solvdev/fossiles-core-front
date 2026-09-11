@@ -8,8 +8,7 @@ import {
 import { hasInventorySizeBreakdown } from "utils/inventoryVariantHelper";
 import { isPackagingProductCode } from "utils/kioskPackagingHelper";
 import {
-  getCinchoAudienceLabel,
-  getWalletMaterialLabel,
+  getHardwareConditionLabel,
   isSyntheticHardware,
   normalizeHardwareCondition,
   shouldShowInKioskPhysicalCount,
@@ -166,17 +165,10 @@ export const posVariantChipLabel = (variant, variantsInProduct = []) => {
     sameColor.map((row) => normalizePosHardwareCondition(row?.hardwareCondition))
   );
   const hw = normalizePosHardwareCondition(variant?.hardwareCondition);
-  const audienceLabel = getCinchoAudienceLabel(hw);
-  if (audienceLabel) {
-    return `${colorName} · ${audienceLabel}`;
-  }
-  const materialLabel = getWalletMaterialLabel(hw);
-  if (materialLabel) {
-    return `${colorName} · ${materialLabel}`;
-  }
-  const isBrand = hw !== "NUEVO" && hw !== "VIEJO";
-  if (isBrand) {
-    return `${colorName} · ${hw}`;
+  const extraLabel = getHardwareConditionLabel(hw);
+  const isSplitDimension = hw !== "NUEVO" && hw !== "VIEJO";
+  if (isSplitDimension && extraLabel && extraLabel !== "—") {
+    return `${colorName} · ${extraLabel}`;
   }
   if (hardwareValues.size <= 1) {
     return colorName;

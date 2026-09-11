@@ -19,8 +19,8 @@ export const NO_SINTETICO_HARDWARE = "NO_SINTETICO";
 export const NO_SINTETICO_LABEL = "No sintética";
 
 export const ENTRECUEROS_WALLET_MATERIAL_OPTIONS = [
-  { value: SINTETICO_HARDWARE, label: SINTETICO_LABEL },
   { value: NO_SINTETICO_HARDWARE, label: NO_SINTETICO_LABEL },
+  { value: SINTETICO_HARDWARE, label: SINTETICO_LABEL },
 ];
 
 export const resolveCinchoSizesForProduct = (product) =>
@@ -55,53 +55,74 @@ const compactHardwareKey = (value) =>
 
 export const isNonSyntheticHardware = (value) => {
   const n = compactHardwareKey(value);
-  return n === "NOSINTETICO" || n === "NOSINTETICA" || n === "CUERO";
+  return n === "NOSINTETICO" || n === "NOSINTETICA";
 };
 
 export const isSyntheticHardware = (value) => {
   if (isNonSyntheticHardware(value)) return false;
   const n = compactHardwareKey(value);
-  return n === SINTETICO_HARDWARE || n === "SINTETICA";
+  return n === SINTETICO_HARDWARE
+    || n === "SINTETICA"
+    || n.startsWith(`${SINTETICO_HARDWARE}:`)
+    || n.startsWith("SINTETICA:");
+};
+
+export const extractStockBrand = (value) => {
+  const raw = String(value || "").trim();
+  const sep = raw.indexOf(":");
+  if (sep > 0) {
+    const prefix = compactHardwareKey(raw.slice(0, sep));
+    if (prefix === SINTETICO_HARDWARE || prefix === "SINTETICA" || prefix === "NOSINTETICO" || prefix === "NOSINTETICA") {
+      return normalizeProductBrand(raw.slice(sep + 1));
+    }
+  }
+  if (isSyntheticHardware(raw) || isNonSyntheticHardware(raw)) return "";
+  return normalizeProductBrand(raw);
+};
+
+export const composeWalletHardware = (synthetic, brand) => {
+  const b = normalizeProductBrand(brand);
+  if (!b) return "";
+  return synthetic ? `${SINTETICO_HARDWARE}:${b}` : b;
 };
 
 export const normalizeWalletMaterial = (value) => {
-  if (isNonSyntheticHardware(value)) return NO_SINTETICO_HARDWARE;
   if (isSyntheticHardware(value)) return SINTETICO_HARDWARE;
-  const n = compactHardwareKey(value);
-  if (!n || n === "NUEVO") return SINTETICO_HARDWARE;
-  return "";
+  return NO_SINTETICO_HARDWARE;
 };
 
 export const getWalletMaterialLabel = (value) => {
-  if (isNonSyntheticHardware(value)) return NO_SINTETICO_LABEL;
   if (isSyntheticHardware(value)) return SINTETICO_LABEL;
+  if (extractStockBrand(value) || isNonSyntheticHardware(value)) return NO_SINTETICO_LABEL;
   return "";
 };
 
 export const appendWalletMaterialToProductName = (name, hardware) => {
-  const label = getWalletMaterialLabel(hardware);
-  if (!label) return String(name || "").trim();
-  const n = String(name || "").trim();
-  const compact = stripDiacritics(n).toUpperCase();
-  const compactKey = compact.replace(/[\s_]/g, "");
-  if (label === NO_SINTETICO_LABEL) {
-    if (compact.includes("NO SINTETIC") || compactKey.includes("NOSINTETIC")) {
-      return n || label;
+  let n = String(name || "").trim();
+  const compactKey = stripDiacritics(n).toUpperCase().replace(/[\s_]/g, "");
+  if (isSyntheticHardware(hardware)) {
+    if (!compactKey.includes("SINTETIC") || compactKey.includes("NOSINTETIC")) {
+      n = `${n} ${SINTETICO_LABEL}`.trim();
     }
-  } else if (compact.includes("SINTETIC") && !compactKey.includes("NOSINTETIC")) {
-    return n || label;
   }
-  return `${n} ${label}`.trim();
+  const brand = extractStockBrand(hardware);
+  if (brand && !n.toUpperCase().includes(brand)) {
+    n = `${n} ${brand}`.trim();
+  }
+  return n;
 };
 
 export const appendSyntheticToProductName = (name) =>
   appendWalletMaterialToProductName(name, SINTETICO_HARDWARE);
 
-export const resolveStockDimensionLabel = (value) =>
-  getCinchoAudienceLabel(value)
-  || getWalletMaterialLabel(value)
-  || normalizeProductBrand(value)
-  || "";
+export const resolveStockDimensionLabel = (value) => {
+  const audience = getCinchoAudienceLabel(value);
+  if (audience) return audience;
+  const brand = extractStockBrand(value);
+  if (isSyntheticHardware(value) && brand) return `${SINTETICO_LABEL} · ${brand}`;
+  if (isSyntheticHardware(value)) return SINTETICO_LABEL;
+  return brand || "";
+};
 
 /**
  * Recargo POS por talla de cincho (sobre precio de catálogo):
@@ -168,8 +189,8 @@ export const getCinchoTypeLabel = (value) => {
 export const getHardwareConditionLabel = (value) => {
   const audience = getCinchoAudienceLabel(value);
   if (audience) return audience;
-  const material = getWalletMaterialLabel(value);
-  if (material) return material;
+  const dimension = resolveStockDimensionLabel(value);
+  if (dimension) return dimension;
   const normalized = normalizeHardwareCondition(value);
   if (normalized) {
     return HARDWARE_CONDITION_OPTIONS.find((opt) => opt.value === normalized)?.label || normalized;

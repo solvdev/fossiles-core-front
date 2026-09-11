@@ -2,12 +2,12 @@ import { getProductAudienceLabel, normalizeAudienceCategory } from "utils/produc
 import { normalizeProductBrand } from "utils/productBrandHelper";
 import {
   appendWalletMaterialToProductName,
+  extractStockBrand,
   getCinchoAudienceLabel,
   isCinchoProductRow,
   isFossCinchoProductRow,
   isPackagingProductCode,
   isSyntheticHardware,
-  isNonSyntheticHardware,
   normalizeCinchoAudience,
   normalizeCinchoType,
   normalizeHardwareCondition,
@@ -108,8 +108,10 @@ const isConteoWalletRow = (row) =>
  */
 export function formatConteoExportProductName(row) {
   const parts = [formatConteoProductTitle(row)];
-  if (!normalizeProductBrand(row?.hardwareCondition)
+  if (!extractStockBrand(row?.hardwareCondition)
+      && !normalizeProductBrand(row?.hardwareCondition)
       && !normalizeCinchoAudience(row?.hardwareCondition)
+      && !isSyntheticHardware(row?.hardwareCondition)
       && normalizeHardwareCondition(row?.hardwareCondition) === "NUEVO") {
     parts.push("NV");
   }
@@ -117,14 +119,10 @@ export function formatConteoExportProductName(row) {
 }
 
 export function formatConteoProductTitle(row) {
-  const name = normalizeConteoLabelSpaces(row?.productName);
-  if (isSyntheticHardware(row?.hardwareCondition) || isNonSyntheticHardware(row?.hardwareCondition)) {
-    return appendWalletMaterialToProductName(name, row.hardwareCondition);
-  }
-  const brand = normalizeProductBrand(row?.hardwareCondition);
-  if (brand && !name.toUpperCase().includes(brand)) {
-    return normalizeConteoLabelSpaces(`${name} ${brand}`);
-  }
+  const name = appendWalletMaterialToProductName(
+    normalizeConteoLabelSpaces(row?.productName),
+    row?.hardwareCondition
+  );
   const audience = getCinchoAudienceLabel(row?.hardwareCondition);
   if (audience && !name.toUpperCase().includes(audience.toUpperCase())) {
     return normalizeConteoLabelSpaces(`${name} ${audience}`);
@@ -175,8 +173,10 @@ export function formatConteoExportProductLabel(row) {
     if (size) parts.push(`T${size}`);
   }
 
-  if (!normalizeProductBrand(row?.hardwareCondition)
+  if (!extractStockBrand(row?.hardwareCondition)
+      && !normalizeProductBrand(row?.hardwareCondition)
       && !normalizeCinchoAudience(row?.hardwareCondition)
+      && !isSyntheticHardware(row?.hardwareCondition)
       && normalizeHardwareCondition(row?.hardwareCondition) === "NUEVO") {
     parts.push("NV");
   }
