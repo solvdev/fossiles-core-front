@@ -154,9 +154,11 @@ function ProductionOrderForm({ orderId, isOpen, toggle, onSuccess }) {
   );
   const showDestinationPicker = isKioskNormalOrder || isOpcOrder;
   const showCatalogCustomer =
-    isOpcLuisFelipe || (!showDestinationPicker && !isClienteKioskoOrder(formData.orderType));
+    !showDestinationPicker && !isClienteKioskoOrder(formData.orderType);
   const isVendorOpv =
-    !isKioskNormalOrder && isLuisFelipeVendorFlow(formData.orderType, formData.sellerName);
+    !isKioskNormalOrder &&
+    !isOpcOrder &&
+    isLuisFelipeVendorFlow(formData.orderType, formData.sellerName);
   const showItemUnitPrice = formData.orderType === "MARCAS" || isVendorOpv;
 
   const productCatalogById = useMemo(() => {
@@ -169,24 +171,30 @@ function ProductionOrderForm({ orderId, isOpen, toggle, onSuccess }) {
     return map;
   }, [availableProducts]);
 
-  const kioskOptions = useMemo(
-    () =>
-      (availableKiosks || []).map((kiosk) => ({
-        value: String(kiosk.id),
-        label: `${kiosk.code ? `${kiosk.code} · ` : ""}${kiosk.name || `Kiosco #${kiosk.id}`}`,
-        searchText: `${kiosk.code || ""} ${kiosk.name || ""}`,
-      })),
-    [availableKiosks]
-  );
+  const destinationOptions = useMemo(() => {
+    const kiosks = (availableKiosks || []).map((kiosk) => ({
+      value: `kiosk:${kiosk.id}`,
+      label: `${kiosk.code ? `${kiosk.code} · ` : ""}${kiosk.name || `Kiosco #${kiosk.id}`}`,
+      searchText: `${kiosk.code || ""} ${kiosk.name || ""}`,
+    }));
+    if (!isOpcLuisFelipe) return kiosks;
+    const customers = (availableCustomers || []).map((customer) => ({
+      value: `customer:${customer.id}`,
+      label: `${customer.name || `Cliente #${customer.id}`}${customer.nit ? ` · NIT ${customer.nit}` : ""}`,
+      searchText: `${customer.name || ""} ${customer.nit || ""} ${customer.phone || ""} ${customer.legacyCode || ""}`,
+    }));
+    return [...kiosks, ...customers];
+  }, [availableKiosks, availableCustomers, isOpcLuisFelipe]);
 
-  const selectedKioskId = useMemo(() => {
+  const selectedDestinationId = useMemo(() => {
+    if (formData.customerId) return `customer:${formData.customerId}`;
     const name = String(formData.customerName || "").trim().toLowerCase();
     if (!name) return "";
     const match = (availableKiosks || []).find(
       (kiosk) => String(kiosk.name || "").trim().toLowerCase() === name
     );
-    return match?.id != null ? String(match.id) : "";
-  }, [availableKiosks, formData.customerName]);
+    return match?.id != null ? `kiosk:${match.id}` : "";
+  }, [availableKiosks, formData.customerId, formData.customerName]);
 
   const customerOptions = useMemo(
     () =>
@@ -732,16 +740,16 @@ function ProductionOrderForm({ orderId, isOpen, toggle, onSuccess }) {
   const handleOrderTypeChange = (newType) => {
     const nextForKiosk = isNormalOrder(newType) ? formData.forKiosk : false;
     const nextVendor =
-      !nextForKiosk && isLuisFelipeVendorFlow(newType, formData.sellerName);
+      !nextForKiosk &&
+      !isCinchoOrderType(newType) &&
+      isLuisFelipeVendorFlow(newType, formData.sellerName);
     setFormData({
       ...formData,
       orderType: newType,
       forKiosk: nextForKiosk,
       items: [],
       packingItems: nextVendor ? formData.packingItems : [],
-      ...(isClienteKioskoOrder(newType)
-        || nextForKiosk
-        || (isCinchoOrderType(newType) && !isLuisFelipeSeller(formData.sellerName))
+      ...(isClienteKioskoOrder(newType) || nextForKiosk || isCinchoOrderType(newType)
         ? { customerId: "", customerAddress: "", customerPhone: "", customerTaxId: "" }
         : {}),
     });
@@ -968,7 +976,9 @@ function ProductionOrderForm({ orderId, isOpen, toggle, onSuccess }) {
                         ...prev,
                         sellerName: nextSeller,
                         packingItems:
-                          !prev.forKiosk && isLuisFelipeVendorFlow(prev.orderType, nextSeller)
+                          !prev.forKiosk &&
+                          !isCinchoOrderType(prev.orderType) &&
+                          isLuisFelipeVendorFlow(prev.orderType, nextSeller)
                             ? prev.packingItems
                             : [],
                         ...customerReset,
@@ -987,11 +997,6 @@ function ProductionOrderForm({ orderId, isOpen, toggle, onSuccess }) {
                     Esta orden seguirá flujo OPV de vendedor (empaques, ENVP y formato especial de envíos).
                   </small>
                 )}
-                {isOpcOrder ? (
-                  <small className="text-muted d-block mt-1">
-                    El destino es igual que OPK. Si elige Luis Felipe, también puede seleccionar un cliente del catálogo.
-                  </small>
-                ) : null}
               </FormGroup>
             </Col>
             <Col md="3">
@@ -1023,21 +1028,37 @@ function ProductionOrderForm({ orderId, isOpen, toggle, onSuccess }) {
             <Row>
               <Col md="8">
                 <FormGroup>
-                  <Label>{isOpcOrder ? "Destino / cliente" : "Destino / kiosco *"}</Label>
+                  <Label>Destino / kiosco *</Label>
                   <FilterableSelect
-                    options={kioskOptions}
-                    value={selectedKioskId}
+                    options={destinationOptions}
+                    value={selectedDestinationId}
                     onChange={(rawId) => {
-                      const selected = rawId
-                        ? availableKiosks.find((k) => String(k.id) === String(rawId))
+                      if (String(rawId || "").startsWith("customer:")) {
+                        const customerId = String(rawId).slice("customer:".length);
+                        const selected = availableCustomers.find((c) => String(c.id) === customerId);
+                        applySelectedCustomer(selected || null);
+                        return;
+                      }
+                      const kioskId = String(rawId || "").startsWith("kiosk:")
+                        ? String(rawId).slice("kiosk:".length)
+                        : rawId;
+                      const selected = kioskId
+                        ? availableKiosks.find((k) => String(k.id) === String(kioskId))
                         : null;
                       setFormData((prev) => ({
                         ...prev,
                         customerId: "",
+                        customerAddress: "",
+                        customerPhone: "",
+                        customerTaxId: "",
                         customerName: selected?.name || "",
                       }));
                     }}
-                    placeholder="Seleccione el kiosco destino…"
+                    placeholder={
+                      isOpcLuisFelipe
+                        ? "Seleccione kiosco o cliente…"
+                        : "Seleccione el kiosco destino…"
+                    }
                     emptyLabel="Seleccione kiosco"
                     disabled={loading}
                   />
@@ -1050,6 +1071,9 @@ function ProductionOrderForm({ orderId, isOpen, toggle, onSuccess }) {
                       setFormData((prev) => ({
                         ...prev,
                         customerId: "",
+                        customerAddress: "",
+                        customerPhone: "",
+                        customerTaxId: "",
                         customerName: e.target.value,
                       }))
                     }
@@ -1060,12 +1084,28 @@ function ProductionOrderForm({ orderId, isOpen, toggle, onSuccess }) {
                     <div className="text-danger small">{errors.customerName}</div>
                   )}
                   <small className="text-muted">
-                    {isOpcOrder
-                      ? "Igual que OPK: elija kiosco o escriba el destino."
-                      : "Este nombre es hacia dónde va la OPK (no usa catálogo de clientes)."}
+                    {isOpcLuisFelipe
+                      ? "Igual que OPK: kiosco, cliente de Luis Felipe, o escriba el destino."
+                      : "Este nombre es hacia dónde va la orden (kiosco o texto). No usa otro catálogo."}
                   </small>
                 </FormGroup>
               </Col>
+              {isOpcLuisFelipe ? (
+                <Col md="4" className="d-flex align-items-end">
+                  <FormGroup className="w-100">
+                    <Button
+                      color="info"
+                      outline
+                      block
+                      type="button"
+                      disabled={loading}
+                      onClick={() => setShowCustomerCreate(true)}
+                    >
+                      Crear cliente
+                    </Button>
+                  </FormGroup>
+                </Col>
+              ) : null}
             </Row>
           )}
 
