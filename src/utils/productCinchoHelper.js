@@ -13,6 +13,9 @@ export const ENTRECUEROS_CINCHO_AUDIENCE_OPTIONS = [
   { value: "NINA", label: "Niña" },
 ];
 
+export const SINTETICO_HARDWARE = "SINTETICO";
+export const SINTETICO_LABEL = "Sintética";
+
 export const resolveCinchoSizesForProduct = (product) =>
   product?.cinchoForKids ? KIDS_CINCHO_SIZES : ADULT_CINCHO_SIZES;
 
@@ -37,8 +40,28 @@ export const getCinchoAudienceLabel = (value) => {
   return ENTRECUEROS_CINCHO_AUDIENCE_OPTIONS.find((opt) => opt.value === n)?.label || "";
 };
 
+export const isWalletProductName = (name) =>
+  String(name || "").toUpperCase().includes("BILLETERA");
+
+export const isSyntheticHardware = (value) => {
+  const n = stripDiacritics(String(value || "").trim().toUpperCase()).replace(/\s+/g, "");
+  return n === SINTETICO_HARDWARE || n === "SINTETICA";
+};
+
+export const appendSyntheticToProductName = (name) => {
+  const n = String(name || "").trim();
+  const compact = stripDiacritics(n).toUpperCase();
+  if (compact.includes("SINTETIC")) {
+    return n || SINTETICO_LABEL;
+  }
+  return `${n} ${SINTETICO_LABEL}`.trim();
+};
+
 export const resolveStockDimensionLabel = (value) =>
-  getCinchoAudienceLabel(value) || normalizeProductBrand(value) || "";
+  getCinchoAudienceLabel(value)
+  || (isSyntheticHardware(value) ? SINTETICO_LABEL : "")
+  || normalizeProductBrand(value)
+  || "";
 
 /**
  * Recargo POS por talla de cincho (sobre precio de catálogo):
@@ -105,6 +128,7 @@ export const getCinchoTypeLabel = (value) => {
 export const getHardwareConditionLabel = (value) => {
   const audience = getCinchoAudienceLabel(value);
   if (audience) return audience;
+  if (isSyntheticHardware(value)) return SINTETICO_LABEL;
   const normalized = normalizeHardwareCondition(value);
   if (normalized) {
     return HARDWARE_CONDITION_OPTIONS.find((opt) => opt.value === normalized)?.label || normalized;
