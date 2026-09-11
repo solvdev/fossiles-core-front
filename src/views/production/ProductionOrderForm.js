@@ -53,10 +53,12 @@ const STATUS_LABELS = {
 const SELLER_OPTIONS = ["LUIS FELIPE", "MADELYN"];
 const isClienteKioskoOrder = (orderType) => orderType === "CLIENTE_KIOSKO";
 const isNormalOrder = (orderType) => String(orderType || "").toUpperCase() === "NORMAL";
-const usesFreeTextCustomer = (orderType, forKiosk) =>
-  isClienteKioskoOrder(orderType)
-  || isCinchoOrderType(orderType)
-  || (isNormalOrder(orderType) && Boolean(forKiosk));
+const usesFreeTextCustomer = (orderType, forKiosk, sellerName, customerId) => {
+  if (isClienteKioskoOrder(orderType)) return true;
+  if (isNormalOrder(orderType) && Boolean(forKiosk)) return true;
+  if (isCinchoOrderType(orderType) && !(isLuisFelipeSeller(sellerName) && customerId)) return true;
+  return false;
+};
 const isOnlineSaleOrKioskOrder = (orderType) =>
   orderType === "VENTA_EN_LINEA" || isClienteKioskoOrder(orderType);
 const isOpkCode = (code) => /^OPK-?\d+/i.test(String(code || "").trim());
@@ -143,8 +145,16 @@ function ProductionOrderForm({ orderId, isOpen, toggle, onSuccess }) {
 
   const isKioskNormalOrder = isNormalOrder(formData.orderType) && Boolean(formData.forKiosk);
   const isOpcOrder = isCinchoOrderType(formData.orderType);
-  const isFreeTextCustomer = usesFreeTextCustomer(formData.orderType, formData.forKiosk);
+  const isOpcLuisFelipe = isOpcOrder && isLuisFelipeSeller(formData.sellerName);
+  const isFreeTextCustomer = usesFreeTextCustomer(
+    formData.orderType,
+    formData.forKiosk,
+    formData.sellerName,
+    formData.customerId
+  );
   const showDestinationPicker = isKioskNormalOrder || isOpcOrder;
+  const showCatalogCustomer =
+    isOpcLuisFelipe || (!showDestinationPicker && !isClienteKioskoOrder(formData.orderType));
   const isVendorOpv =
     !isKioskNormalOrder && isLuisFelipeVendorFlow(formData.orderType, formData.sellerName);
   const showItemUnitPrice = formData.orderType === "MARCAS" || isVendorOpv;
@@ -729,7 +739,9 @@ function ProductionOrderForm({ orderId, isOpen, toggle, onSuccess }) {
       forKiosk: nextForKiosk,
       items: [],
       packingItems: nextVendor ? formData.packingItems : [],
-      ...(isClienteKioskoOrder(newType) || nextForKiosk || isCinchoOrderType(newType)
+      ...(isClienteKioskoOrder(newType)
+        || nextForKiosk
+        || (isCinchoOrderType(newType) && !isLuisFelipeSeller(formData.sellerName))
         ? { customerId: "", customerAddress: "", customerPhone: "", customerTaxId: "" }
         : {}),
     });
@@ -930,6 +942,83 @@ function ProductionOrderForm({ orderId, isOpen, toggle, onSuccess }) {
             </Row>
           )}
 
+          <Row>
+            <Col md="6">
+              <FormGroup>
+                <Label>Vendedor</Label>
+                <Input
+                  type="select"
+                  value={formData.sellerName}
+                  onChange={(e) => {
+                    const nextSeller = e.target.value;
+                    setFormData((prev) => {
+                      const opc = isCinchoOrderType(prev.orderType);
+                      const nextLf = isLuisFelipeSeller(nextSeller);
+                      const prevLf = isLuisFelipeSeller(prev.sellerName);
+                      const customerReset =
+                        opc && nextLf !== prevLf
+                          ? {
+                              customerId: "",
+                              customerAddress: "",
+                              customerPhone: "",
+                              customerTaxId: "",
+                            }
+                          : {};
+                      return {
+                        ...prev,
+                        sellerName: nextSeller,
+                        packingItems:
+                          !prev.forKiosk && isLuisFelipeVendorFlow(prev.orderType, nextSeller)
+                            ? prev.packingItems
+                            : [],
+                        ...customerReset,
+                      };
+                    });
+                  }}
+                  disabled={loading}
+                >
+                  <option value="">Seleccione vendedor</option>
+                  {[...new Set([...SELLER_OPTIONS, formData.sellerName].filter(Boolean))].map((seller) => (
+                    <option key={seller} value={seller}>{seller}</option>
+                  ))}
+                </Input>
+                {isVendorOpv && (
+                  <small className="text-muted d-block mt-1">
+                    Esta orden seguirá flujo OPV de vendedor (empaques, ENVP y formato especial de envíos).
+                  </small>
+                )}
+                {isOpcOrder ? (
+                  <small className="text-muted d-block mt-1">
+                    El destino es igual que OPK. Si elige Luis Felipe, también puede seleccionar un cliente del catálogo.
+                  </small>
+                ) : null}
+              </FormGroup>
+            </Col>
+            <Col md="3">
+              <FormGroup>
+                <Label>Fecha Inicio Producción</Label>
+                <Input
+                  type="date"
+                  value={formData.startDate}
+                  onChange={(e) => setFormData({ ...formData, startDate: e.target.value })}
+                  disabled={loading}
+                />
+                <small className="text-muted">Desde cuándo se puede producir</small>
+              </FormGroup>
+            </Col>
+            <Col md="3">
+              <FormGroup>
+                <Label>Fecha de Entrega</Label>
+                <Input
+                  type="date"
+                  value={formData.deliveryDate}
+                  onChange={(e) => setFormData({ ...formData, deliveryDate: e.target.value })}
+                  disabled={loading}
+                />
+              </FormGroup>
+            </Col>
+          </Row>
+
           {showDestinationPicker && (
             <Row>
               <Col md="8">
@@ -972,9 +1061,51 @@ function ProductionOrderForm({ orderId, isOpen, toggle, onSuccess }) {
                   )}
                   <small className="text-muted">
                     {isOpcOrder
-                      ? "Igual que OPCK: elija kiosco o escriba el destino. No usa catálogo de clientes."
+                      ? "Igual que OPK: elija kiosco o escriba el destino."
                       : "Este nombre es hacia dónde va la OPK (no usa catálogo de clientes)."}
                   </small>
+                </FormGroup>
+              </Col>
+            </Row>
+          )}
+
+          {showCatalogCustomer && (
+            <Row>
+              <Col md="8">
+                <FormGroup>
+                  <Label>Cliente</Label>
+                  <FilterableSelect
+                    options={customerOptions}
+                    value={String(formData.customerId || "")}
+                    onChange={(rawId) => {
+                      const selected = rawId
+                        ? availableCustomers.find((c) => String(c.id) === String(rawId))
+                        : null;
+                      applySelectedCustomer(selected);
+                    }}
+                    placeholder="Buscar por nombre, NIT o teléfono…"
+                    emptyLabel="Sin cliente"
+                    disabled={loading}
+                  />
+                  <small className="text-muted">
+                    {isOpcLuisFelipe
+                      ? "Opcional: cliente de Luis Felipe. Si no elige uno, se usa el destino de arriba como OPK."
+                      : "Busque en el catálogo. Si no existe, créelo: el NIT de facturación puede repetirse."}
+                  </small>
+                </FormGroup>
+              </Col>
+              <Col md="4" className="d-flex align-items-end">
+                <FormGroup className="w-100">
+                  <Button
+                    color="info"
+                    outline
+                    block
+                    type="button"
+                    disabled={loading}
+                    onClick={() => setShowCustomerCreate(true)}
+                  >
+                    Crear cliente
+                  </Button>
                 </FormGroup>
               </Col>
             </Row>
@@ -1080,9 +1211,8 @@ function ProductionOrderForm({ orderId, isOpen, toggle, onSuccess }) {
             </>
           )}
 
-          {!showDestinationPicker && (
+          {isClienteKioskoOrder(formData.orderType) && (
           <Row>
-            {isClienteKioskoOrder(formData.orderType) ? (
               <Col md="8">
                 <FormGroup>
                   <Label>Nombre del cliente</Label>
@@ -1104,45 +1234,6 @@ function ProductionOrderForm({ orderId, isOpen, toggle, onSuccess }) {
                   </small>
                 </FormGroup>
               </Col>
-            ) : (
-              <>
-                <Col md="8">
-                  <FormGroup>
-                    <Label>Cliente</Label>
-                    <FilterableSelect
-                      options={customerOptions}
-                      value={String(formData.customerId || "")}
-                      onChange={(rawId) => {
-                        const selected = rawId
-                          ? availableCustomers.find((c) => String(c.id) === String(rawId))
-                          : null;
-                        applySelectedCustomer(selected);
-                      }}
-                      placeholder="Buscar por nombre, NIT o teléfono…"
-                      emptyLabel="Sin cliente"
-                      disabled={loading}
-                    />
-                    <small className="text-muted">
-                      Busque en el catálogo. Si no existe, créelo: el NIT de facturación puede repetirse.
-                    </small>
-                  </FormGroup>
-                </Col>
-                <Col md="4" className="d-flex align-items-end">
-                  <FormGroup className="w-100">
-                    <Button
-                      color="info"
-                      outline
-                      block
-                      type="button"
-                      disabled={loading}
-                      onClick={() => setShowCustomerCreate(true)}
-                    >
-                      Crear cliente
-                    </Button>
-                  </FormGroup>
-                </Col>
-              </>
-            )}
           </Row>
           )}
 
@@ -1185,63 +1276,6 @@ function ProductionOrderForm({ orderId, isOpen, toggle, onSuccess }) {
               </Col>
             </Row>
           )}
-
-          <Row>
-            <Col md="6">
-              <FormGroup>
-                <Label>Vendedor</Label>
-                <Input
-                  type="select"
-                  value={formData.sellerName}
-                  onChange={(e) => {
-                    const nextSeller = e.target.value;
-                    setFormData((prev) => ({
-                      ...prev,
-                      sellerName: nextSeller,
-                      packingItems:
-                        !prev.forKiosk && isLuisFelipeVendorFlow(prev.orderType, nextSeller)
-                          ? prev.packingItems
-                          : [],
-                    }));
-                  }}
-                  disabled={loading}
-                >
-                  <option value="">Seleccione vendedor</option>
-                  {[...new Set([...SELLER_OPTIONS, formData.sellerName].filter(Boolean))].map((seller) => (
-                    <option key={seller} value={seller}>{seller}</option>
-                  ))}
-                </Input>
-                {isVendorOpv && (
-                  <small className="text-muted d-block mt-1">
-                    Esta orden seguirá flujo OPV de vendedor (empaques, ENVP y formato especial de envíos).
-                  </small>
-                )}
-              </FormGroup>
-            </Col>
-            <Col md="3">
-              <FormGroup>
-                <Label>Fecha Inicio Producción</Label>
-                <Input
-                  type="date"
-                  value={formData.startDate}
-                  onChange={(e) => setFormData({ ...formData, startDate: e.target.value })}
-                  disabled={loading}
-                />
-                <small className="text-muted">Desde cuándo se puede producir</small>
-              </FormGroup>
-            </Col>
-            <Col md="3">
-              <FormGroup>
-                <Label>Fecha de Entrega</Label>
-                <Input
-                  type="date"
-                  value={formData.deliveryDate}
-                  onChange={(e) => setFormData({ ...formData, deliveryDate: e.target.value })}
-                  disabled={loading}
-                />
-              </FormGroup>
-            </Col>
-          </Row>
 
           <Row>
             <Col md="12">
