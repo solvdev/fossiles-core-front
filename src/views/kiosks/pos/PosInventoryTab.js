@@ -26,6 +26,7 @@ import {
   isCinchoProductRow,
   isPackagingProductCode,
   isSyntheticHardware,
+  isNonSyntheticHardware,
   normalizeCinchoAudience,
   normalizeCinchoType,
   normalizeHardwareCondition,
@@ -200,7 +201,7 @@ const productUsesHardwareSplit = (row, entreCueros = false) => {
   if (!row || row.packaging || isPackagingProductCode(row.productCode)) return false;
   if (normalizeProductBrand(row.hardwareCondition)) return true;
   if (normalizeCinchoAudience(row.hardwareCondition)) return true;
-  if (isSyntheticHardware(row.hardwareCondition)) return true;
+  if (isSyntheticHardware(row.hardwareCondition) || isNonSyntheticHardware(row.hardwareCondition)) return true;
   if (entreCueros) return false;
   return isCinchoProductRow({
     productCode: row.productCode,
