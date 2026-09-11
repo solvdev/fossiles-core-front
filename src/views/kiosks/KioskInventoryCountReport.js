@@ -80,6 +80,7 @@ import {
   isFossCinchoProductRow,
   formatCinchoClassification,
   formatFossLocationSizeSummary,
+  getCinchoAudienceLabel,
   getHardwareConditionLabel,
   rowUsesHardwareCountMode,
   productMatchesCinchoFilter,
@@ -527,6 +528,8 @@ function DataRow({
       <td style={{ fontSize: 11, color: "#374151", verticalAlign: "middle" }}>
         {normalizeProductBrand(row.hardwareCondition) ? (
           <span>{normalizeProductBrand(row.hardwareCondition)}</span>
+        ) : getCinchoAudienceLabel(row.hardwareCondition) ? (
+          <span>{getCinchoAudienceLabel(row.hardwareCondition)}</span>
         ) : hardwareSplitEnabled ? (
           <HardwareSplitSummaryCell
             row={row}

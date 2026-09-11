@@ -21,9 +21,11 @@ import { getProductCategories } from "services/productCategoryService";
 import { formatInventorySizesLine } from "utils/inventoryVariantHelper";
 import {
   filterVisibleKioskStockRows,
+  getCinchoAudienceLabel,
   getHardwareConditionLabel,
   isCinchoProductRow,
   isPackagingProductCode,
+  normalizeCinchoAudience,
   normalizeCinchoType,
   normalizeHardwareCondition,
 } from "utils/productCinchoHelper";
@@ -196,6 +198,7 @@ const normalizeKioscoRows = (rows) =>
 const productUsesHardwareSplit = (row, entreCueros = false) => {
   if (!row || row.packaging || isPackagingProductCode(row.productCode)) return false;
   if (normalizeProductBrand(row.hardwareCondition)) return true;
+  if (normalizeCinchoAudience(row.hardwareCondition)) return true;
   if (entrecueros) return false;
   return isCinchoProductRow({
     productCode: row.productCode,
@@ -751,7 +754,7 @@ function PosInventoryTab({ kioskLocationId, kioskName, posMode, active }) {
                         <thead>
                           <tr>
                             <th>Color</th>
-                            <th>{entrecueros ? "Marca" : "Herraje"}</th>
+                            <th>{entrecueros ? "Marca / Para" : "Herraje"}</th>
                             <th>Tallas</th>
                             <th className="text-right">Stock</th>
                             <th className="text-right">Mínimo</th>
@@ -776,7 +779,13 @@ function PosInventoryTab({ kioskLocationId, kioskName, posMode, active }) {
                                   )}
                                 </td>
                                 <td>
-                                  {isPackaging || (entrecueros && !normalizeProductBrand(variant.hardwareCondition)) ? (
+                                  {isPackaging ? (
+                                    <span className="text-muted">—</span>
+                                  ) : entreCueros && normalizeCinchoAudience(variant.hardwareCondition) ? (
+                                    <Badge color="info" pill>
+                                      {getCinchoAudienceLabel(variant.hardwareCondition)}
+                                    </Badge>
+                                  ) : entreCueros && !normalizeProductBrand(variant.hardwareCondition) ? (
                                     <span className="text-muted">—</span>
                                   ) : entreCueros ? (
                                     <Badge color="info" pill>

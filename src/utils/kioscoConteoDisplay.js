@@ -1,9 +1,11 @@
 import { getProductAudienceLabel, normalizeAudienceCategory } from "utils/productAudienceHelper";
 import { normalizeProductBrand } from "utils/productBrandHelper";
 import {
+  getCinchoAudienceLabel,
   isCinchoProductRow,
   isFossCinchoProductRow,
   isPackagingProductCode,
+  normalizeCinchoAudience,
   normalizeCinchoType,
   normalizeHardwareCondition,
   sortSizeKeys,
@@ -104,6 +106,7 @@ const isConteoWalletRow = (row) =>
 export function formatConteoExportProductName(row) {
   const parts = [formatConteoProductTitle(row)];
   if (!normalizeProductBrand(row?.hardwareCondition)
+      && !normalizeCinchoAudience(row?.hardwareCondition)
       && normalizeHardwareCondition(row?.hardwareCondition) === "NUEVO") {
     parts.push("NV");
   }
@@ -115,6 +118,10 @@ export function formatConteoProductTitle(row) {
   const brand = normalizeProductBrand(row?.hardwareCondition);
   if (brand && !name.toUpperCase().includes(brand)) {
     return normalizeConteoLabelSpaces(`${name} ${brand}`);
+  }
+  const audience = getCinchoAudienceLabel(row?.hardwareCondition);
+  if (audience && !name.toUpperCase().includes(audience.toUpperCase())) {
+    return normalizeConteoLabelSpaces(`${name} ${audience}`);
   }
   return name;
 }
@@ -163,6 +170,7 @@ export function formatConteoExportProductLabel(row) {
   }
 
   if (!normalizeProductBrand(row?.hardwareCondition)
+      && !normalizeCinchoAudience(row?.hardwareCondition)
       && normalizeHardwareCondition(row?.hardwareCondition) === "NUEVO") {
     parts.push("NV");
   }
