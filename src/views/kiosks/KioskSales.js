@@ -1158,6 +1158,7 @@ function KioskSales() {
                     <PosInventoryTab
                       kioskLocationId={selectedKioskId || context?.kioskId}
                       kioskName={selectedKioskName || context?.kioskName}
+                      posMode={selectedKioskPosMode}
                       active={activeTab === "INVENTORY"}
                     />
                   )}

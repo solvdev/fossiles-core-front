@@ -1,12 +1,44 @@
 import { isCinchoInventoryProductByCodeAndName, isFossCinchosProductCode } from "utils/cinchoProductionHelper";
 import { hasInventorySizeBreakdown } from "utils/inventoryVariantHelper";
+import { normalizeProductBrand } from "utils/productBrandHelper";
 
 export const ADULT_CINCHO_SIZES = ["30", "32", "34", "36", "38", "40", "42", "46"];
 /** Niño: 16–30 por pares. */
 export const KIDS_CINCHO_SIZES = ["16", "18", "20", "22", "24", "26", "28", "30"];
+/** Entre Cueros: tallas de niño hasta 32 (no el rango adulto completo). */
+export const ENTRECUEROS_CINCHO_SIZES = ["16", "18", "20", "22", "24", "26", "28", "30", "32"];
+
+export const ENTRECUEROS_CINCHO_AUDIENCE_OPTIONS = [
+  { value: "NINO", label: "Niño" },
+  { value: "NINA", label: "Niña" },
+];
 
 export const resolveCinchoSizesForProduct = (product) =>
   product?.cinchoForKids ? KIDS_CINCHO_SIZES : ADULT_CINCHO_SIZES;
+
+export const resolveCinchoSizesForOpening = (product, { entreCueros } = {}) => {
+  if (entreCueros) return ENTRECUEROS_CINCHO_SIZES;
+  return resolveCinchoSizesForProduct(product);
+};
+
+const stripDiacritics = (value) =>
+  String(value || "")
+    .normalize("NFD")
+    .replace(/\p{M}/gu, "");
+
+export const normalizeCinchoAudience = (value) => {
+  const n = stripDiacritics(String(value || "").trim().toUpperCase()).replace(/\s+/g, "");
+  if (n === "NINO" || n === "NINA") return n;
+  return "";
+};
+
+export const getCinchoAudienceLabel = (value) => {
+  const n = normalizeCinchoAudience(value);
+  return ENTRECUEROS_CINCHO_AUDIENCE_OPTIONS.find((opt) => opt.value === n)?.label || "";
+};
+
+export const resolveStockDimensionLabel = (value) =>
+  getCinchoAudienceLabel(value) || normalizeProductBrand(value) || "";
 
 /**
  * Recargo POS por talla de cincho (sobre precio de catálogo):
@@ -71,6 +103,8 @@ export const getCinchoTypeLabel = (value) => {
 };
 
 export const getHardwareConditionLabel = (value) => {
+  const audience = getCinchoAudienceLabel(value);
+  if (audience) return audience;
   const normalized = normalizeHardwareCondition(value);
   if (normalized) {
     return HARDWARE_CONDITION_OPTIONS.find((opt) => opt.value === normalized)?.label || normalized;
@@ -176,7 +210,8 @@ export const productMatchesSearchFilter = (row, search) => {
   if (!q) return true;
   const code = String(row?.productCode || "").toLowerCase();
   const name = String(row?.productName || "").toLowerCase();
-  return code.includes(q) || name.includes(q);
+  const hw = String(row?.hardwareCondition || "").toLowerCase();
+  return code.includes(q) || name.includes(q) || hw.includes(q);
 };
 
 export const hasAssignedProductColor = (row) =>
@@ -237,11 +272,12 @@ export const resolveSizesSummary = (row) =>
 export const resolvePhysicalSizesSummary = (row) =>
   row?.physicalSizesSummary || formatSystemSizesText(row?.physicalSizes) || "";
 
-/** Clave única por fila de conteo (incluye talla cuando el cincho está desglosado). */
+/** Clave única por fila de conteo (incluye talla y marca cuando aplica). */
 export const rowKey = (row) =>
-  `${row?.productId}-${row?.colorId || ""}-${row?.sizeLabel || ""}`;
+  `${row?.productId}-${row?.colorId || ""}-${row?.sizeLabel || ""}-${normalizeProductBrand(row?.hardwareCondition) || normalizeCinchoAudience(row?.hardwareCondition) || ""}`;
 
-export const persistKey = (row) => `${row?.productId}-${row?.colorId || ""}`;
+export const persistKey = (row) =>
+  `${row?.productId}-${row?.colorId || ""}-${normalizeProductBrand(row?.hardwareCondition) || normalizeCinchoAudience(row?.hardwareCondition) || ""}`;
 
 export const isFossCinchoProductRow = (row) =>
   !!row && !row.packaging && !isPackagingProductCode(row.productCode)

@@ -7,7 +7,7 @@ import {
 } from "utils/productAudienceHelper";
 import { hasInventorySizeBreakdown } from "utils/inventoryVariantHelper";
 import { isPackagingProductCode } from "utils/kioskPackagingHelper";
-import { normalizeHardwareCondition, shouldShowInKioskPhysicalCount } from "utils/productCinchoHelper";
+import { getCinchoAudienceLabel, normalizeHardwareCondition, shouldShowInKioskPhysicalCount } from "utils/productCinchoHelper";
 import { getSaleYmdGuatemala, getTodayYmdGuatemala, shiftYmdGuatemala } from "utils/dateTimeHelper";
 
 export const POS_CATALOG_VIEWS = [
@@ -160,6 +160,10 @@ export const posVariantChipLabel = (variant, variantsInProduct = []) => {
     sameColor.map((row) => normalizePosHardwareCondition(row?.hardwareCondition))
   );
   const hw = normalizePosHardwareCondition(variant?.hardwareCondition);
+  const audienceLabel = getCinchoAudienceLabel(hw);
+  if (audienceLabel) {
+    return `${colorName} · ${audienceLabel}`;
+  }
   const isBrand = hw !== "NUEVO" && hw !== "VIEJO";
   if (isBrand) {
     return `${colorName} · ${hw}`;

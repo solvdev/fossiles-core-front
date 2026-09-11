@@ -35,11 +35,15 @@ import { ENTRECUEROS_KIOSK_LOCATION_ID } from "utils/partialReleaseHelper";
 import { PRODUCT_BRAND_OPTIONS, normalizeProductBrand } from "utils/productBrandHelper";
 import {
   CINCHO_FILTER_OPTIONS,
+  ENTRECUEROS_CINCHO_AUDIENCE_OPTIONS,
   formatCinchoClassification,
+  getCinchoAudienceLabel,
   getHardwareConditionLabel,
+  normalizeCinchoAudience,
   normalizeCinchoType,
   productMatchesCinchoFilter,
-  resolveCinchoSizesForProduct,
+  resolveCinchoSizesForOpening,
+  resolveStockDimensionLabel,
   sortSizeKeys,
   sumSizeCounts,
 } from "utils/productCinchoHelper";
@@ -164,7 +168,16 @@ function countOpeningCaptureStats(items) {
 const EXTRA_SIZE_MIN = 16;
 const EXTRA_SIZE_MAX = 70;
 
-function OpeningInventorySizeModal({ isOpen, toggle, productLabel, sizeKeys, initialSizes, onApply, disabled }) {
+function OpeningInventorySizeModal({
+  isOpen,
+  toggle,
+  productLabel,
+  sizeKeys,
+  initialSizes,
+  onApply,
+  disabled,
+  extraSizeMax = EXTRA_SIZE_MAX,
+}) {
   const [draft, setDraft] = useState({});
   const [orderedKeys, setOrderedKeys] = useState([]);
   const [extraSizeInput, setExtraSizeInput] = useState("");
@@ -194,8 +207,8 @@ function OpeningInventorySizeModal({ isOpen, toggle, productLabel, sizeKeys, ini
       return;
     }
     const n = Number(raw);
-    if (n < EXTRA_SIZE_MIN || n > EXTRA_SIZE_MAX) {
-      setExtraSizeError(`La talla debe estar entre ${EXTRA_SIZE_MIN} y ${EXTRA_SIZE_MAX}.`);
+    if (n < EXTRA_SIZE_MIN || n > extraSizeMax) {
+      setExtraSizeError(`La talla debe estar entre ${EXTRA_SIZE_MIN} y ${extraSizeMax}.`);
       return;
     }
     const key = String(n);
@@ -262,10 +275,10 @@ function OpeningInventorySizeModal({ isOpen, toggle, productLabel, sizeKeys, ini
             <Input
               type="number"
               min={EXTRA_SIZE_MIN}
-              max={EXTRA_SIZE_MAX}
+              max={extraSizeMax}
               step="1"
               bsSize="sm"
-              placeholder="Ej. 48"
+              placeholder={extraSizeMax <= 32 ? "Ej. 32" : "Ej. 48"}
               style={{ width: 100 }}
               value={extraSizeInput}
               onChange={(e) => {
@@ -353,6 +366,7 @@ function KioskOpeningInventoryTab({
   const selectedIsCincho = isCinchoProduct(selectedProduct);
   const showHardware = Boolean(selectedProduct && !isPackaging && !isEntreCueros);
   const showBrand = Boolean(isEntreCueros && selectedProduct && !isPackaging && !selectedIsCincho);
+  const showCinchoAudience = Boolean(isEntreCueros && selectedProduct && !isPackaging && selectedIsCincho);
 
   const filteredProducts = useMemo(() => {
     const list = (products || [])
@@ -500,7 +514,7 @@ function KioskOpeningInventoryTab({
     }
   };
 
-  const makeColorRow = (color, hardware = showBrand ? "" : "NUEVO") => ({
+  const makeColorRow = (color, hardware = showBrand || showCinchoAudience ? "" : "NUEVO") => ({
     rowId: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
     colorId: color?.id != null ? Number(color.id) : null,
     colorName: color?.name || "—",
@@ -579,10 +593,16 @@ function KioskOpeningInventoryTab({
         showWarning(`Selecciona la marca para ${row.colorName}.`);
         return;
       }
+      if (showCinchoAudience && !normalizeCinchoAudience(row.hardware)) {
+        showWarning(`Indica si ${row.colorName} es de niño o de niña.`);
+        return;
+      }
 
       const hardware = showBrand
         ? normalizeProductBrand(row.hardware)
-        : (showHardware ? (row.hardware || "NUEVO") : "NUEVO");
+        : showCinchoAudience
+          ? normalizeCinchoAudience(row.hardware)
+          : (showHardware ? (row.hardware || "NUEVO") : "NUEVO");
       const key = itemKey(selectedProduct.id, isPackaging ? null : row.colorId, hardware);
       entries.push({
         key,
@@ -594,7 +614,9 @@ function KioskOpeningInventoryTab({
         hardwareCondition: hardware,
         hardwareLabel: showBrand
           ? hardware
-          : (showHardware ? getHardwareConditionLabel(hardware) : "—"),
+          : showCinchoAudience
+            ? getCinchoAudienceLabel(hardware)
+            : (showHardware ? getHardwareConditionLabel(hardware) : "—"),
         quantity,
         sizes: sizes || null,
         sizesSummary: formatSizesSummary(sizes) || "—",
@@ -715,10 +737,10 @@ function KioskOpeningInventoryTab({
 
   const fossSizeKeys = useMemo(() => {
     if (!needsSizes || !selectedProduct) return [];
-    const keys = new Set(resolveCinchoSizesForProduct(selectedProduct));
+    const keys = new Set(resolveCinchoSizesForOpening(selectedProduct, { entreCueros: isEntreCueros }));
     Object.keys(sizeModalRow?.sizes || {}).forEach((k) => keys.add(k));
     return sortSizeKeys(keys);
-  }, [needsSizes, selectedProduct, sizeModalRow]);
+  }, [needsSizes, selectedProduct, sizeModalRow, isEntreCueros]);
 
   const statusBanner = () => {
     if (!locationId) {
@@ -883,6 +905,7 @@ function KioskOpeningInventoryTab({
                           {isPackaging ? <Badge color="secondary" className="ml-1">Empaque</Badge> : null}
                           {needsSizes ? <Badge color="info" className="ml-1">Por tallas</Badge> : null}
                           {showBrand ? <Badge color="warning" className="ml-1">Con marca</Badge> : null}
+                          {showCinchoAudience ? <Badge color="warning" className="ml-1">Niño / Niña</Badge> : null}
                         </div>
 
                         {!isPackaging ? (
@@ -901,9 +924,11 @@ function KioskOpeningInventoryTab({
                             <small className="text-muted d-block mt-1">
                               {showBrand
                                 ? "Si el mismo color tiene más de una marca, agrégalo una vez por marca."
-                                : showHardware
-                                  ? "Puedes agregar varios. Si el mismo color tiene herraje nuevo y viejo, agrégalo dos veces."
-                                  : "Puedes agregar varios colores."}
+                                : showCinchoAudience
+                                  ? "Si el mismo color es de niño y de niña, agrégalo una vez por cada uno. Tallas: 16 a 32."
+                                  : showHardware
+                                    ? "Puedes agregar varios. Si el mismo color tiene herraje nuevo y viejo, agrégalo dos veces."
+                                    : "Puedes agregar varios colores."}
                             </small>
                           </FormGroup>
                         ) : null}
@@ -922,6 +947,7 @@ function KioskOpeningInventoryTab({
                                   <th>Color</th>
                                   {showHardware ? <th>Herraje</th> : null}
                                   {showBrand ? <th>Marca</th> : null}
+                                  {showCinchoAudience ? <th>Para</th> : null}
                                   <th className="text-right">{needsSizes ? "Tallas" : "Cant."}</th>
                                   <th />
                                 </tr>
@@ -966,6 +992,24 @@ function KioskOpeningInventoryTab({
                                           <option value="">Marca…</option>
                                           {PRODUCT_BRAND_OPTIONS.map((brand) => (
                                             <option key={brand} value={brand}>{brand}</option>
+                                          ))}
+                                        </Input>
+                                      </td>
+                                    ) : null}
+                                    {showCinchoAudience ? (
+                                      <td>
+                                        <Input
+                                          type="select"
+                                          bsSize="sm"
+                                          value={row.hardware || ""}
+                                          disabled={saving}
+                                          onChange={(e) =>
+                                            updateColorRow(row.rowId, { hardware: e.target.value })
+                                          }
+                                        >
+                                          <option value="">Para quién…</option>
+                                          {ENTRECUEROS_CINCHO_AUDIENCE_OPTIONS.map((opt) => (
+                                            <option key={opt.value} value={opt.value}>{opt.label}</option>
                                           ))}
                                         </Input>
                                       </td>
@@ -1037,7 +1081,7 @@ function KioskOpeningInventoryTab({
                     ) : (
                       <Alert color="light" className="border mb-0 py-2">
                         {isEntreCueros
-                          ? "Elige un producto, agrega colores y captura cantidad. En billeteras/sintéticos selecciona también la marca."
+                          ? "Elige un producto, agrega colores y captura cantidad. En billeteras selecciona la marca; en cinchos indica si es de niño o de niña."
                           : "Elige un producto, agrega varios colores y captura cantidad/herraje por fila."}
                       </Alert>
                     )}
@@ -1236,7 +1280,7 @@ function KioskOpeningInventoryTab({
                           <th>Producto</th>
                           <th>Línea</th>
                           <th>Color</th>
-                          <th>{isEntreCueros ? "Marca" : "Herraje"}</th>
+                          <th>{isEntreCueros ? "Marca / Para" : "Herraje"}</th>
                           <th>Tallas</th>
                           <th className="text-right">Cant.</th>
                           {!readOnly ? <th /> : null}
@@ -1264,7 +1308,7 @@ function KioskOpeningInventoryTab({
                             <td>
                               <small>
                                 {isEntreCueros
-                                  ? (normalizeProductBrand(row.hardwareCondition)
+                                  ? (resolveStockDimensionLabel(row.hardwareCondition)
                                     || (row.hardwareCondition === "NUEVO" ? "—" : (row.hardwareLabel || "—")))
                                   : (row.hardwareLabel || getHardwareConditionLabel(row.hardwareCondition))}
                               </small>
@@ -1305,13 +1349,18 @@ function KioskOpeningInventoryTab({
         }}
         productLabel={
           selectedProduct
-            ? `${selectedProduct.code} — ${selectedProduct.name}${sizeModalRow ? ` · ${sizeModalRow.colorName}` : ""}`
+            ? `${selectedProduct.code} — ${selectedProduct.name}${sizeModalRow ? ` · ${sizeModalRow.colorName}` : ""}${
+                sizeModalRow && showCinchoAudience && sizeModalRow.hardware
+                  ? ` · ${getCinchoAudienceLabel(sizeModalRow.hardware)}`
+                  : ""
+              }`
             : ""
         }
         sizeKeys={fossSizeKeys}
         initialSizes={sizeModalRow?.sizes || {}}
         onApply={handleSizeModalApply}
         disabled={saving}
+        extraSizeMax={isEntreCueros ? 32 : EXTRA_SIZE_MAX}
       />
     </div>
   );
