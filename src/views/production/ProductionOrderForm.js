@@ -55,7 +55,7 @@ const isClienteKioskoOrder = (orderType) => orderType === "CLIENTE_KIOSKO";
 const isNormalOrder = (orderType) => String(orderType || "").toUpperCase() === "NORMAL";
 const usesFreeTextCustomer = (orderType, forKiosk) => {
   if (isClienteKioskoOrder(orderType)) return true;
-  if (isNormalOrder(orderType) && Boolean(forKiosk)) return true;
+  if ((isNormalOrder(orderType) || isCinchoOrderType(orderType)) && Boolean(forKiosk)) return true;
   return false;
 };
 const isOnlineSaleOrKioskOrder = (orderType) =>
@@ -142,13 +142,16 @@ function ProductionOrderForm({ orderId, isOpen, toggle, onSuccess }) {
   const [opvPriceReviewOpen, setOpvPriceReviewOpen] = useState(false);
   const [showCustomerCreate, setShowCustomerCreate] = useState(false);
 
+  const isOpcOrder = isCinchoOrderType(formData.orderType);
+  const allowsKioskFlag = isNormalOrder(formData.orderType) || isOpcOrder;
   const isKioskNormalOrder = isNormalOrder(formData.orderType) && Boolean(formData.forKiosk);
+  const isKioskDestinationOrder = allowsKioskFlag && Boolean(formData.forKiosk);
   const isFreeTextCustomer = usesFreeTextCustomer(formData.orderType, formData.forKiosk);
-  const showDestinationPicker = isKioskNormalOrder;
+  const showDestinationPicker = isKioskDestinationOrder;
   const showCatalogCustomer =
     !showDestinationPicker && !isClienteKioskoOrder(formData.orderType);
   const isVendorOpv =
-    !isKioskNormalOrder && isLuisFelipeVendorFlow(formData.orderType, formData.sellerName);
+    !isKioskDestinationOrder && isLuisFelipeVendorFlow(formData.orderType, formData.sellerName);
   const showItemUnitPrice = formData.orderType === "MARCAS" || isVendorOpv;
 
   const productCatalogById = useMemo(() => {
@@ -312,7 +315,9 @@ function ProductionOrderForm({ orderId, isOpen, toggle, onSuccess }) {
         customerPhone: order.customerPhone || "",
         customerTaxId: order.customerTaxId || "",
         sellerName: isLuisFelipeSeller(order.sellerName) ? "LUIS FELIPE" : (order.sellerName || ""),
-        forKiosk: isNormalOrder(order.orderType) && isOpkCode(order.code),
+        forKiosk:
+          (isNormalOrder(order.orderType) && isOpkCode(order.code))
+          || (isCinchoOrderType(order.orderType) && !order.customerId),
         startDate: order.startDate
           ? new Date(order.startDate).toISOString().split("T")[0]
           : "",
@@ -397,7 +402,7 @@ function ProductionOrderForm({ orderId, isOpen, toggle, onSuccess }) {
     const newErrors = {};
     // El código es opcional, se genera automáticamente si no se proporciona
     if (!formData.orderType) newErrors.orderType = "El tipo de orden es requerido";
-    if (isKioskNormalOrder && !String(formData.customerName || "").trim()) {
+    if (isKioskDestinationOrder && !String(formData.customerName || "").trim()) {
       newErrors.customerName = "Indique el kiosco o destino de la orden";
     }
     if (formData.orderType !== "DISTRIBUTION" && formData.items.length === 0) {
@@ -653,7 +658,7 @@ function ProductionOrderForm({ orderId, isOpen, toggle, onSuccess }) {
       const submitData = {
         code: formData.code && formData.code.trim() ? formData.code.trim() : null,
         orderType: formData.orderType,
-        kioskOrder: isKioskNormalOrder,
+        kioskOrder: isKioskDestinationOrder,
         customerId: isFreeTextCustomer ? null : formData.customerId || null,
         customerName: formData.customerName || null,
         sellerName: formData.sellerName || null,
@@ -722,7 +727,8 @@ function ProductionOrderForm({ orderId, isOpen, toggle, onSuccess }) {
   };
 
   const handleOrderTypeChange = (newType) => {
-    const nextForKiosk = isNormalOrder(newType) ? formData.forKiosk : false;
+    const nextForKiosk =
+      isNormalOrder(newType) || isCinchoOrderType(newType) ? formData.forKiosk : false;
     const nextVendor =
       !nextForKiosk && isLuisFelipeVendorFlow(newType, formData.sellerName);
     setFormData({
@@ -901,10 +907,10 @@ function ProductionOrderForm({ orderId, isOpen, toggle, onSuccess }) {
             </Col>
           </Row>
 
-          {isNormalOrder(formData.orderType) && (
+          {allowsKioskFlag && (
             <Row>
-              <Col md="4">
-                <FormGroup check className="mb-2 mt-1">
+              <Col md="12">
+                <FormGroup check className="mb-3">
                   <Label check>
                     <Input
                       type="checkbox"
@@ -924,8 +930,9 @@ function ProductionOrderForm({ orderId, isOpen, toggle, onSuccess }) {
                                 : prev.packingItems,
                         }));
                       }}
-                    />{" "}
-                    Orden para kiosco (OPK)
+                    />
+                    <span className="form-check-sign" />
+                    Orden para kiosco{isOpcOrder ? "" : " (OPK)"}
                   </Label>
                 </FormGroup>
               </Col>
