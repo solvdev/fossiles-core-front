@@ -27,7 +27,7 @@ export const resolveCinchoSizesForProduct = (product) =>
   product?.cinchoForKids ? KIDS_CINCHO_SIZES : ADULT_CINCHO_SIZES;
 
 export const resolveCinchoSizesForOpening = (product, { entreCueros } = {}) => {
-  if (entreCueros) return ENTRECUEROS_CINCHO_SIZES;
+  if (entreCueros && product?.cinchoForKids) return ENTRECUEROS_CINCHO_SIZES;
   return resolveCinchoSizesForProduct(product);
 };
 
