@@ -53,10 +53,9 @@ const STATUS_LABELS = {
 const SELLER_OPTIONS = ["LUIS FELIPE", "MADELYN"];
 const isClienteKioskoOrder = (orderType) => orderType === "CLIENTE_KIOSKO";
 const isNormalOrder = (orderType) => String(orderType || "").toUpperCase() === "NORMAL";
-const usesFreeTextCustomer = (orderType, forKiosk, sellerName) => {
+const usesFreeTextCustomer = (orderType, forKiosk) => {
   if (isClienteKioskoOrder(orderType)) return true;
   if (isNormalOrder(orderType) && Boolean(forKiosk)) return true;
-  if (isCinchoOrderType(orderType) && !isLuisFelipeSeller(sellerName)) return true;
   return false;
 };
 const isOnlineSaleOrKioskOrder = (orderType) =>
@@ -144,14 +143,8 @@ function ProductionOrderForm({ orderId, isOpen, toggle, onSuccess }) {
   const [showCustomerCreate, setShowCustomerCreate] = useState(false);
 
   const isKioskNormalOrder = isNormalOrder(formData.orderType) && Boolean(formData.forKiosk);
-  const isOpcOrder = isCinchoOrderType(formData.orderType);
-  const isOpcLuisFelipe = isOpcOrder && isLuisFelipeSeller(formData.sellerName);
-  const isFreeTextCustomer = usesFreeTextCustomer(
-    formData.orderType,
-    formData.forKiosk,
-    formData.sellerName
-  );
-  const showDestinationPicker = isKioskNormalOrder || (isOpcOrder && !isOpcLuisFelipe);
+  const isFreeTextCustomer = usesFreeTextCustomer(formData.orderType, formData.forKiosk);
+  const showDestinationPicker = isKioskNormalOrder;
   const showCatalogCustomer =
     !showDestinationPicker && !isClienteKioskoOrder(formData.orderType);
   const isVendorOpv =
@@ -404,10 +397,7 @@ function ProductionOrderForm({ orderId, isOpen, toggle, onSuccess }) {
     const newErrors = {};
     // El código es opcional, se genera automáticamente si no se proporciona
     if (!formData.orderType) newErrors.orderType = "El tipo de orden es requerido";
-    if (
-      (isKioskNormalOrder || (isOpcOrder && !isOpcLuisFelipe)) &&
-      !String(formData.customerName || "").trim()
-    ) {
+    if (isKioskNormalOrder && !String(formData.customerName || "").trim()) {
       newErrors.customerName = "Indique el kiosco o destino de la orden";
     }
     if (formData.orderType !== "DISTRIBUTION" && formData.items.length === 0) {
@@ -741,9 +731,7 @@ function ProductionOrderForm({ orderId, isOpen, toggle, onSuccess }) {
       forKiosk: nextForKiosk,
       items: [],
       packingItems: nextVendor ? formData.packingItems : [],
-      ...(isClienteKioskoOrder(newType)
-        || nextForKiosk
-        || (isCinchoOrderType(newType) && !isLuisFelipeSeller(formData.sellerName))
+      ...(isClienteKioskoOrder(newType) || nextForKiosk
         ? { customerId: "", customerAddress: "", customerPhone: "", customerTaxId: "" }
         : {}),
     });
@@ -953,30 +941,14 @@ function ProductionOrderForm({ orderId, isOpen, toggle, onSuccess }) {
                   value={formData.sellerName}
                   onChange={(e) => {
                     const nextSeller = e.target.value;
-                    setFormData((prev) => {
-                      const opc = isCinchoOrderType(prev.orderType);
-                      const nextLf = isLuisFelipeSeller(nextSeller);
-                      const prevLf = isLuisFelipeSeller(prev.sellerName);
-                      const customerReset =
-                        opc && nextLf !== prevLf
-                          ? {
-                              customerId: "",
-                              customerName: "",
-                              customerAddress: "",
-                              customerPhone: "",
-                              customerTaxId: "",
-                            }
-                          : {};
-                      return {
-                        ...prev,
-                        sellerName: nextSeller,
-                        packingItems:
-                          !prev.forKiosk && isLuisFelipeVendorFlow(prev.orderType, nextSeller)
-                            ? prev.packingItems
-                            : [],
-                        ...customerReset,
-                      };
-                    });
+                    setFormData((prev) => ({
+                      ...prev,
+                      sellerName: nextSeller,
+                      packingItems:
+                        !prev.forKiosk && isLuisFelipeVendorFlow(prev.orderType, nextSeller)
+                          ? prev.packingItems
+                          : [],
+                    }));
                   }}
                   disabled={loading}
                 >
