@@ -39,6 +39,11 @@ import {
   formatCinchoClassification,
   getCinchoAudienceLabel,
   getHardwareConditionLabel,
+  isSyntheticHardware,
+  isWalletProductName,
+  appendSyntheticToProductName,
+  SINTETICO_HARDWARE,
+  SINTETICO_LABEL,
   normalizeCinchoAudience,
   normalizeCinchoType,
   productMatchesCinchoFilter,
@@ -364,8 +369,10 @@ function KioskOpeningInventoryTab({
   const isPackaging = isPackagingProductCode(selectedProduct?.code);
   const needsSizes = productNeedsSizeBreakdown(selectedProduct);
   const selectedIsCincho = isCinchoProduct(selectedProduct);
+  const selectedIsWallet = isWalletProductName(selectedProduct?.name);
   const showHardware = Boolean(selectedProduct && !isPackaging && !isEntreCueros);
-  const showBrand = Boolean(isEntreCueros && selectedProduct && !isPackaging && !selectedIsCincho);
+  const showWalletSynthetic = Boolean(isEntreCueros && selectedProduct && !isPackaging && selectedIsWallet);
+  const showBrand = Boolean(isEntreCueros && selectedProduct && !isPackaging && !selectedIsCincho && !selectedIsWallet);
   const showCinchoAudience = Boolean(isEntreCueros && selectedProduct && !isPackaging && selectedIsCincho);
 
   const filteredProducts = useMemo(() => {
@@ -389,7 +396,10 @@ function KioskOpeningInventoryTab({
     return (report?.items || []).map((row) => {
       const product = productsById.get(Number(row.productId));
       const code = product?.code || row.productCode;
-      const name = product?.name || row.productName;
+      const baseName = product?.name || row.productName;
+      const name = isSyntheticHardware(row.hardwareCondition)
+        ? appendSyntheticToProductName(baseName)
+        : baseName;
       return {
         ...row,
         code,
@@ -514,11 +524,15 @@ function KioskOpeningInventoryTab({
     }
   };
 
-  const makeColorRow = (color, hardware = showBrand || showCinchoAudience ? "" : "NUEVO") => ({
+  const makeColorRow = (color, hardware) => ({
     rowId: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
     colorId: color?.id != null ? Number(color.id) : null,
     colorName: color?.name || "—",
-    hardware,
+    hardware: hardware ?? (
+      showWalletSynthetic
+        ? SINTETICO_HARDWARE
+        : (showBrand || showCinchoAudience ? "" : "NUEVO")
+    ),
     quantity: "",
     sizes: null,
   });
@@ -598,25 +612,31 @@ function KioskOpeningInventoryTab({
         return;
       }
 
-      const hardware = showBrand
-        ? normalizeProductBrand(row.hardware)
-        : showCinchoAudience
-          ? normalizeCinchoAudience(row.hardware)
-          : (showHardware ? (row.hardware || "NUEVO") : "NUEVO");
+      const hardware = showWalletSynthetic
+        ? SINTETICO_HARDWARE
+        : showBrand
+          ? normalizeProductBrand(row.hardware)
+          : showCinchoAudience
+            ? normalizeCinchoAudience(row.hardware)
+            : (showHardware ? (row.hardware || "NUEVO") : "NUEVO");
       const key = itemKey(selectedProduct.id, isPackaging ? null : row.colorId, hardware);
       entries.push({
         key,
         productId: Number(selectedProduct.id),
         productCode: selectedProduct.code,
-        productName: selectedProduct.name,
+        productName: showWalletSynthetic
+          ? appendSyntheticToProductName(selectedProduct.name)
+          : selectedProduct.name,
         colorId: isPackaging ? null : Number(row.colorId),
         colorName: isPackaging ? "—" : row.colorName,
         hardwareCondition: hardware,
-        hardwareLabel: showBrand
-          ? hardware
-          : showCinchoAudience
-            ? getCinchoAudienceLabel(hardware)
-            : (showHardware ? getHardwareConditionLabel(hardware) : "—"),
+        hardwareLabel: showWalletSynthetic
+          ? SINTETICO_LABEL
+          : showBrand
+            ? hardware
+            : showCinchoAudience
+              ? getCinchoAudienceLabel(hardware)
+              : (showHardware ? getHardwareConditionLabel(hardware) : "—"),
         quantity,
         sizes: sizes || null,
         sizesSummary: formatSizesSummary(sizes) || "—",
@@ -905,6 +925,7 @@ function KioskOpeningInventoryTab({
                           {isPackaging ? <Badge color="secondary" className="ml-1">Empaque</Badge> : null}
                           {needsSizes ? <Badge color="info" className="ml-1">Por tallas</Badge> : null}
                           {showBrand ? <Badge color="warning" className="ml-1">Con marca</Badge> : null}
+                          {showWalletSynthetic ? <Badge color="warning" className="ml-1">Sintética</Badge> : null}
                           {showCinchoAudience ? <Badge color="warning" className="ml-1">Niño / Niña</Badge> : null}
                         </div>
 
@@ -924,11 +945,13 @@ function KioskOpeningInventoryTab({
                             <small className="text-muted d-block mt-1">
                               {showBrand
                                 ? "Si el mismo color tiene más de una marca, agrégalo una vez por marca."
-                                : showCinchoAudience
-                                  ? "Si el mismo color es de niño y de niña, agrégalo una vez por cada uno. Tallas: 16 a 32."
-                                  : showHardware
-                                    ? "Puedes agregar varios. Si el mismo color tiene herraje nuevo y viejo, agrégalo dos veces."
-                                    : "Puedes agregar varios colores."}
+                                : showWalletSynthetic
+                                  ? "Las billeteras de Entre Cueros entran como sintéticas; el nombre incluye Sintética."
+                                  : showCinchoAudience
+                                    ? "Si el mismo color es de niño y de niña, agrégalo una vez por cada uno. Tallas: 16 a 32."
+                                    : showHardware
+                                      ? "Puedes agregar varios. Si el mismo color tiene herraje nuevo y viejo, agrégalo dos veces."
+                                      : "Puedes agregar varios colores."}
                             </small>
                           </FormGroup>
                         ) : null}
@@ -1136,7 +1159,12 @@ function KioskOpeningInventoryTab({
                                 <td>
                                   <div>{row.productCode}</div>
                                   <small className="text-muted">
-                                    {row.hardwareLabel}
+                                    {row.productName}
+                                    {row.hardwareLabel
+                                      && row.hardwareLabel !== "—"
+                                      && !(row.productName || "").includes(row.hardwareLabel)
+                                      ? ` · ${row.hardwareLabel}`
+                                      : ""}
                                     {row.sizesSummary && row.sizesSummary !== "—" ? ` · ${row.sizesSummary}` : ""}
                                   </small>
                                   {alreadyInDraftKeys.has(row.key) ? (
