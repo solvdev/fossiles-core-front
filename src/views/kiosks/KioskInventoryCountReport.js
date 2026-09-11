@@ -71,7 +71,6 @@ import {
   hexCss,
 } from "utils/kioscoConteoColorLegend";
 import { PRODUCT_AUDIENCE_OPTIONS, productMatchesAudienceFilter } from "utils/productAudienceHelper";
-import { normalizeProductBrand } from "utils/productBrandHelper";
 import { FilterableSelect } from "components/distribution/FilterableSelect";
 import {
   CINCHO_FILTER_OPTIONS,
@@ -80,8 +79,8 @@ import {
   isFossCinchoProductRow,
   formatCinchoClassification,
   formatFossLocationSizeSummary,
-  getCinchoAudienceLabel,
   getHardwareConditionLabel,
+  resolveStockDimensionLabel,
   rowUsesHardwareCountMode,
   productMatchesCinchoFilter,
   productMatchesSearchFilter,
@@ -526,10 +525,8 @@ function DataRow({
         {formatCinchoClassification(row)}
       </td>
       <td style={{ fontSize: 11, color: "#374151", verticalAlign: "middle" }}>
-        {normalizeProductBrand(row.hardwareCondition) ? (
-          <span>{normalizeProductBrand(row.hardwareCondition)}</span>
-        ) : getCinchoAudienceLabel(row.hardwareCondition) ? (
-          <span>{getCinchoAudienceLabel(row.hardwareCondition)}</span>
+        {resolveStockDimensionLabel(row.hardwareCondition) ? (
+          <span>{resolveStockDimensionLabel(row.hardwareCondition)}</span>
         ) : hardwareSplitEnabled ? (
           <HardwareSplitSummaryCell
             row={row}
