@@ -52,9 +52,13 @@ const STATUS_LABELS = {
 
 const SELLER_OPTIONS = ["LUIS FELIPE", "MADELYN"];
 const isClienteKioskoOrder = (orderType) => orderType === "CLIENTE_KIOSKO";
+const isNormalOrder = (orderType) => String(orderType || "").toUpperCase() === "NORMAL";
+const usesFreeTextCustomer = (orderType, forKiosk) =>
+  isClienteKioskoOrder(orderType)
+  || isCinchoOrderType(orderType)
+  || (isNormalOrder(orderType) && Boolean(forKiosk));
 const isOnlineSaleOrKioskOrder = (orderType) =>
   orderType === "VENTA_EN_LINEA" || isClienteKioskoOrder(orderType);
-const isNormalOrder = (orderType) => String(orderType || "").toUpperCase() === "NORMAL";
 const isOpkCode = (code) => /^OPK-?\d+/i.test(String(code || "").trim());
 const isKioskLocation = (location) => {
   const category = String(location?.categoria || "").toUpperCase().trim();
@@ -138,6 +142,9 @@ function ProductionOrderForm({ orderId, isOpen, toggle, onSuccess }) {
   const [showCustomerCreate, setShowCustomerCreate] = useState(false);
 
   const isKioskNormalOrder = isNormalOrder(formData.orderType) && Boolean(formData.forKiosk);
+  const isOpcOrder = isCinchoOrderType(formData.orderType);
+  const isFreeTextCustomer = usesFreeTextCustomer(formData.orderType, formData.forKiosk);
+  const showDestinationPicker = isKioskNormalOrder || isOpcOrder;
   const isVendorOpv =
     !isKioskNormalOrder && isLuisFelipeVendorFlow(formData.orderType, formData.sellerName);
   const showItemUnitPrice = formData.orderType === "MARCAS" || isVendorOpv;
@@ -645,10 +652,7 @@ function ProductionOrderForm({ orderId, isOpen, toggle, onSuccess }) {
         code: formData.code && formData.code.trim() ? formData.code.trim() : null,
         orderType: formData.orderType,
         kioskOrder: isKioskNormalOrder,
-        customerId:
-          isClienteKioskoOrder(formData.orderType) || isKioskNormalOrder
-            ? null
-            : formData.customerId || null,
+        customerId: isFreeTextCustomer ? null : formData.customerId || null,
         customerName: formData.customerName || null,
         sellerName: formData.sellerName || null,
         startDate: formData.startDate || null,
@@ -725,7 +729,7 @@ function ProductionOrderForm({ orderId, isOpen, toggle, onSuccess }) {
       forKiosk: nextForKiosk,
       items: [],
       packingItems: nextVendor ? formData.packingItems : [],
-      ...(isClienteKioskoOrder(newType) || nextForKiosk
+      ...(isClienteKioskoOrder(newType) || nextForKiosk || isCinchoOrderType(newType)
         ? { customerId: "", customerAddress: "", customerPhone: "", customerTaxId: "" }
         : {}),
     });
@@ -923,51 +927,56 @@ function ProductionOrderForm({ orderId, isOpen, toggle, onSuccess }) {
                   </Label>
                 </FormGroup>
               </Col>
-              {isKioskNormalOrder && (
-                <Col md="8">
-                  <FormGroup>
-                    <Label>Destino / kiosco *</Label>
-                    <FilterableSelect
-                      options={kioskOptions}
-                      value={selectedKioskId}
-                      onChange={(rawId) => {
-                        const selected = rawId
-                          ? availableKiosks.find((k) => String(k.id) === String(rawId))
-                          : null;
-                        setFormData((prev) => ({
-                          ...prev,
-                          customerId: "",
-                          customerName: selected?.name || "",
-                        }));
-                      }}
-                      placeholder="Seleccione el kiosco destino…"
-                      emptyLabel="Seleccione kiosco"
-                      disabled={loading}
-                    />
-                    <Input
-                      className="mt-2"
-                      type="text"
-                      value={formData.customerName}
-                      invalid={!!errors.customerName}
-                      onChange={(e) =>
-                        setFormData((prev) => ({
-                          ...prev,
-                          customerId: "",
-                          customerName: e.target.value,
-                        }))
-                      }
-                      placeholder="O escriba el nombre del destino"
-                      disabled={loading}
-                    />
-                    {errors.customerName && (
-                      <div className="text-danger small">{errors.customerName}</div>
-                    )}
-                    <small className="text-muted">
-                      Este nombre es hacia dónde va la OPK (no usa catálogo de clientes).
-                    </small>
-                  </FormGroup>
-                </Col>
-              )}
+            </Row>
+          )}
+
+          {showDestinationPicker && (
+            <Row>
+              <Col md="8">
+                <FormGroup>
+                  <Label>{isOpcOrder ? "Destino / cliente" : "Destino / kiosco *"}</Label>
+                  <FilterableSelect
+                    options={kioskOptions}
+                    value={selectedKioskId}
+                    onChange={(rawId) => {
+                      const selected = rawId
+                        ? availableKiosks.find((k) => String(k.id) === String(rawId))
+                        : null;
+                      setFormData((prev) => ({
+                        ...prev,
+                        customerId: "",
+                        customerName: selected?.name || "",
+                      }));
+                    }}
+                    placeholder="Seleccione el kiosco destino…"
+                    emptyLabel="Seleccione kiosco"
+                    disabled={loading}
+                  />
+                  <Input
+                    className="mt-2"
+                    type="text"
+                    value={formData.customerName}
+                    invalid={!!errors.customerName}
+                    onChange={(e) =>
+                      setFormData((prev) => ({
+                        ...prev,
+                        customerId: "",
+                        customerName: e.target.value,
+                      }))
+                    }
+                    placeholder="O escriba el nombre / a dónde va"
+                    disabled={loading}
+                  />
+                  {errors.customerName && (
+                    <div className="text-danger small">{errors.customerName}</div>
+                  )}
+                  <small className="text-muted">
+                    {isOpcOrder
+                      ? "Igual que OPCK: elija kiosco o escriba el destino. No usa catálogo de clientes."
+                      : "Este nombre es hacia dónde va la OPK (no usa catálogo de clientes)."}
+                  </small>
+                </FormGroup>
+              </Col>
             </Row>
           )}
 
@@ -1071,7 +1080,7 @@ function ProductionOrderForm({ orderId, isOpen, toggle, onSuccess }) {
             </>
           )}
 
-          {!isKioskNormalOrder && (
+          {!showDestinationPicker && (
           <Row>
             {isClienteKioskoOrder(formData.orderType) ? (
               <Col md="8">
