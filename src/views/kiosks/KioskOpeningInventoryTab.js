@@ -398,7 +398,11 @@ function KioskOpeningInventoryTab({
       const product = productsById.get(Number(row.productId));
       const code = product?.code || row.productCode;
       const baseName = product?.name || row.productName;
-      const name = appendWalletMaterialToProductName(baseName, row.hardwareCondition);
+      let name = appendWalletMaterialToProductName(baseName, row.hardwareCondition);
+      const cinchoAudience = getCinchoAudienceLabel(row.hardwareCondition);
+      if (cinchoAudience && !name.toUpperCase().includes(cinchoAudience.toUpperCase())) {
+        name = `${name} ${cinchoAudience}`.trim();
+      }
       return {
         ...row,
         code,
@@ -605,7 +609,7 @@ function KioskOpeningInventoryTab({
         return;
       }
       if (showCinchoAudience && !normalizeCinchoAudience(row.hardware)) {
-        showWarning(`Indica si ${row.colorName} es de niño o de niña.`);
+        showWarning(`Indica si ${row.colorName} es de niño o de dama.`);
         return;
       }
 
@@ -621,9 +625,11 @@ function KioskOpeningInventoryTab({
         key,
         productId: Number(selectedProduct.id),
         productCode: selectedProduct.code,
-        productName: showWalletMaterial || showBrand
-          ? appendWalletMaterialToProductName(selectedProduct.name, hardware)
-          : selectedProduct.name,
+        productName: showCinchoAudience
+          ? `${selectedProduct.name} ${getCinchoAudienceLabel(hardware)}`.replace(/\s+/g, " ").trim()
+          : showWalletMaterial || showBrand
+            ? appendWalletMaterialToProductName(selectedProduct.name, hardware)
+            : selectedProduct.name,
         colorId: isPackaging ? null : Number(row.colorId),
         colorName: isPackaging ? "—" : row.colorName,
         hardwareCondition: hardware,
@@ -921,7 +927,7 @@ function KioskOpeningInventoryTab({
                           {needsSizes ? <Badge color="info" className="ml-1">Por tallas</Badge> : null}
                           {showBrand ? <Badge color="warning" className="ml-1">Con marca</Badge> : null}
                           {showWalletMaterial ? <Badge color="warning" className="ml-1">Sintética opcional</Badge> : null}
-                          {showCinchoAudience ? <Badge color="warning" className="ml-1">Niño / Niña</Badge> : null}
+                          {showCinchoAudience ? <Badge color="warning" className="ml-1">Niño / Dama</Badge> : null}
                         </div>
 
                         {!isPackaging ? (
@@ -943,7 +949,7 @@ function KioskOpeningInventoryTab({
                                 : showBrand
                                   ? "Si el mismo color tiene más de una marca, agrégalo una vez por marca."
                                   : showCinchoAudience
-                                    ? "Si el mismo color es de niño y de niña, agrégalo una vez por cada uno. Tallas: 16 a 32."
+                                    ? "Si el mismo color es de niño y de dama, agrégalo una vez por cada uno. Tallas: 16 a 32 (las mismas)."
                                     : showHardware
                                       ? "Puedes agregar varios. Si el mismo color tiene herraje nuevo y viejo, agrégalo dos veces."
                                       : "Puedes agregar varios colores."}
@@ -1119,7 +1125,7 @@ function KioskOpeningInventoryTab({
                     ) : (
                       <Alert color="light" className="border mb-0 py-2">
                         {isEntreCueros
-                          ? "Elige un producto, agrega colores y captura cantidad. En billeteras selecciona la marca; en cinchos indica si es de niño o de niña."
+                          ? "Elige un producto, agrega colores y captura cantidad. En billeteras selecciona la marca; en cinchos indica si es de niño o de dama."
                           : "Elige un producto, agrega varios colores y captura cantidad/herraje por fila."}
                       </Alert>
                     )}

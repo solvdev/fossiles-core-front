@@ -10,7 +10,7 @@ export const ENTRECUEROS_CINCHO_SIZES = ["16", "18", "20", "22", "24", "26", "28
 
 export const ENTRECUEROS_CINCHO_AUDIENCE_OPTIONS = [
   { value: "NINO", label: "Niño" },
-  { value: "NINA", label: "Niña" },
+  { value: "DAMA", label: "Dama" },
 ];
 
 export const SINTETICO_HARDWARE = "SINTETICO";
@@ -38,7 +38,8 @@ const stripDiacritics = (value) =>
 
 export const normalizeCinchoAudience = (value) => {
   const n = stripDiacritics(String(value || "").trim().toUpperCase()).replace(/\s+/g, "");
-  if (n === "NINO" || n === "NINA") return n;
+  if (n === "NINO") return "NINO";
+  if (n === "DAMA" || n === "NINA") return "DAMA";
   return "";
 };
 
