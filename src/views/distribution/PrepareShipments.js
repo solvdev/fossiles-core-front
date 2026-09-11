@@ -86,7 +86,6 @@ import ProductionOrderShipmentGenerateModal, {
   canGenerateShipmentForOrder,
 } from "components/production/ProductionOrderShipmentGenerateModal";
 import { exportRowsToCsv, exportRowsToPdf } from "utils/reportExportHelper";
-import { assertDispatchStockForProducts } from "utils/dispatchStockValidationHelper";
 import { formatDateGt, getTodayYmdGuatemala } from "utils/dateTimeHelper";
 import {
   buildShipmentDocumentInnerHtml,
@@ -3373,10 +3372,6 @@ function PrepareShipments() {
       const shipment = shipments.find((item) => Number(item.id) === Number(shipmentId));
       if (!shipment) {
         throw new Error("No se encontró el envío seleccionado");
-      }
-
-      if (!opiInternalFlow && !standaloneInternalFlow && !shipment.locationId) {
-        await assertDispatchStockForProducts(shipment.products || []);
       }
 
       await sendShipment(shipmentId);
