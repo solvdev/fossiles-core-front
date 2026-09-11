@@ -7,7 +7,13 @@ import {
 } from "utils/productAudienceHelper";
 import { hasInventorySizeBreakdown } from "utils/inventoryVariantHelper";
 import { isPackagingProductCode } from "utils/kioskPackagingHelper";
-import { getCinchoAudienceLabel, getHardwareConditionLabel, isSyntheticHardware, normalizeHardwareCondition, shouldShowInKioskPhysicalCount } from "utils/productCinchoHelper";
+import {
+  getCinchoAudienceLabel,
+  getWalletMaterialLabel,
+  isSyntheticHardware,
+  normalizeHardwareCondition,
+  shouldShowInKioskPhysicalCount,
+} from "utils/productCinchoHelper";
 import { getSaleYmdGuatemala, getTodayYmdGuatemala, shiftYmdGuatemala } from "utils/dateTimeHelper";
 
 export const POS_CATALOG_VIEWS = [
@@ -164,8 +170,9 @@ export const posVariantChipLabel = (variant, variantsInProduct = []) => {
   if (audienceLabel) {
     return `${colorName} · ${audienceLabel}`;
   }
-  if (isSyntheticHardware(hw)) {
-    return `${colorName} · ${getHardwareConditionLabel(hw)}`;
+  const materialLabel = getWalletMaterialLabel(hw);
+  if (materialLabel) {
+    return `${colorName} · ${materialLabel}`;
   }
   const isBrand = hw !== "NUEVO" && hw !== "VIEJO";
   if (isBrand) {
@@ -207,12 +214,13 @@ export const ENTRECUEROS_CATALOG_GROUPS = [
   { value: "SINTETICOS", label: "Sintéticos" },
 ];
 
-/** Cinchos, billeteras, u otros accesorios (sintéticos) para el POS Entrecueros. */
+/** Cinchos, billeteras de cuero, u otros accesorios (sintéticos) para el POS Entrecueros. */
 export const classifyEntrecuerosCatalogGroup = (item) => {
   const text = normalizePosLabel(
     `${item?.categoryName || ""} ${item?.productName || ""}`
   );
   if (text.includes("cincho")) return "CINCHOS";
+  if (isSyntheticHardware(item?.hardwareCondition)) return "SINTETICOS";
   if (text.includes("billeter")) return "BILLETERAS";
   return "SINTETICOS";
 };

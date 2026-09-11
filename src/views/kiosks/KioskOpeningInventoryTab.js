@@ -39,11 +39,12 @@ import {
   formatCinchoClassification,
   getCinchoAudienceLabel,
   getHardwareConditionLabel,
-  isSyntheticHardware,
   isWalletProductName,
-  appendSyntheticToProductName,
+  appendWalletMaterialToProductName,
+  getWalletMaterialLabel,
+  normalizeWalletMaterial,
+  ENTRECUEROS_WALLET_MATERIAL_OPTIONS,
   SINTETICO_HARDWARE,
-  SINTETICO_LABEL,
   normalizeCinchoAudience,
   normalizeCinchoType,
   productMatchesCinchoFilter,
@@ -371,7 +372,7 @@ function KioskOpeningInventoryTab({
   const selectedIsCincho = isCinchoProduct(selectedProduct);
   const selectedIsWallet = isWalletProductName(selectedProduct?.name);
   const showHardware = Boolean(selectedProduct && !isPackaging && !isEntreCueros);
-  const showWalletSynthetic = Boolean(isEntreCueros && selectedProduct && !isPackaging && selectedIsWallet);
+  const showWalletMaterial = Boolean(isEntreCueros && selectedProduct && !isPackaging && selectedIsWallet);
   const showBrand = Boolean(isEntreCueros && selectedProduct && !isPackaging && !selectedIsCincho && !selectedIsWallet);
   const showCinchoAudience = Boolean(isEntreCueros && selectedProduct && !isPackaging && selectedIsCincho);
 
@@ -397,13 +398,12 @@ function KioskOpeningInventoryTab({
       const product = productsById.get(Number(row.productId));
       const code = product?.code || row.productCode;
       const baseName = product?.name || row.productName;
-      const name = isSyntheticHardware(row.hardwareCondition)
-        ? appendSyntheticToProductName(baseName)
-        : baseName;
+      const name = appendWalletMaterialToProductName(baseName, row.hardwareCondition);
       return {
         ...row,
         code,
         name,
+        productName: name,
         audienceCategory: product?.audienceCategory,
         cinchoType: product?.cinchoType,
         cinchoForKids: Boolean(product?.cinchoForKids),
@@ -529,7 +529,7 @@ function KioskOpeningInventoryTab({
     colorId: color?.id != null ? Number(color.id) : null,
     colorName: color?.name || "—",
     hardware: hardware ?? (
-      showWalletSynthetic
+      showWalletMaterial
         ? SINTETICO_HARDWARE
         : (showBrand || showCinchoAudience ? "" : "NUEVO")
     ),
@@ -607,13 +607,17 @@ function KioskOpeningInventoryTab({
         showWarning(`Selecciona la marca para ${row.colorName}.`);
         return;
       }
+      if (showWalletMaterial && !normalizeWalletMaterial(row.hardware)) {
+        showWarning(`Indica si ${row.colorName} es sintética o no.`);
+        return;
+      }
       if (showCinchoAudience && !normalizeCinchoAudience(row.hardware)) {
         showWarning(`Indica si ${row.colorName} es de niño o de niña.`);
         return;
       }
 
-      const hardware = showWalletSynthetic
-        ? SINTETICO_HARDWARE
+      const hardware = showWalletMaterial
+        ? normalizeWalletMaterial(row.hardware)
         : showBrand
           ? normalizeProductBrand(row.hardware)
           : showCinchoAudience
@@ -624,14 +628,14 @@ function KioskOpeningInventoryTab({
         key,
         productId: Number(selectedProduct.id),
         productCode: selectedProduct.code,
-        productName: showWalletSynthetic
-          ? appendSyntheticToProductName(selectedProduct.name)
+        productName: showWalletMaterial
+          ? appendWalletMaterialToProductName(selectedProduct.name, hardware)
           : selectedProduct.name,
         colorId: isPackaging ? null : Number(row.colorId),
         colorName: isPackaging ? "—" : row.colorName,
         hardwareCondition: hardware,
-        hardwareLabel: showWalletSynthetic
-          ? SINTETICO_LABEL
+        hardwareLabel: showWalletMaterial
+          ? getWalletMaterialLabel(hardware)
           : showBrand
             ? hardware
             : showCinchoAudience
@@ -925,7 +929,7 @@ function KioskOpeningInventoryTab({
                           {isPackaging ? <Badge color="secondary" className="ml-1">Empaque</Badge> : null}
                           {needsSizes ? <Badge color="info" className="ml-1">Por tallas</Badge> : null}
                           {showBrand ? <Badge color="warning" className="ml-1">Con marca</Badge> : null}
-                          {showWalletSynthetic ? <Badge color="warning" className="ml-1">Sintética</Badge> : null}
+                          {showWalletMaterial ? <Badge color="warning" className="ml-1">Sintética / No sintética</Badge> : null}
                           {showCinchoAudience ? <Badge color="warning" className="ml-1">Niño / Niña</Badge> : null}
                         </div>
 
@@ -945,8 +949,8 @@ function KioskOpeningInventoryTab({
                             <small className="text-muted d-block mt-1">
                               {showBrand
                                 ? "Si el mismo color tiene más de una marca, agrégalo una vez por marca."
-                                : showWalletSynthetic
-                                  ? "Las billeteras de Entre Cueros entran como sintéticas; el nombre incluye Sintética."
+                                : showWalletMaterial
+                                  ? "Si el mismo color es sintético y no sintético, agrégalo una vez por cada uno. El nombre incluye Sintética o No sintética."
                                   : showCinchoAudience
                                     ? "Si el mismo color es de niño y de niña, agrégalo una vez por cada uno. Tallas: 16 a 32."
                                     : showHardware
@@ -970,6 +974,7 @@ function KioskOpeningInventoryTab({
                                   <th>Color</th>
                                   {showHardware ? <th>Herraje</th> : null}
                                   {showBrand ? <th>Marca</th> : null}
+                                  {showWalletMaterial ? <th>Material</th> : null}
                                   {showCinchoAudience ? <th>Para</th> : null}
                                   <th className="text-right">{needsSizes ? "Tallas" : "Cant."}</th>
                                   <th />
@@ -1015,6 +1020,23 @@ function KioskOpeningInventoryTab({
                                           <option value="">Marca…</option>
                                           {PRODUCT_BRAND_OPTIONS.map((brand) => (
                                             <option key={brand} value={brand}>{brand}</option>
+                                          ))}
+                                        </Input>
+                                      </td>
+                                    ) : null}
+                                    {showWalletMaterial ? (
+                                      <td>
+                                        <Input
+                                          type="select"
+                                          bsSize="sm"
+                                          value={row.hardware || SINTETICO_HARDWARE}
+                                          disabled={saving}
+                                          onChange={(e) =>
+                                            updateColorRow(row.rowId, { hardware: e.target.value })
+                                          }
+                                        >
+                                          {ENTRECUEROS_WALLET_MATERIAL_OPTIONS.map((opt) => (
+                                            <option key={opt.value} value={opt.value}>{opt.label}</option>
                                           ))}
                                         </Input>
                                       </td>
@@ -1308,7 +1330,7 @@ function KioskOpeningInventoryTab({
                           <th>Producto</th>
                           <th>Línea</th>
                           <th>Color</th>
-                          <th>{isEntreCueros ? "Marca / Para" : "Herraje"}</th>
+                          <th>{isEntreCueros ? "Marca / Material / Para" : "Herraje"}</th>
                           <th>Tallas</th>
                           <th className="text-right">Cant.</th>
                           {!readOnly ? <th /> : null}

@@ -15,6 +15,13 @@ export const ENTRECUEROS_CINCHO_AUDIENCE_OPTIONS = [
 
 export const SINTETICO_HARDWARE = "SINTETICO";
 export const SINTETICO_LABEL = "Sintética";
+export const NO_SINTETICO_HARDWARE = "NO_SINTETICO";
+export const NO_SINTETICO_LABEL = "No sintética";
+
+export const ENTRECUEROS_WALLET_MATERIAL_OPTIONS = [
+  { value: SINTETICO_HARDWARE, label: SINTETICO_LABEL },
+  { value: NO_SINTETICO_HARDWARE, label: NO_SINTETICO_LABEL },
+];
 
 export const resolveCinchoSizesForProduct = (product) =>
   product?.cinchoForKids ? KIDS_CINCHO_SIZES : ADULT_CINCHO_SIZES;
@@ -43,23 +50,56 @@ export const getCinchoAudienceLabel = (value) => {
 export const isWalletProductName = (name) =>
   String(name || "").toUpperCase().includes("BILLETERA");
 
+const compactHardwareKey = (value) =>
+  stripDiacritics(String(value || "").trim().toUpperCase()).replace(/[\s_]/g, "");
+
+export const isNonSyntheticHardware = (value) => {
+  const n = compactHardwareKey(value);
+  return n === "NOSINTETICO" || n === "NOSINTETICA" || n === "CUERO";
+};
+
 export const isSyntheticHardware = (value) => {
-  const n = stripDiacritics(String(value || "").trim().toUpperCase()).replace(/\s+/g, "");
+  if (isNonSyntheticHardware(value)) return false;
+  const n = compactHardwareKey(value);
   return n === SINTETICO_HARDWARE || n === "SINTETICA";
 };
 
-export const appendSyntheticToProductName = (name) => {
+export const normalizeWalletMaterial = (value) => {
+  if (isNonSyntheticHardware(value)) return NO_SINTETICO_HARDWARE;
+  if (isSyntheticHardware(value)) return SINTETICO_HARDWARE;
+  const n = compactHardwareKey(value);
+  if (!n || n === "NUEVO") return SINTETICO_HARDWARE;
+  return "";
+};
+
+export const getWalletMaterialLabel = (value) => {
+  if (isNonSyntheticHardware(value)) return NO_SINTETICO_LABEL;
+  if (isSyntheticHardware(value)) return SINTETICO_LABEL;
+  return "";
+};
+
+export const appendWalletMaterialToProductName = (name, hardware) => {
+  const label = getWalletMaterialLabel(hardware);
+  if (!label) return String(name || "").trim();
   const n = String(name || "").trim();
   const compact = stripDiacritics(n).toUpperCase();
-  if (compact.includes("SINTETIC")) {
-    return n || SINTETICO_LABEL;
+  const compactKey = compact.replace(/[\s_]/g, "");
+  if (label === NO_SINTETICO_LABEL) {
+    if (compact.includes("NO SINTETIC") || compactKey.includes("NOSINTETIC")) {
+      return n || label;
+    }
+  } else if (compact.includes("SINTETIC") && !compactKey.includes("NOSINTETIC")) {
+    return n || label;
   }
-  return `${n} ${SINTETICO_LABEL}`.trim();
+  return `${n} ${label}`.trim();
 };
+
+export const appendSyntheticToProductName = (name) =>
+  appendWalletMaterialToProductName(name, SINTETICO_HARDWARE);
 
 export const resolveStockDimensionLabel = (value) =>
   getCinchoAudienceLabel(value)
-  || (isSyntheticHardware(value) ? SINTETICO_LABEL : "")
+  || getWalletMaterialLabel(value)
   || normalizeProductBrand(value)
   || "";
 
@@ -128,7 +168,8 @@ export const getCinchoTypeLabel = (value) => {
 export const getHardwareConditionLabel = (value) => {
   const audience = getCinchoAudienceLabel(value);
   if (audience) return audience;
-  if (isSyntheticHardware(value)) return SINTETICO_LABEL;
+  const material = getWalletMaterialLabel(value);
+  if (material) return material;
   const normalized = normalizeHardwareCondition(value);
   if (normalized) {
     return HARDWARE_CONDITION_OPTIONS.find((opt) => opt.value === normalized)?.label || normalized;

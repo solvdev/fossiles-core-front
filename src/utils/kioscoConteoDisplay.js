@@ -1,12 +1,13 @@
 import { getProductAudienceLabel, normalizeAudienceCategory } from "utils/productAudienceHelper";
 import { normalizeProductBrand } from "utils/productBrandHelper";
 import {
-  appendSyntheticToProductName,
+  appendWalletMaterialToProductName,
   getCinchoAudienceLabel,
   isCinchoProductRow,
   isFossCinchoProductRow,
   isPackagingProductCode,
   isSyntheticHardware,
+  isNonSyntheticHardware,
   normalizeCinchoAudience,
   normalizeCinchoType,
   normalizeHardwareCondition,
@@ -117,8 +118,8 @@ export function formatConteoExportProductName(row) {
 
 export function formatConteoProductTitle(row) {
   const name = normalizeConteoLabelSpaces(row?.productName);
-  if (isSyntheticHardware(row?.hardwareCondition)) {
-    return appendSyntheticToProductName(name);
+  if (isSyntheticHardware(row?.hardwareCondition) || isNonSyntheticHardware(row?.hardwareCondition)) {
+    return appendWalletMaterialToProductName(name, row.hardwareCondition);
   }
   const brand = normalizeProductBrand(row?.hardwareCondition);
   if (brand && !name.toUpperCase().includes(brand)) {
