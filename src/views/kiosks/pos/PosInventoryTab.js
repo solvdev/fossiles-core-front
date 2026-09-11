@@ -199,7 +199,7 @@ const productUsesHardwareSplit = (row, entreCueros = false) => {
   if (!row || row.packaging || isPackagingProductCode(row.productCode)) return false;
   if (normalizeProductBrand(row.hardwareCondition)) return true;
   if (normalizeCinchoAudience(row.hardwareCondition)) return true;
-  if (entrecueros) return false;
+  if (entreCueros) return false;
   return isCinchoProductRow({
     productCode: row.productCode,
     productName: row.productName,
@@ -673,7 +673,7 @@ function PosInventoryTab({ kioskLocationId, kioskName, posMode, active }) {
                   type="text"
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                  placeholder={entrecueros
+                  placeholder={entreCueros
                     ? "Código, producto, categoría, línea, color, marca..."
                     : "Código, producto, categoría, línea, color, herraje..."}
                 />
@@ -754,7 +754,7 @@ function PosInventoryTab({ kioskLocationId, kioskName, posMode, active }) {
                         <thead>
                           <tr>
                             <th>Color</th>
-                            <th>{entrecueros ? "Marca / Para" : "Herraje"}</th>
+                            <th>{entreCueros ? "Marca / Para" : "Herraje"}</th>
                             <th>Tallas</th>
                             <th className="text-right">Stock</th>
                             <th className="text-right">Mínimo</th>
