@@ -10,8 +10,10 @@ import { isPackagingProductCode } from "utils/kioskPackagingHelper";
 import {
   appendWalletMaterialToProductName,
   extractStockBrand,
+  getCinchoAudienceLabel,
   getHardwareConditionLabel,
   isSyntheticHardware,
+  normalizeCinchoAudience,
   normalizeHardwareCondition,
   shouldShowInKioskPhysicalCount,
 } from "utils/productCinchoHelper";
@@ -169,8 +171,9 @@ export const posVariantChipLabel = (variant, variantsInProduct = []) => {
   const hw = normalizePosHardwareCondition(variant?.hardwareCondition);
   const extraLabel = getHardwareConditionLabel(hw);
   const brand = extractStockBrand(variant?.hardwareCondition);
+  const audience = normalizeCinchoAudience(variant?.hardwareCondition);
   const isSplitDimension = hw !== "NUEVO" && hw !== "VIEJO";
-  if (isSplitDimension && extraLabel && extraLabel !== "—" && !brand) {
+  if (isSplitDimension && extraLabel && extraLabel !== "—" && !brand && !audience) {
     return `${colorName} · ${extraLabel}`;
   }
   if (hardwareValues.size <= 1) {
@@ -332,7 +335,7 @@ export const filterPosInventory = (inventory, {
     const text = normalizePosLabel(
       `${item.productCode || ""} ${item.productName || ""} ${item.colorName || ""} ${
         extractStockBrand(item.hardwareCondition) || ""
-      }`
+      } ${getCinchoAudienceLabel(item.hardwareCondition) || ""}`
     );
     return text.includes(query);
   });
@@ -363,13 +366,26 @@ export const sortVariantsByColor = (variants) => {
   });
 };
 
-/** Una tarjeta por producto; en Entrecueros, una más por marca (y sintético/cuero). */
+/** Una tarjeta por producto; en Entrecueros, una más por marca, sintético/cuero y PARA (Niño/Dama). */
 export const posCatalogGroupKey = (item) => {
   const productId = item?.productId ?? "";
   const brand = extractStockBrand(item?.hardwareCondition);
-  if (!brand) return String(productId);
-  const material = isSyntheticHardware(item?.hardwareCondition) ? "SINTETICO" : "CUERO";
-  return `${productId}::${material}::${brand}`;
+  const audience = normalizeCinchoAudience(item?.hardwareCondition);
+  const parts = [String(productId)];
+  if (brand) {
+    parts.push(isSyntheticHardware(item?.hardwareCondition) ? "SINTETICO" : "CUERO", brand);
+  }
+  if (audience) parts.push(audience);
+  return parts.join("::");
+};
+
+const posCatalogProductName = (item) => {
+  let name = appendWalletMaterialToProductName(item?.productName, item?.hardwareCondition);
+  const audience = getCinchoAudienceLabel(item?.hardwareCondition);
+  if (audience && !name.toUpperCase().includes(audience.toUpperCase())) {
+    name = `${name} ${audience}`.trim();
+  }
+  return name;
 };
 
 export const groupInventoryByProduct = (items) => {
@@ -382,7 +398,7 @@ export const groupInventoryByProduct = (items) => {
         groupKey,
         productId: item.productId,
         productCode: item.productCode,
-        productName: appendWalletMaterialToProductName(item.productName, item.hardwareCondition),
+        productName: posCatalogProductName(item),
         productImageUrl: item.productImageUrl,
         suggestedUnitPrice: item.suggestedUnitPrice,
         categoryId: item.categoryId,
