@@ -24,7 +24,14 @@ import { getProducts } from "services/productService";
 import { createStandaloneKioskShipment, previewDispatchStock } from "services/productDistributionService";
 import { isCinchoInventoryProductByCodeAndName } from "utils/cinchoProductionHelper";
 import { isPackagingProductCode } from "utils/kioskPackagingHelper";
-import { HARDWARE_CONDITION_OPTIONS } from "utils/productCinchoHelper";
+import { ENTRECUEROS_CINCHO_SIZES, HARDWARE_CONDITION_OPTIONS } from "utils/productCinchoHelper";
+import {
+  dimensionRequiredMessage,
+  isEntreCuerosLocation,
+  resolvePayloadHardware,
+  stockDimensionKind,
+} from "utils/kioskStockDimensionHelper";
+import KioskInventoryDimensionSelect from "views/kiosks/KioskInventoryDimensionSelect";
 import { getDefaultShipmentDocumentDate } from "utils/prepareShipmentsOrderHelper";
 import { showError, showSuccess } from "utils/notificationHelper";
 
@@ -182,6 +189,13 @@ function CreateStandaloneKioskShipmentModal({ isOpen, toggle, onCreated }) {
     return isCinchoInventoryProductByCodeAndName(product.code, product.name);
   };
 
+  const entreCuerosDest = isEntreCuerosLocation(locationId);
+  const lineNeedsDimension = (row) => {
+    const product = getLineProduct(row);
+    if (!product || isPackagingProductCode(product.code)) return false;
+    return entreCuerosDest || isLineCincho(row);
+  };
+
   const refreshLineStockByKey = async (key, rowOverride) => {
     const row = rowOverride || lines.find((l) => l.key === key);
     if (!row) return;
@@ -266,7 +280,9 @@ function CreateStandaloneKioskShipmentModal({ isOpen, toggle, onCreated }) {
         productId: Number(row.productId),
         colorId: row.colorId ? Number(row.colorId) : null,
         size: String(row.size || "").trim().toUpperCase(),
-        hardwareCondition: String(row.hardwareCondition || "").trim().toUpperCase() || null,
+        hardwareCondition: entreCuerosDest
+          ? resolvePayloadHardware(locationId, productsById.get(Number(row.productId)), row.hardwareCondition) || null
+          : String(row.hardwareCondition || "").trim().toUpperCase() || null,
         quantity: Number(row.quantity) || 0,
         rowKey: row.key,
       }))
@@ -290,9 +306,10 @@ function CreateStandaloneKioskShipmentModal({ isOpen, toggle, onCreated }) {
         showError(`Indique talla para ${product?.code || "cincho"} — ${product?.name || "producto"}`);
         return;
       }
-      if (source && isLineCincho(source) && !row.hardwareCondition) {
+      if (source && lineNeedsDimension(source) && !row.hardwareCondition) {
         const product = getLineProduct(source);
-        showError(`Indique herraje (nuevo/viejo) para ${product?.code || "cincho"}`);
+        const kind = stockDimensionKind(locationId, product);
+        showError(`Indica la variante de ${product?.code || "producto"}: ${dimensionRequiredMessage(kind)}.`);
         return;
       }
     }
@@ -376,7 +393,7 @@ function CreateStandaloneKioskShipmentModal({ isOpen, toggle, onCreated }) {
               <th>Producto</th>
               <th>Color</th>
               <th>Talla</th>
-              <th>Herraje</th>
+              <th>{entreCuerosDest ? "Variante" : "Herraje"}</th>
               <th style={{ width: 90 }}>Cant.</th>
               <th>Stock PT/Dev.</th>
               <th style={{ width: 44 }} />
@@ -385,6 +402,8 @@ function CreateStandaloneKioskShipmentModal({ isOpen, toggle, onCreated }) {
           <tbody>
             {lines.map((row) => {
               const cincho = isLineCincho(row);
+              const needsDimension = lineNeedsDimension(row);
+              const product = getLineProduct(row);
               return (
                 <tr key={row.key}>
                   <td style={{ minWidth: 260 }}>
@@ -404,35 +423,65 @@ function CreateStandaloneKioskShipmentModal({ isOpen, toggle, onCreated }) {
                     />
                   </td>
                   <td style={{ minWidth: 100 }}>
-                    <Input
-                      value={row.size}
-                      disabled={!row.productId}
-                      onChange={(e) =>
-                        patchLine(row.key, { size: e.target.value.toUpperCase(), stockHint: "" })
-                      }
-                      onBlur={() => onLineFieldBlur(row.key)}
-                      placeholder={cincho ? "Ej: 34" : "Opcional"}
-                      bsSize="sm"
-                    />
-                  </td>
-                  <td style={{ minWidth: 120 }}>
-                    {cincho ? (
+                    {cincho && entreCuerosDest ? (
                       <Input
                         type="select"
                         bsSize="sm"
-                        value={row.hardwareCondition || ""}
+                        value={row.size || ""}
                         disabled={!row.productId}
                         onChange={(e) =>
-                          patchLine(row.key, { hardwareCondition: e.target.value || "" })
+                          patchLine(row.key, { size: e.target.value.toUpperCase(), stockHint: "" })
                         }
+                        onBlur={() => onLineFieldBlur(row.key)}
                       >
-                        <option value="">Seleccione…</option>
-                        {HARDWARE_CONDITION_OPTIONS.filter((opt) => opt.value).map((opt) => (
-                          <option key={opt.value} value={opt.value}>
-                            {opt.label}
-                          </option>
+                        <option value="">Talla…</option>
+                        {ENTRECUEROS_CINCHO_SIZES.map((size) => (
+                          <option key={size} value={size}>{size}</option>
                         ))}
                       </Input>
+                    ) : (
+                      <Input
+                        value={row.size}
+                        disabled={!row.productId}
+                        onChange={(e) =>
+                          patchLine(row.key, { size: e.target.value.toUpperCase(), stockHint: "" })
+                        }
+                        onBlur={() => onLineFieldBlur(row.key)}
+                        placeholder={cincho ? "Ej: 34" : "Opcional"}
+                        bsSize="sm"
+                      />
+                    )}
+                  </td>
+                  <td style={{ minWidth: 140 }}>
+                    {needsDimension ? (
+                      entreCuerosDest ? (
+                        <KioskInventoryDimensionSelect
+                          locationId={locationId}
+                          product={product}
+                          value={row.hardwareCondition || ""}
+                          disabled={!row.productId}
+                          onChange={(value) =>
+                            patchLine(row.key, { hardwareCondition: value || "" })
+                          }
+                        />
+                      ) : (
+                        <Input
+                          type="select"
+                          bsSize="sm"
+                          value={row.hardwareCondition || ""}
+                          disabled={!row.productId}
+                          onChange={(e) =>
+                            patchLine(row.key, { hardwareCondition: e.target.value || "" })
+                          }
+                        >
+                          <option value="">Seleccione…</option>
+                          {HARDWARE_CONDITION_OPTIONS.filter((opt) => opt.value).map((opt) => (
+                            <option key={opt.value} value={opt.value}>
+                              {opt.label}
+                            </option>
+                          ))}
+                        </Input>
+                      )
                     ) : (
                       <span className="text-muted small">—</span>
                     )}

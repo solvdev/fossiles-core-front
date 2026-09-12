@@ -1,3 +1,10 @@
+import {
+  STOCK_DIMENSION_KIND,
+  dimensionRequiredMessage,
+  resolvePayloadHardware,
+  stockDimensionKind,
+} from "utils/kioskStockDimensionHelper";
+
 export const OPERATION_OPTIONS = [
   { value: "ENTRADA", label: "Entrada de stock" },
   { value: "VENTA", label: "Venta" },
@@ -38,9 +45,22 @@ export function createEmptyLineItem(id = Date.now()) {
     colorId: "",
     quantity: "",
     sizeKey: "",
-    hardwareCondition: "NUEVO",
+    hardwareCondition: "",
+    destinationHardwareCondition: "",
     direction: "INGRESO",
   };
+}
+
+function validateLineDimension(locationId, product, hardware, allowResidual) {
+  const kind = stockDimensionKind(locationId, product);
+  if (kind === STOCK_DIMENSION_KIND.NONE || kind === STOCK_DIMENSION_KIND.HERRAJE) {
+    return "";
+  }
+  const resolved = resolvePayloadHardware(locationId, product, hardware, { allowResidual });
+  if (!resolved) {
+    return dimensionRequiredMessage(kind);
+  }
+  return "";
 }
 
 export function isPositiveInteger(value) {
@@ -72,6 +92,8 @@ export function validateBulkLines(
     reason,
     physicalSlipNumber,
     lineNeedsSize,
+    findProduct,
+    isOutflowLine,
   } = {}
 ) {
   if (operation === "TRASLADO") {
@@ -113,6 +135,30 @@ export function validateBulkLines(
       typeof lineNeedsSize === "function" ? lineNeedsSize(line) : false;
     if (needsSize && !String(line.sizeKey || "").trim()) {
       return `Línea ${lineNo}: indica la talla (FOSS / cincho).`;
+    }
+    const product = typeof findProduct === "function" ? findProduct(line.productId) : null;
+    const originLocationId = operation === "TRASLADO" ? locationOriginId : locationId;
+    const originOutflow = operation === "TRASLADO"
+      || (typeof isOutflowLine === "function" ? isOutflowLine(line) : operation !== "ENTRADA");
+    const originError = validateLineDimension(
+      originLocationId,
+      product,
+      line.hardwareCondition,
+      originOutflow
+    );
+    if (originError) {
+      return `Línea ${lineNo}: ${originError}`;
+    }
+    if (operation === "TRASLADO") {
+      const destError = validateLineDimension(
+        locationDestinationId,
+        product,
+        line.destinationHardwareCondition,
+        false
+      );
+      if (destError) {
+        return `Línea ${lineNo}: destino — ${destError}`;
+      }
     }
   }
   if (operation === "VENTA" && !invoiceId) {

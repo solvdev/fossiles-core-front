@@ -123,7 +123,7 @@ function PosCatalogPanel({
         {!isPackagingView && (
           <>
             <div className="kiosk-pos-filter-row">
-              <span className="kiosk-pos-filter-label">Categoría</span>
+              <span className="kiosk-pos-filter-label">{entrecueros ? "Variante" : "Categoría"}</span>
               <div className="kiosk-pos-chips">
                 <button
                   type="button"
@@ -316,7 +316,7 @@ function PosCatalogPanel({
                       const stock = posVariantStockQty(variant);
                       const stockLow = stock <= 3;
                       const outOfStock = stock <= 0;
-                      const chipLabel = posVariantChipLabel(variant, group.variants);
+                      const chipLabel = posVariantChipLabel(variant, group.variants, { entreCueros: entrecueros });
                       const swatch = getColorSwatch(variant.colorName);
                       const hardwareHint = variant.hardwareLabel || "";
 
@@ -327,7 +327,7 @@ function PosCatalogPanel({
                           className={`kiosk-pos-variant-chip ${needsSize ? "needs-size" : ""} ${
                             stockLow ? "low-stock" : ""
                           } ${outOfStock ? "disabled" : ""} ${
-                            normalizePosHardwareCondition(variant.hardwareCondition) === "VIEJO"
+                            !entrecueros && normalizePosHardwareCondition(variant.hardwareCondition) === "VIEJO"
                               ? "hardware-viejo"
                               : ""
                           }`}

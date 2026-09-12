@@ -7,10 +7,13 @@ import {
   hasInventorySizeBreakdown,
 } from "utils/inventoryVariantHelper";
 import { isPackagingProductCode } from "utils/kioskPackagingHelper";
+import { formatCinchoClassification } from "utils/productCinchoHelper";
 import {
-  formatCinchoClassification,
-  getHardwareConditionLabel,
-} from "utils/productCinchoHelper";
+  isEntreCuerosLocation,
+  kioskDimensionDisplayLabel,
+  normalizeStockDimensionKey,
+  sameStockDimension,
+} from "utils/kioskStockDimensionHelper";
 import "./KioskInventory.css";
 
 function KioskInventoryStockExplorer({
@@ -25,6 +28,8 @@ function KioskInventoryStockExplorer({
   onProductChange,
   selectedColorId,
   onColorChange,
+  selectedHardware,
+  onHardwareChange,
   showAllRows,
   onToggleShowAll,
   packagingStockCount,
@@ -41,19 +46,29 @@ function KioskInventoryStockExplorer({
 
   const selectedVariant = useMemo(() => {
     if (!productVariants.length) return null;
-    if (selectedColorId) {
-      return (
-        productVariants.find((row) => Number(row.colorId) === Number(selectedColorId)) ||
-        productVariants[0]
-      );
+    const colorMatches = selectedColorId
+      ? productVariants.filter((row) => Number(row.colorId) === Number(selectedColorId))
+      : productVariants;
+    if (selectedHardware) {
+      return colorMatches.find((row) => sameStockDimension(row.hardwareCondition, selectedHardware))
+        || null;
     }
-    return productVariants.length === 1 ? productVariants[0] : null;
-  }, [productVariants, selectedColorId]);
+    return colorMatches.length === 1 ? colorMatches[0] : null;
+  }, [productVariants, selectedColorId, selectedHardware]);
 
   const selectedProduct = useMemo(
     () => (products || []).find((p) => Number(p.id) === Number(selectedProductId)) || null,
     [products, selectedProductId]
   );
+  const entreCueros = isEntreCuerosLocation(selectedKiosk);
+  const dimensionTitle = entreCueros ? "Variante" : "Herraje";
+
+  const selectVariant = (row) => {
+    onColorChange(row.colorId ? String(row.colorId) : "");
+    if (onHardwareChange) {
+      onHardwareChange(normalizeStockDimensionKey(row.hardwareCondition));
+    }
+  };
 
   return (
     <div className="kiosk-inv-stock-explorer mb-3">
@@ -112,17 +127,22 @@ function KioskInventoryStockExplorer({
               <div>
                 {productVariants.map((row) => {
                   const active =
-                    selectedColorId &&
-                    Number(row.colorId) === Number(selectedColorId);
+                    selectedColorId
+                    && Number(row.colorId) === Number(selectedColorId)
+                    && sameStockDimension(row.hardwareCondition, selectedHardware);
+                  const dimension = kioskDimensionDisplayLabel(row.hardwareCondition, { entreCueros });
                   return (
                     <Badge
-                      key={row.id || `${row.productId}-${row.colorId}`}
+                      key={row.id || `${row.productId}-${row.colorId}-${row.hardwareCondition}`}
                       color={active ? "primary" : "secondary"}
                       className={`kiosk-inv-color-pill ${active ? "active" : ""}`}
-                      onClick={() => onColorChange(row.colorId ? String(row.colorId) : "")}
+                      onClick={() => selectVariant(row)}
                       style={{ cursor: "pointer" }}
                     >
-                      {row.colorName || "Sin color"} · {row.currentStock}
+                      {row.colorName || "Sin color"}
+                      {dimension && dimension !== "—" ? ` · ${dimension}` : ""}
+                      {" · "}
+                      {row.currentStock}
                     </Badge>
                   );
                 })}
@@ -146,7 +166,7 @@ function KioskInventoryStockExplorer({
                     {" · "}
                     Tipo: {formatCinchoClassification(selectedVariant || selectedProduct)}
                     {" · "}
-                    Herraje: {getHardwareConditionLabel(selectedVariant?.hardwareCondition)}
+                    {dimensionTitle}: {kioskDimensionDisplayLabel(selectedVariant?.hardwareCondition, { entreCueros })}
                   </div>
                 </div>
                 <div className="text-right">
@@ -180,13 +200,13 @@ function KioskInventoryStockExplorer({
             </div>
           )}
 
-          {productVariants.length > 1 && !selectedColorId ? (
+          {productVariants.length > 1 && !selectedVariant ? (
             <Table responsive size="sm" className="mb-0 bg-white">
               <thead>
                 <tr>
                   <th>Color</th>
                   <th>Tipo</th>
-                  <th>Herraje</th>
+                  <th>{dimensionTitle}</th>
                   <th className="text-right">Stock</th>
                   <th className="text-right">Mínimo</th>
                   <th>Tallas</th>
@@ -195,13 +215,13 @@ function KioskInventoryStockExplorer({
               <tbody>
                 {productVariants.map((row) => (
                   <tr
-                    key={row.id || `${row.productId}-${row.colorId}`}
+                    key={row.id || `${row.productId}-${row.colorId}-${row.hardwareCondition}`}
                     style={{ cursor: "pointer" }}
-                    onClick={() => onColorChange(row.colorId ? String(row.colorId) : "")}
+                    onClick={() => selectVariant(row)}
                   >
                     <td>{row.colorName || "Sin color"}</td>
                     <td className="small">{formatCinchoClassification(row)}</td>
-                    <td className="small">{getHardwareConditionLabel(row.hardwareCondition)}</td>
+                    <td className="small">{kioskDimensionDisplayLabel(row.hardwareCondition, { entreCueros })}</td>
                     <td className="text-right font-weight-bold">{row.currentStock ?? 0}</td>
                     <td className="text-right">{row.minimumStock ?? 0}</td>
                     <td className="small text-muted">
@@ -257,7 +277,7 @@ function KioskInventoryStockExplorer({
                   <th>Producto</th>
                   <th>Color</th>
                   <th>Tipo</th>
-                  <th>Herraje</th>
+                  <th>{dimensionTitle}</th>
                   <th className="text-right">Actual</th>
                   <th className="text-right">Mínimo</th>
                   <th>Estado</th>
@@ -276,7 +296,7 @@ function KioskInventoryStockExplorer({
                       </td>
                       <td>{row.colorName || "—"}</td>
                       <td className="small">{formatCinchoClassification(row)}</td>
-                      <td className="small">{getHardwareConditionLabel(row.hardwareCondition)}</td>
+                      <td className="small">{kioskDimensionDisplayLabel(row.hardwareCondition, { entreCueros })}</td>
                       <td className="text-right">{row.currentStock}</td>
                       <td className="text-right">{row.minimumStock}</td>
                       <td>

@@ -354,6 +354,7 @@ function KioskSales() {
           entrecuerosPriceQty3: inventoryItem.entrecuerosPriceQty3,
           entrecuerosPriceQty6: inventoryItem.entrecuerosPriceQty6,
           entrecuerosPriceQty12: inventoryItem.entrecuerosPriceQty12,
+          cinchoType: inventoryItem.cinchoType,
         },
       ];
       return isEntrecuerosPos ? applyEntrecuerosCartPrices(next) : next;

@@ -41,10 +41,20 @@ import { getAuthHeader } from "services/authService";
 import { showError, showSuccess } from "utils/notificationHelper";
 import { formatDateGt } from "utils/dateTimeHelper";
 import {
+  ENTRECUEROS_CINCHO_SIZES,
   HARDWARE_CONDITION_OPTIONS,
-  getHardwareConditionLabel,
   normalizeHardwareCondition,
 } from "utils/productCinchoHelper";
+import { isPackagingProductCode } from "utils/kioskPackagingHelper";
+import {
+  dimensionRequiredMessage,
+  isEntreCuerosLocation,
+  kioskDimensionDisplayLabel,
+  normalizeStockDimensionKey,
+  resolvePayloadHardware,
+  stockDimensionKind,
+} from "utils/kioskStockDimensionHelper";
+import KioskInventoryDimensionSelect from "views/kiosks/KioskInventoryDimensionSelect";
 import { FilterableSelect } from "components/distribution/FilterableSelect";
 import * as XLSX from "xlsx-js-style";
 import QRCode from "qrcode";
@@ -314,23 +324,45 @@ function ProductDistributionDetail() {
   const normalizeShipmentSize = (sizeValue) => String(sizeValue || "").trim().toUpperCase();
   const normalizeShipmentColor = (colorId) =>
     colorId === null || colorId === undefined || colorId === "" ? "null" : String(parseInt(colorId, 10));
-  const normalizeShipmentHardware = (value) => normalizeHardwareCondition(value) || "";
+  const entreCuerosDest = isEntreCuerosLocation(selectedLocation);
+  const normalizeShipmentHardware = (value) => {
+    const raw = String(value || "").trim();
+    if (!raw || raw === "nohw") return "";
+    if (entreCuerosDest) {
+      const key = normalizeStockDimensionKey(raw);
+      return key === "NUEVO" && !normalizeHardwareCondition(raw) ? raw.toUpperCase() : key;
+    }
+    return normalizeHardwareCondition(raw) || "";
+  };
 
   const buildShipmentKey = (productId, colorId, sizeLabel = "", hardware = "") =>
     `${parseInt(productId, 10)}:${normalizeShipmentColor(colorId)}:${normalizeShipmentSize(sizeLabel) || "nosize"}:${normalizeShipmentHardware(hardware) || "nohw"}`;
 
   const parseShipmentKey = (key) => {
     const parts = String(key).split(":");
-    const [productRaw, colorRaw, sizeRaw, hardwareRaw] = parts;
+    const [productRaw, colorRaw, sizeRaw, ...hwParts] = parts;
     const normalizedColorRaw = colorRaw === undefined ? "null" : colorRaw;
     const normalizedSizeRaw = sizeRaw === undefined ? "nosize" : sizeRaw;
-    const normalizedHwRaw = hardwareRaw === undefined ? "nohw" : hardwareRaw;
+    const normalizedHwRaw = hwParts.length ? hwParts.join(":") : "nohw";
     return {
       productId: parseInt(productRaw, 10),
       colorId: normalizedColorRaw === "null" ? null : parseInt(normalizedColorRaw, 10),
       size: normalizedSizeRaw === "nosize" ? "" : normalizedSizeRaw,
       hardwareCondition: normalizedHwRaw === "nohw" ? "" : normalizeShipmentHardware(normalizedHwRaw),
     };
+  };
+
+  const shipmentProductShape = (item) => ({
+    code: item?.productCode || item?.code,
+    name: item?.productName || item?.name,
+    cinchoType: item?.cinchoType,
+    cinchoForKids: item?.cinchoForKids,
+  });
+
+  const shipmentNeedsDimension = (item) => {
+    if (isPackagingProductCode(item?.productCode || item?.code)) return false;
+    if (entreCuerosDest) return true;
+    return isCinchoProduct(item?.productCode, item?.productName);
   };
 
   const PACKING_TAG = "__PACKING_SUM__:";
@@ -769,21 +801,29 @@ function ProductDistributionDetail() {
       : parseInt(colorValue, 10);
     const inventoryItem = inventory.find((item) => Number(item.productId) === Number(productId));
     const cinchoSelected = isCinchoProduct(inventoryItem?.productCode, inventoryItem?.productName);
+    const needsDimension = shipmentNeedsDimension(inventoryItem);
     const sizeValue = normalizeShipmentSize(shipmentSizes[productId] || "");
-    const hardwareValue = normalizeShipmentHardware(shipmentHardware[productId] || "");
+    const hardwareValue = entreCuerosDest
+      ? resolvePayloadHardware(
+          selectedLocation,
+          shipmentProductShape(inventoryItem),
+          shipmentHardware[productId] || ""
+        )
+      : normalizeShipmentHardware(shipmentHardware[productId] || "");
     if (cinchoSelected && !sizeValue) {
-      showError("Para CINCHO debes indicar talla.");
+      showError(entreCuerosDest ? "Para CINCHO debes indicar talla (16 a 32)." : "Para CINCHO debes indicar talla.");
       return;
     }
-    if (cinchoSelected && !hardwareValue) {
-      showError("Para CINCHO debes indicar herraje (nuevo/viejo).");
+    if (needsDimension && !hardwareValue) {
+      const kind = stockDimensionKind(selectedLocation, shipmentProductShape(inventoryItem));
+      showError(`Indica la variante: ${dimensionRequiredMessage(kind)}.`);
       return;
     }
     const key = buildShipmentKey(
       productId,
       colorId,
       cinchoSelected ? sizeValue : "",
-      cinchoSelected ? hardwareValue : ""
+      needsDimension ? hardwareValue : ""
     );
 
     setShipmentProducts((prev) => ({
@@ -866,6 +906,7 @@ function ProductDistributionDetail() {
           hardwareCondition: normalizeShipmentHardware(hardwareCondition) || null,
           quantity: parseFloat(quantity),
           isCincho: isCinchoProduct(productMeta.productCode, productMeta.productName),
+          needsDimension: shipmentNeedsDimension(productMeta),
         };
       });
 
@@ -874,8 +915,10 @@ function ProductDistributionDetail() {
         showError("Hay líneas de cincho sin talla. Corríjalas antes de guardar.");
         return;
       }
-      if (line.isCincho && !line.hardwareCondition) {
-        showError("Hay líneas de cincho sin herraje (nuevo/viejo). Corríjalas antes de guardar.");
+      if (line.needsDimension && !line.hardwareCondition) {
+        showError(entreCuerosDest
+          ? "Hay líneas sin variante (Niño/Dama, marca o sintético). Corríjalas antes de guardar."
+          : "Hay líneas de cincho sin herraje (nuevo/viejo). Corríjalas antes de guardar.");
         return;
       }
     }
@@ -1126,7 +1169,9 @@ function ProductDistributionDetail() {
           Producto: row.productName || "",
           Categoría: categoryByProductId.get(Number(row.productId)) || "Sin categoría",
           Color: colorLabel,
-          Herraje: hw === "VIEJO" || hw === "NUEVO" ? hw : "",
+          Variante: entreCuerosDest
+            ? kioskDimensionDisplayLabel(hw, { entreCueros: true })
+            : (hw === "VIEJO" || hw === "NUEVO" ? hw : ""),
           "Stock kiosko": qty,
         };
       });
@@ -1891,7 +1936,7 @@ function ProductDistributionDetail() {
                               <th>Stock Actual en Kiosko</th>
                               <th>Color</th>
                               <th>Talla</th>
-                              <th>Herraje</th>
+                              <th>{entreCuerosDest ? "Variante" : "Herraje"}</th>
                               <th>Stock devoluciones</th>
                               <th>Stock PT</th>
                               <th>Cantidad a Enviar</th>
@@ -1998,44 +2043,78 @@ function ProductDistributionDetail() {
                                   </td>
                                   <td>
                                     {isCincho ? (
-                                      <Input
-                                        type="text"
-                                        value={shipmentSizes[item.productId] || ""}
-                                        onChange={(e) =>
-                                          setShipmentSizes((prev) => ({
-                                            ...prev,
-                                            [item.productId]: e.target.value.toUpperCase(),
-                                          }))
-                                        }
-                                        style={{ width: "120px" }}
-                                        bsSize="sm"
-                                        placeholder="Ej: 34, 36"
-                                      />
+                                      entreCuerosDest ? (
+                                        <Input
+                                          type="select"
+                                          value={shipmentSizes[item.productId] || ""}
+                                          onChange={(e) =>
+                                            setShipmentSizes((prev) => ({
+                                              ...prev,
+                                              [item.productId]: e.target.value.toUpperCase(),
+                                            }))
+                                          }
+                                          style={{ width: "120px" }}
+                                          bsSize="sm"
+                                        >
+                                          <option value="">Talla…</option>
+                                          {ENTRECUEROS_CINCHO_SIZES.map((size) => (
+                                            <option key={size} value={size}>{size}</option>
+                                          ))}
+                                        </Input>
+                                      ) : (
+                                        <Input
+                                          type="text"
+                                          value={shipmentSizes[item.productId] || ""}
+                                          onChange={(e) =>
+                                            setShipmentSizes((prev) => ({
+                                              ...prev,
+                                              [item.productId]: e.target.value.toUpperCase(),
+                                            }))
+                                          }
+                                          style={{ width: "120px" }}
+                                          bsSize="sm"
+                                          placeholder="Ej: 34, 36"
+                                        />
+                                      )
                                     ) : (
                                       <small className="text-muted">N/A</small>
                                     )}
                                   </td>
                                   <td>
-                                    {isCincho ? (
-                                      <Input
-                                        type="select"
-                                        value={shipmentHardware[item.productId] || ""}
-                                        onChange={(e) =>
-                                          setShipmentHardware((prev) => ({
-                                            ...prev,
-                                            [item.productId]: e.target.value || "",
-                                          }))
-                                        }
-                                        style={{ width: "140px" }}
-                                        bsSize="sm"
-                                      >
-                                        <option value="">Seleccione…</option>
-                                        {HARDWARE_CONDITION_OPTIONS.filter((opt) => opt.value).map((opt) => (
-                                          <option key={opt.value} value={opt.value}>
-                                            {opt.label}
-                                          </option>
-                                        ))}
-                                      </Input>
+                                    {shipmentNeedsDimension(item) ? (
+                                      entreCuerosDest ? (
+                                        <KioskInventoryDimensionSelect
+                                          locationId={selectedLocation}
+                                          product={shipmentProductShape(item)}
+                                          value={shipmentHardware[item.productId] || ""}
+                                          onChange={(value) =>
+                                            setShipmentHardware((prev) => ({
+                                              ...prev,
+                                              [item.productId]: value || "",
+                                            }))
+                                          }
+                                        />
+                                      ) : (
+                                        <Input
+                                          type="select"
+                                          value={shipmentHardware[item.productId] || ""}
+                                          onChange={(e) =>
+                                            setShipmentHardware((prev) => ({
+                                              ...prev,
+                                              [item.productId]: e.target.value || "",
+                                            }))
+                                          }
+                                          style={{ width: "140px" }}
+                                          bsSize="sm"
+                                        >
+                                          <option value="">Seleccione…</option>
+                                          {HARDWARE_CONDITION_OPTIONS.filter((opt) => opt.value).map((opt) => (
+                                            <option key={opt.value} value={opt.value}>
+                                              {opt.label}
+                                            </option>
+                                          ))}
+                                        </Input>
+                                      )
                                     ) : (
                                       <small className="text-muted">N/A</small>
                                     )}
@@ -2129,7 +2208,7 @@ function ProductDistributionDetail() {
                               <th>Producto</th>
                               <th>Color</th>
                               <th>Talla</th>
-                              <th>Herraje</th>
+                              <th>{entreCuerosDest ? "Variante" : "Herraje"}</th>
                               <th>Cantidad a Enviar</th>
                               <th>Acción</th>
                             </tr>
@@ -2170,7 +2249,9 @@ function ProductDistributionDetail() {
                                     </td>
                                     <td>
                                       {hardwareCondition
-                                        ? <Badge color="secondary">{getHardwareConditionLabel(hardwareCondition)}</Badge>
+                                        ? <Badge color="secondary">
+                                            {kioskDimensionDisplayLabel(hardwareCondition, { entreCueros: entreCuerosDest })}
+                                          </Badge>
                                         : <small className="text-muted">—</small>}
                                     </td>
                                     <td>

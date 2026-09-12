@@ -16,6 +16,7 @@ import {
   isEntrecuerosPosMode,
   describeEntrecuerosPriceState,
 } from "./posUtils";
+import { entrecuerosVolumeKey } from "utils/entrecuerosPriceLists";
 
 const QUICK_CASH = [50, 100, 200, 500];
 
@@ -81,15 +82,17 @@ function PosCheckoutModal({
   const paymentMethods = entrecueros ? ENTRECUEROS_PAYMENT_METHODS : PAYMENT_METHODS;
   const checkoutTiers = useMemo(() => {
     if (!entrecueros) return [];
-    const qtyByProduct = {};
+    const qtyByKey = {};
     (cart || []).forEach((line) => {
-      qtyByProduct[line.productId] = (qtyByProduct[line.productId] || 0) + Number(line.quantity || 0);
+      const key = entrecuerosVolumeKey(line);
+      qtyByKey[key] = (qtyByKey[key] || 0) + Number(line.quantity || 0);
     });
     const seen = new Set();
     return (cart || []).reduce((rows, line) => {
-      if (seen.has(line.productId)) return rows;
-      seen.add(line.productId);
-      const state = describeEntrecuerosPriceState(line, qtyByProduct[line.productId] || 0);
+      const key = entrecuerosVolumeKey(line);
+      if (seen.has(key)) return rows;
+      seen.add(key);
+      const state = describeEntrecuerosPriceState(line, qtyByKey[key] || 0);
       rows.push({
         productId: line.productId,
         productName: line.productName,
