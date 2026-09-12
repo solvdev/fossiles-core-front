@@ -222,6 +222,12 @@ export const ledgerLabDeleteMovement = async (id) =>
 export const ledgerLabUpdateStock = async (stockId, payload) =>
   apiRequest(`/kiosk-ledger-lab/stocks/${stockId}`, { method: "PUT", body: payload });
 
+export const ledgerLabReclassifyStocks = async (payload) =>
+  apiRequest(`/kiosk-ledger-lab/stocks/reclassify`, { method: "POST", body: payload });
+
+export const ledgerLabDeleteStock = async (stockId) =>
+  apiRequest(`/kiosk-ledger-lab/stocks/${stockId}`, { method: "DELETE" });
+
 export const ledgerLabReplayStock = async (stockId) =>
   apiRequest(`/kiosk-ledger-lab/stocks/${stockId}/replay`, { method: "POST" });
 
