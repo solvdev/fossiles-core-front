@@ -465,7 +465,7 @@ function PosInventoryTab({ kioskLocationId, kioskName, posMode, active }) {
           if (entreCueros && !matchesEntrecuerosVariantFilter({ ...product, ...variant }, variantFilter)) {
             return false;
           }
-          if (entreCueros && !itemMatchesBrand(variant, brandFilter)) {
+          if (entreCueros && !itemMatchesBrand({ ...product, ...variant }, brandFilter)) {
             return false;
           }
           if (applyAdvanced && stockFilter === "LOW" && !status.low) return false;

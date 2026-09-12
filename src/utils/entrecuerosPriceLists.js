@@ -51,7 +51,11 @@ export function entrecuerosPriceKind(source) {
 }
 
 export function entrecuerosVolumeKey(source) {
-  return `${source?.productId ?? ""}|${entrecuerosPriceKind(source)}`;
+  const kind = entrecuerosPriceKind(source);
+  if (kind === ENTRECUEROS_PRICE_KIND.PRODUCT) {
+    return `${source?.productId ?? ""}|${kind}`;
+  }
+  return kind;
 }
 
 function hasProductTiers(source) {
