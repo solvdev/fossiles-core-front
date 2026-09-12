@@ -41,6 +41,8 @@ import {
 } from "utils/kioskMovementHelper";
 import { showError, showSuccess } from "utils/notificationHelper";
 
+const ALLOWED_USERNAME = "eramirez";
+
 const HARDWARE_OPTIONS = [
   { value: "NUEVO", label: "NUEVO (sin PARA / herraje nuevo)" },
   { value: "VIEJO", label: "VIEJO" },
