@@ -281,9 +281,10 @@ function PosCatalogPanel({
           <div className="kiosk-pos-inventory-grid">
             {groupedProducts.map((group) => {
               const imageUrl = resolveImageUrl(group.productImageUrl);
+              const groupKey = group.groupKey || group.productId;
 
               return (
-                <div key={group.productId} className="kiosk-pos-product-card">
+                <div key={groupKey} className="kiosk-pos-product-card">
                   {imageUrl ? (
                     <img src={imageUrl} alt={group.productName} className="kiosk-pos-product-image" />
                   ) : (
@@ -297,7 +298,7 @@ function PosCatalogPanel({
                   {entrecueros && listEntrecuerosPriceTiers(group).length > 1 && (
                     <div className="kiosk-pos-item-tiers">
                       {listEntrecuerosPriceTiers(group).map((tier) => (
-                        <span key={`tier-${group.productId}-${tier.minQty}`}>
+                        <span key={`tier-${groupKey}-${tier.minQty}`}>
                           {tier.label} {formatCurrency(tier.unitPrice)}
                         </span>
                       ))}

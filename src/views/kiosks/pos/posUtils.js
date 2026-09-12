@@ -8,6 +8,8 @@ import {
 import { hasInventorySizeBreakdown } from "utils/inventoryVariantHelper";
 import { isPackagingProductCode } from "utils/kioskPackagingHelper";
 import {
+  appendWalletMaterialToProductName,
+  extractStockBrand,
   getHardwareConditionLabel,
   isSyntheticHardware,
   normalizeHardwareCondition,
@@ -152,7 +154,7 @@ export const posVariantStockQty = (variant) => {
 
 export const posVariantHasStock = (variant) => posVariantStockQty(variant) > 0;
 
-/** Etiqueta del chip cuando hay más de un herraje para el mismo color. */
+/** Etiqueta del chip cuando hay más de un herraje/dimensión para el mismo color. */
 export const posVariantChipLabel = (variant, variantsInProduct = []) => {
   const colorName = String(variant?.colorName || "").trim() || "Sin color";
   if (isPackagingProductCode(variant?.productCode)) {
@@ -166,12 +168,16 @@ export const posVariantChipLabel = (variant, variantsInProduct = []) => {
   );
   const hw = normalizePosHardwareCondition(variant?.hardwareCondition);
   const extraLabel = getHardwareConditionLabel(hw);
+  const brand = extractStockBrand(variant?.hardwareCondition);
   const isSplitDimension = hw !== "NUEVO" && hw !== "VIEJO";
-  if (isSplitDimension && extraLabel && extraLabel !== "—") {
+  if (isSplitDimension && extraLabel && extraLabel !== "—" && !brand) {
     return `${colorName} · ${extraLabel}`;
   }
   if (hardwareValues.size <= 1) {
     return colorName;
+  }
+  if (extraLabel && extraLabel !== "—") {
+    return `${colorName} · ${extraLabel}`;
   }
   return `${colorName} · ${hw === "VIEJO" ? "Viejo" : "Nuevo"}`;
 };
@@ -324,7 +330,9 @@ export const filterPosInventory = (inventory, {
     if (!itemMatchesColor(item, colorFilter)) return false;
     if (!query) return true;
     const text = normalizePosLabel(
-      `${item.productCode || ""} ${item.productName || ""} ${item.colorName || ""}`
+      `${item.productCode || ""} ${item.productName || ""} ${item.colorName || ""} ${
+        extractStockBrand(item.hardwareCondition) || ""
+      }`
     );
     return text.includes(query);
   });
@@ -355,16 +363,26 @@ export const sortVariantsByColor = (variants) => {
   });
 };
 
+/** Una tarjeta por producto; en Entrecueros, una más por marca (y sintético/cuero). */
+export const posCatalogGroupKey = (item) => {
+  const productId = item?.productId ?? "";
+  const brand = extractStockBrand(item?.hardwareCondition);
+  if (!brand) return String(productId);
+  const material = isSyntheticHardware(item?.hardwareCondition) ? "SINTETICO" : "CUERO";
+  return `${productId}::${material}::${brand}`;
+};
+
 export const groupInventoryByProduct = (items) => {
   const groups = new Map();
   (items || []).forEach((item) => {
     if (!posVariantHasStock(item)) return;
-    const productId = item.productId;
-    if (!groups.has(productId)) {
-      groups.set(productId, {
-        productId,
+    const groupKey = posCatalogGroupKey(item);
+    if (!groups.has(groupKey)) {
+      groups.set(groupKey, {
+        groupKey,
+        productId: item.productId,
         productCode: item.productCode,
-        productName: item.productName,
+        productName: appendWalletMaterialToProductName(item.productName, item.hardwareCondition),
         productImageUrl: item.productImageUrl,
         suggestedUnitPrice: item.suggestedUnitPrice,
         categoryId: item.categoryId,
@@ -376,7 +394,7 @@ export const groupInventoryByProduct = (items) => {
         variants: [],
       });
     }
-    groups.get(productId).variants.push(item);
+    groups.get(groupKey).variants.push(item);
   });
   return Array.from(groups.values())
     .map((group) => ({
