@@ -23,6 +23,7 @@ import {
   listEntrecuerosPriceListTiers,
   resolveEntrecuerosListUnitPrice,
 } from "utils/entrecuerosPriceLists";
+import { PRODUCT_BRAND_OPTIONS } from "utils/productBrandHelper";
 import { getSaleYmdGuatemala, getTodayYmdGuatemala, shiftYmdGuatemala } from "utils/dateTimeHelper";
 
 export const POS_CATALOG_VIEWS = [
@@ -237,6 +238,29 @@ export const itemMatchesEntrecuerosGroup = (item, catalogGroup) => {
   return classifyEntrecuerosCatalogGroup(item) === catalogGroup;
 };
 
+export const resolveItemBrand = (item) => extractStockBrand(item?.hardwareCondition) || "";
+
+export const itemMatchesBrand = (item, brandFilter) => {
+  if (!brandFilter) return true;
+  const brand = resolveItemBrand(item);
+  if (brandFilter === "NONE") return !brand;
+  return brand === brandFilter;
+};
+
+export const buildBrandOptions = (inventory) => {
+  const available = new Set();
+  (inventory || []).forEach((item) => {
+    if (!posVariantHasStock(item)) return;
+    const brand = resolveItemBrand(item);
+    if (brand) available.add(brand);
+  });
+  return PRODUCT_BRAND_OPTIONS.map((brand) => ({
+    value: brand,
+    label: brand,
+    disabled: !available.has(brand),
+  }));
+};
+
 export const itemMatchesColor = (item, colorFilter) => {
   if (!colorFilter) return true;
   const itemNorm = normalizePosLabel(item.colorName);
@@ -317,6 +341,7 @@ export const filterPosInventory = (inventory, {
   audienceFilter,
   catalogView,
   catalogGroup,
+  brandFilter,
 }) => {
   const query = normalizePosLabel(search);
   return (inventory || []).filter((item) => {
@@ -336,6 +361,7 @@ export const filterPosInventory = (inventory, {
       return false;
     }
     if (!productMatchesAudienceFilter(item, audienceFilter)) return false;
+    if (!itemMatchesBrand(item, brandFilter)) return false;
     if (!itemMatchesColor(item, colorFilter)) return false;
     if (!query) return true;
     const text = normalizePosLabel(
