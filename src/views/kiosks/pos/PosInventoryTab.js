@@ -42,10 +42,10 @@ import {
 } from "utils/kioskInventorySummary";
 import { showError } from "utils/notificationHelper";
 import { FilterableSelect } from "components/distribution/FilterableSelect";
-import { formatQty, isEntrecuerosPosMode, normalizePosHardwareCondition, posVariantStockQty } from "./posUtils";
+import { formatQty, isEntrecuerosPosMode, itemMatchesBrand, normalizePosHardwareCondition, posVariantStockQty } from "./posUtils";
 import { ENTRECUEROS_KIOSK_LOCATION_ID } from "utils/partialReleaseHelper";
 import { ENTRECUEROS_VARIANT_FILTERS, matchesEntrecuerosVariantFilter } from "utils/entrecuerosPriceLists";
-import { normalizeProductBrand } from "utils/productBrandHelper";
+import { PRODUCT_BRAND_OPTIONS, normalizeProductBrand } from "utils/productBrandHelper";
 import KioskInventoryCountReport from "../KioskInventoryCountReport";
 
 const safeText = (value) => String(value || "").trim();
@@ -370,6 +370,7 @@ function PosInventoryTab({ kioskLocationId, kioskName, posMode, active }) {
   const [categoryFilter, setCategoryFilter] = useState("");
   const [audienceFilter, setAudienceFilter] = useState("");
   const [variantFilter, setVariantFilter] = useState("");
+  const [brandFilter, setBrandFilter] = useState("");
 
   const loadInventory = useCallback(async () => {
     if (!kioskLocationId) {
@@ -464,6 +465,9 @@ function PosInventoryTab({ kioskLocationId, kioskName, posMode, active }) {
           if (entreCueros && !matchesEntrecuerosVariantFilter({ ...product, ...variant }, variantFilter)) {
             return false;
           }
+          if (entreCueros && !itemMatchesBrand(variant, brandFilter)) {
+            return false;
+          }
           if (applyAdvanced && stockFilter === "LOW" && !status.low) return false;
           if (applyAdvanced && stockFilter === "OUT" && status.label !== "Sin stock") return false;
           if (!query) return true;
@@ -484,7 +488,7 @@ function PosInventoryTab({ kioskLocationId, kioskName, posMode, active }) {
         };
       })
       .filter(Boolean);
-  }, [products, query, stockFilter, categoryFilter, audienceFilter, variantFilter, entreCueros, stockMode]);
+  }, [products, query, stockFilter, categoryFilter, audienceFilter, variantFilter, brandFilter, entreCueros, stockMode]);
 
   const summaryGroups = useMemo(
     () => buildKioskInventorySummaryGroups(filteredProducts),
@@ -686,6 +690,40 @@ function PosInventoryTab({ kioskLocationId, kioskName, posMode, active }) {
                         onClick={() => setVariantFilter(opt.value)}
                       >
                         {opt.label}
+                      </Button>
+                    ))}
+                  </div>
+                </Col>
+              ) : null}
+              {entreCueros ? (
+                <Col md="12" className="mt-2">
+                  <Label className="mb-1 small">Marca</Label>
+                  <div className="d-flex flex-wrap" style={{ gap: 6 }}>
+                    <Button
+                      size="sm"
+                      color={!brandFilter ? "primary" : "secondary"}
+                      outline={Boolean(brandFilter)}
+                      onClick={() => setBrandFilter("")}
+                    >
+                      Todas
+                    </Button>
+                    <Button
+                      size="sm"
+                      color={brandFilter === "NONE" ? "primary" : "secondary"}
+                      outline={brandFilter !== "NONE"}
+                      onClick={() => setBrandFilter(brandFilter === "NONE" ? "" : "NONE")}
+                    >
+                      Sin marca
+                    </Button>
+                    {PRODUCT_BRAND_OPTIONS.map((brand) => (
+                      <Button
+                        key={`inv-brand-${brand}`}
+                        size="sm"
+                        color={brandFilter === brand ? "primary" : "secondary"}
+                        outline={brandFilter !== brand}
+                        onClick={() => setBrandFilter(brandFilter === brand ? "" : brand)}
+                      >
+                        {brand}
                       </Button>
                     ))}
                   </div>

@@ -20,6 +20,7 @@ import {
   isEntrecuerosPosMode,
   ENTRECUEROS_CATALOG_GROUPS,
   listEntrecuerosPriceTiers,
+  buildBrandOptions,
 } from "./posUtils";
 import { PRODUCT_AUDIENCE_OPTIONS } from "utils/productAudienceHelper";
 
@@ -42,8 +43,10 @@ function PosCatalogPanel({
 }) {
   const entrecueros = isEntrecuerosPosMode({ posMode });
   const [catalogGroup, setCatalogGroup] = useState("");
+  const [brandFilter, setBrandFilter] = useState("");
   const categoryOptions = useMemo(() => buildCategoryOptions(inventory), [inventory]);
   const colorOptions = useMemo(() => buildColorOptions(inventory), [inventory]);
+  const brandOptions = useMemo(() => buildBrandOptions(inventory), [inventory]);
   const isPackagingView = catalogView === "PACKAGING";
 
   const filteredInventory = useMemo(
@@ -55,8 +58,9 @@ function PosCatalogPanel({
         colorFilter,
         catalogView,
         catalogGroup: entrecueros ? catalogGroup : "",
+        brandFilter: entrecueros ? brandFilter : "",
       }),
-    [inventory, productSearch, categoryFilter, audienceFilter, colorFilter, catalogView, catalogGroup, entrecueros]
+    [inventory, productSearch, categoryFilter, audienceFilter, colorFilter, catalogView, catalogGroup, brandFilter, entrecueros]
   );
 
   const groupedProducts = useMemo(
@@ -88,6 +92,7 @@ function PosCatalogPanel({
       onAudienceFilterChange("");
       onColorFilterChange("");
       setCatalogGroup("");
+      setBrandFilter("");
     }
   };
 
@@ -163,6 +168,44 @@ function PosCatalogPanel({
                   ))}
               </div>
             </div>
+
+            {entrecueros ? (
+              <div className="kiosk-pos-filter-row">
+                <span className="kiosk-pos-filter-label">Marca</span>
+                <div className="kiosk-pos-chips">
+                  <button
+                    type="button"
+                    className={`kiosk-pos-chip ${!brandFilter ? "active" : ""}`}
+                    onClick={() => setBrandFilter("")}
+                  >
+                    Todas
+                  </button>
+                  <button
+                    type="button"
+                    className={`kiosk-pos-chip ${brandFilter === "NONE" ? "active" : ""}`}
+                    onClick={() => setBrandFilter(brandFilter === "NONE" ? "" : "NONE")}
+                  >
+                    Sin marca
+                  </button>
+                  {brandOptions.map((option) => (
+                    <button
+                      key={`brand-${option.value}`}
+                      type="button"
+                      className={`kiosk-pos-chip ${brandFilter === option.value ? "active" : ""} ${
+                        option.disabled ? "disabled" : ""
+                      }`}
+                      onClick={() => {
+                        if (option.disabled) return;
+                        setBrandFilter(brandFilter === option.value ? "" : option.value);
+                      }}
+                      disabled={option.disabled}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : null}
 
             <div className="kiosk-pos-filter-row">
               <span className="kiosk-pos-filter-label">Línea</span>
