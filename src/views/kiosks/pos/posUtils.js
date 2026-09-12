@@ -23,7 +23,7 @@ import {
   listEntrecuerosPriceListTiers,
   resolveEntrecuerosListUnitPrice,
 } from "utils/entrecuerosPriceLists";
-import { PRODUCT_BRAND_OPTIONS } from "utils/productBrandHelper";
+import { PRODUCT_BRAND_OPTIONS, extractBrandFromText } from "utils/productBrandHelper";
 import { getSaleYmdGuatemala, getTodayYmdGuatemala, shiftYmdGuatemala } from "utils/dateTimeHelper";
 
 export const POS_CATALOG_VIEWS = [
@@ -238,7 +238,9 @@ export const itemMatchesEntrecuerosGroup = (item, catalogGroup) => {
   return classifyEntrecuerosCatalogGroup(item) === catalogGroup;
 };
 
-export const resolveItemBrand = (item) => extractStockBrand(item?.hardwareCondition) || "";
+export const resolveItemBrand = (item) =>
+  extractStockBrand(item?.hardwareCondition)
+  || extractBrandFromText(`${item?.productName || ""} ${item?.productCode || ""}`);
 
 export const itemMatchesBrand = (item, brandFilter) => {
   if (!brandFilter) return true;
