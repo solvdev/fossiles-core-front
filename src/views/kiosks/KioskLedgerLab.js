@@ -22,8 +22,10 @@ import { getLocations } from "services/locationService";
 import {
   ledgerLabCreateMovement,
   ledgerLabDeleteMovement,
+  ledgerLabDeleteStock,
   ledgerLabListMovements,
   ledgerLabListStocks,
+  ledgerLabReclassifyStocks,
   ledgerLabReplayAllKiosks,
   ledgerLabReplayAllStocks,
   ledgerLabReplayStock,
@@ -39,7 +41,12 @@ import {
 } from "utils/kioskMovementHelper";
 import { showError, showSuccess } from "utils/notificationHelper";
 
-const ALLOWED_USERNAME = "eramirez";
+const HARDWARE_OPTIONS = [
+  { value: "NUEVO", label: "NUEVO (sin PARA / herraje nuevo)" },
+  { value: "VIEJO", label: "VIEJO" },
+  { value: "NINO", label: "NINO (Niño)" },
+  { value: "DAMA", label: "DAMA" },
+];
 
 const MOVEMENT_TYPE_OPTIONS = [
   { value: "", label: "Todos los tipos", searchText: "todos" },
@@ -174,6 +181,7 @@ export default function KioskLedgerLab() {
     reason: "",
     affectsStockOnly: false,
     movementId: "",
+    hardwareCondition: "",
   });
   const [stocks, setStocks] = useState([]);
   const [movements, setMovements] = useState([]);
@@ -191,6 +199,7 @@ export default function KioskLedgerLab() {
     hardwareCondition: "NUEVO",
   });
   const [saving, setSaving] = useState(false);
+  const [selectedStockIds, setSelectedStockIds] = useState(() => new Set());
   const movementsRequestIdRef = React.useRef(0);
 
   const kioskOptions = useMemo(() => {
@@ -231,6 +240,7 @@ export default function KioskLedgerLab() {
         locationId: filters.locationId || undefined,
         stockId: filters.stockId || undefined,
         productTerm: filters.productTerm || undefined,
+        hardwareCondition: filters.hardwareCondition || undefined,
       });
       setStocks(data || []);
     } catch (err) {
@@ -239,7 +249,7 @@ export default function KioskLedgerLab() {
     } finally {
       setLoadingStocks(false);
     }
-  }, [filters.locationId, filters.stockId, filters.productTerm]);
+  }, [filters.locationId, filters.stockId, filters.productTerm, filters.hardwareCondition]);
 
   const loadMovements = useCallback(async (opts = {}) => {
     const stockId =
@@ -510,6 +520,102 @@ export default function KioskLedgerLab() {
     }
   };
 
+  const selectedIds = [...selectedStockIds];
+  const allVisibleSelected = stocks.length > 0 && stocks.every((s) => selectedStockIds.has(s.id));
+
+  const toggleStockSelected = (id, event) => {
+    event.stopPropagation();
+    setSelectedStockIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleAllVisibleStocks = () => {
+    setSelectedStockIds((prev) => {
+      const next = new Set(prev);
+      if (allVisibleSelected) {
+        stocks.forEach((s) => next.delete(s.id));
+      } else {
+        stocks.forEach((s) => next.add(s.id));
+      }
+      return next;
+    });
+  };
+
+  const handleAssignPara = async (hardware, mergeIfExists) => {
+    if (!selectedIds.length) {
+      showError("Selecciona filas de stock.");
+      return;
+    }
+    const label = hardware === "NINO" ? "Niño" : hardware === "DAMA" ? "Dama" : hardware;
+    const mergeHint = mergeIfExists
+      ? "\nSi ya existe esa dimensión en el mismo color, se FUSIONAN cantidades (suma)."
+      : "\nSi ya existe esa dimensión en el mismo color, se omite (no suma). Borra el duplicado si es la misma captura.";
+    if (!window.confirm(`¿Asignar PARA ${label} a ${selectedIds.length} fila(s)?${mergeHint}`)) {
+      return;
+    }
+    setSaving(true);
+    try {
+      const result = await ledgerLabReclassifyStocks({
+        stockIds: selectedIds,
+        hardwareCondition: hardware,
+        mergeIfExists,
+      });
+      const conflictText = (result.conflicts || []).length
+        ? `\n${result.conflicts.slice(0, 8).join("\n")}`
+        : "";
+      showSuccess(
+        `PARA ${label}: ${result.updated || 0} actualizados, ${result.merged || 0} fusionados, ${
+          result.skipped || 0
+        } omitidos.${conflictText}`
+      );
+      setSelectedStockIds(new Set());
+      await loadStocks();
+    } catch (err) {
+      showError(err.message || "No se pudo asignar PARA.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDeleteSelectedStocks = async () => {
+    if (!selectedIds.length) {
+      showError("Selecciona filas de stock.");
+      return;
+    }
+    if (!window.confirm(
+      `¿Eliminar ${selectedIds.length} fila(s) de stock Y todos sus movimientos?\n`
+      + "Úsalo para duplicados sin PARA que ya existen como Niño/Dama."
+    )) {
+      return;
+    }
+    setSaving(true);
+    try {
+      let deleted = 0;
+      const errors = [];
+      for (const id of selectedIds) {
+        try {
+          await ledgerLabDeleteStock(id);
+          deleted += 1;
+        } catch (err) {
+          errors.push(`#${id}: ${err.message || "error"}`);
+        }
+      }
+      showSuccess(`Eliminadas ${deleted} fila(s).${errors.length ? `\n${errors.join("\n")}` : ""}`);
+      setSelectedStockIds(new Set());
+      setSelectedStockId(null);
+      await loadStocks();
+      setMovements([]);
+    } catch (err) {
+      showError(err.message || "No se pudo eliminar stock.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
   if (authLoading || !initialized) {
     return (
       <div className="content d-flex justify-content-center align-items-center" style={{ minHeight: 240 }}>
@@ -571,6 +677,21 @@ export default function KioskLedgerLab() {
           <Button color="info" size="sm" outline className="me-1" onClick={openStockEditor} disabled={!selectedStock || saving}>
             Editar stock
           </Button>
+          <Button color="success" size="sm" outline className="me-1" onClick={() => handleAssignPara("NINO", false)} disabled={!selectedIds.length || saving}>
+            PARA Niño
+          </Button>
+          <Button color="success" size="sm" outline className="me-1" onClick={() => handleAssignPara("DAMA", false)} disabled={!selectedIds.length || saving}>
+            PARA Dama
+          </Button>
+          <Button color="warning" size="sm" outline className="me-1" onClick={() => handleAssignPara("NINO", true)} disabled={!selectedIds.length || saving} title="Suma cantidades si ya existe Niño en ese color">
+            Fusionar Niño
+          </Button>
+          <Button color="warning" size="sm" outline className="me-1" onClick={() => handleAssignPara("DAMA", true)} disabled={!selectedIds.length || saving} title="Suma cantidades si ya existe Dama en ese color">
+            Fusionar Dama
+          </Button>
+          <Button color="danger" size="sm" outline className="me-1" onClick={handleDeleteSelectedStocks} disabled={!selectedIds.length || saving}>
+            Eliminar filas
+          </Button>
           <Button color="primary" size="sm" onClick={openCreate} disabled={saving}>
             + Movimiento
           </Button>
@@ -578,7 +699,8 @@ export default function KioskLedgerLab() {
       </div>
 
       <Alert color="warning" className="py-2 px-3 mb-2">
-        Mutaciones directas al ledger. Crear/editar/borrar movimiento hace <strong>Replay stock</strong> automático; el botón manual queda como recuperación.
+        Mutaciones directas al ledger. Para Entrecueros: filtra <strong>Sin PARA (NUEVO)</strong>, selecciona filas y asigna <strong>Niño</strong> o <strong>Dama</strong>.
+        Si Café ya tiene Niño y otra fila igual sin PARA, <strong>elimina el duplicado</strong> (no fusiones: sumaría stock).
       </Alert>
 
       <Row className="g-2 mb-2">
@@ -592,6 +714,21 @@ export default function KioskLedgerLab() {
             }}
             placeholder="Kiosko"
           />
+        </Col>
+        <Col md={2}>
+          <Input
+            bsSize="sm"
+            type="select"
+            value={filters.hardwareCondition}
+            onChange={(e) => setFilter("hardwareCondition", e.target.value)}
+            title="Filtrar dimensión PARA / herraje"
+          >
+            <option value="">Todas las dimensiones</option>
+            <option value="NUEVO">Sin PARA (NUEVO)</option>
+            <option value="NINO">NINO</option>
+            <option value="DAMA">DAMA</option>
+            <option value="VIEJO">VIEJO</option>
+          </Input>
         </Col>
         <Col md={2}>
           <Input
@@ -691,8 +828,17 @@ export default function KioskLedgerLab() {
           <Table size="sm" hover bordered responsive className="mb-0">
             <thead>
               <tr>
+                <th style={{ width: 28 }}>
+                  <Input
+                    type="checkbox"
+                    checked={allVisibleSelected}
+                    onChange={toggleAllVisibleStocks}
+                    disabled={!stocks.length}
+                  />
+                </th>
                 <th>Producto</th>
                 <th>Color</th>
+                <th>PARA</th>
                 <th>Qty</th>
                 <th>Tallas</th>
               </tr>
@@ -710,21 +856,32 @@ export default function KioskLedgerLab() {
                     loadMovements({ stockId: s.id });
                   }}
                 >
+                  <td onClick={(e) => e.stopPropagation()}>
+                    <Input
+                      type="checkbox"
+                      checked={selectedStockIds.has(s.id)}
+                      onChange={(e) => toggleStockSelected(s.id, e)}
+                    />
+                  </td>
                   <td>
                     <div>{s.productCode}</div>
                     <small className="text-muted">{s.productName}</small>
-                    {s.hardwareCondition && s.hardwareCondition !== "NUEVO" && (
-                      <Badge color="secondary" className="ms-1">{s.hardwareCondition}</Badge>
-                    )}
                   </td>
                   <td>{s.colorName || "—"}</td>
+                  <td>
+                    {s.hardwareCondition && s.hardwareCondition !== "NUEVO" ? (
+                      <Badge color="secondary">{s.hardwareCondition}</Badge>
+                    ) : (
+                      <span className="text-muted">—</span>
+                    )}
+                  </td>
                   <td>{s.currentStock}</td>
                   <td><small>{sizesSummary(s)}</small></td>
                 </tr>
               ))}
               {!loadingStocks && stocks.length === 0 && (
                 <tr>
-                  <td colSpan={4} className="text-muted text-center">
+                  <td colSpan={6} className="text-muted text-center">
                     Elige kiosko o stockId
                   </td>
                 </tr>
@@ -946,15 +1103,20 @@ export default function KioskLedgerLab() {
             <Input bsSize="sm" value={stockForm.minimumStock} onChange={(e) => setStockForm({ ...stockForm, minimumStock: e.target.value })} />
           </FormGroup>
           <FormGroup>
-            <Label>hardwareCondition</Label>
+            <Label>hardwareCondition / PARA</Label>
             <Input
               bsSize="sm"
               type="select"
               value={stockForm.hardwareCondition}
               onChange={(e) => setStockForm({ ...stockForm, hardwareCondition: e.target.value })}
             >
-              <option value="NUEVO">NUEVO</option>
-              <option value="VIEJO">VIEJO</option>
+              {HARDWARE_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>{opt.label}</option>
+              ))}
+              {stockForm.hardwareCondition
+                && !HARDWARE_OPTIONS.some((opt) => opt.value === stockForm.hardwareCondition) ? (
+                <option value={stockForm.hardwareCondition}>{stockForm.hardwareCondition}</option>
+              ) : null}
             </Input>
           </FormGroup>
           <FormGroup>

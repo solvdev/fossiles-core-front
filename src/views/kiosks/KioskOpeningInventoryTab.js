@@ -375,7 +375,7 @@ function KioskOpeningInventoryTab({
   const showHardware = Boolean(selectedProduct && !isPackaging && !isEntreCueros);
   const showWalletMaterial = Boolean(isEntreCueros && selectedProduct && !isPackaging && selectedIsWallet);
   const showBrand = Boolean(isEntreCueros && selectedProduct && !isPackaging && !selectedIsCincho);
-  const showCinchoAudience = Boolean(isEntreCueros && selectedProduct && !isPackaging && selectedIsKidsCincho);
+  const showCinchoAudience = Boolean(isEntreCueros && selectedProduct && !isPackaging && selectedIsCincho);
 
   const filteredProducts = useMemo(() => {
     const list = (products || [])
@@ -950,7 +950,7 @@ function KioskOpeningInventoryTab({
                                 : showBrand
                                   ? "Si el mismo color tiene más de una marca, agrégalo una vez por marca."
                                   : showCinchoAudience
-                                    ? "Cincho de niño: indica Niño o Dama (mismas tallas 16 a 32). Si el mismo color va en ambos, agrégalo una vez por cada uno."
+                                    ? "Indica si es Niño o Dama. Si el mismo color va en ambos, agrégalo una vez por cada uno."
                                     : showHardware
                                       ? "Puedes agregar varios. Si el mismo color tiene herraje nuevo y viejo, agrégalo dos veces."
                                       : "Puedes agregar varios colores."}
@@ -1126,7 +1126,7 @@ function KioskOpeningInventoryTab({
                     ) : (
                       <Alert color="light" className="border mb-0 py-2">
                         {isEntreCueros
-                          ? "Elige un producto, agrega colores y captura cantidad. En billeteras selecciona la marca; Niño/Dama solo en cinchos de niño."
+                          ? "Elige un producto, agrega colores y captura cantidad. En billeteras selecciona la marca; en cinchos indica si es Niño o Dama."
                           : "Elige un producto, agrega varios colores y captura cantidad/herraje por fila."}
                       </Alert>
                     )}
