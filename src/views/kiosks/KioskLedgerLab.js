@@ -25,6 +25,7 @@ import {
   ledgerLabDeleteStock,
   ledgerLabListMovements,
   ledgerLabListStocks,
+  ledgerLabMoveSizes,
   ledgerLabReclassifyStocks,
   ledgerLabReplayAllKiosks,
   ledgerLabReplayAllStocks,
@@ -42,6 +43,8 @@ import {
 import { showError, showSuccess } from "utils/notificationHelper";
 
 const ALLOWED_USERNAME = "eramirez";
+
+const KIDS_PARA_SIZES = new Set(["16", "18", "20", "22", "24", "26", "28", "30", "32"]);
 
 const HARDWARE_OPTIONS = [
   { value: "NUEVO", label: "NUEVO (sin PARA / herraje nuevo)" },
@@ -202,6 +205,8 @@ export default function KioskLedgerLab() {
   });
   const [saving, setSaving] = useState(false);
   const [selectedStockIds, setSelectedStockIds] = useState(() => new Set());
+  const [sizeKeysToMove, setSizeKeysToMove] = useState(() => new Set());
+  const [moveParaTarget, setMoveParaTarget] = useState("NINO");
   const movementsRequestIdRef = React.useRef(0);
 
   const kioskOptions = useMemo(() => {
@@ -313,6 +318,18 @@ export default function KioskLedgerLab() {
     () => stocks.find((s) => String(s.id) === String(selectedStockId)) || null,
     [stocks, selectedStockId]
   );
+
+  const selectedSizeEntries = useMemo(() => {
+    const sizes = selectedStock?.sizes;
+    if (!sizes || typeof sizes !== "object") return [];
+    return Object.entries(sizes)
+      .filter(([, qty]) => Number(qty) > 0)
+      .sort((a, b) => Number(a[0]) - Number(b[0]) || String(a[0]).localeCompare(String(b[0]), "es", { numeric: true }));
+  }, [selectedStock]);
+
+  useEffect(() => {
+    setSizeKeysToMove(new Set());
+  }, [selectedStockId]);
 
   const openCreate = () => {
     setEditingId(null);
@@ -497,6 +514,41 @@ export default function KioskLedgerLab() {
       await loadMovements({ stockId: selectedStockId || undefined });
     } catch (err) {
       showError(err.message || "No se pudo desglosar por tallas.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleMoveSelectedSizes = async () => {
+    if (!selectedStockId) {
+      showError("Selecciona un stock.");
+      return;
+    }
+    const sizeKeys = [...sizeKeysToMove];
+    if (!sizeKeys.length) {
+      showError("Marca las tallas que van a Niño o Dama. Las no marcadas se quedan sin PARA.");
+      return;
+    }
+    const label = moveParaTarget === "NINO" ? "Niño" : moveParaTarget === "DAMA" ? "Dama" : moveParaTarget;
+    if (!window.confirm(
+      `¿Mover tallas ${sizeKeys.join(", ")} a PARA ${label}?\n`
+      + "Las demás tallas de esta fila se quedan como están."
+    )) {
+      return;
+    }
+    setSaving(true);
+    try {
+      const moved = await ledgerLabMoveSizes(selectedStockId, {
+        hardwareCondition: moveParaTarget,
+        sizeKeys,
+      });
+      showSuccess(`Tallas ${sizeKeys.join(", ")} movidas a ${label} (stock #${moved?.id || "?"}).`);
+      setSizeKeysToMove(new Set());
+      await loadStocks();
+      await loadMovements({ stockId: moved?.id || selectedStockId });
+      if (moved?.id) setSelectedStockId(moved.id);
+    } catch (err) {
+      showError(err.message || "No se pudieron mover las tallas.");
     } finally {
       setSaving(false);
     }
@@ -701,8 +753,9 @@ export default function KioskLedgerLab() {
       </div>
 
       <Alert color="warning" className="py-2 px-3 mb-2">
-        Mutaciones directas al ledger. Para Entrecueros: filtra <strong>Sin PARA (NUEVO)</strong>, selecciona filas y asigna <strong>Niño</strong> o <strong>Dama</strong>.
-        Si Café ya tiene Niño y otra fila igual sin PARA, <strong>elimina el duplicado</strong> (no fusiones: sumaría stock).
+        Mutaciones directas al ledger. PARA no es de toda la fila: selecciona el color, marca
+        las tallas Niño o Dama y <strong>Mover tallas</strong>. El resto se queda sin PARA.
+        No uses PARA Niño/Dama de arriba si mezclas tallas en el mismo color.
       </Alert>
 
       <Row className="g-2 mb-2">
@@ -893,8 +946,73 @@ export default function KioskLedgerLab() {
           {selectedStock && (
             <div className="mt-2 p-2 border rounded bg-light">
               <div><strong>{selectedStock.productCode}</strong> · {selectedStock.colorName || "sin color"} · loc {selectedStock.locationId}</div>
-              <div>current={selectedStock.currentStock} min={selectedStock.minimumStock}</div>
-              <div><small>sizes_data: {selectedStock.sizesData || "null"}</small></div>
+              <div>current={selectedStock.currentStock} min={selectedStock.minimumStock} · PARA {selectedStock.hardwareCondition || "NUEVO"}</div>
+              {selectedSizeEntries.length > 0 ? (
+                <div className="mt-2">
+                  <div className="small mb-1">Tallas a mover a PARA (las no marcadas se quedan en esta fila):</div>
+                  <div className="d-flex flex-wrap" style={{ gap: 6 }}>
+                    {selectedSizeEntries.map(([size, qty]) => (
+                      <Label key={size} check className="mb-0 mr-2">
+                        <Input
+                          type="checkbox"
+                          checked={sizeKeysToMove.has(size)}
+                          onChange={() => {
+                            setSizeKeysToMove((prev) => {
+                              const next = new Set(prev);
+                              if (next.has(size)) next.delete(size);
+                              else next.add(size);
+                              return next;
+                            });
+                          }}
+                        />{" "}
+                        {size}:{qty}
+                      </Label>
+                    ))}
+                  </div>
+                  <div className="d-flex flex-wrap align-items-center mt-2" style={{ gap: 6 }}>
+                    <Button
+                      color="secondary"
+                      size="sm"
+                      outline
+                      onClick={() => setSizeKeysToMove(new Set(selectedSizeEntries
+                        .map(([size]) => size)
+                        .filter((size) => KIDS_PARA_SIZES.has(String(size)))))}
+                    >
+                      16–32
+                    </Button>
+                    <Button
+                      color="secondary"
+                      size="sm"
+                      outline
+                      onClick={() => setSizeKeysToMove(new Set(selectedSizeEntries
+                        .map(([size]) => size)
+                        .filter((size) => Number(size) >= 34)))}
+                    >
+                      34+
+                    </Button>
+                    <Input
+                      bsSize="sm"
+                      type="select"
+                      style={{ width: 120 }}
+                      value={moveParaTarget}
+                      onChange={(e) => setMoveParaTarget(e.target.value)}
+                    >
+                      <option value="NINO">Niño</option>
+                      <option value="DAMA">Dama</option>
+                    </Input>
+                    <Button
+                      color="success"
+                      size="sm"
+                      onClick={handleMoveSelectedSizes}
+                      disabled={saving || sizeKeysToMove.size === 0}
+                    >
+                      Mover tallas
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <div><small>sizes_data: {selectedStock.sizesData || "null"}</small></div>
+              )}
             </div>
           )}
         </Col>

@@ -240,6 +240,9 @@ export const ledgerLabReplayAllKiosks = async () =>
 export const ledgerLabSplitOpeningBySizes = async (stockId) =>
   apiRequest(`/kiosk-ledger-lab/stocks/${stockId}/split-opening-by-sizes`, { method: "POST" });
 
+export const ledgerLabMoveSizes = async (stockId, payload) =>
+  apiRequest(`/kiosk-ledger-lab/stocks/${stockId}/move-sizes`, { method: "POST", body: payload });
+
 export const getKioskMovementsAccounting = async (filters = {}) =>
   apiRequest(`/kiosk-movements-accounting/movements${ledgerLabParams(filters)}`);
 
