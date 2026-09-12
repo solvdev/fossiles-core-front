@@ -32,6 +32,7 @@ import { isCinchoInventoryProduct, isFossCinchosProductCode } from "utils/cincho
 import { isPackagingProductCode } from "utils/kioskPackagingHelper";
 import { formatDateTimeGt } from "utils/dateTimeHelper";
 import { ENTRECUEROS_KIOSK_LOCATION_ID } from "utils/partialReleaseHelper";
+import { ENTRECUEROS_VARIANT_FILTERS, matchesEntrecuerosVariantFilter } from "utils/entrecuerosPriceLists";
 import { PRODUCT_BRAND_OPTIONS, normalizeProductBrand } from "utils/productBrandHelper";
 import {
   CINCHO_FILTER_OPTIONS,
@@ -341,6 +342,7 @@ function KioskOpeningInventoryTab({
   const [draftCategoryFilter, setDraftCategoryFilter] = useState("ALL");
   const [draftAudienceFilter, setDraftAudienceFilter] = useState("");
   const [draftCinchoFilter, setDraftCinchoFilter] = useState("");
+  const [draftVariantFilter, setDraftVariantFilter] = useState("");
 
   const [selectedProductId, setSelectedProductId] = useState("");
   const [colorRows, setColorRows] = useState([]);
@@ -427,6 +429,7 @@ function KioskOpeningInventoryTab({
       if (!productMatchesCategory(row, draftCategoryFilter)) return false;
       if (!productMatchesAudienceFilter(row, draftAudienceFilter)) return false;
       if (!productMatchesCinchoFilter(row, draftCinchoFilter)) return false;
+      if (isEntreCueros && !matchesEntrecuerosVariantFilter(row, draftVariantFilter)) return false;
       if (!q) return true;
       return (
         String(row.productCode || "").toLowerCase().includes(q)
@@ -441,6 +444,8 @@ function KioskOpeningInventoryTab({
     draftCategoryFilter,
     draftAudienceFilter,
     draftCinchoFilter,
+    draftVariantFilter,
+    isEntreCueros,
     draftSearch,
   ]);
 
@@ -458,6 +463,7 @@ function KioskOpeningInventoryTab({
     draftCategoryFilter !== "ALL"
     || draftAudienceFilter
     || draftCinchoFilter
+    || draftVariantFilter
     || String(draftSearch || "").trim()
   );
 
@@ -1292,6 +1298,21 @@ function KioskOpeningInventoryTab({
                         {opt.value === "" ? "Cinchos: Todos" : opt.label}
                       </button>
                     ))}
+                    {isEntreCueros ? (
+                      <>
+                        <span className="kiosk-opening-filter-sep" aria-hidden="true" />
+                        {ENTRECUEROS_VARIANT_FILTERS.map((opt) => (
+                          <button
+                            key={opt.value || "variant-all"}
+                            type="button"
+                            className={`kiosk-opening-chip ${draftVariantFilter === opt.value ? "active" : ""}`}
+                            onClick={() => setDraftVariantFilter(opt.value)}
+                          >
+                            {opt.value === "" ? "Variante: Todas" : opt.label}
+                          </button>
+                        ))}
+                      </>
+                    ) : null}
                   </div>
                   {draftFiltersActive ? (
                     <small className="text-muted d-block mt-1">

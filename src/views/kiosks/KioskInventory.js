@@ -46,14 +46,23 @@ import { isPackagingProductCode } from "utils/kioskPackagingHelper";
 import { hasInventorySizeBreakdown, formatInventorySizesLine } from "utils/inventoryVariantHelper";
 import { isFossCinchosProductCode } from "utils/cinchoProductionHelper";
 import {
-  HARDWARE_CONDITION_OPTIONS,
   filterVisibleKioskStockRows,
   formatCinchoClassification,
-  getHardwareConditionLabel,
-  normalizeHardwareCondition,
+  resolveCinchoSizesForOpening,
   resolveCinchoSizesForProduct,
   sortSizeKeys,
 } from "utils/productCinchoHelper";
+import {
+  STOCK_DIMENSION_KIND,
+  dimensionColumnLabel,
+  isEntreCuerosLocation,
+  kioskDimensionDisplayLabel,
+  normalizeStockDimensionKey,
+  resolvePayloadHardware,
+  sameStockDimension,
+  stockDimensionKind,
+} from "utils/kioskStockDimensionHelper";
+import KioskInventoryDimensionSelect from "./KioskInventoryDimensionSelect";
 import { showError, showSuccess, showWarning } from "utils/notificationHelper";
 import {
   canSell,
@@ -91,7 +100,8 @@ const INITIAL_FORM = {
   userId: "",
   physicalSlipNumber: "",
   sizeKey: "",
-  hardwareCondition: "NUEVO",
+  hardwareCondition: "",
+  returnedHardwareCondition: "",
 };
 
 function KioskInventory() {
@@ -118,6 +128,7 @@ function KioskInventory() {
   const [boletaHint, setBoletaHint] = useState("");
   const [stockExploreProductId, setStockExploreProductId] = useState("");
   const [stockExploreColorId, setStockExploreColorId] = useState("");
+  const [stockExploreHardware, setStockExploreHardware] = useState("");
   const [showAllStockRows, setShowAllStockRows] = useState(false);
   const [movementKioskId, setMovementKioskId] = useState("");
   const [loadingMovements, setLoadingMovements] = useState(false);
@@ -216,24 +227,22 @@ function KioskInventory() {
   const selectedStockRow = useMemo(() => {
     if (!form.productId) return null;
     const colorCandidate = form.colorId ? Number(form.colorId) : null;
-    const hw = normalizeHardwareCondition(form.hardwareCondition) || "NUEVO";
+    const hw = normalizeStockDimensionKey(form.hardwareCondition);
     const rows = form.operation === "TRASLADO" ? originStockRows : stockRows;
     const match = rows.find((row) => {
       const sameProduct = Number(row.productId) === Number(form.productId);
       const sameColor =
         colorCandidate == null ? row.colorId == null : Number(row.colorId) === colorCandidate;
-      const rowHw = normalizeHardwareCondition(row.hardwareCondition) || "NUEVO";
-      return sameProduct && sameColor && rowHw === hw;
+      return sameProduct && sameColor && sameStockDimension(row.hardwareCondition, hw);
     });
     if (match) return match;
-    return (
-      rows.find((row) => {
-        const sameProduct = Number(row.productId) === Number(form.productId);
-        const sameColor =
-          colorCandidate == null ? row.colorId == null : Number(row.colorId) === colorCandidate;
-        return sameProduct && sameColor;
-      }) || null
-    );
+    const sameColorRows = rows.filter((row) => {
+      const sameProduct = Number(row.productId) === Number(form.productId);
+      const sameColor =
+        colorCandidate == null ? row.colorId == null : Number(row.colorId) === colorCandidate;
+      return sameProduct && sameColor;
+    });
+    return sameColorRows.length === 1 ? sameColorRows[0] : null;
   }, [
     form.productId,
     form.colorId,
@@ -258,6 +267,7 @@ function KioskInventory() {
       setLowStockRows([]);
       setStockExploreProductId("");
       setStockExploreColorId("");
+      setStockExploreHardware("");
       return;
     }
     void refreshLocationData(selectedLocation);
@@ -351,6 +361,7 @@ function KioskInventory() {
 
   useEffect(() => {
     setStockExploreColorId("");
+    setStockExploreHardware("");
   }, [stockExploreProductId, selectedLocation]);
 
   useEffect(() => {
@@ -440,6 +451,7 @@ function KioskInventory() {
     onFormChange("locationId", String(row.locationId));
     setStockExploreProductId(row.productId ? String(row.productId) : "");
     setStockExploreColorId(row.colorId ? String(row.colorId) : "");
+    setStockExploreHardware(row.hardwareCondition ? normalizeStockDimensionKey(row.hardwareCondition) : "");
     setActiveTab("INVENTARIO");
   };
 
@@ -447,30 +459,51 @@ function KioskInventory() {
     setForm((prev) => ({ ...prev, [key]: value }));
   };
 
-  const findStockRow = (productId, colorId, hardwareCondition = "NUEVO") => {
+  const findStockRow = (productId, colorId, hardwareCondition = "") => {
     if (!productId) return null;
     const colorCandidate = colorId ? Number(colorId) : null;
-    const hw = normalizeHardwareCondition(hardwareCondition) || "NUEVO";
+    const hw = normalizeStockDimensionKey(hardwareCondition);
     const rows = form.operation === "TRASLADO" ? originStockRows : stockRows;
     const match = rows.find((row) => {
       const sameProduct = Number(row.productId) === Number(productId);
       const sameColor =
         colorCandidate == null ? row.colorId == null : Number(row.colorId) === colorCandidate;
-      const rowHw = normalizeHardwareCondition(row.hardwareCondition) || "NUEVO";
-      return sameProduct && sameColor && rowHw === hw;
+      return sameProduct && sameColor && sameStockDimension(row.hardwareCondition, hw);
     });
     if (match) return match;
-    // Fallback: misma variante sin herraje (stocks antiguos).
-    return rows.find((row) => {
+    const sameColorRows = rows.filter((row) => {
       const sameProduct = Number(row.productId) === Number(productId);
       const sameColor =
         colorCandidate == null ? row.colorId == null : Number(row.colorId) === colorCandidate;
       return sameProduct && sameColor;
-    }) || null;
+    });
+    return sameColorRows.length === 1 ? sameColorRows[0] : null;
   };
 
   const findCatalogProduct = (productId) =>
     (products || []).find((product) => Number(product.id) === Number(productId)) || null;
+
+  const movementLocationId = (dest = false) => {
+    if (form.operation === "TRASLADO") {
+      return dest ? form.locationDestinationId : form.locationOriginId;
+    }
+    return form.locationId;
+  };
+
+  const lineAllowsResidual = (line) => {
+    if (form.operation === "ENTRADA") return false;
+    if (form.operation === "AJUSTE") return String(line?.direction || "").toUpperCase() !== "INGRESO";
+    return true;
+  };
+
+  const linePayloadHardware = (line, { dest = false } = {}) => {
+    const product = findCatalogProduct(line.productId);
+    const locationId = movementLocationId(dest);
+    const raw = dest ? line.destinationHardwareCondition : line.hardwareCondition;
+    return resolvePayloadHardware(locationId, product, raw, {
+      allowResidual: dest ? false : lineAllowsResidual(line),
+    }) || (stockDimensionKind(locationId, product) === STOCK_DIMENSION_KIND.HERRAJE ? "NUEVO" : "");
+  };
 
   const isCinchoLine = (line, row) => {
     const product = findCatalogProduct(line.productId);
@@ -497,7 +530,11 @@ function KioskInventory() {
       return hasInventorySizeBreakdown(row?.sizes) ? sortSizeKeys(existingSizes) : [];
     }
     const product = findCatalogProduct(line.productId) || row;
-    return sortSizeKeys([...new Set([...resolveCinchoSizesForProduct(product), ...existingSizes])]);
+    const locationId = form.operation === "TRASLADO" ? form.locationOriginId : form.locationId;
+    const catalogSizes = isEntreCuerosLocation(locationId)
+      ? resolveCinchoSizesForOpening(product, { entreCueros: true })
+      : resolveCinchoSizesForProduct(product);
+    return sortSizeKeys([...new Set([...catalogSizes, ...existingSizes])]);
   };
 
   /**
@@ -560,6 +597,8 @@ function KioskInventory() {
         reason: form.reason,
         physicalSlipNumber: form.physicalSlipNumber,
         lineNeedsSize,
+        findProduct: findCatalogProduct,
+        isOutflowLine: (line) => lineAllowsResidual(line),
       });
     }
     if (form.operation === "DEVOLUCION_DEPOSITO") {
@@ -577,6 +616,11 @@ function KioskInventory() {
       if (!givenCount) return "Agrega al menos un producto a entregar.";
       if (!Number.isInteger(Number(form.quantity)) || Number(form.quantity) <= 0) {
         return "La cantidad debe ser un entero mayor a cero.";
+      }
+      const returnedKind = stockDimensionKind(form.locationId, findCatalogProduct(form.returnedProductId));
+      if (returnedKind !== STOCK_DIMENSION_KIND.HERRAJE && returnedKind !== STOCK_DIMENSION_KIND.NONE
+          && !resolvePayloadHardware(form.locationId, findCatalogProduct(form.returnedProductId), form.returnedHardwareCondition)) {
+        return "Indica la variante del producto devuelto.";
       }
       return "";
     }
@@ -632,7 +676,7 @@ function KioskInventory() {
       userId: form.userId ? Number(form.userId) : null,
       quantity: Number(line.quantity),
       sizeKey: String(line.sizeKey || "").trim() || null,
-      hardwareCondition: normalizeHardwareCondition(line.hardwareCondition) || "NUEVO",
+      hardwareCondition: linePayloadHardware(line) || "NUEVO",
     };
     switch (form.operation) {
       case "ENTRADA":
@@ -666,7 +710,12 @@ function KioskInventory() {
   };
 
   const buildPayload = () => {
-    const hardwareCondition = normalizeHardwareCondition(form.hardwareCondition) || "NUEVO";
+    const hardwareCondition = resolvePayloadHardware(
+      form.locationId,
+      findCatalogProduct(form.productId || form.returnedProductId),
+      form.hardwareCondition,
+      { allowResidual: form.operation !== "ENTRADA" }
+    ) || "NUEVO";
     const base = {
       productId: Number(form.productId),
       colorId: form.colorId ? Number(form.colorId) : null,
@@ -734,12 +783,23 @@ function KioskInventory() {
           colorId: line.colorId ? Number(line.colorId) : null,
           quantity: Number(line.quantity || form.quantity),
           sizeKey: String(line.sizeKey || form.sizeKey || "").trim() || null,
-          hardwareCondition: normalizeHardwareCondition(line.hardwareCondition || form.hardwareCondition) || null,
+          hardwareCondition: resolvePayloadHardware(
+            form.locationId,
+            findCatalogProduct(line.productId),
+            line.hardwareCondition || form.hardwareCondition,
+            { allowResidual: true }
+          ) || null,
         }));
         const primary = givenItems[0] || {};
         return {
           returnedProductId: Number(form.returnedProductId),
           returnedColorId: form.returnedColorId ? Number(form.returnedColorId) : null,
+          returnedHardwareCondition: resolvePayloadHardware(
+            form.locationId,
+            findCatalogProduct(form.returnedProductId),
+            form.returnedHardwareCondition,
+            { allowResidual: false }
+          ) || null,
           givenItems,
           givenProductId: primary.productId,
           givenColorId: primary.colorId ?? null,
@@ -781,7 +841,8 @@ function KioskInventory() {
           colorId: line.colorId ? Number(line.colorId) : null,
           quantity: Number(line.quantity),
           sizeKey: String(line.sizeKey || "").trim() || null,
-          hardwareCondition: normalizeHardwareCondition(line.hardwareCondition) || "NUEVO",
+          hardwareCondition: linePayloadHardware(line) || "NUEVO",
+          destinationHardwareCondition: linePayloadHardware(line, { dest: true }) || null,
         })),
       });
       return result;
@@ -1181,6 +1242,20 @@ function KioskInventory() {
                               disabled={loadingCatalogs}
                             />
                           </FormGroup>
+                          <FormGroup>
+                            <Label>
+                              {dimensionColumnLabel(stockDimensionKind(form.locationId, findCatalogProduct(form.returnedProductId)))} devuelto
+                            </Label>
+                            <KioskInventoryDimensionSelect
+                              locationId={form.locationId}
+                              product={findCatalogProduct(form.returnedProductId)}
+                              stockRows={stockRows}
+                              colorId={form.returnedColorId}
+                              value={form.returnedHardwareCondition}
+                              allowResidual={false}
+                              onChange={(value) => onFormChange("returnedHardwareCondition", value)}
+                            />
+                          </FormGroup>
                           <Alert color="info" className="py-2">
                             Puedes entregar uno o varios productos. El valor entregado no puede ser menor al
                             devuelto (precios de catálogo).
@@ -1204,6 +1279,20 @@ function KioskInventory() {
                               onChange={(color) => onFormChange("colorId", color ? String(color.id) : "")}
                               placeholder="Buscar color…"
                               disabled={loadingCatalogs}
+                            />
+                          </FormGroup>
+                          <FormGroup>
+                            <Label>
+                              {dimensionColumnLabel(stockDimensionKind(form.locationId, findCatalogProduct(form.productId)))} entregado
+                            </Label>
+                            <KioskInventoryDimensionSelect
+                              locationId={form.locationId}
+                              product={findCatalogProduct(form.productId)}
+                              stockRows={stockRows}
+                              colorId={form.colorId}
+                              value={form.hardwareCondition}
+                              allowResidual
+                              onChange={(value) => onFormChange("hardwareCondition", value)}
                             />
                           </FormGroup>
                           <Button
@@ -1292,7 +1381,14 @@ function KioskInventory() {
                                 <tr>
                                   <th>Producto</th>
                                   <th>Color</th>
-                                  <th>Herraje</th>
+                                  <th>
+                                    {isEntreCuerosLocation(movementLocationId())
+                                      ? "Variante"
+                                      : "Herraje"}
+                                  </th>
+                                  {form.operation === "TRASLADO" && isEntreCuerosLocation(form.locationDestinationId)
+                                    ? <th>Variante destino</th>
+                                    : null}
                                   <th>Talla</th>
                                   {form.operation === "AJUSTE" ? <th>Tipo</th> : null}
                                   <th>Cant.</th>
@@ -1341,22 +1437,34 @@ function KioskInventory() {
                                           disabled={loadingCatalogs}
                                         />
                                       </td>
-                                      <td style={{ width: 118 }}>
-                                        <Input
-                                          type="select"
-                                          bsSize="sm"
-                                          value={normalizeHardwareCondition(line.hardwareCondition) || "NUEVO"}
-                                          onChange={(e) =>
-                                            updateLineItem(line.id, "hardwareCondition", e.target.value || "NUEVO")
+                                      <td style={{ width: 150 }}>
+                                        <KioskInventoryDimensionSelect
+                                          locationId={movementLocationId()}
+                                          product={findCatalogProduct(line.productId)}
+                                          stockRows={form.operation === "TRASLADO" ? originStockRows : stockRows}
+                                          colorId={line.colorId}
+                                          value={line.hardwareCondition}
+                                          allowResidual={lineAllowsResidual(line)}
+                                          onChange={(value) =>
+                                            updateLineItem(line.id, "hardwareCondition", value)
                                           }
-                                        >
-                                          {HARDWARE_CONDITION_OPTIONS.filter((opt) => opt.value).map((opt) => (
-                                            <option key={opt.value} value={opt.value}>
-                                              {opt.value === "NUEVO" ? "Nuevo" : "Viejo"}
-                                            </option>
-                                          ))}
-                                        </Input>
+                                        />
                                       </td>
+                                      {form.operation === "TRASLADO" && isEntreCuerosLocation(form.locationDestinationId) ? (
+                                        <td style={{ width: 150 }}>
+                                          <KioskInventoryDimensionSelect
+                                            locationId={form.locationDestinationId}
+                                            product={findCatalogProduct(line.productId)}
+                                            stockRows={[]}
+                                            colorId={line.colorId}
+                                            value={line.destinationHardwareCondition}
+                                            allowResidual={false}
+                                            onChange={(value) =>
+                                              updateLineItem(line.id, "destinationHardwareCondition", value)
+                                            }
+                                          />
+                                        </td>
+                                      ) : null}
                                       <td style={{ width: 96 }}>
                                         {needsSize && sizeOptions.length > 0 ? (
                                           <Input
@@ -1431,8 +1539,10 @@ function KioskInventory() {
                                                 <div className="text-warning" style={{ fontSize: 11, lineHeight: 1.2 }}>
                                                   Hay stock en: {alternates.map((alt) => (
                                                     `${alt.colorName || "sin color"}`
-                                                    + (alt.hardwareCondition && normalizeHardwareCondition(alt.hardwareCondition) !== "NUEVO"
-                                                      ? ` (${getHardwareConditionLabel(alt.hardwareCondition)})`
+                                                    + (alt.hardwareCondition
+                                                      ? ` · ${kioskDimensionDisplayLabel(alt.hardwareCondition, {
+                                                        entreCueros: isEntreCuerosLocation(movementLocationId()),
+                                                      })}`
                                                       : "")
                                                     + `: ${alt.currentStock}`
                                                   )).join(", ")}
@@ -1491,6 +1601,20 @@ function KioskInventory() {
                               onChange={(color) => onFormChange("colorId", color ? String(color.id) : "")}
                               placeholder="Buscar color…"
                               disabled={loadingCatalogs}
+                            />
+                          </FormGroup>
+                          <FormGroup>
+                            <Label>
+                              {dimensionColumnLabel(stockDimensionKind(form.locationId, findCatalogProduct(form.productId)))}
+                            </Label>
+                            <KioskInventoryDimensionSelect
+                              locationId={form.locationId}
+                              product={findCatalogProduct(form.productId)}
+                              stockRows={stockRows}
+                              colorId={form.colorId}
+                              value={form.hardwareCondition}
+                              allowResidual={form.operation !== "ENTRADA"}
+                              onChange={(value) => onFormChange("hardwareCondition", value)}
                             />
                           </FormGroup>
                         </>
@@ -1724,6 +1848,8 @@ function KioskInventory() {
                         onProductChange={setStockExploreProductId}
                         selectedColorId={stockExploreColorId}
                         onColorChange={setStockExploreColorId}
+                        selectedHardware={stockExploreHardware}
+                        onHardwareChange={setStockExploreHardware}
                         showAllRows={showAllStockRows}
                         onToggleShowAll={() => setShowAllStockRows((prev) => !prev)}
                         packagingStockCount={packagingStockCount}
@@ -1853,7 +1979,7 @@ function KioskInventory() {
                           <th>Producto</th>
                           <th>Color</th>
                           <th>Tipo</th>
-                          <th>Herraje</th>
+                          <th>Variante</th>
                           <th className="text-right">Stock</th>
                           <th>Tallas</th>
                         </tr>
@@ -1880,7 +2006,11 @@ function KioskInventory() {
                             </td>
                             <td>{row.colorName || "Sin color"}</td>
                             <td className="small">{formatCinchoClassification(row)}</td>
-                            <td className="small">{getHardwareConditionLabel(row.hardwareCondition)}</td>
+                            <td className="small">
+                              {kioskDimensionDisplayLabel(row.hardwareCondition, {
+                                entreCueros: isEntreCuerosLocation(row.locationId),
+                              })}
+                            </td>
                             <td className="text-right font-weight-bold">
                               {row.currentStock ?? 0}
                               {row.lowStock ? (

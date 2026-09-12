@@ -1,6 +1,7 @@
 import React, { useMemo } from "react";
 import { Badge, Button, Card, CardBody, Input } from "reactstrap";
 import { isPackagingProductCode } from "utils/kioskPackagingHelper";
+import { entrecuerosVolumeKey } from "utils/entrecuerosPriceLists";
 import {
   formatCurrency,
   formatQty,
@@ -23,10 +24,11 @@ function PosCartPanel({
   const qtyByProduct = useMemo(() => {
     const map = {};
     (cart || []).forEach((line) => {
-      map[line.productId] = (map[line.productId] || 0) + Number(line.quantity || 0);
+      const key = entrecueros ? entrecuerosVolumeKey(line) : line.productId;
+      map[key] = (map[key] || 0) + Number(line.quantity || 0);
     });
     return map;
-  }, [cart]);
+  }, [cart, entrecueros]);
   return (
     <Card className="kiosk-pos-block kiosk-pos-cart-panel">
       <CardBody>
@@ -41,7 +43,7 @@ function PosCartPanel({
 
         {entrecueros ? (
           <div className="text-muted small mb-2" style={{ cursor: "default" }}>
-            Precio por cantidad del mismo código: 1, desde 3, desde 6 y desde 12. 4 piezas cobran el precio de 3+.
+            El volumen es por lista de precio (Casual, Dama, Niño, sintético…). No se mezclan variantes del mismo código.
           </div>
         ) : (
           <div className="kiosk-pos-customer-btn text-muted small mb-2" style={{ cursor: "default" }}>
@@ -66,7 +68,8 @@ function PosCartPanel({
             cart.map((line) => {
               const isPackaging = Boolean(line.isPackaging) || isPackagingProductCode(line.productCode);
               const showPriceControls = canEditPrices && !isPackaging;
-              const productQty = qtyByProduct[line.productId] || Number(line.quantity || 0);
+              const productQty = qtyByProduct[entrecueros ? entrecuerosVolumeKey(line) : line.productId]
+                || Number(line.quantity || 0);
               const priceState = entrecueros
                 ? describeEntrecuerosPriceState(line, productQty)
                 : null;

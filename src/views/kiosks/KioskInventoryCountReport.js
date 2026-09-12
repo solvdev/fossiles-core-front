@@ -79,7 +79,6 @@ import {
   isFossCinchoProductRow,
   formatCinchoClassification,
   formatFossLocationSizeSummary,
-  getHardwareConditionLabel,
   resolveStockDimensionLabel,
   rowUsesHardwareCountMode,
   productMatchesCinchoFilter,
@@ -96,6 +95,8 @@ import {
 } from "utils/productCinchoHelper";
 import { showError, showSuccess } from "utils/notificationHelper";
 import CinchoCountDetailModal from "./CinchoCountDetailModal";
+import { isEntreCuerosLocation, kioskDimensionDisplayLabel } from "utils/kioskStockDimensionHelper";
+import { ENTRECUEROS_VARIANT_FILTERS, matchesEntrecuerosVariantFilter } from "utils/entrecuerosPriceLists";
 import HardwareCountModal, {
   buildHardwareLocationCounts,
   syncCountsFromHardware,
@@ -379,10 +380,9 @@ function HardwareQtyChips({ nuevo, viejo }) {
 }
 
 /** Desglose N/V: sistema (kardex) vs físico (conteo por vitrina). */
-function HardwareSplitSummaryCell({ row, hardwareLocationCounts, useHardwareSplit, vitrineOnlyView }) {
-  if (!useHardwareSplit) {
-    const label = getHardwareConditionLabel(row.hardwareCondition);
-    return <span>{label !== "—" ? label : "—"}</span>;
+function HardwareSplitSummaryCell({ row, hardwareLocationCounts, useHardwareSplit, vitrineOnlyView, entreCueros = false }) {
+  if (!useHardwareSplit || entreCueros) {
+    return <span>{kioskDimensionDisplayLabel(row.hardwareCondition, { entreCueros })}</span>;
   }
 
   const system = sumInventarioFinalByHardware(row.inventarioFinalByHardware);
@@ -463,6 +463,7 @@ function DataRow({
   editedHardwareLocationCounts,
   vitrineOnlyView = false,
   hardwareSplitEnabled = false,
+  entreCueros = false,
 }) {
   const total = resolveLivePhysicalTotal(row, counts, physicalSizes, physicalSizesByLocation);
   const diferencia = computeConteoRowDiferencia(total, row);
@@ -525,7 +526,9 @@ function DataRow({
         {formatCinchoClassification(row)}
       </td>
       <td style={{ fontSize: 11, color: "#374151", verticalAlign: "middle" }}>
-        {resolveStockDimensionLabel(row.hardwareCondition) ? (
+        {entreCueros ? (
+          <span>{kioskDimensionDisplayLabel(row.hardwareCondition, { entreCueros: true })}</span>
+        ) : resolveStockDimensionLabel(row.hardwareCondition) ? (
           <span>{resolveStockDimensionLabel(row.hardwareCondition)}</span>
         ) : hardwareSplitEnabled ? (
           <HardwareSplitSummaryCell
@@ -533,6 +536,7 @@ function DataRow({
             hardwareLocationCounts={editedHardwareLocationCounts?.[rKey] ?? row.hardwareLocationCounts}
             useHardwareSplit={useHardwareModal}
             vitrineOnlyView={vitrineOnlyView}
+            entreCueros={entreCueros}
           />
         ) : (
           <span style={{ color: "#9ca3af" }}>—</span>
@@ -735,6 +739,7 @@ function CategoryGroup({
   disabled,
   vitrineOnlyView = false,
   hardwareSplitEnabled = false,
+  entreCueros = false,
 }) {
   const [collapsed, setCollapsed] = useState(false);
   const trailingCols = vitrineOnlyView ? INTERNAL_TRAILING_DATA_COLS : TRAILING_DATA_COLS;
@@ -794,6 +799,7 @@ function CategoryGroup({
                 editedHardwareLocationCounts={editedHardwareLocationCounts}
                 vitrineOnlyView={vitrineOnlyView}
                 hardwareSplitEnabled={hardwareSplitEnabled}
+                entreCueros={entreCueros}
               />
             );
           })}
@@ -812,6 +818,7 @@ function CategoryGroup({
 
 // ─── Componente principal ─────────────────────────────────────────────────────
 function KioskInventoryCountReport({ locationId, internalMode = false }) {
+  const entreCueros = isEntreCuerosLocation(locationId);
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [report, setReport] = useState(null);
@@ -826,6 +833,7 @@ function KioskInventoryCountReport({ locationId, internalMode = false }) {
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [audienceFilter, setAudienceFilter] = useState("");
   const [cinchoFilter, setCinchoFilter] = useState("");
+  const [variantFilter, setVariantFilter] = useState("");
   const [productCategoryFilter, setProductCategoryFilter] = useState("");
   const [showKardex, setShowKardex] = useState(() => !internalMode);
   const [editedSizeCounts, setEditedSizeCounts] = useState({});
@@ -854,6 +862,7 @@ function KioskInventoryCountReport({ locationId, internalMode = false }) {
   const [lastAutoSaveAt, setLastAutoSaveAt] = useState(null);
   const [remoteSyncNotice, setRemoteSyncNotice] = useState("");
   const [hardwareSplitEnabled, setHardwareSplitEnabled] = useState(false);
+  const nvSplitEnabled = hardwareSplitEnabled && !entreCueros;
   const lastSyncSinceRef = useRef(null);
   const autoSavingRef = useRef(false);
 
@@ -891,6 +900,7 @@ function KioskInventoryCountReport({ locationId, internalMode = false }) {
             && productMatchesSearchFilter(row, debouncedSearch)
             && productMatchesAudienceFilter(row, audienceFilter)
             && productMatchesCinchoFilter(row, cinchoFilter)
+            && (!entreCueros || matchesEntrecuerosVariantFilter(row, variantFilter))
         );
         if (rows.length === 0) return null;
         const rowsWithLiveTotals = rows.map((row) =>
@@ -904,6 +914,8 @@ function KioskInventoryCountReport({ locationId, internalMode = false }) {
     debouncedSearch,
     audienceFilter,
     cinchoFilter,
+    variantFilter,
+    entreCueros,
     productCategoryFilter,
     editedCounts,
     editedSizeCounts,
@@ -952,7 +964,7 @@ function KioskInventoryCountReport({ locationId, internalMode = false }) {
   );
 
   const cinchoModalHardwareSplit = useMemo(() => {
-    if (!hardwareSplitEnabled || !cinchoModalRows.length) return false;
+    if (!nvSplitEnabled || !cinchoModalRows.length) return false;
     const parentRows = cinchoModalRows.filter((row) => !row.sizeLabel);
     const rowsToCheck = parentRows.length ? parentRows : cinchoModalRows;
     return rowsToCheck.every((row) => {
@@ -970,7 +982,7 @@ function KioskInventoryCountReport({ locationId, internalMode = false }) {
     editedCounts,
     editedSizeCounts,
     editedSizeCountsByLocation,
-    hardwareSplitEnabled,
+    nvSplitEnabled,
   ]);
 
   const filteredTotalGeneral = useMemo(() => {
@@ -1028,7 +1040,10 @@ function KioskInventoryCountReport({ locationId, internalMode = false }) {
     setEditedSizeCountsByLocation({});
     setEditedHardwareLocationCounts({});
     setEditedObservations({});
-  }, [locationId, loadHistorial, internalMode]);
+    if (entreCueros) {
+      setHardwareSplitEnabled(false);
+    }
+  }, [locationId, loadHistorial, internalMode, entreCueros]);
 
   // Siguiente conteo: día siguiente al último cerrado; si no hay, ahora GT → fin de día GT.
   useEffect(() => {
@@ -2241,7 +2256,22 @@ function KioskInventoryCountReport({ locationId, internalMode = false }) {
                     {opt.label === "Todos" ? "Cinchos: Todos" : opt.label}
                   </Button>
                 ))}
-                {!internalMode && (
+                {entreCueros ? (
+                  <>
+                    <span style={{ width: 1, background: "#d1d5db", margin: "0 4px" }} />
+                    {ENTRECUEROS_VARIANT_FILTERS.map((opt) => (
+                      <Button
+                        key={opt.value || "variant-all"}
+                        size="sm"
+                        color={variantFilter === opt.value ? "primary" : "light"}
+                        onClick={() => setVariantFilter(opt.value)}
+                      >
+                        {opt.value === "" ? "Variante: Todas" : opt.label}
+                      </Button>
+                    ))}
+                  </>
+                ) : null}
+                {!internalMode && !entreCueros && (
                   <>
                     <span style={{ width: 1, background: "#d1d5db", margin: "0 4px" }} />
                     <FormGroup check inline className="mb-0 ml-1">
@@ -2480,9 +2510,14 @@ function KioskInventoryCountReport({ locationId, internalMode = false }) {
                   <th style={thStyle}>Color</th>
                   <th style={thStyle}>Talla</th>
                   <th style={thStyle}>Tipo</th>
-                  <th style={{ ...thStyle, minWidth: 96 }} title="Herraje nuevo (N) y viejo (V) — sistema y conteo físico">
-                    Herraje
-                    <div style={{ fontWeight: 400, fontSize: 9, color: "#6b7280" }}>N · V</div>
+                  <th
+                    style={{ ...thStyle, minWidth: 96 }}
+                    title={entreCueros ? "Marca / Para" : "Herraje nuevo (N) y viejo (V) — sistema y conteo físico"}
+                  >
+                    {entreCueros ? "Variante" : "Herraje"}
+                    {entreCueros ? null : (
+                      <div style={{ fontWeight: 400, fontSize: 9, color: "#6b7280" }}>N · V</div>
+                    )}
                   </th>
                   {tableShowKardex && kardexColumns.map((col) => (
                     <th key={col.key} style={{ ...thStyle, background: "#eef2ff" }} title={col.title}>{col.label}</th>
@@ -2517,7 +2552,8 @@ function KioskInventoryCountReport({ locationId, internalMode = false }) {
                       onOpenHardwareModal={handleOpenHardwareModal}
                       disabled={isCountLocked}
                       vitrineOnlyView={internalMode}
-                      hardwareSplitEnabled={hardwareSplitEnabled && !internalMode}
+                      hardwareSplitEnabled={nvSplitEnabled && !internalMode}
+                      entreCueros={entreCueros}
                     />
                   ))
                 )}
@@ -2544,7 +2580,9 @@ function KioskInventoryCountReport({ locationId, internalMode = false }) {
             {internalMode ? (
               <>
                 <span>Registra cuántas unidades hay en cada vitrina (V1–V7, E, BO).</span>
-                <span>Al tocar una vitrina se abre el modal de herraje NUEVO/VIEJO.</span>
+                {entreCueros ? null : (
+                  <span>Al tocar una vitrina se abre el modal de herraje NUEVO/VIEJO.</span>
+                )}
                 <span>Los cinchos FOSS usan el modal de tallas; otros cinchos pueden contar por talla.</span>
                 <span>Exporta a Excel para compartir o archivar el conteo del día.</span>
               </>
@@ -2563,7 +2601,11 @@ function KioskInventoryCountReport({ locationId, internalMode = false }) {
             <span>Observaciones: solo en filas con sobrante o faltante</span>
             <span>Haz clic en el nombre de categoría para colapsar/expandir</span>
             {!tableShowKardex && <span>Kardex oculto en pantalla — actívalo con &quot;Mostrar Kardex&quot; (Excel/PDF oficiales lo incluyen)</span>}
-            <span>Al tocar una celda de vitrina (V1–V7, E, BO) se abre el modal herraje NUEVO/VIEJO.</span>
+            {entreCueros ? (
+              <span>Cada fila es una variante (marca o Niño/Dama). No hay herraje N/V.</span>
+            ) : (
+              <span>Al tocar una celda de vitrina (V1–V7, E, BO) se abre el modal herraje NUEVO/VIEJO.</span>
+            )}
             <span>FOSS cinchos: una fila por talla y color — edite E (vitrina) y BO (bodega). Otros cinchos: edite E por talla.</span>
               </>
             )}
@@ -2572,7 +2614,7 @@ function KioskInventoryCountReport({ locationId, internalMode = false }) {
       )}
 
       <HardwareCountModal
-        isOpen={hardwareModal != null}
+        isOpen={!entreCueros && hardwareModal != null}
         toggle={closeHardwareModal}
         productLabel={hardwareModal?.productLabel}
         locationKey={hardwareModal?.locationKey}

@@ -17,6 +17,12 @@ import {
   normalizeHardwareCondition,
   shouldShowInKioskPhysicalCount,
 } from "utils/productCinchoHelper";
+import {
+  entrecuerosPriceKind,
+  entrecuerosVolumeKey,
+  listEntrecuerosPriceListTiers,
+  resolveEntrecuerosListUnitPrice,
+} from "utils/entrecuerosPriceLists";
 import { getSaleYmdGuatemala, getTodayYmdGuatemala, shiftYmdGuatemala } from "utils/dateTimeHelper";
 
 export const POS_CATALOG_VIEWS = [
@@ -157,7 +163,7 @@ export const posVariantStockQty = (variant) => {
 export const posVariantHasStock = (variant) => posVariantStockQty(variant) > 0;
 
 /** Etiqueta del chip cuando hay más de un herraje/dimensión para el mismo color. */
-export const posVariantChipLabel = (variant, variantsInProduct = []) => {
+export const posVariantChipLabel = (variant, variantsInProduct = [], { entreCueros } = {}) => {
   const colorName = String(variant?.colorName || "").trim() || "Sin color";
   if (isPackagingProductCode(variant?.productCode)) {
     return colorName;
@@ -176,11 +182,8 @@ export const posVariantChipLabel = (variant, variantsInProduct = []) => {
   if (isSplitDimension && extraLabel && extraLabel !== "—" && !brand && !audience) {
     return `${colorName} · ${extraLabel}`;
   }
-  if (hardwareValues.size <= 1) {
+  if (hardwareValues.size <= 1 || entreCueros || brand || audience) {
     return colorName;
-  }
-  if (extraLabel && extraLabel !== "—") {
-    return `${colorName} · ${extraLabel}`;
   }
   return `${colorName} · ${hw === "VIEJO" ? "Viejo" : "Nuevo"}`;
 };
@@ -210,19 +213,22 @@ export const itemMatchesCategory = (item, categoryFilter) => {
 };
 
 export const ENTRECUEROS_CATALOG_GROUPS = [
-  { value: "CINCHOS", label: "Cinchos" },
+  { value: "CASUAL", label: "Casual" },
+  { value: "REVERSIBLE", label: "Reversible" },
+  { value: "NINO", label: "Niño" },
+  { value: "DAMA", label: "Dama" },
   { value: "BILLETERAS", label: "Billeteras" },
   { value: "SINTETICOS", label: "Sintéticos" },
 ];
 
-/** Cinchos, billeteras de cuero, u otros accesorios (sintéticos) para el POS Entrecueros. */
+/** Misma dimensión que las listas de precio: variante + tipo, no solo categoría. */
 export const classifyEntrecuerosCatalogGroup = (item) => {
-  const text = normalizePosLabel(
-    `${item?.categoryName || ""} ${item?.productName || ""}`
-  );
-  if (text.includes("cincho")) return "CINCHOS";
-  if (isSyntheticHardware(item?.hardwareCondition)) return "SINTETICOS";
-  if (text.includes("billeter")) return "BILLETERAS";
+  const kind = entrecuerosPriceKind(item);
+  if (kind === "NINO") return "NINO";
+  if (kind === "DAMA") return "DAMA";
+  if (kind === "REVERSIBLE") return "REVERSIBLE";
+  if (kind === "CASUAL") return "CASUAL";
+  if (kind === "WALLET_LEATHER") return "BILLETERAS";
   return "SINTETICOS";
 };
 
@@ -403,6 +409,8 @@ export const groupInventoryByProduct = (items) => {
         suggestedUnitPrice: item.suggestedUnitPrice,
         categoryId: item.categoryId,
         categoryName: item.categoryName,
+        cinchoType: item.cinchoType,
+        hardwareCondition: item.hardwareCondition,
         entrecuerosPriceUnit: item.entrecuerosPriceUnit,
         entrecuerosPriceQty3: item.entrecuerosPriceQty3,
         entrecuerosPriceQty6: item.entrecuerosPriceQty6,
@@ -957,32 +965,10 @@ export const POS_MODE_ENTRECUEROS = "ENTRECUEROS";
 export const isEntrecuerosPosMode = (source) =>
   String(source?.posMode || "").toUpperCase() === POS_MODE_ENTRECUEROS;
 
-export const listEntrecuerosPriceTiers = (source) => {
-  const p1 = Number(
-    source?.entrecuerosPriceUnit
-    || source?.catalogUnitPrice
-    || source?.suggestedUnitPrice
-    || 0
-  );
-  const tiers = [{ minQty: 1, label: "1", unitPrice: p1 }];
-  const p3 = Number(source?.entrecuerosPriceQty3 || 0);
-  const p6 = Number(source?.entrecuerosPriceQty6 || 0);
-  const p12 = Number(source?.entrecuerosPriceQty12 || 0);
-  if (p3 > 0) tiers.push({ minQty: 3, label: "3+", unitPrice: p3 });
-  if (p6 > 0) tiers.push({ minQty: 6, label: "6+", unitPrice: p6 });
-  if (p12 > 0) tiers.push({ minQty: 12, label: "12+", unitPrice: p12 });
-  return tiers.filter((tier) => Number(tier.unitPrice) > 0);
-};
+export const listEntrecuerosPriceTiers = (source) => listEntrecuerosPriceListTiers(source);
 
-export const resolveEntrecuerosUnitPrice = (source, qty) => {
-  const n = Number(qty || 0);
-  const tiers = listEntrecuerosPriceTiers(source);
-  let price = 0;
-  tiers.forEach((tier) => {
-    if (n >= tier.minQty) price = tier.unitPrice;
-  });
-  return price;
-};
+export const resolveEntrecuerosUnitPrice = (source, qty) =>
+  resolveEntrecuerosListUnitPrice(source, qty);
 
 export const describeEntrecuerosPriceState = (source, qty) => {
   const n = Number(qty || 0);
@@ -997,13 +983,13 @@ export const describeEntrecuerosPriceState = (source, qty) => {
 };
 
 export const applyEntrecuerosCartPrices = (cart) => {
-  const qtyByProduct = {};
+  const qtyByKey = {};
   (cart || []).forEach((line) => {
-    const id = line.productId;
-    qtyByProduct[id] = (qtyByProduct[id] || 0) + Number(line.quantity || 0);
+    const key = entrecuerosVolumeKey(line);
+    qtyByKey[key] = (qtyByKey[key] || 0) + Number(line.quantity || 0);
   });
   return (cart || []).map((line) => {
-    const unitPrice = resolveEntrecuerosUnitPrice(line, qtyByProduct[line.productId] || 0);
+    const unitPrice = resolveEntrecuerosUnitPrice(line, qtyByKey[entrecuerosVolumeKey(line)] || 0);
     return { ...line, unitPrice, catalogUnitPrice: unitPrice };
   });
 };

@@ -32,6 +32,7 @@ import {
   getShipmentPackingItems,
   shipmentPackingTotalQty,
 } from "utils/shipmentPackingHelper";
+import { isEntreCuerosLocation, kioskDimensionDisplayLabel } from "utils/kioskStockDimensionHelper";
 import "views/kiosks/KioskSales.css";
 
 const shipmentMatchesSearch = (shipment, query) => {
@@ -42,7 +43,7 @@ const shipmentMatchesSearch = (shipment, query) => {
   if (header.includes(query)) return true;
   const inProducts = (shipment.products || []).some((product) =>
     normalizePosLabel(
-      `${product.productCode || ""} ${product.productName || ""} ${product.colorName || ""} ${product.categoryName || ""} ${product.size || product.sizeLabel || product.sizeKey || ""}`
+      `${product.productCode || ""} ${product.productName || ""} ${product.colorName || ""} ${product.categoryName || ""} ${product.size || product.sizeLabel || product.sizeKey || ""} ${product.hardwareCondition || ""}`
     ).includes(query)
   );
   if (inProducts) return true;
@@ -516,7 +517,8 @@ export function ShipmentReceiptDetail({
             const sizeText = String(
               product.size || product.sizeLabel || product.sizeKey || product.talla || ""
             ).trim();
-            const hw = String(product.hardwareCondition || "").trim().toUpperCase();
+            const hw = String(product.hardwareCondition || "").trim();
+            const entreCueros = isEntreCuerosLocation(shipment.locationId);
 
             return (
               <tr
@@ -546,7 +548,7 @@ export function ShipmentReceiptDetail({
                         ) : null}
                         {hw ? (
                           <Badge color="secondary" className="kiosk-pos-hw-badge">
-                            {hw === "VIEJO" ? "Herraje viejo" : "Herraje nuevo"}
+                            {kioskDimensionDisplayLabel(hw, { entreCueros })}
                           </Badge>
                         ) : null}
                       </div>

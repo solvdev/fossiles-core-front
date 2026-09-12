@@ -44,6 +44,7 @@ import { showError } from "utils/notificationHelper";
 import { FilterableSelect } from "components/distribution/FilterableSelect";
 import { formatQty, isEntrecuerosPosMode, normalizePosHardwareCondition, posVariantStockQty } from "./posUtils";
 import { ENTRECUEROS_KIOSK_LOCATION_ID } from "utils/partialReleaseHelper";
+import { ENTRECUEROS_VARIANT_FILTERS, matchesEntrecuerosVariantFilter } from "utils/entrecuerosPriceLists";
 import { normalizeProductBrand } from "utils/productBrandHelper";
 import KioskInventoryCountReport from "../KioskInventoryCountReport";
 
@@ -368,6 +369,7 @@ function PosInventoryTab({ kioskLocationId, kioskName, posMode, active }) {
   const [stockFilter, setStockFilter] = useState("ALL");
   const [categoryFilter, setCategoryFilter] = useState("");
   const [audienceFilter, setAudienceFilter] = useState("");
+  const [variantFilter, setVariantFilter] = useState("");
 
   const loadInventory = useCallback(async () => {
     if (!kioskLocationId) {
@@ -459,6 +461,9 @@ function PosInventoryTab({ kioskLocationId, kioskName, posMode, active }) {
         }
         const filteredVariants = product.variants.filter((variant) => {
           const status = variantStatus(variant);
+          if (entreCueros && !matchesEntrecuerosVariantFilter({ ...product, ...variant }, variantFilter)) {
+            return false;
+          }
           if (applyAdvanced && stockFilter === "LOW" && !status.low) return false;
           if (applyAdvanced && stockFilter === "OUT" && status.label !== "Sin stock") return false;
           if (!query) return true;
@@ -479,7 +484,7 @@ function PosInventoryTab({ kioskLocationId, kioskName, posMode, active }) {
         };
       })
       .filter(Boolean);
-  }, [products, query, stockFilter, categoryFilter, audienceFilter, stockMode]);
+  }, [products, query, stockFilter, categoryFilter, audienceFilter, variantFilter, entreCueros, stockMode]);
 
   const summaryGroups = useMemo(
     () => buildKioskInventorySummaryGroups(filteredProducts),
@@ -668,6 +673,24 @@ function PosInventoryTab({ kioskLocationId, kioskName, posMode, active }) {
                   ))}
                 </div>
               </Col>
+              {entreCueros ? (
+                <Col md="12" className="mt-2">
+                  <Label className="mb-1 small">Variante</Label>
+                  <div className="d-flex flex-wrap" style={{ gap: 6 }}>
+                    {ENTRECUEROS_VARIANT_FILTERS.map((opt) => (
+                      <Button
+                        key={opt.value || "variant-all"}
+                        size="sm"
+                        color={variantFilter === opt.value ? "primary" : "secondary"}
+                        outline={variantFilter !== opt.value}
+                        onClick={() => setVariantFilter(opt.value)}
+                      >
+                        {opt.label}
+                      </Button>
+                    ))}
+                  </div>
+                </Col>
+              ) : null}
               <Col md={stockMode === "SUMMARY" ? "6" : "4"} className="mt-2 mt-md-0">
                 <Label className="mb-1 small">Buscar</Label>
                 <Input
