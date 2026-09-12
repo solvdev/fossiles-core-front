@@ -752,10 +752,11 @@ export default function KioskLedgerLab() {
         </div>
       </div>
 
-      <Alert color="warning" className="py-2 px-3 mb-2">
-        Mutaciones directas al ledger. PARA no es de toda la fila: selecciona el color, marca
-        las tallas Niño o Dama y <strong>Mover tallas</strong>. El resto se queda sin PARA.
-        No uses PARA Niño/Dama de arriba si mezclas tallas en el mismo color.
+      <Alert color="info" className="py-2 px-3 mb-2">
+        <strong>Cómo asignar PARA:</strong> 1) Clic en un color de la lista.
+        2) Arriba de la tabla aparecen las tallas. 3) Marca solo las que son Niño o Dama.
+        4) <strong>Mover tallas</strong>. Las no marcadas se quedan sin PARA.
+        No uses <em>Editar stock</em> ni los botones verdes de arriba: esos cambian <em>todas</em> las tallas del color.
       </Alert>
 
       <Row className="g-2 mb-2">
@@ -875,11 +876,89 @@ export default function KioskLedgerLab() {
       </Row>
 
       <Row>
-        <Col md={4} style={{ maxHeight: "70vh", overflow: "auto" }}>
+        <Col md={4}>
           <div className="d-flex justify-content-between align-items-center mb-1">
             <strong>Stock ({stocks.length})</strong>
             {loadingStocks && <Spinner size="sm" />}
           </div>
+          {selectedStock ? (
+            <div className="mb-2 p-2 border rounded" style={{ background: "#ecfdf5" }}>
+              <div className="font-weight-bold">
+                {selectedStock.productCode} · {selectedStock.colorName || "sin color"} · PARA {selectedStock.hardwareCondition && selectedStock.hardwareCondition !== "NUEVO" ? selectedStock.hardwareCondition : "—"}
+              </div>
+              <div className="small text-muted mb-1">
+                Paso: marca las tallas que van a Niño o Dama. El resto se queda en esta fila.
+              </div>
+              {selectedSizeEntries.length > 0 ? (
+                <>
+                  <div className="d-flex flex-wrap" style={{ gap: 6 }}>
+                    {selectedSizeEntries.map(([size, qty]) => (
+                      <Label key={size} check className="mb-0 mr-2">
+                        <Input
+                          type="checkbox"
+                          checked={sizeKeysToMove.has(size)}
+                          onChange={() => {
+                            setSizeKeysToMove((prev) => {
+                              const next = new Set(prev);
+                              if (next.has(size)) next.delete(size);
+                              else next.add(size);
+                              return next;
+                            });
+                          }}
+                        />{" "}
+                        {size}:{qty}
+                      </Label>
+                    ))}
+                  </div>
+                  <div className="d-flex flex-wrap align-items-center mt-2" style={{ gap: 6 }}>
+                    <Button
+                      color="secondary"
+                      size="sm"
+                      outline
+                      onClick={() => setSizeKeysToMove(new Set(selectedSizeEntries
+                        .map(([size]) => size)
+                        .filter((size) => KIDS_PARA_SIZES.has(String(size)))))}
+                    >
+                      16–32
+                    </Button>
+                    <Button
+                      color="secondary"
+                      size="sm"
+                      outline
+                      onClick={() => setSizeKeysToMove(new Set(selectedSizeEntries
+                        .map(([size]) => size)
+                        .filter((size) => Number(size) >= 34)))}
+                    >
+                      34+
+                    </Button>
+                    <Input
+                      bsSize="sm"
+                      type="select"
+                      style={{ width: 120 }}
+                      value={moveParaTarget}
+                      onChange={(e) => setMoveParaTarget(e.target.value)}
+                    >
+                      <option value="NINO">Niño</option>
+                      <option value="DAMA">Dama</option>
+                    </Input>
+                    <Button
+                      color="success"
+                      size="sm"
+                      onClick={handleMoveSelectedSizes}
+                      disabled={saving || sizeKeysToMove.size === 0}
+                    >
+                      Mover tallas
+                    </Button>
+                  </div>
+                </>
+              ) : (
+                <small>Esta fila no tiene tallas en sizes_data.</small>
+              )}
+            </div>
+          ) : (
+            <div className="small text-muted mb-2">Clic en un producto/color de la lista para asignar PARA por talla.</div>
+          )}
+          <div style={{ maxHeight: "55vh", overflow: "auto" }}>
           <Table size="sm" hover bordered responsive className="mb-0">
             <thead>
               <tr>
@@ -943,78 +1022,7 @@ export default function KioskLedgerLab() {
               )}
             </tbody>
           </Table>
-          {selectedStock && (
-            <div className="mt-2 p-2 border rounded bg-light">
-              <div><strong>{selectedStock.productCode}</strong> · {selectedStock.colorName || "sin color"} · loc {selectedStock.locationId}</div>
-              <div>current={selectedStock.currentStock} min={selectedStock.minimumStock} · PARA {selectedStock.hardwareCondition || "NUEVO"}</div>
-              {selectedSizeEntries.length > 0 ? (
-                <div className="mt-2">
-                  <div className="small mb-1">Tallas a mover a PARA (las no marcadas se quedan en esta fila):</div>
-                  <div className="d-flex flex-wrap" style={{ gap: 6 }}>
-                    {selectedSizeEntries.map(([size, qty]) => (
-                      <Label key={size} check className="mb-0 mr-2">
-                        <Input
-                          type="checkbox"
-                          checked={sizeKeysToMove.has(size)}
-                          onChange={() => {
-                            setSizeKeysToMove((prev) => {
-                              const next = new Set(prev);
-                              if (next.has(size)) next.delete(size);
-                              else next.add(size);
-                              return next;
-                            });
-                          }}
-                        />{" "}
-                        {size}:{qty}
-                      </Label>
-                    ))}
-                  </div>
-                  <div className="d-flex flex-wrap align-items-center mt-2" style={{ gap: 6 }}>
-                    <Button
-                      color="secondary"
-                      size="sm"
-                      outline
-                      onClick={() => setSizeKeysToMove(new Set(selectedSizeEntries
-                        .map(([size]) => size)
-                        .filter((size) => KIDS_PARA_SIZES.has(String(size)))))}
-                    >
-                      16–32
-                    </Button>
-                    <Button
-                      color="secondary"
-                      size="sm"
-                      outline
-                      onClick={() => setSizeKeysToMove(new Set(selectedSizeEntries
-                        .map(([size]) => size)
-                        .filter((size) => Number(size) >= 34)))}
-                    >
-                      34+
-                    </Button>
-                    <Input
-                      bsSize="sm"
-                      type="select"
-                      style={{ width: 120 }}
-                      value={moveParaTarget}
-                      onChange={(e) => setMoveParaTarget(e.target.value)}
-                    >
-                      <option value="NINO">Niño</option>
-                      <option value="DAMA">Dama</option>
-                    </Input>
-                    <Button
-                      color="success"
-                      size="sm"
-                      onClick={handleMoveSelectedSizes}
-                      disabled={saving || sizeKeysToMove.size === 0}
-                    >
-                      Mover tallas
-                    </Button>
-                  </div>
-                </div>
-              ) : (
-                <div><small>sizes_data: {selectedStock.sizesData || "null"}</small></div>
-              )}
-            </div>
-          )}
+          </div>
         </Col>
 
         <Col md={8} style={{ maxHeight: "70vh", overflow: "auto" }}>
@@ -1214,6 +1222,10 @@ export default function KioskLedgerLab() {
           Editar stock #{selectedStockId}
         </ModalHeader>
         <ModalBody>
+          <Alert color="warning" className="py-2">
+            Cambiar PARA aquí aplica a <strong>todas</strong> las tallas de esta fila.
+            Si solo algunas van a Niño/Dama, cierra esto y usa <strong>Mover tallas</strong> arriba de la lista.
+          </Alert>
           <FormGroup>
             <Label>currentStock</Label>
             <Input bsSize="sm" value={stockForm.currentStock} onChange={(e) => setStockForm({ ...stockForm, currentStock: e.target.value })} />
