@@ -78,6 +78,7 @@ function PosCheckoutModal({
   const [taxLookupLoading, setTaxLookupLoading] = useState(false);
   const [taxLookupError, setTaxLookupError] = useState("");
   const [requestInvoice, setRequestInvoice] = useState(false);
+  const [shippingSheetNumber, setShippingSheetNumber] = useState("");
   const entrecueros = isEntrecuerosPosMode({ posMode });
   const paymentMethods = entrecueros ? ENTRECUEROS_PAYMENT_METHODS : PAYMENT_METHODS;
   const checkoutTiers = useMemo(() => {
@@ -130,6 +131,7 @@ function PosCheckoutModal({
     setInvoiceContactError("");
     setTaxLookupError("");
     setRequestInvoice(false);
+    setShippingSheetNumber("");
   }, [isOpen, notes, lockFinalPrices]);
 
   const lookupTaxId = async () => {
@@ -296,12 +298,14 @@ function PosCheckoutModal({
 
   const invoiceIncomplete =
     normalizeNit(customerTaxId) !== "CF" && !String(customerName || "").trim();
+  const shippingSheetIncomplete = entrecueros && !String(shippingSheetNumber || "").trim();
 
   const canConfirm =
     !saving
     && !cashInsufficient
     && !nitInvalid
     && !invoiceIncomplete
+    && !shippingSheetIncomplete
     && !taxLookupLoading
     && !cardDataIncomplete
     && !transferRefIncomplete
@@ -368,6 +372,7 @@ function PosCheckoutModal({
       invoiceEmail: normalizedEmail || null,
       invoicePhone: String(invoicePhone || "").trim() || null,
       requestInvoice: entrecueros ? Boolean(requestInvoice) : true,
+      shippingSheetNumber: entrecueros ? String(shippingSheetNumber || "").trim() : null,
     });
   };
 
@@ -607,8 +612,22 @@ function PosCheckoutModal({
                 </Label>
               </div>
               <div className="text-muted small mb-3">
-                Si no factura, la venta queda con el número interno del sistema y igual rebaja inventario.
+                Si no factura, el número interno es el de la hoja de envío y igual rebaja inventario.
               </div>
+              <Label className="kiosk-pos-label" for="pos-shipping-sheet">
+                No. hoja de envío
+              </Label>
+              <input
+                id="pos-shipping-sheet"
+                className="kiosk-pos-cash-input mb-3"
+                type="text"
+                inputMode="numeric"
+                maxLength={40}
+                value={shippingSheetNumber}
+                onChange={(e) => setShippingSheetNumber(e.target.value)}
+                placeholder="Ej. 1842"
+                autoComplete="off"
+              />
             </>
           )}
           <Label className="kiosk-pos-label">Forma de pago</Label>
@@ -1026,6 +1045,9 @@ function PosCheckoutModal({
         </p>
         {cashInsufficient && (
           <p className="kiosk-pos-confirm-hint">El monto recibido no cubre el total</p>
+        )}
+        {!cashInsufficient && shippingSheetIncomplete && (
+          <p className="kiosk-pos-confirm-hint">Indica el número de hoja de envío</p>
         )}
         {!cashInsufficient && transferRefIncomplete && (
           <p className="kiosk-pos-confirm-hint">Indica el número de referencia de la transferencia o depósito</p>

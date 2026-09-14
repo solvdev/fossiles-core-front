@@ -585,6 +585,9 @@ function KioskSales() {
         manualDiscountPercent: promoPayload.manualDiscountPercent,
         chargeWithoutDiscount: Boolean(checkoutData.chargeWithoutDiscount) || isEntrecuerosPos,
         requestInvoice: isEntrecuerosPos ? Boolean(checkoutData.requestInvoice) : true,
+        shippingSheetNumber: isEntrecuerosPos
+          ? String(checkoutData.shippingSheetNumber || "").trim() || null
+          : null,
         saleDate: today,
         items: cart.map((line) => {
           const item = {
