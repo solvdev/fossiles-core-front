@@ -115,7 +115,17 @@ export const formatVoucherDiffAlert = (diff, invoiceAmount) => {
   const side = d > 0 ? "DE MÁS" : "DE MENOS";
   return `Hay una diferencia de ${formatCurrency(abs)} ${side} en el voucher. La factura queda en ${formatCurrency(invoiceAmount)} y NO se modifica.`;
 };
-export const formatQty = (value) => Number(value || 0).toFixed(2);
+export const parsePosQty = (value) => {
+  const n = Math.round(Number(value || 0));
+  return Number.isFinite(n) && n > 0 ? n : 0;
+};
+
+export const formatQty = (value) => {
+  const n = Number(value || 0);
+  if (!Number.isFinite(n)) return "0";
+  if (Math.abs(n - Math.round(n)) < 1e-9) return String(Math.round(n));
+  return n.toFixed(2);
+};
 
 export const normalizePosHardwareCondition = (value) => {
   const hardware = normalizeHardwareCondition(value);

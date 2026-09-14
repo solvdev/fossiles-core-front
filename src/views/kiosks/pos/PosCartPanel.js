@@ -5,6 +5,7 @@ import { cartUnlocksEntrecuerosWholesale, entrecuerosVolumeKey } from "utils/ent
 import {
   formatCurrency,
   formatQty,
+  parsePosQty,
   describeEntrecuerosPriceState,
 } from "./posUtils";
 
@@ -127,12 +128,15 @@ function PosCartPanel({
                   <Input
                     className="kiosk-pos-input-lg kiosk-pos-qty"
                     type="number"
-                    min="0.01"
-                    step="0.01"
-                    value={line.quantity}
-                    onChange={(e) =>
-                      onUpdateLine(line.key, { quantity: Number(e.target.value || 0) })
-                    }
+                    min="1"
+                    step="1"
+                    inputMode="numeric"
+                    value={parsePosQty(line.quantity) || ""}
+                    onChange={(e) => {
+                      const qty = parsePosQty(e.target.value);
+                      if (qty < 1) return;
+                      onUpdateLine(line.key, { quantity: qty });
+                    }}
                     title="Cantidad"
                   />
                   {showPriceControls ? (
