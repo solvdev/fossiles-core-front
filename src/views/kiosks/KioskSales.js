@@ -72,6 +72,7 @@ import {
   normalizeFelReceptorEmail,
   isEntrecuerosPosMode,
   applyEntrecuerosCartPrices,
+  parsePosQty,
 } from "./pos/posUtils";
 import { getHardwareConditionLabel } from "utils/productCinchoHelper";
 import "./KioskSales.css";
@@ -369,9 +370,14 @@ function KioskSales() {
     setCart((prev) => {
       const next = prev.map((line) => {
         if (line.key !== key) return line;
-        if (patch.quantity != null && Number(patch.quantity) > Number(line.availableQty || 0)) {
-          showError(`Cantidad máxima disponible: ${formatQty(line.availableQty)}.`);
-          return line;
+        if (patch.quantity != null) {
+          const qty = parsePosQty(patch.quantity);
+          if (qty < 1) return line;
+          if (qty > Number(line.availableQty || 0)) {
+            showError(`Cantidad máxima disponible: ${formatQty(line.availableQty)}.`);
+            return line;
+          }
+          patch = { ...patch, quantity: qty };
         }
         const isPackaging = Boolean(line.isPackaging) || isPackagingProductCode(line.productCode);
         // Empaques SUM: sin edición de precio ni modo Final/Con desc. (pueden ir en 0).
