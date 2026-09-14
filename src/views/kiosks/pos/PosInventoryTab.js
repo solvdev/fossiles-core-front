@@ -34,11 +34,11 @@ import {
   PRODUCT_AUDIENCE_OPTIONS,
   getProductAudienceLabel,
   normalizeAudienceCategory,
-  productMatchesAudienceFilter,
 } from "utils/productAudienceHelper";
 import {
   buildKioskInventorySummaryGroups,
-  productMatchesSummaryGroupKey,
+  filterProductForSummaryGroup,
+  variantMatchesInventoryAudienceFilter,
 } from "utils/kioskInventorySummary";
 import { showError } from "utils/notificationHelper";
 import { FilterableSelect } from "components/distribution/FilterableSelect";
@@ -457,10 +457,10 @@ function PosInventoryTab({ kioskLocationId, kioskName, posMode, active }) {
             return null;
           }
         }
-        if (!productMatchesAudienceFilter(product, audienceFilter)) {
-          return null;
-        }
         const filteredVariants = product.variants.filter((variant) => {
+          if (!variantMatchesInventoryAudienceFilter(product, variant, audienceFilter, { entreCueros })) {
+            return false;
+          }
           const status = variantStatus(variant);
           if (entreCueros && !matchesEntrecuerosVariantFilter({ ...product, ...variant }, variantFilter)) {
             return false;
@@ -491,18 +491,18 @@ function PosInventoryTab({ kioskLocationId, kioskName, posMode, active }) {
   }, [products, query, stockFilter, categoryFilter, audienceFilter, variantFilter, brandFilter, entreCueros, stockMode]);
 
   const summaryGroups = useMemo(
-    () => buildKioskInventorySummaryGroups(filteredProducts),
-    [filteredProducts]
+    () => buildKioskInventorySummaryGroups(filteredProducts, { entreCueros }),
+    [filteredProducts, entreCueros]
   );
 
   const detailProducts = useMemo(() => {
     if (stockMode === "CATEGORY" && selectedSummaryGroup?.key) {
-      return filteredProducts.filter((p) =>
-        productMatchesSummaryGroupKey(p, selectedSummaryGroup.key)
-      );
+      return filteredProducts
+        .map((p) => filterProductForSummaryGroup(p, selectedSummaryGroup.key, { entreCueros }))
+        .filter(Boolean);
     }
     return filteredProducts;
-  }, [stockMode, selectedSummaryGroup, filteredProducts]);
+  }, [stockMode, selectedSummaryGroup, filteredProducts, entreCueros]);
 
   const openSummary = () => {
     setStockMode("SUMMARY");
@@ -770,7 +770,7 @@ function PosInventoryTab({ kioskLocationId, kioskName, posMode, active }) {
                       <span className="kiosk-pos-inventory-board-meta">
                         {group.products} productos · {group.variants} colores
                       </span>
-                      {group.key !== "PACKAGING" && (group.unitsNuevo > 0 || group.unitsViejo > 0) ? (
+                      {group.key !== "PACKAGING" && !entreCueros && (group.unitsNuevo > 0 || group.unitsViejo > 0) ? (
                         <span className="kiosk-pos-inventory-board-hardware">
                           <span>Nuevo {formatQty(group.unitsNuevo)}</span>
                           <span>Viejo {formatQty(group.unitsViejo)}</span>
@@ -804,7 +804,9 @@ function PosInventoryTab({ kioskLocationId, kioskName, posMode, active }) {
                             </Badge>
                           ) : null}
                           <Badge color="info" className="ml-1">
-                            {getProductAudienceLabel(product.audienceCategory)}
+                            {entreCueros && product.cinchoForKids
+                              ? "Cincho de niño"
+                              : getProductAudienceLabel(product.audienceCategory)}
                           </Badge>
                         </div>
                         <Badge color="primary" pill>

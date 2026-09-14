@@ -34,12 +34,14 @@ export function entrecuerosPriceKind(source) {
   }
   const hardware = source.hardwareCondition;
   const cincho = isCinchoSource(source);
+  const audience = normalizeCinchoAudience(hardware);
+  if (cincho && audience === "DAMA") return ENTRECUEROS_PRICE_KIND.DAMA;
+  if (cincho && (audience === "NINO" || Boolean(source.cinchoForKids))) {
+    return ENTRECUEROS_PRICE_KIND.NINO;
+  }
   if (cincho && normalizeCinchoType(source.cinchoType) === "REVERSIBLE") {
     return ENTRECUEROS_PRICE_KIND.REVERSIBLE;
   }
-  const audience = normalizeCinchoAudience(hardware);
-  if (cincho && audience === "NINO") return ENTRECUEROS_PRICE_KIND.NINO;
-  if (cincho && audience === "DAMA") return ENTRECUEROS_PRICE_KIND.DAMA;
   if (cincho) return ENTRECUEROS_PRICE_KIND.CASUAL;
   const name = String(source.productName || "").toUpperCase();
   const synthetic = isSyntheticHardware(hardware);
@@ -143,8 +145,8 @@ export const ENTRECUEROS_VARIANT_FILTERS = [
   { value: "", label: "Todas" },
   { value: "CASUAL", label: "Casual" },
   { value: "REVERSIBLE", label: "Reversible" },
-  { value: "NINO", label: "Niño" },
-  { value: "DAMA", label: "Dama" },
+  { value: "NINO", label: "Cincho niño" },
+  { value: "DAMA", label: "Cincho dama" },
   { value: "BILLETERAS", label: "Billeteras" },
   { value: "SINTETICOS", label: "Sintéticos" },
 ];
