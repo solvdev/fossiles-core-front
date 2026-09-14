@@ -1,7 +1,7 @@
 import React, { useMemo } from "react";
 import { Badge, Button, Card, CardBody, Input } from "reactstrap";
 import { isPackagingProductCode } from "utils/kioskPackagingHelper";
-import { entrecuerosVolumeKey } from "utils/entrecuerosPriceLists";
+import { cartUnlocksEntrecuerosWholesale, entrecuerosVolumeKey } from "utils/entrecuerosPriceLists";
 import {
   formatCurrency,
   formatQty,
@@ -29,6 +29,10 @@ function PosCartPanel({
     });
     return map;
   }, [cart, entrecueros]);
+  const wholesaleUnlocked = useMemo(
+    () => (entrecueros ? cartUnlocksEntrecuerosWholesale(cart) : false),
+    [cart, entrecueros]
+  );
   return (
     <Card className="kiosk-pos-block kiosk-pos-cart-panel">
       <CardBody>
@@ -43,7 +47,9 @@ function PosCartPanel({
 
         {entrecueros ? (
           <div className="text-muted small mb-2" style={{ cursor: "default" }}>
-            El volumen es por lista de precio (Casual, Dama, Niño, sintético…). No se mezclan variantes del mismo código.
+            {wholesaleUnlocked
+              ? "Minorista activo: 6 o más de un producto. El resto del carrito usa el precio más bajo de su lista."
+              : "El volumen es por lista (Casual, Dama, Niño, sintético…). Con 6 o 12 de un producto, el resto pasa a minorista."}
           </div>
         ) : (
           <div className="kiosk-pos-customer-btn text-muted small mb-2" style={{ cursor: "default" }}>
@@ -71,7 +77,7 @@ function PosCartPanel({
               const productQty = qtyByProduct[entrecueros ? entrecuerosVolumeKey(line) : line.productId]
                 || Number(line.quantity || 0);
               const priceState = entrecueros
-                ? describeEntrecuerosPriceState(line, productQty)
+                ? describeEntrecuerosPriceState(line, productQty, wholesaleUnlocked)
                 : null;
               return (
               <div key={line.key} className="kiosk-pos-cart-line">
