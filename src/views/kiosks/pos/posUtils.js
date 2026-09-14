@@ -18,6 +18,8 @@ import {
   shouldShowInKioskPhysicalCount,
 } from "utils/productCinchoHelper";
 import {
+  cartUnlocksEntrecuerosWholesale,
+  ENTRECUEROS_LOWEST_TIER_QTY,
   entrecuerosPriceKind,
   entrecuerosVolumeKey,
   listEntrecuerosPriceListTiers,
@@ -995,19 +997,20 @@ export const isEntrecuerosPosMode = (source) =>
 
 export const listEntrecuerosPriceTiers = (source) => listEntrecuerosPriceListTiers(source);
 
-export const resolveEntrecuerosUnitPrice = (source, qty) =>
-  resolveEntrecuerosListUnitPrice(source, qty);
+export const resolveEntrecuerosUnitPrice = (source, qty, wholesaleUnlocked = false) =>
+  resolveEntrecuerosListUnitPrice(source, qty, wholesaleUnlocked);
 
-export const describeEntrecuerosPriceState = (source, qty) => {
+export const describeEntrecuerosPriceState = (source, qty, wholesaleUnlocked = false) => {
   const n = Number(qty || 0);
+  const pricedQty = wholesaleUnlocked ? Math.max(n, ENTRECUEROS_LOWEST_TIER_QTY) : n;
   const tiers = listEntrecuerosPriceTiers(source);
   let active = tiers[0] || { minQty: 1, label: "1", unitPrice: 0 };
   tiers.forEach((tier) => {
-    if (n >= tier.minQty) active = tier;
+    if (pricedQty >= tier.minQty) active = tier;
   });
-  const next = tiers.find((tier) => tier.minQty > n) || null;
+  const next = wholesaleUnlocked ? null : (tiers.find((tier) => tier.minQty > n) || null);
   const missing = next ? Math.max(next.minQty - n, 0) : 0;
-  return { qty: n, active, next, missing, tiers };
+  return { qty: n, active, next, missing, tiers, wholesaleUnlocked: Boolean(wholesaleUnlocked) };
 };
 
 export const applyEntrecuerosCartPrices = (cart) => {
@@ -1016,8 +1019,13 @@ export const applyEntrecuerosCartPrices = (cart) => {
     const key = entrecuerosVolumeKey(line);
     qtyByKey[key] = (qtyByKey[key] || 0) + Number(line.quantity || 0);
   });
+  const wholesaleUnlocked = cartUnlocksEntrecuerosWholesale(cart);
   return (cart || []).map((line) => {
-    const unitPrice = resolveEntrecuerosUnitPrice(line, qtyByKey[entrecuerosVolumeKey(line)] || 0);
+    const unitPrice = resolveEntrecuerosUnitPrice(
+      line,
+      qtyByKey[entrecuerosVolumeKey(line)] || 0,
+      wholesaleUnlocked
+    );
     return { ...line, unitPrice, catalogUnitPrice: unitPrice };
   });
 };

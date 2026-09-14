@@ -52,12 +52,29 @@ export function entrecuerosPriceKind(source) {
   return synthetic ? ENTRECUEROS_PRICE_KIND.WALLET_SYNTHETIC : ENTRECUEROS_PRICE_KIND.PRODUCT;
 }
 
+export const ENTRECUEROS_WHOLESALE_UNLOCK_QTY = 6;
+export const ENTRECUEROS_LOWEST_TIER_QTY = 12;
+
 export function entrecuerosVolumeKey(source) {
   const kind = entrecuerosPriceKind(source);
   if (kind === ENTRECUEROS_PRICE_KIND.PRODUCT) {
     return `${source?.productId ?? ""}|${kind}`;
   }
   return kind;
+}
+
+function isPackagingSource(source) {
+  return Boolean(source?.isPackaging) || isPackagingProductCode(source?.productCode);
+}
+
+export function cartUnlocksEntrecuerosWholesale(cart) {
+  const qtyByKey = {};
+  (cart || []).forEach((line) => {
+    if (!line || isPackagingSource(line)) return;
+    const key = entrecuerosVolumeKey(line);
+    qtyByKey[key] = (qtyByKey[key] || 0) + Number(line.quantity || 0);
+  });
+  return Object.values(qtyByKey).some((qty) => qty >= ENTRECUEROS_WHOLESALE_UNLOCK_QTY);
 }
 
 function hasProductTiers(source) {
@@ -132,8 +149,10 @@ export function listEntrecuerosPriceListTiers(source) {
   }
 }
 
-export function resolveEntrecuerosListUnitPrice(source, qty) {
-  const n = Number(qty || 0);
+export function resolveEntrecuerosListUnitPrice(source, qty, wholesaleUnlocked = false) {
+  const n = wholesaleUnlocked && !isPackagingSource(source)
+    ? ENTRECUEROS_LOWEST_TIER_QTY
+    : Number(qty || 0);
   let price = 0;
   listEntrecuerosPriceListTiers(source).forEach((tier) => {
     if (n >= tier.minQty) price = tier.unitPrice;

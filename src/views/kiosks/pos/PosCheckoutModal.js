@@ -16,7 +16,7 @@ import {
   isEntrecuerosPosMode,
   describeEntrecuerosPriceState,
 } from "./posUtils";
-import { entrecuerosVolumeKey } from "utils/entrecuerosPriceLists";
+import { cartUnlocksEntrecuerosWholesale, entrecuerosVolumeKey } from "utils/entrecuerosPriceLists";
 
 const QUICK_CASH = [50, 100, 200, 500];
 
@@ -87,12 +87,13 @@ function PosCheckoutModal({
       const key = entrecuerosVolumeKey(line);
       qtyByKey[key] = (qtyByKey[key] || 0) + Number(line.quantity || 0);
     });
+    const wholesaleUnlocked = cartUnlocksEntrecuerosWholesale(cart);
     const seen = new Set();
     return (cart || []).reduce((rows, line) => {
       const key = entrecuerosVolumeKey(line);
       if (seen.has(key)) return rows;
       seen.add(key);
-      const state = describeEntrecuerosPriceState(line, qtyByKey[key] || 0);
+      const state = describeEntrecuerosPriceState(line, qtyByKey[key] || 0, wholesaleUnlocked);
       rows.push({
         productId: line.productId,
         productName: line.productName,
