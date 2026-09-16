@@ -262,7 +262,12 @@ export default function KioskMovementsAccounting() {
     setSelectedStockId(null);
   };
 
-  const entreCueros = isEntreCuerosLocation(filters.locationId);
+  const entreCueros = useMemo(() => {
+    if (isEntreCuerosLocation(filters.locationId)) return true;
+    const loc = locations.find((l) => String(l.id) === String(filters.locationId));
+    const hay = `${loc?.name || ""} ${loc?.code || ""}`.toUpperCase();
+    return hay.includes("ENTRECUERO");
+  }, [filters.locationId, locations]);
 
   const visibleStocks = useMemo(() => {
     if (!entreCueros || !variantFilter) return stocks;
@@ -500,9 +505,10 @@ export default function KioskMovementsAccounting() {
                   }}
                 >
                   <td>
-                    <div className="fw-semibold">{s.codigoProducto}</div>
-                    <small className="text-muted">{s.producto}</small>
-                    <div className="mt-1">
+                    <div>
+                      <span className="font-weight-bold">{s.codigoProducto}</span>
+                      {" "}
+                      <small className="text-muted">{s.producto}</small>
                       <ProductBrandBadge value={s.herraje} entreCueros={entreCueros} />
                     </div>
                   </td>
