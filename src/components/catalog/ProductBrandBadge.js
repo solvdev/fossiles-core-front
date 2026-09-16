@@ -1,84 +1,65 @@
 import React from "react";
-import { productBrandStyle } from "utils/productBrandHelper";
+import { extractBrandFromText, productBrandStyle } from "utils/productBrandHelper";
 import { kioskDimensionDisplayLabel } from "utils/kioskStockDimensionHelper";
 import {
   extractStockBrand,
   isSyntheticHardware,
   normalizeCinchoAudience,
 } from "utils/productCinchoHelper";
+import "./ProductBrandBadge.css";
 
-const AUDIENCE_STYLES = {
-  NINO: { bg: "#1D4ED8", fg: "#FFFFFF", accent: "#93C5FD", short: "NI" },
-  DAMA: { bg: "#9D174D", fg: "#FFFFFF", accent: "#F9A8D4", short: "DA" },
+const CLASS_BY_KEY = {
+  LACOSTE: "kiosk-brand-chip--lacoste",
+  LEVIS: "kiosk-brand-chip--levis",
+  NAUTICA: "kiosk-brand-chip--nautica",
+  "TOMMY HILFIGER": "kiosk-brand-chip--tommy",
+  ABERCROMBIE: "kiosk-brand-chip--abercrombie",
+  NINO: "kiosk-brand-chip--nino",
+  DAMA: "kiosk-brand-chip--dama",
+  SINTETICO: "kiosk-brand-chip--sintetico",
 };
 
-const FALLBACK_STYLE = { bg: "#334155", fg: "#FFFFFF", accent: "#94A3B8", short: "·" };
+const MARK_BY_KEY = {
+  LACOSTE: "LC",
+  LEVIS: "LV",
+  NAUTICA: "NA",
+  "TOMMY HILFIGER": "TH",
+  ABERCROMBIE: "AB",
+  NINO: "NI",
+  DAMA: "DA",
+  SINTETICO: "S",
+};
 
-function chipStyle(palette, { compact } = {}) {
-  return {
-    display: "inline-flex",
-    alignItems: "center",
-    gap: 5,
-    background: palette.bg,
-    color: palette.fg,
-    borderRadius: 4,
-    padding: compact ? "1px 6px 1px 4px" : "2px 8px 2px 5px",
-    fontSize: compact ? 10 : 11,
-    fontWeight: 700,
-    letterSpacing: 0.3,
-    lineHeight: 1.35,
-    whiteSpace: "nowrap",
-    verticalAlign: "middle",
-    border: `1px solid ${palette.bg}`,
-    fontFamily: "inherit",
-    appearance: "none",
-    WebkitAppearance: "none",
-  };
-}
-
-function Mark({ palette }) {
-  return (
-    <span
-      aria-hidden
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        justifyContent: "center",
-        width: 16,
-        height: 16,
-        borderRadius: 3,
-        background: palette.accent,
-        color: palette.bg,
-        fontSize: 8,
-        fontWeight: 800,
-        letterSpacing: 0,
-        flexShrink: 0,
-      }}
-    >
-      {palette.short}
-    </span>
-  );
-}
-
-function resolvePalette(value) {
-  const brand = extractStockBrand(value);
-  const brandStyle = productBrandStyle(brand);
-  if (brandStyle) return brandStyle;
+export function resolveBrandChipKey(value) {
+  const brand = extractStockBrand(value) || extractBrandFromText(value);
+  if (brand) return brand;
   const audience = normalizeCinchoAudience(value);
-  if (audience && AUDIENCE_STYLES[audience]) return AUDIENCE_STYLES[audience];
-  if (isSyntheticHardware(value)) {
-    return { bg: "#6D28D9", fg: "#FFFFFF", accent: "#DDD6FE", short: "S" };
-  }
-  return FALLBACK_STYLE;
+  if (audience) return audience;
+  if (isSyntheticHardware(value)) return "SINTETICO";
+  return "";
+}
+
+function chipClassName(key, { active, button } = {}) {
+  return [
+    "kiosk-brand-chip",
+    CLASS_BY_KEY[key] || "",
+    active ? "is-active" : "",
+    button ? "is-button" : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
 }
 
 export function ProductBrandBadge({ value, entreCueros = false, className = "" }) {
   const label = kioskDimensionDisplayLabel(value, { entreCueros });
   if (!label || label === "—") return null;
-  const palette = resolvePalette(value);
+  const key = resolveBrandChipKey(value);
+  const mark = MARK_BY_KEY[key] || productBrandStyle(key)?.short || "·";
   return (
-    <span className={className} style={chipStyle(palette, { compact: true })} title={label}>
-      <Mark palette={palette} />
+    <span className={`${chipClassName(key)} ${className}`.trim()} title={label}>
+      <span className="kiosk-brand-chip__mark" aria-hidden>
+        {mark}
+      </span>
       {label}
     </span>
   );
@@ -91,21 +72,20 @@ export function ProductBrandFilterChip({
   onClick,
   disabled = false,
 }) {
-  const palette = value ? resolvePalette(value) : { bg: "#1F2937", fg: "#FFFFFF", accent: "#E5E7EB", short: "•" };
+  const key = value ? resolveBrandChipKey(value) || value : "";
+  const mark = key ? MARK_BY_KEY[key] || productBrandStyle(key)?.short : "";
   return (
     <button
       type="button"
+      className={chipClassName(key, { active, button: true })}
       disabled={disabled}
       onClick={onClick}
-      style={{
-        ...chipStyle(palette),
-        opacity: disabled ? 0.45 : 1,
-        boxShadow: active ? `0 0 0 2px #fff, 0 0 0 4px ${palette.bg}` : "none",
-        cursor: disabled ? "not-allowed" : "pointer",
-        margin: 0,
-      }}
     >
-      {value ? <Mark palette={palette} /> : null}
+      {mark ? (
+        <span className="kiosk-brand-chip__mark" aria-hidden>
+          {mark}
+        </span>
+      ) : null}
       {label}
     </button>
   );
