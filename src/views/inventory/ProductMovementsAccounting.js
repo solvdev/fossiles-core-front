@@ -25,6 +25,7 @@ import {
   toExistingProductInventoryPrintLines,
   buildProductInventoryExistingPrintHtml,
   openProductInventoryExistingPrintWindow,
+  exportExistingProductInventoryExcel,
 } from "utils/productInventoryExistingPrintHtml";
 
 const PRODUCT_MOVEMENT_TYPE_LABELS = {
@@ -112,6 +113,7 @@ export default function ProductMovementsAccounting() {
   const [loadingStocks, setLoadingStocks] = useState(false);
   const [loadingMovements, setLoadingMovements] = useState(false);
   const [printingInventory, setPrintingInventory] = useState(false);
+  const [exportingExcel, setExportingExcel] = useState(false);
   const movementsRequestIdRef = useRef(0);
 
   useEffect(() => {
@@ -260,36 +262,56 @@ export default function ProductMovementsAccounting() {
     [locations, filters.locationId]
   );
 
-  const handlePrintExistingInventory = async () => {
+  const loadExistingInventoryLines = async () => {
     if (!filters.locationId) {
-      showError("Selecciona Bodega PT o Devoluciones para imprimir.");
-      return;
+      showError("Selecciona Bodega PT o Devoluciones.");
+      return null;
     }
+    const data = await getProductMovementsAccountingStocks({
+      locationId: filters.locationId,
+    });
+    const warehouseName = selectedLocation?.name || selectedLocation?.code || "Bodega";
+    const printLines = toExistingProductInventoryPrintLines(data, selectedLocation);
+    if (!printLines.length) {
+      showError("No hay productos existentes (con stock) en esta bodega.");
+      return null;
+    }
+    return { printLines, warehouseName };
+  };
 
+  const handlePrintExistingInventory = async () => {
     setPrintingInventory(true);
     try {
-      const data = await getProductMovementsAccountingStocks({
-        locationId: filters.locationId,
-      });
-      const printLines = toExistingProductInventoryPrintLines(data);
-      if (!printLines.length) {
-        showError("No hay productos existentes (con stock) para imprimir en esta bodega.");
-        return;
-      }
-
-      const warehouseName = selectedLocation?.name || selectedLocation?.code || "Bodega";
-      const html = buildProductInventoryExistingPrintHtml(printLines, {
-        title: `Inventario existente — ${warehouseName}`,
+      const packed = await loadExistingInventoryLines();
+      if (!packed) return;
+      const html = buildProductInventoryExistingPrintHtml(packed.printLines, {
+        title: `Inventario existente — ${packed.warehouseName}`,
       });
       if (!openProductInventoryExistingPrintWindow(html)) {
-        showError("Permita ventanas emergentes para imprimir.");
+        showError("Permite ventanas emergentes para ver el PDF.");
         return;
       }
-      showSuccess("Inventario listo para imprimir.");
+      showSuccess("PDF listo para imprimir o guardar.");
     } catch (err) {
-      showError(err.message || "No se pudo imprimir el inventario.");
+      showError(err.message || "No se pudo generar el PDF.");
     } finally {
       setPrintingInventory(false);
+    }
+  };
+
+  const handleExcelExistingInventory = async () => {
+    setExportingExcel(true);
+    try {
+      const packed = await loadExistingInventoryLines();
+      if (!packed) return;
+      exportExistingProductInventoryExcel(packed.printLines, {
+        title: packed.warehouseName,
+      });
+      showSuccess("Excel descargado.");
+    } catch (err) {
+      showError(err.message || "No se pudo descargar el Excel.");
+    } finally {
+      setExportingExcel(false);
     }
   };
 
@@ -432,18 +454,35 @@ export default function ProductMovementsAccounting() {
           <Button
             color="secondary"
             size="sm"
-            className="mb-1"
+            className="mr-2 mb-1"
             onClick={() => void handlePrintExistingInventory()}
-            disabled={!filters.locationId || printingInventory}
-            title="Imprime productos con stock de la bodega seleccionada"
+            disabled={!filters.locationId || printingInventory || exportingExcel}
+            title="Abre el PDF para imprimir o guardar"
           >
             {printingInventory ? (
               <>
                 <Spinner size="sm" className="mr-1" />
-                Preparando...
+                PDF...
               </>
             ) : (
-              "Imprimir inventario"
+              "PDF"
+            )}
+          </Button>
+          <Button
+            color="success"
+            size="sm"
+            className="mb-1"
+            onClick={() => void handleExcelExistingInventory()}
+            disabled={!filters.locationId || printingInventory || exportingExcel}
+            title="Descarga el inventario existente en Excel"
+          >
+            {exportingExcel ? (
+              <>
+                <Spinner size="sm" className="mr-1" />
+                Excel...
+              </>
+            ) : (
+              "Excel"
             )}
           </Button>
         </Col>
