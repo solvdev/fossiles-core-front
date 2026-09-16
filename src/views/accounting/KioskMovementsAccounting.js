@@ -25,6 +25,14 @@ import {
   KIOSCO_MOVEMENT_TYPE_LABELS,
 } from "utils/kioskMovementHelper";
 import { showError } from "utils/notificationHelper";
+import { PRODUCT_BRAND_OPTIONS } from "utils/productBrandHelper";
+import { isEntreCuerosLocation } from "utils/kioskStockDimensionHelper";
+import {
+  extractStockBrand,
+  isSyntheticHardware,
+  normalizeCinchoAudience,
+} from "utils/productCinchoHelper";
+import { ProductBrandBadge, ProductBrandFilterChip } from "components/catalog/ProductBrandBadge";
 
 function CardPaymentDetail({
   auth,
@@ -114,6 +122,19 @@ function sizesSummary(stock) {
   return "—";
 }
 
+function stockMatchesVariantFilter(stock, filter) {
+  if (!filter) return true;
+  const herraje = stock?.herraje;
+  if (filter === "NINO" || filter === "DAMA") {
+    return normalizeCinchoAudience(herraje) === filter;
+  }
+  if (filter === "SINTETICO") return isSyntheticHardware(herraje);
+  if (filter === "NONE") {
+    return !extractStockBrand(herraje) && !normalizeCinchoAudience(herraje);
+  }
+  return extractStockBrand(herraje) === filter;
+}
+
 export default function KioskMovementsAccounting() {
   const [locations, setLocations] = useState([]);
   const [products, setProducts] = useState([]);
@@ -122,6 +143,7 @@ export default function KioskMovementsAccounting() {
   const [stocks, setStocks] = useState([]);
   const [movements, setMovements] = useState([]);
   const [selectedStockId, setSelectedStockId] = useState(null);
+  const [variantFilter, setVariantFilter] = useState("");
   const [loadingStocks, setLoadingStocks] = useState(false);
   const [loadingMovements, setLoadingMovements] = useState(false);
   const movementsRequestIdRef = useRef(0);
@@ -234,15 +256,55 @@ export default function KioskMovementsAccounting() {
 
   const handleClear = () => {
     setFilters(INITIAL_FILTERS);
+    setVariantFilter("");
     setStocks([]);
     setMovements([]);
     setSelectedStockId(null);
   };
 
+  const entreCueros = isEntreCuerosLocation(filters.locationId);
+
+  const visibleStocks = useMemo(() => {
+    if (!entreCueros || !variantFilter) return stocks;
+    return stocks.filter((s) => stockMatchesVariantFilter(s, variantFilter));
+  }, [stocks, entreCueros, variantFilter]);
+
+  const variantFilterOptions = useMemo(() => {
+    const presentBrands = new Set();
+    let hasNino = false;
+    let hasDama = false;
+    let hasSynthetic = false;
+    stocks.forEach((s) => {
+      const brand = extractStockBrand(s.herraje);
+      if (brand) presentBrands.add(brand);
+      const audience = normalizeCinchoAudience(s.herraje);
+      if (audience === "NINO") hasNino = true;
+      if (audience === "DAMA") hasDama = true;
+      if (isSyntheticHardware(s.herraje)) hasSynthetic = true;
+    });
+    const opts = [];
+    PRODUCT_BRAND_OPTIONS.forEach((brand) => {
+      if (presentBrands.has(brand)) opts.push({ value: brand, label: brand });
+    });
+    if (hasNino) opts.push({ value: "NINO", label: "Niño" });
+    if (hasDama) opts.push({ value: "DAMA", label: "Dama" });
+    if (hasSynthetic) opts.push({ value: "SINTETICO", label: "Sintética" });
+    return opts;
+  }, [stocks]);
+
   const selectedStock = useMemo(
-    () => stocks.find((s) => String(s.id) === String(selectedStockId)) || null,
-    [stocks, selectedStockId]
+    () => visibleStocks.find((s) => String(s.id) === String(selectedStockId)) || null,
+    [visibleStocks, selectedStockId]
   );
+
+  useEffect(() => {
+    if (!selectedStockId) return;
+    const stillVisible = visibleStocks.some((s) => String(s.id) === String(selectedStockId));
+    if (!stillVisible) {
+      setSelectedStockId(null);
+      loadMovements({ stockId: null });
+    }
+  }, [visibleStocks, selectedStockId, loadMovements]);
 
   return (
     <div className="content" style={{ fontSize: "0.85rem" }}>
@@ -261,6 +323,7 @@ export default function KioskMovementsAccounting() {
             onChange={(v) => {
               setFilter("locationId", v || "");
               setSelectedStockId(null);
+              setVariantFilter("");
               setStocks([]);
               setMovements([]);
             }}
@@ -376,10 +439,39 @@ export default function KioskMovementsAccounting() {
         </Col>
       </Row>
 
+      {entreCueros && stocks.length > 0 && variantFilterOptions.length > 0 && (
+        <Row className="mb-3">
+          <Col md={12}>
+            <Label className="mb-1 small fw-semibold">Variante / marca</Label>
+            <div className="d-flex flex-wrap" style={{ gap: 6 }}>
+              <ProductBrandFilterChip
+                label="Todas"
+                active={!variantFilter}
+                onClick={() => setVariantFilter("")}
+              />
+              {variantFilterOptions.map((opt) => (
+                <ProductBrandFilterChip
+                  key={opt.value}
+                  value={opt.value}
+                  label={opt.label}
+                  active={variantFilter === opt.value}
+                  onClick={() =>
+                    setVariantFilter((prev) => (prev === opt.value ? "" : opt.value))
+                  }
+                />
+              ))}
+            </div>
+          </Col>
+        </Row>
+      )}
+
       <Row>
         <Col md={4} style={{ maxHeight: "70vh", overflow: "auto" }}>
           <div className="d-flex justify-content-between align-items-center mb-1">
-            <strong>Inventario ({stocks.length})</strong>
+            <strong>
+              Inventario ({visibleStocks.length}
+              {variantFilter && visibleStocks.length !== stocks.length ? ` de ${stocks.length}` : ""})
+            </strong>
             {loadingStocks && <Spinner size="sm" />}
           </div>
           <Table size="sm" hover bordered responsive className="mb-0">
@@ -392,7 +484,7 @@ export default function KioskMovementsAccounting() {
               </tr>
             </thead>
             <tbody>
-              {stocks.map((s) => (
+              {visibleStocks.map((s) => (
                 <tr
                   key={s.id}
                   style={{
@@ -410,11 +502,9 @@ export default function KioskMovementsAccounting() {
                   <td>
                     <div className="fw-semibold">{s.codigoProducto}</div>
                     <small className="text-muted">{s.producto}</small>
-                    {s.herraje && s.herraje !== "NUEVO" && (
-                      <Badge color="secondary" className="ms-1">
-                        {s.herraje}
-                      </Badge>
-                    )}
+                    <div className="mt-1">
+                      <ProductBrandBadge value={s.herraje} entreCueros={entreCueros} />
+                    </div>
                   </td>
                   <td>{s.color || "—"}</td>
                   <td>{s.cantidad}</td>
@@ -423,11 +513,13 @@ export default function KioskMovementsAccounting() {
                   </td>
                 </tr>
               ))}
-              {!loadingStocks && stocks.length === 0 && (
+              {!loadingStocks && visibleStocks.length === 0 && (
                 <tr>
                   <td colSpan={4} className="text-muted text-center">
                     {filters.locationId
-                      ? "Sin filas. Pulsa Consultar."
+                      ? variantFilter
+                        ? "Ninguna fila coincide con esa marca o variante."
+                        : "Sin filas. Pulsa Consultar."
                       : "Selecciona un kiosko."}
                   </td>
                 </tr>
@@ -440,6 +532,8 @@ export default function KioskMovementsAccounting() {
                 <strong>{selectedStock.codigoProducto}</strong>
                 {" · "}
                 {selectedStock.color || "sin color"}
+                {" "}
+                <ProductBrandBadge value={selectedStock.herraje} entreCueros={entreCueros} />
               </div>
               <div>
                 Stock actual: {selectedStock.cantidad}

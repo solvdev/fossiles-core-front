@@ -20,7 +20,12 @@ import {
   getProductMovementsAccountingStocks,
 } from "services/productMovementsAccountingService";
 import { formatDateTimeGt } from "utils/dateTimeHelper";
-import { showError } from "utils/notificationHelper";
+import { showError, showSuccess } from "utils/notificationHelper";
+import {
+  toExistingProductInventoryPrintLines,
+  buildProductInventoryExistingPrintHtml,
+  openProductInventoryExistingPrintWindow,
+} from "utils/productInventoryExistingPrintHtml";
 
 const PRODUCT_MOVEMENT_TYPE_LABELS = {
   PRODUCTION_ENTRY: "Entrada por Producción",
@@ -106,6 +111,7 @@ export default function ProductMovementsAccounting() {
   const [selectedStockId, setSelectedStockId] = useState(null);
   const [loadingStocks, setLoadingStocks] = useState(false);
   const [loadingMovements, setLoadingMovements] = useState(false);
+  const [printingInventory, setPrintingInventory] = useState(false);
   const movementsRequestIdRef = useRef(0);
 
   useEffect(() => {
@@ -249,6 +255,44 @@ export default function ProductMovementsAccounting() {
     setSelectedStockId(null);
   };
 
+  const selectedLocation = useMemo(
+    () => locations.find((loc) => String(loc.id) === String(filters.locationId)) || null,
+    [locations, filters.locationId]
+  );
+
+  const handlePrintExistingInventory = async () => {
+    if (!filters.locationId) {
+      showError("Selecciona Bodega PT o Devoluciones para imprimir.");
+      return;
+    }
+
+    setPrintingInventory(true);
+    try {
+      const data = await getProductMovementsAccountingStocks({
+        locationId: filters.locationId,
+      });
+      const printLines = toExistingProductInventoryPrintLines(data);
+      if (!printLines.length) {
+        showError("No hay productos existentes (con stock) para imprimir en esta bodega.");
+        return;
+      }
+
+      const warehouseName = selectedLocation?.name || selectedLocation?.code || "Bodega";
+      const html = buildProductInventoryExistingPrintHtml(printLines, {
+        title: `Inventario existente — ${warehouseName}`,
+      });
+      if (!openProductInventoryExistingPrintWindow(html)) {
+        showError("Permita ventanas emergentes para imprimir.");
+        return;
+      }
+      showSuccess("Inventario listo para imprimir.");
+    } catch (err) {
+      showError(err.message || "No se pudo imprimir el inventario.");
+    } finally {
+      setPrintingInventory(false);
+    }
+  };
+
   const selectedStock = useMemo(
     () => stocks.find((s) => String(s.id) === String(selectedStockId)) || null,
     [stocks, selectedStockId]
@@ -359,22 +403,24 @@ export default function ProductMovementsAccounting() {
             />
           </FormGroup>
         </Col>
-        <Col md={3} className="d-flex gap-2">
+        <Col md={8} className="d-flex flex-wrap">
           <Button
             color="primary"
             size="sm"
+            className="mr-2 mb-1"
             onClick={handleConsultar}
             disabled={loadingStocks || loadingMovements}
           >
             {loadingStocks || loadingMovements ? <Spinner size="sm" /> : "Consultar"}
           </Button>
-          <Button color="secondary" size="sm" outline onClick={handleClear}>
+          <Button color="secondary" size="sm" outline className="mr-2 mb-1" onClick={handleClear}>
             Limpiar
           </Button>
           <Button
             color="secondary"
             size="sm"
             outline
+            className="mr-2 mb-1"
             onClick={() => {
               loadStocks();
               loadMovements();
@@ -382,6 +428,23 @@ export default function ProductMovementsAccounting() {
             disabled={!filters.locationId || loadingStocks || loadingMovements}
           >
             Refrescar
+          </Button>
+          <Button
+            color="secondary"
+            size="sm"
+            className="mb-1"
+            onClick={() => void handlePrintExistingInventory()}
+            disabled={!filters.locationId || printingInventory}
+            title="Imprime productos con stock de la bodega seleccionada"
+          >
+            {printingInventory ? (
+              <>
+                <Spinner size="sm" className="mr-1" />
+                Preparando...
+              </>
+            ) : (
+              "Imprimir inventario"
+            )}
           </Button>
         </Col>
       </Row>
