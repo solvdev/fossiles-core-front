@@ -6,7 +6,6 @@ import {
   CardHeader,
   CardTitle,
   Col,
-  FormGroup,
   Input,
   Label,
   Row,
@@ -104,7 +103,7 @@ function KioskPerformance() {
   const [search, setSearch] = useState("");
   const [audienceFilter, setAudienceFilter] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("");
-  const [visibleColorIds, setVisibleColorIds] = useState({});
+  const [selectedColors, setSelectedColors] = useState([]);
 
   const generatedByName = useMemo(() => {
     const composed = [user?.firstName, user?.lastName].filter(Boolean).join(" ").trim();
@@ -186,16 +185,18 @@ function KioskPerformance() {
   }, []);
 
   useEffect(() => {
-    if (!report?.colors) return;
-    setVisibleColorIds((prev) => {
-      const next = { ...prev };
-      report.colors.forEach((color) => {
-        const key = colorKey(color.id);
-        if (next[key] === undefined) next[key] = true;
-      });
-      return next;
-    });
+    const valid = new Set((report?.colors || []).map((color) => colorKey(color.id)));
+    setSelectedColors((prev) => prev.filter((opt) => valid.has(opt.value)));
   }, [report]);
+
+  const colorOptions = useMemo(
+    () =>
+      (report?.colors || []).map((color) => ({
+        value: colorKey(color.id),
+        label: color.name,
+      })),
+    [report]
+  );
 
   const categoryOptions = useMemo(() => {
     const names = new Set();
@@ -240,12 +241,16 @@ function KioskPerformance() {
   }, [audienceFilter, categoryFilter, prefs.hidePackaging, prefs.includeZeroSales, prefs.sortBy, report, search]);
 
   const activeColors = useMemo(() => {
-    const colors = (report?.colors || []).filter((color) => visibleColorIds[colorKey(color.id)] !== false);
+    const selectedKeys = new Set((selectedColors || []).map((opt) => opt.value));
+    let colors = report?.colors || [];
+    if (selectedKeys.size) {
+      colors = colors.filter((color) => selectedKeys.has(colorKey(color.id)));
+    }
     if (!prefs.hideEmptyColors) return colors;
     return colors.filter((color) =>
       filteredProducts.some((product) => qtyOf(cellByColor(product, color.id)) > 0)
     );
-  }, [filteredProducts, prefs.hideEmptyColors, report, visibleColorIds]);
+  }, [filteredProducts, prefs.hideEmptyColors, report, selectedColors]);
 
   const maxQty = useMemo(() => {
     let max = 0;
@@ -450,53 +455,60 @@ function KioskPerformance() {
             </CardHeader>
             <CardBody>
               <Row>
-                <Col md="3">
-                  <Label>Columnas</Label>
-                  <FormGroup check><Label check><Input type="checkbox" checked={prefs.showCode} onChange={(e) => updatePrefs({ showCode: e.target.checked })} /> Código</Label></FormGroup>
-                  <FormGroup check><Label check><Input type="checkbox" checked={prefs.showName} onChange={(e) => updatePrefs({ showName: e.target.checked })} /> Producto</Label></FormGroup>
-                  <FormGroup check><Label check><Input type="checkbox" checked={prefs.showCategory} onChange={(e) => updatePrefs({ showCategory: e.target.checked })} /> Categoría</Label></FormGroup>
-                  <FormGroup check><Label check><Input type="checkbox" checked={prefs.showAudience} onChange={(e) => updatePrefs({ showAudience: e.target.checked })} /> Público</Label></FormGroup>
+                <Col md="6">
+                  <span className="pref-label">Colores</span>
+                  <Select
+                    className="react-select color-select"
+                    classNamePrefix="react-select"
+                    placeholder="Todos los colores. Escribe para elegir uno o varios…"
+                    isMulti
+                    isClearable
+                    isSearchable
+                    options={colorOptions}
+                    value={selectedColors}
+                    onChange={(selected) => setSelectedColors(selected || [])}
+                    noOptionsMessage={() => "No hay colores"}
+                    menuPortalTarget={typeof document !== "undefined" ? document.body : null}
+                    styles={{ menuPortal: (base) => ({ ...base, zIndex: 9999 }) }}
+                  />
+                  <p className="text-muted small mt-1 mb-2">
+                    Vacío = todos. Elige Negro, Café, etc. para ver solo esos.
+                  </p>
                 </Col>
                 <Col md="3">
-                  <Label>Métricas</Label>
-                  <FormGroup check><Label check><Input type="checkbox" checked={prefs.metricQty} onChange={(e) => updatePrefs({ metricQty: e.target.checked })} /> Cantidad</Label></FormGroup>
-                  <FormGroup check><Label check><Input type="checkbox" checked={prefs.metricAmount} onChange={(e) => updatePrefs({ metricAmount: e.target.checked })} /> Monto</Label></FormGroup>
-                  <FormGroup check><Label check><Input type="checkbox" checked={prefs.metricStock} onChange={(e) => updatePrefs({ metricStock: e.target.checked })} /> Stock actual</Label></FormGroup>
-                  <FormGroup check><Label check><Input type="checkbox" checked={prefs.metricTickets} onChange={(e) => updatePrefs({ metricTickets: e.target.checked })} /> Facturas</Label></FormGroup>
-                  <FormGroup check><Label check><Input type="checkbox" checked={prefs.metricShare} onChange={(e) => updatePrefs({ metricShare: e.target.checked })} /> % del total</Label></FormGroup>
-                </Col>
-                <Col md="3">
-                  <Label>Filtros de filas</Label>
-                  <FormGroup check><Label check><Input type="checkbox" checked={prefs.includeZeroSales} onChange={(e) => updatePrefs({ includeZeroSales: e.target.checked })} /> Incluir sin ventas</Label></FormGroup>
-                  <FormGroup check><Label check><Input type="checkbox" checked={prefs.hideEmptyColors} onChange={(e) => updatePrefs({ hideEmptyColors: e.target.checked })} /> Ocultar colores sin venta</Label></FormGroup>
-                  <FormGroup check><Label check><Input type="checkbox" checked={prefs.hidePackaging} onChange={(e) => updatePrefs({ hidePackaging: e.target.checked })} /> Ocultar empaques</Label></FormGroup>
-                  <FormGroup className="mt-2">
-                    <Label>Vista</Label>
-                    <Input type="select" value={viewMode} onChange={(e) => updatePrefs({ viewMode: e.target.value })}>
-                      <option value="matrix">Matriz producto × color</option>
-                      <option value="detail">Detalle (una fila por color)</option>
-                      {manyKiosks && <option value="byKiosk">Matriz producto × kiosko</option>}
-                    </Input>
-                  </FormGroup>
-                </Col>
-                <Col md="3">
-                  <Label>Buscar producto</Label>
+                  <span className="pref-label">Buscar producto</span>
                   <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Código o nombre" />
-                  <Label className="mt-2">Público</Label>
+                </Col>
+                <Col md="3">
+                  <span className="pref-label">Vista</span>
+                  <Input type="select" value={viewMode} onChange={(e) => updatePrefs({ viewMode: e.target.value })}>
+                    <option value="matrix">Matriz producto × color</option>
+                    <option value="detail">Detalle (una fila por color)</option>
+                    {manyKiosks && <option value="byKiosk">Matriz producto × kiosko</option>}
+                  </Input>
+                </Col>
+              </Row>
+              <Row className="mt-2">
+                <Col md="3">
+                  <span className="pref-label">Público</span>
                   <Input type="select" value={audienceFilter} onChange={(e) => setAudienceFilter(e.target.value)}>
                     <option value="">Todos</option>
                     <option value="DAMA">Dama</option>
                     <option value="CABALLERO">Caballero</option>
                     <option value="UNISEX">Unisex</option>
                   </Input>
-                  <Label className="mt-2">Categoría</Label>
+                </Col>
+                <Col md="3">
+                  <span className="pref-label">Categoría</span>
                   <Input type="select" value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)}>
                     <option value="">Todas</option>
                     {categoryOptions.map((name) => (
                       <option key={name} value={name}>{name}</option>
                     ))}
                   </Input>
-                  <Label className="mt-2">Orden</Label>
+                </Col>
+                <Col md="3">
+                  <span className="pref-label">Orden</span>
                   <Input type="select" value={prefs.sortBy} onChange={(e) => updatePrefs({ sortBy: e.target.value })}>
                     <option value="qtyDesc">Más vendidos</option>
                     <option value="qtyAsc">Menos vendidos</option>
@@ -504,30 +516,34 @@ function KioskPerformance() {
                     <option value="code">Código</option>
                   </Input>
                 </Col>
+                <Col md="3" className="d-flex align-items-end">
+                  <Button color="success" className="btn-block" onClick={handleExport} disabled={!filteredProducts.length}>
+                    <i className="nc-icon nc-cloud-download-93" /> Exportar Excel
+                  </Button>
+                </Col>
               </Row>
-              {(report?.colors || []).length > 0 && viewMode !== "byKiosk" && (
-                <div className="mt-3">
-                  <Label>Colores visibles</Label>
-                  <div className="kiosk-color-picker-grid">
-                    {(report.colors || []).map((color) => (
-                      <label key={colorKey(color.id)}>
-                        <Input
-                          type="checkbox"
-                          checked={visibleColorIds[colorKey(color.id)] !== false}
-                          onChange={(e) =>
-                            setVisibleColorIds((prev) => ({ ...prev, [colorKey(color.id)]: e.target.checked }))
-                          }
-                        />
-                        {color.name}
-                      </label>
-                    ))}
-                  </div>
-                </div>
-              )}
               <div className="mt-3">
-                <Button color="success" size="sm" onClick={handleExport} disabled={!filteredProducts.length}>
-                  <i className="nc-icon nc-cloud-download-93" /> Exportar Excel
-                </Button>
+                <span className="pref-label">Columnas</span>
+                <div className="pref-chip-row">
+                  <PrefChip active={prefs.showCode} onClick={() => updatePrefs({ showCode: !prefs.showCode })}>Código</PrefChip>
+                  <PrefChip active={prefs.showName} onClick={() => updatePrefs({ showName: !prefs.showName })}>Producto</PrefChip>
+                  <PrefChip active={prefs.showCategory} onClick={() => updatePrefs({ showCategory: !prefs.showCategory })}>Categoría</PrefChip>
+                  <PrefChip active={prefs.showAudience} onClick={() => updatePrefs({ showAudience: !prefs.showAudience })}>Público</PrefChip>
+                </div>
+                <span className="pref-label">Métricas</span>
+                <div className="pref-chip-row">
+                  <PrefChip active={prefs.metricQty} onClick={() => updatePrefs({ metricQty: !prefs.metricQty })}>Cantidad</PrefChip>
+                  <PrefChip active={prefs.metricAmount} onClick={() => updatePrefs({ metricAmount: !prefs.metricAmount })}>Monto</PrefChip>
+                  <PrefChip active={prefs.metricStock} onClick={() => updatePrefs({ metricStock: !prefs.metricStock })}>Stock</PrefChip>
+                  <PrefChip active={prefs.metricTickets} onClick={() => updatePrefs({ metricTickets: !prefs.metricTickets })}>Facturas</PrefChip>
+                  <PrefChip active={prefs.metricShare} onClick={() => updatePrefs({ metricShare: !prefs.metricShare })}>% del total</PrefChip>
+                </div>
+                <span className="pref-label">Filas</span>
+                <div className="pref-chip-row">
+                  <PrefChip active={prefs.includeZeroSales} onClick={() => updatePrefs({ includeZeroSales: !prefs.includeZeroSales })}>Incluir sin ventas</PrefChip>
+                  <PrefChip active={prefs.hideEmptyColors} onClick={() => updatePrefs({ hideEmptyColors: !prefs.hideEmptyColors })}>Solo colores con venta</PrefChip>
+                  <PrefChip active={prefs.hidePackaging} onClick={() => updatePrefs({ hidePackaging: !prefs.hidePackaging })}>Ocultar empaques</PrefChip>
+                </div>
               </div>
             </CardBody>
           </Card>
@@ -570,6 +586,14 @@ function KioskPerformance() {
         </Col>
       </Row>
     </div>
+  );
+}
+
+function PrefChip({ active, onClick, children }) {
+  return (
+    <button type="button" className={`pref-chip${active ? " is-on" : ""}`} onClick={onClick}>
+      {children}
+    </button>
   );
 }
 
