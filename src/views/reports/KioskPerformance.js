@@ -59,8 +59,6 @@ const isKioskLocation = (location) => {
   return categoria.includes("KIOS") || name.includes("KIOS") || code.startsWith("K");
 };
 
-const colorKey = (id) => (id == null || id === "" ? "none" : String(id));
-
 const normalizeColorName = (name) =>
   String(name || "")
     .trim()
@@ -70,10 +68,11 @@ const normalizeColorName = (name) =>
     .replace(/\s+/g, " ");
 
 const colorMatchKey = (item) => {
+  const id = item?.id ?? item?.colorId;
+  if (id != null && id !== "" && String(id) !== "none") return `id:${id}`;
   const name = normalizeColorName(item?.name || item?.colorName || item?.label);
-  if (name && name !== "SIN COLOR") return name;
-  const id = item?.id ?? item?.colorId ?? item?.value;
-  return colorKey(id);
+  if (name && name !== "SIN COLOR") return `name:${name}`;
+  return "none";
 };
 
 const loadPrefs = () => {
@@ -93,8 +92,16 @@ const entriesOf = (cell) => Number(cell?.quantityIn || 0);
 const ticketsOf = (cell) => Number(cell?.tickets || 0);
 const cellHasActivity = (cell) => qtyOf(cell) > 0 || stockOf(cell) > 0 || entriesOf(cell) > 0;
 
-const cellByColor = (product, color) =>
-  (product?.colors || []).find((cell) => colorMatchKey(cell) === colorMatchKey(color)) || null;
+const cellByColor = (product, color) => {
+  const cells = product?.colors || [];
+  const id = color?.id ?? color?.colorId;
+  if (id != null && id !== "" && String(id) !== "none") {
+    const byId = cells.find((cell) => cell.colorId != null && String(cell.colorId) === String(id));
+    if (byId) return byId;
+  }
+  const wanted = colorMatchKey(color);
+  return cells.find((cell) => colorMatchKey(cell) === wanted) || null;
+};
 
 const kioskCellOf = (product, kioskId) =>
   (product?.kiosks || []).find((cell) => String(cell.kioskLocationId) === String(kioskId)) || null;
@@ -701,7 +708,7 @@ function ColorMatrixTable({ products, colors, prefs, renderMetricStack }) {
             {prefs.showCategory && <th>Categoría</th>}
             {prefs.showAudience && <th>Público</th>}
             {colors.map((color) => (
-              <th key={colorKey(color.id)} className="text-center">{color.name}</th>
+              <th key={colorMatchKey(color)} className="text-center">{color.name}</th>
             ))}
             <th className="text-center">Total</th>
           </tr>
@@ -713,7 +720,7 @@ function ColorMatrixTable({ products, colors, prefs, renderMetricStack }) {
             <tr key={product.productId} className={!cellHasActivity(totals) ? "row-no-sales" : ""}>
               <ProductIdentityCells product={product} prefs={prefs} />
               {colors.map((color) => (
-                <td key={colorKey(color.id)} className="text-center">
+                <td key={colorMatchKey(color)} className="text-center">
                   {renderMetricStack(cellByColor(product, color))}
                 </td>
               ))}
@@ -803,7 +810,7 @@ function DetailTable({ products, colors, prefs, totalQty, maxQty, hideZeroColorR
           {rows.map(({ product, color, cell }) => {
             const qty = qtyOf(cell);
             return (
-              <tr key={`${product.productId}-${colorKey(color.id)}`} className={qty <= 0 ? "row-no-sales" : ""}>
+              <tr key={`${product.productId}-${colorMatchKey(color)}`} className={qty <= 0 ? "row-no-sales" : ""}>
                 {prefs.showCode && <td>{product.productCode || "—"}</td>}
                 {prefs.showName && <td>{product.productName || "—"}</td>}
                 {prefs.showCategory && <td>{product.categoryName || "—"}</td>}
