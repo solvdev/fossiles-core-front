@@ -183,8 +183,6 @@ function KioskPerformance() {
 
   useEffect(() => {
     loadReport();
-    // Primera carga del mes en curso.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
