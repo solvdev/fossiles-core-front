@@ -1,7 +1,7 @@
+import * as XLSX from "xlsx";
 import { escapeHtml } from "utils/shipmentPrintDocumentHtml";
 import { formatNowGt } from "utils/dateTimeHelper";
 import { flattenInventoryVariantsToSizeRows } from "utils/inventoryVariantHelper";
-import { openProductInventoryOutflowPrintWindow } from "utils/productInventoryOutflowReportPrintHtml";
 
 function formatQty(n) {
   const v = parseFloat(n);
@@ -21,12 +21,29 @@ function sortPrintLines(a, b) {
   return String(a.size || "").localeCompare(String(b.size || ""), "es", { numeric: true });
 }
 
-/**
- * Convierte filas de inventario (con variantes) en líneas con stock existente (> 0).
- */
-export function toExistingProductInventoryPrintLines(variantRows) {
+/** Inventario Productos (accounting) y variantes de catálogo usan nombres distintos. */
+export function normalizeProductInventoryStockRow(item, location = null) {
+  const sizes = item?.sizes && typeof item.sizes === "object"
+    ? item.sizes
+    : (item?.tallas && typeof item.tallas === "object" ? item.tallas : null);
+  return {
+    ...item,
+    locationId: item?.locationId ?? location?.id,
+    locationName: item?.locationName || location?.name || "",
+    locationCode: item?.locationCode || location?.code || "",
+    productCode: item?.productCode || item?.codigoProducto || "N/A",
+    productName: item?.productName || item?.producto || "N/A",
+    colorName: item?.colorName || item?.color || "",
+    colorId: item?.colorId,
+    sizes,
+    quantity: item?.quantity ?? item?.currentStock ?? item?.cantidad ?? 0,
+  };
+}
+
+export function toExistingProductInventoryPrintLines(variantRows, location = null) {
   const lines = [];
-  (variantRows || []).forEach((item) => {
+  (variantRows || []).forEach((raw) => {
+    const item = normalizeProductInventoryStockRow(raw, location);
     flattenInventoryVariantsToSizeRows([item]).forEach((r) => {
       if (!(r.quantity > 0)) return;
       lines.push({
@@ -132,10 +149,53 @@ export function buildProductInventoryExistingPrintHtml(lines, { title } = {}) {
   <h1>${escapeHtml(heading)}</h1>
   <p class="meta">Generado: ${escapeHtml(formatNowGt())} · Solo productos con stock · ${list.length} línea(s) · Total: ${formatQty(grandTotal)}</p>
   ${groups.map(locationSection).join("") || "<p>Sin productos con stock.</p>"}
+  <script>window.onload = function () { window.print(); };</script>
 </body>
 </html>`;
 }
 
 export function openProductInventoryExistingPrintWindow(html) {
-  return openProductInventoryOutflowPrintWindow(html);
+  const w = window.open("", "_blank");
+  if (!w) return false;
+  w.document.open();
+  w.document.write(html);
+  w.document.close();
+  w.focus();
+  return true;
+}
+
+export function exportExistingProductInventoryExcel(lines, { title, fileName } = {}) {
+  const list = Array.isArray(lines) ? lines : [];
+  const rows = list.map((r) => ({
+    Bodega: r.locationName || "",
+    Código: r.productCode || "",
+    Producto: r.productName || "",
+    Color: r.colorName || "",
+    Talla: r.size || "",
+    Cantidad: r.quantity,
+  }));
+  const total = list.reduce((sum, r) => sum + (Number(r.quantity) || 0), 0);
+  rows.push({
+    Bodega: "TOTAL",
+    Código: "",
+    Producto: "",
+    Color: "",
+    Talla: `${list.length} línea(s)`,
+    Cantidad: total,
+  });
+
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.json_to_sheet(rows);
+  ws["!cols"] = [
+    { wch: 28 },
+    { wch: 14 },
+    { wch: 36 },
+    { wch: 16 },
+    { wch: 12 },
+    { wch: 12 },
+  ];
+  XLSX.utils.book_append_sheet(wb, ws, "Inventario");
+  const stamp = new Date().toISOString().slice(0, 10);
+  const slug = String(title || "inventario").replace(/[^\w-]+/g, "_").slice(0, 40);
+  XLSX.writeFile(wb, fileName || `inventario_existente_${slug}_${stamp}.xlsx`);
 }
