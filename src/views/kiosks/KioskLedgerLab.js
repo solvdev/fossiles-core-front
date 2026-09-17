@@ -36,6 +36,7 @@ import {
 } from "services/kioscoInventoryService";
 import { formatDateTimeGt } from "utils/dateTimeHelper";
 import {
+  accountingMovementToLabUpdate,
   getKioscoMovementTypeLabel,
   KIOSCO_MOVEMENT_TYPE_LABELS,
   normalizeKioscoMovementType,
@@ -61,6 +62,24 @@ const MOVEMENT_TYPE_OPTIONS = [
     searchText: label,
   })),
 ];
+
+const filtersFromSearch = () => {
+  const params = new URLSearchParams(window.location.search);
+  return {
+    locationId: params.get("locationId") || "",
+    productTerm: params.get("productTerm") || "",
+    stockId: params.get("stockId") || "",
+    type: params.get("type") || "",
+    sizeKey: params.get("sizeKey") || "",
+    from: params.get("from") || "",
+    to: params.get("to") || "",
+    referenceTerm: params.get("referenceTerm") || "",
+    reason: params.get("reason") || "",
+    affectsStockOnly: params.get("affectsStockOnly") === "true",
+    movementId: params.get("movementId") || "",
+    hardwareCondition: params.get("hardwareCondition") || "",
+  };
+};
 
 const TYPE_BADGE = {
   ENTRADA: "success",
@@ -174,20 +193,7 @@ export default function KioskLedgerLab() {
   const allowed = username === ALLOWED_USERNAME;
 
   const [locations, setLocations] = useState([]);
-  const [filters, setFilters] = useState({
-    locationId: "",
-    productTerm: "",
-    stockId: "",
-    type: "",
-    sizeKey: "",
-    from: "",
-    to: "",
-    referenceTerm: "",
-    reason: "",
-    affectsStockOnly: false,
-    movementId: "",
-    hardwareCondition: "",
-  });
+  const [filters, setFilters] = useState(filtersFromSearch);
   const [stocks, setStocks] = useState([]);
   const [movements, setMovements] = useState([]);
   const [selectedStockId, setSelectedStockId] = useState(null);
@@ -204,6 +210,7 @@ export default function KioskLedgerLab() {
     hardwareCondition: "NUEVO",
   });
   const [saving, setSaving] = useState(false);
+  const [savingTypeId, setSavingTypeId] = useState(null);
   const [selectedStockIds, setSelectedStockIds] = useState(() => new Set());
   const [sizeKeysToMove, setSizeKeysToMove] = useState(() => new Set());
   const [moveParaTarget, setMoveParaTarget] = useState("NINO");
@@ -379,6 +386,22 @@ export default function KioskLedgerLab() {
       showError(err.message || "No se pudo guardar el movimiento.");
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleQuickTypeChange = async (movement, nextType) => {
+    const current = normalizeKioscoMovementType(movement?.movementType);
+    if (!nextType || nextType === current) return;
+    setSavingTypeId(movement.id);
+    try {
+      await ledgerLabUpdateMovement(movement.id, accountingMovementToLabUpdate(movement, nextType));
+      showSuccess(`Movimiento #${movement.id} → ${getKioscoMovementTypeLabel(nextType)}. Stock recalculado.`);
+      await loadMovements({ stockId: movement.kioscoStockId || selectedStockId || undefined });
+      await loadStocks();
+    } catch (err) {
+      showError(err.message || "No se pudo cambiar el tipo.");
+    } finally {
+      setSavingTypeId(null);
     }
   };
 
@@ -1066,9 +1089,18 @@ export default function KioskLedgerLab() {
                     <td><small>{m.id}</small></td>
                     <td><small>{formatDateTimeGt(m.createdAt)}</small></td>
                     <td>
-                      <Badge color={TYPE_BADGE[type] || "light"}>
-                        {getKioscoMovementTypeLabel(type, m)}
-                      </Badge>
+                      <Input
+                        type="select"
+                        bsSize="sm"
+                        value={type}
+                        disabled={savingTypeId === m.id || saving}
+                        onChange={(e) => void handleQuickTypeChange(m, e.target.value)}
+                        style={{ minWidth: 140, fontSize: "0.75rem" }}
+                      >
+                        {Object.entries(KIOSCO_MOVEMENT_TYPE_LABELS).map(([value, label]) => (
+                          <option key={value} value={value}>{label}</option>
+                        ))}
+                      </Input>
                       {!m.affectsStock && (
                         <Badge color="dark" className="ms-1">no stock</Badge>
                       )}

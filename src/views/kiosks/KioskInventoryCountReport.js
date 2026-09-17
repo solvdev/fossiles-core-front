@@ -94,6 +94,7 @@ import {
   CINCHO_COUNT_LOCATION,
 } from "utils/productCinchoHelper";
 import { showError, showSuccess } from "utils/notificationHelper";
+import { buildKioskMovementsAccountingUrl } from "utils/kioskMovementHelper";
 import CinchoCountDetailModal from "./CinchoCountDetailModal";
 import { isEntreCuerosLocation, kioskDimensionDisplayLabel } from "utils/kioskStockDimensionHelper";
 import { ENTRECUEROS_VARIANT_FILTERS, matchesEntrecuerosVariantFilter } from "utils/entrecuerosPriceLists";
@@ -162,10 +163,10 @@ function conteoStatusMeta(status, internalMode = false) {
 
 const KARDEX_COLUMNS = [
   { key: "inventarioInicial", label: "Ini.", title: "Inventario Inicial" },
-  { key: "comprasAjustes", label: "Comp.", title: "Compras / Ajustes" },
+  { key: "comprasAjustes", label: "Comp.", title: "Compras / Ajustes / Cambio ingreso" },
   { key: "anulacionCompras", label: "A.C.", title: "Anulación Compras" },
   { key: "entradas", label: "Ent.", title: "Entradas (distribución)" },
-  { key: "ventas", label: "Vtas.", title: "Ventas" },
+  { key: "ventas", label: "Vtas.", title: "Ventas / Cambio egreso" },
   { key: "anulacionVenta", label: "A.V.", title: "Anulación Venta" },
   { key: "salida", label: "Sal.", title: "Salida" },
   { key: "inventarioFinal", label: "Fin.", title: "Inventario Final (sistema)" },
@@ -316,13 +317,25 @@ function CountTableColGroup({ showKardex, kardexColumns, vitrineOnlyView = false
   );
 }
 
-function ProductIdentity({ row }) {
+function ProductIdentity({ row, ledgerUrl }) {
   const code = String(row?.productCode || "").trim();
   const name = formatConteoProductTitle(row) || "—";
   return (
     <div className="kiosk-conteo-identity">
       {code ? <span className="kiosk-conteo-product-code">{code}</span> : null}
       <span className="kiosk-conteo-product-name">{name}</span>
+      {ledgerUrl ? (
+        <a
+          href={ledgerUrl}
+          target="_blank"
+          rel="noreferrer"
+          className="kiosk-conteo-ledger-link"
+          title="Abrir ledger de este producto/color para corregir tipo"
+          onClick={(e) => e.stopPropagation()}
+        >
+          Ledger
+        </a>
+      ) : null}
     </div>
   );
 }
@@ -545,6 +558,7 @@ function DataRow({
   vitrineOnlyView = false,
   hardwareSplitEnabled = false,
   entreCueros = false,
+  ledgerUrl = null,
 }) {
   const {
     total, diferencia, isCincho, isFoss, isExpandedSizeRow, rKey,
@@ -562,7 +576,7 @@ function DataRow({
   return (
     <tr>
       <td className="kiosk-conteo-product">
-        <ProductIdentity row={row} />
+        <ProductIdentity row={row} ledgerUrl={ledgerUrl} />
       </td>
       <td className="kiosk-conteo-color" style={{ fontSize: 12, color: "#6b7280" }}>{row.colorName || "—"}</td>
       <td className="kiosk-conteo-size" style={{ fontSize: 11, color: "#374151" }}>
@@ -669,6 +683,7 @@ function CountProductCard({
   vitrineOnlyView = false,
   hardwareSplitEnabled = false,
   entreCueros = false,
+  ledgerUrl = null,
 }) {
   const {
     total, diferencia, isCincho, isFoss, rKey,
@@ -690,7 +705,7 @@ function CountProductCard({
   return (
     <article className={`kiosk-conteo-card${diferencia !== 0 ? " is-alert" : ""}`}>
       <div className="kiosk-conteo-card-title">
-        <ProductIdentity row={row} />
+        <ProductIdentity row={row} ledgerUrl={ledgerUrl} />
       </div>
       <div className="kiosk-conteo-card-meta">
         <span><strong>Color</strong> {row.colorName || "—"}</span>
@@ -944,6 +959,7 @@ function CategoryGroup({
   hardwareSplitEnabled = false,
   entreCueros = false,
   compact = false,
+  ledgerUrlForRow,
 }) {
   const [collapsed, setCollapsed] = useState(false);
   const trailingCols = vitrineOnlyView ? INTERNAL_TRAILING_DATA_COLS : TRAILING_DATA_COLS;
@@ -975,6 +991,7 @@ function CategoryGroup({
       vitrineOnlyView,
       hardwareSplitEnabled,
       entreCueros,
+      ledgerUrl: ledgerUrlForRow ? ledgerUrlForRow(row) : null,
     };
     return compact
       ? <CountProductCard key={rKey} {...rowProps} />
@@ -1099,6 +1116,26 @@ function KioskInventoryCountReport({ locationId, internalMode = false }) {
   const tableShowKardex = internalMode ? false : showKardex;
   const trailingDataCols = internalMode ? INTERNAL_TRAILING_DATA_COLS : TRAILING_DATA_COLS;
   const kardexColumns = useMemo(() => resolveKardexColumns(isSubcountView), [isSubcountView]);
+  const ledgerPeriodFrom = report?.periodFrom || from;
+  const ledgerPeriodTo = report?.periodTo || to;
+  const ledgerUrlForRow = useCallback((row) => {
+    if (internalMode || !locationId || !row?.productId) return null;
+    return buildKioskMovementsAccountingUrl({
+      locationId,
+      productId: row.productId,
+      colorId: row.colorId,
+      from: ledgerPeriodFrom,
+      to: ledgerPeriodTo,
+    });
+  }, [internalMode, locationId, ledgerPeriodFrom, ledgerPeriodTo]);
+  const kioskCambioLedgerUrl = locationId && !internalMode
+    ? buildKioskMovementsAccountingUrl({
+      locationId,
+      from: ledgerPeriodFrom,
+      to: ledgerPeriodTo,
+      type: "CAMBIO",
+    })
+    : null;
 
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedSearch(searchQuery.trim()), 300);
@@ -2144,6 +2181,16 @@ function KioskInventoryCountReport({ locationId, internalMode = false }) {
               >
                 {loadingHistorial ? <Spinner size="sm" /> : "↺ Actualizar"}
               </Button>
+              {kioskCambioLedgerUrl && (
+                <a
+                  href={kioskCambioLedgerUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  style={{ fontSize: 12 }}
+                >
+                  Ledger de cambios
+                </a>
+              )}
             </div>
           </div>
           {loadingHistorial ? (
@@ -2719,6 +2766,7 @@ function KioskInventoryCountReport({ locationId, internalMode = false }) {
                     hardwareSplitEnabled={nvSplitEnabled && !internalMode}
                     entreCueros={entreCueros}
                     compact
+                    ledgerUrlForRow={ledgerUrlForRow}
                   />
                 ))
               )}
@@ -2805,6 +2853,7 @@ function KioskInventoryCountReport({ locationId, internalMode = false }) {
                       vitrineOnlyView={internalMode}
                       hardwareSplitEnabled={nvSplitEnabled && !internalMode}
                       entreCueros={entreCueros}
+                      ledgerUrlForRow={ledgerUrlForRow}
                     />
                   ))
                 )}

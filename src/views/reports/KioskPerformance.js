@@ -106,6 +106,27 @@ const cellByColor = (product, color) => {
 const kioskCellOf = (product, kioskId) =>
   (product?.kiosks || []).find((cell) => String(cell.kioskLocationId) === String(kioskId)) || null;
 
+const kioskCellForColors = (product, kioskId, colors) => {
+  if (!colors || !colors.length) {
+    return kioskCellOf(product, kioskId);
+  }
+  return colors.reduce(
+    (acc, color) => {
+      const colorCell = cellByColor(product, color);
+      const kioskCell = (colorCell?.byKiosk || []).find(
+        (cell) => String(cell.kioskLocationId) === String(kioskId)
+      );
+      acc.quantity += qtyOf(kioskCell);
+      acc.amount += amountOf(kioskCell);
+      acc.currentStock += stockOf(kioskCell);
+      acc.quantityIn += entriesOf(kioskCell);
+      acc.tickets += ticketsOf(kioskCell);
+      return acc;
+    },
+    { quantity: 0, amount: 0, currentStock: 0, quantityIn: 0, tickets: 0 }
+  );
+};
+
 const metricsForColors = (product, colors) => {
   if (!colors || !colors.length) {
     return {
@@ -417,8 +438,8 @@ function KioskPerformance() {
               <CardTitle tag="h4">Ventas, entradas y stock de kiosko por producto y color</CardTitle>
               <p className="text-muted mb-0">
                 Elige kiosko o todos, el periodo y qué columnas quieres ver. Aparecen ventas,
-                entradas del periodo (recepción y traslados in) y stock actual, aunque no se haya vendido.
-                Las ventas anuladas no se cuentan.
+                entradas del periodo (misma cantidad que ENTRADA / TRASLADO IN del ledger de ese
+                kiosko, producto y color) y stock actual. No se cuenta inventario inicial ni ventas anuladas.
               </p>
             </CardHeader>
             <CardBody>
@@ -657,6 +678,7 @@ function KioskPerformance() {
                 <KioskMatrixTable
                   products={filteredProducts}
                   kiosks={report?.kiosks || []}
+                  colors={activeColors}
                   prefs={prefs}
                   renderMetricStack={renderMetricStack}
                 />
@@ -736,7 +758,7 @@ function ColorMatrixTable({ products, colors, prefs, renderMetricStack }) {
   );
 }
 
-function KioskMatrixTable({ products, kiosks, prefs, renderMetricStack }) {
+function KioskMatrixTable({ products, kiosks, colors, prefs, renderMetricStack }) {
   return (
     <div className="matrix-wrap">
       <table className="table table-sm matrix-table">
@@ -753,25 +775,22 @@ function KioskMatrixTable({ products, kiosks, prefs, renderMetricStack }) {
           </tr>
         </thead>
         <tbody>
-          {products.map((product) => (
-            <tr key={product.productId} className={Number(product.totalQuantity || 0) <= 0 ? "row-no-sales" : ""}>
+          {products.map((product) => {
+            const totals = metricsForColors(product, colors);
+            return (
+            <tr key={product.productId} className={!cellHasActivity(totals) ? "row-no-sales" : ""}>
               <ProductIdentityCells product={product} prefs={prefs} />
               {kiosks.map((kiosk) => (
                 <td key={kiosk.id} className="text-center">
-                  {renderMetricStack(kioskCellOf(product, kiosk.id))}
+                  {renderMetricStack(kioskCellForColors(product, kiosk.id, colors))}
                 </td>
               ))}
               <td className="text-center font-weight-bold">
-                {renderMetricStack({
-                  quantity: product.totalQuantity,
-                  amount: product.totalAmount,
-                  currentStock: product.currentStock,
-                  quantityIn: product.totalQuantityIn,
-                  tickets: product.totalTickets,
-                })}
+                {renderMetricStack(totals)}
               </td>
             </tr>
-          ))}
+            );
+          })}
         </tbody>
       </table>
     </div>
@@ -891,7 +910,7 @@ function buildExportRows({ prefs, products, colors, kiosks, hideZeroColorRows })
     const cells = {};
     if (prefs.viewMode === "byKiosk") {
       kiosks.forEach((kiosk) => {
-        const cell = kioskCellOf(product, kiosk.id);
+        const cell = kioskCellForColors(product, kiosk.id, colors);
         cells[String(kiosk.id)] = {
           quantity: qtyOf(cell),
           quantityIn: entriesOf(cell),
@@ -910,14 +929,7 @@ function buildExportRows({ prefs, products, colors, kiosks, hideZeroColorRows })
         };
       });
     }
-    const totals = prefs.viewMode === "byKiosk"
-      ? {
-          quantity: Number(product.totalQuantity || 0),
-          quantityIn: Number(product.totalQuantityIn || 0),
-          amount: Number(product.totalAmount || 0),
-          stock: Number(product.currentStock || 0),
-        }
-      : metricsForColors(product, colors);
+    const totals = metricsForColors(product, colors);
     return {
       productCode: product.productCode,
       productName: product.productName,
