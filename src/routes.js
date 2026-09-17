@@ -1342,8 +1342,8 @@ const routes = [
       },
       {
         path: "/kiosk-performance",
-        name: "Ventas por color",
-        mini: "VC",
+        name: "Ventas y stock del Kiosko",
+        mini: "VK",
         component: <KioskPerformance />,
         layout: "/admin",
         module: "REPORTES",

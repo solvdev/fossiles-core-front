@@ -40,6 +40,7 @@ const DEFAULT_PREFS = {
   showCategory: false,
   showAudience: false,
   metricQty: true,
+  metricEntries: true,
   metricAmount: false,
   metricStock: true,
   metricTickets: false,
@@ -88,7 +89,9 @@ const loadPrefs = () => {
 const qtyOf = (cell) => Number(cell?.quantity || 0);
 const amountOf = (cell) => Number(cell?.amount || 0);
 const stockOf = (cell) => Number(cell?.currentStock || 0);
+const entriesOf = (cell) => Number(cell?.quantityIn || 0);
 const ticketsOf = (cell) => Number(cell?.tickets || 0);
+const cellHasActivity = (cell) => qtyOf(cell) > 0 || stockOf(cell) > 0 || entriesOf(cell) > 0;
 
 const cellByColor = (product, color) =>
   (product?.colors || []).find((cell) => colorMatchKey(cell) === colorMatchKey(color)) || null;
@@ -102,6 +105,7 @@ const metricsForColors = (product, colors) => {
       quantity: Number(product?.totalQuantity || 0),
       amount: Number(product?.totalAmount || 0),
       currentStock: Number(product?.currentStock || 0),
+      quantityIn: Number(product?.totalQuantityIn || 0),
       tickets: Number(product?.totalTickets || 0),
     };
   }
@@ -111,10 +115,11 @@ const metricsForColors = (product, colors) => {
       acc.quantity += qtyOf(cell);
       acc.amount += amountOf(cell);
       acc.currentStock += stockOf(cell);
+      acc.quantityIn += entriesOf(cell);
       acc.tickets += ticketsOf(cell);
       return acc;
     },
-    { quantity: 0, amount: 0, currentStock: 0, tickets: 0 }
+    { quantity: 0, amount: 0, currentStock: 0, quantityIn: 0, tickets: 0 }
   );
 };
 
@@ -266,10 +271,14 @@ function KioskPerformance() {
     if (selectedColors.length) {
       const keys = new Set(selectedColors.map((opt) => opt.value));
       rows = rows.filter((product) =>
-        (product.colors || []).some((cell) => keys.has(colorMatchKey(cell)) && qtyOf(cell) > 0)
+        (product.colors || []).some((cell) => keys.has(colorMatchKey(cell)) && cellHasActivity(cell))
       );
     } else if (!prefs.includeZeroSales) {
-      rows = rows.filter((product) => Number(product.totalQuantity || 0) > 0);
+      rows = rows.filter((product) =>
+        Number(product.totalQuantity || 0) > 0
+        || Number(product.currentStock || 0) > 0
+        || Number(product.totalQuantityIn || 0) > 0
+      );
     }
     const qtyForSort = (product) => {
       if (!selectedColors.length) return Number(product.totalQuantity || 0);
@@ -299,7 +308,7 @@ function KioskPerformance() {
     }
     if (!prefs.hideEmptyColors) return colors;
     return colors.filter((color) =>
-      filteredProducts.some((product) => qtyOf(cellByColor(product, color)) > 0)
+      filteredProducts.some((product) => cellHasActivity(cellByColor(product, color)))
     );
   }, [filteredProducts, prefs.hideEmptyColors, report, selectedColors]);
 
@@ -323,11 +332,12 @@ function KioskPerformance() {
         acc.quantity += metrics.quantity;
         acc.amount += metrics.amount;
         acc.stock += metrics.currentStock;
+        acc.entries += metrics.quantityIn;
         if (metrics.quantity > 0) acc.withSales += 1;
         else acc.withoutSales += 1;
         return acc;
       },
-      { quantity: 0, amount: 0, stock: 0, withSales: 0, withoutSales: 0 }
+      { quantity: 0, amount: 0, stock: 0, entries: 0, withSales: 0, withoutSales: 0 }
     );
   }, [activeColors, filteredProducts]);
 
@@ -375,13 +385,16 @@ function KioskPerformance() {
 
   const renderMetricStack = (cell) => {
     const qty = qtyOf(cell);
-    const zero = qty <= 0;
-    const showQty = prefs.metricQty || (!prefs.metricAmount && !prefs.metricStock && !prefs.metricTickets && !prefs.metricShare);
+    const entries = entriesOf(cell);
+    const stock = stockOf(cell);
+    const zero = !cellHasActivity(cell);
+    const showQty = prefs.metricQty || (!prefs.metricAmount && !prefs.metricStock && !prefs.metricTickets && !prefs.metricShare && !prefs.metricEntries);
     return (
       <div className={zero ? "cell-zero" : "cell-sold"} style={{ background: heatBackground(qty, maxQty), padding: "2px 4px", borderRadius: 4 }}>
-        {showQty && <div>{formatQty(qty)}</div>}
+        {showQty && <div>Ventas {formatQty(qty)}</div>}
+        {prefs.metricEntries && <div className="text-muted">Entradas {formatQty(entries)}</div>}
         {prefs.metricAmount && <div>{formatCurrency(amountOf(cell))}</div>}
-        {prefs.metricStock && <div className="text-muted">Stock {formatQty(stockOf(cell))}</div>}
+        {prefs.metricStock && <div className="text-muted">Stock {formatQty(stock)}</div>}
         {prefs.metricTickets && <div className="text-muted">{ticketsOf(cell)} fact.</div>}
         {prefs.metricShare && <div className="text-muted">{formatShare(qty, visibleTotals.quantity)}</div>}
       </div>
@@ -394,10 +407,11 @@ function KioskPerformance() {
         <Col md="12">
           <Card>
             <CardHeader>
-              <CardTitle tag="h4">Ventas de kiosko por producto y color</CardTitle>
+              <CardTitle tag="h4">Ventas, entradas y stock de kiosko por producto y color</CardTitle>
               <p className="text-muted mb-0">
-                Elige kiosko o todos, el periodo y qué columnas quieres ver. Solo entran productos
-                que el kiosko tiene en inventario. Las ventas anuladas no se cuentan.
+                Elige kiosko o todos, el periodo y qué columnas quieres ver. Aparecen ventas,
+                entradas del periodo (recepción y traslados in) y stock actual, aunque no se haya vendido.
+                Las ventas anuladas no se cuentan.
               </p>
             </CardHeader>
             <CardBody>
@@ -473,27 +487,39 @@ function KioskPerformance() {
       </Row>
 
       <Row className="mb-3">
-        <Col md="3">
+        <Col md="2">
           <div className="stat-chip">
-            <span className="stat-label">Cantidad vendida</span>
+            <span className="stat-label">Ventas</span>
             <span className="stat-value">{formatQty(visibleTotals.quantity)}</span>
           </div>
         </Col>
-        <Col md="3">
+        <Col md="2">
+          <div className="stat-chip">
+            <span className="stat-label">Entradas</span>
+            <span className="stat-value">{formatQty(visibleTotals.entries)}</span>
+          </div>
+        </Col>
+        <Col md="2">
+          <div className="stat-chip">
+            <span className="stat-label">Stock actual</span>
+            <span className="stat-value">{formatQty(visibleTotals.stock)}</span>
+          </div>
+        </Col>
+        <Col md="2">
           <div className="stat-chip">
             <span className="stat-label">Monto</span>
             <span className="stat-value">{formatCurrency(visibleTotals.amount)}</span>
           </div>
         </Col>
-        <Col md="3">
+        <Col md="2">
           <div className="stat-chip">
-            <span className="stat-label">Productos con venta</span>
+            <span className="stat-label">Con venta</span>
             <span className="stat-value">{visibleTotals.withSales}</span>
           </div>
         </Col>
-        <Col md="3">
+        <Col md="2">
           <div className="stat-chip">
-            <span className="stat-label">Productos sin venta</span>
+            <span className="stat-label">Sin venta</span>
             <span className="stat-value">{visibleTotals.withoutSales}</span>
           </div>
         </Col>
@@ -524,7 +550,7 @@ function KioskPerformance() {
                     styles={{ menuPortal: (base) => ({ ...base, zIndex: 9999 }) }}
                   />
                   <p className="text-muted small mt-1 mb-2">
-                    Vacío = todos. Elige Negro, Café, etc. para ver solo esos.
+                    Vacío = todos. Si eliges un color, se quedan productos con ventas, entradas o stock de ese color.
                   </p>
                 </Col>
                 <Col md="3">
@@ -584,7 +610,8 @@ function KioskPerformance() {
                 </div>
                 <span className="pref-label">Métricas</span>
                 <div className="pref-chip-row">
-                  <PrefChip active={prefs.metricQty} onClick={() => updatePrefs({ metricQty: !prefs.metricQty })}>Cantidad</PrefChip>
+                  <PrefChip active={prefs.metricQty} onClick={() => updatePrefs({ metricQty: !prefs.metricQty })}>Ventas</PrefChip>
+                  <PrefChip active={prefs.metricEntries} onClick={() => updatePrefs({ metricEntries: !prefs.metricEntries })}>Entradas</PrefChip>
                   <PrefChip active={prefs.metricAmount} onClick={() => updatePrefs({ metricAmount: !prefs.metricAmount })}>Monto</PrefChip>
                   <PrefChip active={prefs.metricStock} onClick={() => updatePrefs({ metricStock: !prefs.metricStock })}>Stock</PrefChip>
                   <PrefChip active={prefs.metricTickets} onClick={() => updatePrefs({ metricTickets: !prefs.metricTickets })}>Facturas</PrefChip>
@@ -593,7 +620,7 @@ function KioskPerformance() {
                 <span className="pref-label">Filas</span>
                 <div className="pref-chip-row">
                   <PrefChip active={prefs.includeZeroSales} onClick={() => updatePrefs({ includeZeroSales: !prefs.includeZeroSales })}>Incluir sin ventas</PrefChip>
-                  <PrefChip active={prefs.hideEmptyColors} onClick={() => updatePrefs({ hideEmptyColors: !prefs.hideEmptyColors })}>Solo colores con venta</PrefChip>
+                  <PrefChip active={prefs.hideEmptyColors} onClick={() => updatePrefs({ hideEmptyColors: !prefs.hideEmptyColors })}>Solo colores con movimiento</PrefChip>
                   <PrefChip active={prefs.hidePackaging} onClick={() => updatePrefs({ hidePackaging: !prefs.hidePackaging })}>Ocultar empaques</PrefChip>
                 </div>
               </div>
@@ -683,7 +710,7 @@ function ColorMatrixTable({ products, colors, prefs, renderMetricStack }) {
           {products.map((product) => {
             const totals = metricsForColors(product, colors);
             return (
-            <tr key={product.productId} className={totals.quantity <= 0 ? "row-no-sales" : ""}>
+            <tr key={product.productId} className={!cellHasActivity(totals) ? "row-no-sales" : ""}>
               <ProductIdentityCells product={product} prefs={prefs} />
               {colors.map((color) => (
                 <td key={colorKey(color.id)} className="text-center">
@@ -732,6 +759,7 @@ function KioskMatrixTable({ products, kiosks, prefs, renderMetricStack }) {
                   quantity: product.totalQuantity,
                   amount: product.totalAmount,
                   currentStock: product.currentStock,
+                  quantityIn: product.totalQuantityIn,
                   tickets: product.totalTickets,
                 })}
               </td>
@@ -749,7 +777,7 @@ function DetailTable({ products, colors, prefs, totalQty, maxQty, hideZeroColorR
     colors.forEach((color) => {
       const cell = cellByColor(product, color);
       if (!cell) return;
-      if (qtyOf(cell) <= 0 && (hideZeroColorRows || !prefs.includeZeroSales)) return;
+      if (!cellHasActivity(cell) && (hideZeroColorRows || !prefs.includeZeroSales)) return;
       rows.push({ product, color, cell });
     });
   });
@@ -763,7 +791,8 @@ function DetailTable({ products, colors, prefs, totalQty, maxQty, hideZeroColorR
             {prefs.showCategory && <th>Categoría</th>}
             {prefs.showAudience && <th>Público</th>}
             <th>Color</th>
-            {prefs.metricQty && <th className="text-right">Cantidad</th>}
+            {prefs.metricQty && <th className="text-right">Ventas</th>}
+            {prefs.metricEntries && <th className="text-right">Entradas</th>}
             {prefs.metricAmount && <th className="text-right">Monto</th>}
             {prefs.metricStock && <th className="text-right">Stock</th>}
             {prefs.metricTickets && <th className="text-right">Facturas</th>}
@@ -783,6 +812,7 @@ function DetailTable({ products, colors, prefs, totalQty, maxQty, hideZeroColorR
                 {prefs.metricQty && (
                   <td className="text-right" style={{ background: heatBackground(qty, maxQty) }}>{formatQty(qty)}</td>
                 )}
+                {prefs.metricEntries && <td className="text-right">{formatQty(entriesOf(cell))}</td>}
                 {prefs.metricAmount && <td className="text-right">{formatCurrency(amountOf(cell))}</td>}
                 {prefs.metricStock && <td className="text-right">{formatQty(stockOf(cell))}</td>}
                 {prefs.metricTickets && <td className="text-right">{ticketsOf(cell)}</td>}
@@ -804,7 +834,8 @@ function buildExportColumns({ prefs, colors, kiosks, totalQty }) {
   if (prefs.showAudience) columns.push({ label: "Público", width: 12, excelValue: (row) => row.audienceCategory || "" });
   if (prefs.viewMode === "detail") {
     columns.push({ label: "Color", width: 16, excelValue: (row) => row.colorName || "" });
-    if (prefs.metricQty) columns.push({ label: "Cantidad", width: 12, numeric: true, excelValue: (row) => Number(row.quantity || 0) });
+    if (prefs.metricQty) columns.push({ label: "Ventas", width: 12, numeric: true, excelValue: (row) => Number(row.quantity || 0) });
+    if (prefs.metricEntries) columns.push({ label: "Entradas", width: 12, numeric: true, excelValue: (row) => Number(row.quantityIn || 0) });
     if (prefs.metricAmount) columns.push({ label: "Monto", width: 12, numeric: true, excelValue: (row) => Number(row.amount || 0) });
     if (prefs.metricStock) columns.push({ label: "Stock", width: 10, numeric: true, excelValue: (row) => Number(row.stock || 0) });
     if (prefs.metricTickets) columns.push({ label: "Facturas", width: 10, numeric: true, excelValue: (row) => Number(row.tickets || 0) });
@@ -813,12 +844,15 @@ function buildExportColumns({ prefs, colors, kiosks, totalQty }) {
   }
   const groups = prefs.viewMode === "byKiosk" ? kiosks.map((k) => ({ key: String(k.id), label: k.code || k.name })) : colors.map((c) => ({ key: colorMatchKey(c), label: c.name }));
   groups.forEach((group) => {
-    if (prefs.metricQty) columns.push({ label: `${group.label} cant.`, width: 12, numeric: true, excelValue: (row) => Number(row.cells?.[group.key]?.quantity || 0) });
+    if (prefs.metricQty) columns.push({ label: `${group.label} ventas`, width: 12, numeric: true, excelValue: (row) => Number(row.cells?.[group.key]?.quantity || 0) });
+    if (prefs.metricEntries) columns.push({ label: `${group.label} entradas`, width: 12, numeric: true, excelValue: (row) => Number(row.cells?.[group.key]?.quantityIn || 0) });
     if (prefs.metricAmount) columns.push({ label: `${group.label} Q`, width: 12, numeric: true, excelValue: (row) => Number(row.cells?.[group.key]?.amount || 0) });
     if (prefs.metricStock) columns.push({ label: `${group.label} stock`, width: 12, numeric: true, excelValue: (row) => Number(row.cells?.[group.key]?.stock || 0) });
   });
-  if (prefs.metricQty) columns.push({ label: "Total cant.", width: 12, numeric: true, excelValue: (row) => Number(row.quantity || 0) });
+  if (prefs.metricQty) columns.push({ label: "Total ventas", width: 12, numeric: true, excelValue: (row) => Number(row.quantity || 0) });
+  if (prefs.metricEntries) columns.push({ label: "Total entradas", width: 12, numeric: true, excelValue: (row) => Number(row.quantityIn || 0) });
   if (prefs.metricAmount) columns.push({ label: "Total Q", width: 12, numeric: true, excelValue: (row) => Number(row.amount || 0) });
+  if (prefs.metricStock) columns.push({ label: "Total stock", width: 12, numeric: true, excelValue: (row) => Number(row.stock || 0) });
   return columns;
 }
 
@@ -829,7 +863,7 @@ function buildExportRows({ prefs, products, colors, kiosks, hideZeroColorRows })
       colors.forEach((color) => {
         const cell = cellByColor(product, color);
         if (!cell) return;
-        if (qtyOf(cell) <= 0 && (hideZeroColorRows || !prefs.includeZeroSales)) return;
+        if (!cellHasActivity(cell) && (hideZeroColorRows || !prefs.includeZeroSales)) return;
         rows.push({
           productCode: product.productCode,
           productName: product.productName,
@@ -837,6 +871,7 @@ function buildExportRows({ prefs, products, colors, kiosks, hideZeroColorRows })
           audienceCategory: product.audienceCategory,
           colorName: color.name,
           quantity: qtyOf(cell),
+          quantityIn: entriesOf(cell),
           amount: amountOf(cell),
           stock: stockOf(cell),
           tickets: ticketsOf(cell),
@@ -852,6 +887,7 @@ function buildExportRows({ prefs, products, colors, kiosks, hideZeroColorRows })
         const cell = kioskCellOf(product, kiosk.id);
         cells[String(kiosk.id)] = {
           quantity: qtyOf(cell),
+          quantityIn: entriesOf(cell),
           amount: amountOf(cell),
           stock: stockOf(cell),
         };
@@ -861,6 +897,7 @@ function buildExportRows({ prefs, products, colors, kiosks, hideZeroColorRows })
         const cell = cellByColor(product, color);
         cells[colorMatchKey(color)] = {
           quantity: qtyOf(cell),
+          quantityIn: entriesOf(cell),
           amount: amountOf(cell),
           stock: stockOf(cell),
         };
@@ -869,7 +906,9 @@ function buildExportRows({ prefs, products, colors, kiosks, hideZeroColorRows })
     const totals = prefs.viewMode === "byKiosk"
       ? {
           quantity: Number(product.totalQuantity || 0),
+          quantityIn: Number(product.totalQuantityIn || 0),
           amount: Number(product.totalAmount || 0),
+          stock: Number(product.currentStock || 0),
         }
       : metricsForColors(product, colors);
     return {
@@ -878,7 +917,9 @@ function buildExportRows({ prefs, products, colors, kiosks, hideZeroColorRows })
       categoryName: product.categoryName,
       audienceCategory: product.audienceCategory,
       quantity: totals.quantity,
+      quantityIn: totals.quantityIn,
       amount: totals.amount,
+      stock: totals.currentStock ?? totals.stock,
       cells,
     };
   });
