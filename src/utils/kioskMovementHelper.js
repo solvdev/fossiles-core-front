@@ -97,34 +97,6 @@ export const KIOSK_LEDGER_LAB_USERNAME = "eramirez";
 export const canEditKioskLedger = (username) =>
   String(username || "").trim().toLowerCase() === KIOSK_LEDGER_LAB_USERNAME;
 
-export const ymdFromValue = (value) => {
-  if (value == null || value === "") return "";
-  return String(value).slice(0, 10);
-};
-
-export const buildKioskMovementsAccountingUrl = ({
-  locationId,
-  productId,
-  colorId,
-  from,
-  to,
-  type,
-  referenceTerm,
-  sizeKey,
-} = {}) => {
-  const params = new URLSearchParams();
-  if (locationId) params.set("locationId", String(locationId));
-  if (productId) params.set("productId", String(productId));
-  if (colorId) params.set("colorId", String(colorId));
-  if (from) params.set("from", ymdFromValue(from));
-  if (to) params.set("to", ymdFromValue(to));
-  if (type) params.set("type", String(type));
-  if (referenceTerm) params.set("referenceTerm", String(referenceTerm));
-  if (sizeKey) params.set("sizeKey", String(sizeKey));
-  const qs = params.toString();
-  return `/admin/kiosk-movements-accounting${qs ? `?${qs}` : ""}`;
-};
-
 export const accountingMovementToLabUpdate = (movement, typeOverride) => ({
   kioscoStockId: movement?.kioscoStockId ?? null,
   movementType: typeOverride || normalizeKioscoMovementType(movement?.tipoMovimiento || movement?.movementType),
