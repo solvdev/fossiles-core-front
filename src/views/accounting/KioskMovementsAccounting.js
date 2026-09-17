@@ -360,8 +360,8 @@ export default function KioskMovementsAccounting() {
     <div className="content" style={{ fontSize: "0.85rem" }}>
       <h4 className="mb-1">Movimientos de Kioscos</h4>
       <p className="text-muted small mb-3">
-        Consulta por producto, color y talla. Un cambio <strong>sin diferencia</strong> sale en Entrada/Salida
-        del conteo; con diferencia de precio, el ingreso va a Compra y el egreso a Venta.
+        Consulta por producto, color y talla. El ingreso de un cambio (con o sin diferencia) sale en
+        Compra del conteo. El egreso con diferencia va a Venta; sin diferencia, a Salida.
         {canEdit
           ? " El select de tipo guarda y recalcula stock."
           : " Solo lectura (pide corrección de tipo a quien edita el ledger)."}

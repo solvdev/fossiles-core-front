@@ -162,9 +162,9 @@ function conteoStatusMeta(status, internalMode = false) {
 
 const KARDEX_COLUMNS = [
   { key: "inventarioInicial", label: "Ini.", title: "Inventario Inicial" },
-  { key: "comprasAjustes", label: "Comp.", title: "Compras / Ajustes / Cambio con diferencia" },
+  { key: "comprasAjustes", label: "Comp.", title: "Compras / Ajustes / Ingreso de cambio" },
   { key: "anulacionCompras", label: "A.C.", title: "Anulación Compras" },
-  { key: "entradas", label: "Ent.", title: "Entradas (distribución) / Cambio sin diferencia" },
+  { key: "entradas", label: "Ent.", title: "Entradas (distribución)" },
   { key: "ventas", label: "Vtas.", title: "Ventas / Cambio con diferencia" },
   { key: "anulacionVenta", label: "A.V.", title: "Anulación Venta" },
   { key: "salida", label: "Sal.", title: "Salida / Cambio sin diferencia" },

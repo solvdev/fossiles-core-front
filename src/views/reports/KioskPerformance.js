@@ -437,9 +437,9 @@ function KioskPerformance() {
             <CardHeader>
               <CardTitle tag="h4">Ventas, entradas y stock de kiosko por producto y color</CardTitle>
               <p className="text-muted mb-0">
-                Elige kiosko o todos, el periodo y qué columnas quieres ver. Aparecen ventas,
-                entradas del periodo (misma cantidad que ENTRADA / TRASLADO IN del ledger de ese
-                kiosko, producto y color) y stock actual. No se cuenta inventario inicial ni ventas anuladas.
+                Elige kiosko o todos, el periodo y qué columnas quieres ver.
+                Las ventas son del periodo. Las entradas son el historial de ENTRADA y TRASLADO IN
+                de ese kiosko, producto y color hasta el fin del periodo. El stock es el actual.
               </p>
             </CardHeader>
             <CardBody>
