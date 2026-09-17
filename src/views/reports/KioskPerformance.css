@@ -95,6 +95,12 @@
   padding: 6px 8px;
 }
 
+.kiosk-color-report .cell-sold,
+.kiosk-color-report .cell-zero {
+  line-height: 1.25;
+  font-size: 0.75rem;
+}
+
 .kiosk-color-report .matrix-table thead th {
   position: sticky;
   top: 0;

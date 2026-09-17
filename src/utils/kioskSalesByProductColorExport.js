@@ -25,16 +25,16 @@ export const exportKioskSalesByProductColorExcel = ({
   columns,
   kioskLabel,
   generatedByName,
-  sheetTitle = "Ventas por color",
+  sheetTitle = "Ventas y stock",
 }) => {
   const wb = XLSX.utils.book_new();
   const header = columns.map((col) => col.label);
   const aoa = [
-    ["Ventas de kiosko por producto y color"],
+    ["Ventas, entradas y stock de kiosko por producto y color"],
     [kioskLabel || "Todos los kioskos"],
     [`Periodo: ${periodLabel(report?.startDate, report?.endDate)}`],
     [`Generado por: ${generatedByName || ""}`],
-    ["Sin ventas anuladas ni kioskos piloto."],
+    ["Entradas = recepción y traslados in del periodo. Stock = existencias actuales. Sin ventas anuladas ni kioskos piloto."],
     [],
     header,
     ...rows.map((row) => columns.map((col) => col.excelValue(row))),
