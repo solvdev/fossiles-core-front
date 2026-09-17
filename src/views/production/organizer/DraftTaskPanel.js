@@ -29,9 +29,6 @@ export default function DraftTaskPanel({
   onClear,
   onCreate,
   creating,
-  numDesks,
-  desk,
-  setDesk,
   scheduledDate,
   setScheduledDate,
   observations,
@@ -139,25 +136,12 @@ export default function DraftTaskPanel({
         )}
 
         <Row>
-          <Col md="6">
+          <Col md="12">
             <FormGroup>
-              <Label><small>Mesa (opcional)</small></Label>
-              <Input
-                type="select"
-                bsSize="sm"
-                value={desk}
-                onChange={(e) => setDesk(e.target.value)}
-              >
-                <option value="">Sin asignar (arrastrar luego)</option>
-                {Array.from({ length: numDesks || 12 }, (_, i) => i + 1).map((d) => (
-                  <option key={d} value={d}>Mesa {d}</option>
-                ))}
-              </Input>
-            </FormGroup>
-          </Col>
-          <Col md="6">
-            <FormGroup>
-              <Label><small>Fecha (opcional)</small></Label>
+              {/* No hay selector de mesa a propósito: el humano elige qué y cuándo, el
+                  sistema elige dónde. Dejar elegir mesa aquí es lo que causaba el
+                  conflicto entre los operarios y el auxiliar. */}
+              <Label><small>Día de trabajo</small></Label>
               <Input
                 type="date"
                 bsSize="sm"

@@ -303,10 +303,16 @@ export const addDaySaleItemsToTask = async (taskId, productionOrderItemIds) => {
  * OPs activas con ítems que aún tienen cantidad restante sin tarea.
  * @param {Object} filters { type: 'OPL'|'REGULAR'|'ALL', search: string }
  */
-export const getOrganizerOrders = async ({ type = 'ALL', search = '' } = {}) => {
+/**
+ * Órdenes del organizador, paginadas por el servidor.
+ * @returns {Promise<{content: Array, totalElements: number, totalPages: number, number: number, last: boolean}>}
+ */
+export const getOrganizerOrders = async ({ type = 'ALL', search = '', page = 0, size = 30 } = {}) => {
   const params = new URLSearchParams();
   if (type) params.set('type', type);
   if (search) params.set('search', search);
+  params.set('page', String(page));
+  params.set('size', String(size));
   const response = await fetch(`${API_URL}/tasks/organizer/orders?${params.toString()}`, { headers: headers() });
   if (!response.ok) {
     const err = await response.json().catch(() => ({ message: 'Error al obtener órdenes del organizador' }));
@@ -343,6 +349,19 @@ export const getBacklogTasks = async () => {
 };
 
 /**
+ * Tareas que se empezaron un día anterior y siguen abiertas (IN_PROGRESS atrasadas).
+ * El backlog filtra PENDING en igualdad estricta, así que éstas no salían en ningún lado.
+ */
+export const getUnfinishedTasks = async () => {
+  const response = await fetch(`${API_URL}/tasks/organizer/unfinished`, { headers: headers() });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ message: 'Error al obtener tareas no terminadas' }));
+    throw new Error(err.message || 'Error al obtener tareas no terminadas');
+  }
+  return response.json();
+};
+
+/**
  * Libera mesa (y fecha) de tareas PENDING para reorganizar (no toca en progreso/completadas).
  * @param {string} [date] YYYY-MM-DD — si se indica, "reinicia el día": solo libera mesa de
  *   las PENDING programadas ese día (conserva su fecha). Sin fecha: reset completo (mesa+fecha
@@ -357,6 +376,34 @@ export const clearAllDesks = async (date) => {
   if (!response.ok) {
     const err = await response.json().catch(() => ({ message: 'Error al limpiar mesas' }));
     throw new Error(err.message || 'Error al limpiar mesas');
+  }
+  return response.json();
+};
+
+/**
+ * Distribuye las tareas pendientes entre las mesas a partir de un día.
+ *
+ * El humano manda el día y, opcionalmente, el orden de las órdenes; la mesa la elige
+ * el servidor. No se manda desksCount a propósito: el backend resuelve cuántas mesas
+ * hay ese día desde su propia configuración.
+ *
+ * @param {string} startDate YYYY-MM-DD
+ * @param {number} [horizonDays] días hacia adelante que puede usar
+ * @param {Object} [schedulingPriorities] mapa { idDeOrden: prioridad } — rango 2..99
+ * @returns {Promise<{placedTasks:number, notPlacedTasks:number, notPlaced:Array, message:string}>}
+ */
+export const planTasksWindow = async (startDate, horizonDays, schedulingPriorities) => {
+  const params = new URLSearchParams();
+  params.set('startDate', startDate);
+  if (horizonDays != null) params.set('horizonDays', String(horizonDays));
+  const response = await fetch(`${API_URL}/tasks/plan-window?${params.toString()}`, {
+    method: 'POST',
+    headers: { ...headers(), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ schedulingPriorities: schedulingPriorities || {} }),
+  });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ message: 'Error al distribuir el día' }));
+    throw new Error(err.message || 'Error al distribuir el día');
   }
   return response.json();
 };

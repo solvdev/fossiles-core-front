@@ -117,7 +117,9 @@ export default function PendingTasksBacklog({ backlog, loading, numDesks, onRelo
     if (!orderQ && !productQ) return backlog;
 
     return backlog.filter((t) => {
-      const op = String(t.productionOrderCode || "").toLowerCase();
+      // El auxiliar teclea el número que trae en la boleta, que es el código de la
+      // TAREA, no el de la OP. Antes solo se miraba la OP y no encontraba nada.
+      const op = [t.productionOrderCode, t.code].filter(Boolean).join(" ").toLowerCase();
       const productText = [
         t.productCode,
         t.productName,
@@ -196,9 +198,9 @@ export default function PendingTasksBacklog({ backlog, loading, numDesks, onRelo
             <Row className="mb-3 align-items-end">
               <Col md="5" sm="12" className="mb-2 mb-md-0">
                 <FormGroup className="mb-0">
-                  <Label><strong>Buscar por OP</strong></Label>
+                  <Label><strong>Buscar por tarea u OP</strong></Label>
                   <Input
-                    placeholder="Ej. OPK-10, OPL-…"
+                    placeholder="Ej. TK-03367, OPK-10…"
                     value={orderFilter}
                     onChange={(e) => setOrderFilter(e.target.value)}
                   />

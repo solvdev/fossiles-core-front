@@ -682,7 +682,6 @@ const routes = [
         component: <TaskOrganizer />,
         layout: "/admin",
         module: "PRODUCCION",
-        showInSidebar: false,
         permissions: {
           view: "PRODUCCION.TAREAS_ESTACION.VER",
         },

@@ -6,8 +6,6 @@ import {
 import { formatDateGt, getTodayYmdGuatemala } from "utils/dateTimeHelper";
 import { formatProductionDuration } from "utils/productionTimeHelper";
 
-const INITIAL_VISIBLE = 30;
-const LOAD_MORE_STEP = 30;
 
 /** Colores por familia de OP (texto siempre legible sobre el fondo). */
 const FAMILY_STYLES = {
@@ -51,100 +49,17 @@ function formatAssignmentLine(a) {
   return `${mesa} · ${day}${qty}${code}`;
 }
 
-/** Controles mesa + fecha de asignación (días hábiles, también rezagados). */
-function AssignmentDeskControls({
-  assignmentKey,
-  assignment,
-  deskChoice,
-  setDeskChoice,
-  dateChoice,
-  setDateChoice,
-  assigningKey,
-  onAssign,
-  numDesks,
-  label,
-  showSummary = true,
-}) {
-  const desk = deskChoice[assignmentKey] || "";
-  const dateVal =
-    dateChoice[assignmentKey]
-    ?? (assignment.scheduledDate ? String(assignment.scheduledDate).slice(0, 10) : getTodayYmdGuatemala());
-  const busy = assigningKey === assignmentKey;
-  return (
-    <div className="d-flex align-items-center flex-wrap mb-1" style={{ gap: 4 }}>
-      {showSummary && <span className="text-muted">{formatAssignmentLine(assignment)}</span>}
-      <Input
-        type="date"
-        bsSize="sm"
-        value={dateVal}
-        onChange={(e) => setDateChoice((prev) => ({ ...prev, [assignmentKey]: e.target.value }))}
-        title="Fecha de asignación a la mesa (puede ser un día hábil anterior)"
-        style={{ width: 132, fontSize: 11, height: 22, padding: "0 4px" }}
-      />
-      <Input
-        type="select"
-        bsSize="sm"
-        value={desk}
-        onChange={(e) => setDeskChoice((prev) => ({ ...prev, [assignmentKey]: e.target.value }))}
-        style={{ width: 88, fontSize: 11, height: 22, padding: "0 4px" }}
-      >
-        <option value="">Mesa…</option>
-        {Array.from({ length: numDesks || 12 }, (_, i) => i + 1).map((d) => (
-          <option key={d} value={d}>Mesa {d}</option>
-        ))}
-      </Input>
-      <button
-        type="button"
-        className="btn btn-sm btn-primary"
-        style={{ fontSize: 11, padding: "0 6px", height: 22, lineHeight: "20px" }}
-        disabled={!desk || !dateVal || busy}
-        onClick={() => onAssign(assignmentKey, assignment)}
-      >
-        {busy ? "…" : label}
-      </button>
-    </div>
-  );
-}
+// El componente que dejaba elegir mesa a mano se quitó a propósito: el humano elige
+// qué órdenes y para qué día, y el sistema decide la mesa. Dejar que la eligieran era
+// lo que causaba el conflicto entre los operarios y el auxiliar de producción.
 
 /** Fila de ítem con input de cantidad parcial y botón Agregar. */
-function OrganizerItemRow({ order, item, inDraft, onAdd, onJumpToAssignment, onAssignDesk, numDesks }) {
+function OrganizerItemRow({ order, item, inDraft, onAdd, onJumpToAssignment }) {
   const [qty, setQty] = useState(item.remainingQuantity);
-  const [deskChoice, setDeskChoice] = useState({});
-  const [dateChoice, setDateChoice] = useState({});
-  const [reassignOpen, setReassignOpen] = useState({});
-  const [assigningKey, setAssigningKey] = useState(null);
   const hoursPerUnit = item.prdTimePerUnit || 0.1;
   const sizesText = formatSizes(item.sizes);
   const assignments = item.assignments || [];
 
-  const handleAssign = async (assignmentKey, assignment) => {
-    const desk = deskChoice[assignmentKey];
-    const dateVal =
-      dateChoice[assignmentKey]
-      ?? (assignment.scheduledDate ? String(assignment.scheduledDate).slice(0, 10) : getTodayYmdGuatemala());
-    if (!desk || !dateVal) return;
-    setAssigningKey(assignmentKey);
-    try {
-      await onAssignDesk(assignment, Number(desk), dateVal);
-      setDeskChoice((prev) => {
-        const next = { ...prev };
-        delete next[assignmentKey];
-        return next;
-      });
-      setDateChoice((prev) => {
-        const next = { ...prev };
-        delete next[assignmentKey];
-        return next;
-      });
-      setReassignOpen((prev) => {
-        const next = { ...prev };
-        delete next[assignmentKey];
-        return next;
-      });
-    } finally {
-      setAssigningKey(null);
-    }
-  };
 
   return (
     <tr>
@@ -165,19 +80,10 @@ function OrganizerItemRow({ order, item, inDraft, onAdd, onJumpToAssignment, onA
               const key = a.taskId != null ? a.taskId : idx;
               if (a.desk == null) {
                 return (
-                  <AssignmentDeskControls
-                    key={key}
-                    assignmentKey={key}
-                    assignment={a}
-                    deskChoice={deskChoice}
-                    setDeskChoice={setDeskChoice}
-                    dateChoice={dateChoice}
-                    setDateChoice={setDateChoice}
-                    assigningKey={assigningKey}
-                    onAssign={handleAssign}
-                    numDesks={numDesks}
-                    label="Asignar mesa"
-                  />
+                  <div key={key} className="text-muted mb-1">
+                    {formatAssignmentLine(a)} — sin mesa todavía; la asigna el sistema al
+                    distribuir el día.
+                  </div>
                 );
               }
               return (
@@ -199,39 +105,7 @@ function OrganizerItemRow({ order, item, inDraft, onAdd, onJumpToAssignment, onA
                     >
                       {formatAssignmentLine(a)} → ver en tablero
                     </button>
-                    <button
-                      type="button"
-                      className="btn btn-sm btn-outline-secondary"
-                      style={{ fontSize: 10, padding: "0 6px", height: 20, lineHeight: "18px" }}
-                      onClick={() => {
-                        setReassignOpen((prev) => ({ ...prev, [key]: !prev[key] }));
-                        setDeskChoice((prev) => ({ ...prev, [key]: String(a.desk) }));
-                        setDateChoice((prev) => ({
-                          ...prev,
-                          [key]: a.scheduledDate
-                            ? String(a.scheduledDate).slice(0, 10)
-                            : getTodayYmdGuatemala(),
-                        }));
-                      }}
-                    >
-                      {reassignOpen[key] ? "Cancelar" : "Reasignar"}
-                    </button>
                   </div>
-                  {reassignOpen[key] && (
-                    <AssignmentDeskControls
-                      assignmentKey={key}
-                      assignment={a}
-                      deskChoice={deskChoice}
-                      setDeskChoice={setDeskChoice}
-                      dateChoice={dateChoice}
-                      setDateChoice={setDateChoice}
-                      assigningKey={assigningKey}
-                      onAssign={handleAssign}
-                      numDesks={numDesks}
-                      label="Guardar"
-                      showSummary={false}
-                    />
-                  )}
                 </div>
               );
             })}
@@ -302,18 +176,18 @@ export default function OrganizerOrderBrowser({
   draftItemIds,
   onAddLine,
   onJumpToAssignment,
-  onAssignDesk,
-  numDesks,
+  colaDelDia = [],
+  onAlternarEnCola = () => {},
+  page = 0,
+  totalElements = 0,
+  totalPages = 0,
+  onPageChange = () => {},
 }) {
   const [expandedId, setExpandedId] = useState(null);
-  const [visibleCount, setVisibleCount] = useState(INITIAL_VISIBLE);
 
-  useEffect(() => {
-    setVisibleCount(INITIAL_VISIBLE);
-  }, [search, typeFilter, orders]);
-
-  const visibleOrders = orders.slice(0, visibleCount);
-  const remaining = Math.max(0, orders.length - visibleCount);
+  // La página la arma el servidor: antes se traía el catálogo entero y se cortaba
+  // aquí, así que la consulta cara se hacía igual aunque en pantalla cupieran 30.
+  const hayMas = totalPages > 0 && page < totalPages - 1;
 
   return (
     <Card>
@@ -332,28 +206,26 @@ export default function OrganizerOrderBrowser({
           <Col md="auto" className="mb-2 mb-md-0">
             <FormGroup className="mb-0">
               <Label className="d-block"><small>Tipo de orden</small></Label>
+              {/* Las familias reales, no la dicotomía OPL / el resto. El backend ya
+                  las calcula y las devuelve en cada fila. */}
               <ButtonGroup size="sm">
-                <Button
-                  color={typeFilter === "ALL" ? "primary" : "secondary"}
-                  outline={typeFilter !== "ALL"}
-                  onClick={() => setTypeFilter("ALL")}
-                >
-                  Todas
-                </Button>
-                <Button
-                  color={typeFilter === "OPL" ? "primary" : "secondary"}
-                  outline={typeFilter !== "OPL"}
-                  onClick={() => setTypeFilter("OPL")}
-                >
-                  OPL
-                </Button>
-                <Button
-                  color={typeFilter === "REGULAR" ? "primary" : "secondary"}
-                  outline={typeFilter !== "REGULAR"}
-                  onClick={() => setTypeFilter("REGULAR")}
-                >
-                  Regulares
-                </Button>
+                {[
+                  ["ALL", "Todas"],
+                  ["OPL", "OPL"],
+                  ["OPV", "OPV"],
+                  ["OPK", "OPK"],
+                  ["OPI", "OPI"],
+                  ["OPCK", "OPCK"],
+                ].map(([valor, etiqueta]) => (
+                  <Button
+                    key={valor}
+                    color={typeFilter === valor ? "primary" : "secondary"}
+                    outline={typeFilter !== valor}
+                    onClick={() => setTypeFilter(valor)}
+                  >
+                    {etiqueta}
+                  </Button>
+                ))}
               </ButtonGroup>
             </FormGroup>
           </Col>
@@ -364,9 +236,9 @@ export default function OrganizerOrderBrowser({
           </Col>
           <Col className="text-right text-muted">
             <small>
-              {orders.length === 0
+              {totalElements === 0
                 ? "0 órdenes"
-                : `Mostrando ${Math.min(visibleCount, orders.length)} de ${orders.length}`}
+                : `Mostrando ${orders.length} de ${totalElements}`}
               {orders.some((o) => (o.items || []).some((i) => (i.remainingQuantity || 0) > 0))
                 ? ` · ${(orders.reduce((n, o) => n + (o.items || []).filter((i) => (i.remainingQuantity || 0) > 0).length, 0))} con restante`
                 : ""}
@@ -380,7 +252,7 @@ export default function OrganizerOrderBrowser({
             No hay órdenes activas para este filtro.
           </div>
         )}
-        {visibleOrders.map((order) => {
+        {orders.map((order) => {
           const expanded = expandedId === order.id;
           const itemCount = (order.items || []).length;
           const remainingCount = (order.items || []).filter((i) => (i.remainingQuantity || 0) > 0).length;
@@ -401,6 +273,17 @@ export default function OrganizerOrderBrowser({
                   borderRadius: 8,
                 }}
               >
+                {/* Marcar es "esta orden entra al día". El orden en que se marcan es la
+                    prioridad que se manda al distribuir. */}
+                <Input
+                  type="checkbox"
+                  className="mr-2 position-static m-0"
+                  style={{ cursor: "pointer" }}
+                  title="Incluir en la cola del día"
+                  checked={colaDelDia.some((o) => o.id === order.id)}
+                  onClick={(e) => e.stopPropagation()}
+                  onChange={(e) => { e.stopPropagation(); onAlternarEnCola(order); }}
+                />
                 <FamilyBadge family={order.family} />
                 <strong className="mr-2">{order.code}</strong>
                 {order.customerName && (
@@ -447,8 +330,6 @@ export default function OrganizerOrderBrowser({
                         inDraft={draftItemIds.has(item.productionOrderItemId)}
                         onAdd={onAddLine}
                         onJumpToAssignment={onJumpToAssignment}
-                        onAssignDesk={onAssignDesk}
-                        numDesks={numDesks}
                       />
                     ))}
                   </tbody>
@@ -457,15 +338,22 @@ export default function OrganizerOrderBrowser({
             </div>
           );
         })}
-        {remaining > 0 && (
-          <div className="text-center py-2">
+        {(page > 0 || hayMas) && (
+          <div className="d-flex justify-content-center align-items-center py-2" style={{ gap: 8 }}>
             <Button
-              size="sm"
-              color="primary"
-              outline
-              onClick={() => setVisibleCount((n) => n + LOAD_MORE_STEP)}
+              size="sm" color="secondary" outline
+              disabled={page === 0 || loading}
+              onClick={() => onPageChange(page - 1)}
             >
-              Cargar más ({Math.min(LOAD_MORE_STEP, remaining)} de {remaining} restantes)
+              Anterior
+            </Button>
+            <small className="text-muted">Página {page + 1} de {Math.max(1, totalPages)}</small>
+            <Button
+              size="sm" color="primary" outline
+              disabled={!hayMas || loading}
+              onClick={() => onPageChange(page + 1)}
+            >
+              Siguiente
             </Button>
           </div>
         )}
