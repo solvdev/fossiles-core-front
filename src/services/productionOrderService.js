@@ -27,6 +27,64 @@ export const getProductionOrders = async () => {
   }
 };
 
+/**
+ * Una página del listado de órdenes, filtrada y ordenada por el servidor
+ * (de la más nueva a la más vieja por fecha de creación).
+ *
+ * Va contra `/production-orders/page`, que es un endpoint distinto de
+ * `/production-orders`. El antiguo lo consumen otras diez pantallas que esperan un
+ * arreglo, así que no se toca.
+ *
+ * @param {Object}  opts
+ * @param {string}  opts.family  OPL|OPK|OPV|OPI|OPCK|OPD|OPC, o ALL
+ * @param {string}  opts.status  estado exacto, o ALL
+ * @param {string}  opts.process ALL|ACTIVE|PRODUCTION|BODEGA|READY|CANCELLED
+ * @param {string}  opts.search  texto libre (código, cliente, vendedor, envío, distribución)
+ * @param {string}  opts.from    primer día incluido, yyyy-MM-dd
+ * @param {string}  opts.to      último día incluido, yyyy-MM-dd
+ * @param {AbortSignal} opts.signal para cancelar la petición si llega otra antes
+ * @returns {Promise<{content: Array, totalElements: number, totalPages: number, number: number, first: boolean, last: boolean}>}
+ */
+export const getProductionOrdersPage = async ({
+  family = 'ALL',
+  status = 'ALL',
+  process = 'ALL',
+  search = '',
+  from = '',
+  to = '',
+  page = 0,
+  size = 30,
+  signal,
+} = {}) => {
+  const params = new URLSearchParams();
+  if (family) params.set('family', family);
+  if (status) params.set('status', status);
+  if (process) params.set('process', process);
+  if (search) params.set('search', search);
+  if (from) params.set('from', from);
+  if (to) params.set('to', to);
+  params.set('page', String(page));
+  params.set('size', String(size));
+
+  const response = await fetch(`${API_URL}/production-orders/page?${params.toString()}`, {
+    method: 'GET',
+    headers: {
+      'Content-Type': 'application/json',
+      ...getAuthHeader(),
+    },
+    signal,
+  });
+
+  if (!response.ok) {
+    const errorData = await response
+      .json()
+      .catch(() => ({ message: 'Error al obtener el listado de órdenes' }));
+    throw new Error(errorData.message || 'Error al obtener el listado de órdenes');
+  }
+
+  return response.json();
+};
+
 export const getProductionOrderById = async (id) => {
   if (!id || id === 'undefined' || id === 'null') {
     throw new Error('ID de orden de producción inválido');
