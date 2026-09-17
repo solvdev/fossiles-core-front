@@ -3,12 +3,13 @@ import { Button, Modal, ModalBody, ModalFooter, ModalHeader } from "reactstrap";
 import { HARDWARE_CONDITION_OPTIONS, normalizeHardwareCondition } from "utils/productCinchoHelper";
 
 const counterStyle = {
-  width: 72,
-  padding: "6px 8px",
-  fontSize: 14,
+  width: 88,
+  minHeight: 42,
+  padding: "8px 10px",
+  fontSize: 16,
   textAlign: "right",
   border: "1px solid #d1d5db",
-  borderRadius: 6,
+  borderRadius: 8,
 };
 
 const normalizeQty = (value) => {
