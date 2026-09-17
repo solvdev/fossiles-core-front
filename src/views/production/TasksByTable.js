@@ -1060,6 +1060,46 @@ function TasksByTable() {
     [tableCenterTasks, matchesSearchTerm, matchesQuickPreset]
   );
 
+  /**
+   * Tareas que pasan el filtro pero que esta vista no dibuja en ninguna parte.
+   *
+   * Operación del día, con la lista detallada cerrada, solo pinta las que NO tienen
+   * mesa (`unassignedTasks`) y las de bodega, así que una tarea ya asignada quedaba
+   * invisible aunque el contador la contara: al buscar su código salía "Mostrando 1
+   * tarea" sobre una pantalla vacía. El tablero por mesa vive en Cronograma, no aquí.
+   *
+   * Las COMPLETED y CANCELLED siguen sin salir: pierden la mesa al cerrarse, así que
+   * no entran aquí. Para reimprimir su boleta está "Cerradas del día".
+   *
+   * Solo se calcula con búsqueda o atajo activo: sin filtro, todas las asignadas
+   * caerían aquí y la sección dejaría de significar nada.
+   */
+  const assignedMatches = useMemo(() => {
+    if (!searchTerm && !quickPreset) return [];
+    // Con la lista detallada abierta esto se apaga: esa tabla ya dibuja filteredTasks
+    // entera, y las filas saldrían dos veces.
+    if (showDetailedList) return [];
+    const yaVisibles = new Set([
+      ...unassignedTasks.map((t) => t.id),
+      ...awaitingWarehouseTasks.map((t) => t.id),
+    ]);
+    return filteredTasks
+      .filter((t) => t.desk && !yaVisibles.has(t.id))
+      .sort((a, b) => {
+        const fa = a.scheduledDate || "zzz";
+        const fb = b.scheduledDate || "zzz";
+        if (fa !== fb) return fa.localeCompare(fb);
+        return (a.desk || 999) - (b.desk || 999);
+      });
+  }, [
+    filteredTasks,
+    unassignedTasks,
+    awaitingWarehouseTasks,
+    searchTerm,
+    quickPreset,
+    showDetailedList,
+  ]);
+
   const scheduleByDate = useMemo(() => {
     const map = {};
     filteredTasks
@@ -2336,12 +2376,90 @@ function TasksByTable() {
                           </Row>
                         </>
                       )}
-                      {unassignedTasks.length === 0 && awaitingWarehouseTasks.length === 0 ? (
+                      {assignedMatches.length > 0 && (
+                        <Card className="mb-3" style={{ border: "1px solid #b8daff" }}>
+                          <CardHeader style={{ backgroundColor: "#eaf4ff", padding: "8px 16px" }}>
+                            <strong style={{ fontSize: "14px" }}>
+                              Ya asignadas ({assignedMatches.length})
+                            </strong>
+                            <small className="text-muted d-block">
+                              Coinciden con el filtro y ya tienen mesa, así que no salen arriba.
+                              El tablero completo está en Cronograma.
+                            </small>
+                          </CardHeader>
+                          <CardBody className="py-2">
+                            <Table responsive size="sm" className="mb-0">
+                              <thead className="text-primary">
+                                <tr>
+                                  <th>Código</th>
+                                  <th>Orden</th>
+                                  <th>Productos</th>
+                                  <th>Mesa</th>
+                                  <th>Fecha</th>
+                                  <th>Estado</th>
+                                  <th></th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {assignedMatches.map((task) => (
+                                  <tr key={task.id}>
+                                    <td>
+                                      <Badge
+                                        color="light"
+                                        className="text-dark border"
+                                        style={{ ...BADGE_READABLE_ON_LIGHT, fontSize: "11px" }}
+                                      >
+                                        {task.code}
+                                      </Badge>
+                                    </td>
+                                    <td><small>{task.productionOrderCode || "—"}</small></td>
+                                    <td>
+                                      <small>
+                                        {(task.items || [])
+                                          .map((i) => i.productCode)
+                                          .filter(Boolean)
+                                          .join(", ") || "—"}
+                                      </small>
+                                    </td>
+                                    <td>
+                                      <Badge color="info">
+                                        {deskDisplayLabel(
+                                          task.desk,
+                                          supervisorMapForDate(task.scheduledDate)
+                                        )}
+                                      </Badge>
+                                    </td>
+                                    <td>
+                                      <small>
+                                        {task.scheduledDate ? formatDate(task.scheduledDate) : "Sin fecha"}
+                                      </small>
+                                    </td>
+                                    <td>{getStatusBadge(task.status)}</td>
+                                    <td className="text-right">
+                                      <Button
+                                        color="link"
+                                        size="sm"
+                                        className="p-0"
+                                        onClick={() => setDetailTask(task)}
+                                      >
+                                        Ver
+                                      </Button>
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </Table>
+                          </CardBody>
+                        </Card>
+                      )}
+                      {unassignedTasks.length === 0
+                        && awaitingWarehouseTasks.length === 0
+                        && assignedMatches.length === 0 ? (
                         <div className="text-center py-4">
                           {(searchTerm || quickPreset) ? (
                             <>
                               <p className="mt-2 text-muted">
-                                Ninguna tarea sin mesa coincide con búsqueda/atajo.
+                                Ninguna tarea coincide con búsqueda/atajo.
                               </p>
                               <Button color="secondary" size="sm" outline onClick={clearFilters}>
                                 Limpiar filtros
@@ -2848,7 +2966,17 @@ function TasksByTable() {
                                     }}
                                   >
                                     <td>{idx + 1}</td>
-                                    <td><Badge color="dark">{task.code}</Badge></td>
+                                    <td>
+                                      {/* `badge-dark` de la plantilla pinta texto blanco sin
+                                          fondo: sobre la tabla clara el código era ilegible. */}
+                                      <Badge
+                                        color="light"
+                                        className="text-dark border"
+                                        style={{ ...BADGE_READABLE_ON_LIGHT, fontSize: "11px" }}
+                                      >
+                                        {task.code}
+                                      </Badge>
+                                    </td>
                                     <td className="text-center">{renderPhaseControl(task, "LEATHER")}</td>
                                     <td className="text-center">{renderPhaseControl(task, "DIE_CUT")}</td>
                                     <td className="text-center">{renderPhaseControl(task, "MATERIALS")}</td>
