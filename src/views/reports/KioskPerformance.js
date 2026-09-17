@@ -60,6 +60,21 @@ const isKioskLocation = (location) => {
 
 const colorKey = (id) => (id == null || id === "" ? "none" : String(id));
 
+const normalizeColorName = (name) =>
+  String(name || "")
+    .trim()
+    .toUpperCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ");
+
+const colorMatchKey = (item) => {
+  const name = normalizeColorName(item?.name || item?.colorName || item?.label);
+  if (name && name !== "SIN COLOR") return name;
+  const id = item?.id ?? item?.colorId ?? item?.value;
+  return colorKey(id);
+};
+
 const loadPrefs = () => {
   try {
     const raw = localStorage.getItem(PREFS_KEY);
@@ -75,11 +90,33 @@ const amountOf = (cell) => Number(cell?.amount || 0);
 const stockOf = (cell) => Number(cell?.currentStock || 0);
 const ticketsOf = (cell) => Number(cell?.tickets || 0);
 
-const cellByColor = (product, colorId) =>
-  (product?.colors || []).find((cell) => colorKey(cell.colorId) === colorKey(colorId)) || null;
+const cellByColor = (product, color) =>
+  (product?.colors || []).find((cell) => colorMatchKey(cell) === colorMatchKey(color)) || null;
 
 const kioskCellOf = (product, kioskId) =>
   (product?.kiosks || []).find((cell) => String(cell.kioskLocationId) === String(kioskId)) || null;
+
+const metricsForColors = (product, colors) => {
+  if (!colors || !colors.length) {
+    return {
+      quantity: Number(product?.totalQuantity || 0),
+      amount: Number(product?.totalAmount || 0),
+      currentStock: Number(product?.currentStock || 0),
+      tickets: Number(product?.totalTickets || 0),
+    };
+  }
+  return colors.reduce(
+    (acc, color) => {
+      const cell = cellByColor(product, color);
+      acc.quantity += qtyOf(cell);
+      acc.amount += amountOf(cell);
+      acc.currentStock += stockOf(cell);
+      acc.tickets += ticketsOf(cell);
+      return acc;
+    },
+    { quantity: 0, amount: 0, currentStock: 0, tickets: 0 }
+  );
+};
 
 const heatBackground = (qty, maxQty) => {
   const n = Number(qty || 0);
@@ -185,15 +222,17 @@ function KioskPerformance() {
   }, []);
 
   useEffect(() => {
-    const valid = new Set((report?.colors || []).map((color) => colorKey(color.id)));
+    const valid = new Set((report?.colors || []).map((color) => colorMatchKey(color)));
     setSelectedColors((prev) => prev.filter((opt) => valid.has(opt.value)));
   }, [report]);
 
   const colorOptions = useMemo(
     () =>
       (report?.colors || []).map((color) => ({
-        value: colorKey(color.id),
+        value: colorMatchKey(color),
         label: color.name,
+        id: color.id,
+        name: color.name,
       })),
     [report]
   );
@@ -224,31 +263,43 @@ function KioskPerformance() {
         return haystack.includes(term);
       });
     }
-    if (!prefs.includeZeroSales) {
+    if (selectedColors.length) {
+      const keys = new Set(selectedColors.map((opt) => opt.value));
+      rows = rows.filter((product) =>
+        (product.colors || []).some((cell) => keys.has(colorMatchKey(cell)) && qtyOf(cell) > 0)
+      );
+    } else if (!prefs.includeZeroSales) {
       rows = rows.filter((product) => Number(product.totalQuantity || 0) > 0);
     }
+    const qtyForSort = (product) => {
+      if (!selectedColors.length) return Number(product.totalQuantity || 0);
+      const keys = new Set(selectedColors.map((opt) => opt.value));
+      return (product.colors || []).reduce((sum, cell) => (
+        keys.has(colorMatchKey(cell)) ? sum + qtyOf(cell) : sum
+      ), 0);
+    };
     const sorted = [...rows];
     if (prefs.sortBy === "qtyAsc") {
-      sorted.sort((a, b) => Number(a.totalQuantity || 0) - Number(b.totalQuantity || 0));
+      sorted.sort((a, b) => qtyForSort(a) - qtyForSort(b));
     } else if (prefs.sortBy === "name") {
       sorted.sort((a, b) => String(a.productName || "").localeCompare(String(b.productName || ""), "es"));
     } else if (prefs.sortBy === "code") {
       sorted.sort((a, b) => String(a.productCode || "").localeCompare(String(b.productCode || ""), "es"));
     } else {
-      sorted.sort((a, b) => Number(b.totalQuantity || 0) - Number(a.totalQuantity || 0));
+      sorted.sort((a, b) => qtyForSort(b) - qtyForSort(a));
     }
     return sorted;
-  }, [audienceFilter, categoryFilter, prefs.hidePackaging, prefs.includeZeroSales, prefs.sortBy, report, search]);
+  }, [audienceFilter, categoryFilter, prefs.hidePackaging, prefs.includeZeroSales, prefs.sortBy, report, search, selectedColors]);
 
   const activeColors = useMemo(() => {
     const selectedKeys = new Set((selectedColors || []).map((opt) => opt.value));
     let colors = report?.colors || [];
     if (selectedKeys.size) {
-      colors = colors.filter((color) => selectedKeys.has(colorKey(color.id)));
+      colors = colors.filter((color) => selectedKeys.has(colorMatchKey(color)));
     }
     if (!prefs.hideEmptyColors) return colors;
     return colors.filter((color) =>
-      filteredProducts.some((product) => qtyOf(cellByColor(product, color.id)) > 0)
+      filteredProducts.some((product) => qtyOf(cellByColor(product, color)) > 0)
     );
   }, [filteredProducts, prefs.hideEmptyColors, report, selectedColors]);
 
@@ -268,17 +319,17 @@ function KioskPerformance() {
   const visibleTotals = useMemo(() => {
     return filteredProducts.reduce(
       (acc, product) => {
-        const qty = Number(product.totalQuantity || 0);
-        acc.quantity += qty;
-        acc.amount += Number(product.totalAmount || 0);
-        acc.stock += Number(product.currentStock || 0);
-        if (qty > 0) acc.withSales += 1;
+        const metrics = metricsForColors(product, activeColors);
+        acc.quantity += metrics.quantity;
+        acc.amount += metrics.amount;
+        acc.stock += metrics.currentStock;
+        if (metrics.quantity > 0) acc.withSales += 1;
         else acc.withoutSales += 1;
         return acc;
       },
       { quantity: 0, amount: 0, stock: 0, withSales: 0, withoutSales: 0 }
     );
-  }, [filteredProducts]);
+  }, [activeColors, filteredProducts]);
 
   const applyQuickRange = (from, to, mode = "range") => {
     setDateFilterMode(mode);
@@ -310,6 +361,7 @@ function KioskPerformance() {
       products: filteredProducts,
       colors: activeColors,
       kiosks: report?.kiosks || [],
+      hideZeroColorRows: selectedColors.length > 0,
     });
     exportKioskSalesByProductColorExcel({
       report,
@@ -565,6 +617,7 @@ function KioskPerformance() {
                   prefs={prefs}
                   totalQty={visibleTotals.quantity}
                   maxQty={maxQty}
+                  hideZeroColorRows={selectedColors.length > 0}
                 />
               ) : viewMode === "byKiosk" ? (
                 <KioskMatrixTable
@@ -627,24 +680,22 @@ function ColorMatrixTable({ products, colors, prefs, renderMetricStack }) {
           </tr>
         </thead>
         <tbody>
-          {products.map((product) => (
-            <tr key={product.productId} className={Number(product.totalQuantity || 0) <= 0 ? "row-no-sales" : ""}>
+          {products.map((product) => {
+            const totals = metricsForColors(product, colors);
+            return (
+            <tr key={product.productId} className={totals.quantity <= 0 ? "row-no-sales" : ""}>
               <ProductIdentityCells product={product} prefs={prefs} />
               {colors.map((color) => (
                 <td key={colorKey(color.id)} className="text-center">
-                  {renderMetricStack(cellByColor(product, color.id))}
+                  {renderMetricStack(cellByColor(product, color))}
                 </td>
               ))}
               <td className="text-center font-weight-bold">
-                {renderMetricStack({
-                  quantity: product.totalQuantity,
-                  amount: product.totalAmount,
-                  currentStock: product.currentStock,
-                  tickets: product.totalTickets,
-                })}
+                {renderMetricStack(totals)}
               </td>
             </tr>
-          ))}
+            );
+          })}
         </tbody>
       </table>
     </div>
@@ -692,13 +743,13 @@ function KioskMatrixTable({ products, kiosks, prefs, renderMetricStack }) {
   );
 }
 
-function DetailTable({ products, colors, prefs, totalQty, maxQty }) {
+function DetailTable({ products, colors, prefs, totalQty, maxQty, hideZeroColorRows }) {
   const rows = [];
   products.forEach((product) => {
     colors.forEach((color) => {
-      const cell = cellByColor(product, color.id);
+      const cell = cellByColor(product, color);
       if (!cell) return;
-      if (!prefs.includeZeroSales && qtyOf(cell) <= 0) return;
+      if (qtyOf(cell) <= 0 && (hideZeroColorRows || !prefs.includeZeroSales)) return;
       rows.push({ product, color, cell });
     });
   });
@@ -760,7 +811,7 @@ function buildExportColumns({ prefs, colors, kiosks, totalQty }) {
     if (prefs.metricShare) columns.push({ label: "% total", width: 10, excelValue: (row) => formatShare(row.quantity, totalQty) });
     return columns;
   }
-  const groups = prefs.viewMode === "byKiosk" ? kiosks.map((k) => ({ key: String(k.id), label: k.code || k.name })) : colors.map((c) => ({ key: colorKey(c.id), label: c.name }));
+  const groups = prefs.viewMode === "byKiosk" ? kiosks.map((k) => ({ key: String(k.id), label: k.code || k.name })) : colors.map((c) => ({ key: colorMatchKey(c), label: c.name }));
   groups.forEach((group) => {
     if (prefs.metricQty) columns.push({ label: `${group.label} cant.`, width: 12, numeric: true, excelValue: (row) => Number(row.cells?.[group.key]?.quantity || 0) });
     if (prefs.metricAmount) columns.push({ label: `${group.label} Q`, width: 12, numeric: true, excelValue: (row) => Number(row.cells?.[group.key]?.amount || 0) });
@@ -771,14 +822,14 @@ function buildExportColumns({ prefs, colors, kiosks, totalQty }) {
   return columns;
 }
 
-function buildExportRows({ prefs, products, colors, kiosks }) {
+function buildExportRows({ prefs, products, colors, kiosks, hideZeroColorRows }) {
   if (prefs.viewMode === "detail") {
     const rows = [];
     products.forEach((product) => {
       colors.forEach((color) => {
-        const cell = cellByColor(product, color.id);
+        const cell = cellByColor(product, color);
         if (!cell) return;
-        if (!prefs.includeZeroSales && qtyOf(cell) <= 0) return;
+        if (qtyOf(cell) <= 0 && (hideZeroColorRows || !prefs.includeZeroSales)) return;
         rows.push({
           productCode: product.productCode,
           productName: product.productName,
@@ -807,21 +858,27 @@ function buildExportRows({ prefs, products, colors, kiosks }) {
       });
     } else {
       colors.forEach((color) => {
-        const cell = cellByColor(product, color.id);
-        cells[colorKey(color.id)] = {
+        const cell = cellByColor(product, color);
+        cells[colorMatchKey(color)] = {
           quantity: qtyOf(cell),
           amount: amountOf(cell),
           stock: stockOf(cell),
         };
       });
     }
+    const totals = prefs.viewMode === "byKiosk"
+      ? {
+          quantity: Number(product.totalQuantity || 0),
+          amount: Number(product.totalAmount || 0),
+        }
+      : metricsForColors(product, colors);
     return {
       productCode: product.productCode,
       productName: product.productName,
       categoryName: product.categoryName,
       audienceCategory: product.audienceCategory,
-      quantity: Number(product.totalQuantity || 0),
-      amount: Number(product.totalAmount || 0),
+      quantity: totals.quantity,
+      amount: totals.amount,
       cells,
     };
   });
