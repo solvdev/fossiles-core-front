@@ -292,9 +292,7 @@ const expandCinchoRowBySizes = (row) => {
       + Number(row.entradas || 0)
       - Number(row.ventas || 0)
       + Number(row.anulacionVenta || 0)
-      - Number(row.salida || 0)
-      - Number(row.cambioIn || 0)
-      + Number(row.cambioOut || 0);
+      - Number(row.salida || 0);
     const onlyOneSize = sizeKeys.length === 1;
     const entradas = onlyOneSize ? Number(row.entradas || 0) : 0;
     const ventas = onlyOneSize ? Number(row.ventas || 0) : 0;

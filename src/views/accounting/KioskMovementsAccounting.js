@@ -18,13 +18,18 @@ import { getProducts } from "services/productService";
 import {
   getKioskMovementsAccounting,
   getKioskMovementsAccountingStocks,
+  ledgerLabUpdateMovement,
 } from "services/kioscoInventoryService";
 import { formatDateTimeGt } from "utils/dateTimeHelper";
 import {
+  accountingMovementToLabUpdate,
+  canEditKioskLedger,
   getKioscoMovementTypeLabel,
   KIOSCO_MOVEMENT_TYPE_LABELS,
+  normalizeKioscoMovementType,
 } from "utils/kioskMovementHelper";
-import { showError } from "utils/notificationHelper";
+import { showError, showSuccess } from "utils/notificationHelper";
+import { useAuth } from "contexts/AuthContext";
 import { PRODUCT_BRAND_OPTIONS } from "utils/productBrandHelper";
 import { isEntreCuerosLocation } from "utils/kioskStockDimensionHelper";
 import {
@@ -110,6 +115,20 @@ const INITIAL_FILTERS = {
   sizeKey: "",
 };
 
+const filtersFromSearch = () => {
+  const params = new URLSearchParams(window.location.search);
+  return {
+    locationId: params.get("locationId") || "",
+    productId: params.get("productId") || "",
+    colorId: params.get("colorId") || "",
+    type: params.get("type") || "",
+    from: params.get("from") || "",
+    to: params.get("to") || "",
+    referenceTerm: params.get("referenceTerm") || "",
+    sizeKey: params.get("sizeKey") || "",
+  };
+};
+
 function sizesSummary(stock) {
   if (stock?.tallas && typeof stock.tallas === "object") {
     return (
@@ -136,17 +155,21 @@ function stockMatchesVariantFilter(stock, filter) {
 }
 
 export default function KioskMovementsAccounting() {
+  const { user } = useAuth();
+  const canEdit = canEditKioskLedger(user?.username);
   const [locations, setLocations] = useState([]);
   const [products, setProducts] = useState([]);
   const [colors, setColors] = useState([]);
-  const [filters, setFilters] = useState(INITIAL_FILTERS);
+  const [filters, setFilters] = useState(filtersFromSearch);
   const [stocks, setStocks] = useState([]);
   const [movements, setMovements] = useState([]);
   const [selectedStockId, setSelectedStockId] = useState(null);
   const [variantFilter, setVariantFilter] = useState("");
   const [loadingStocks, setLoadingStocks] = useState(false);
   const [loadingMovements, setLoadingMovements] = useState(false);
+  const [savingTypeId, setSavingTypeId] = useState(null);
   const movementsRequestIdRef = useRef(0);
+  const autoLoadedRef = useRef(false);
 
   useEffect(() => {
     getLocations()
@@ -262,6 +285,28 @@ export default function KioskMovementsAccounting() {
     setSelectedStockId(null);
   };
 
+  const handleTypeChange = async (movement, nextType) => {
+    const current = normalizeKioscoMovementType(movement?.tipoMovimiento);
+    if (!nextType || nextType === current) return;
+    setSavingTypeId(movement.id);
+    try {
+      await ledgerLabUpdateMovement(movement.id, accountingMovementToLabUpdate(movement, nextType));
+      showSuccess(`Movimiento #${movement.id} → ${getKioscoMovementTypeLabel(nextType)}. Stock recalculado.`);
+      await loadMovements();
+    } catch (err) {
+      showError(err.message || "No se pudo cambiar el tipo.");
+    } finally {
+      setSavingTypeId(null);
+    }
+  };
+
+  useEffect(() => {
+    if (autoLoadedRef.current || !filters.locationId) return;
+    autoLoadedRef.current = true;
+    loadStocks();
+    loadMovements({ stockId: null });
+  }, [filters.locationId, loadStocks, loadMovements]);
+
   const entreCueros = useMemo(() => {
     if (isEntreCuerosLocation(filters.locationId)) return true;
     const loc = locations.find((l) => String(l.id) === String(filters.locationId));
@@ -315,8 +360,12 @@ export default function KioskMovementsAccounting() {
     <div className="content" style={{ fontSize: "0.85rem" }}>
       <h4 className="mb-1">Movimientos de Kioscos</h4>
       <p className="text-muted small mb-3">
-        Consulta detallada por producto, color y talla (solo lectura). Elige un kiosko, filtra y haz clic en
-        una fila de inventario para ver su kardex.
+        Consulta por producto, color y talla. Un <strong>Cambio ingreso</strong> sale en Compra del conteo;
+        un <strong>Cambio egreso</strong> en Venta. Si el tipo está mal, cámbialo aquí y el conteo lo toma
+        al recargar.
+        {canEdit
+          ? " El select de tipo guarda y recalcula stock."
+          : " Solo lectura (pide corrección de tipo a quien edita el ledger)."}
       </p>
 
       <Row className="g-2 mb-2 align-items-end">
@@ -590,9 +639,27 @@ export default function KioskMovementsAccounting() {
                       <small>{formatDateTimeGt(m.fecha)}</small>
                     </td>
                     <td>
-                      <Badge color={TYPE_BADGE[m.tipoMovimiento] || "secondary"} pill>
-                        {getKioscoMovementTypeLabel(m.tipoMovimiento)}
-                      </Badge>
+                      {canEdit ? (
+                        <Input
+                          type="select"
+                          bsSize="sm"
+                          value={normalizeKioscoMovementType(m.tipoMovimiento)}
+                          disabled={savingTypeId === m.id}
+                          onChange={(e) => void handleTypeChange(m, e.target.value)}
+                          style={{ minWidth: 150, fontSize: "0.75rem" }}
+                        >
+                          {Object.entries(KIOSCO_MOVEMENT_TYPE_LABELS).map(([value, label]) => (
+                            <option key={value} value={value}>{label}</option>
+                          ))}
+                        </Input>
+                      ) : (
+                        <Badge color={TYPE_BADGE[normalizeKioscoMovementType(m.tipoMovimiento)] || "secondary"} pill>
+                          {getKioscoMovementTypeLabel(m.tipoMovimiento, {
+                            stockBefore: m.stockAntes,
+                            stockAfter: m.stockDespues,
+                          })}
+                        </Badge>
+                      )}
                     </td>
                     <td className="text-end fw-semibold">{m.cantidad ?? "—"}</td>
                     <td>{m.talla || "—"}</td>

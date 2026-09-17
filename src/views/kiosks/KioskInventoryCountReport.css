@@ -176,6 +176,18 @@
   word-break: normal;
 }
 
+.kiosk-conteo-ledger-link {
+  font-size: 10px;
+  font-weight: 600;
+  color: #2563eb;
+  text-decoration: none;
+  line-height: 1.2;
+}
+
+.kiosk-conteo-ledger-link:hover {
+  text-decoration: underline;
+}
+
 .kiosk-conteo-table td.kiosk-conteo-product,
 .kiosk-conteo-table th.kiosk-conteo-product {
   white-space: normal !important;

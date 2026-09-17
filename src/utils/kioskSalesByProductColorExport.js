@@ -34,7 +34,7 @@ export const exportKioskSalesByProductColorExcel = ({
     [kioskLabel || "Todos los kioskos"],
     [`Periodo: ${periodLabel(report?.startDate, report?.endDate)}`],
     [`Generado por: ${generatedByName || ""}`],
-    ["Entradas = recepción y traslados in del periodo. Stock = existencias actuales. Sin ventas anuladas ni kioskos piloto."],
+    ["Entradas = quantity de movimientos ENTRADA y TRASLADO IN del ledger de ese kiosko/producto/color. Sin inventario inicial. Stock = existencias actuales."],
     [],
     header,
     ...rows.map((row) => columns.map((col) => col.excelValue(row))),
