@@ -37,10 +37,26 @@ export function isKioskCinchoProduct(product) {
   );
 }
 
+/** Código con token JR (p.ej. N-113-JR), igual que el backend. */
+export function hasJrProductCode(code) {
+  return String(code || "")
+    .toUpperCase()
+    .split(/[^A-Z0-9]+/)
+    .includes("JR");
+}
+
+/** Solo cinchos de niño / JR usan PARA (Niño/Dama). El resto no lo exige. */
+export function isKidsCinchoProduct(product) {
+  return isKioskCinchoProduct(product)
+    && (Boolean(product?.cinchoForKids) || hasJrProductCode(product?.code));
+}
+
 export function stockDimensionKind(locationId, product) {
   if (isPackagingProductCode(product?.code)) return STOCK_DIMENSION_KIND.NONE;
   if (!isEntreCuerosLocation(locationId)) return STOCK_DIMENSION_KIND.HERRAJE;
-  if (isKioskCinchoProduct(product)) return STOCK_DIMENSION_KIND.PARA;
+  if (!product) return STOCK_DIMENSION_KIND.NONE;
+  if (isKidsCinchoProduct(product)) return STOCK_DIMENSION_KIND.PARA;
+  if (isKioskCinchoProduct(product)) return STOCK_DIMENSION_KIND.NONE;
   if (isWalletProductName(product?.name)) return STOCK_DIMENSION_KIND.WALLET;
   return STOCK_DIMENSION_KIND.MARCA;
 }

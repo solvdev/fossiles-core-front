@@ -1130,49 +1130,76 @@ function KioskInventory() {
               {activeTab === "INVENTARIO" && (
               <>
               <Row>
-                <Col md="5">
+                <Col xs="12">
                   <Card className="border kiosk-inv-movement-card">
                     <CardHeader>
                       <CardTitle tag="h6" className="mb-0">Registrar movimiento</CardTitle>
                     </CardHeader>
                     <CardBody>
-                      <FormGroup>
-                        <Label>Operación</Label>
-                        <FilterableSelect
-                          value={form.operation}
-                          onChange={(value) => onFormChange("operation", value)}
-                          options={operationOptions}
-                          placeholder="Buscar operación…"
-                          allowEmpty={false}
-                        />
-                      </FormGroup>
+                      <Row>
+                        <Col md="4">
+                          <FormGroup>
+                            <Label>Operación</Label>
+                            <FilterableSelect
+                              value={form.operation}
+                              onChange={(value) => onFormChange("operation", value)}
+                              options={operationOptions}
+                              placeholder="Buscar operación…"
+                              allowEmpty={false}
+                            />
+                          </FormGroup>
+                        </Col>
+                        {form.operation === "TRASLADO" ? (
+                          <>
+                            <Col md="4">
+                              <FormGroup>
+                                <Label>Origen</Label>
+                                <FilterableSelect
+                                  value={form.locationOriginId}
+                                  onChange={(value) => onFormChange("locationOriginId", value)}
+                                  options={kioskOptions}
+                                  placeholder="Buscar origen…"
+                                  emptyLabel="Selecciona origen"
+                                  disabled={boletaLocked}
+                                />
+                              </FormGroup>
+                            </Col>
+                            <Col md="4">
+                              <FormGroup>
+                                <Label>Destino</Label>
+                                <FilterableSelect
+                                  value={form.locationDestinationId}
+                                  onChange={(value) => onFormChange("locationDestinationId", value)}
+                                  options={kioskOptions}
+                                  placeholder="Buscar destino…"
+                                  emptyLabel="Selecciona destino"
+                                  disabled={boletaLocked}
+                                />
+                              </FormGroup>
+                            </Col>
+                          </>
+                        ) : (
+                          <Col md="4">
+                            <FormGroup>
+                              <Label>Kiosko</Label>
+                              <FilterableSelect
+                                value={form.locationId}
+                                onChange={(value) => {
+                                  onFormChange("locationId", value);
+                                  setSelectedLocation(value);
+                                }}
+                                options={kioskOptions}
+                                placeholder="Buscar kiosko…"
+                                emptyLabel="Selecciona kiosko"
+                              />
+                            </FormGroup>
+                          </Col>
+                        )}
+                      </Row>
 
                       {form.operation === "TRASLADO" ? (
-                        <>
-                          <FormGroup>
-                            <Label>Origen</Label>
-                            <FilterableSelect
-                              value={form.locationOriginId}
-                              onChange={(value) => onFormChange("locationOriginId", value)}
-                              options={kioskOptions}
-                              placeholder="Buscar origen…"
-                              emptyLabel="Selecciona origen"
-                              disabled={boletaLocked}
-                            />
-                          </FormGroup>
-                          <FormGroup>
-                            <Label>Destino</Label>
-                            <FilterableSelect
-                              value={form.locationDestinationId}
-                              onChange={(value) => onFormChange("locationDestinationId", value)}
-                              options={kioskOptions}
-                              placeholder="Buscar destino…"
-                              emptyLabel="Selecciona destino"
-                              disabled={boletaLocked}
-                            />
-                          </FormGroup>
-                          <FormGroup>
-                            <Label>Número de boleta de traslado (física)</Label>
+                        <FormGroup>
+                          <Label>Número de boleta de traslado (física)</Label>
                             <div className="d-flex" style={{ gap: 8 }}>
                               <Input
                                 value={form.physicalSlipNumber}
@@ -1202,22 +1229,7 @@ function KioskInventory() {
                               </Alert>
                             ) : null}
                           </FormGroup>
-                        </>
-                      ) : (
-                        <FormGroup>
-                          <Label>Kiosko</Label>
-                          <FilterableSelect
-                            value={form.locationId}
-                            onChange={(value) => {
-                              onFormChange("locationId", value);
-                              setSelectedLocation(value);
-                            }}
-                            options={kioskOptions}
-                            placeholder="Buscar kiosko…"
-                            emptyLabel="Selecciona kiosko"
-                          />
-                        </FormGroup>
-                      )}
+                      ) : null}
 
                       {form.operation === "CAMBIO" ? (
                         <>
@@ -1379,20 +1391,20 @@ function KioskInventory() {
                             <Table size="sm" className="kiosk-inv-line-table mb-2">
                               <thead>
                                 <tr>
-                                  <th>Producto</th>
-                                  <th>Color</th>
-                                  <th>
+                                  <th className="kiosk-inv-col-product">Producto</th>
+                                  <th className="kiosk-inv-col-color">Color</th>
+                                  <th className="kiosk-inv-col-variant">
                                     {isEntreCuerosLocation(movementLocationId())
                                       ? "Variante"
                                       : "Herraje"}
                                   </th>
                                   {form.operation === "TRASLADO" && isEntreCuerosLocation(form.locationDestinationId)
-                                    ? <th>Variante destino</th>
+                                    ? <th className="kiosk-inv-col-variant">Variante destino</th>
                                     : null}
-                                  <th>Talla</th>
-                                  {form.operation === "AJUSTE" ? <th>Tipo</th> : null}
-                                  <th>Cant.</th>
-                                  <th />
+                                  <th className="kiosk-inv-col-size">Talla</th>
+                                  {form.operation === "AJUSTE" ? <th className="kiosk-inv-col-type">Tipo</th> : null}
+                                  <th className="kiosk-inv-col-qty">Cant.</th>
+                                  <th className="kiosk-inv-col-actions" />
                                 </tr>
                               </thead>
                               <tbody>
@@ -1406,7 +1418,7 @@ function KioskInventory() {
                                   const sizeOptions = resolveLineSizeOptions(line);
                                   return (
                                     <tr key={line.id}>
-                                      <td style={{ minWidth: 200 }}>
+                                      <td className="kiosk-inv-col-product">
                                         <ProductSelector
                                           products={products}
                                           value={line.productId}
@@ -1420,9 +1432,10 @@ function KioskInventory() {
                                           placeholder="Producto…"
                                           disabled={loadingCatalogs}
                                           renderOptionExtra={renderProductOptionExtra}
+                                          fluid
                                         />
                                       </td>
-                                      <td style={{ minWidth: 110 }}>
+                                      <td className="kiosk-inv-col-color">
                                         <ColorSelector
                                           colors={colors}
                                           value={line.colorId}
@@ -1435,9 +1448,10 @@ function KioskInventory() {
                                           }
                                           placeholder="Color…"
                                           disabled={loadingCatalogs}
+                                          fluid
                                         />
                                       </td>
-                                      <td style={{ width: 150 }}>
+                                      <td className="kiosk-inv-col-variant">
                                         <KioskInventoryDimensionSelect
                                           locationId={movementLocationId()}
                                           product={findCatalogProduct(line.productId)}
@@ -1451,7 +1465,7 @@ function KioskInventory() {
                                         />
                                       </td>
                                       {form.operation === "TRASLADO" && isEntreCuerosLocation(form.locationDestinationId) ? (
-                                        <td style={{ width: 150 }}>
+                                        <td className="kiosk-inv-col-variant">
                                           <KioskInventoryDimensionSelect
                                             locationId={form.locationDestinationId}
                                             product={findCatalogProduct(line.productId)}
@@ -1465,7 +1479,7 @@ function KioskInventory() {
                                           />
                                         </td>
                                       ) : null}
-                                      <td style={{ width: 96 }}>
+                                      <td className="kiosk-inv-col-size">
                                         {needsSize && sizeOptions.length > 0 ? (
                                           <Input
                                             type="select"
@@ -1499,7 +1513,7 @@ function KioskInventory() {
                                         )}
                                       </td>
                                       {form.operation === "AJUSTE" ? (
-                                        <td style={{ width: 120 }}>
+                                        <td className="kiosk-inv-col-type">
                                           <Input
                                             type="select"
                                             bsSize="sm"
@@ -1516,7 +1530,7 @@ function KioskInventory() {
                                           </Input>
                                         </td>
                                       ) : null}
-                                      <td style={{ width: 100 }}>
+                                      <td className="kiosk-inv-col-qty">
                                         <Input
                                           type="number"
                                           bsSize="sm"
@@ -1552,7 +1566,7 @@ function KioskInventory() {
                                           );
                                         })() : null}
                                       </td>
-                                      <td style={{ width: 36 }}>
+                                      <td className="kiosk-inv-col-actions">
                                         <Button
                                           color="link"
                                           size="sm"
@@ -1827,7 +1841,7 @@ function KioskInventory() {
                   </Card>
                 </Col>
 
-                <Col md="7">
+                <Col xs="12" className="mt-3">
                   <Card className="border mb-3">
                     <CardHeader>
                       <CardTitle tag="h6" className="mb-0">Stock por kiosko</CardTitle>

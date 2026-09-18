@@ -52,12 +52,18 @@
   overflow-y: visible;
 }
 
+.kiosk-inv-line-table {
+  width: 100%;
+  min-width: 860px;
+  table-layout: auto;
+}
+
 .kiosk-inv-line-table td {
   overflow: visible;
 }
 
 .kiosk-inv-line-table th {
-  font-size: 0.72rem;
+  font-size: 0.78rem;
   text-transform: uppercase;
   letter-spacing: 0.03em;
   color: #64748b;
@@ -66,6 +72,45 @@
 
 .kiosk-inv-line-table td {
   vertical-align: middle;
+}
+
+.kiosk-inv-line-table .kiosk-inv-col-product {
+  min-width: 240px;
+  width: 32%;
+}
+
+.kiosk-inv-line-table .kiosk-inv-col-color {
+  min-width: 140px;
+  width: 16%;
+}
+
+.kiosk-inv-line-table .kiosk-inv-col-variant {
+  min-width: 148px;
+  width: 16%;
+}
+
+.kiosk-inv-line-table .kiosk-inv-col-size {
+  min-width: 118px;
+  width: 12%;
+}
+
+.kiosk-inv-line-table .kiosk-inv-col-type {
+  min-width: 128px;
+}
+
+.kiosk-inv-line-table .kiosk-inv-col-qty {
+  min-width: 96px;
+  width: 12%;
+}
+
+.kiosk-inv-line-table .kiosk-inv-col-actions {
+  width: 40px;
+}
+
+.kiosk-inv-line-table .form-control,
+.kiosk-inv-dim-select {
+  width: 100%;
+  min-width: 0;
 }
 
 .kiosk-inv-stock-explorer {
