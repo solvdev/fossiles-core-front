@@ -165,9 +165,9 @@ const KARDEX_COLUMNS = [
   { key: "comprasAjustes", label: "Comp.", title: "Compras / Ajustes / Ingreso de cambio" },
   { key: "anulacionCompras", label: "A.C.", title: "Anulación Compras" },
   { key: "entradas", label: "Ent.", title: "Entradas (distribución)" },
-  { key: "ventas", label: "Vtas.", title: "Ventas / Cambio con diferencia" },
+  { key: "ventas", label: "Vtas.", title: "Ventas / Cambio con diferencia a cobrar" },
   { key: "anulacionVenta", label: "A.V.", title: "Anulación Venta" },
-  { key: "salida", label: "Sal.", title: "Salida / Cambio sin diferencia" },
+  { key: "salida", label: "Sal.", title: "Salida / Cambio sin diferencia o saldo a favor del cliente" },
   { key: "inventarioFinal", label: "Fin.", title: "Inventario Final (sistema)" },
 ];
 
