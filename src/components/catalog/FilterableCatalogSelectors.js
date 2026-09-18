@@ -50,6 +50,7 @@ export function ProductSelector({
   placeholder = "Buscar producto...",
   renderOptionExtra,
   disabled = false,
+  fluid = false,
 }) {
   const [search, setSearch] = useState("");
   const [open, setOpen] = useState(false);
@@ -79,7 +80,7 @@ export function ProductSelector({
       : "";
 
   return (
-    <div ref={ref} style={{ position: "relative", minWidth: 220 }}>
+    <div ref={ref} style={{ position: "relative", minWidth: fluid ? 0 : 220, width: fluid ? "100%" : undefined }}>
       <Input
         type="text"
         placeholder={placeholder}
@@ -131,6 +132,7 @@ export function ColorSelector({
   onChange,
   placeholder = "Buscar color...",
   disabled = false,
+  fluid = false,
 }) {
   const [search, setSearch] = useState("");
   const [open, setOpen] = useState(false);
@@ -150,7 +152,7 @@ export function ColorSelector({
   useClickOutside(ref, () => setOpen(false));
 
   return (
-    <div ref={ref} style={{ position: "relative", minWidth: 140 }}>
+    <div ref={ref} style={{ position: "relative", minWidth: fluid ? 0 : 140, width: fluid ? "100%" : undefined }}>
       <Input
         type="text"
         placeholder={placeholder}

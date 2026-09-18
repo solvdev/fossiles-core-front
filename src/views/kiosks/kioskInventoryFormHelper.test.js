@@ -146,5 +146,39 @@ describe("kioskInventoryFormHelper", () => {
         )
       ).toBe("");
     });
+
+    it("en Entre Cueros no exige Niño/Dama en cinchos adultos", () => {
+      expect(
+        validateBulkLines(
+          "ENTRADA",
+          [{ productId: 10, quantity: 1, hardwareCondition: "" }],
+          {
+            locationId: 42,
+            findProduct: () => ({
+              code: "N-113",
+              name: "Cincho casual",
+              cinchoType: "CASUAL",
+              cinchoForKids: false,
+            }),
+          }
+        )
+      ).toBe("");
+      expect(
+        validateBulkLines(
+          "ENTRADA",
+          [{ productId: 11, quantity: 1, hardwareCondition: "" }],
+          {
+            locationId: 42,
+            findProduct: () => ({
+              code: "N-113-JR",
+              name: "Cincho junior",
+              cinchoType: "CASUAL",
+              cinchoForKids: true,
+            }),
+          }
+        )
+      ).toContain("Niño o Dama");
+    });
   });
 });
+

@@ -2,11 +2,15 @@ import { isCinchoInventoryProductByCodeAndName, isFossCinchosProductCode } from 
 import { hasInventorySizeBreakdown } from "utils/inventoryVariantHelper";
 import { normalizeProductBrand } from "utils/productBrandHelper";
 
-export const ADULT_CINCHO_SIZES = ["30", "32", "34", "36", "38", "40", "42", "46"];
+export const ADULT_CINCHO_SIZES = ["30", "32", "34", "36", "38", "40", "42", "44", "46"];
 /** Niño: 16–30 por pares. */
 export const KIDS_CINCHO_SIZES = ["16", "18", "20", "22", "24", "26", "28", "30"];
-/** Entre Cueros: tallas de niño hasta 32 (no el rango adulto completo). */
+/** Entre Cueros: tallas de niño hasta 32 (envíos / legado). */
 export const ENTRECUEROS_CINCHO_SIZES = ["16", "18", "20", "22", "24", "26", "28", "30", "32"];
+/** Entre Cueros: todas las tallas elegibles de cincho en inventario (16–44 pares). */
+export const ENTRECUEROS_ALL_CINCHO_SIZES = [
+  "16", "18", "20", "22", "24", "26", "28", "30", "32", "34", "36", "38", "40", "42", "44",
+];
 
 export const ENTRECUEROS_CINCHO_AUDIENCE_OPTIONS = [
   { value: "NINO", label: "Niño" },
@@ -27,7 +31,7 @@ export const resolveCinchoSizesForProduct = (product) =>
   product?.cinchoForKids ? KIDS_CINCHO_SIZES : ADULT_CINCHO_SIZES;
 
 export const resolveCinchoSizesForOpening = (product, { entreCueros } = {}) => {
-  if (entreCueros && product?.cinchoForKids) return ENTRECUEROS_CINCHO_SIZES;
+  if (entreCueros) return ENTRECUEROS_ALL_CINCHO_SIZES;
   return resolveCinchoSizesForProduct(product);
 };
 

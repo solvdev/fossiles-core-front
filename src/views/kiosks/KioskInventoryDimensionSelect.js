@@ -36,11 +36,14 @@ function KioskInventoryDimensionSelect({
     <Input
       type="select"
       bsSize="sm"
+      className="kiosk-inv-dim-select"
       value={entreCueros && isHerrajeDimension(current) ? "" : current}
       disabled={disabled}
       onChange={(e) => onChange(e.target.value || "")}
     >
-      {kind === STOCK_DIMENSION_KIND.HERRAJE ? null : <option value="">Variante…</option>}
+      {kind === STOCK_DIMENSION_KIND.HERRAJE ? null : (
+        <option value="">{kind === STOCK_DIMENSION_KIND.PARA ? "Niño / Dama…" : "Variante…"}</option>
+      )}
       {options.map((opt) => (
         <option key={opt.value} value={opt.value}>
           {opt.label}

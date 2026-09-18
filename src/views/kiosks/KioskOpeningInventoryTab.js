@@ -60,6 +60,7 @@ import {
   productMatchesAudienceFilter,
 } from "utils/productAudienceHelper";
 import { showSuccess, showWarning } from "utils/notificationHelper";
+import { isKidsCinchoProduct } from "utils/kioskStockDimensionHelper";
 import "./KioskInventory.css";
 
 const OPENING_REASON = "Inventario inicial - migración";
@@ -372,12 +373,12 @@ function KioskOpeningInventoryTab({
   const isPackaging = isPackagingProductCode(selectedProduct?.code);
   const needsSizes = productNeedsSizeBreakdown(selectedProduct);
   const selectedIsCincho = isCinchoProduct(selectedProduct);
-  const selectedIsKidsCincho = Boolean(selectedIsCincho && selectedProduct?.cinchoForKids);
+  const selectedIsKidsCincho = isKidsCinchoProduct(selectedProduct);
   const selectedIsWallet = isWalletProductName(selectedProduct?.name);
   const showHardware = Boolean(selectedProduct && !isPackaging && !isEntreCueros);
   const showWalletMaterial = Boolean(isEntreCueros && selectedProduct && !isPackaging && selectedIsWallet);
   const showBrand = Boolean(isEntreCueros && selectedProduct && !isPackaging && !selectedIsCincho);
-  const showCinchoAudience = Boolean(isEntreCueros && selectedProduct && !isPackaging && selectedIsCincho);
+  const showCinchoAudience = Boolean(isEntreCueros && selectedIsKidsCincho && !isPackaging);
 
   const filteredProducts = useMemo(() => {
     const list = (products || [])
@@ -1132,7 +1133,7 @@ function KioskOpeningInventoryTab({
                     ) : (
                       <Alert color="light" className="border mb-0 py-2">
                         {isEntreCueros
-                          ? "Elige un producto, agrega colores y captura cantidad. En billeteras selecciona la marca; en cinchos indica si es Niño o Dama."
+                          ? "Elige un producto, agrega colores y captura cantidad. En billeteras selecciona la marca; en cinchos de niño indica si es Niño o Dama."
                           : "Elige un producto, agrega varios colores y captura cantidad/herraje por fila."}
                       </Alert>
                     )}
@@ -1431,7 +1432,7 @@ function KioskOpeningInventoryTab({
         initialSizes={sizeModalRow?.sizes || {}}
         onApply={handleSizeModalApply}
         disabled={saving}
-        extraSizeMax={isEntreCueros && selectedIsKidsCincho ? 32 : EXTRA_SIZE_MAX}
+        extraSizeMax={isEntreCueros ? 44 : EXTRA_SIZE_MAX}
       />
     </div>
   );
