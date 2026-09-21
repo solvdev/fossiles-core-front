@@ -107,7 +107,6 @@ function AccountingInvoiceDetail() {
   const canOpenVoid = canVoidFel
     && invoice?.status === "CERTIFIED"
     && invoice?.felUuid;
-  const voidBlockedByCfWindow = canOpenVoid && invoice?.felDirectVoidAllowed === false;
 
   const handleDownloadFelReport = () => {
     try {
@@ -160,8 +159,6 @@ function AccountingInvoiceDetail() {
                   size="sm"
                   outline
                   className="mr-2"
-                  disabled={voidBlockedByCfWindow}
-                  title={voidBlockedByCfWindow ? "Plazo de anulación CF vencido" : undefined}
                   onClick={() => setVoidOpen(true)}
                 >
                   Anular FEL
