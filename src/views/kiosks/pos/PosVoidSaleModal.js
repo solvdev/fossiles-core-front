@@ -53,7 +53,7 @@ function PosVoidSaleModal({ isOpen, onClose, sale, kioskLocationId, onSuccess })
         </p>
         <p className="text-muted small mb-3">
           Se anulará la factura FEL si está certificada y el inventario volverá al kiosko.
-          Solo puedes anular ventas de la caja abierta actual.
+          Necesitas caja abierta; puedes anular ventas de turnos anteriores.
         </p>
         <Input
           type="text"
