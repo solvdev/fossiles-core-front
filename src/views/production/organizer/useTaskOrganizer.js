@@ -4,6 +4,7 @@ import {
   getOrganizerOrders,
   createManualTask,
   getBacklogTasks,
+  getUnfinishedTasks,
   clearAllDesks,
 } from "services/taskService";
 import { getProductionOrders } from "services/productionOrderService";
@@ -27,6 +28,25 @@ export default function useTaskOrganizer() {
   const [search, setSearch] = useState("");
   const [orders, setOrders] = useState([]);
   const [loadingOrders, setLoadingOrders] = useState(false);
+  const [page, setPage] = useState(0);
+  const [totalElements, setTotalElements] = useState(0);
+  const [totalPages, setTotalPages] = useState(0);
+  // La búsqueda ya no filtra en memoria: cada tecla sería una consulta con LIKE.
+  const [searchAplicado, setSearchAplicado] = useState("");
+
+  // --- Cola del día: qué órdenes entran y en qué orden ---
+  // Se guarda como lista de {id, code}, no como orden del arreglo visible: si se guardara
+  // así, cambiar de página o de filtro destruiría la cola.
+  const [colaDelDia, setColaDelDia] = useState([]);
+  const alternarEnCola = useCallback((order) => {
+    setColaDelDia((prev) => prev.some((o) => o.id === order.id)
+      ? prev.filter((o) => o.id !== order.id)
+      : [...prev, { id: order.id, code: order.code }]);
+  }, []);
+  const quitarDeCola = useCallback((id) => {
+    setColaDelDia((prev) => prev.filter((o) => o.id !== id));
+  }, []);
+  const limpiarCola = useCallback(() => setColaDelDia([]), []);
 
   // --- Tarea borrador ---
   const [draftLines, setDraftLines] = useState([]);
@@ -46,17 +66,37 @@ export default function useTaskOrganizer() {
   const [backlog, setBacklog] = useState([]);
   const [loadingBacklog, setLoadingBacklog] = useState(false);
 
+  // --- No terminadas: IN_PROGRESS que se arrastran de días anteriores ---
+  const [unfinished, setUnfinished] = useState([]);
+  const [loadingUnfinished, setLoadingUnfinished] = useState(false);
+
+  useEffect(() => {
+    const t = setTimeout(() => setSearchAplicado(search), 300);
+    return () => clearTimeout(t);
+  }, [search]);
+
+  // Al cambiar filtro o búsqueda se vuelve a la primera página: quedarse en la cuarta
+  // con un filtro nuevo devolvía una pantalla vacía sin explicación.
+  useEffect(() => { setPage(0); }, [typeFilter, searchAplicado]);
+
   const loadOrders = useCallback(async () => {
     setLoadingOrders(true);
     try {
-      const data = await getOrganizerOrders({ type: typeFilter, search });
-      setOrders(Array.isArray(data) ? data : []);
+      const data = await getOrganizerOrders({
+        type: typeFilter, search: searchAplicado, page, size: 30,
+      });
+      // El servidor devuelve una página, no un arreglo. Si esto se leyera como antes,
+      // el listado quedaría vacío sin dar ningún error.
+      setOrders(Array.isArray(data?.content) ? data.content : []);
+      setTotalElements(Number(data?.totalElements) || 0);
+      setTotalPages(Number(data?.totalPages) || 0);
     } catch (err) {
       showError(err.message);
+      setOrders([]);
     } finally {
       setLoadingOrders(false);
     }
-  }, [typeFilter, search]);
+  }, [typeFilter, searchAplicado, page]);
 
   const loadTasks = useCallback(async () => {
     try {
@@ -80,6 +120,18 @@ export default function useTaskOrganizer() {
     }
   }, []);
 
+  const loadUnfinished = useCallback(async () => {
+    setLoadingUnfinished(true);
+    try {
+      const data = await getUnfinishedTasks();
+      setUnfinished(Array.isArray(data) ? data : []);
+    } catch (err) {
+      showError(err.message);
+    } finally {
+      setLoadingUnfinished(false);
+    }
+  }, []);
+
   /**
    * Libera mesas para reorganizar.
    * @param {string} [date] si se indica, solo libera mesa de las tareas PENDING de ese
@@ -90,13 +142,13 @@ export default function useTaskOrganizer() {
     try {
       const result = await clearAllDesks(date);
       showSuccess(result?.message || "Mesas liberadas.");
-      await Promise.all([loadTasks(), loadBacklog()]);
+      await Promise.all([loadTasks(), loadBacklog(), loadUnfinished()]);
     } catch (err) {
       showError(err.message);
     } finally {
       setClearingDesks(false);
     }
-  }, [loadTasks, loadBacklog]);
+  }, [loadTasks, loadBacklog, loadUnfinished]);
 
   const loadDesksForDate = useCallback(async (dateYmd) => {
     try {
@@ -108,7 +160,11 @@ export default function useTaskOrganizer() {
   }, []);
 
   useEffect(() => { loadOrders(); }, [loadOrders]);
-  useEffect(() => { loadTasks(); loadBacklog(); }, [loadTasks, loadBacklog]);
+  useEffect(() => {
+    loadTasks();
+    loadBacklog();
+    loadUnfinished();
+  }, [loadTasks, loadBacklog, loadUnfinished]);
   useEffect(() => { loadDesksForDate(boardDate); }, [boardDate, loadDesksForDate]);
 
   // --- Derivados del borrador ---
@@ -242,13 +298,14 @@ export default function useTaskOrganizer() {
           quantity: l.quantity,
           daySaleExtra: !!(l.daySaleExtra || l.onlineSale),
         })),
-        desk: draftDesk ? Number(draftDesk) : null,
+        // Sin mesa a propósito: el sistema decide dónde, no el humano.
+        desk: null,
         scheduledDate: draftDate || null,
         observations: draftObservations || null,
       });
       showSuccess(`Tarea ${created?.code || ""} creada. Ya aparece en el tablero para asignarla.`);
       clearDraft();
-      await Promise.all([loadOrders(), loadTasks(), loadBacklog()]);
+      await Promise.all([loadOrders(), loadTasks(), loadBacklog(), loadUnfinished()]);
       return created;
     } catch (err) {
       showError(err.message);
@@ -256,7 +313,7 @@ export default function useTaskOrganizer() {
       setCreating(false);
     }
   }, [draftLines, baseOrder, overCapacity, baseHours, draftDesk, draftDate, draftObservations,
-      clearDraft, loadOrders, loadTasks, loadBacklog]);
+      clearDraft, loadOrders, loadTasks, loadBacklog, loadUnfinished]);
 
   /** Ids de ítems ya en el borrador (para deshabilitar "Agregar"). */
   const draftItemIds = useMemo(
@@ -267,6 +324,8 @@ export default function useTaskOrganizer() {
   return {
     // órdenes
     typeFilter, setTypeFilter, search, setSearch, orders, loadingOrders, loadOrders,
+    page, setPage, totalElements, totalPages,
+    colaDelDia, alternarEnCola, quitarDeCola, limpiarCola,
     // borrador
     draftLines, baseLines, extraLines, baseHours, totalHours, baseOrder, overCapacity, overIdeal,
     draftItemIds, addDraftLine, removeDraftLine, toggleDraftLineExtra, clearDraft,
@@ -277,5 +336,7 @@ export default function useTaskOrganizer() {
     clearAllDesksAction, clearingDesks,
     // backlog
     backlog, loadingBacklog, loadBacklog,
+    // no terminadas
+    unfinished, loadingUnfinished, loadUnfinished,
   };
 }

@@ -4,19 +4,20 @@ import {
   Row, Col, Card, CardBody, Nav, NavItem, NavLink, TabContent, TabPane, Badge, Button,
 } from "reactstrap";
 import classnames from "classnames";
-import { formatDateGt, getTodayYmdGuatemala, isWeekendYmd } from "utils/dateTimeHelper";
-import { showSuccess, showError } from "utils/notificationHelper";
+import { formatDateGt, getTodayYmdGuatemala } from "utils/dateTimeHelper";
+import { showSuccess } from "utils/notificationHelper";
 import useTaskOrganizer from "./organizer/useTaskOrganizer";
 import OrganizerOrderBrowser from "./organizer/OrganizerOrderBrowser";
 import DraftTaskPanel from "./organizer/DraftTaskPanel";
+import DayQueuePanel from "./organizer/DayQueuePanel";
 import PendingTasksBacklog from "./organizer/PendingTasksBacklog";
+import UnfinishedTasks from "./organizer/UnfinishedTasks";
 import RedistributeBoard from "./components/RedistributeBoard";
 import useMoveTaskItem from "./hooks/useMoveTaskItem";
 
 /**
- * Organizador de Tareas: reemplaza la generación automática del Centro de
- * Producción. 1) Armar tareas manualmente desde OPs con productos pendientes,
- * 2) asignarlas a mesas arrastrando en el tablero, 3) retomar tareas atrasadas.
+ * Redistribución y atrasos. La generación de tareas es automática en el Centro
+ * de Producción (inicio del día + al abrir el centro).
  */
 export default function TaskOrganizer() {
   const [activeTab, setActiveTab] = useState("organize");
@@ -29,10 +30,9 @@ export default function TaskOrganizer() {
   ).length;
 
   /**
-   * Salta al tablero en la fecha de una tarea ya existente (mostrada como "asignación"
-   * en el buscador de OPs), para poder arrastrarla a una mesa. Sin esto, una tarea
-   * programada para otro día que hoy simplemente no aparece en el tablero (el filtro
-   * de fecha la oculta por completo), dando la impresión de que "no deja asignar".
+   * Salta al tablero en la fecha de una tarea ya existente. Sin esto, una tarea
+   * programada para otro día no aparece en el tablero de hoy y parece que "no deja
+   * asignar". Solo navega: no reasigna nada, porque la mesa la elige el sistema.
    */
   const jumpToAssignment = (assignment) => {
     const targetDate = assignment?.scheduledDate || getTodayYmdGuatemala();
@@ -41,32 +41,9 @@ export default function TaskOrganizer() {
     org.loadTasks();
     showSuccess(
       assignment?.desk != null
-        ? `Tarea ${assignment.taskCode || ""} ya está en Mesa ${assignment.desk} el ${formatDateGt(targetDate)}.`
-        : `Mostrando el tablero del ${formatDateGt(targetDate)}: arrastra la tarea ${assignment?.taskCode || ""} a una mesa.`
+        ? `Tarea ${assignment.taskCode || ""} está en Mesa ${assignment.desk} el ${formatDateGt(targetDate)}.`
+        : `Mostrando el tablero del ${formatDateGt(targetDate)}.`
     );
-  };
-
-  /**
-   * Asigna o reasigna mesa (+ fecha) desde Organizar, sin ir al tablero.
-   * Mismo endpoint move-item que el drag & drop; la fecha puede ser un día
-   * hábil anterior para retomar trabajo rezagado.
-   */
-  const assignDeskFromOrganizer = async (assignment, desk, chosenDate) => {
-    if (!assignment?.taskItemId || !desk) return;
-    const targetDate = chosenDate || assignment.scheduledDate || null;
-    if (!targetDate) {
-      showError("Seleccione la fecha de asignación a la mesa.");
-      return;
-    }
-    if (isWeekendYmd(targetDate)) {
-      showError("Solo se trabaja de lunes a viernes: elige una fecha entre semana.");
-      return;
-    }
-    await onMove({ taskItemId: assignment.taskItemId, targetDesk: desk, targetDate });
-    showSuccess(
-      `Tarea ${assignment.taskCode || ""} en Mesa ${desk} · ${formatDateGt(targetDate)}.`
-    );
-    await Promise.all([org.loadOrders(), org.loadTasks()]);
   };
 
   return (
@@ -74,9 +51,9 @@ export default function TaskOrganizer() {
       <Row className="mb-2">
         <Col className="d-flex align-items-center justify-content-between">
           <div>
-            <h4 className="mb-0">Organizador de Tareas</h4>
+            <h4 className="mb-0">Redistribuir mesas</h4>
             <small className="text-muted">
-              Arma tareas por cantidades, créalas y asígnalas a mesas. Sin reparto automático.
+              Las tareas se generan solas en el Centro. Aquí solo se mueven o se retoman atrasos.
             </small>
           </div>
           <Button size="sm" color="secondary" outline onClick={() => navigate("/admin/tasks-by-station")}>
@@ -122,6 +99,18 @@ export default function TaskOrganizer() {
             )}
           </NavLink>
         </NavItem>
+        <NavItem>
+          <NavLink
+            role="button"
+            className={classnames({ active: activeTab === "unfinished" })}
+            onClick={() => { setActiveTab("unfinished"); org.loadUnfinished(); }}
+          >
+            4 · No terminadas
+            {org.unfinished.length > 0 && (
+              <Badge color="danger" className="ml-1">{org.unfinished.length}</Badge>
+            )}
+          </NavLink>
+        </NavItem>
       </Nav>
 
       <TabContent activeTab={activeTab}>
@@ -139,11 +128,24 @@ export default function TaskOrganizer() {
                 draftItemIds={org.draftItemIds}
                 onAddLine={org.addDraftLine}
                 onJumpToAssignment={jumpToAssignment}
-                onAssignDesk={assignDeskFromOrganizer}
-                numDesks={org.numDesks}
+                colaDelDia={org.colaDelDia}
+                onAlternarEnCola={org.alternarEnCola}
+                page={org.page}
+                totalElements={org.totalElements}
+                totalPages={org.totalPages}
+                onPageChange={org.setPage}
               />
             </Col>
             <Col lg="5" xl="4">
+              <DayQueuePanel
+                marcadas={org.colaDelDia}
+                onQuitar={org.quitarDeCola}
+                onLimpiar={org.limpiarCola}
+                onDistribuido={async () => {
+                  await Promise.all([org.loadTasks(), org.loadOrders()]);
+                }}
+              />
+              <div className="mb-3" />
               <DraftTaskPanel
                 lines={org.draftLines}
                 baseHours={org.baseHours}
@@ -158,9 +160,6 @@ export default function TaskOrganizer() {
                   if (created) setActiveTab("board");
                 }}
                 creating={org.creating}
-                numDesks={org.numDesks}
-                desk={org.draftDesk}
-                setDesk={org.setDraftDesk}
                 scheduledDate={org.draftDate}
                 setScheduledDate={org.setDraftDate}
                 observations={org.draftObservations}
@@ -173,40 +172,6 @@ export default function TaskOrganizer() {
         <TabPane tabId="board">
           <Card>
             <CardBody>
-              <div className="d-flex justify-content-end mb-2" style={{ gap: 8 }}>
-                <Button
-                  size="sm"
-                  color="warning"
-                  outline
-                  disabled={org.clearingDesks}
-                  onClick={() => {
-                    if (window.confirm(
-                      `Esto quita la mesa (conserva la fecha) de las tareas pendientes programadas el ${formatDateGt(org.boardDate)}. ` +
-                      "No toca tareas en progreso/completadas ni otras fechas. ¿Continuar?"
-                    )) {
-                      org.clearAllDesksAction(org.boardDate);
-                    }
-                  }}
-                >
-                  {org.clearingDesks ? "Reiniciando…" : `Reiniciar tareas del ${formatDateGt(org.boardDate)}`}
-                </Button>
-                <Button
-                  size="sm"
-                  color="danger"
-                  outline
-                  disabled={org.clearingDesks}
-                  onClick={() => {
-                    if (window.confirm(
-                      "Esto quita la mesa y la fecha de TODAS las tareas pendientes (no toca las que ya están en progreso o completadas). " +
-                      "Podrás volver a asignarlas desde cero. ¿Continuar?"
-                    )) {
-                      org.clearAllDesksAction();
-                    }
-                  }}
-                >
-                  {org.clearingDesks ? "Limpiando…" : "Limpiar todas las mesas"}
-                </Button>
-              </div>
               <RedistributeBoard
                 tasks={org.tasks}
                 numDesks={org.numDesks}
@@ -215,11 +180,8 @@ export default function TaskOrganizer() {
                 onMove={onMove}
                 introText={
                   <>
-                    <strong>Tablero de mesas</strong>: las tareas creadas sin mesa aparecen en
-                    “Sin asignar”. Arrastra a una mesa del día del filtro, o usa la fecha + mesa
-                    de cada tarjeta para reasignar también a días hábiles anteriores (rezagados).
-                    <strong> Reiniciar</strong> libera solo el día que ves;
-                    <strong> Limpiar todas</strong> resetea pendientes.
+                    <strong>Tablero de mesas</strong>: arrastra para mover líneas entre mesas
+                    del día del filtro. El Centro ya asigna mesa al generar.
                   </>
                 }
               />
@@ -236,6 +198,14 @@ export default function TaskOrganizer() {
             onRescheduled={async () => {
               await Promise.all([org.loadBacklog(), org.loadTasks()]);
             }}
+          />
+        </TabPane>
+
+        <TabPane tabId="unfinished">
+          <UnfinishedTasks
+            unfinished={org.unfinished}
+            loading={org.loadingUnfinished}
+            onReload={org.loadUnfinished}
           />
         </TabPane>
       </TabContent>
