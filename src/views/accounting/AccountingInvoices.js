@@ -299,8 +299,7 @@ function AccountingInvoices() {
     canVoidFel
     && invoice
     && invoice.status === "CERTIFIED"
-    && invoice.felUuid
-    && invoice.felDirectVoidAllowed !== false;
+    && invoice.felUuid;
 
   const summaryCards = [
     { id: "", label: "Total", value: summary?.total || 0, className: "text-muted" },
