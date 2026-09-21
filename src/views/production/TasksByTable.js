@@ -76,7 +76,7 @@ import CinchosDayBoard from "./CinchosDayBoard";
 import RedistributeBoard from "./components/RedistributeBoard";
 import useMoveTaskItem from "./hooks/useMoveTaskItem";
 import { MAX_HOURS_PER_DESK, getTaskBaseHours, getTaskExtraHours } from "utils/taskHoursHelper";
-import { formatProductionDuration } from "utils/productionTimeHelper";
+import { formatProductionDuration, workingMinutesBetween } from "utils/productionTimeHelper";
 
 /** En tarjetas con fondo claro: Paper fuerza texto blanco en `.badge`, lo que deja cantidades ilegibles. */
 const BADGE_READABLE_ON_LIGHT = {
@@ -371,6 +371,8 @@ function TasksByTable() {
   const [redistributeDate, setRedistributeDate] = useState(getTodayYmdGuatemala());
   /** Tarea abierta en el panel de detalle; la tarjeta solo muestra lo esencial. */
   const [detailTask, setDetailTask] = useState(null);
+  /** Sección plegable de tareas cerradas del día; arranca cerrada para no cargar la vista. */
+  const [showClosed, setShowClosed] = useState(false);
   /**
    * Cuántas tareas se pintan por mesa. Crece sola al acercarse el final de la columna,
    * de modo que una jornada con muchas tareas no monta cientos de tarjetas de golpe
@@ -1124,6 +1126,24 @@ function TasksByTable() {
    * entrega estimada calculada desde ella, datos que no existen mientras está pendiente.
    */
   const taskYaIniciada = (task) => Boolean(task?.startedAt);
+
+  /**
+   * Tiempo realmente trabajado, recalculado desde el inicio y el fin.
+   *
+   * No se usa el `actualDurationMinutes` que viene de la base: las tareas cerradas
+   * antes de modelar la jornada lo tienen como resta simple, así que incluye noches
+   * y fines de semana. Recalcular aquí hace que el histórico se vea bien sin tocar
+   * un solo registro, y que este número coincida con el de la boleta.
+   *
+   * Solo se cae al valor guardado si falta la hora de inicio, que es cuando no hay
+   * nada que recalcular.
+   */
+  const tiempoRealMinutos = (task) => {
+    if (task?.startedAt && task?.completedAt) {
+      return workingMinutesBetween(task.startedAt, task.completedAt);
+    }
+    return task?.actualDurationMinutes ?? null;
+  };
 
   /**
    * Ids de las boletas imprimibles de una fecha: con mesa y ya iniciadas. Mismo criterio
@@ -3218,8 +3238,8 @@ function TasksByTable() {
                 <div className="tbs-detail-grid">
                   {dato("Hora de inicio", detailTask.startedAt ? formatDateTimeGt(detailTask.startedAt) : (detailTask.startTime || null))}
                   {dato("Hora de fin", detailTask.completedAt ? formatDateTimeGt(detailTask.completedAt) : null)}
-                  {dato("Duración real", detailTask.actualDurationMinutes
-                    ? formatProductionDuration(detailTask.actualDurationMinutes / 60)
+                  {dato("Duración real", tiempoRealMinutos(detailTask)
+                    ? formatProductionDuration(tiempoRealMinutos(detailTask) / 60)
                     : null)}
                   {dato("Mesa trabajada", detailTask.workedDesk || null)}
                 </div>
