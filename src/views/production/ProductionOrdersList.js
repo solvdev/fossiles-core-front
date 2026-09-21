@@ -36,8 +36,6 @@ import {
   escapeHtml,
   buildCinchoDetailTableHtml,
   buildNormalColorMatrixTableHtml,
-  getPrintOrientationToolbarHtml,
-  buildOrderObservationPrintHtml,
 } from "utils/productionOrderPrintHtml";
 import { isManagedCinchoOrderType, isCinchoOrderType } from "utils/cinchoProductionHelper";
 
@@ -502,46 +500,6 @@ function ProductionOrdersList() {
             <p>${escapeHtml(orderObservation)}</p>
           </section>`
       : "";
-          <table class="meta">
-            <tbody>
-              <tr>
-                <th>Tipo</th>
-                <td>${escapeHtml(getTypeLabel(order.orderType))}</td>
-                <th>Estado</th>
-                <td>${escapeHtml(getStatusLabel(order.status))}</td>
-              </tr>
-              <tr>
-                <th>Proceso</th>
-                <td>${escapeHtml(stage.label)}</td>
-                <th></th>
-                <td></td>
-              </tr>
-              <tr>
-                <th>Cliente/Distribución</th>
-                <td>${escapeHtml(customer)}</td>
-                <th>Vendedor</th>
-                <td>${escapeHtml(order.orderType === "DISTRIBUTION" ? "-" : order.sellerName || "-")}</td>
-              </tr>
-              ${brandMetaRow}
-              <tr>
-                <th>Inicio</th>
-                <td>${escapeHtml(processDates.startValue ? formatDateGt(processDates.startValue) : "-")}</td>
-                <th>Entrega</th>
-                <td>${escapeHtml(processDates.deliveryValue ? formatDateGt(processDates.deliveryValue) : "-")}</td>
-              </tr>
-              <tr>
-                <th>Generado</th>
-                <td>${escapeHtml(generatedAt)}</td>
-                <th></th>
-                <td></td>
-              </tr>
-            </tbody>
-          </table>
-
-          ${buildOrderObservationPrintHtml(order)}
-          ${detailTableHtml}
-        </section>
-      `;
 
     const win = window.open("", "_blank");
     if (!win) {
