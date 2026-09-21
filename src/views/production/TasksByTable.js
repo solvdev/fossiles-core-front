@@ -1063,20 +1063,44 @@ function TasksByTable() {
   );
 
   /**
-   * Tareas ya cerradas de la jornada seleccionada, para poder reimprimir su boleta.
+   * Tareas que pasan el filtro pero que esta vista no dibuja en ninguna parte.
    *
-   * Sale de la lista cruda con `incluirCerradas`, no de `tableCenterTasks`: el tablero
-   * y sus cálculos de carga siguen viendo solo tareas activas. Se limita a la fecha en
-   * pantalla para no arrastrar meses de histórico.
+   * Operación del día, con la lista detallada cerrada, solo pinta las que NO tienen
+   * mesa (`unassignedTasks`) y las de bodega, así que una tarea ya asignada quedaba
+   * invisible aunque el contador la contara: al buscar su código salía "Mostrando 1
+   * tarea" sobre una pantalla vacía. El tablero por mesa vive en Cronograma, no aquí.
+   *
+   * Las COMPLETED y CANCELLED siguen sin salir: pierden la mesa al cerrarse, así que
+   * no entran aquí. Para reimprimir su boleta está "Cerradas del día".
+   *
+   * Solo se calcula con búsqueda o atajo activo: sin filtro, todas las asignadas
+   * caerían aquí y la sección dejaría de significar nada.
    */
-  const closedTasks = useMemo(() => {
-    const fecha = filterDate || getTodayYmdGuatemala();
-    return buildTableCenterTasks(tasks, productionOrders, { incluirCerradas: true })
-      .filter((t) => t.status === "COMPLETED" || t.status === "CANCELLED")
-      .filter((t) => String(t.scheduledDate || "").slice(0, 10) === fecha)
-      .filter(matchesSearchTerm)
-      .sort((a, b) => String(b.completedAt || "").localeCompare(String(a.completedAt || "")));
-  }, [tasks, productionOrders, filterDate, matchesSearchTerm]);
+  const assignedMatches = useMemo(() => {
+    if (!searchTerm && !quickPreset) return [];
+    // Con la lista detallada abierta esto se apaga: esa tabla ya dibuja filteredTasks
+    // entera, y las filas saldrían dos veces.
+    if (showDetailedList) return [];
+    const yaVisibles = new Set([
+      ...unassignedTasks.map((t) => t.id),
+      ...awaitingWarehouseTasks.map((t) => t.id),
+    ]);
+    return filteredTasks
+      .filter((t) => t.desk && !yaVisibles.has(t.id))
+      .sort((a, b) => {
+        const fa = a.scheduledDate || "zzz";
+        const fb = b.scheduledDate || "zzz";
+        if (fa !== fb) return fa.localeCompare(fb);
+        return (a.desk || 999) - (b.desk || 999);
+      });
+  }, [
+    filteredTasks,
+    unassignedTasks,
+    awaitingWarehouseTasks,
+    searchTerm,
+    quickPreset,
+    showDetailedList,
+  ]);
 
   const scheduleByDate = useMemo(() => {
     const map = {};
@@ -2372,102 +2396,90 @@ function TasksByTable() {
                           </Row>
                         </>
                       )}
-                      {/* Tareas ya cerradas de la jornada: se listan aparte del tablero,
-                          plegadas, para poder volver a imprimir su boleta con la hora de
-                          finalización y el tiempo realmente trabajado. */}
-                      {closedTasks.length > 0 && (
-                        <div className="mb-3">
-                          <Button
-                            color="secondary"
-                            size="sm"
-                            outline
-                            onClick={() => setShowClosed((v) => !v)}
-                            title="Tareas terminadas o canceladas de esta jornada"
-                          >
-                            <i className={`nc-icon ${showClosed ? "nc-minimal-up" : "nc-minimal-down"} mr-1`} />
-                            Cerradas del día ({closedTasks.length})
-                          </Button>
-
-                          {showClosed && (
-                            <Table responsive size="sm" className="mt-2 mb-0">
+                      {assignedMatches.length > 0 && (
+                        <Card className="mb-3" style={{ border: "1px solid #b8daff" }}>
+                          <CardHeader style={{ backgroundColor: "#eaf4ff", padding: "8px 16px" }}>
+                            <strong style={{ fontSize: "14px" }}>
+                              Ya asignadas ({assignedMatches.length})
+                            </strong>
+                            <small className="text-muted d-block">
+                              Coinciden con el filtro y ya tienen mesa, así que no salen arriba.
+                              El tablero completo está en Cronograma.
+                            </small>
+                          </CardHeader>
+                          <CardBody className="py-2">
+                            <Table responsive size="sm" className="mb-0">
                               <thead className="text-primary">
                                 <tr>
                                   <th>Código</th>
-                                  <th>Producto</th>
                                   <th>Orden</th>
+                                  <th>Productos</th>
                                   <th>Mesa</th>
-                                  <th>Inicio</th>
-                                  <th>Fin</th>
-                                  <th>Tiempo real</th>
+                                  <th>Fecha</th>
                                   <th>Estado</th>
-                                  <th />
+                                  <th></th>
                                 </tr>
                               </thead>
                               <tbody>
-                                {closedTasks.map((task) => (
-                                  <tr
-                                    key={task.id}
-                                    role="button"
-                                    tabIndex={0}
-                                    title="Ver detalle de la tarea"
-                                    style={{ cursor: "pointer" }}
-                                    onClick={(e) => {
-                                      // Igual que las tarjetas del tablero: los controles
-                                      // reales conservan su propia acción.
-                                      if (e.target.closest("button, a, .btn")) return;
-                                      setDetailTask(task);
-                                    }}
-                                    onKeyDown={(e) => {
-                                      if (e.key === "Enter" || e.key === " ") {
-                                        e.preventDefault();
-                                        setDetailTask(task);
-                                      }
-                                    }}
-                                  >
-                                    <td><strong>{task.code}</strong></td>
-                                    <td>{getTaskItems(task).map((i) => i.productCode).filter(Boolean).join(", ") || "—"}</td>
-                                    <td>{task.productionOrderCode || "—"}</td>
+                                {assignedMatches.map((task) => (
+                                  <tr key={task.id}>
                                     <td>
-                                      {task.desk || task.workedDesk
-                                        ? deskDisplayLabel(task.desk || task.workedDesk, supervisorMapForUi)
-                                        : "—"}
+                                      <Badge
+                                        color="light"
+                                        className="text-dark border"
+                                        style={{ ...BADGE_READABLE_ON_LIGHT, fontSize: "11px" }}
+                                      >
+                                        {task.code}
+                                      </Badge>
                                     </td>
-                                    <td>{task.startedAt ? formatDateTimeGt(task.startedAt) : "—"}</td>
-                                    <td>{task.completedAt ? formatDateTimeGt(task.completedAt) : "—"}</td>
+                                    <td><small>{task.productionOrderCode || "—"}</small></td>
                                     <td>
-                                      {tiempoRealMinutos(task)
-                                        ? formatProductionDuration(tiempoRealMinutos(task) / 60)
-                                        : "—"}
+                                      <small>
+                                        {(task.items || [])
+                                          .map((i) => i.productCode)
+                                          .filter(Boolean)
+                                          .join(", ") || "—"}
+                                      </small>
+                                    </td>
+                                    <td>
+                                      <Badge color="info">
+                                        {deskDisplayLabel(
+                                          task.desk,
+                                          supervisorMapForDate(task.scheduledDate)
+                                        )}
+                                      </Badge>
+                                    </td>
+                                    <td>
+                                      <small>
+                                        {task.scheduledDate ? formatDate(task.scheduledDate) : "Sin fecha"}
+                                      </small>
                                     </td>
                                     <td>{getStatusBadge(task.status)}</td>
-                                    <td>
-                                      {taskYaIniciada(task) && (
-                                        <Button
-                                          color="info"
-                                          size="sm"
-                                          outline
-                                          title="Volver a imprimir la boleta"
-                                          onClick={() => openPrintForTask(task)}
-                                          style={{ padding: "2px 8px" }}
-                                        >
-                                          <i className="nc-icon nc-single-copy-04" />
-                                        </Button>
-                                      )}
+                                    <td className="text-right">
+                                      <Button
+                                        color="link"
+                                        size="sm"
+                                        className="p-0"
+                                        onClick={() => setDetailTask(task)}
+                                      >
+                                        Ver
+                                      </Button>
                                     </td>
                                   </tr>
                                 ))}
                               </tbody>
                             </Table>
-                          )}
-                        </div>
+                          </CardBody>
+                        </Card>
                       )}
-
-                      {unassignedTasks.length === 0 && awaitingWarehouseTasks.length === 0 ? (
+                      {unassignedTasks.length === 0
+                        && awaitingWarehouseTasks.length === 0
+                        && assignedMatches.length === 0 ? (
                         <div className="text-center py-4">
                           {(searchTerm || quickPreset) ? (
                             <>
                               <p className="mt-2 text-muted">
-                                Ninguna tarea sin mesa coincide con búsqueda/atajo.
+                                Ninguna tarea coincide con búsqueda/atajo.
                               </p>
                               <Button color="secondary" size="sm" outline onClick={clearFilters}>
                                 Limpiar filtros
@@ -2974,7 +2986,17 @@ function TasksByTable() {
                                     }}
                                   >
                                     <td>{idx + 1}</td>
-                                    <td><Badge color="dark">{task.code}</Badge></td>
+                                    <td>
+                                      {/* `badge-dark` de la plantilla pinta texto blanco sin
+                                          fondo: sobre la tabla clara el código era ilegible. */}
+                                      <Badge
+                                        color="light"
+                                        className="text-dark border"
+                                        style={{ ...BADGE_READABLE_ON_LIGHT, fontSize: "11px" }}
+                                      >
+                                        {task.code}
+                                      </Badge>
+                                    </td>
                                     <td className="text-center">{renderPhaseControl(task, "LEATHER")}</td>
                                     <td className="text-center">{renderPhaseControl(task, "DIE_CUT")}</td>
                                     <td className="text-center">{renderPhaseControl(task, "MATERIALS")}</td>
