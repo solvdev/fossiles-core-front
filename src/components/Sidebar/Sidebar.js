@@ -21,6 +21,7 @@ import { Nav, Collapse } from "reactstrap";
 import PerfectScrollbar from "perfect-scrollbar";
 
 import soluLogo from "assets/img/solu-logo.png";
+import soluBrand from "assets/img/2.png";
 import { logout, getUserData } from "services/authService";
 import { useAuth } from "contexts/AuthContext";
 import { isSidebarRouteVisible, routeGrantsAnyPermission } from "utils/routePermissionAccess";
@@ -237,8 +238,9 @@ function Sidebar(props) {
         <a
           href="#pablo"
           className="simple-text logo-normal"
+          onClick={(e) => e.preventDefault()}
         >
-          Fossiles Corp
+          <img src={soluBrand} alt="Solu" className="sidebar-brand-wordmark" />
         </a>
       </div>
 

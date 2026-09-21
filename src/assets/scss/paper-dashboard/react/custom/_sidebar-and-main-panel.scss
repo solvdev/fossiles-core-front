@@ -595,6 +595,15 @@
 
 // Stying for logos
 
+.sidebar .logo a.logo-normal .sidebar-brand-wordmark {
+    display: block;
+    height: 28px;
+    width: auto;
+    max-width: 170px;
+    object-fit: contain;
+    mix-blend-mode: screen;
+}
+
 .sidebar .logo .simple-text .logo-img{
     display: -webkit-inline-box;
     display: -ms-inline-flexbox;
