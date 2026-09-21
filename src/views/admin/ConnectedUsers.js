@@ -21,6 +21,7 @@ import {
 import { getConnectedUsers, getUserRecentActions } from "services/userService";
 import { formatDateTimeGt } from "utils/dateTimeHelper";
 import BroadcastAnnouncementModal from "components/SystemAnnouncement/BroadcastAnnouncementModal";
+import soluLogo from "assets/img/solu-logo.png";
 
 function ConnectedUsers() {
   const [users, setUsers] = useState([]);
@@ -121,16 +122,6 @@ function ConnectedUsers() {
 
   const onlineCount = useMemo(() => users.filter((u) => u.isOnline).length, [users]);
   const offlineCount = useMemo(() => users.filter((u) => !u.isOnline).length, [users]);
-
-  // Helpers de visualización
-  const getInitials = (user) => {
-    if (!user) return "?";
-    const f = (user.firstName || "").trim().charAt(0);
-    const l = (user.lastName || "").trim().charAt(0);
-    if (f && l) return (f + l).toUpperCase();
-    if (user.username) return user.username.substring(0, 2).toUpperCase();
-    return "U";
-  };
 
   const getActionColor = (actionType) => {
     switch (actionType) {
@@ -468,19 +459,11 @@ function ConnectedUsers() {
                       {/* Cabecera de la tarjeta */}
                       <div className="d-flex align-items-center mb-2">
                         <div className="position-relative mr-3">
-                          {user.profileImageUrl ? (
-                            <img
-                              src={user.profileImageUrl}
-                              alt={user.username}
-                              className="avatar-circle-img"
-                              onError={(e) => {
-                                e.target.onerror = null;
-                                e.target.style.display = "none";
-                              }}
-                            />
-                          ) : (
-                            <div className="avatar-circle">{getInitials(user)}</div>
-                          )}
+                          <img
+                            src={soluLogo}
+                            alt="Solu"
+                            className="avatar-circle-img"
+                          />
                           <span
                             className={`status-dot position-absolute ${
                               isOnline ? "status-dot-online" : "status-dot-offline"
@@ -575,9 +558,12 @@ function ConnectedUsers() {
         <ModalHeader toggle={() => setModalOpen(false)}>
           {selectedUser && (
             <div className="d-flex align-items-center">
-              <div className="avatar-circle mr-3" style={{ width: 42, height: 42, fontSize: 16 }}>
-                {getInitials(selectedUser)}
-              </div>
+              <img
+                src={soluLogo}
+                alt="Solu"
+                className="avatar-circle-img mr-3"
+                style={{ width: 42, height: 42 }}
+              />
               <div>
                 <h5 className="mb-0" style={{ fontWeight: 700 }}>
                   {selectedUser.firstName || selectedUser.lastName

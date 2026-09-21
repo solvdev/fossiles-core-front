@@ -24,6 +24,7 @@ import { getDepartments } from "services/departmentService";
 import { encrypt } from "services/encryptionService";
 import { getFeatureFlags } from "services/featureFlagsService";
 import UsersForm from "./UsersForm";
+import soluLogo from "assets/img/solu-logo.png";
 
 function UsersList() {
   const navigate = useNavigate();
@@ -212,26 +213,6 @@ function UsersList() {
     ) : (
       <Badge color="secondary">Inactivo</Badge>
     );
-  };
-
-  const resolveImageUrl = (rawValue) => {
-    const raw = String(rawValue || "").trim();
-    if (!raw) return "";
-    if (
-      raw.startsWith("http://") ||
-      raw.startsWith("https://") ||
-      raw.startsWith("data:") ||
-      raw.startsWith("blob:")
-    ) {
-      return raw;
-    }
-    try {
-      const apiUrl = process.env.REACT_APP_API_URL || "http://localhost:8080/api";
-      const origin = new URL(apiUrl).origin;
-      return `${origin}${raw.startsWith("/") ? raw : `/${raw}`}`;
-    } catch {
-      return raw;
-    }
   };
 
   const filteredUsers = useMemo(() => {
@@ -517,21 +498,17 @@ function UsersList() {
                         <td>{user.id}</td>
                         <td>{user.username}</td>
                         <td>
-                          {resolveImageUrl(user.profileImageUrl) ? (
-                            <img
-                              src={resolveImageUrl(user.profileImageUrl)}
-                              alt={`Foto ${user.username}`}
-                              style={{
-                                width: "40px",
-                                height: "40px",
-                                borderRadius: "50%",
-                                objectFit: "cover",
-                                border: "1px solid #d9d9d9",
-                              }}
-                            />
-                          ) : (
-                            <span className="text-muted">-</span>
-                          )}
+                          <img
+                            src={soluLogo}
+                            alt="Solu"
+                            style={{
+                              width: "40px",
+                              height: "40px",
+                              borderRadius: "50%",
+                              objectFit: "cover",
+                              border: "1px solid #d9d9d9",
+                            }}
+                          />
                         </td>
                         <td>
                           {user.firstName} {user.lastName}
@@ -649,23 +626,19 @@ function UsersList() {
               <Col md="12">
                 <FormGroup>
                   <Label><strong>Foto de perfil:</strong></Label>
-                  {resolveImageUrl(userToView.profileImageUrl) ? (
-                    <div className="d-flex justify-content-center">
-                      <img
-                        src={resolveImageUrl(userToView.profileImageUrl)}
-                        alt={`Foto ${userToView.username}`}
-                        style={{
-                          width: "140px",
-                          height: "140px",
-                          borderRadius: "50%",
-                          objectFit: "cover",
-                          border: "1px solid #d9d9d9",
-                        }}
-                      />
-                    </div>
-                  ) : (
-                    <p className="text-muted">Sin foto de perfil</p>
-                  )}
+                  <div className="d-flex justify-content-center">
+                    <img
+                      src={soluLogo}
+                      alt="Solu"
+                      style={{
+                        width: "140px",
+                        height: "140px",
+                        borderRadius: "50%",
+                        objectFit: "cover",
+                        border: "1px solid #d9d9d9",
+                      }}
+                    />
+                  </div>
                 </FormGroup>
               </Col>
               <Col md="12">

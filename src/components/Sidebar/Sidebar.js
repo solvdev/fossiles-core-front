@@ -20,8 +20,7 @@ import { Nav, Collapse } from "reactstrap";
 // javascript plugin used to create scrollbars on windows
 import PerfectScrollbar from "perfect-scrollbar";
 
-import avatar from "assets/img/faces/ayo-ogunseinde-2.jpg";
-import logo from "assets/img/react-logo.png";
+import soluLogo from "assets/img/solu-logo.png";
 import { logout, getUserData } from "services/authService";
 import { useAuth } from "contexts/AuthContext";
 import { isSidebarRouteVisible, routeGrantsAnyPermission } from "utils/routePermissionAccess";
@@ -42,25 +41,6 @@ function Sidebar(props) {
     authUser?.firstName && authUser?.lastName
       ? `${authUser.firstName} ${authUser.lastName}`
       : authUser?.username || authUser?.email || userData?.username || userData?.email || "Usuario";
-  const profileImageRaw = String(authUser?.profileImageUrl || "").trim();
-  const userAvatar = (() => {
-    if (!profileImageRaw) return avatar;
-    if (
-      profileImageRaw.startsWith("http://") ||
-      profileImageRaw.startsWith("https://") ||
-      profileImageRaw.startsWith("data:") ||
-      profileImageRaw.startsWith("blob:")
-    ) {
-      return profileImageRaw;
-    }
-    try {
-      const apiUrl = process.env.REACT_APP_API_URL || "http://localhost:8080/api";
-      const origin = new URL(apiUrl).origin;
-      return `${origin}${profileImageRaw.startsWith("/") ? profileImageRaw : `/${profileImageRaw}`}`;
-    } catch {
-      return profileImageRaw;
-    }
-  })();
   // Función para manejar el logout
   const handleLogout = async () => {
     try {
@@ -251,7 +231,7 @@ function Sidebar(props) {
           className="simple-text logo-mini"
         >
           <div className="logo-img">
-            <img src={logo} alt="react-logo" />
+            <img src={soluLogo} alt="Solu" />
           </div>
         </a>
         <a
@@ -265,7 +245,7 @@ function Sidebar(props) {
       <div className="sidebar-wrapper" ref={sidebar}>
         <div className="user">
           <div className="photo">
-            <img src={userAvatar} alt="Avatar" />
+            <img src={soluLogo} alt="Solu" />
           </div>
           <div className="info">
             <a
