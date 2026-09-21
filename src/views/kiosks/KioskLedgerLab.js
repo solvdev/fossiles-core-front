@@ -22,8 +22,12 @@ import { getLocations } from "services/locationService";
 import {
   ledgerLabCreateMovement,
   ledgerLabDeleteMovement,
+  ledgerLabDeleteStock,
   ledgerLabListMovements,
   ledgerLabListStocks,
+  ledgerLabMoveSizes,
+  ledgerLabReclassifyStocks,
+  ledgerLabReplayAllKiosks,
   ledgerLabReplayAllStocks,
   ledgerLabReplayStock,
   ledgerLabSplitOpeningBySizes,
@@ -32,6 +36,7 @@ import {
 } from "services/kioscoInventoryService";
 import { formatDateTimeGt } from "utils/dateTimeHelper";
 import {
+  accountingMovementToLabUpdate,
   getKioscoMovementTypeLabel,
   KIOSCO_MOVEMENT_TYPE_LABELS,
   normalizeKioscoMovementType,
@@ -39,6 +44,15 @@ import {
 import { showError, showSuccess } from "utils/notificationHelper";
 
 const ALLOWED_USERNAME = "eramirez";
+
+const KIDS_PARA_SIZES = new Set(["16", "18", "20", "22", "24", "26", "28", "30", "32"]);
+
+const HARDWARE_OPTIONS = [
+  { value: "NUEVO", label: "NUEVO (sin PARA / herraje nuevo)" },
+  { value: "VIEJO", label: "VIEJO" },
+  { value: "NINO", label: "NINO (Niño)" },
+  { value: "DAMA", label: "DAMA" },
+];
 
 const MOVEMENT_TYPE_OPTIONS = [
   { value: "", label: "Todos los tipos", searchText: "todos" },
@@ -48,6 +62,24 @@ const MOVEMENT_TYPE_OPTIONS = [
     searchText: label,
   })),
 ];
+
+const filtersFromSearch = () => {
+  const params = new URLSearchParams(window.location.search);
+  return {
+    locationId: params.get("locationId") || "",
+    productTerm: params.get("productTerm") || "",
+    stockId: params.get("stockId") || "",
+    type: params.get("type") || "",
+    sizeKey: params.get("sizeKey") || "",
+    from: params.get("from") || "",
+    to: params.get("to") || "",
+    referenceTerm: params.get("referenceTerm") || "",
+    reason: params.get("reason") || "",
+    affectsStockOnly: params.get("affectsStockOnly") === "true",
+    movementId: params.get("movementId") || "",
+    hardwareCondition: params.get("hardwareCondition") || "",
+  };
+};
 
 const TYPE_BADGE = {
   ENTRADA: "success",
@@ -161,19 +193,7 @@ export default function KioskLedgerLab() {
   const allowed = username === ALLOWED_USERNAME;
 
   const [locations, setLocations] = useState([]);
-  const [filters, setFilters] = useState({
-    locationId: "",
-    productTerm: "",
-    stockId: "",
-    type: "",
-    sizeKey: "",
-    from: "",
-    to: "",
-    referenceTerm: "",
-    reason: "",
-    affectsStockOnly: false,
-    movementId: "",
-  });
+  const [filters, setFilters] = useState(filtersFromSearch);
   const [stocks, setStocks] = useState([]);
   const [movements, setMovements] = useState([]);
   const [selectedStockId, setSelectedStockId] = useState(null);
@@ -190,6 +210,10 @@ export default function KioskLedgerLab() {
     hardwareCondition: "NUEVO",
   });
   const [saving, setSaving] = useState(false);
+  const [savingTypeId, setSavingTypeId] = useState(null);
+  const [selectedStockIds, setSelectedStockIds] = useState(() => new Set());
+  const [sizeKeysToMove, setSizeKeysToMove] = useState(() => new Set());
+  const [moveParaTarget, setMoveParaTarget] = useState("NINO");
   const movementsRequestIdRef = React.useRef(0);
 
   const kioskOptions = useMemo(() => {
@@ -230,6 +254,7 @@ export default function KioskLedgerLab() {
         locationId: filters.locationId || undefined,
         stockId: filters.stockId || undefined,
         productTerm: filters.productTerm || undefined,
+        hardwareCondition: filters.hardwareCondition || undefined,
       });
       setStocks(data || []);
     } catch (err) {
@@ -238,7 +263,7 @@ export default function KioskLedgerLab() {
     } finally {
       setLoadingStocks(false);
     }
-  }, [filters.locationId, filters.stockId, filters.productTerm]);
+  }, [filters.locationId, filters.stockId, filters.productTerm, filters.hardwareCondition]);
 
   const loadMovements = useCallback(async (opts = {}) => {
     const stockId =
@@ -301,6 +326,18 @@ export default function KioskLedgerLab() {
     [stocks, selectedStockId]
   );
 
+  const selectedSizeEntries = useMemo(() => {
+    const sizes = selectedStock?.sizes;
+    if (!sizes || typeof sizes !== "object") return [];
+    return Object.entries(sizes)
+      .filter(([, qty]) => Number(qty) > 0)
+      .sort((a, b) => Number(a[0]) - Number(b[0]) || String(a[0]).localeCompare(String(b[0]), "es", { numeric: true }));
+  }, [selectedStock]);
+
+  useEffect(() => {
+    setSizeKeysToMove(new Set());
+  }, [selectedStockId]);
+
   const openCreate = () => {
     setEditingId(null);
     setForm({
@@ -349,6 +386,22 @@ export default function KioskLedgerLab() {
       showError(err.message || "No se pudo guardar el movimiento.");
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleQuickTypeChange = async (movement, nextType) => {
+    const current = normalizeKioscoMovementType(movement?.movementType);
+    if (!nextType || nextType === current) return;
+    setSavingTypeId(movement.id);
+    try {
+      await ledgerLabUpdateMovement(movement.id, accountingMovementToLabUpdate(movement, nextType));
+      showSuccess(`Movimiento #${movement.id} → ${getKioscoMovementTypeLabel(nextType)}. Stock recalculado.`);
+      await loadMovements({ stockId: movement.kioscoStockId || selectedStockId || undefined });
+      await loadStocks();
+    } catch (err) {
+      showError(err.message || "No se pudo cambiar el tipo.");
+    } finally {
+      setSavingTypeId(null);
     }
   };
 
@@ -420,6 +473,29 @@ export default function KioskLedgerLab() {
     }
   };
 
+  const handleReplayAllKiosks = async () => {
+    if (!window.confirm(
+      "¿Recalcular stock_before/after y current_stock de TODOS los kioscos?\n\n"
+      + "Esto recorre cada kiosko y puede tardar varios minutos."
+    )) {
+      return;
+    }
+    setSaving(true);
+    try {
+      const result = await ledgerLabReplayAllKiosks();
+      showSuccess(
+        `Replay all kioscos listo: ${result?.stockCount ?? 0} stocks recalculados `
+        + `en ${result?.locationCount ?? 0} kioscos.`
+      );
+      await loadStocks();
+      await loadMovements();
+    } catch (err) {
+      showError(err.message || "Replay all kioscos falló.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const hasSizesData = Boolean(
     selectedStock?.sizesData
     && String(selectedStock.sizesData).trim()
@@ -466,6 +542,41 @@ export default function KioskLedgerLab() {
     }
   };
 
+  const handleMoveSelectedSizes = async () => {
+    if (!selectedStockId) {
+      showError("Selecciona un stock.");
+      return;
+    }
+    const sizeKeys = [...sizeKeysToMove];
+    if (!sizeKeys.length) {
+      showError("Marca las tallas que van a Niño o Dama. Las no marcadas se quedan sin PARA.");
+      return;
+    }
+    const label = moveParaTarget === "NINO" ? "Niño" : moveParaTarget === "DAMA" ? "Dama" : moveParaTarget;
+    if (!window.confirm(
+      `¿Mover tallas ${sizeKeys.join(", ")} a PARA ${label}?\n`
+      + "Las demás tallas de esta fila se quedan como están."
+    )) {
+      return;
+    }
+    setSaving(true);
+    try {
+      const moved = await ledgerLabMoveSizes(selectedStockId, {
+        hardwareCondition: moveParaTarget,
+        sizeKeys,
+      });
+      showSuccess(`Tallas ${sizeKeys.join(", ")} movidas a ${label} (stock #${moved?.id || "?"}).`);
+      setSizeKeysToMove(new Set());
+      await loadStocks();
+      await loadMovements({ stockId: moved?.id || selectedStockId });
+      if (moved?.id) setSelectedStockId(moved.id);
+    } catch (err) {
+      showError(err.message || "No se pudieron mover las tallas.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const handleSaveStock = async () => {
     if (!selectedStockId) return;
     setSaving(true);
@@ -481,6 +592,102 @@ export default function KioskLedgerLab() {
       await loadStocks();
     } catch (err) {
       showError(err.message || "No se pudo actualizar stock.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const selectedIds = [...selectedStockIds];
+  const allVisibleSelected = stocks.length > 0 && stocks.every((s) => selectedStockIds.has(s.id));
+
+  const toggleStockSelected = (id, event) => {
+    event.stopPropagation();
+    setSelectedStockIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleAllVisibleStocks = () => {
+    setSelectedStockIds((prev) => {
+      const next = new Set(prev);
+      if (allVisibleSelected) {
+        stocks.forEach((s) => next.delete(s.id));
+      } else {
+        stocks.forEach((s) => next.add(s.id));
+      }
+      return next;
+    });
+  };
+
+  const handleAssignPara = async (hardware, mergeIfExists) => {
+    if (!selectedIds.length) {
+      showError("Selecciona filas de stock.");
+      return;
+    }
+    const label = hardware === "NINO" ? "Niño" : hardware === "DAMA" ? "Dama" : hardware;
+    const mergeHint = mergeIfExists
+      ? "\nSi ya existe esa dimensión en el mismo color, se FUSIONAN cantidades (suma)."
+      : "\nSi ya existe esa dimensión en el mismo color, se omite (no suma). Borra el duplicado si es la misma captura.";
+    if (!window.confirm(`¿Asignar PARA ${label} a ${selectedIds.length} fila(s)?${mergeHint}`)) {
+      return;
+    }
+    setSaving(true);
+    try {
+      const result = await ledgerLabReclassifyStocks({
+        stockIds: selectedIds,
+        hardwareCondition: hardware,
+        mergeIfExists,
+      });
+      const conflictText = (result.conflicts || []).length
+        ? `\n${result.conflicts.slice(0, 8).join("\n")}`
+        : "";
+      showSuccess(
+        `PARA ${label}: ${result.updated || 0} actualizados, ${result.merged || 0} fusionados, ${
+          result.skipped || 0
+        } omitidos.${conflictText}`
+      );
+      setSelectedStockIds(new Set());
+      await loadStocks();
+    } catch (err) {
+      showError(err.message || "No se pudo asignar PARA.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDeleteSelectedStocks = async () => {
+    if (!selectedIds.length) {
+      showError("Selecciona filas de stock.");
+      return;
+    }
+    if (!window.confirm(
+      `¿Eliminar ${selectedIds.length} fila(s) de stock Y todos sus movimientos?\n`
+      + "Úsalo para duplicados sin PARA que ya existen como Niño/Dama."
+    )) {
+      return;
+    }
+    setSaving(true);
+    try {
+      let deleted = 0;
+      const errors = [];
+      for (const id of selectedIds) {
+        try {
+          await ledgerLabDeleteStock(id);
+          deleted += 1;
+        } catch (err) {
+          errors.push(`#${id}: ${err.message || "error"}`);
+        }
+      }
+      showSuccess(`Eliminadas ${deleted} fila(s).${errors.length ? `\n${errors.join("\n")}` : ""}`);
+      setSelectedStockIds(new Set());
+      setSelectedStockId(null);
+      await loadStocks();
+      setMovements([]);
+    } catch (err) {
+      showError(err.message || "No se pudo eliminar stock.");
     } finally {
       setSaving(false);
     }
@@ -523,6 +730,17 @@ export default function KioskLedgerLab() {
             Replay stock all
           </Button>
           <Button
+            color="danger"
+            size="sm"
+            outline
+            className="me-1"
+            onClick={handleReplayAllKiosks}
+            disabled={saving}
+            title="Recalcula todos los kiosco_stock de TODOS los kioscos"
+          >
+            Replay stock TODOS los kioscos
+          </Button>
+          <Button
             color="success"
             size="sm"
             outline
@@ -536,14 +754,32 @@ export default function KioskLedgerLab() {
           <Button color="info" size="sm" outline className="me-1" onClick={openStockEditor} disabled={!selectedStock || saving}>
             Editar stock
           </Button>
+          <Button color="success" size="sm" outline className="me-1" onClick={() => handleAssignPara("NINO", false)} disabled={!selectedIds.length || saving}>
+            PARA Niño
+          </Button>
+          <Button color="success" size="sm" outline className="me-1" onClick={() => handleAssignPara("DAMA", false)} disabled={!selectedIds.length || saving}>
+            PARA Dama
+          </Button>
+          <Button color="warning" size="sm" outline className="me-1" onClick={() => handleAssignPara("NINO", true)} disabled={!selectedIds.length || saving} title="Suma cantidades si ya existe Niño en ese color">
+            Fusionar Niño
+          </Button>
+          <Button color="warning" size="sm" outline className="me-1" onClick={() => handleAssignPara("DAMA", true)} disabled={!selectedIds.length || saving} title="Suma cantidades si ya existe Dama en ese color">
+            Fusionar Dama
+          </Button>
+          <Button color="danger" size="sm" outline className="me-1" onClick={handleDeleteSelectedStocks} disabled={!selectedIds.length || saving}>
+            Eliminar filas
+          </Button>
           <Button color="primary" size="sm" onClick={openCreate} disabled={saving}>
             + Movimiento
           </Button>
         </div>
       </div>
 
-      <Alert color="warning" className="py-2 px-3 mb-2">
-        Mutaciones directas al ledger. Crear/editar/borrar movimiento hace <strong>Replay stock</strong> automático; el botón manual queda como recuperación.
+      <Alert color="info" className="py-2 px-3 mb-2">
+        <strong>Cómo asignar PARA:</strong> 1) Clic en un color de la lista.
+        2) Arriba de la tabla aparecen las tallas. 3) Marca solo las que son Niño o Dama.
+        4) <strong>Mover tallas</strong>. Las no marcadas se quedan sin PARA.
+        No uses <em>Editar stock</em> ni los botones verdes de arriba: esos cambian <em>todas</em> las tallas del color.
       </Alert>
 
       <Row className="g-2 mb-2">
@@ -557,6 +793,21 @@ export default function KioskLedgerLab() {
             }}
             placeholder="Kiosko"
           />
+        </Col>
+        <Col md={2}>
+          <Input
+            bsSize="sm"
+            type="select"
+            value={filters.hardwareCondition}
+            onChange={(e) => setFilter("hardwareCondition", e.target.value)}
+            title="Filtrar dimensión PARA / herraje"
+          >
+            <option value="">Todas las dimensiones</option>
+            <option value="NUEVO">Sin PARA (NUEVO)</option>
+            <option value="NINO">NINO</option>
+            <option value="DAMA">DAMA</option>
+            <option value="VIEJO">VIEJO</option>
+          </Input>
         </Col>
         <Col md={2}>
           <Input
@@ -648,16 +899,103 @@ export default function KioskLedgerLab() {
       </Row>
 
       <Row>
-        <Col md={4} style={{ maxHeight: "70vh", overflow: "auto" }}>
+        <Col md={4}>
           <div className="d-flex justify-content-between align-items-center mb-1">
             <strong>Stock ({stocks.length})</strong>
             {loadingStocks && <Spinner size="sm" />}
           </div>
+          {selectedStock ? (
+            <div className="mb-2 p-2 border rounded" style={{ background: "#ecfdf5" }}>
+              <div className="font-weight-bold">
+                {selectedStock.productCode} · {selectedStock.colorName || "sin color"} · PARA {selectedStock.hardwareCondition && selectedStock.hardwareCondition !== "NUEVO" ? selectedStock.hardwareCondition : "—"}
+              </div>
+              <div className="small text-muted mb-1">
+                Paso: marca las tallas que van a Niño o Dama. El resto se queda en esta fila.
+              </div>
+              {selectedSizeEntries.length > 0 ? (
+                <>
+                  <div className="d-flex flex-wrap" style={{ gap: 6 }}>
+                    {selectedSizeEntries.map(([size, qty]) => (
+                      <Label key={size} check className="mb-0 mr-2">
+                        <Input
+                          type="checkbox"
+                          checked={sizeKeysToMove.has(size)}
+                          onChange={() => {
+                            setSizeKeysToMove((prev) => {
+                              const next = new Set(prev);
+                              if (next.has(size)) next.delete(size);
+                              else next.add(size);
+                              return next;
+                            });
+                          }}
+                        />{" "}
+                        {size}:{qty}
+                      </Label>
+                    ))}
+                  </div>
+                  <div className="d-flex flex-wrap align-items-center mt-2" style={{ gap: 6 }}>
+                    <Button
+                      color="secondary"
+                      size="sm"
+                      outline
+                      onClick={() => setSizeKeysToMove(new Set(selectedSizeEntries
+                        .map(([size]) => size)
+                        .filter((size) => KIDS_PARA_SIZES.has(String(size)))))}
+                    >
+                      16–32
+                    </Button>
+                    <Button
+                      color="secondary"
+                      size="sm"
+                      outline
+                      onClick={() => setSizeKeysToMove(new Set(selectedSizeEntries
+                        .map(([size]) => size)
+                        .filter((size) => Number(size) >= 34)))}
+                    >
+                      34+
+                    </Button>
+                    <Input
+                      bsSize="sm"
+                      type="select"
+                      style={{ width: 120 }}
+                      value={moveParaTarget}
+                      onChange={(e) => setMoveParaTarget(e.target.value)}
+                    >
+                      <option value="NINO">Niño</option>
+                      <option value="DAMA">Dama</option>
+                    </Input>
+                    <Button
+                      color="success"
+                      size="sm"
+                      onClick={handleMoveSelectedSizes}
+                      disabled={saving || sizeKeysToMove.size === 0}
+                    >
+                      Mover tallas
+                    </Button>
+                  </div>
+                </>
+              ) : (
+                <small>Esta fila no tiene tallas en sizes_data.</small>
+              )}
+            </div>
+          ) : (
+            <div className="small text-muted mb-2">Clic en un producto/color de la lista para asignar PARA por talla.</div>
+          )}
+          <div style={{ maxHeight: "55vh", overflow: "auto" }}>
           <Table size="sm" hover bordered responsive className="mb-0">
             <thead>
               <tr>
+                <th style={{ width: 28 }}>
+                  <Input
+                    type="checkbox"
+                    checked={allVisibleSelected}
+                    onChange={toggleAllVisibleStocks}
+                    disabled={!stocks.length}
+                  />
+                </th>
                 <th>Producto</th>
                 <th>Color</th>
+                <th>PARA</th>
                 <th>Qty</th>
                 <th>Tallas</th>
               </tr>
@@ -675,34 +1013,39 @@ export default function KioskLedgerLab() {
                     loadMovements({ stockId: s.id });
                   }}
                 >
+                  <td onClick={(e) => e.stopPropagation()}>
+                    <Input
+                      type="checkbox"
+                      checked={selectedStockIds.has(s.id)}
+                      onChange={(e) => toggleStockSelected(s.id, e)}
+                    />
+                  </td>
                   <td>
                     <div>{s.productCode}</div>
                     <small className="text-muted">{s.productName}</small>
-                    {s.hardwareCondition && s.hardwareCondition !== "NUEVO" && (
-                      <Badge color="secondary" className="ms-1">{s.hardwareCondition}</Badge>
-                    )}
                   </td>
                   <td>{s.colorName || "—"}</td>
+                  <td>
+                    {s.hardwareCondition && s.hardwareCondition !== "NUEVO" ? (
+                      <Badge color="secondary">{s.hardwareCondition}</Badge>
+                    ) : (
+                      <span className="text-muted">—</span>
+                    )}
+                  </td>
                   <td>{s.currentStock}</td>
                   <td><small>{sizesSummary(s)}</small></td>
                 </tr>
               ))}
               {!loadingStocks && stocks.length === 0 && (
                 <tr>
-                  <td colSpan={4} className="text-muted text-center">
+                  <td colSpan={6} className="text-muted text-center">
                     Elige kiosko o stockId
                   </td>
                 </tr>
               )}
             </tbody>
           </Table>
-          {selectedStock && (
-            <div className="mt-2 p-2 border rounded bg-light">
-              <div><strong>{selectedStock.productCode}</strong> · {selectedStock.colorName || "sin color"} · loc {selectedStock.locationId}</div>
-              <div>current={selectedStock.currentStock} min={selectedStock.minimumStock}</div>
-              <div><small>sizes_data: {selectedStock.sizesData || "null"}</small></div>
-            </div>
-          )}
+          </div>
         </Col>
 
         <Col md={8} style={{ maxHeight: "70vh", overflow: "auto" }}>
@@ -746,9 +1089,18 @@ export default function KioskLedgerLab() {
                     <td><small>{m.id}</small></td>
                     <td><small>{formatDateTimeGt(m.createdAt)}</small></td>
                     <td>
-                      <Badge color={TYPE_BADGE[type] || "light"}>
-                        {getKioscoMovementTypeLabel(type, m)}
-                      </Badge>
+                      <Input
+                        type="select"
+                        bsSize="sm"
+                        value={type}
+                        disabled={savingTypeId === m.id || saving}
+                        onChange={(e) => void handleQuickTypeChange(m, e.target.value)}
+                        style={{ minWidth: 140, fontSize: "0.75rem" }}
+                      >
+                        {Object.entries(KIOSCO_MOVEMENT_TYPE_LABELS).map(([value, label]) => (
+                          <option key={value} value={value}>{label}</option>
+                        ))}
+                      </Input>
                       {!m.affectsStock && (
                         <Badge color="dark" className="ms-1">no stock</Badge>
                       )}
@@ -902,6 +1254,10 @@ export default function KioskLedgerLab() {
           Editar stock #{selectedStockId}
         </ModalHeader>
         <ModalBody>
+          <Alert color="warning" className="py-2">
+            Cambiar PARA aquí aplica a <strong>todas</strong> las tallas de esta fila.
+            Si solo algunas van a Niño/Dama, cierra esto y usa <strong>Mover tallas</strong> arriba de la lista.
+          </Alert>
           <FormGroup>
             <Label>currentStock</Label>
             <Input bsSize="sm" value={stockForm.currentStock} onChange={(e) => setStockForm({ ...stockForm, currentStock: e.target.value })} />
@@ -911,15 +1267,20 @@ export default function KioskLedgerLab() {
             <Input bsSize="sm" value={stockForm.minimumStock} onChange={(e) => setStockForm({ ...stockForm, minimumStock: e.target.value })} />
           </FormGroup>
           <FormGroup>
-            <Label>hardwareCondition</Label>
+            <Label>hardwareCondition / PARA</Label>
             <Input
               bsSize="sm"
               type="select"
               value={stockForm.hardwareCondition}
               onChange={(e) => setStockForm({ ...stockForm, hardwareCondition: e.target.value })}
             >
-              <option value="NUEVO">NUEVO</option>
-              <option value="VIEJO">VIEJO</option>
+              {HARDWARE_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>{opt.label}</option>
+              ))}
+              {stockForm.hardwareCondition
+                && !HARDWARE_OPTIONS.some((opt) => opt.value === stockForm.hardwareCondition) ? (
+                <option value={stockForm.hardwareCondition}>{stockForm.hardwareCondition}</option>
+              ) : null}
             </Input>
           </FormGroup>
           <FormGroup>

@@ -1,7 +1,13 @@
-import React from "react";
+import React, { useMemo } from "react";
 import { Badge, Button, Card, CardBody, Input } from "reactstrap";
 import { isPackagingProductCode } from "utils/kioskPackagingHelper";
-import { formatCurrency, formatQty } from "./posUtils";
+import { cartUnlocksEntrecuerosWholesale, entrecuerosVolumeKey } from "utils/entrecuerosPriceLists";
+import {
+  formatCurrency,
+  formatQty,
+  parsePosQty,
+  describeEntrecuerosPriceState,
+} from "./posUtils";
 
 function PosCartPanel({
   cart,
@@ -14,7 +20,20 @@ function PosCartPanel({
   onApplyPromotion,
   disabled,
   canEditPrices = false,
+  entrecueros = false,
 }) {
+  const qtyByProduct = useMemo(() => {
+    const map = {};
+    (cart || []).forEach((line) => {
+      const key = entrecueros ? entrecuerosVolumeKey(line) : line.productId;
+      map[key] = (map[key] || 0) + Number(line.quantity || 0);
+    });
+    return map;
+  }, [cart, entrecueros]);
+  const wholesaleUnlocked = useMemo(
+    () => (entrecueros ? cartUnlocksEntrecuerosWholesale(cart) : false),
+    [cart, entrecueros]
+  );
   return (
     <Card className="kiosk-pos-block kiosk-pos-cart-panel">
       <CardBody>
@@ -27,10 +46,18 @@ function PosCartPanel({
           )}
         </div>
 
-        <div className="kiosk-pos-customer-btn text-muted small mb-2" style={{ cursor: "default" }}>
-          <i className="nc-icon nc-paper" />
-          Factura electrónica obligatoria (CF por defecto o NIT al cobrar)
-        </div>
+        {entrecueros ? (
+          <div className="text-muted small mb-2" style={{ cursor: "default" }}>
+            {wholesaleUnlocked
+              ? "Minorista activo: 6 o más de un producto. El resto del carrito usa el precio más bajo de su lista."
+              : "El volumen es por lista (Casual, Dama, Niño, sintético…). Con 6 o 12 de un producto, el resto pasa a minorista."}
+          </div>
+        ) : (
+          <div className="kiosk-pos-customer-btn text-muted small mb-2" style={{ cursor: "default" }}>
+            <i className="nc-icon nc-paper" />
+            Factura electrónica obligatoria (CF por defecto o NIT al cobrar)
+          </div>
+        )}
         {canEditPrices ? (
           <div className="text-muted small mb-2">
             Miraflores: toca la etiqueta <strong>Con desc.</strong> / <strong>Final</strong> en cada
@@ -48,6 +75,11 @@ function PosCartPanel({
             cart.map((line) => {
               const isPackaging = Boolean(line.isPackaging) || isPackagingProductCode(line.productCode);
               const showPriceControls = canEditPrices && !isPackaging;
+              const productQty = qtyByProduct[entrecueros ? entrecuerosVolumeKey(line) : line.productId]
+                || Number(line.quantity || 0);
+              const priceState = entrecueros
+                ? describeEntrecuerosPriceState(line, productQty, wholesaleUnlocked)
+                : null;
               return (
               <div key={line.key} className="kiosk-pos-cart-line">
                 <div className="kiosk-pos-line-top">
@@ -96,12 +128,15 @@ function PosCartPanel({
                   <Input
                     className="kiosk-pos-input-lg kiosk-pos-qty"
                     type="number"
-                    min="0.01"
-                    step="0.01"
-                    value={line.quantity}
-                    onChange={(e) =>
-                      onUpdateLine(line.key, { quantity: Number(e.target.value || 0) })
-                    }
+                    min="1"
+                    step="1"
+                    inputMode="numeric"
+                    value={parsePosQty(line.quantity) || ""}
+                    onChange={(e) => {
+                      const qty = parsePosQty(e.target.value);
+                      if (qty < 1) return;
+                      onUpdateLine(line.key, { quantity: qty });
+                    }}
                     title="Cantidad"
                   />
                   {showPriceControls ? (
@@ -121,6 +156,37 @@ function PosCartPanel({
                     {formatCurrency(line.quantity * line.unitPrice)}
                   </div>
                 </div>
+                {priceState && priceState.tiers.length > 0 && (
+                  <div className="kiosk-pos-tier-block">
+                    <div className="kiosk-pos-tier-row">
+                      {priceState.tiers.map((tier) => (
+                        <button
+                          key={`${line.key}-tier-${tier.minQty}`}
+                          type="button"
+                          className={`kiosk-pos-tier-chip ${
+                            priceState.active.minQty === tier.minQty ? "active" : ""
+                          }`}
+                          onClick={() => {
+                            const current = Number(line.quantity || 0);
+                            if (tier.minQty <= current) return;
+                            const nextQty = Math.min(tier.minQty, Number(line.availableQty || 0));
+                            if (nextQty > current) onUpdateLine(line.key, { quantity: nextQty });
+                          }}
+                          title={`${tier.label}: ${formatCurrency(tier.unitPrice)} c/u`}
+                        >
+                          {tier.label} {formatCurrency(tier.unitPrice)}
+                        </button>
+                      ))}
+                    </div>
+                    <div className="kiosk-pos-tier-hint">
+                      {formatQty(productQty)} pzas al precio {priceState.active.label}
+                      {" "}({formatCurrency(priceState.active.unitPrice)} c/u)
+                      {priceState.next
+                        ? `. Faltan ${formatQty(priceState.missing)} para ${priceState.next.label} a ${formatCurrency(priceState.next.unitPrice)}.`
+                        : "."}
+                    </div>
+                  </div>
+                )}
               </div>
               );
             })
@@ -128,9 +194,11 @@ function PosCartPanel({
         </div>
 
         <div className="kiosk-pos-cart-footer">
-          <button type="button" className="kiosk-pos-promo-link" onClick={onApplyPromotion}>
-            ¿Hay promoción? Aplicar descuento
-          </button>
+          {!entrecueros && (
+            <button type="button" className="kiosk-pos-promo-link" onClick={onApplyPromotion}>
+              ¿Hay promoción? Aplicar descuento
+            </button>
+          )}
 
           <div className="kiosk-pos-totals-rows">
             <div className="kiosk-pos-totals-row">

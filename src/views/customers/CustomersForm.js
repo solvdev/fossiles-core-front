@@ -11,8 +11,15 @@ import {
   ModalFooter,
   Row,
   Col,
+  Spinner,
 } from "reactstrap";
-import { getCustomerById, createCustomer, updateCustomer } from "services/customerService";
+import { getCustomerById, createCustomer, updateCustomer, getCustomersByNit } from "services/customerService";
+import { lookupTaxpayerByNit } from "services/kioskPosService";
+import {
+  formatFelCustomerName,
+  isValidGuatemalaNit,
+  normalizeNit,
+} from "views/kiosks/pos/posUtils";
 import {
   listLocations,
   listRegions,
@@ -21,7 +28,7 @@ import {
   suggestRouteLocationCode,
 } from "utils/deliveryRouteCatalog";
 
-function CustomersForm({ customerId, isOpen, toggle, onSuccess }) {
+function CustomersForm({ customerId, isOpen, toggle, onSuccess, defaultName = "", zIndex }) {
   const [formData, setFormData] = useState({
     name: "",
     nit: "",
@@ -40,6 +47,9 @@ function CustomersForm({ customerId, isOpen, toggle, onSuccess }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [customerName, setCustomerName] = useState("");
+  const [taxLookupLoading, setTaxLookupLoading] = useState(false);
+  const [fiscalName, setFiscalName] = useState("");
+  const [sameNitCustomers, setSameNitCustomers] = useState([]);
 
   const regions = useMemo(() => listRegions(), []);
   const routes = useMemo(
@@ -107,7 +117,7 @@ function CustomersForm({ customerId, isOpen, toggle, onSuccess }) {
 
   const resetForm = () => {
     setFormData({
-      name: "",
+      name: defaultName || "",
       nit: "",
       legacyCode: "",
       phone: "",
@@ -121,8 +131,68 @@ function CustomersForm({ customerId, isOpen, toggle, onSuccess }) {
     setRouteManual(false);
     setRouteSuggestion(null);
     setCustomerName("");
+    setFiscalName("");
+    setSameNitCustomers([]);
     setErrors({});
     setError("");
+  };
+
+  const loadSameNitCustomers = async (nit, exceptId) => {
+    const normalized = normalizeNit(nit);
+    if (!normalized || normalized === "CF") {
+      setSameNitCustomers([]);
+      return;
+    }
+    try {
+      const rows = await getCustomersByNit(normalized);
+      setSameNitCustomers(
+        (rows || []).filter((row) => exceptId == null || String(row.id) !== String(exceptId))
+      );
+    } catch {
+      setSameNitCustomers([]);
+    }
+  };
+
+  const lookupNit = async () => {
+    const nit = normalizeNit(formData.nit);
+    if (!nit) {
+      setError("Ingrese un NIT o CF.");
+      return;
+    }
+    if (nit === "CF") {
+      setFiscalName("CONSUMIDOR FINAL");
+      setFormData((prev) => ({
+        ...prev,
+        nit: "CF",
+        name: prev.name.trim() ? prev.name : "CONSUMIDOR FINAL",
+      }));
+      setSameNitCustomers([]);
+      setError("");
+      return;
+    }
+    if (!isValidGuatemalaNit(nit)) {
+      setError("El NIT ingresado no es válido.");
+      return;
+    }
+    try {
+      setTaxLookupLoading(true);
+      setError("");
+      const result = await lookupTaxpayerByNit(nit);
+      const satName = formatFelCustomerName(result?.customerName || "");
+      const resolvedNit = normalizeNit(result?.taxId || nit) || nit;
+      setFiscalName(satName);
+      setFormData((prev) => ({
+        ...prev,
+        nit: resolvedNit,
+        name: prev.name.trim() ? prev.name : satName,
+      }));
+      await loadSameNitCustomers(resolvedNit, customerId);
+    } catch (err) {
+      setFiscalName("");
+      setError(err.message || "No se pudo consultar el NIT.");
+    } finally {
+      setTaxLookupLoading(false);
+    }
   };
 
   const validate = () => {
@@ -177,14 +247,15 @@ function CustomersForm({ customerId, isOpen, toggle, onSuccess }) {
       setError("");
       const payload = {
         ...formData,
+        nit: normalizeNit(formData.nit) || formData.nit,
         routeLocationCode: formData.routeLocationCode || "",
       };
-      if (customerId) {
-        await updateCustomer(customerId, payload);
-      } else {
-        await createCustomer(payload);
+      const saved = customerId
+        ? await updateCustomer(customerId, payload)
+        : await createCustomer(payload);
+      if (typeof onSuccess === "function") {
+        onSuccess(saved);
       }
-      onSuccess();
       toggle();
       resetForm();
     } catch (err) {
@@ -197,7 +268,7 @@ function CustomersForm({ customerId, isOpen, toggle, onSuccess }) {
   const selectedLocation = parseRouteLocationCode(formData.routeLocationCode);
 
   return (
-    <Modal isOpen={isOpen} toggle={toggle} size="lg">
+    <Modal isOpen={isOpen} toggle={toggle} size="lg" zIndex={zIndex}>
       <ModalHeader toggle={toggle}>
         {customerId ? `Editar cliente${customerName ? `: ${customerName}` : ""}` : "Nuevo Cliente"}
       </ModalHeader>
@@ -205,28 +276,84 @@ function CustomersForm({ customerId, isOpen, toggle, onSuccess }) {
         <ModalBody>
           {error && <Alert color="danger">{error}</Alert>}
           <FormGroup>
-            <Label>Nombre *</Label>
+            <Label>Nombre del cliente *</Label>
             <Input
               type="text"
               value={formData.name}
               onChange={(e) => setFormData({ ...formData, name: e.target.value })}
               invalid={!!errors.name}
+              placeholder="Persona o tienda"
             />
             {errors.name && <div className="text-danger small">{errors.name}</div>}
+            <small className="text-muted">
+              Nombre operativo. Varias personas pueden facturar al mismo NIT de empresa.
+            </small>
           </FormGroup>
           <Row>
             <Col md="6">
               <FormGroup>
-                <Label>NIT *</Label>
+                <Label>NIT de facturación *</Label>
                 <Input
                   type="text"
                   value={formData.nit}
-                  onChange={(e) => setFormData({ ...formData, nit: e.target.value })}
+                  onChange={(e) => {
+                    setFiscalName("");
+                    setFormData({ ...formData, nit: e.target.value });
+                  }}
                   invalid={!!errors.nit}
+                  placeholder="NIT o CF"
                 />
                 {errors.nit && <div className="text-danger small">{errors.nit}</div>}
+                <small className="text-muted">No es único. Use Consultar NIT para el nombre fiscal.</small>
               </FormGroup>
             </Col>
+            <Col md="6" className="d-flex align-items-end">
+              <FormGroup className="w-100">
+                <Button
+                  type="button"
+                  color="info"
+                  block
+                  onClick={lookupNit}
+                  disabled={loading || taxLookupLoading}
+                >
+                  {taxLookupLoading ? <Spinner size="sm" /> : "Consultar NIT"}
+                </Button>
+              </FormGroup>
+            </Col>
+          </Row>
+          {(fiscalName || sameNitCustomers.length > 0) && (
+            <Alert color="light" className="py-2 border">
+              {fiscalName && (
+                <div className="d-flex align-items-center flex-wrap">
+                  <span>
+                    Factura a: <strong>{fiscalName}</strong>
+                  </span>
+                  {formData.name.trim() !== fiscalName && (
+                    <Button
+                      type="button"
+                      color="link"
+                      size="sm"
+                      className="p-0 ml-2"
+                      onClick={() => setFormData((prev) => ({ ...prev, name: fiscalName }))}
+                    >
+                      Usar nombre fiscal
+                    </Button>
+                  )}
+                </div>
+              )}
+              {sameNitCustomers.length > 0 && (
+                <div className="small text-muted mt-1">
+                  Ya hay {sameNitCustomers.length} cliente(s) con este NIT:{" "}
+                  {sameNitCustomers
+                    .slice(0, 5)
+                    .map((c) => c.name || `#${c.id}`)
+                    .join(", ")}
+                  {sameNitCustomers.length > 5 ? "…" : ""}. Puede crear otro contacto para la misma empresa.
+                </div>
+              )}
+            </Alert>
+          )}
+          <Row>
             <Col md="6">
               <FormGroup>
                 <Label>Teléfono</Label>

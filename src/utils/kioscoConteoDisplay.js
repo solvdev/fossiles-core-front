@@ -1,8 +1,14 @@
 import { getProductAudienceLabel, normalizeAudienceCategory } from "utils/productAudienceHelper";
+import { normalizeProductBrand } from "utils/productBrandHelper";
 import {
+  appendWalletMaterialToProductName,
+  extractStockBrand,
+  getCinchoAudienceLabel,
   isCinchoProductRow,
   isFossCinchoProductRow,
   isPackagingProductCode,
+  isSyntheticHardware,
+  normalizeCinchoAudience,
   normalizeCinchoType,
   normalizeHardwareCondition,
   sortSizeKeys,
@@ -98,14 +104,30 @@ const isConteoWalletRow = (row) =>
 
 /**
  * Nombre de producto para Excel/PDF cuando Color y Talla van en columnas propias.
- * Incluye NV (herraje nuevo) si aplica.
+ * Incluye marca (Entre Cueros) o NV (herraje nuevo) si aplica.
  */
 export function formatConteoExportProductName(row) {
-  const parts = [normalizeConteoLabelSpaces(row?.productName)];
-  if (normalizeHardwareCondition(row?.hardwareCondition) === "NUEVO") {
+  const parts = [formatConteoProductTitle(row)];
+  if (!extractStockBrand(row?.hardwareCondition)
+      && !normalizeProductBrand(row?.hardwareCondition)
+      && !normalizeCinchoAudience(row?.hardwareCondition)
+      && !isSyntheticHardware(row?.hardwareCondition)
+      && normalizeHardwareCondition(row?.hardwareCondition) === "NUEVO") {
     parts.push("NV");
   }
   return normalizeConteoLabelSpaces(parts.filter(Boolean).join(" "));
+}
+
+export function formatConteoProductTitle(row) {
+  const name = appendWalletMaterialToProductName(
+    normalizeConteoLabelSpaces(row?.productName),
+    row?.hardwareCondition
+  );
+  const audience = getCinchoAudienceLabel(row?.hardwareCondition);
+  if (audience && !name.toUpperCase().includes(audience.toUpperCase())) {
+    return normalizeConteoLabelSpaces(`${name} ${audience}`);
+  }
+  return name;
 }
 
 /** Color completo para export (sin abreviar). */
@@ -134,7 +156,7 @@ export function formatConteoExportSizeLabel(row) {
  * - Demás: nombre + color + NV (sin código en Producto)
  */
 export function formatConteoExportProductLabel(row) {
-  const parts = [normalizeConteoLabelSpaces(row?.productName)];
+  const parts = [formatConteoProductTitle(row)];
   const isWallet = isConteoWalletRow(row);
   const isCincho = isCinchoProductRow(row) || isFossCinchoProductRow(row);
 
@@ -151,7 +173,11 @@ export function formatConteoExportProductLabel(row) {
     if (size) parts.push(`T${size}`);
   }
 
-  if (normalizeHardwareCondition(row?.hardwareCondition) === "NUEVO") {
+  if (!extractStockBrand(row?.hardwareCondition)
+      && !normalizeProductBrand(row?.hardwareCondition)
+      && !normalizeCinchoAudience(row?.hardwareCondition)
+      && !isSyntheticHardware(row?.hardwareCondition)
+      && normalizeHardwareCondition(row?.hardwareCondition) === "NUEVO") {
     parts.push("NV");
   }
 

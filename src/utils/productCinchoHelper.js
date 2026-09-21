@@ -1,12 +1,133 @@
 import { isCinchoInventoryProductByCodeAndName, isFossCinchosProductCode } from "utils/cinchoProductionHelper";
 import { hasInventorySizeBreakdown } from "utils/inventoryVariantHelper";
+import { normalizeProductBrand } from "utils/productBrandHelper";
 
-export const ADULT_CINCHO_SIZES = ["30", "32", "34", "36", "38", "40", "42", "46"];
+export const ADULT_CINCHO_SIZES = ["30", "32", "34", "36", "38", "40", "42", "44", "46"];
 /** Niño: 16–30 por pares. */
 export const KIDS_CINCHO_SIZES = ["16", "18", "20", "22", "24", "26", "28", "30"];
+/** Entre Cueros: tallas de niño hasta 32 (envíos / legado). */
+export const ENTRECUEROS_CINCHO_SIZES = ["16", "18", "20", "22", "24", "26", "28", "30", "32"];
+/** Entre Cueros: todas las tallas elegibles de cincho en inventario (16–44 pares). */
+export const ENTRECUEROS_ALL_CINCHO_SIZES = [
+  "16", "18", "20", "22", "24", "26", "28", "30", "32", "34", "36", "38", "40", "42", "44",
+];
+
+export const ENTRECUEROS_CINCHO_AUDIENCE_OPTIONS = [
+  { value: "NINO", label: "Niño" },
+  { value: "DAMA", label: "Dama" },
+];
+
+export const SINTETICO_HARDWARE = "SINTETICO";
+export const SINTETICO_LABEL = "Sintética";
+export const NO_SINTETICO_HARDWARE = "NO_SINTETICO";
+export const NO_SINTETICO_LABEL = "No sintética";
+
+export const ENTRECUEROS_WALLET_MATERIAL_OPTIONS = [
+  { value: NO_SINTETICO_HARDWARE, label: NO_SINTETICO_LABEL },
+  { value: SINTETICO_HARDWARE, label: SINTETICO_LABEL },
+];
 
 export const resolveCinchoSizesForProduct = (product) =>
   product?.cinchoForKids ? KIDS_CINCHO_SIZES : ADULT_CINCHO_SIZES;
+
+export const resolveCinchoSizesForOpening = (product, { entreCueros } = {}) => {
+  if (entreCueros) return ENTRECUEROS_ALL_CINCHO_SIZES;
+  return resolveCinchoSizesForProduct(product);
+};
+
+const stripDiacritics = (value) =>
+  String(value || "")
+    .normalize("NFD")
+    .replace(/\p{M}/gu, "");
+
+export const normalizeCinchoAudience = (value) => {
+  const n = stripDiacritics(String(value || "").trim().toUpperCase()).replace(/\s+/g, "");
+  if (n === "NINO") return "NINO";
+  if (n === "DAMA" || n === "NINA") return "DAMA";
+  return "";
+};
+
+export const getCinchoAudienceLabel = (value) => {
+  const n = normalizeCinchoAudience(value);
+  return ENTRECUEROS_CINCHO_AUDIENCE_OPTIONS.find((opt) => opt.value === n)?.label || "";
+};
+
+export const isWalletProductName = (name) =>
+  String(name || "").toUpperCase().includes("BILLETERA");
+
+const compactHardwareKey = (value) =>
+  stripDiacritics(String(value || "").trim().toUpperCase()).replace(/[\s_]/g, "");
+
+export const isNonSyntheticHardware = (value) => {
+  const n = compactHardwareKey(value);
+  return n === "NOSINTETICO" || n === "NOSINTETICA";
+};
+
+export const isSyntheticHardware = (value) => {
+  if (isNonSyntheticHardware(value)) return false;
+  const n = compactHardwareKey(value);
+  return n === SINTETICO_HARDWARE
+    || n === "SINTETICA"
+    || n.startsWith(`${SINTETICO_HARDWARE}:`)
+    || n.startsWith("SINTETICA:");
+};
+
+export const extractStockBrand = (value) => {
+  const raw = String(value || "").trim();
+  const sep = raw.indexOf(":");
+  if (sep > 0) {
+    const prefix = compactHardwareKey(raw.slice(0, sep));
+    if (prefix === SINTETICO_HARDWARE || prefix === "SINTETICA" || prefix === "NOSINTETICO" || prefix === "NOSINTETICA") {
+      return normalizeProductBrand(raw.slice(sep + 1));
+    }
+  }
+  if (isSyntheticHardware(raw) || isNonSyntheticHardware(raw)) return "";
+  return normalizeProductBrand(raw);
+};
+
+export const composeWalletHardware = (synthetic, brand) => {
+  const b = normalizeProductBrand(brand);
+  if (!b) return "";
+  return synthetic ? `${SINTETICO_HARDWARE}:${b}` : b;
+};
+
+export const normalizeWalletMaterial = (value) => {
+  if (isSyntheticHardware(value)) return SINTETICO_HARDWARE;
+  return NO_SINTETICO_HARDWARE;
+};
+
+export const getWalletMaterialLabel = (value) => {
+  if (isSyntheticHardware(value)) return SINTETICO_LABEL;
+  if (extractStockBrand(value) || isNonSyntheticHardware(value)) return NO_SINTETICO_LABEL;
+  return "";
+};
+
+export const appendWalletMaterialToProductName = (name, hardware) => {
+  let n = String(name || "").trim();
+  const compactKey = stripDiacritics(n).toUpperCase().replace(/[\s_]/g, "");
+  if (isSyntheticHardware(hardware)) {
+    if (!compactKey.includes("SINTETIC") || compactKey.includes("NOSINTETIC")) {
+      n = `${n} ${SINTETICO_LABEL}`.trim();
+    }
+  }
+  const brand = extractStockBrand(hardware);
+  if (brand && !n.toUpperCase().includes(brand)) {
+    n = `${n} ${brand}`.trim();
+  }
+  return n;
+};
+
+export const appendSyntheticToProductName = (name) =>
+  appendWalletMaterialToProductName(name, SINTETICO_HARDWARE);
+
+export const resolveStockDimensionLabel = (value) => {
+  const audience = getCinchoAudienceLabel(value);
+  if (audience) return audience;
+  const brand = extractStockBrand(value);
+  if (isSyntheticHardware(value) && brand) return `${SINTETICO_LABEL} · ${brand}`;
+  if (isSyntheticHardware(value)) return SINTETICO_LABEL;
+  return brand || "";
+};
 
 /**
  * Recargo POS por talla de cincho (sobre precio de catálogo):
@@ -71,9 +192,16 @@ export const getCinchoTypeLabel = (value) => {
 };
 
 export const getHardwareConditionLabel = (value) => {
+  const audience = getCinchoAudienceLabel(value);
+  if (audience) return audience;
+  const dimension = resolveStockDimensionLabel(value);
+  if (dimension) return dimension;
   const normalized = normalizeHardwareCondition(value);
-  if (!normalized) return "—";
-  return HARDWARE_CONDITION_OPTIONS.find((opt) => opt.value === normalized)?.label || normalized;
+  if (normalized) {
+    return HARDWARE_CONDITION_OPTIONS.find((opt) => opt.value === normalized)?.label || normalized;
+  }
+  const brand = String(value || "").trim().toUpperCase().replace(/\s+/g, " ");
+  return brand || "—";
 };
 
 export const formatInventarioFinalByHardware = (byHardware) => {
@@ -173,7 +301,8 @@ export const productMatchesSearchFilter = (row, search) => {
   if (!q) return true;
   const code = String(row?.productCode || "").toLowerCase();
   const name = String(row?.productName || "").toLowerCase();
-  return code.includes(q) || name.includes(q);
+  const hw = String(row?.hardwareCondition || "").toLowerCase();
+  return code.includes(q) || name.includes(q) || hw.includes(q);
 };
 
 export const hasAssignedProductColor = (row) =>
@@ -234,11 +363,12 @@ export const resolveSizesSummary = (row) =>
 export const resolvePhysicalSizesSummary = (row) =>
   row?.physicalSizesSummary || formatSystemSizesText(row?.physicalSizes) || "";
 
-/** Clave única por fila de conteo (incluye talla cuando el cincho está desglosado). */
+/** Clave única por fila de conteo (incluye talla y marca cuando aplica). */
 export const rowKey = (row) =>
-  `${row?.productId}-${row?.colorId || ""}-${row?.sizeLabel || ""}`;
+  `${row?.productId}-${row?.colorId || ""}-${row?.sizeLabel || ""}-${normalizeProductBrand(row?.hardwareCondition) || normalizeCinchoAudience(row?.hardwareCondition) || ""}`;
 
-export const persistKey = (row) => `${row?.productId}-${row?.colorId || ""}`;
+export const persistKey = (row) =>
+  `${row?.productId}-${row?.colorId || ""}-${normalizeProductBrand(row?.hardwareCondition) || normalizeCinchoAudience(row?.hardwareCondition) || ""}`;
 
 export const isFossCinchoProductRow = (row) =>
   !!row && !row.packaging && !isPackagingProductCode(row.productCode)

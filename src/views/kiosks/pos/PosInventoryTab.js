@@ -24,6 +24,9 @@ import {
   getHardwareConditionLabel,
   isCinchoProductRow,
   isPackagingProductCode,
+  isSyntheticHardware,
+  extractStockBrand,
+  normalizeCinchoAudience,
   normalizeCinchoType,
   normalizeHardwareCondition,
 } from "utils/productCinchoHelper";
@@ -31,15 +34,18 @@ import {
   PRODUCT_AUDIENCE_OPTIONS,
   getProductAudienceLabel,
   normalizeAudienceCategory,
-  productMatchesAudienceFilter,
 } from "utils/productAudienceHelper";
 import {
   buildKioskInventorySummaryGroups,
-  productMatchesSummaryGroupKey,
+  filterProductForSummaryGroup,
+  variantMatchesInventoryAudienceFilter,
 } from "utils/kioskInventorySummary";
 import { showError } from "utils/notificationHelper";
 import { FilterableSelect } from "components/distribution/FilterableSelect";
-import { formatQty, normalizePosHardwareCondition, posVariantStockQty } from "./posUtils";
+import { formatQty, isEntrecuerosPosMode, itemMatchesBrand, normalizePosHardwareCondition, posVariantStockQty } from "./posUtils";
+import { ENTRECUEROS_KIOSK_LOCATION_ID } from "utils/partialReleaseHelper";
+import { ENTRECUEROS_VARIANT_FILTERS, matchesEntrecuerosVariantFilter } from "utils/entrecuerosPriceLists";
+import { PRODUCT_BRAND_OPTIONS, normalizeProductBrand } from "utils/productBrandHelper";
 import KioskInventoryCountReport from "../KioskInventoryCountReport";
 
 const safeText = (value) => String(value || "").trim();
@@ -191,8 +197,12 @@ const normalizeKioscoRows = (rows) =>
  * puede haber stock VIEJO real (p. ej. producto devuelto en un cambio).
  * Antes se descartaba VIEJO en no-cinchos y el POS mostraba menos unidades que el físico.
  */
-const productUsesHardwareSplit = (row) => {
+const productUsesHardwareSplit = (row, entreCueros = false) => {
   if (!row || row.packaging || isPackagingProductCode(row.productCode)) return false;
+  if (normalizeProductBrand(row.hardwareCondition) || extractStockBrand(row.hardwareCondition)) return true;
+  if (normalizeCinchoAudience(row.hardwareCondition)) return true;
+  if (isSyntheticHardware(row.hardwareCondition)) return true;
+  if (entreCueros) return false;
   return isCinchoProductRow({
     productCode: row.productCode,
     productName: row.productName,
@@ -208,12 +218,12 @@ const productUsesHardwareSplit = (row) => {
  * No-cinchos: si hay stock en más de un herraje, muestra ambos (stock real de cambios).
  * Empaques: una fila por color (sin herraje).
  */
-const collapseNonCinchoHardwareRows = (rows) => {
+const collapseNonCinchoHardwareRows = (rows, entreCueros = false) => {
   const keep = [];
   const byProductColor = new Map();
 
   (rows || []).forEach((row) => {
-    if (productUsesHardwareSplit(row)) {
+    if (productUsesHardwareSplit(row, entreCueros)) {
       keep.push(row);
       return;
     }
@@ -263,7 +273,7 @@ const collapseNonCinchoHardwareRows = (rows) => {
       keep.push({
         ...only,
         hardwareCondition: hw,
-        hardwareLabel: hw === "VIEJO" ? getHardwareConditionLabel(hw) : "—",
+        hardwareLabel: hw === "NUEVO" ? "—" : getHardwareConditionLabel(hw),
         quantity: posVariantStockQty(only),
       });
       return;
@@ -293,7 +303,7 @@ const collapseNonCinchoHardwareRows = (rows) => {
  * Fuente de verdad: kiosco_stock (herraje NUEVO/VIEJO cuando hay existencias reales).
  * Legacy solo si el kiosko aún no tiene filas en módulo kiosco (migración).
  */
-const buildInventoryRows = (kioscoRows, legacyRows, productMetaById) => {
+const buildInventoryRows = (kioscoRows, legacyRows, productMetaById, entreCueros = false) => {
   const enrichMeta = (row) => {
     const meta = row.productId != null ? productMetaById.get(Number(row.productId)) : null;
     if (meta) {
@@ -322,7 +332,7 @@ const buildInventoryRows = (kioscoRows, legacyRows, productMetaById) => {
 
   const kioscoNormalized = normalizeKioscoRows(kioscoRows).map(enrichMeta);
   if (kioscoNormalized.length > 0) {
-    return collapseNonCinchoHardwareRows(kioscoNormalized);
+    return collapseNonCinchoHardwareRows(kioscoNormalized, entreCueros);
   }
 
   return collapseNonCinchoHardwareRows(
@@ -342,11 +352,14 @@ const buildInventoryRows = (kioscoRows, legacyRows, productMetaById) => {
         sizes: legacy.sizes && typeof legacy.sizes === "object" ? legacy.sizes : null,
         source: "legacy",
       });
-    })
+    }),
+    entreCueros
   );
 };
 
-function PosInventoryTab({ kioskLocationId, kioskName, active }) {
+function PosInventoryTab({ kioskLocationId, kioskName, posMode, active }) {
+  const entreCueros = isEntrecuerosPosMode({ posMode })
+    || Number(kioskLocationId) === ENTRECUEROS_KIOSK_LOCATION_ID;
   const [inventoryView, setInventoryView] = useState("STOCK");
   const [stockMode, setStockMode] = useState("SUMMARY");
   const [selectedSummaryGroup, setSelectedSummaryGroup] = useState(null);
@@ -356,6 +369,8 @@ function PosInventoryTab({ kioskLocationId, kioskName, active }) {
   const [stockFilter, setStockFilter] = useState("ALL");
   const [categoryFilter, setCategoryFilter] = useState("");
   const [audienceFilter, setAudienceFilter] = useState("");
+  const [variantFilter, setVariantFilter] = useState("");
+  const [brandFilter, setBrandFilter] = useState("");
 
   const loadInventory = useCallback(async () => {
     if (!kioskLocationId) {
@@ -392,7 +407,7 @@ function PosInventoryTab({ kioskLocationId, kioskName, active }) {
       });
       setRows(
         filterVisibleKioskStockRows(
-          buildInventoryRows(kioscoData, legacyData, productMetaById)
+          buildInventoryRows(kioscoData, legacyData, productMetaById, entreCueros)
         )
       );
     } catch (err) {
@@ -401,7 +416,7 @@ function PosInventoryTab({ kioskLocationId, kioskName, active }) {
     } finally {
       setLoading(false);
     }
-  }, [kioskLocationId]);
+  }, [kioskLocationId, entreCueros]);
 
   useEffect(() => {
     if (active !== false && inventoryView === "STOCK") {
@@ -442,11 +457,17 @@ function PosInventoryTab({ kioskLocationId, kioskName, active }) {
             return null;
           }
         }
-        if (!productMatchesAudienceFilter(product, audienceFilter)) {
-          return null;
-        }
         const filteredVariants = product.variants.filter((variant) => {
+          if (!variantMatchesInventoryAudienceFilter(product, variant, audienceFilter, { entreCueros })) {
+            return false;
+          }
           const status = variantStatus(variant);
+          if (entreCueros && !matchesEntrecuerosVariantFilter({ ...product, ...variant }, variantFilter)) {
+            return false;
+          }
+          if (entreCueros && !itemMatchesBrand({ ...product, ...variant }, brandFilter)) {
+            return false;
+          }
           if (applyAdvanced && stockFilter === "LOW" && !status.low) return false;
           if (applyAdvanced && stockFilter === "OUT" && status.label !== "Sin stock") return false;
           if (!query) return true;
@@ -467,21 +488,21 @@ function PosInventoryTab({ kioskLocationId, kioskName, active }) {
         };
       })
       .filter(Boolean);
-  }, [products, query, stockFilter, categoryFilter, audienceFilter, stockMode]);
+  }, [products, query, stockFilter, categoryFilter, audienceFilter, variantFilter, brandFilter, entreCueros, stockMode]);
 
   const summaryGroups = useMemo(
-    () => buildKioskInventorySummaryGroups(filteredProducts),
-    [filteredProducts]
+    () => buildKioskInventorySummaryGroups(filteredProducts, { entreCueros }),
+    [filteredProducts, entreCueros]
   );
 
   const detailProducts = useMemo(() => {
     if (stockMode === "CATEGORY" && selectedSummaryGroup?.key) {
-      return filteredProducts.filter((p) =>
-        productMatchesSummaryGroupKey(p, selectedSummaryGroup.key)
-      );
+      return filteredProducts
+        .map((p) => filterProductForSummaryGroup(p, selectedSummaryGroup.key, { entreCueros }))
+        .filter(Boolean);
     }
     return filteredProducts;
-  }, [stockMode, selectedSummaryGroup, filteredProducts]);
+  }, [stockMode, selectedSummaryGroup, filteredProducts, entreCueros]);
 
   const openSummary = () => {
     setStockMode("SUMMARY");
@@ -543,7 +564,9 @@ function PosInventoryTab({ kioskLocationId, kioskName, active }) {
               <small className="text-muted">
                 {stockMode === "SUMMARY"
                   ? "Totales por categoría y línea (stock kiosco real). Toca una tarjeta para ver el detalle."
-                  : "Stock real del módulo kiosco (herraje nuevo/viejo). Misma fuente que la venta POS."}
+                  : entreCueros
+                    ? "Stock real del módulo kiosco. En billeteras/sintéticos la columna es la marca."
+                    : "Stock real del módulo kiosco (herraje nuevo/viejo). Misma fuente que la venta POS."}
               </small>
             </div>
             <div className="d-flex flex-wrap" style={{ gap: 8 }}>
@@ -654,6 +677,58 @@ function PosInventoryTab({ kioskLocationId, kioskName, active }) {
                   ))}
                 </div>
               </Col>
+              {entreCueros ? (
+                <Col md="12" className="mt-2">
+                  <Label className="mb-1 small">Variante</Label>
+                  <div className="d-flex flex-wrap" style={{ gap: 6 }}>
+                    {ENTRECUEROS_VARIANT_FILTERS.map((opt) => (
+                      <Button
+                        key={opt.value || "variant-all"}
+                        size="sm"
+                        color={variantFilter === opt.value ? "primary" : "secondary"}
+                        outline={variantFilter !== opt.value}
+                        onClick={() => setVariantFilter(opt.value)}
+                      >
+                        {opt.label}
+                      </Button>
+                    ))}
+                  </div>
+                </Col>
+              ) : null}
+              {entreCueros ? (
+                <Col md="12" className="mt-2">
+                  <Label className="mb-1 small">Marca</Label>
+                  <div className="d-flex flex-wrap" style={{ gap: 6 }}>
+                    <Button
+                      size="sm"
+                      color={!brandFilter ? "primary" : "secondary"}
+                      outline={Boolean(brandFilter)}
+                      onClick={() => setBrandFilter("")}
+                    >
+                      Todas
+                    </Button>
+                    <Button
+                      size="sm"
+                      color={brandFilter === "NONE" ? "primary" : "secondary"}
+                      outline={brandFilter !== "NONE"}
+                      onClick={() => setBrandFilter(brandFilter === "NONE" ? "" : "NONE")}
+                    >
+                      Sin marca
+                    </Button>
+                    {PRODUCT_BRAND_OPTIONS.map((brand) => (
+                      <Button
+                        key={`inv-brand-${brand}`}
+                        size="sm"
+                        color={brandFilter === brand ? "primary" : "secondary"}
+                        outline={brandFilter !== brand}
+                        onClick={() => setBrandFilter(brandFilter === brand ? "" : brand)}
+                      >
+                        {brand}
+                      </Button>
+                    ))}
+                  </div>
+                </Col>
+              ) : null}
               <Col md={stockMode === "SUMMARY" ? "6" : "4"} className="mt-2 mt-md-0">
                 <Label className="mb-1 small">Buscar</Label>
                 <Input
@@ -661,7 +736,9 @@ function PosInventoryTab({ kioskLocationId, kioskName, active }) {
                   type="text"
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Código, producto, categoría, línea, color, herraje..."
+                  placeholder={entreCueros
+                    ? "Código, producto, categoría, línea, color, marca..."
+                    : "Código, producto, categoría, línea, color, herraje..."}
                 />
               </Col>
             </Row>
@@ -693,7 +770,7 @@ function PosInventoryTab({ kioskLocationId, kioskName, active }) {
                       <span className="kiosk-pos-inventory-board-meta">
                         {group.products} productos · {group.variants} colores
                       </span>
-                      {group.key !== "PACKAGING" && (group.unitsNuevo > 0 || group.unitsViejo > 0) ? (
+                      {group.key !== "PACKAGING" && !entreCueros && (group.unitsNuevo > 0 || group.unitsViejo > 0) ? (
                         <span className="kiosk-pos-inventory-board-hardware">
                           <span>Nuevo {formatQty(group.unitsNuevo)}</span>
                           <span>Viejo {formatQty(group.unitsViejo)}</span>
@@ -727,7 +804,9 @@ function PosInventoryTab({ kioskLocationId, kioskName, active }) {
                             </Badge>
                           ) : null}
                           <Badge color="info" className="ml-1">
-                            {getProductAudienceLabel(product.audienceCategory)}
+                            {entreCueros && product.cinchoForKids
+                              ? "Cincho de niño"
+                              : getProductAudienceLabel(product.audienceCategory)}
                           </Badge>
                         </div>
                         <Badge color="primary" pill>
@@ -740,7 +819,7 @@ function PosInventoryTab({ kioskLocationId, kioskName, active }) {
                         <thead>
                           <tr>
                             <th>Color</th>
-                            <th>Herraje</th>
+                            <th>{entreCueros ? "Marca / Para" : "Herraje"}</th>
                             <th>Tallas</th>
                             <th className="text-right">Stock</th>
                             <th className="text-right">Mínimo</th>
@@ -766,6 +845,13 @@ function PosInventoryTab({ kioskLocationId, kioskName, active }) {
                                 </td>
                                 <td>
                                   {isPackaging ? (
+                                    <span className="text-muted">—</span>
+                                  ) : entreCueros && getHardwareConditionLabel(variant.hardwareCondition) !== "—"
+                                    && getHardwareConditionLabel(variant.hardwareCondition) !== "Herraje nuevo" ? (
+                                    <Badge color="info" pill>
+                                      {getHardwareConditionLabel(variant.hardwareCondition)}
+                                    </Badge>
+                                  ) : entreCueros ? (
                                     <span className="text-muted">—</span>
                                   ) : (
                                     <Badge color={hw === "VIEJO" ? "secondary" : "success"} pill>

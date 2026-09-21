@@ -286,11 +286,7 @@ function CreateStandaloneInternalShipmentModal({ isOpen, toggle, onCreated }) {
         documentDate: documentDate || null,
         products: productsPayload,
       });
-      showSuccess(
-        created?.productionOrderCode
-          ? `Solicitud #${created?.id || ""} enviada a Contabilidad. Se generó ${created.productionOrderCode} por faltante de stock.`
-          : `Solicitud #${created?.id || ""} enviada a Contabilidad para autorización`
-      );
+      showSuccess(`Solicitud #${created?.id || ""} enviada a Contabilidad para autorización`);
       toggle();
       if (onCreated) onCreated(created);
     } catch (err) {
@@ -305,9 +301,9 @@ function CreateStandaloneInternalShipmentModal({ isOpen, toggle, onCreated }) {
       <ModalHeader toggle={toggle}>Solicitud de envío interno (ENVI)</ModalHeader>
       <ModalBody>
         <Alert color="info" className="py-2">
-          La solicitud queda <strong>pendiente</strong> hasta que Contabilidad la autorice. Al aprobarse se genera el
-          número <strong>ENVI</strong> y se descuenta de Devoluciones / Bodega PT. Si no hay stock disponible, se crea
-          automáticamente una <strong>OPI</strong> para producir el faltante.
+          La solicitud queda <strong>pendiente</strong> hasta que Contabilidad autorice el envío. Si hay stock en
+          Devoluciones / Bodega PT se genera el <strong>ENVI</strong>. Si falta stock, se crea una <strong>OPI</strong>
+          en borrador para producir el faltante (aún no se despacha).
         </Alert>
         {loadingCatalog && (
           <div className="text-center py-3">

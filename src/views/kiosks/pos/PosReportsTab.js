@@ -50,6 +50,10 @@ import {
   formatSaleCardPaymentDetail,
   canCertifyKioskSaleFel,
   saleNeedsFelCertification,
+  isEntrecuerosPosMode,
+  saleHasFelInvoice,
+  saleIsTransferPayment,
+  saleIsCashPayment,
 } from "./posUtils";
 
 const REPORT_TYPES = {
@@ -118,6 +122,7 @@ function PosReportsTab({
   kioskLocationId,
   kioskName,
   kioskCode,
+  posMode,
   generatedByName,
   cashSession,
   onSaleUpdated,
@@ -128,6 +133,8 @@ function PosReportsTab({
   const [voidTargetSale, setVoidTargetSale] = useState(null);
   const [certifyTargetSale, setCertifyTargetSale] = useState(null);
   const [depositFilter, setDepositFilter] = useState("ALL");
+  const [paymentFilter, setPaymentFilter] = useState("ALL");
+  const [invoiceFilter, setInvoiceFilter] = useState("ALL");
   const [dateFilterMode, setDateFilterMode] = useState("single");
   const [exportMode, setExportMode] = useState("consolidated"); // consolidated | byDay
   const [reportType, setReportType] = useState(REPORT_TYPES.SALES);
@@ -190,9 +197,15 @@ function PosReportsTab({
     [physicalCountSessions, selectedPhysicalCountId]
   );
 
+  const isEntrecueros = isEntrecuerosPosMode({ posMode });
+
   const filteredSales = (sales || []).filter((sale) => {
-    if (depositFilter !== "PENDING") return true;
-    return isSalePendingDeposit(sale);
+    if (depositFilter === "PENDING" && !isSalePendingDeposit(sale)) return false;
+    if (paymentFilter === "EFECTIVO" && !saleIsCashPayment(sale)) return false;
+    if (paymentFilter === "TRANSFERENCIA" && !saleIsTransferPayment(sale)) return false;
+    if (invoiceFilter === "FEL" && !saleHasFelInvoice(sale)) return false;
+    if (invoiceFilter === "SIN_FEL" && saleHasFelInvoice(sale)) return false;
+    return true;
   });
 
   const displaySummary = useMemo(
@@ -770,6 +783,36 @@ function PosReportsTab({
               </Input>
             </Col>
             )}
+            {isSales && isEntrecueros && (
+            <>
+            <Col md="2">
+              <Label className="kiosk-pos-label">Pago</Label>
+              <Input
+                className="kiosk-pos-input-lg"
+                type="select"
+                value={paymentFilter}
+                onChange={(e) => setPaymentFilter(e.target.value)}
+              >
+                <option value="ALL">Todos</option>
+                <option value="EFECTIVO">Efectivo</option>
+                <option value="TRANSFERENCIA">Transferencia</option>
+              </Input>
+            </Col>
+            <Col md="2">
+              <Label className="kiosk-pos-label">Factura</Label>
+              <Input
+                className="kiosk-pos-input-lg"
+                type="select"
+                value={invoiceFilter}
+                onChange={(e) => setInvoiceFilter(e.target.value)}
+              >
+                <option value="ALL">Todas</option>
+                <option value="FEL">Con FEL</option>
+                <option value="SIN_FEL">Sin factura</option>
+              </Input>
+            </Col>
+            </>
+            )}
               </>
             )}
           </Row>
@@ -955,7 +998,11 @@ function PosReportsTab({
                 const felSerie = sale.felSerie || sale.invoice?.felSerie;
                 const felNumero = sale.felNumero || sale.invoice?.felNumero;
                 const invoiceLabel =
-                  felSerie || felNumero ? `${felSerie || ""} ${felNumero || ""}`.trim() : "—";
+                  String(sale.felStatus || "").toUpperCase() === "SKIPPED"
+                    ? "Sin factura"
+                    : felSerie || felNumero
+                      ? `${felSerie || ""} ${felNumero || ""}`.trim()
+                      : "—";
                 const isTestSale =
                   sale.testSale || String(felSerie || "").toUpperCase().includes("PRUEBAS");
                 const isVoid = String(sale.status || "").toUpperCase() === "VOID";

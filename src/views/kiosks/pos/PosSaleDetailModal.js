@@ -52,6 +52,7 @@ const felStatusBadge = (status) => {
   if (normalized === "CERTIFIED") return <Badge color="success">Certificada</Badge>;
   if (normalized === "FAILED") return <Badge color="danger">Error FEL</Badge>;
   if (normalized === "PENDING") return <Badge color="warning">Pendiente</Badge>;
+  if (normalized === "SKIPPED") return <Badge color="secondary">Sin factura</Badge>;
   if (!normalized) return <Badge color="secondary">Sin FEL</Badge>;
   return <Badge color="info">{status}</Badge>;
 };
@@ -379,6 +380,12 @@ function PosSaleDetailModal({
                 <div className="kiosk-pos-detail-label">No. interno</div>
                 <div>{internalNumber || "—"}</div>
               </div>
+              {sale.shippingSheetNumber ? (
+                <div>
+                  <div className="kiosk-pos-detail-label">Hoja de envío</div>
+                  <div>{sale.shippingSheetNumber}</div>
+                </div>
+              ) : null}
             </div>
 
             {(sale.promotionName || sale.notes || sale.comments) && (

@@ -7,7 +7,25 @@ import {
 } from "utils/productAudienceHelper";
 import { hasInventorySizeBreakdown } from "utils/inventoryVariantHelper";
 import { isPackagingProductCode } from "utils/kioskPackagingHelper";
-import { normalizeHardwareCondition, shouldShowInKioskPhysicalCount } from "utils/productCinchoHelper";
+import {
+  appendWalletMaterialToProductName,
+  extractStockBrand,
+  getCinchoAudienceLabel,
+  getHardwareConditionLabel,
+  isSyntheticHardware,
+  normalizeCinchoAudience,
+  normalizeHardwareCondition,
+  shouldShowInKioskPhysicalCount,
+} from "utils/productCinchoHelper";
+import {
+  cartUnlocksEntrecuerosWholesale,
+  ENTRECUEROS_LOWEST_TIER_QTY,
+  entrecuerosPriceKind,
+  entrecuerosVolumeKey,
+  listEntrecuerosPriceListTiers,
+  resolveEntrecuerosListUnitPrice,
+} from "utils/entrecuerosPriceLists";
+import { PRODUCT_BRAND_OPTIONS, extractBrandFromText } from "utils/productBrandHelper";
 import { getSaleYmdGuatemala, getTodayYmdGuatemala, shiftYmdGuatemala } from "utils/dateTimeHelper";
 
 export const POS_CATALOG_VIEWS = [
@@ -65,6 +83,30 @@ export const POS_COLOR_SWATCHES = {
 
 export const formatCurrency = (value) => `Q ${Number(value || 0).toFixed(2)}`;
 
+const toSortableDateTime = (value) => {
+  if (!value) return "";
+  const text = String(value).trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return `${text}T00:00:00`;
+  return text.replace(" ", "T");
+};
+
+/** Ventas de un turno anterior no se anulan/editan desde la caja abierta de hoy. */
+export const saleBelongsToOpenCashSession = (sale, cashSession) => {
+  if (!sale || !cashSession) return false;
+  if (sale.cashSessionId != null && Number(sale.cashSessionId) !== Number(cashSession.id)) {
+    return false;
+  }
+  const soldAt = sale.soldAt || sale.saleDate;
+  if (
+    soldAt
+    && cashSession.openedAt
+    && toSortableDateTime(soldAt) < toSortableDateTime(cashSession.openedAt)
+  ) {
+    return false;
+  }
+  return true;
+};
+
 /** Aviso al capturar voucher distinto al monto de factura. */
 export const formatVoucherDiffAlert = (diff, invoiceAmount) => {
   const d = Number(diff || 0);
@@ -73,10 +115,24 @@ export const formatVoucherDiffAlert = (diff, invoiceAmount) => {
   const side = d > 0 ? "DE MÁS" : "DE MENOS";
   return `Hay una diferencia de ${formatCurrency(abs)} ${side} en el voucher. La factura queda en ${formatCurrency(invoiceAmount)} y NO se modifica.`;
 };
-export const formatQty = (value) => Number(value || 0).toFixed(2);
+export const parsePosQty = (value) => {
+  const n = Math.round(Number(value || 0));
+  return Number.isFinite(n) && n > 0 ? n : 0;
+};
 
-export const normalizePosHardwareCondition = (value) =>
-  normalizeHardwareCondition(value) || "NUEVO";
+export const formatQty = (value) => {
+  const n = Number(value || 0);
+  if (!Number.isFinite(n)) return "0";
+  if (Math.abs(n - Math.round(n)) < 1e-9) return String(Math.round(n));
+  return n.toFixed(2);
+};
+
+export const normalizePosHardwareCondition = (value) => {
+  const hardware = normalizeHardwareCondition(value);
+  if (hardware) return hardware;
+  const dimension = String(value || "").trim().toUpperCase().replace(/\s+/g, " ");
+  return dimension || "NUEVO";
+};
 
 export const lineKeyFor = (productId, colorId, size, hardwareCondition) => {
   const hw = normalizePosHardwareCondition(hardwareCondition);
@@ -119,8 +175,8 @@ export const posVariantStockQty = (variant) => {
 
 export const posVariantHasStock = (variant) => posVariantStockQty(variant) > 0;
 
-/** Etiqueta del chip cuando hay más de un herraje para el mismo color. */
-export const posVariantChipLabel = (variant, variantsInProduct = []) => {
+/** Etiqueta del chip cuando hay más de un herraje/dimensión para el mismo color. */
+export const posVariantChipLabel = (variant, variantsInProduct = [], { entreCueros } = {}) => {
   const colorName = String(variant?.colorName || "").trim() || "Sin color";
   if (isPackagingProductCode(variant?.productCode)) {
     return colorName;
@@ -131,10 +187,17 @@ export const posVariantChipLabel = (variant, variantsInProduct = []) => {
   const hardwareValues = new Set(
     sameColor.map((row) => normalizePosHardwareCondition(row?.hardwareCondition))
   );
-  if (hardwareValues.size <= 1) {
+  const hw = normalizePosHardwareCondition(variant?.hardwareCondition);
+  const extraLabel = getHardwareConditionLabel(hw);
+  const brand = extractStockBrand(variant?.hardwareCondition);
+  const audience = normalizeCinchoAudience(variant?.hardwareCondition);
+  const isSplitDimension = hw !== "NUEVO" && hw !== "VIEJO";
+  if (isSplitDimension && extraLabel && extraLabel !== "—" && !brand && !audience) {
+    return `${colorName} · ${extraLabel}`;
+  }
+  if (hardwareValues.size <= 1 || entreCueros || brand || audience) {
     return colorName;
   }
-  const hw = normalizePosHardwareCondition(variant?.hardwareCondition);
   return `${colorName} · ${hw === "VIEJO" ? "Viejo" : "Nuevo"}`;
 };
 
@@ -160,6 +223,56 @@ export const normalizePosLabel = (value) =>
 export const itemMatchesCategory = (item, categoryFilter) => {
   if (!categoryFilter) return true;
   return String(item.categoryId) === String(categoryFilter);
+};
+
+export const ENTRECUEROS_CATALOG_GROUPS = [
+  { value: "CASUAL", label: "Casual" },
+  { value: "REVERSIBLE", label: "Reversible" },
+  { value: "NINO", label: "Niño" },
+  { value: "DAMA", label: "Dama" },
+  { value: "BILLETERAS", label: "Billeteras" },
+  { value: "SINTETICOS", label: "Sintéticos" },
+];
+
+/** Misma dimensión que las listas de precio: variante + tipo, no solo categoría. */
+export const classifyEntrecuerosCatalogGroup = (item) => {
+  const kind = entrecuerosPriceKind(item);
+  if (kind === "NINO") return "NINO";
+  if (kind === "DAMA") return "DAMA";
+  if (kind === "REVERSIBLE") return "REVERSIBLE";
+  if (kind === "CASUAL") return "CASUAL";
+  if (kind === "WALLET_LEATHER") return "BILLETERAS";
+  return "SINTETICOS";
+};
+
+export const itemMatchesEntrecuerosGroup = (item, catalogGroup) => {
+  if (!catalogGroup) return true;
+  return classifyEntrecuerosCatalogGroup(item) === catalogGroup;
+};
+
+export const resolveItemBrand = (item) =>
+  extractStockBrand(item?.hardwareCondition)
+  || extractBrandFromText(`${item?.productName || ""} ${item?.productCode || ""}`);
+
+export const itemMatchesBrand = (item, brandFilter) => {
+  if (!brandFilter) return true;
+  const brand = resolveItemBrand(item);
+  if (brandFilter === "NONE") return !brand;
+  return brand === brandFilter;
+};
+
+export const buildBrandOptions = (inventory) => {
+  const available = new Set();
+  (inventory || []).forEach((item) => {
+    if (!posVariantHasStock(item)) return;
+    const brand = resolveItemBrand(item);
+    if (brand) available.add(brand);
+  });
+  return PRODUCT_BRAND_OPTIONS.map((brand) => ({
+    value: brand,
+    label: brand,
+    disabled: !available.has(brand),
+  }));
 };
 
 export const itemMatchesColor = (item, colorFilter) => {
@@ -235,7 +348,15 @@ export const buildColorOptions = (inventory) => {
   });
 };
 
-export const filterPosInventory = (inventory, { search, categoryFilter, colorFilter, audienceFilter, catalogView }) => {
+export const filterPosInventory = (inventory, {
+  search,
+  categoryFilter,
+  colorFilter,
+  audienceFilter,
+  catalogView,
+  catalogGroup,
+  brandFilter,
+}) => {
   const query = normalizePosLabel(search);
   return (inventory || []).filter((item) => {
     if (!posVariantHasStock(item)) return false;
@@ -248,12 +369,19 @@ export const filterPosInventory = (inventory, { search, categoryFilter, colorFil
       const text = normalizePosLabel(`${item.productCode || ""} ${item.productName || ""}`);
       return text.includes(query);
     }
-    if (!itemMatchesCategory(item, categoryFilter)) return false;
+    if (catalogGroup) {
+      if (!itemMatchesEntrecuerosGroup(item, catalogGroup)) return false;
+    } else if (!itemMatchesCategory(item, categoryFilter)) {
+      return false;
+    }
     if (!productMatchesAudienceFilter(item, audienceFilter)) return false;
+    if (!itemMatchesBrand(item, brandFilter)) return false;
     if (!itemMatchesColor(item, colorFilter)) return false;
     if (!query) return true;
     const text = normalizePosLabel(
-      `${item.productCode || ""} ${item.productName || ""} ${item.colorName || ""}`
+      `${item.productCode || ""} ${item.productName || ""} ${item.colorName || ""} ${
+        extractStockBrand(item.hardwareCondition) || ""
+      } ${getCinchoAudienceLabel(item.hardwareCondition) || ""}`
     );
     return text.includes(query);
   });
@@ -284,24 +412,53 @@ export const sortVariantsByColor = (variants) => {
   });
 };
 
+/** Una tarjeta por producto; en Entrecueros, una más por marca, sintético/cuero y PARA (Niño/Dama). */
+export const posCatalogGroupKey = (item) => {
+  const productId = item?.productId ?? "";
+  const brand = extractStockBrand(item?.hardwareCondition);
+  const audience = normalizeCinchoAudience(item?.hardwareCondition);
+  const parts = [String(productId)];
+  if (brand) {
+    parts.push(isSyntheticHardware(item?.hardwareCondition) ? "SINTETICO" : "CUERO", brand);
+  }
+  if (audience) parts.push(audience);
+  return parts.join("::");
+};
+
+const posCatalogProductName = (item) => {
+  let name = appendWalletMaterialToProductName(item?.productName, item?.hardwareCondition);
+  const audience = getCinchoAudienceLabel(item?.hardwareCondition);
+  if (audience && !name.toUpperCase().includes(audience.toUpperCase())) {
+    name = `${name} ${audience}`.trim();
+  }
+  return name;
+};
+
 export const groupInventoryByProduct = (items) => {
   const groups = new Map();
   (items || []).forEach((item) => {
     if (!posVariantHasStock(item)) return;
-    const productId = item.productId;
-    if (!groups.has(productId)) {
-      groups.set(productId, {
-        productId,
+    const groupKey = posCatalogGroupKey(item);
+    if (!groups.has(groupKey)) {
+      groups.set(groupKey, {
+        groupKey,
+        productId: item.productId,
         productCode: item.productCode,
-        productName: item.productName,
+        productName: posCatalogProductName(item),
         productImageUrl: item.productImageUrl,
         suggestedUnitPrice: item.suggestedUnitPrice,
         categoryId: item.categoryId,
         categoryName: item.categoryName,
+        cinchoType: item.cinchoType,
+        hardwareCondition: item.hardwareCondition,
+        entrecuerosPriceUnit: item.entrecuerosPriceUnit,
+        entrecuerosPriceQty3: item.entrecuerosPriceQty3,
+        entrecuerosPriceQty6: item.entrecuerosPriceQty6,
+        entrecuerosPriceQty12: item.entrecuerosPriceQty12,
         variants: [],
       });
     }
-    groups.get(productId).variants.push(item);
+    groups.get(groupKey).variants.push(item);
   });
   return Array.from(groups.values())
     .map((group) => ({
@@ -483,8 +640,10 @@ export const normalizeFelReceptorEmail = (raw) =>
     .filter(Boolean)
     .join(";");
 
-export const saleNeedsFelCertification = (sale) =>
-  !sale?.invoice?.felUuid && !sale?.felUuid;
+export const saleNeedsFelCertification = (sale) => {
+  if (String(sale?.felStatus || "").toUpperCase() === "SKIPPED") return false;
+  return !sale?.invoice?.felUuid && !sale?.felUuid;
+};
 
 export const getSaleKioskId = (sale) => sale?.kioskId ?? sale?.kioskLocationId ?? null;
 
@@ -688,6 +847,9 @@ export const normalizeSalePaymentMethod = (value) => {
   if (normalized.includes("TARJETA") || normalized.includes("CARD")) {
     return "TARJETA";
   }
+  if (normalized.includes("TRANSFER")) {
+    return "TRANSFERENCIA";
+  }
   if (normalized.includes("MIXTO") || normalized.includes("MIXED")) {
     return "MIXTO";
   }
@@ -837,3 +999,61 @@ export const formatSaleCardPaymentDetail = (sale) => {
   if (card2) lines.push(`Tarjeta 2: ${card2}`);
   return lines.join(" | ");
 };
+
+export const POS_MODE_ENTRECUEROS = "ENTRECUEROS";
+
+export const isEntrecuerosPosMode = (source) =>
+  String(source?.posMode || "").toUpperCase() === POS_MODE_ENTRECUEROS;
+
+export const listEntrecuerosPriceTiers = (source) => listEntrecuerosPriceListTiers(source);
+
+export const resolveEntrecuerosUnitPrice = (source, qty, wholesaleUnlocked = false) =>
+  resolveEntrecuerosListUnitPrice(source, qty, wholesaleUnlocked);
+
+export const describeEntrecuerosPriceState = (source, qty, wholesaleUnlocked = false) => {
+  const n = Number(qty || 0);
+  const pricedQty = wholesaleUnlocked ? Math.max(n, ENTRECUEROS_LOWEST_TIER_QTY) : n;
+  const tiers = listEntrecuerosPriceTiers(source);
+  let active = tiers[0] || { minQty: 1, label: "1", unitPrice: 0 };
+  tiers.forEach((tier) => {
+    if (pricedQty >= tier.minQty) active = tier;
+  });
+  const next = wholesaleUnlocked ? null : (tiers.find((tier) => tier.minQty > n) || null);
+  const missing = next ? Math.max(next.minQty - n, 0) : 0;
+  return { qty: n, active, next, missing, tiers, wholesaleUnlocked: Boolean(wholesaleUnlocked) };
+};
+
+export const applyEntrecuerosCartPrices = (cart) => {
+  const qtyByKey = {};
+  (cart || []).forEach((line) => {
+    const key = entrecuerosVolumeKey(line);
+    qtyByKey[key] = (qtyByKey[key] || 0) + Number(line.quantity || 0);
+  });
+  const wholesaleUnlocked = cartUnlocksEntrecuerosWholesale(cart);
+  return (cart || []).map((line) => {
+    const unitPrice = resolveEntrecuerosUnitPrice(
+      line,
+      qtyByKey[entrecuerosVolumeKey(line)] || 0,
+      wholesaleUnlocked
+    );
+    return { ...line, unitPrice, catalogUnitPrice: unitPrice };
+  });
+};
+
+export const saleHasFelInvoice = (sale) =>
+  Boolean(sale?.felUuid || sale?.invoice?.felUuid);
+
+export const saleIsTransferPayment = (sale) => {
+  const method = normalizeSalePaymentMethod(sale?.paymentMethod);
+  if (method === "TRANSFERENCIA") return true;
+  if (method === "MIXTO") return getSaleCardAmount(sale) > 0;
+  return false;
+};
+
+export const saleIsCashPayment = (sale) => {
+  const method = normalizeSalePaymentMethod(sale?.paymentMethod);
+  if (method === "EFECTIVO") return true;
+  if (method === "MIXTO") return getSaleCashAmount(sale) > 0;
+  return false;
+};
+

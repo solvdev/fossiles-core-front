@@ -16,6 +16,7 @@ import {
   mergeCinchoItemsByProductCodeAndColor,
   partitionSizes,
   rowTotalFromSizes,
+  buildOrderObservationPrintHtml,
 } from "utils/productionOrderPrintHtml";
 
 const TYPE_LABELS = {
@@ -179,14 +180,6 @@ export function buildProductionOrderDocSection(order, { tasks, generatedAt } = {
   const detailTableHtml = isCinchoOrderType(order.orderType)
     ? buildCinchoDetailTableHtml(order)
     : buildNormalColorMatrixTableHtml(order);
-  const orderObservation = String(order.observations || "").trim();
-  const orderObservationBlock = orderObservation
-    ? `
-          <div class="order-observation">
-            <strong>Observación:</strong>
-            <div>${escapeHtml(orderObservation)}</div>
-          </div>`
-    : "";
   const at = generatedAt || new Date().toLocaleString("es-GT");
 
   return `
@@ -235,8 +228,7 @@ export function buildProductionOrderDocSection(order, { tasks, generatedAt } = {
             </tbody>
           </table>
 
-          ${orderObservationBlock}
-
+          ${buildOrderObservationPrintHtml(order)}
           ${detailTableHtml}
         </section>
       `;
@@ -320,7 +312,8 @@ function getBatchPrintDocumentStyles() {
               background: #fafafa;
               margin: 0 0 10px;
               padding: 6px 8px;
-              line-height: 1.3;
+              line-height: 1.35;
+              white-space: pre-wrap;
             }
             .order-observation strong { display: block; margin-bottom: 3px; }
             .lines-cincho,

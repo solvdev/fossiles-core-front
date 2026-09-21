@@ -9,6 +9,13 @@ export function escapeHtml(value) {
     .replace(/'/g, "&#039;");
 }
 
+/** Bloque de observaciones generales de la OP (p. ej. notas del vendedor). */
+export function buildOrderObservationPrintHtml(order) {
+  const text = String(order?.observations || "").trim();
+  if (!text) return "";
+  return `<div class="order-observation"><strong>Observaciones</strong>${escapeHtml(text)}</div>`;
+}
+
 /** Quita sufijo "(N)" previo para no duplicar al reagrupar. */
 export function normalizeObservationText(value) {
   return String(value ?? "")

@@ -21,12 +21,13 @@ import {
 } from "utils/productCinchoHelper";
 
 const inputStyle = {
-  width: 56,
-  padding: "4px 4px",
-  fontSize: 12,
+  width: 64,
+  minHeight: 36,
+  padding: "6px 4px",
+  fontSize: 14,
   textAlign: "right",
   border: "1px solid #d1d5db",
-  borderRadius: 4,
+  borderRadius: 6,
 };
 
 const vitrineRowStyle = { background: "#f0fdf4" };

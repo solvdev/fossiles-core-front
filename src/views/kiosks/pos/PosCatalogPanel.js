@@ -1,4 +1,4 @@
-import React, { useMemo } from "react";
+import React, { useMemo, useState } from "react";
 import { Alert, Card, CardBody, Input } from "reactstrap";
 import {
   buildCategoryOptions,
@@ -17,6 +17,10 @@ import {
   resolveImageUrl,
   variantLineKeyFor,
   sortPackagingInventory,
+  isEntrecuerosPosMode,
+  ENTRECUEROS_CATALOG_GROUPS,
+  listEntrecuerosPriceTiers,
+  buildBrandOptions,
 } from "./posUtils";
 import { PRODUCT_AUDIENCE_OPTIONS } from "utils/productAudienceHelper";
 
@@ -35,21 +39,28 @@ function PosCatalogPanel({
   cartQtyByColorKey,
   onAddProduct,
   onPickSizedVariant,
+  posMode = "STANDARD",
 }) {
+  const entrecueros = isEntrecuerosPosMode({ posMode });
+  const [catalogGroup, setCatalogGroup] = useState("");
+  const [brandFilter, setBrandFilter] = useState("");
   const categoryOptions = useMemo(() => buildCategoryOptions(inventory), [inventory]);
   const colorOptions = useMemo(() => buildColorOptions(inventory), [inventory]);
+  const brandOptions = useMemo(() => buildBrandOptions(inventory), [inventory]);
   const isPackagingView = catalogView === "PACKAGING";
 
   const filteredInventory = useMemo(
     () =>
       filterPosInventory(inventory, {
         search: productSearch,
-        categoryFilter,
+        categoryFilter: entrecueros ? "" : categoryFilter,
         audienceFilter,
         colorFilter,
         catalogView,
+        catalogGroup: entrecueros ? catalogGroup : "",
+        brandFilter: entrecueros ? brandFilter : "",
       }),
-    [inventory, productSearch, categoryFilter, audienceFilter, colorFilter, catalogView]
+    [inventory, productSearch, categoryFilter, audienceFilter, colorFilter, catalogView, catalogGroup, brandFilter, entrecueros]
   );
 
   const groupedProducts = useMemo(
@@ -80,6 +91,8 @@ function PosCatalogPanel({
       onCategoryFilterChange("");
       onAudienceFilterChange("");
       onColorFilterChange("");
+      setCatalogGroup("");
+      setBrandFilter("");
     }
   };
 
@@ -115,30 +128,84 @@ function PosCatalogPanel({
         {!isPackagingView && (
           <>
             <div className="kiosk-pos-filter-row">
-              <span className="kiosk-pos-filter-label">Categoría</span>
+              <span className="kiosk-pos-filter-label">{entrecueros ? "Variante" : "Categoría"}</span>
               <div className="kiosk-pos-chips">
                 <button
                   type="button"
-                  className={`kiosk-pos-chip ${!categoryFilter ? "active" : ""}`}
-                  onClick={() => onCategoryFilterChange("")}
+                  className={`kiosk-pos-chip ${entrecueros ? (!catalogGroup ? "active" : "") : (!categoryFilter ? "active" : "")}`}
+                  onClick={() => {
+                    if (entrecueros) setCatalogGroup("");
+                    else onCategoryFilterChange("");
+                  }}
                 >
                   Todas
                 </button>
-                {categoryOptions.map((option) => (
-                  <button
-                    key={`cat-${option.label}-${option.id || "none"}`}
-                    type="button"
-                    className={`kiosk-pos-chip ${
-                      option.id != null && String(categoryFilter) === String(option.id) ? "active" : ""
-                    } ${option.disabled ? "disabled" : ""}`}
-                    onClick={() => handleCategoryClick(option)}
-                    disabled={option.disabled}
-                  >
-                    {option.label}
-                  </button>
-                ))}
+                {entrecueros
+                  ? ENTRECUEROS_CATALOG_GROUPS.map((option) => (
+                    <button
+                      key={`ec-group-${option.value}`}
+                      type="button"
+                      className={`kiosk-pos-chip ${catalogGroup === option.value ? "active" : ""}`}
+                      onClick={() =>
+                        setCatalogGroup(catalogGroup === option.value ? "" : option.value)
+                      }
+                    >
+                      {option.label}
+                    </button>
+                  ))
+                  : categoryOptions.map((option) => (
+                    <button
+                      key={`cat-${option.label}-${option.id || "none"}`}
+                      type="button"
+                      className={`kiosk-pos-chip ${
+                        option.id != null && String(categoryFilter) === String(option.id) ? "active" : ""
+                      } ${option.disabled ? "disabled" : ""}`}
+                      onClick={() => handleCategoryClick(option)}
+                      disabled={option.disabled}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
               </div>
             </div>
+
+            {entrecueros ? (
+              <div className="kiosk-pos-filter-row">
+                <span className="kiosk-pos-filter-label">Marca</span>
+                <div className="kiosk-pos-chips">
+                  <button
+                    type="button"
+                    className={`kiosk-pos-chip ${!brandFilter ? "active" : ""}`}
+                    onClick={() => setBrandFilter("")}
+                  >
+                    Todas
+                  </button>
+                  <button
+                    type="button"
+                    className={`kiosk-pos-chip ${brandFilter === "NONE" ? "active" : ""}`}
+                    onClick={() => setBrandFilter(brandFilter === "NONE" ? "" : "NONE")}
+                  >
+                    Sin marca
+                  </button>
+                  {brandOptions.map((option) => (
+                    <button
+                      key={`brand-${option.value}`}
+                      type="button"
+                      className={`kiosk-pos-chip ${brandFilter === option.value ? "active" : ""} ${
+                        option.disabled ? "disabled" : ""
+                      }`}
+                      onClick={() => {
+                        if (option.disabled) return;
+                        setBrandFilter(brandFilter === option.value ? "" : option.value);
+                      }}
+                      disabled={option.disabled}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : null}
 
             <div className="kiosk-pos-filter-row">
               <span className="kiosk-pos-filter-label">Línea</span>
@@ -257,9 +324,10 @@ function PosCatalogPanel({
           <div className="kiosk-pos-inventory-grid">
             {groupedProducts.map((group) => {
               const imageUrl = resolveImageUrl(group.productImageUrl);
+              const groupKey = group.groupKey || group.productId;
 
               return (
-                <div key={group.productId} className="kiosk-pos-product-card">
+                <div key={groupKey} className="kiosk-pos-product-card">
                   {imageUrl ? (
                     <img src={imageUrl} alt={group.productName} className="kiosk-pos-product-image" />
                   ) : (
@@ -270,6 +338,15 @@ function PosCatalogPanel({
                   <div className="kiosk-pos-product-code">{group.productCode}</div>
                   <div className="kiosk-pos-item-name">{group.productName}</div>
                   <div className="kiosk-pos-item-price">{formatCurrency(group.suggestedUnitPrice)}</div>
+                  {entrecueros && listEntrecuerosPriceTiers(group).length > 1 && (
+                    <div className="kiosk-pos-item-tiers">
+                      {listEntrecuerosPriceTiers(group).map((tier) => (
+                        <span key={`tier-${groupKey}-${tier.minQty}`}>
+                          {tier.label} {formatCurrency(tier.unitPrice)}
+                        </span>
+                      ))}
+                    </div>
+                  )}
                   <div className="kiosk-pos-variant-chips">
                     {group.variants.map((variant) => {
                       const variantKey = variantLineKeyFor(
@@ -282,7 +359,7 @@ function PosCatalogPanel({
                       const stock = posVariantStockQty(variant);
                       const stockLow = stock <= 3;
                       const outOfStock = stock <= 0;
-                      const chipLabel = posVariantChipLabel(variant, group.variants);
+                      const chipLabel = posVariantChipLabel(variant, group.variants, { entreCueros: entrecueros });
                       const swatch = getColorSwatch(variant.colorName);
                       const hardwareHint = variant.hardwareLabel || "";
 
@@ -293,7 +370,7 @@ function PosCatalogPanel({
                           className={`kiosk-pos-variant-chip ${needsSize ? "needs-size" : ""} ${
                             stockLow ? "low-stock" : ""
                           } ${outOfStock ? "disabled" : ""} ${
-                            normalizePosHardwareCondition(variant.hardwareCondition) === "VIEJO"
+                            !entrecueros && normalizePosHardwareCondition(variant.hardwareCondition) === "VIEJO"
                               ? "hardware-viejo"
                               : ""
                           }`}

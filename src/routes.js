@@ -61,7 +61,7 @@ import CinchosProductionOrdersView from "views/production/CinchosProductionOrder
 
 // Inventarios
 import InventoryByLocation from "views/inventory/InventoryByLocation.js";
-import ProductInventoryByLocation from "views/inventory/ProductInventoryByLocation.js";
+import ProductMovementsAccounting from "views/inventory/ProductMovementsAccounting.js";
 import ProductLedgerLab from "views/inventory/ProductLedgerLab.js";
 import MaterialInventoryKardex from "views/inventory/MaterialInventoryKardex.js";
 import InventoryKardex from "views/inventory/InventoryKardex.js";
@@ -746,7 +746,7 @@ const routes = [
         path: "/product-inventory-by-location",
         name: "Inventario Productos",
         mini: "IP",
-        component: <ProductInventoryByLocation />,
+        component: <ProductMovementsAccounting />,
         layout: "/admin",
         module: "INVENTARIOS",
         permissions: {
@@ -1340,8 +1340,8 @@ const routes = [
       },
       {
         path: "/kiosk-performance",
-        name: "Desempeño de Kioscos",
-        mini: "DK",
+        name: "Ventas y stock del Kiosko",
+        mini: "VK",
         component: <KioskPerformance />,
         layout: "/admin",
         module: "REPORTES",

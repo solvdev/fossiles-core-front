@@ -15,6 +15,9 @@ export const formatCashCloseMoneyQ = (value) => {
   return `Q${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 };
 
+const nonCashSalesLabel = (report) =>
+  String(report?.posMode || "").toUpperCase() === "ENTRECUEROS" ? "Transferencia" : "Tarjeta";
+
 export const formatCashCloseDateTime = (value) => {
   const label = formatDateTimeGt(value);
   if (!label || label === "-") return "—";
@@ -263,7 +266,7 @@ export const buildKioskCashCloseReportBodyHtml = (report) => {
       <span class="value">${escapeHtml(formatCashCloseMoneyQ(report?.openingAmount))}</span>
     </div>
     <div class="summary-row">
-      <span class="label">Tarjeta</span>
+      <span class="label">${escapeHtml(nonCashSalesLabel(report))}</span>
       <span class="value">${escapeHtml(formatCashCloseMoneyQ(report?.cardSalesTotal))}</span>
     </div>
     <div class="summary-row">
@@ -308,7 +311,7 @@ export const buildKioskCashCloseReportBodyHtml = (report) => {
     <h4>Definiciones</h4>
     <p><strong>Desembolso:</strong> dinero que sale de la caja por un gasto operativo del turno (ej. taxi). No es venta.</p>
     <p><strong>Total de Efectivo:</strong> Desembolso + Depósito (debe igualar el efectivo de ventas del turno).</p>
-    <p><strong>Monto Cierre:</strong> Apertura + Tarjeta + Total de Efectivo.</p>
+    <p><strong>Monto Cierre:</strong> Apertura + ${escapeHtml(nonCashSalesLabel(report))} + Total de Efectivo.</p>
     <p><strong>Monto Total:</strong> Monto Cierre − Apertura (ventas del día).</p>
     <p><strong>Diferencia efectivo:</strong> efectivo contado físicamente − efectivo esperado en caja.</p>
     <p><strong>Dif. voucher:</strong> suma de (voucher del terminal − tarjeta en factura). No modifica FEL ni el monto de cierre.</p>
@@ -403,7 +406,7 @@ export const exportKioskCashCloseToExcel = (report) => {
 
   aoa.push([]);
   aoa.push(["Monto de Apertura", Number(report.openingAmount || 0)]);
-  aoa.push(["Tarjeta", Number(report.cardSalesTotal || 0)]);
+  aoa.push([nonCashSalesLabel(report), Number(report.cardSalesTotal || 0)]);
   aoa.push(["Efectivo", Number(report.cashSalesTotal || 0)]);
   aoa.push(["Desembolso", Number(report.disbursementsTotal || 0)]);
   aoa.push([
@@ -561,7 +564,7 @@ export const exportKioskCashCloseToExcel = (report) => {
   const summaryStart = rowIdx;
   const summary = [
     ["Monto de Apertura", Number(report.openingAmount || 0)],
-    ["Tarjeta", Number(report.cardSalesTotal || 0)],
+    [nonCashSalesLabel(report), Number(report.cardSalesTotal || 0)],
     ["Efectivo", Number(report.cashSalesTotal || 0)],
     ["Desembolso", Number(report.disbursementsTotal || 0)],
     [

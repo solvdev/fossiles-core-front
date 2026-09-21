@@ -15,6 +15,7 @@ function PosSuccessScreen({ sale, onNewSale }) {
   const felSerie = invoice?.felSerie || sale.felSerie;
   const felNumero = invoice?.felNumero || sale.felNumero;
   const internalNumber = getSaleInternalNumber(sale);
+  const skippedFel = String(felStatus || "").toUpperCase() === "SKIPPED";
   const felError = invoice?.felError || sale.felError;
   const canDownloadXml = felStatus === "CERTIFIED" && invoice?.hasCertifiedXml && invoice?.id;
   const canDownloadFelReport = felStatus === "CERTIFIED" && felUuid;
@@ -45,7 +46,9 @@ function PosSuccessScreen({ sale, onNewSale }) {
         <h3 className="text-success mb-3">Venta registrada</h3>
         {internalNumber ? (
           <>
-            <p className="text-muted small mb-1">No. control interno (FEL)</p>
+            <p className="text-muted small mb-1">
+              {skippedFel ? "No. hoja de envío" : "No. interno"}
+            </p>
             <p className="kiosk-pos-success-number mb-2">
               <strong>{internalNumber}</strong>
             </p>

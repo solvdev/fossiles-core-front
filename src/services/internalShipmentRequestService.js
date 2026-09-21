@@ -57,6 +57,25 @@ export const authorizeOpiProduction = async (id) => {
   return parseJson(response, "No se pudo autorizar la producción OPI.");
 };
 
+export const generateOpiForInternalShipmentRequest = async (id) => {
+  const response = await fetch(`${API_URL}/internal-shipment-requests/${id}/generate-opi`, {
+    method: "POST",
+    headers: headers(),
+  });
+  return parseJson(response, "No se pudo generar la OPI.");
+};
+
+export const generateOpiForInternalShipment = async (shipmentId) => {
+  const response = await fetch(
+    `${API_URL}/internal-shipment-requests/by-shipment/${shipmentId}/generate-opi`,
+    {
+      method: "POST",
+      headers: headers(),
+    }
+  );
+  return parseJson(response, "No se pudo generar la OPI.");
+};
+
 export const approveInternalShipmentRequest = async (id) => {
   const response = await fetch(`${API_URL}/internal-shipment-requests/${id}/approve`, {
     method: "POST",

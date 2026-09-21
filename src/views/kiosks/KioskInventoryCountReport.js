@@ -53,6 +53,7 @@ import {
   computeConteoRowDiferencia,
   formatConteoDiffArrow,
   formatConteoDiffDisplay,
+  formatConteoProductTitle,
   formatConteoSubtotalLabel,
   resolveLivePhysicalTotal,
   resolveLiveRowDiff,
@@ -78,7 +79,7 @@ import {
   isFossCinchoProductRow,
   formatCinchoClassification,
   formatFossLocationSizeSummary,
-  getHardwareConditionLabel,
+  resolveStockDimensionLabel,
   rowUsesHardwareCountMode,
   productMatchesCinchoFilter,
   productMatchesSearchFilter,
@@ -94,10 +95,13 @@ import {
 } from "utils/productCinchoHelper";
 import { showError, showSuccess } from "utils/notificationHelper";
 import CinchoCountDetailModal from "./CinchoCountDetailModal";
+import { isEntreCuerosLocation, kioskDimensionDisplayLabel } from "utils/kioskStockDimensionHelper";
+import { ENTRECUEROS_VARIANT_FILTERS, matchesEntrecuerosVariantFilter } from "utils/entrecuerosPriceLists";
 import HardwareCountModal, {
   buildHardwareLocationCounts,
   syncCountsFromHardware,
 } from "./HardwareCountModal";
+import "./KioskInventoryCountReport.css";
 
 const COUNT_LOCATION_KEYS = ["V1", "V2", "V3", "V4", "V5", "V6", "V7", "E", "BO"];
 const CINCHO_VITRINE_LOCATION = CINCHO_COUNT_LOCATION.VITRINE;
@@ -113,7 +117,7 @@ const locColStyle = {
   width: LOC_COL_WIDTH,
   minWidth: LOC_COL_WIDTH,
   maxWidth: LOC_COL_WIDTH,
-  padding: "2px 4px",
+  padding: "4px",
   textAlign: "center",
   boxSizing: "border-box",
 };
@@ -124,6 +128,24 @@ const sumColStyle = {
   textAlign: "right",
   boxSizing: "border-box",
 };
+
+function useCompactLayout(maxWidth = 640) {
+  const [compact, setCompact] = useState(() =>
+    typeof window !== "undefined" && window.matchMedia(`(max-width: ${maxWidth}px)`).matches
+  );
+  useEffect(() => {
+    const mq = window.matchMedia(`(max-width: ${maxWidth}px)`);
+    const onChange = (event) => setCompact(event.matches);
+    if (mq.addEventListener) mq.addEventListener("change", onChange);
+    else mq.addListener(onChange);
+    setCompact(mq.matches);
+    return () => {
+      if (mq.removeEventListener) mq.removeEventListener("change", onChange);
+      else mq.removeListener(onChange);
+    };
+  }, [maxWidth]);
+  return compact;
+}
 
 /** Diferencia absoluta minima (unidades) para considerar una discrepancia relevante. Debe reflejar
  * KioscoInventoryCountService.DIFF_ALERT_THRESHOLD en el backend. */
@@ -140,12 +162,12 @@ function conteoStatusMeta(status, internalMode = false) {
 
 const KARDEX_COLUMNS = [
   { key: "inventarioInicial", label: "Ini.", title: "Inventario Inicial" },
-  { key: "comprasAjustes", label: "Comp.", title: "Compras / Ajustes" },
+  { key: "comprasAjustes", label: "Comp.", title: "Compras / Ajustes / Ingreso de cambio" },
   { key: "anulacionCompras", label: "A.C.", title: "Anulación Compras" },
   { key: "entradas", label: "Ent.", title: "Entradas (distribución)" },
-  { key: "ventas", label: "Vtas.", title: "Ventas" },
+  { key: "ventas", label: "Vtas.", title: "Ventas / Cambio con diferencia a cobrar" },
   { key: "anulacionVenta", label: "A.V.", title: "Anulación Venta" },
-  { key: "salida", label: "Sal.", title: "Salida" },
+  { key: "salida", label: "Sal.", title: "Salida / Cambio sin diferencia o saldo a favor del cliente" },
   { key: "inventarioFinal", label: "Fin.", title: "Inventario Final (sistema)" },
 ];
 
@@ -272,53 +294,58 @@ const fmtPeriodRange = (fromAt, toAt, fromDate, toDate) => {
 function CountTableColGroup({ showKardex, kardexColumns, vitrineOnlyView = false }) {
   return (
     <colgroup>
-      <col />
-      <col />
-      <col />
-      <col style={{ width: 88 }} />
-      <col style={{ width: 108 }} />
+      <col className="kiosk-conteo-product" />
+      <col className="kiosk-conteo-color" />
+      <col className="kiosk-conteo-size" />
+      <col className="kiosk-conteo-tipo" />
+      <col className="kiosk-conteo-hw" />
       {showKardex && kardexColumns.map((col) => (
-        <col key={col.key} style={{ width: LOC_COL_WIDTH }} />
+        <col key={col.key} className="kiosk-conteo-kardex" />
       ))}
       {COUNT_LOCATION_KEYS.map((k) => (
-        <col key={k} style={{ width: LOC_COL_WIDTH }} />
+        <col key={k} className="kiosk-conteo-loc" />
       ))}
-      <col style={{ width: SUM_COL_WIDTH }} />
+      <col className="kiosk-conteo-sum" />
       {!vitrineOnlyView && (
         <>
-          <col style={{ width: SUM_COL_WIDTH }} />
-          <col style={{ minWidth: OBS_COL_MIN_WIDTH }} />
+          <col className="kiosk-conteo-sum" />
+          <col className="kiosk-conteo-obs" />
         </>
       )}
     </colgroup>
   );
 }
 
+function ProductIdentity({ row }) {
+  const code = String(row?.productCode || "").trim();
+  const name = formatConteoProductTitle(row) || "—";
+  return (
+    <div className="kiosk-conteo-identity">
+      {code ? <span className="kiosk-conteo-product-code">{code}</span> : null}
+      <span className="kiosk-conteo-product-name">{name}</span>
+    </div>
+  );
+}
+
+function qtyClassName(value, disabled) {
+  return [
+    "kiosk-conteo-qty",
+    disabled ? "is-disabled" : "",
+    Number(value || 0) > 0 ? "has-value" : "",
+  ].filter(Boolean).join(" ");
+}
+
 // ─── Celda de conteo editable ─────────────────────────────────────────────────
 function CountCell({ value, onChange, disabled, onOpen, readOnly }) {
-  const cellStyle = {
-    width: "100%",
-    maxWidth: LOC_COL_WIDTH - 8,
-    padding: "2px 4px",
-    fontSize: 12,
-    textAlign: "right",
-    border: "1px solid #d1d5db",
-    borderRadius: 4,
-    background: disabled ? "#f3f4f6" : value > 0 ? "#f0fdf4" : "#fff",
-    boxSizing: "border-box",
-  };
+  const className = qtyClassName(value, disabled);
 
   if (readOnly && onOpen) {
     return (
       <button
         type="button"
+        className={className}
         onClick={onOpen}
         disabled={disabled}
-        style={{
-          ...cellStyle,
-          cursor: disabled ? "not-allowed" : "pointer",
-          display: "block",
-        }}
       >
         {value ?? 0}
       </button>
@@ -328,15 +355,19 @@ function CountCell({ value, onChange, disabled, onOpen, readOnly }) {
   return (
     <input
       type="number"
+      inputMode="numeric"
       min="0"
       step="1"
+      className={className}
       value={value ?? 0}
       onChange={(e) => onChange(e.target.value === "" ? 0 : Number(e.target.value))}
-      onFocus={onOpen}
+      onFocus={(e) => {
+        e.target.select();
+        if (onOpen) onOpen();
+      }}
       onClick={onOpen}
       readOnly={readOnly}
       disabled={disabled}
-      style={cellStyle}
     />
   );
 }
@@ -377,10 +408,9 @@ function HardwareQtyChips({ nuevo, viejo }) {
 }
 
 /** Desglose N/V: sistema (kardex) vs físico (conteo por vitrina). */
-function HardwareSplitSummaryCell({ row, hardwareLocationCounts, useHardwareSplit, vitrineOnlyView }) {
-  if (!useHardwareSplit) {
-    const label = getHardwareConditionLabel(row.hardwareCondition);
-    return <span>{label !== "—" ? label : "—"}</span>;
+function HardwareSplitSummaryCell({ row, hardwareLocationCounts, useHardwareSplit, vitrineOnlyView, entreCueros = false }) {
+  if (!useHardwareSplit || entreCueros) {
+    return <span>{kioskDimensionDisplayLabel(row.hardwareCondition, { entreCueros })}</span>;
   }
 
   const system = sumInventarioFinalByHardware(row.inventarioFinalByHardware);
@@ -444,23 +474,14 @@ function ObservationCell({ value, onChange, disabled, show }) {
   );
 }
 
-// ─── Fila de datos ────────────────────────────────────────────────────────────
-function DataRow({
+function buildCountRowModel({
   row,
-  showKardex,
-  kardexColumns,
   counts,
   physicalSizes,
   physicalSizesByLocation,
-  observation,
-  onCountChange,
-  onObservationChange,
-  onOpenCinchoModal,
-  onOpenHardwareModal,
-  disabled,
   editedHardwareLocationCounts,
-  vitrineOnlyView = false,
-  hardwareSplitEnabled = false,
+  hardwareSplitEnabled,
+  entreCueros,
 }) {
   const total = resolveLivePhysicalTotal(row, counts, physicalSizes, physicalSizesByLocation);
   const diferencia = computeConteoRowDiferencia(total, row);
@@ -490,16 +511,61 @@ function DataRow({
     }
     return locKey !== CINCHO_VITRINE_LOCATION;
   };
-  const diffArrow = formatConteoDiffArrow(diferencia);
-  const diffLabel = formatConteoDiffDisplay(diferencia);
+  return {
+    total,
+    diferencia,
+    isCincho,
+    isFoss,
+    isExpandedSizeRow,
+    rKey,
+    useHardwareModal,
+    physicalSummary,
+    sizeCell,
+    countLocationDisabled,
+    diffArrow: formatConteoDiffArrow(diferencia),
+    diffLabel: formatConteoDiffDisplay(diferencia),
+  };
+}
+
+// ─── Fila de datos ────────────────────────────────────────────────────────────
+function DataRow({
+  row,
+  showKardex,
+  kardexColumns,
+  counts,
+  physicalSizes,
+  physicalSizesByLocation,
+  observation,
+  onCountChange,
+  onObservationChange,
+  onOpenCinchoModal,
+  onOpenHardwareModal,
+  disabled,
+  editedHardwareLocationCounts,
+  vitrineOnlyView = false,
+  hardwareSplitEnabled = false,
+  entreCueros = false,
+}) {
+  const {
+    total, diferencia, isCincho, isFoss, isExpandedSizeRow, rKey,
+    useHardwareModal, physicalSummary, sizeCell, countLocationDisabled,
+    diffArrow, diffLabel,
+  } = buildCountRowModel({
+    row,
+    counts,
+    physicalSizes,
+    physicalSizesByLocation,
+    editedHardwareLocationCounts,
+    hardwareSplitEnabled,
+    entreCueros,
+  });
   return (
     <tr>
-      <td style={{ fontSize: 12 }}>
-        <span style={{ fontWeight: 500 }}>{row.productCode}</span>
-        <span style={{ color: "#6b7280" }}> {row.productName}</span>
+      <td className="kiosk-conteo-product">
+        <ProductIdentity row={row} />
       </td>
-      <td style={{ fontSize: 12, color: "#6b7280" }}>{row.colorName || "—"}</td>
-      <td style={{ fontSize: 11, color: "#374151" }}>
+      <td className="kiosk-conteo-color" style={{ fontSize: 12, color: "#6b7280" }}>{row.colorName || "—"}</td>
+      <td className="kiosk-conteo-size" style={{ fontSize: 11, color: "#374151" }}>
         <div style={{ whiteSpace: "nowrap", fontWeight: isExpandedSizeRow ? 600 : 400 }}>{sizeCell}</div>
         {physicalSummary && (
           <div style={{ fontSize: 10, color: "#2563eb", whiteSpace: "nowrap" }}>
@@ -519,28 +585,33 @@ function DataRow({
           </Button>
         )}
       </td>
-      <td style={{ fontSize: 11, color: "#374151", whiteSpace: "nowrap" }}>
+      <td className="kiosk-conteo-tipo" style={{ fontSize: 11, color: "#374151", whiteSpace: "nowrap" }}>
         {formatCinchoClassification(row)}
       </td>
-      <td style={{ fontSize: 11, color: "#374151", verticalAlign: "middle" }}>
-        {hardwareSplitEnabled ? (
+      <td className="kiosk-conteo-hw" style={{ fontSize: 11, color: "#374151", verticalAlign: "middle" }}>
+        {entreCueros ? (
+          <span>{kioskDimensionDisplayLabel(row.hardwareCondition, { entreCueros: true })}</span>
+        ) : resolveStockDimensionLabel(row.hardwareCondition) ? (
+          <span>{resolveStockDimensionLabel(row.hardwareCondition)}</span>
+        ) : hardwareSplitEnabled ? (
           <HardwareSplitSummaryCell
             row={row}
             hardwareLocationCounts={editedHardwareLocationCounts?.[rKey] ?? row.hardwareLocationCounts}
             useHardwareSplit={useHardwareModal}
             vitrineOnlyView={vitrineOnlyView}
+            entreCueros={entreCueros}
           />
         ) : (
           <span style={{ color: "#9ca3af" }}>—</span>
         )}
       </td>
       {showKardex && kardexColumns.map((col) => (
-        <td key={col.key} className="text-right" style={{ fontSize: 11, color: col.key === "inventarioFinal" ? "#111" : "#6b7280" }}>
+        <td key={col.key} className="text-right kiosk-conteo-kardex" style={{ fontSize: 11, color: col.key === "inventarioFinal" ? "#111" : "#6b7280" }}>
           {row[col.key]}
         </td>
       ))}
       {COUNT_LOCATION_KEYS.map((locKey) => (
-        <td key={locKey} style={locColStyle}>
+        <td key={locKey} className="kiosk-conteo-loc" style={locColStyle}>
           <CountCell
             value={counts[locKey]}
             onChange={(v) => onCountChange(locKey, v)}
@@ -554,10 +625,10 @@ function DataRow({
           />
         </td>
       ))}
-      <td style={{ ...sumColStyle, fontWeight: 600, fontSize: 12 }}>{total}</td>
+      <td className="kiosk-conteo-sum" style={{ ...sumColStyle, fontWeight: 600, fontSize: 12 }}>{total}</td>
       {!vitrineOnlyView && (
         <>
-          <td style={{
+          <td className="kiosk-conteo-sum" style={{
             ...sumColStyle,
             fontWeight: 700,
             fontSize: 12,
@@ -578,6 +649,146 @@ function DataRow({
         </>
       )}
     </tr>
+  );
+}
+
+function CountProductCard({
+  row,
+  showKardex,
+  kardexColumns,
+  counts,
+  physicalSizes,
+  physicalSizesByLocation,
+  observation,
+  onCountChange,
+  onObservationChange,
+  onOpenCinchoModal,
+  onOpenHardwareModal,
+  disabled,
+  editedHardwareLocationCounts,
+  vitrineOnlyView = false,
+  hardwareSplitEnabled = false,
+  entreCueros = false,
+}) {
+  const {
+    total, diferencia, isCincho, isFoss, rKey,
+    useHardwareModal, physicalSummary, sizeCell, countLocationDisabled,
+    diffArrow, diffLabel,
+  } = buildCountRowModel({
+    row,
+    counts,
+    physicalSizes,
+    physicalSizesByLocation,
+    editedHardwareLocationCounts,
+    hardwareSplitEnabled,
+    entreCueros,
+  });
+  const herrajeLabel = entreCueros
+    ? kioskDimensionDisplayLabel(row.hardwareCondition, { entreCueros: true })
+    : (resolveStockDimensionLabel(row.hardwareCondition) || null);
+
+  return (
+    <article className={`kiosk-conteo-card${diferencia !== 0 ? " is-alert" : ""}`}>
+      <div className="kiosk-conteo-card-title">
+        <ProductIdentity row={row} />
+      </div>
+      <div className="kiosk-conteo-card-meta">
+        <span><strong>Color</strong> {row.colorName || "—"}</span>
+        <span><strong>Talla</strong> {sizeCell}</span>
+        <span><strong>Tipo</strong> {formatCinchoClassification(row) || "—"}</span>
+        {herrajeLabel ? <span><strong>{entreCueros ? "Variante" : "Herraje"}</strong> {herrajeLabel}</span> : null}
+        {physicalSummary ? <span><strong>Físico</strong> {physicalSummary}</span> : null}
+      </div>
+      {!entreCueros && hardwareSplitEnabled && (
+        <div className="mb-2">
+          <HardwareSplitSummaryCell
+            row={row}
+            hardwareLocationCounts={editedHardwareLocationCounts?.[rKey] ?? row.hardwareLocationCounts}
+            useHardwareSplit={useHardwareModal}
+            vitrineOnlyView={vitrineOnlyView}
+            entreCueros={entreCueros}
+          />
+        </div>
+      )}
+      {isCincho && !row.sizeLabel && (
+        <Button
+          color="link"
+          size="sm"
+          className="p-0 mb-2"
+          style={{ fontSize: 12, fontWeight: 600 }}
+          onClick={() => onOpenCinchoModal(row.productId)}
+          disabled={disabled}
+        >
+          {isFoss ? "Contar E/BO por talla" : "Contar por talla"}
+        </Button>
+      )}
+      {showKardex && (
+        <div className="kiosk-conteo-kardex-grid">
+          {kardexColumns.map((col) => (
+            <div key={col.key} className="kiosk-conteo-metric" title={col.title}>
+              <span>{col.label}</span>
+              <strong>{row[col.key] ?? 0}</strong>
+            </div>
+          ))}
+        </div>
+      )}
+      <div className="kiosk-conteo-vitrine-grid">
+        {COUNT_LOCATION_KEYS.map((locKey) => (
+          <label key={locKey} className="kiosk-conteo-vitrine">
+            <span>{locKey}</span>
+            <CountCell
+              value={counts[locKey]}
+              onChange={(v) => onCountChange(locKey, v)}
+              disabled={disabled || countLocationDisabled(locKey)}
+              readOnly={useHardwareModal && !countLocationDisabled(locKey)}
+              onOpen={
+                useHardwareModal && !disabled && !countLocationDisabled(locKey)
+                  ? () => onOpenHardwareModal(locKey)
+                  : undefined
+              }
+            />
+          </label>
+        ))}
+      </div>
+      <div className="kiosk-conteo-card-foot">
+        <div className="kiosk-conteo-card-total">
+          <label>Total físico</label>
+          <strong>{total}</strong>
+        </div>
+        {!vitrineOnlyView && (
+          <div className="kiosk-conteo-card-diff" style={{ color: diffColor(diferencia), background: diffAlertBackground(diferencia) || "#fee2e2" }}>
+            <label>Diferencia</label>
+            <strong>{diffArrow ? `${diffArrow} ` : ""}{diffLabel}</strong>
+          </div>
+        )}
+        {!vitrineOnlyView && (
+          <div className="kiosk-conteo-card-obs">
+            <ObservationCell
+              value={observation}
+              onChange={onObservationChange}
+              disabled={disabled}
+              show={diferencia !== 0}
+            />
+          </div>
+        )}
+      </div>
+    </article>
+  );
+}
+
+function CompactSummary({ label, row, vitrineOnlyView = false, dark = false }) {
+  const diffArrow = formatConteoDiffArrow(row.diferencia);
+  const diffLabel = formatConteoDiffDisplay(row.diferencia ?? 0);
+  return (
+    <div className={dark ? "kiosk-conteo-grand-total" : "kiosk-conteo-subtotal"}>
+      <span>{label}</span>
+      <span>Total {row.total ?? 0}</span>
+      {!vitrineOnlyView && (
+        <span style={{ color: dark ? "#fff" : diffColor(row.diferencia ?? 0) }}>
+          Dif. {diffArrow ? `${diffArrow} ` : ""}{diffLabel}
+        </span>
+      )}
+    </div>
   );
 }
 
@@ -731,6 +942,8 @@ function CategoryGroup({
   disabled,
   vitrineOnlyView = false,
   hardwareSplitEnabled = false,
+  entreCueros = false,
+  compact = false,
 }) {
   const [collapsed, setCollapsed] = useState(false);
   const trailingCols = vitrineOnlyView ? INTERNAL_TRAILING_DATA_COLS : TRAILING_DATA_COLS;
@@ -743,6 +956,57 @@ function CategoryGroup({
       editedSizeCountsByLocation[rKey] ?? row.physicalSizesByLocation
     ) !== 0;
   });
+  const rowNodes = category.rows.map((row) => {
+    const rKey = rowKey(row);
+    const rowProps = {
+      row,
+      showKardex,
+      kardexColumns,
+      counts: editedCounts[rKey] || row.counts || {},
+      physicalSizes: editedSizeCounts[rKey] ?? row.physicalSizes,
+      physicalSizesByLocation: editedSizeCountsByLocation[rKey] ?? row.physicalSizesByLocation,
+      observation: resolveRowObservation(row, editedObservations),
+      onCountChange: (locKey, v) => onCountChange(rKey, locKey, v),
+      onObservationChange: (v) => onObservationChange(rKey, v),
+      onOpenCinchoModal,
+      onOpenHardwareModal: (locKey) => onOpenHardwareModal(rKey, locKey, row),
+      disabled,
+      editedHardwareLocationCounts,
+      vitrineOnlyView,
+      hardwareSplitEnabled,
+      entreCueros,
+    };
+    return compact
+      ? <CountProductCard key={rKey} {...rowProps} />
+      : <DataRow key={rKey} {...rowProps} />;
+  });
+
+  if (compact) {
+    return (
+      <section className="kiosk-conteo-cat">
+        <button type="button" className="kiosk-conteo-cat-toggle" onClick={() => setCollapsed((v) => !v)}>
+          <span>{collapsed ? "▶" : "▼"}</span>
+          {category.categoryName}
+          <span>
+            {category.rows.length} producto{category.rows.length !== 1 ? "s" : ""}
+          </span>
+          {hasDiff && !vitrineOnlyView && (
+            <Badge color="danger" style={{ fontSize: 10 }}>Diferencias</Badge>
+          )}
+        </button>
+        {!collapsed && (
+          <>
+            <div className="kiosk-conteo-cards">{rowNodes}</div>
+            <CompactSummary
+              label={formatConteoSubtotalLabel(category.categoryName)}
+              row={category.subtotal}
+              vitrineOnlyView={vitrineOnlyView}
+            />
+          </>
+        )}
+      </section>
+    );
+  }
 
   return (
     <>
@@ -766,33 +1030,7 @@ function CategoryGroup({
       </tr>
       {!collapsed && (
         <>
-          {category.rows.map((row) => {
-            const rKey = rowKey(row);
-            const counts = editedCounts[rKey] || row.counts || {};
-            const physicalSizes = editedSizeCounts[rKey] ?? row.physicalSizes;
-            const physicalSizesByLocation = editedSizeCountsByLocation[rKey] ?? row.physicalSizesByLocation;
-            const observation = resolveRowObservation(row, editedObservations);
-            return (
-              <DataRow
-                key={rKey}
-                row={row}
-                showKardex={showKardex}
-                kardexColumns={kardexColumns}
-                counts={counts}
-                physicalSizes={physicalSizes}
-                physicalSizesByLocation={physicalSizesByLocation}
-                observation={observation}
-                onCountChange={(locKey, v) => onCountChange(rKey, locKey, v)}
-                onObservationChange={(v) => onObservationChange(rKey, v)}
-                onOpenCinchoModal={onOpenCinchoModal}
-                onOpenHardwareModal={(locKey) => onOpenHardwareModal(rKey, locKey, row)}
-                disabled={disabled}
-                editedHardwareLocationCounts={editedHardwareLocationCounts}
-                vitrineOnlyView={vitrineOnlyView}
-                hardwareSplitEnabled={hardwareSplitEnabled}
-              />
-            );
-          })}
+          {rowNodes}
           <SummaryRow
             label={formatConteoSubtotalLabel(category.categoryName)}
             row={category.subtotal}
@@ -808,6 +1046,8 @@ function CategoryGroup({
 
 // ─── Componente principal ─────────────────────────────────────────────────────
 function KioskInventoryCountReport({ locationId, internalMode = false }) {
+  const compact = useCompactLayout(640);
+  const entreCueros = isEntreCuerosLocation(locationId);
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [report, setReport] = useState(null);
@@ -822,6 +1062,7 @@ function KioskInventoryCountReport({ locationId, internalMode = false }) {
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [audienceFilter, setAudienceFilter] = useState("");
   const [cinchoFilter, setCinchoFilter] = useState("");
+  const [variantFilter, setVariantFilter] = useState("");
   const [productCategoryFilter, setProductCategoryFilter] = useState("");
   const [showKardex, setShowKardex] = useState(() => !internalMode);
   const [editedSizeCounts, setEditedSizeCounts] = useState({});
@@ -850,6 +1091,7 @@ function KioskInventoryCountReport({ locationId, internalMode = false }) {
   const [lastAutoSaveAt, setLastAutoSaveAt] = useState(null);
   const [remoteSyncNotice, setRemoteSyncNotice] = useState("");
   const [hardwareSplitEnabled, setHardwareSplitEnabled] = useState(false);
+  const nvSplitEnabled = hardwareSplitEnabled && !entreCueros;
   const lastSyncSinceRef = useRef(null);
   const autoSavingRef = useRef(false);
 
@@ -887,6 +1129,7 @@ function KioskInventoryCountReport({ locationId, internalMode = false }) {
             && productMatchesSearchFilter(row, debouncedSearch)
             && productMatchesAudienceFilter(row, audienceFilter)
             && productMatchesCinchoFilter(row, cinchoFilter)
+            && (!entreCueros || matchesEntrecuerosVariantFilter(row, variantFilter))
         );
         if (rows.length === 0) return null;
         const rowsWithLiveTotals = rows.map((row) =>
@@ -900,6 +1143,8 @@ function KioskInventoryCountReport({ locationId, internalMode = false }) {
     debouncedSearch,
     audienceFilter,
     cinchoFilter,
+    variantFilter,
+    entreCueros,
     productCategoryFilter,
     editedCounts,
     editedSizeCounts,
@@ -948,7 +1193,7 @@ function KioskInventoryCountReport({ locationId, internalMode = false }) {
   );
 
   const cinchoModalHardwareSplit = useMemo(() => {
-    if (!hardwareSplitEnabled || !cinchoModalRows.length) return false;
+    if (!nvSplitEnabled || !cinchoModalRows.length) return false;
     const parentRows = cinchoModalRows.filter((row) => !row.sizeLabel);
     const rowsToCheck = parentRows.length ? parentRows : cinchoModalRows;
     return rowsToCheck.every((row) => {
@@ -966,7 +1211,7 @@ function KioskInventoryCountReport({ locationId, internalMode = false }) {
     editedCounts,
     editedSizeCounts,
     editedSizeCountsByLocation,
-    hardwareSplitEnabled,
+    nvSplitEnabled,
   ]);
 
   const filteredTotalGeneral = useMemo(() => {
@@ -1024,7 +1269,10 @@ function KioskInventoryCountReport({ locationId, internalMode = false }) {
     setEditedSizeCountsByLocation({});
     setEditedHardwareLocationCounts({});
     setEditedObservations({});
-  }, [locationId, loadHistorial, internalMode]);
+    if (entreCueros) {
+      setHardwareSplitEnabled(false);
+    }
+  }, [locationId, loadHistorial, internalMode, entreCueros]);
 
   // Siguiente conteo: día siguiente al último cerrado; si no hay, ahora GT → fin de día GT.
   useEffect(() => {
@@ -1316,7 +1564,7 @@ function KioskInventoryCountReport({ locationId, internalMode = false }) {
     setHardwareModal({
       rowKey: rKey,
       locationKey,
-      productLabel: `${row.productCode || ""} ${row.productName || ""}`.trim(),
+      productLabel: `${row.productCode || ""} ${formatConteoProductTitle(row)}`.trim(),
       initialCounts: (editedHardwareLocationCounts[rKey] || row.hardwareLocationCounts || {})[locationKey],
     });
   };
@@ -1380,6 +1628,7 @@ function KioskInventoryCountReport({ locationId, internalMode = false }) {
         const item = {
           productId: sample.productId,
           colorId: sample.colorId || null,
+          hardwareCondition: sample.hardwareCondition || undefined,
         };
         if (Object.prototype.hasOwnProperty.call(editedHardwareLocationCounts, rKey)) {
           item.hardwareLocationCounts = editedHardwareLocationCounts[rKey];
@@ -1446,6 +1695,7 @@ function KioskInventoryCountReport({ locationId, internalMode = false }) {
       const item = {
         productId: sample.productId,
         colorId: sample.colorId || null,
+        hardwareCondition: sample.hardwareCondition || undefined,
         counts: parentCounts,
         physicalSizes,
       };
@@ -1829,7 +2079,7 @@ function KioskInventoryCountReport({ locationId, internalMode = false }) {
   const showDiffBanner = !internalMode && report?.status === "REVISADO" && alertRows.length > 0;
 
   return (
-    <div>
+    <div className={`kiosk-conteo${compact ? " is-compact" : ""}`}>
       {internalMode && (
         <Alert color="info" className="mb-3" style={{ fontSize: 13 }}>
           <strong>Mi conteo — control interno.</strong> Solo vitrinas y total físico; no compara con el sistema ni
@@ -1905,8 +2155,8 @@ function KioskInventoryCountReport({ locationId, internalMode = false }) {
                 : "No hay sesiones registradas para este kiosko. Crea la primera con el formulario de arriba."}
             </Alert>
           ) : (
-            <div style={{ overflowX: "auto" }}>
-              <Table size="sm" bordered responsive style={{ fontSize: 12, marginBottom: 0 }}>
+            <div className="kiosk-conteo-historial">
+              <Table size="sm" bordered style={{ fontSize: 12, marginBottom: 0 }}>
                 <thead style={{ background: "#f3f4f6" }}>
                   <tr>
                     <th>{internalMode ? "Fecha" : "Período"}</th>
@@ -1994,17 +2244,7 @@ function KioskInventoryCountReport({ locationId, internalMode = false }) {
       ) : (
         <>
           {/* ── Cabecera informativa ── */}
-          <div style={{
-            display: "flex",
-            flexWrap: "wrap",
-            gap: "12px 24px",
-            background: "#f9fafb",
-            border: "1px solid #e5e7eb",
-            borderRadius: 8,
-            padding: "10px 14px",
-            marginBottom: 14,
-            alignItems: "flex-start",
-          }}>
+          <div className="kiosk-conteo-header">
             <div style={{ display: "flex", flexWrap: "wrap", gap: "8px 20px", alignItems: "center", flex: "1 1 280px" }}>
               <Badge
                 color={statusMeta.color}
@@ -2181,32 +2421,28 @@ function KioskInventoryCountReport({ locationId, internalMode = false }) {
           )}
 
           {/* ── Filtros ── */}
-          <Row className="mb-3">
-            <Col md="3">
-              <FormGroup className="mb-0">
-                <Label style={{ fontSize: 12 }}>Categoría de producto</Label>
-                <FilterableSelect
-                  options={productCategoryOptions}
-                  value={productCategoryFilter}
-                  onChange={setProductCategoryFilter}
-                  placeholder="Todas las categorías..."
-                />
-              </FormGroup>
-            </Col>
-            <Col md="3">
-              <FormGroup className="mb-0">
-                <Label style={{ fontSize: 12 }}>Buscar producto</Label>
-                <Input
-                  type="search"
-                  placeholder="Código o nombre..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                />
-              </FormGroup>
-            </Col>
-            <Col md="6">
+          <div className="kiosk-conteo-filters">
+            <FormGroup className="mb-0">
+              <Label style={{ fontSize: 12 }}>Categoría de producto</Label>
+              <FilterableSelect
+                options={productCategoryOptions}
+                value={productCategoryFilter}
+                onChange={setProductCategoryFilter}
+                placeholder="Todas las categorías..."
+              />
+            </FormGroup>
+            <FormGroup className="mb-0">
+              <Label style={{ fontSize: 12 }}>Buscar producto</Label>
+              <Input
+                type="search"
+                placeholder="Código o nombre..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+              />
+            </FormGroup>
+            <div>
               <Label style={{ fontSize: 12 }}>Filtros</Label>
-              <div className="d-flex flex-wrap" style={{ gap: 6 }}>
+              <div className="kiosk-conteo-filter-chips">
                 <Button
                   size="sm"
                   color={audienceFilter === "" ? "primary" : "light"}
@@ -2224,7 +2460,7 @@ function KioskInventoryCountReport({ locationId, internalMode = false }) {
                     {opt.label}
                   </Button>
                 ))}
-                <span style={{ width: 1, background: "#d1d5db", margin: "0 4px" }} />
+                <span className="kiosk-conteo-filter-sep" />
                 {CINCHO_FILTER_OPTIONS.map((opt) => (
                   <Button
                     key={opt.value || "all"}
@@ -2235,9 +2471,24 @@ function KioskInventoryCountReport({ locationId, internalMode = false }) {
                     {opt.label === "Todos" ? "Cinchos: Todos" : opt.label}
                   </Button>
                 ))}
-                {!internalMode && (
+                {entreCueros ? (
                   <>
-                    <span style={{ width: 1, background: "#d1d5db", margin: "0 4px" }} />
+                    <span className="kiosk-conteo-filter-sep" />
+                    {ENTRECUEROS_VARIANT_FILTERS.map((opt) => (
+                      <Button
+                        key={opt.value || "variant-all"}
+                        size="sm"
+                        color={variantFilter === opt.value ? "primary" : "light"}
+                        onClick={() => setVariantFilter(opt.value)}
+                      >
+                        {opt.value === "" ? "Variante: Todas" : opt.label}
+                      </Button>
+                    ))}
+                  </>
+                ) : null}
+                {!internalMode && !entreCueros && (
+                  <>
+                    <span className="kiosk-conteo-filter-sep" />
                     <FormGroup check inline className="mb-0 ml-1">
                       <Label check style={{ fontSize: 12, userSelect: "none", cursor: "pointer" }}>
                         <Input
@@ -2252,8 +2503,8 @@ function KioskInventoryCountReport({ locationId, internalMode = false }) {
                   </>
                 )}
               </div>
-            </Col>
-          </Row>
+            </div>
+          </div>
 
           {/* ── Subconteo / inventario a fecha-hora ── */}
           {!internalMode && !isSubcountView && report && (
@@ -2321,9 +2572,7 @@ function KioskInventoryCountReport({ locationId, internalMode = false }) {
           )}
 
           {/* ── Barra de acciones ── */}
-          <Row className="mb-3">
-            <Col>
-              <div className="d-flex flex-wrap" style={{ gap: 8 }}>
+          <div className="kiosk-conteo-actions mb-3">
                 {isSubcountView && principalReport && (
                   <Button color="secondary" size="sm" outline onClick={handleBackToPrincipal}>
                     ← Conteo principal
@@ -2387,8 +2636,6 @@ function KioskInventoryCountReport({ locationId, internalMode = false }) {
                 </Button>
                 )}
               </div>
-            </Col>
-          </Row>
 
           {internalMode && isDraft && (
             <Row className="mb-3">
@@ -2445,44 +2692,89 @@ function KioskInventoryCountReport({ locationId, internalMode = false }) {
           )}
 
           {/* ── Tabla principal ── */}
-          <div style={{ overflowX: "auto" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, tableLayout: "fixed" }}>
+          {compact ? (
+            <div className="kiosk-conteo-card-list">
+              {filteredCategories.length === 0 ? (
+                <Alert color="light" className="border mb-0 kiosk-inv-hint-alert">
+                  No hay productos que coincidan con los filtros.
+                </Alert>
+              ) : (
+                filteredCategories.map((category) => (
+                  <CategoryGroup
+                    key={category.categoryName || category.categoryId || "sin-categoria"}
+                    category={category}
+                    showKardex={tableShowKardex}
+                    kardexColumns={kardexColumns}
+                    editedCounts={editedCounts}
+                    editedSizeCounts={editedSizeCounts}
+                    editedSizeCountsByLocation={editedSizeCountsByLocation}
+                    editedHardwareLocationCounts={editedHardwareLocationCounts}
+                    editedObservations={editedObservations}
+                    onCountChange={handleCountChange}
+                    onObservationChange={handleObservationChange}
+                    onOpenCinchoModal={setCinchoModalProductId}
+                    onOpenHardwareModal={handleOpenHardwareModal}
+                    disabled={isCountLocked}
+                    vitrineOnlyView={internalMode}
+                    hardwareSplitEnabled={nvSplitEnabled && !internalMode}
+                    entreCueros={entreCueros}
+                    compact
+                  />
+                ))
+              )}
+              {filteredTotalGeneral && filteredCategories.length > 0 && (
+                <CompactSummary
+                  label={`TOTAL GENERAL (${filteredCategories.flatMap((c) => c.rows).length} productos visibles)`}
+                  row={filteredTotalGeneral}
+                  vitrineOnlyView={internalMode}
+                  dark
+                />
+              )}
+            </div>
+          ) : (
+          <div className="kiosk-conteo-table-wrap">
+            <table className="kiosk-conteo-table">
               <CountTableColGroup showKardex={tableShowKardex} kardexColumns={kardexColumns} vitrineOnlyView={internalMode} />
               <thead>
                 {/* Fila de grupos */}
-                <tr style={{ background: "#f3f4f6" }}>
-                  <th colSpan={PRODUCT_INFO_COLS} style={thStyle}>Producto</th>
+                <tr>
+                  <th colSpan={PRODUCT_INFO_COLS} className="kiosk-conteo-th" style={thStyle}>Producto</th>
                   {tableShowKardex && (
-                    <th colSpan={kardexColumns.length} style={{ ...thStyle, background: "#e0e7ff", textAlign: "center" }}>
+                    <th colSpan={kardexColumns.length} className="kiosk-conteo-th" style={{ ...thStyle, background: "#e0e7ff", textAlign: "center" }}>
                       {isSubcountView ? "Kardex al corte" : "Kardex sistema"}
                     </th>
                   )}
-                  <th colSpan={COUNT_LOCATION_KEYS.length} style={{ ...thStyle, background: "#dcfce7", textAlign: "center" }}>
+                  <th colSpan={COUNT_LOCATION_KEYS.length} className="kiosk-conteo-th" style={{ ...thStyle, background: "#dcfce7", textAlign: "center" }}>
                     Conteo físico por ubicación
                   </th>
-                  <th rowSpan={2} style={{ ...thStyle, ...sumColStyle, background: "#fef9c3", textAlign: "center", verticalAlign: "middle" }}>Total</th>
+                  <th rowSpan={2} className="kiosk-conteo-th kiosk-conteo-sum" style={{ ...thStyle, ...sumColStyle, background: "#fef9c3", textAlign: "center", verticalAlign: "middle" }}>Total</th>
                   {!internalMode && (
                     <>
-                      <th rowSpan={2} style={{ ...thStyle, ...sumColStyle, background: "#fee2e2", textAlign: "center", verticalAlign: "middle" }}>Dif.</th>
-                      <th rowSpan={2} style={{ ...thStyle, background: "#fffbeb", textAlign: "center", verticalAlign: "middle", minWidth: OBS_COL_MIN_WIDTH }}>Observaciones</th>
+                      <th rowSpan={2} className="kiosk-conteo-th kiosk-conteo-sum" style={{ ...thStyle, ...sumColStyle, background: "#fee2e2", textAlign: "center", verticalAlign: "middle" }}>Dif.</th>
+                      <th rowSpan={2} className="kiosk-conteo-th kiosk-conteo-obs" style={{ ...thStyle, background: "#fffbeb", textAlign: "center", verticalAlign: "middle", minWidth: OBS_COL_MIN_WIDTH }}>Observaciones</th>
                     </>
                   )}
                 </tr>
                 {/* Fila de columnas */}
-                <tr style={{ background: "#f9fafb" }}>
-                  <th style={thStyle}>Producto / Código</th>
-                  <th style={thStyle}>Color</th>
-                  <th style={thStyle}>Talla</th>
-                  <th style={thStyle}>Tipo</th>
-                  <th style={{ ...thStyle, minWidth: 96 }} title="Herraje nuevo (N) y viejo (V) — sistema y conteo físico">
-                    Herraje
-                    <div style={{ fontWeight: 400, fontSize: 9, color: "#6b7280" }}>N · V</div>
+                <tr>
+                  <th className="kiosk-conteo-th kiosk-conteo-product">Producto / Código</th>
+                  <th className="kiosk-conteo-th kiosk-conteo-color">Color</th>
+                  <th className="kiosk-conteo-th kiosk-conteo-size">Talla</th>
+                  <th className="kiosk-conteo-th kiosk-conteo-tipo">Tipo</th>
+                  <th
+                    className="kiosk-conteo-th kiosk-conteo-hw"
+                    title={entreCueros ? "Marca / Para" : "Herraje nuevo (N) y viejo (V) — sistema y conteo físico"}
+                  >
+                    {entreCueros ? "Variante" : "Herraje"}
+                    {entreCueros ? null : (
+                      <div style={{ fontWeight: 400, fontSize: 9, color: "#6b7280" }}>N · V</div>
+                    )}
                   </th>
                   {tableShowKardex && kardexColumns.map((col) => (
-                    <th key={col.key} style={{ ...thStyle, background: "#eef2ff" }} title={col.title}>{col.label}</th>
+                    <th key={col.key} className="kiosk-conteo-th kiosk-conteo-kardex" style={{ background: "#eef2ff" }} title={col.title}>{col.label}</th>
                   ))}
                   {COUNT_LOCATION_KEYS.map((k) => (
-                    <th key={k} style={{ ...thStyle, ...locColStyle, background: "#f0fdf4" }}>{k}</th>
+                    <th key={k} className="kiosk-conteo-th kiosk-conteo-loc" style={{ background: "#f0fdf4" }}>{k}</th>
                   ))}
                 </tr>
               </thead>
@@ -2511,13 +2803,14 @@ function KioskInventoryCountReport({ locationId, internalMode = false }) {
                       onOpenHardwareModal={handleOpenHardwareModal}
                       disabled={isCountLocked}
                       vitrineOnlyView={internalMode}
-                      hardwareSplitEnabled={hardwareSplitEnabled && !internalMode}
+                      hardwareSplitEnabled={nvSplitEnabled && !internalMode}
+                      entreCueros={entreCueros}
                     />
                   ))
                 )}
               </tbody>
               {filteredTotalGeneral && filteredCategories.length > 0 && (
-                <tfoot style={{ position: "sticky", bottom: 0, zIndex: 2 }}>
+                <tfoot>
                   <SummaryRow
                     label={`TOTAL GENERAL (${filteredCategories.flatMap((c) => c.rows).length} productos visibles)`}
                     row={filteredTotalGeneral}
@@ -2532,13 +2825,16 @@ function KioskInventoryCountReport({ locationId, internalMode = false }) {
               )}
             </table>
           </div>
+          )}
 
           {/* ── Leyenda ── */}
-          <div style={{ marginTop: 10, fontSize: 11, color: "#6b7280", display: "flex", gap: 16, flexWrap: "wrap" }}>
+          <div className="kiosk-conteo-hint">
             {internalMode ? (
               <>
                 <span>Registra cuántas unidades hay en cada vitrina (V1–V7, E, BO).</span>
-                <span>Al tocar una vitrina se abre el modal de herraje NUEVO/VIEJO.</span>
+                {entreCueros ? null : (
+                  <span>Al tocar una vitrina se abre el modal de herraje NUEVO/VIEJO.</span>
+                )}
                 <span>Los cinchos FOSS usan el modal de tallas; otros cinchos pueden contar por talla.</span>
                 <span>Exporta a Excel para compartir o archivar el conteo del día.</span>
               </>
@@ -2557,7 +2853,11 @@ function KioskInventoryCountReport({ locationId, internalMode = false }) {
             <span>Observaciones: solo en filas con sobrante o faltante</span>
             <span>Haz clic en el nombre de categoría para colapsar/expandir</span>
             {!tableShowKardex && <span>Kardex oculto en pantalla — actívalo con &quot;Mostrar Kardex&quot; (Excel/PDF oficiales lo incluyen)</span>}
-            <span>Al tocar una celda de vitrina (V1–V7, E, BO) se abre el modal herraje NUEVO/VIEJO.</span>
+            {entreCueros ? (
+              <span>Cada fila es una variante (marca o Niño/Dama). No hay herraje N/V.</span>
+            ) : (
+              <span>Al tocar una celda de vitrina (V1–V7, E, BO) se abre el modal herraje NUEVO/VIEJO.</span>
+            )}
             <span>FOSS cinchos: una fila por talla y color — edite E (vitrina) y BO (bodega). Otros cinchos: edite E por talla.</span>
               </>
             )}
@@ -2566,7 +2866,7 @@ function KioskInventoryCountReport({ locationId, internalMode = false }) {
       )}
 
       <HardwareCountModal
-        isOpen={hardwareModal != null}
+        isOpen={!entreCueros && hardwareModal != null}
         toggle={closeHardwareModal}
         productLabel={hardwareModal?.productLabel}
         locationKey={hardwareModal?.locationKey}

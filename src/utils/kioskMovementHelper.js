@@ -91,3 +91,19 @@ export const isKioscoTransferMovement = (movement) => {
     || movement?.referenceType === "TRANSFER"
     || Boolean(movement?.originLocationId || movement?.destinationLocationId);
 };
+
+export const KIOSK_LEDGER_LAB_USERNAME = "eramirez";
+
+export const canEditKioskLedger = (username) =>
+  String(username || "").trim().toLowerCase() === KIOSK_LEDGER_LAB_USERNAME;
+
+export const accountingMovementToLabUpdate = (movement, typeOverride) => ({
+  kioscoStockId: movement?.kioscoStockId ?? null,
+  movementType: typeOverride || normalizeKioscoMovementType(movement?.tipoMovimiento || movement?.movementType),
+  quantity: movement?.cantidad ?? movement?.quantity ?? null,
+  sizeKey: movement?.talla || movement?.sizeKey || null,
+  stockBefore: movement?.stockAntes ?? movement?.stockBefore ?? null,
+  stockAfter: movement?.stockDespues ?? movement?.stockAfter ?? null,
+  physicalSlipNumber: movement?.boletaFisica || movement?.physicalSlipNumber || null,
+  reason: movement?.motivo || movement?.reason || null,
+});

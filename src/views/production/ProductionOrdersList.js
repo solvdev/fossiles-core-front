@@ -36,6 +36,8 @@ import {
   escapeHtml,
   buildCinchoDetailTableHtml,
   buildNormalColorMatrixTableHtml,
+  getPrintOrientationToolbarHtml,
+  buildOrderObservationPrintHtml,
 } from "utils/productionOrderPrintHtml";
 import { isManagedCinchoOrderType, isCinchoOrderType } from "utils/cinchoProductionHelper";
 
@@ -500,6 +502,46 @@ function ProductionOrdersList() {
             <p>${escapeHtml(orderObservation)}</p>
           </section>`
       : "";
+          <table class="meta">
+            <tbody>
+              <tr>
+                <th>Tipo</th>
+                <td>${escapeHtml(getTypeLabel(order.orderType))}</td>
+                <th>Estado</th>
+                <td>${escapeHtml(getStatusLabel(order.status))}</td>
+              </tr>
+              <tr>
+                <th>Proceso</th>
+                <td>${escapeHtml(stage.label)}</td>
+                <th></th>
+                <td></td>
+              </tr>
+              <tr>
+                <th>Cliente/Distribución</th>
+                <td>${escapeHtml(customer)}</td>
+                <th>Vendedor</th>
+                <td>${escapeHtml(order.orderType === "DISTRIBUTION" ? "-" : order.sellerName || "-")}</td>
+              </tr>
+              ${brandMetaRow}
+              <tr>
+                <th>Inicio</th>
+                <td>${escapeHtml(processDates.startValue ? formatDateGt(processDates.startValue) : "-")}</td>
+                <th>Entrega</th>
+                <td>${escapeHtml(processDates.deliveryValue ? formatDateGt(processDates.deliveryValue) : "-")}</td>
+              </tr>
+              <tr>
+                <th>Generado</th>
+                <td>${escapeHtml(generatedAt)}</td>
+                <th></th>
+                <td></td>
+              </tr>
+            </tbody>
+          </table>
+
+          ${buildOrderObservationPrintHtml(order)}
+          ${detailTableHtml}
+        </section>
+      `;
 
     const win = window.open("", "_blank");
     if (!win) {
@@ -552,13 +594,24 @@ function ProductionOrdersList() {
               appearance: none; border: 0; background: #fff; color: var(--tinta);
               padding: 7px 16px; font: inherit; cursor: pointer;
             }
-            .seg + .seg { border-left: 1px solid var(--linea); }
-            .seg:hover { background: #eef2f8; }
-            .seg[aria-pressed="true"] { background: var(--acento); color: #fff; }
-            .btn-imprimir {
-              appearance: none; border: 0; border-radius: 8px; cursor: pointer;
-              background: var(--acento); color: #fff; font: inherit; font-weight: 600;
-              padding: 8px 20px;
+            .op-doc { border: 1px solid #111; padding: 10px; margin-bottom: 12px; }
+            .op-title { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px; }
+            .brand { font-size: 12px; font-weight: 700; letter-spacing: 1px; }
+            h1 { margin: 2px 0 0; font-size: 18px; }
+            .op-code { font-size: 20px; font-weight: 700; border: 1px solid #111; padding: 6px 10px; }
+            table { width: 100%; border-collapse: collapse; }
+            th, td { border: 1px solid #777; padding: 5px 6px; vertical-align: top; overflow-wrap: anywhere; }
+            th { background: #f3f4f6; font-weight: 700; text-align: left; }
+            .meta { margin-bottom: 10px; table-layout: fixed; }
+            .meta th { width: 18%; }
+            .meta td { width: 32%; }
+            .order-observation {
+              border: 1px solid #777;
+              background: #fafafa;
+              margin: 0 0 10px;
+              padding: 6px 8px;
+              line-height: 1.35;
+              white-space: pre-wrap;
             }
             .btn-imprimir:hover { filter: brightness(1.08); }
 

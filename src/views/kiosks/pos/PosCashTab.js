@@ -20,7 +20,7 @@ import {
 } from "services/kioskPosService";
 import { formatDateTimeGt } from "utils/dateTimeHelper";
 import { showError, showSuccess } from "utils/notificationHelper";
-import { formatCurrency } from "./posUtils";
+import { formatCurrency, isEntrecuerosPosMode } from "./posUtils";
 import PosCashCloseReportModal from "./PosCashCloseReportModal";
 
 const formatDateTime = (value) => formatDateTimeGt(value);
@@ -44,7 +44,7 @@ function CashReconciliationSummary({ session }) {
   );
 }
 
-function PosCashCloseModal({ isOpen, session, onClose, onClosed, pendingDepositSummary, onReportReady }) {
+function PosCashCloseModal({ isOpen, session, onClose, onClosed, pendingDepositSummary, onReportReady, posMode = "STANDARD" }) {
   const [countedCash, setCountedCash] = useState("");
   const [notes, setNotes] = useState("");
   const [saving, setSaving] = useState(false);
@@ -108,7 +108,8 @@ function PosCashCloseModal({ isOpen, session, onClose, onClosed, pendingDepositS
         <div className="mb-2 text-muted small">
           Ventas en sesión: <strong>{session?.salesCount || 0}</strong>
           {" · "}
-          Tarjeta: <strong>{formatCurrency(session?.cardSalesTotal || 0)}</strong>
+          {isEntrecuerosPosMode({ posMode }) ? "Transferencia" : "Tarjeta"}:{" "}
+          <strong>{formatCurrency(session?.cardSalesTotal || 0)}</strong>
         </div>
         <Label className="kiosk-pos-label">
           Efectivo contado físicamente <span className="text-danger">*</span>
@@ -164,6 +165,7 @@ function PosCashTab({
   kioskLocationId,
   kioskName,
   posOpeningCashAmount = 300,
+  posMode = "STANDARD",
   onSessionChange,
   loading,
   pendingDepositSummary,
@@ -257,7 +259,8 @@ function PosCashTab({
               <div className="text-muted small mb-3">
                 Ventas registradas: <strong>{cashSession.salesCount || 0}</strong>
                 {" · "}
-                Tarjeta: <strong>{formatCurrency(cashSession.cardSalesTotal || 0)}</strong>
+                {isEntrecuerosPosMode({ posMode }) ? "Transferencia" : "Tarjeta"}:{" "}
+                <strong>{formatCurrency(cashSession.cardSalesTotal || 0)}</strong>
               </div>
 
               {expenses.length > 0 && (
@@ -308,6 +311,7 @@ function PosCashTab({
       <PosCashCloseModal
         isOpen={closeOpen}
         session={cashSession}
+        posMode={posMode}
         onClose={() => setCloseOpen(false)}
         onClosed={onSessionChange}
         pendingDepositSummary={pendingDepositSummary}

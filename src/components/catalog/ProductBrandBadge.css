@@ -1,0 +1,96 @@
+.kiosk-brand-chip {
+  display: inline-flex !important;
+  align-items: center;
+  gap: 4px;
+  margin-left: 6px;
+  border-radius: 4px !important;
+  padding: 2px 7px 2px 4px !important;
+  font-size: 10px !important;
+  font-weight: 800 !important;
+  letter-spacing: 0.3px;
+  line-height: 1.25 !important;
+  color: #fff !important;
+  border: 0 !important;
+  text-transform: none !important;
+  vertical-align: middle;
+  white-space: nowrap;
+  background-color: #334155 !important;
+}
+
+.kiosk-brand-chip__mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 3px;
+  font-size: 8px;
+  font-weight: 800;
+  background: rgba(255, 255, 255, 0.92);
+  color: inherit;
+}
+
+.kiosk-brand-chip--lacoste {
+  background-color: #00703c !important;
+}
+.kiosk-brand-chip--lacoste .kiosk-brand-chip__mark {
+  color: #00703c;
+}
+
+.kiosk-brand-chip--levis {
+  background-color: #e1173f !important;
+}
+.kiosk-brand-chip--levis .kiosk-brand-chip__mark {
+  color: #e1173f;
+}
+
+.kiosk-brand-chip--nautica {
+  background-color: #003057 !important;
+}
+.kiosk-brand-chip--nautica .kiosk-brand-chip__mark {
+  color: #003057;
+}
+
+.kiosk-brand-chip--tommy {
+  background-color: #c8102e !important;
+}
+.kiosk-brand-chip--tommy .kiosk-brand-chip__mark {
+  color: #001e62;
+}
+
+.kiosk-brand-chip--abercrombie {
+  background-color: #7a3e1d !important;
+}
+.kiosk-brand-chip--abercrombie .kiosk-brand-chip__mark {
+  color: #7a3e1d;
+}
+
+.kiosk-brand-chip--nino {
+  background-color: #1d4ed8 !important;
+}
+.kiosk-brand-chip--nino .kiosk-brand-chip__mark {
+  color: #1d4ed8;
+}
+
+.kiosk-brand-chip--dama {
+  background-color: #be185d !important;
+}
+.kiosk-brand-chip--dama .kiosk-brand-chip__mark {
+  color: #be185d;
+}
+
+.kiosk-brand-chip--sintetico {
+  background-color: #7c3aed !important;
+}
+.kiosk-brand-chip--sintetico .kiosk-brand-chip__mark {
+  color: #7c3aed;
+}
+
+.kiosk-brand-chip.is-active {
+  box-shadow: 0 0 0 2px #fff, 0 0 0 4px currentColor;
+}
+
+.kiosk-brand-chip.is-button {
+  cursor: pointer;
+  font-family: inherit;
+}

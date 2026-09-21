@@ -170,6 +170,19 @@ export const getConsolidatedKioskSalesReport = async (startDate, endDate, kioskL
   return parseJson(response, "No se pudo cargar el reporte de ventas consolidadas.");
 };
 
+export const getKioskSalesByProductColorReport = async (startDate, endDate, kioskLocationId, includeZeroSales = true) => {
+  const response = await fetch(
+    `${API_URL}/kiosk-pos/reports/sales-by-product-color${toQuery({
+      startDate,
+      endDate,
+      kioskLocationId,
+      includeZeroSales,
+    })}`,
+    { headers: headers() }
+  );
+  return parseJson(response, "No se pudo cargar el reporte de ventas por producto y color.");
+};
+
 export const getGeneralKioskDisbursements = async (startDate, endDate, kioskLocationId) => {
   const response = await fetch(
     `${API_URL}/kiosk-pos/reports/general/disbursements${toQuery({

@@ -288,7 +288,7 @@ function OpcGenerateShipmentModal({ isOpen, toggle, order, partialRelease, onGen
           </Row>
         </div>
         )}
-        {luisFelipeFlow && packingItems.length > 0 && (
+        {luisFelipeFlow && !partialRelease?.id && packingItems.length > 0 && (
           <Table size="sm" bordered responsive className="mb-3">
             <thead>
               <tr>

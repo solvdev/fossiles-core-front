@@ -43,6 +43,9 @@ function BomList() {
   const [copyDestId, setCopyDestId] = useState(null);
   const [copySubmitting, setCopySubmitting] = useState(false);
   const [printRecipesLoading, setPrintRecipesLoading] = useState(false);
+  const [printModalOpen, setPrintModalOpen] = useState(false);
+  const [printProductSearch, setPrintProductSearch] = useState("");
+  const [printSelectedProductIds, setPrintSelectedProductIds] = useState({});
 
   useEffect(() => {
     loadProducts();
@@ -178,23 +181,102 @@ function BomList() {
     }
   };
 
-  const handlePrintAllRecipes = async () => {
-    const active = (boms || []).filter((b) => b.status === "A");
+  const printableProducts = useMemo(() => {
+    const countByProductId = new Map();
+    (boms || []).forEach((b) => {
+      if (b.status !== "A" || b.productId == null) return;
+      const id = Number(b.productId);
+      countByProductId.set(id, (countByProductId.get(id) || 0) + 1);
+    });
+    const byId = new Map((products || []).map((p) => [Number(p.id), p]));
+    return [...countByProductId.entries()]
+      .map(([id, activeBomCount]) => {
+        const p = byId.get(id);
+        return {
+          id,
+          code: p?.code || "",
+          name: p?.name || `ID ${id}`,
+          activeBomCount,
+        };
+      })
+      .sort((a, b) =>
+        String(a.code || a.name).localeCompare(String(b.code || b.name), "es", {
+          numeric: true,
+          sensitivity: "base",
+        })
+      );
+  }, [boms, products]);
+
+  const filteredPrintProducts = useMemo(() => {
+    const q = String(printProductSearch || "").trim().toLowerCase();
+    if (!q) return printableProducts;
+    return printableProducts.filter((p) => {
+      const hay = `${p.code || ""} ${p.name || ""}`.toLowerCase();
+      return hay.includes(q);
+    });
+  }, [printableProducts, printProductSearch]);
+
+  const selectedPrintCount = Object.keys(printSelectedProductIds).filter((k) => printSelectedProductIds[k]).length;
+  const allVisiblePrintSelected =
+    filteredPrintProducts.length > 0
+    && filteredPrintProducts.every((p) => printSelectedProductIds[String(p.id)]);
+
+  const openPrintModal = () => {
+    setPrintProductSearch("");
+    setPrintSelectedProductIds({});
+    setPrintModalOpen(true);
+  };
+
+  const togglePrintProduct = (productId) => {
+    const k = String(productId);
+    setPrintSelectedProductIds((prev) => ({ ...prev, [k]: !prev[k] }));
+  };
+
+  const setVisiblePrintSelection = (checked) => {
+    setPrintSelectedProductIds((prev) => {
+      const next = { ...prev };
+      filteredPrintProducts.forEach((p) => {
+        next[String(p.id)] = checked;
+      });
+      return next;
+    });
+  };
+
+  const handlePrintSelectedRecipes = async () => {
+    const selectedIds = new Set(
+      Object.entries(printSelectedProductIds)
+        .filter(([, on]) => on)
+        .map(([id]) => Number(id))
+    );
+    if (selectedIds.size === 0) {
+      showError("Seleccione al menos un producto.");
+      return;
+    }
+    const active = (boms || []).filter(
+      (b) => b.status === "A" && selectedIds.has(Number(b.productId))
+    );
     if (active.length === 0) {
-      showError("No hay BOMs activas para imprimir.");
+      showError("No hay BOMs activas para los productos seleccionados.");
       return;
     }
     try {
       setPrintRecipesLoading(true);
-      const [materials, ...details] = await Promise.all([getMaterials(), ...active.map((b) => getBomById(b.id))]);
+      const [materials, ...details] = await Promise.all([
+        getMaterials(),
+        ...active.map((b) => getBomById(b.id)),
+      ]);
       const materialById = {};
       (materials || []).forEach((m) => {
         materialById[m.id] = m;
       });
-      const inner = buildBomRecipesDocumentInnerHtml(details, materialById, (bom) => getProductName(bom.productId), (bom) =>
-        getColorName(bom.colorId)
+      const inner = buildBomRecipesDocumentInnerHtml(
+        details,
+        materialById,
+        (bom) => getProductName(bom.productId),
+        (bom) => getColorName(bom.colorId)
       );
-      openBomRecipesPrintWindow(inner, "Recetas BOM (activas)");
+      openBomRecipesPrintWindow(inner, "Recetas BOM (selección)");
+      setPrintModalOpen(false);
     } catch (err) {
       showError(err.message || "Error al generar el PDF de recetas");
     } finally {
@@ -300,7 +382,7 @@ function BomList() {
                   <Button color="secondary" outline className="btn-round" onClick={openCopyModal}>
                     <i className="fa fa-copy" /> Copiar BOM…
                   </Button>
-                  <Button color="info" outline className="btn-round" onClick={handlePrintAllRecipes} disabled={printRecipesLoading || loading}>
+                  <Button color="info" outline className="btn-round" onClick={openPrintModal} disabled={printRecipesLoading || loading}>
                     <i className="nc-icon nc-paper" /> {printRecipesLoading ? "…" : "Imprimir recetas (PDF)"}
                   </Button>
                   <Button color="primary" onClick={handleNew} className="btn-round">
@@ -435,6 +517,100 @@ function BomList() {
           </Button>
           <Button color="primary" onClick={handleCopyConfirm} disabled={copySubmitting}>
             {copySubmitting ? "Copiando…" : "Confirmar copia"}
+          </Button>
+        </ModalFooter>
+      </Modal>
+
+      <Modal isOpen={printModalOpen} toggle={() => !printRecipesLoading && setPrintModalOpen(false)}>
+        <ModalHeader toggle={() => !printRecipesLoading && setPrintModalOpen(false)}>
+          Imprimir recetas
+        </ModalHeader>
+        <ModalBody>
+          <p className="text-muted small">
+            Elija uno o más productos. Se imprimirán todas las recetas activas de cada uno (todos los colores).
+          </p>
+          <FormGroup>
+            <Label>Producto</Label>
+            <Input
+              type="search"
+              placeholder="Buscar por código o nombre…"
+              value={printProductSearch}
+              onChange={(e) => setPrintProductSearch(e.target.value)}
+              disabled={printRecipesLoading}
+            />
+          </FormGroup>
+          <div className="d-flex flex-wrap align-items-center mb-2" style={{ gap: 8 }}>
+            <span className="text-muted small">
+              {filteredPrintProducts.length} producto(s) · marcados: <strong>{selectedPrintCount}</strong>
+            </span>
+            <Button
+              color="secondary"
+              outline
+              size="sm"
+              onClick={() => setVisiblePrintSelection(!allVisiblePrintSelected)}
+              disabled={printRecipesLoading || filteredPrintProducts.length === 0}
+            >
+              {allVisiblePrintSelected ? "Quitar visibles" : "Marcar visibles"}
+            </Button>
+            <Button
+              color="secondary"
+              outline
+              size="sm"
+              onClick={() => setPrintSelectedProductIds({})}
+              disabled={printRecipesLoading || selectedPrintCount === 0}
+            >
+              Limpiar
+            </Button>
+          </div>
+          <div className="border rounded p-1" style={{ maxHeight: 280, overflowY: "auto", background: "#fafafa" }}>
+            {filteredPrintProducts.length === 0 ? (
+              <div className="text-muted small text-center py-3">
+                {printableProducts.length === 0
+                  ? "No hay productos con BOM activa."
+                  : "Ningún producto coincide con la búsqueda."}
+              </div>
+            ) : (
+              filteredPrintProducts.map((p) => {
+                const checked = Boolean(printSelectedProductIds[String(p.id)]);
+                return (
+                  <label
+                    key={p.id}
+                    className="d-flex align-items-start p-1 rounded mb-0"
+                    style={{
+                      cursor: printRecipesLoading ? "default" : "pointer",
+                      background: checked ? "#dbeafe" : "transparent",
+                      gap: 8,
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      className="mt-1"
+                      checked={checked}
+                      disabled={printRecipesLoading}
+                      onChange={() => togglePrintProduct(p.id)}
+                    />
+                    <span style={{ fontSize: 13, lineHeight: 1.35 }}>
+                      <strong>{p.code || "—"}</strong> — {p.name || "—"}
+                      <span className="text-muted">
+                        {" "}· {p.activeBomCount} receta{p.activeBomCount === 1 ? "" : "s"}
+                      </span>
+                    </span>
+                  </label>
+                );
+              })
+            )}
+          </div>
+        </ModalBody>
+        <ModalFooter>
+          <Button color="secondary" outline onClick={() => setPrintModalOpen(false)} disabled={printRecipesLoading}>
+            Cancelar
+          </Button>
+          <Button
+            color="primary"
+            onClick={handlePrintSelectedRecipes}
+            disabled={printRecipesLoading || selectedPrintCount === 0}
+          >
+            {printRecipesLoading ? "Generando…" : `Imprimir (${selectedPrintCount})`}
           </Button>
         </ModalFooter>
       </Modal>

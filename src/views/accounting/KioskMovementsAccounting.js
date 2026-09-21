@@ -18,13 +18,26 @@ import { getProducts } from "services/productService";
 import {
   getKioskMovementsAccounting,
   getKioskMovementsAccountingStocks,
+  ledgerLabUpdateMovement,
 } from "services/kioscoInventoryService";
 import { formatDateTimeGt } from "utils/dateTimeHelper";
 import {
+  accountingMovementToLabUpdate,
+  canEditKioskLedger,
   getKioscoMovementTypeLabel,
   KIOSCO_MOVEMENT_TYPE_LABELS,
+  normalizeKioscoMovementType,
 } from "utils/kioskMovementHelper";
-import { showError } from "utils/notificationHelper";
+import { showError, showSuccess } from "utils/notificationHelper";
+import { useAuth } from "contexts/AuthContext";
+import { PRODUCT_BRAND_OPTIONS } from "utils/productBrandHelper";
+import { isEntreCuerosLocation } from "utils/kioskStockDimensionHelper";
+import {
+  extractStockBrand,
+  isSyntheticHardware,
+  normalizeCinchoAudience,
+} from "utils/productCinchoHelper";
+import { ProductBrandBadge, ProductBrandFilterChip } from "components/catalog/ProductBrandBadge";
 
 function CardPaymentDetail({
   auth,
@@ -102,6 +115,20 @@ const INITIAL_FILTERS = {
   sizeKey: "",
 };
 
+const filtersFromSearch = () => {
+  const params = new URLSearchParams(window.location.search);
+  return {
+    locationId: params.get("locationId") || "",
+    productId: params.get("productId") || "",
+    colorId: params.get("colorId") || "",
+    type: params.get("type") || "",
+    from: params.get("from") || "",
+    to: params.get("to") || "",
+    referenceTerm: params.get("referenceTerm") || "",
+    sizeKey: params.get("sizeKey") || "",
+  };
+};
+
 function sizesSummary(stock) {
   if (stock?.tallas && typeof stock.tallas === "object") {
     return (
@@ -114,17 +141,35 @@ function sizesSummary(stock) {
   return "—";
 }
 
+function stockMatchesVariantFilter(stock, filter) {
+  if (!filter) return true;
+  const herraje = stock?.herraje;
+  if (filter === "NINO" || filter === "DAMA") {
+    return normalizeCinchoAudience(herraje) === filter;
+  }
+  if (filter === "SINTETICO") return isSyntheticHardware(herraje);
+  if (filter === "NONE") {
+    return !extractStockBrand(herraje) && !normalizeCinchoAudience(herraje);
+  }
+  return extractStockBrand(herraje) === filter;
+}
+
 export default function KioskMovementsAccounting() {
+  const { user } = useAuth();
+  const canEdit = canEditKioskLedger(user?.username);
   const [locations, setLocations] = useState([]);
   const [products, setProducts] = useState([]);
   const [colors, setColors] = useState([]);
-  const [filters, setFilters] = useState(INITIAL_FILTERS);
+  const [filters, setFilters] = useState(filtersFromSearch);
   const [stocks, setStocks] = useState([]);
   const [movements, setMovements] = useState([]);
   const [selectedStockId, setSelectedStockId] = useState(null);
+  const [variantFilter, setVariantFilter] = useState("");
   const [loadingStocks, setLoadingStocks] = useState(false);
   const [loadingMovements, setLoadingMovements] = useState(false);
+  const [savingTypeId, setSavingTypeId] = useState(null);
   const movementsRequestIdRef = useRef(0);
+  const autoLoadedRef = useRef(false);
 
   useEffect(() => {
     getLocations()
@@ -234,22 +279,93 @@ export default function KioskMovementsAccounting() {
 
   const handleClear = () => {
     setFilters(INITIAL_FILTERS);
+    setVariantFilter("");
     setStocks([]);
     setMovements([]);
     setSelectedStockId(null);
   };
 
+  const handleTypeChange = async (movement, nextType) => {
+    const current = normalizeKioscoMovementType(movement?.tipoMovimiento);
+    if (!nextType || nextType === current) return;
+    setSavingTypeId(movement.id);
+    try {
+      await ledgerLabUpdateMovement(movement.id, accountingMovementToLabUpdate(movement, nextType));
+      showSuccess(`Movimiento #${movement.id} → ${getKioscoMovementTypeLabel(nextType)}. Stock recalculado.`);
+      await loadMovements();
+    } catch (err) {
+      showError(err.message || "No se pudo cambiar el tipo.");
+    } finally {
+      setSavingTypeId(null);
+    }
+  };
+
+  useEffect(() => {
+    if (autoLoadedRef.current || !filters.locationId) return;
+    autoLoadedRef.current = true;
+    loadStocks();
+    loadMovements({ stockId: null });
+  }, [filters.locationId, loadStocks, loadMovements]);
+
+  const entreCueros = useMemo(() => {
+    if (isEntreCuerosLocation(filters.locationId)) return true;
+    const loc = locations.find((l) => String(l.id) === String(filters.locationId));
+    const hay = `${loc?.name || ""} ${loc?.code || ""}`.toUpperCase();
+    return hay.includes("ENTRECUERO");
+  }, [filters.locationId, locations]);
+
+  const visibleStocks = useMemo(() => {
+    if (!entreCueros || !variantFilter) return stocks;
+    return stocks.filter((s) => stockMatchesVariantFilter(s, variantFilter));
+  }, [stocks, entreCueros, variantFilter]);
+
+  const variantFilterOptions = useMemo(() => {
+    const presentBrands = new Set();
+    let hasNino = false;
+    let hasDama = false;
+    let hasSynthetic = false;
+    stocks.forEach((s) => {
+      const brand = extractStockBrand(s.herraje);
+      if (brand) presentBrands.add(brand);
+      const audience = normalizeCinchoAudience(s.herraje);
+      if (audience === "NINO") hasNino = true;
+      if (audience === "DAMA") hasDama = true;
+      if (isSyntheticHardware(s.herraje)) hasSynthetic = true;
+    });
+    const opts = [];
+    PRODUCT_BRAND_OPTIONS.forEach((brand) => {
+      if (presentBrands.has(brand)) opts.push({ value: brand, label: brand });
+    });
+    if (hasNino) opts.push({ value: "NINO", label: "Niño" });
+    if (hasDama) opts.push({ value: "DAMA", label: "Dama" });
+    if (hasSynthetic) opts.push({ value: "SINTETICO", label: "Sintética" });
+    return opts;
+  }, [stocks]);
+
   const selectedStock = useMemo(
-    () => stocks.find((s) => String(s.id) === String(selectedStockId)) || null,
-    [stocks, selectedStockId]
+    () => visibleStocks.find((s) => String(s.id) === String(selectedStockId)) || null,
+    [visibleStocks, selectedStockId]
   );
+
+  useEffect(() => {
+    if (!selectedStockId) return;
+    const stillVisible = visibleStocks.some((s) => String(s.id) === String(selectedStockId));
+    if (!stillVisible) {
+      setSelectedStockId(null);
+      loadMovements({ stockId: null });
+    }
+  }, [visibleStocks, selectedStockId, loadMovements]);
 
   return (
     <div className="content" style={{ fontSize: "0.85rem" }}>
       <h4 className="mb-1">Movimientos de Kioscos</h4>
       <p className="text-muted small mb-3">
-        Consulta detallada por producto, color y talla (solo lectura). Elige un kiosko, filtra y haz clic en
-        una fila de inventario para ver su kardex.
+        Consulta por producto, color y talla. El ingreso de un cambio (con o sin diferencia) sale en
+        Compra del conteo. El egreso va a Venta solo si hay diferencia a cobrar; sin diferencia o
+        con saldo a favor del cliente, a Salida.
+        {canEdit
+          ? " El select de tipo guarda y recalcula stock."
+          : " Solo lectura (pide corrección de tipo a quien edita el ledger)."}
       </p>
 
       <Row className="g-2 mb-2 align-items-end">
@@ -261,6 +377,7 @@ export default function KioskMovementsAccounting() {
             onChange={(v) => {
               setFilter("locationId", v || "");
               setSelectedStockId(null);
+              setVariantFilter("");
               setStocks([]);
               setMovements([]);
             }}
@@ -376,10 +493,39 @@ export default function KioskMovementsAccounting() {
         </Col>
       </Row>
 
+      {entreCueros && stocks.length > 0 && variantFilterOptions.length > 0 && (
+        <Row className="mb-3">
+          <Col md={12}>
+            <Label className="mb-1 small fw-semibold">Variante / marca</Label>
+            <div className="d-flex flex-wrap" style={{ gap: 6 }}>
+              <ProductBrandFilterChip
+                label="Todas"
+                active={!variantFilter}
+                onClick={() => setVariantFilter("")}
+              />
+              {variantFilterOptions.map((opt) => (
+                <ProductBrandFilterChip
+                  key={opt.value}
+                  value={opt.value}
+                  label={opt.label}
+                  active={variantFilter === opt.value}
+                  onClick={() =>
+                    setVariantFilter((prev) => (prev === opt.value ? "" : opt.value))
+                  }
+                />
+              ))}
+            </div>
+          </Col>
+        </Row>
+      )}
+
       <Row>
         <Col md={4} style={{ maxHeight: "70vh", overflow: "auto" }}>
           <div className="d-flex justify-content-between align-items-center mb-1">
-            <strong>Inventario ({stocks.length})</strong>
+            <strong>
+              Inventario ({visibleStocks.length}
+              {variantFilter && visibleStocks.length !== stocks.length ? ` de ${stocks.length}` : ""})
+            </strong>
             {loadingStocks && <Spinner size="sm" />}
           </div>
           <Table size="sm" hover bordered responsive className="mb-0">
@@ -392,7 +538,7 @@ export default function KioskMovementsAccounting() {
               </tr>
             </thead>
             <tbody>
-              {stocks.map((s) => (
+              {visibleStocks.map((s) => (
                 <tr
                   key={s.id}
                   style={{
@@ -408,13 +554,12 @@ export default function KioskMovementsAccounting() {
                   }}
                 >
                   <td>
-                    <div className="fw-semibold">{s.codigoProducto}</div>
-                    <small className="text-muted">{s.producto}</small>
-                    {s.herraje && s.herraje !== "NUEVO" && (
-                      <Badge color="secondary" className="ms-1">
-                        {s.herraje}
-                      </Badge>
-                    )}
+                    <div>
+                      <span className="font-weight-bold">{s.codigoProducto}</span>
+                      {" "}
+                      <small className="text-muted">{s.producto}</small>
+                      <ProductBrandBadge value={s.herraje} entreCueros={entreCueros} />
+                    </div>
                   </td>
                   <td>{s.color || "—"}</td>
                   <td>{s.cantidad}</td>
@@ -423,11 +568,13 @@ export default function KioskMovementsAccounting() {
                   </td>
                 </tr>
               ))}
-              {!loadingStocks && stocks.length === 0 && (
+              {!loadingStocks && visibleStocks.length === 0 && (
                 <tr>
                   <td colSpan={4} className="text-muted text-center">
                     {filters.locationId
-                      ? "Sin filas. Pulsa Consultar."
+                      ? variantFilter
+                        ? "Ninguna fila coincide con esa marca o variante."
+                        : "Sin filas. Pulsa Consultar."
                       : "Selecciona un kiosko."}
                   </td>
                 </tr>
@@ -440,6 +587,8 @@ export default function KioskMovementsAccounting() {
                 <strong>{selectedStock.codigoProducto}</strong>
                 {" · "}
                 {selectedStock.color || "sin color"}
+                {" "}
+                <ProductBrandBadge value={selectedStock.herraje} entreCueros={entreCueros} />
               </div>
               <div>
                 Stock actual: {selectedStock.cantidad}
@@ -490,9 +639,27 @@ export default function KioskMovementsAccounting() {
                       <small>{formatDateTimeGt(m.fecha)}</small>
                     </td>
                     <td>
-                      <Badge color={TYPE_BADGE[m.tipoMovimiento] || "secondary"} pill>
-                        {getKioscoMovementTypeLabel(m.tipoMovimiento)}
-                      </Badge>
+                      {canEdit ? (
+                        <Input
+                          type="select"
+                          bsSize="sm"
+                          value={normalizeKioscoMovementType(m.tipoMovimiento)}
+                          disabled={savingTypeId === m.id}
+                          onChange={(e) => void handleTypeChange(m, e.target.value)}
+                          style={{ minWidth: 150, fontSize: "0.75rem" }}
+                        >
+                          {Object.entries(KIOSCO_MOVEMENT_TYPE_LABELS).map(([value, label]) => (
+                            <option key={value} value={value}>{label}</option>
+                          ))}
+                        </Input>
+                      ) : (
+                        <Badge color={TYPE_BADGE[normalizeKioscoMovementType(m.tipoMovimiento)] || "secondary"} pill>
+                          {getKioscoMovementTypeLabel(m.tipoMovimiento, {
+                            stockBefore: m.stockAntes,
+                            stockAfter: m.stockDespues,
+                          })}
+                        </Badge>
+                      )}
                     </td>
                     <td className="text-end fw-semibold">{m.cantidad ?? "—"}</td>
                     <td>{m.talla || "—"}</td>

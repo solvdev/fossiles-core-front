@@ -14,11 +14,17 @@ import {
   Alert,
 } from "reactstrap";
 import { createInventoryTransfer } from "services/inventoryService";
+import { registrarKioscoTraslado } from "services/kioscoInventoryService";
 import { getLocations } from "services/locationService";
 import { getProducts } from "services/productService";
 import { getMaterials } from "services/materialService";
 import { getColors } from "services/colorService";
 import { showError, showSuccess } from "utils/notificationHelper";
+
+const isKioskLocation = (locations, locationId) => {
+  const location = locations.find((l) => String(l.id) === String(locationId));
+  return String(location?.categoria || "").toUpperCase().trim() === "KIOSKO";
+};
 
 /**
  * Crear transferencia desde inventario (material o producto) con valores iniciales opcionales.
@@ -122,22 +128,39 @@ function EmbeddedInventoryTransferModal({
       return;
     }
 
+    const bothKiosks =
+      mode === "product" &&
+      isKioskLocation(locations, formData.fromLocationId) &&
+      isKioskLocation(locations, formData.toLocationId);
+
     try {
       setLoading(true);
-      const transferData = {
-        fromLocationId: parseInt(formData.fromLocationId, 10),
-        toLocationId: parseInt(formData.toLocationId, 10),
-        quantity: parseFloat(formData.quantity),
-        reason: formData.reason || "Transferencia desde inventario",
-        physicalSlipNumber: formData.physicalSlipNumber.trim(),
-        ...(mode === "product"
-          ? {
-              productId: parseInt(formData.productId, 10),
-              colorId: formData.colorId ? parseInt(formData.colorId, 10) : null,
-            }
-          : { materialId: parseInt(formData.materialId, 10) }),
-      };
-      await createInventoryTransfer(transferData);
+      if (bothKiosks) {
+        // Entre kioskos la fuente de verdad es kiosco_stock, no el inventario legacy.
+        await registrarKioscoTraslado({
+          locationOriginId: parseInt(formData.fromLocationId, 10),
+          locationDestinationId: parseInt(formData.toLocationId, 10),
+          productId: parseInt(formData.productId, 10),
+          colorId: formData.colorId ? parseInt(formData.colorId, 10) : null,
+          quantity: parseFloat(formData.quantity),
+          physicalSlipNumber: formData.physicalSlipNumber.trim(),
+        });
+      } else {
+        const transferData = {
+          fromLocationId: parseInt(formData.fromLocationId, 10),
+          toLocationId: parseInt(formData.toLocationId, 10),
+          quantity: parseFloat(formData.quantity),
+          reason: formData.reason || "Transferencia desde inventario",
+          physicalSlipNumber: formData.physicalSlipNumber.trim(),
+          ...(mode === "product"
+            ? {
+                productId: parseInt(formData.productId, 10),
+                colorId: formData.colorId ? parseInt(formData.colorId, 10) : null,
+              }
+            : { materialId: parseInt(formData.materialId, 10) }),
+        };
+        await createInventoryTransfer(transferData);
+      }
       showSuccess("Transferencia creada correctamente");
       onCreated?.();
       toggle();

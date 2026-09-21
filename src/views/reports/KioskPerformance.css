@@ -1,0 +1,135 @@
+.kiosk-color-report .stat-chip {
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: #fff;
+  height: 100%;
+}
+
+.kiosk-color-report .stat-chip .stat-label {
+  display: block;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: #6b7280;
+  margin-bottom: 2px;
+}
+
+.kiosk-color-report .stat-chip .stat-value {
+  display: block;
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: #111827;
+}
+
+.kiosk-color-report .prefs-card {
+  position: relative;
+  z-index: 5;
+}
+
+.kiosk-color-report .pref-label {
+  display: block;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: #6b7280;
+  margin-bottom: 6px;
+}
+
+.kiosk-color-report .pref-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.kiosk-color-report .pref-chip {
+  appearance: none;
+  -webkit-appearance: none;
+  border: 1px solid #d1d5db;
+  background: #fff;
+  color: #374151;
+  border-radius: 999px;
+  padding: 5px 12px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  font-family: inherit;
+  line-height: 1.2;
+  cursor: pointer;
+  box-shadow: none;
+}
+
+.kiosk-color-report .pref-chip:hover {
+  border-color: #1d9e75;
+  color: #147a5a;
+}
+
+.kiosk-color-report .pref-chip.is-on,
+.kiosk-color-report .pref-chip.is-on:hover {
+  background: #1d9e75;
+  border-color: #1d9e75;
+  color: #fff;
+}
+
+.kiosk-color-report .color-select {
+  z-index: 20;
+}
+
+.kiosk-color-report .matrix-wrap {
+  overflow: auto;
+  max-height: 70vh;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-radius: 8px;
+}
+
+.kiosk-color-report .matrix-table {
+  margin: 0;
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+
+.kiosk-color-report .matrix-table th,
+.kiosk-color-report .matrix-table td {
+  vertical-align: middle;
+  padding: 6px 8px;
+}
+
+.kiosk-color-report .cell-sold,
+.kiosk-color-report .cell-zero {
+  line-height: 1.25;
+  font-size: 0.75rem;
+}
+
+.kiosk-color-report .matrix-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  background: #f3f4f6;
+  font-weight: 700;
+}
+
+.kiosk-color-report .matrix-table .sticky-col {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  background: #fff;
+}
+
+.kiosk-color-report .matrix-table thead .sticky-col {
+  z-index: 4;
+  background: #f3f4f6;
+}
+
+.kiosk-color-report .cell-zero {
+  color: #9ca3af;
+  background: #f9fafb;
+}
+
+.kiosk-color-report .cell-sold {
+  font-weight: 700;
+}
+
+.kiosk-color-report .row-no-sales td:not(.sticky-col) {
+  background: #fff7ed;
+}

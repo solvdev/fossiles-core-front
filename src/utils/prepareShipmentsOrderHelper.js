@@ -33,11 +33,16 @@ function normalizeEntreCuerosToken(value) {
     .replace(/[^A-Z0-9]/g, "");
 }
 
+/** Cliente Entre Cueros (kiosko location 42). */
+export function isEntreCuerosCustomer(order) {
+  if (!order) return false;
+  return normalizeEntreCuerosToken(order.customerName).includes("ENTRECUEROS");
+}
+
 /** OPV del cliente Entre Cueros (sin límite de 10 líneas en impresión). */
 export function isEntreCuerosCustomerOpv(order) {
   if (!order || classifyPrepareOrder(order) !== "OPV") return false;
-  const customerToken = normalizeEntreCuerosToken(order.customerName);
-  return customerToken.includes("ENTRECUEROS");
+  return isEntreCuerosCustomer(order);
 }
 
 export function orderHasConfirmedShipment(shipments) {
