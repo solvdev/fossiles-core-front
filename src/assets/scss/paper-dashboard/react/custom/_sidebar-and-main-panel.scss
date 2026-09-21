@@ -595,11 +595,17 @@
 
 // Stying for logos
 
+.sidebar .logo a.logo-normal {
+    padding: 4px 0;
+    line-height: normal;
+    overflow: visible;
+}
+
 .sidebar .logo a.logo-normal .sidebar-brand-wordmark {
     display: block;
-    height: 28px;
+    height: 48px;
     width: auto;
-    max-width: 170px;
+    max-width: 230px;
     object-fit: contain;
     mix-blend-mode: screen;
 }
