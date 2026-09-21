@@ -230,6 +230,7 @@ function Sidebar(props) {
         <a
           href="#pablo"
           className="simple-text logo-mini"
+          onClick={(e) => e.preventDefault()}
         >
           <div className="logo-img">
             <img src={soluLogo} alt="Solu" />
