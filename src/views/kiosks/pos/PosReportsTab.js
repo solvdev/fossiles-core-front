@@ -49,6 +49,7 @@ import {
   isSalePendingDeposit,
   formatSaleCardPaymentDetail,
   canCertifyKioskSaleFel,
+  canVoidKioskSale,
   saleNeedsFelCertification,
   isEntrecuerosPosMode,
   saleHasFelInvoice,
@@ -102,14 +103,6 @@ const formatPeriodLabel = (startDate, endDate) => {
   if (!from) return "Selecciona fechas y aplica el filtro";
   if (from === to) return `Día ${formatDateGt(from)}`;
   return `${formatDateGt(from)} — ${formatDateGt(to)}`;
-};
-
-const canVoidSaleRow = (sale, cashSession) => {
-  if (!cashSession || String(cashSession.status || "").toUpperCase() !== "OPEN" || !sale) return false;
-  if (String(sale.status || "").toUpperCase() === "VOID") return false;
-  if (String(sale.status || "").toUpperCase() !== "COMPLETED") return false;
-  if (sale.cashSessionId != null && Number(sale.cashSessionId) !== Number(cashSession.id)) return false;
-  return true;
 };
 
 function PosReportsTab({
@@ -972,8 +965,8 @@ function PosReportsTab({
           )}
 
           <p className="text-muted small mt-3 mb-2">
-            Toca una venta para ver el detalle. Con caja abierta puedes anular ventas del turno desde la columna Acciones.
-            Si falta FEL y la venta tiene menos de 5 días, usa <strong>Certificar</strong>. SAT no certifica documentos más antiguos.
+            Toca una venta para ver el detalle. Con caja abierta puedes anular ventas (también de turnos anteriores) para
+            devolver inventario. Si falta FEL y la venta tiene menos de 5 días, usa <strong>Certificar</strong>. SAT no certifica documentos más antiguos.
           </p>
 
           <Table responsive className="kiosk-pos-sales-table">
@@ -1007,7 +1000,7 @@ function PosReportsTab({
                   sale.testSale || String(felSerie || "").toUpperCase().includes("PRUEBAS");
                 const isVoid = String(sale.status || "").toUpperCase() === "VOID";
                 const pendingDeposit = isSalePendingDeposit(sale);
-                const showVoidButton = canVoidSaleRow(sale, cashSession);
+                const showVoidButton = canVoidKioskSale(sale, cashSession);
                 const missingFel = !isVoid && saleNeedsFelCertification(sale);
                 const canCertifyFel = canCertifyKioskSaleFel(sale, kioskLocationId);
                 const depositLabel = pendingDeposit

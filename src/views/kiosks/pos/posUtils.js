@@ -692,6 +692,12 @@ export const canCertifyKioskSaleFel = (sale, kioskLocationId) =>
   && saleIsWithinFelBackdateWindow(sale)
   && saleNeedsFelCertification(sale);
 
+/** Anular venta POS: caja abierta del kiosko, aunque la venta sea de un turno anterior. */
+export const canVoidKioskSale = (sale, cashSession) => {
+  if (!cashSession || String(cashSession.status || "").toUpperCase() !== "OPEN" || !sale) return false;
+  return String(sale.status || "").toUpperCase() === "COMPLETED";
+};
+
 export const getSaleInternalNumber = (sale) =>
   sale?.internalNumber || sale?.invoice?.internalNumber || "";
 
