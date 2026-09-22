@@ -530,6 +530,25 @@ export const getProductionReports = async (type = 'daily', from, to) => {
   return response.json();
 };
 
+/** Estima días hábiles de una OP (prd_time × qty, mesas, eficiencia desde efficiencyFrom). */
+export const getProductionTimeEstimate = async (orderId, efficiencyFrom = '2026-09-14') => {
+  if (!orderId || orderId === 'undefined' || orderId === 'null') {
+    throw new Error('ID de orden de producción inválido');
+  }
+  const params = new URLSearchParams();
+  if (efficiencyFrom) params.set('efficiencyFrom', efficiencyFrom);
+  const qs = params.toString() ? `?${params.toString()}` : '';
+  const response = await fetch(
+    `${API_URL}/production-orders/${orderId}/production-time-estimate${qs}`,
+    { headers: { 'Content-Type': 'application/json', ...getAuthHeader() } }
+  );
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ message: 'Error al estimar tiempo de producción' }));
+    throw new Error(err.message || 'Error al estimar tiempo de producción');
+  }
+  return response.json();
+};
+
 export const voidVendorShipmentDocument = async (orderId) => {
   if (!orderId || orderId === 'undefined' || orderId === 'null') {
     throw new Error('ID de orden de producción inválido');

@@ -1,9 +1,9 @@
-import React, { useState, useRef, useMemo } from "react";
+import React, { useState, useRef, useMemo, useEffect } from "react";
 import {
   Card, CardHeader, CardBody, CardTitle, Row, Col, Table,
   Input, Label, Button, Alert,
 } from "reactstrap";
-import { getProductionReports } from "services/productionOrderService";
+import { getProductionOrdersPage, getProductionReports, getProductionTimeEstimate } from "services/productionOrderService";
 import NotificationAlert from "react-notification-alert";
 import { exportRowsToCsv, exportRowsToPdf } from "utils/reportExportHelper";
 import { Bar } from "react-chartjs-2";
@@ -26,7 +26,15 @@ const REPORT_TYPES = [
   { value: "product-stage", label: "Por Producto y Etapa" },
   { value: "efficiency", label: "Eficiencia" },
   { value: "stage", label: "Por Estado" },
+  { value: "order-time", label: "Tiempo por orden" },
 ];
+
+const EFFICIENCY_FROM = "2026-09-14";
+
+function formatHours(h) {
+  if (h == null || Number.isNaN(Number(h))) return "—";
+  return `${Number(h).toFixed(2)} h`;
+}
 
 function ProductionReports() {
   const notif = useRef(null);
@@ -35,18 +43,64 @@ function ProductionReports() {
   const [dateTo, setDateTo] = useState("");
   const [report, setReport] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [orderSearch, setOrderSearch] = useState("");
+  const [orderOptions, setOrderOptions] = useState([]);
+  const [selectedOrderId, setSelectedOrderId] = useState("");
+  const [loadingOrders, setLoadingOrders] = useState(false);
+  const [timeEstimate, setTimeEstimate] = useState(null);
 
   const generateReport = async () => {
     setLoading(true);
     try {
-      const data = await getProductionReports(reportType, dateFrom || undefined, dateTo || undefined);
-      setReport(data);
+      if (reportType === "order-time") {
+        if (!selectedOrderId) {
+          notify("warning", "Seleccione una orden de producción");
+          setTimeEstimate(null);
+          return;
+        }
+        const data = await getProductionTimeEstimate(selectedOrderId, EFFICIENCY_FROM);
+        setTimeEstimate(data);
+        setReport(null);
+      } else {
+        const data = await getProductionReports(reportType, dateFrom || undefined, dateTo || undefined);
+        setReport(data);
+        setTimeEstimate(null);
+      }
     } catch (err) {
       notify("danger", err.message);
     } finally {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    if (reportType !== "order-time") return undefined;
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      setLoadingOrders(true);
+      try {
+        const page = await getProductionOrdersPage({
+          search: orderSearch.trim(),
+          process: "ALL",
+          status: "ALL",
+          page: 0,
+          size: 40,
+        });
+        if (!cancelled) setOrderOptions(page?.content || []);
+      } catch (err) {
+        if (!cancelled) {
+          setOrderOptions([]);
+          notify("danger", err.message || "No se pudieron cargar órdenes");
+        }
+      } finally {
+        if (!cancelled) setLoadingOrders(false);
+      }
+    }, 300);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [reportType, orderSearch]);
 
   const notify = (type, message) => {
     if (notif.current) {
@@ -78,6 +132,15 @@ function ProductionReports() {
         return <tr><th>Tarea</th><th>Producto</th><th className="text-right">Est. (min)</th><th className="text-right">Real (min)</th><th className="text-right">Eficiencia</th></tr>;
       case "stage":
         return <tr><th>Estado</th><th className="text-right">Cantidad</th></tr>;
+      case "order-time":
+        return (
+          <tr>
+            <th>Producto</th>
+            <th className="text-right">Cantidad</th>
+            <th className="text-right">prd_time (h)</th>
+            <th className="text-right">Horas línea</th>
+          </tr>
+        );
       default:
         return null;
     }
@@ -164,6 +227,22 @@ function ProductionReports() {
     }
   };
 
+  const renderTimeEstimateRows = () => {
+    const lines = timeEstimate?.lines || [];
+    if (!lines.length) return null;
+    return lines.map((row, i) => (
+      <tr key={row.itemId || i}>
+        <td>
+          <strong>{row.productCode || "—"}</strong>
+          {row.productName ? <div className="text-muted small">{row.productName}</div> : null}
+        </td>
+        <td className="text-right">{row.quantity}</td>
+        <td className="text-right">{formatHours(row.prdTimePerUnit)}</td>
+        <td className="text-right">{formatHours(row.lineHours)}</td>
+      </tr>
+    ));
+  };
+
   const exportConfig = () => {
     switch (reportType) {
       case "daily":
@@ -234,6 +313,18 @@ function ProductionReports() {
             { label: "Eficiencia (%)", value: "efficiency" },
           ],
         };
+      case "order-time":
+        return {
+          filename: `tiempo_produccion_${timeEstimate?.productionOrderCode || "op"}`,
+          title: `Tiempo de Produccion - ${timeEstimate?.productionOrderCode || ""}`,
+          headers: [
+            { label: "Codigo", value: "productCode" },
+            { label: "Producto", value: "productName" },
+            { label: "Cantidad", value: "quantity" },
+            { label: "prd_time (h)", value: "prdTimePerUnit" },
+            { label: "Horas linea", value: "lineHours" },
+          ],
+        };
       case "stage":
       default:
         return {
@@ -248,12 +339,24 @@ function ProductionReports() {
   };
 
   const exportCsv = () => {
+    if (reportType === "order-time") {
+      if (!timeEstimate?.lines?.length) return;
+      const cfg = exportConfig();
+      exportRowsToCsv(cfg.filename, cfg.headers, timeEstimate.lines);
+      return;
+    }
     if (!report?.data?.length) return;
     const cfg = exportConfig();
     exportRowsToCsv(cfg.filename, cfg.headers, report.data);
   };
 
   const exportPdf = () => {
+    if (reportType === "order-time") {
+      if (!timeEstimate?.lines?.length) return;
+      const cfg = exportConfig();
+      exportRowsToPdf(cfg.title, cfg.headers, timeEstimate.lines);
+      return;
+    }
     if (!report?.data?.length) return;
     const cfg = exportConfig();
     exportRowsToPdf(cfg.title, cfg.headers, report.data);
@@ -332,7 +435,11 @@ function ProductionReports() {
     stage: "Distribución por Estado",
   };
 
-  const summaryLabel = reportType === "product-stage" || reportType === "stage"
+  const isOrderTime = reportType === "order-time";
+
+  const summaryLabel = isOrderTime
+    ? null
+    : reportType === "product-stage" || reportType === "stage"
     ? null
     : (
       <Alert color="info" className="mb-3">
@@ -342,7 +449,9 @@ function ProductionReports() {
       </Alert>
     );
 
-  const colSpanForEmpty = reportType === "stage" ? 2 : reportType === "product-stage" ? 5 : reportType === "efficiency" ? 5 : 4;
+  const colSpanForEmpty = isOrderTime
+    ? 4
+    : reportType === "stage" ? 2 : reportType === "product-stage" ? 5 : reportType === "efficiency" ? 5 : 4;
 
   return (
     <div className="content">
@@ -357,20 +466,63 @@ function ProductionReports() {
               <Row className="mb-3">
                 <Col md="3">
                   <Label>Tipo de Reporte</Label>
-                  <Input type="select" value={reportType} onChange={e => { setReportType(e.target.value); setReport(null); }}>
-                    {REPORT_TYPES.map(t => (
+                  <Input
+                    type="select"
+                    value={reportType}
+                    onChange={(e) => {
+                      setReportType(e.target.value);
+                      setReport(null);
+                      setTimeEstimate(null);
+                    }}
+                  >
+                    {REPORT_TYPES.map((t) => (
                       <option key={t.value} value={t.value}>{t.label}</option>
                     ))}
                   </Input>
                 </Col>
-                <Col md="3">
-                  <Label>Fecha Desde</Label>
-                  <Input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} />
-                </Col>
-                <Col md="3">
-                  <Label>Fecha Hasta</Label>
-                  <Input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} />
-                </Col>
+                {isOrderTime ? (
+                  <>
+                    <Col md="3">
+                      <Label>Buscar OP</Label>
+                      <Input
+                        type="text"
+                        placeholder="Código o cliente…"
+                        value={orderSearch}
+                        onChange={(e) => setOrderSearch(e.target.value)}
+                      />
+                    </Col>
+                    <Col md="3">
+                      <Label>Orden</Label>
+                      <Input
+                        type="select"
+                        value={selectedOrderId}
+                        onChange={(e) => {
+                          setSelectedOrderId(e.target.value);
+                          setTimeEstimate(null);
+                        }}
+                        disabled={loadingOrders}
+                      >
+                        <option value="">{loadingOrders ? "Cargando…" : "Seleccione una OP"}</option>
+                        {orderOptions.map((o) => (
+                          <option key={o.id} value={o.id}>
+                            {o.code} — {o.customerName || "Sin cliente"} ({o.status})
+                          </option>
+                        ))}
+                      </Input>
+                    </Col>
+                  </>
+                ) : (
+                  <>
+                    <Col md="3">
+                      <Label>Fecha Desde</Label>
+                      <Input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
+                    </Col>
+                    <Col md="3">
+                      <Label>Fecha Hasta</Label>
+                      <Input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
+                    </Col>
+                  </>
+                )}
                 <Col md="3" className="d-flex align-items-end">
                   <Button color="primary" className="btn-round" onClick={generateReport} disabled={loading}>
                     {loading ? "Generando..." : <><i className="nc-icon nc-zoom-split" /> Generar Reporte</>}
@@ -380,10 +532,19 @@ function ProductionReports() {
 
               <Row className="mb-2">
                 <Col md="12" className="text-right">
-                  <Button color="secondary" className="mr-2" onClick={exportCsv} disabled={!report?.data?.length}>
+                  <Button
+                    color="secondary"
+                    className="mr-2"
+                    onClick={exportCsv}
+                    disabled={isOrderTime ? !timeEstimate?.lines?.length : !report?.data?.length}
+                  >
                     <i className="nc-icon nc-cloud-download-93 mr-1" />CSV
                   </Button>
-                  <Button color="secondary" onClick={exportPdf} disabled={!report?.data?.length}>
+                  <Button
+                    color="secondary"
+                    onClick={exportPdf}
+                    disabled={isOrderTime ? !timeEstimate?.lines?.length : !report?.data?.length}
+                  >
                     <i className="nc-icon nc-single-copy-04 mr-1" />PDF
                   </Button>
                 </Col>
@@ -391,7 +552,58 @@ function ProductionReports() {
 
               {report && summaryLabel}
 
-              {report && reportType !== "product-stage" && reportType !== "stage" && (
+              {isOrderTime && timeEstimate && (
+                <>
+                  <Alert color="info" className="mb-3">
+                    <strong>{timeEstimate.productionOrderCode}</strong>
+                    {" "}· Eficiencia desde {timeEstimate.efficiencyFrom}
+                    {timeEstimate.efficiencyPercent != null
+                      ? ` · ${timeEstimate.efficiencyPercent}% (${timeEstimate.measuredTasks} tareas medidas)`
+                      : " · Sin eficiencia medida (se usa tiempo teórico)"}
+                    {" "}· Lun–jue 9h / vie 8h × {timeEstimate.deskCount} mesa(s)
+                  </Alert>
+                  <Row className="mb-3">
+                    <Col md="2">
+                      <Card><CardBody>
+                        <small className="text-muted">Horas teóricas</small>
+                        <h4>{formatHours(timeEstimate.theoreticalHours)}</h4>
+                      </CardBody></Card>
+                    </Col>
+                    <Col md="2">
+                      <Card><CardBody>
+                        <small className="text-muted">Horas ajustadas</small>
+                        <h4>{formatHours(timeEstimate.adjustedHours)}</h4>
+                      </CardBody></Card>
+                    </Col>
+                    <Col md="2">
+                      <Card><CardBody>
+                        <small className="text-muted">Mesas</small>
+                        <h4>{timeEstimate.deskCount}</h4>
+                      </CardBody></Card>
+                    </Col>
+                    <Col md="2">
+                      <Card><CardBody>
+                        <small className="text-muted">Días hábiles</small>
+                        <h4>{timeEstimate.businessDays}</h4>
+                      </CardBody></Card>
+                    </Col>
+                    <Col md="2">
+                      <Card><CardBody>
+                        <small className="text-muted">Inicio</small>
+                        <h4 style={{ fontSize: "1.1rem" }}>{timeEstimate.estimatedStartDate}</h4>
+                      </CardBody></Card>
+                    </Col>
+                    <Col md="2">
+                      <Card><CardBody>
+                        <small className="text-muted">Fin estimado</small>
+                        <h4 style={{ fontSize: "1.1rem" }}>{timeEstimate.estimatedEndDate}</h4>
+                      </CardBody></Card>
+                    </Col>
+                  </Row>
+                </>
+              )}
+
+              {!isOrderTime && report && reportType !== "product-stage" && reportType !== "stage" && (
                 <Row className="mb-3">
                   <Col md="3"><Card><CardBody><small className="text-muted">Tareas</small><h4>{report.totalTasks || 0}</h4></CardBody></Card></Col>
                   <Col md="3"><Card><CardBody><small className="text-muted">Unidades</small><h4>{report.totalQuantity || 0}</h4></CardBody></Card></Col>
@@ -400,7 +612,7 @@ function ProductionReports() {
                 </Row>
               )}
 
-              {reportType === "product-stage" && report?.data?.length > 0 && (
+              {!isOrderTime && reportType === "product-stage" && report?.data?.length > 0 && (
                 <Row className="mb-3">
                   {[
                     { label: "Total Productos", value: report.data.length, color: "" },
@@ -418,13 +630,13 @@ function ProductionReports() {
                 </Row>
               )}
 
-              {reportType === "efficiency" && report && (
+              {!isOrderTime && reportType === "efficiency" && report && (
                 <Alert color="secondary" className="mb-3">
                   <strong>Eficiencia promedio:</strong> {report.avgEfficiency || 0}%
                 </Alert>
               )}
 
-              {chartData && (
+              {!isOrderTime && chartData && (
                 <Card className="mb-3">
                   <CardHeader>
                     <CardTitle tag="h6">{chartTitle[reportType]}</CardTitle>
@@ -442,13 +654,23 @@ function ProductionReports() {
                   {renderHeaders()}
                 </thead>
                 <tbody>
-                  {report?.data ? renderRows() : (
-                    <tr>
-                      <td colSpan={colSpanForEmpty} className="text-center text-muted">
-                        Seleccione filtros y genere el reporte
-                      </td>
-                    </tr>
-                  )}
+                  {isOrderTime
+                    ? (timeEstimate?.lines?.length
+                      ? renderTimeEstimateRows()
+                      : (
+                        <tr>
+                          <td colSpan={colSpanForEmpty} className="text-center text-muted">
+                            Seleccione una OP y genere el estimado
+                          </td>
+                        </tr>
+                      ))
+                    : (report?.data ? renderRows() : (
+                      <tr>
+                        <td colSpan={colSpanForEmpty} className="text-center text-muted">
+                          Seleccione filtros y genere el reporte
+                        </td>
+                      </tr>
+                    ))}
                 </tbody>
               </Table>
             </CardBody>
