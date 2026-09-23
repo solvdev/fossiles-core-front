@@ -77,26 +77,31 @@ const WarehouseOrderDetail = ({
     [units]
   );
 
-  const visibleUnits = useMemo(() => {
+  const matchesUnitSearch = useCallback((u) => {
     const term = String(unitSearch || "").trim().toLowerCase();
+    if (!term) return true;
+    const hay = `${u.unitLabel || ""} ${u.productCode || ""} ${u.productName || ""} ${u.colorName || ""}`
+      .toLowerCase();
+    return hay.includes(term);
+  }, [unitSearch]);
+
+  const visibleUnits = useMemo(() => {
     return units.filter((u) => {
       const status = u.receiptStatus || "PENDING";
       if (unitStatusFilter === "PENDING" && (status !== "PENDING" || u.shippedAt)) return false;
       if (unitStatusFilter === "RECEIVED" && status !== "RECEIVED") return false;
       if (unitStatusFilter === "REJECTED" && status !== "REJECTED") return false;
-      if (!term) return true;
-      const hay = `${u.unitLabel || ""} ${u.productCode || ""} ${u.productName || ""} ${u.colorName || ""}`
-        .toLowerCase();
-      return hay.includes(term);
+      return matchesUnitSearch(u);
     });
-  }, [units, unitSearch, unitStatusFilter]);
+  }, [units, unitStatusFilter, matchesUnitSearch]);
 
   const visibleGroups = useMemo(() => groupWarehouseUnits(visibleUnits), [visibleUnits]);
 
-  const pendingVisibleGroups = useMemo(
-    () => visibleGroups.filter((g) => Number(g.pendingCount || 0) > 0),
-    [visibleGroups]
-  );
+  /** En recepción: solo lotes con piezas pendientes (ignorando ya recibidas/rechazadas). */
+  const pendingVisibleGroups = useMemo(() => {
+    const pendingFiltered = pendingUnits.filter(matchesUnitSearch);
+    return groupWarehouseUnits(pendingFiltered).filter((g) => Number(g.pendingCount || 0) > 0);
+  }, [pendingUnits, matchesUnitSearch]);
 
   const selectedPieceCount = useMemo(() => {
     let total = 0;
@@ -290,6 +295,12 @@ const WarehouseOrderDetail = ({
   }
 
   const canSelectLots = mode === "receipt" && !receiptClosed;
+  const isReceiptMode = mode === "receipt";
+  /** En recepción solo se listan lotes pendientes (no el catálogo ya recibido). */
+  const receiptGroups = isReceiptMode ? pendingVisibleGroups : visibleGroups;
+  const receiptPieceCount = isReceiptMode
+    ? receiptGroups.reduce((sum, g) => sum + Number(g.pendingCount || 0), 0)
+    : visibleUnits.length;
 
   return (
     <div className="mt-2">
@@ -300,7 +311,11 @@ const WarehouseOrderDetail = ({
           {DISPATCH_TYPE_LABELS[order.dispatchType] || order.dispatchType}
         </span>
         <br />
-        Piezas: {progress.produced}/{progress.total} contabilizadas · pendientes {progress.pending}
+        {isReceiptMode
+          ? (progress.pending > 0
+            ? `Pendiente por recibir: ${progress.pending} pieza${progress.pending === 1 ? "" : "s"}`
+            : "Nada pendiente por recibir")
+          : `Piezas: ${progress.produced}/${progress.total} contabilizadas · pendientes ${progress.pending}`}
         {receiptClosed && <Badge color="dark" className="ml-2">Recepción cerrada</Badge>}
         {order.observations && (
           <>
@@ -312,15 +327,17 @@ const WarehouseOrderDetail = ({
         )}
       </Alert>
 
-      <Progress value={progress.pct} color={progress.pct >= 100 ? "success" : "info"} className="mb-3" style={{ height: 8 }} />
+      {!isReceiptMode && (
+        <Progress value={progress.pct} color={progress.pct >= 100 ? "success" : "info"} className="mb-3" style={{ height: 8 }} />
+      )}
 
-      {mode === "receipt" && !receiptClosed && (
+      {isReceiptMode && !receiptClosed && (
         <>
           <div className="d-flex flex-wrap align-items-center justify-content-between mb-3" style={{ gap: 8 }}>
             <div className="text-muted small">
               {pendingVisibleGroups.length > 0
-                ? "Toca cada lote para marcarlo. Ajusta cantidad si no recibes todo el lote."
-                : "No hay lotes pendientes con este filtro."}
+                ? "Solo se muestran lotes pendientes. Toca cada uno para marcarlo."
+                : "No hay lotes pendientes por recibir."}
             </div>
             <div className="d-flex flex-wrap" style={{ gap: 8 }}>
               {pendingVisibleGroups.length > 0 && selectedGroupCount === 0 && (
@@ -341,7 +358,7 @@ const WarehouseOrderDetail = ({
                 disabled={saving || pendingUnits.length === 0}
                 onClick={() => void receiveAllPending()}
               >
-                Recibir todo de la OP ({pendingUnits.length})
+                Recibir todo pendiente ({pendingUnits.length})
               </Button>
               <Button
                 size="sm"
@@ -364,22 +381,23 @@ const WarehouseOrderDetail = ({
       )}
 
       <Row className="align-items-end mb-2">
-        <Col md="6" className="mb-2 mb-md-0">
+        <Col md={isReceiptMode ? "12" : "6"} className="mb-2 mb-md-0">
           <h6 className="mb-1">
-            Lotes ({visibleGroups.length}
-            {visibleUnits.length !== units.length ? ` · ${visibleUnits.length} de ${units.length} piezas` : ` · ${units.length} piezas`})
+            {isReceiptMode
+              ? `Pendientes (${receiptGroups.length} lote${receiptGroups.length === 1 ? "" : "s"} · ${receiptPieceCount} pieza${receiptPieceCount === 1 ? "" : "s"})`
+              : `Lotes (${visibleGroups.length}${visibleUnits.length !== units.length ? ` · ${visibleUnits.length} de ${units.length} piezas` : ` · ${units.length} piezas`})`}
           </h6>
-          {mode === "receipt" && (
+          {isReceiptMode && (
             <Input
               type="search"
               bsSize="sm"
               value={unitSearch}
               onChange={(e) => setUnitSearch(e.target.value)}
-              placeholder="Filtrar por código, producto o color…"
+              placeholder="Filtrar pendientes por código, producto o color…"
             />
           )}
         </Col>
-        {mode === "receipt" && (
+        {!isReceiptMode && (
           <Col md="6">
             <div className="d-flex flex-wrap justify-content-md-end" style={{ gap: 6 }}>
               {[
@@ -403,12 +421,16 @@ const WarehouseOrderDetail = ({
         )}
       </Row>
 
-      {visibleGroups.length === 0 ? (
+      {receiptGroups.length === 0 ? (
         <Alert color="info" className="py-2">
-          No hay piezas con este filtro. Prueba “Todas” o limpia la búsqueda.
+          {isReceiptMode
+            ? (unitSearch
+              ? "Ningún pendiente coincide con la búsqueda."
+              : "No hay piezas pendientes por recibir en esta orden.")
+            : "No hay piezas con este filtro. Prueba “Todas” o limpia la búsqueda."}
         </Alert>
       ) : (
-        visibleGroups.map((group) => (
+        receiptGroups.map((group) => (
           <WarehouseUnitGroupRow
             key={group.key}
             group={group}
