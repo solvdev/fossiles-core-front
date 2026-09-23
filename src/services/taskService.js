@@ -419,8 +419,11 @@ export const runAutoPlan = async (productionOrderId, { regenerate = false, date 
     headers: headers(),
   });
   if (!response.ok) {
-    const err = await response.json().catch(() => ({ message: 'Error al generar y asignar' }));
-    throw new Error(err.message || 'Error al generar y asignar');
+    const err = await response.json().catch(() => ({}));
+    const detail = err.message || err.error || err.detail
+      || (typeof err === 'string' ? err : null)
+      || `Error al generar y asignar (${response.status})`;
+    throw new Error(detail);
   }
   return response.json();
 };
