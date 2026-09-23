@@ -27,7 +27,7 @@ const REPORT_TYPES = [
   { value: "efficiency", label: "Eficiencia" },
   { value: "stage", label: "Por Estado" },
   { value: "order-time", label: "Tiempo por orden" },
-  { value: "order-leather", label: "Cuero por orden" },
+  // Temporalmente deshabilitado: { value: "order-leather", label: "Cuero por orden" },
 ];
 
 function formatHours(h) {
