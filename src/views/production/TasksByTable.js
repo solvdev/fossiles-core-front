@@ -494,29 +494,39 @@ function TasksByTable() {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      // Primero pintar: el tablero aparece con lo que ya hay en la base en vez de
-      // dejar la pantalla vacia mientras el planificador automático hace su pasada.
       await Promise.all([loadTasks(), loadProductionOrders(), loadDayPlanPanels()]);
       if (cancelled) return;
-
-      // Y después el auto-plan, en segundo plano. Puede crear tareas, así que al
-      // terminar se refresca sin desmontar lo que el usuario ya esta viendo.
-      setAutoPlanning(true);
-      try {
-        await runAutoPlan();
-      } catch (err) {
-        console.error("Auto-plan al abrir centro:", err);
-      } finally {
-        if (!cancelled) setAutoPlanning(false);
-      }
-      if (cancelled) return;
-      await Promise.all([loadTasks({ background: true }), loadDayPlanPanels()]);
     })();
     return () => {
       cancelled = true;
     };
   }, []);
 
+  const handleRunAutoPlan = async ({ regenerate = true } = {}) => {
+    const planDate = filterDate || getTodayYmdGuatemala();
+    setAutoPlanning(true);
+    setError(null);
+    try {
+      const result = await runAutoPlan(undefined, { regenerate, date: planDate });
+      const centro = result?.centroTasksCreated || 0;
+      const cincho = result?.cinchoTasksCreated || 0;
+      const cleared = result?.clearedAutoPlanTasks || 0;
+      const blocked = (result?.blockedNoLeather || []).length;
+      const dayLabel = result?.planDate || planDate;
+      showSuccess(
+        `Plan ${dayLabel}: ${centro} centro · ${cincho} cinchos`
+          + (cleared ? ` · liberadas ${cleared}` : "")
+          + (blocked ? ` · ${blocked} sin cuero` : "")
+      );
+      await Promise.all([loadTasks({ background: true }), loadDayPlanPanels()]);
+    } catch (err) {
+      console.error("Auto-plan manual:", err);
+      setError(err.message || "No se pudo generar el plan");
+      showError(err.message || "No se pudo generar el plan");
+    } finally {
+      setAutoPlanning(false);
+    }
+  };
   useEffect(() => {
     loadDayPlanPanels();
   }, [loadDayPlanPanels]);
@@ -1932,6 +1942,23 @@ function TasksByTable() {
                     )}
                     {refreshing ? "Actualizando…" : "Actualizar"}
                   </Button>
+                  <Button
+                    color="warning"
+                    size="sm"
+                    className="mb-0"
+                    onClick={() => handleRunAutoPlan({ regenerate: true })}
+                    disabled={loading || refreshing || autoPlanning}
+                    title={`Libera auto-plan pendientes del día y regenera desde ${filterDate || getTodayYmdGuatemala()} (fin de semana → siguiente hábil)`}
+                  >
+                    {autoPlanning ? (
+                      <Spinner size="sm" className="mr-1" />
+                    ) : (
+                      <i className="nc-icon nc-settings-gear-65 mr-1" />
+                    )}
+                    {autoPlanning
+                      ? "Planificando…"
+                      : `Regenerar plan (${filterDate || "hoy"})`}
+                  </Button>
                 </div>
               </div>
             </CardHeader>
@@ -1941,7 +1968,7 @@ function TasksByTable() {
               {autoPlanning && (
                 <Alert color="info" className="mb-2 py-2 d-flex align-items-center" style={{ gap: 8 }}>
                   <Spinner size="sm" color="info" style={{ width: 14, height: 14, borderWidth: 2 }} />
-                  Generando y asignando las tareas del día…
+                  Regenerando plan: liberando auto-plan pendientes y reagrupando productos…
                 </Alert>
               )}
               {viewMode === "operation" && (

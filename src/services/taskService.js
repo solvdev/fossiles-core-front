@@ -408,8 +408,12 @@ export const planTasksWindow = async (startDate, horizonDays, schedulingPrioriti
   return response.json();
 };
 
-export const runAutoPlan = async (productionOrderId) => {
-  const query = productionOrderId != null ? `?productionOrderId=${encodeURIComponent(productionOrderId)}` : '';
+export const runAutoPlan = async (productionOrderId, { regenerate = false, date } = {}) => {
+  const params = new URLSearchParams();
+  if (productionOrderId != null) params.append('productionOrderId', String(productionOrderId));
+  if (regenerate) params.append('regenerate', 'true');
+  if (date) params.append('date', date);
+  const query = params.toString() ? `?${params}` : '';
   const response = await fetch(`${API_URL}/tasks/auto-plan${query}`, {
     method: 'POST',
     headers: headers(),
