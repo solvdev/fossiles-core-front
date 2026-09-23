@@ -23,6 +23,9 @@ const ACTIONS = [
   { label: "Bodega PT", path: "/admin/warehouse-view", color: "secondary" },
 ];
 
+/** Corte post-saneamiento KPI: misma base de eficiencia que el backend. */
+const KPI_EFFICIENCY_FROM = "2026-09-14";
+
 const CARD_STYLE = { marginBottom: 22, borderRadius: 12 };
 const KPI_CARD_STYLE = { ...CARD_STYLE, minHeight: 150 };
 const SECTION_ROW_STYLE = { marginBottom: 18 };
@@ -135,7 +138,7 @@ function ProductionDashboard() {
   const [loadingTrace, setLoadingTrace] = useState(false);
   const [error, setError] = useState("");
   const [traceError, setTraceError] = useState("");
-  const [dateFrom, setDateFrom] = useState("");
+  const [dateFrom, setDateFrom] = useState(KPI_EFFICIENCY_FROM);
   const [dateTo, setDateTo] = useState("");
   const [orderSearch, setOrderSearch] = useState("");
   const [selectedOrderId, setSelectedOrderId] = useState("");
@@ -152,7 +155,7 @@ function ProductionDashboard() {
       setLoading(true);
       setError("");
       const [data, orderData] = await Promise.all([
-        getProductionDashboardV2(from, to),
+        getProductionDashboardV2(from || KPI_EFFICIENCY_FROM, to),
         getProductionOrders(),
       ]);
       setDashboard(data);
@@ -168,7 +171,7 @@ function ProductionDashboard() {
   };
 
   useEffect(() => {
-    loadDashboard();
+    loadDashboard(KPI_EFFICIENCY_FROM);
   }, []);
 
   useEffect(() => {
@@ -387,9 +390,9 @@ function ProductionDashboard() {
                 Aplicar
               </Button>
               <Button color="secondary" className="mr-2" onClick={() => {
-                setDateFrom("");
+                setDateFrom(KPI_EFFICIENCY_FROM);
                 setDateTo("");
-                loadDashboard();
+                loadDashboard(KPI_EFFICIENCY_FROM);
               }}>
                 Limpiar
               </Button>
