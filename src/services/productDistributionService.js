@@ -262,6 +262,34 @@ export const updateShipmentPackingItems = async (shipmentId, packingItems) => {
   }
 };
 
+export const updateShipmentShippingCost = async (shipmentId, shippingCost) => {
+  if (!shipmentId || shipmentId === 'undefined' || shipmentId === 'null') {
+    throw new Error('ID de envío inválido');
+  }
+  try {
+    const response = await fetch(`${API_URL}/product-distributions/shipments/${shipmentId}/shipping-cost`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        ...getAuthHeader()
+      },
+      body: JSON.stringify({
+        shippingCost: shippingCost === "" || shippingCost == null ? null : Number(shippingCost),
+      }),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({ message: 'Error al guardar costo de envío' }));
+      throw new Error(errorData.message || 'Error al guardar costo de envío');
+    }
+
+    return await response.json();
+  } catch (error) {
+    console.error('Update shipment shipping cost error:', error);
+    throw error;
+  }
+};
+
 export const updateShipmentProducts = async (shipmentId, products) => {
   if (!shipmentId || shipmentId === 'undefined' || shipmentId === 'null') {
     throw new Error('ID de envío inválido');
