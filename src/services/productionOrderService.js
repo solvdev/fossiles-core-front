@@ -530,21 +530,34 @@ export const getProductionReports = async (type = 'daily', from, to) => {
   return response.json();
 };
 
-/** Estima días hábiles de una OP (prd_time × qty, mesas, eficiencia desde efficiencyFrom). */
-export const getProductionTimeEstimate = async (orderId, efficiencyFrom = '2026-09-14') => {
+/** Estima días hábiles de una OP (prd_time × qty, mesas, eficiencia del dashboard). */
+export const getProductionTimeEstimate = async (orderId) => {
   if (!orderId || orderId === 'undefined' || orderId === 'null') {
     throw new Error('ID de orden de producción inválido');
   }
-  const params = new URLSearchParams();
-  if (efficiencyFrom) params.set('efficiencyFrom', efficiencyFrom);
-  const qs = params.toString() ? `?${params.toString()}` : '';
   const response = await fetch(
-    `${API_URL}/production-orders/${orderId}/production-time-estimate${qs}`,
+    `${API_URL}/production-orders/${orderId}/production-time-estimate`,
     { headers: { 'Content-Type': 'application/json', ...getAuthHeader() } }
   );
   if (!response.ok) {
     const err = await response.json().catch(() => ({ message: 'Error al estimar tiempo de producción' }));
     throw new Error(err.message || 'Error al estimar tiempo de producción');
+  }
+  return response.json();
+};
+
+/** Cuero (ft²) requerido por OP según color de cada línea. */
+export const getProductionLeatherEstimate = async (orderId) => {
+  if (!orderId || orderId === 'undefined' || orderId === 'null') {
+    throw new Error('ID de orden de producción inválido');
+  }
+  const response = await fetch(
+    `${API_URL}/production-orders/${orderId}/leather-estimate`,
+    { headers: { 'Content-Type': 'application/json', ...getAuthHeader() } }
+  );
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ message: 'Error al estimar cuero de producción' }));
+    throw new Error(err.message || 'Error al estimar cuero de producción');
   }
   return response.json();
 };
