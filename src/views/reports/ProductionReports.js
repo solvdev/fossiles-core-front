@@ -36,6 +36,11 @@ function formatHours(h) {
   return `${Number(h).toFixed(2)} h`;
 }
 
+function formatMinutesFromHours(h) {
+  if (h == null || Number.isNaN(Number(h))) return "—";
+  return `${Math.round(Number(h) * 60)} min`;
+}
+
 function ProductionReports() {
   const notif = useRef(null);
   const [reportType, setReportType] = useState("daily");
@@ -137,7 +142,7 @@ function ProductionReports() {
           <tr>
             <th>Producto</th>
             <th className="text-right">Cantidad</th>
-            <th className="text-right">prd_time (h)</th>
+            <th className="text-right">prd_time (min)</th>
             <th className="text-right">Horas línea</th>
           </tr>
         );
@@ -237,7 +242,7 @@ function ProductionReports() {
           {row.productName ? <div className="text-muted small">{row.productName}</div> : null}
         </td>
         <td className="text-right">{row.quantity}</td>
-        <td className="text-right">{formatHours(row.prdTimePerUnit)}</td>
+        <td className="text-right">{formatMinutesFromHours(row.prdTimePerUnit)}</td>
         <td className="text-right">{formatHours(row.lineHours)}</td>
       </tr>
     ));
@@ -321,7 +326,7 @@ function ProductionReports() {
             { label: "Codigo", value: "productCode" },
             { label: "Producto", value: "productName" },
             { label: "Cantidad", value: "quantity" },
-            { label: "prd_time (h)", value: "prdTimePerUnit" },
+            { label: "prd_time (min)", value: (row) => Math.round(Number(row.prdTimePerUnit || 0) * 60) },
             { label: "Horas linea", value: "lineHours" },
           ],
         };
