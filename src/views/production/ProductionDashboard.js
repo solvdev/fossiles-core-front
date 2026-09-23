@@ -261,7 +261,7 @@ function ProductionDashboard() {
 
   const traceProgress = traceTotals.total > 0 ? Math.round((traceTotals.completed * 100) / traceTotals.total) : 0;
   const traceReceivedBpt = trace.order?.items?.reduce((sum, item) => sum + (Number(item.warehouseReceivedQty) || 0), 0) || 0;
-  // Solo mesas 1..N del centro (el backend ya pone efficiency=0 en OPC / sin mesa / fuera de rango).
+  // Solo mesas numeradas con medición (efficiency > 0).
   const desksWithEfficiency = desks.filter(
     (desk) => Number(desk?.desk) > 0 && (desk.efficiencyRate || 0) > 0
   );
