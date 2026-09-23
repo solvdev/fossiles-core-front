@@ -157,6 +157,76 @@ export const setTaskItemLeatherDelivery = async (taskId, taskItemId, delivered) 
   return response.json();
 };
 
+// ==================== TROQUELADO POR PRODUCTO ====================
+
+/**
+ * Marca o desmarca el troquelado de un producto. El backend exige cuero, y lo acepta del
+ * producto o de la tarea.
+ *
+ * @returns {Promise<Object>} la tarea completa, con su troquelado ya consolidado
+ */
+export const setTaskItemDieCut = async (taskId, taskItemId, dieCutReady) => {
+  const response = await fetch(`${API_URL}/tasks/${taskId}/die-cut/item/${taskItemId}`, {
+    method: 'PUT',
+    headers: headers(),
+    body: JSON.stringify({ dieCutReady }),
+  });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ message: 'Error al marcar el troquelado' }));
+    throw new Error(err.message || 'Error al marcar el troquelado');
+  }
+  return response.json();
+};
+
+/**
+ * Fija cuándo toca troquelar un producto. Solo acepta días hábiles.
+ *
+ * @param {string|null} plannedDate yyyy-MM-dd, o null para quitarla
+ */
+export const setTaskItemDieCutPlannedDate = async (taskId, taskItemId, plannedDate) => {
+  const response = await fetch(`${API_URL}/tasks/${taskId}/die-cut/item/${taskItemId}/planned-date`, {
+    method: 'PUT',
+    headers: headers(),
+    body: JSON.stringify({ plannedDate: plannedDate || null }),
+  });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ message: 'Error al fijar la fecha de troquelado' }));
+    throw new Error(err.message || 'Error al fijar la fecha de troquelado');
+  }
+  return response.json();
+};
+
+/**
+ * Saca los productos sin troquelar a una tarea hermana, para que el resto pueda bajar a
+ * mesa. No hace nada si están todos cortados o ninguno lo está.
+ *
+ * @returns {Promise<{split: boolean, movedItems: number, siblingTaskCode: string, message: string}>}
+ */
+export const splitUncutDieCutItems = async (taskId) => {
+  const response = await fetch(`${API_URL}/tasks/${taskId}/die-cut/split-uncut`, {
+    method: 'POST',
+    headers: headers(),
+  });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ message: 'Error al separar los productos sin troquelar' }));
+    throw new Error(err.message || 'Error al separar los productos sin troquelar');
+  }
+  return response.json();
+};
+
+/**
+ * Tareas pendientes con algún producto sin cortar, con sus productos. Excluye cinchos,
+ * igual que el resto del Organizador.
+ */
+export const getDieCutPending = async () => {
+  const response = await fetch(`${API_URL}/tasks/organizer/die-cut-pending`, { headers: headers() });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ message: 'Error al obtener la lista por troquelar' }));
+    throw new Error(err.message || 'Error al obtener la lista por troquelar');
+  }
+  return response.json();
+};
+
 export const setMaterialsDelivery = async (id, delivered, force = false) => {
   const response = await fetch(`${API_URL}/tasks/${id}/materials-delivery`, {
     method: 'PUT',
@@ -387,6 +457,9 @@ export const clearAllDesks = async (date) => {
  * el servidor. No se manda desksCount a propósito: el backend resuelve cuántas mesas
  * hay ese día desde su propia configuración.
  *
+ * Va con `requireDieCut`: deja fuera las tareas con algún producto sin cortar. El backend
+ * lo trae apagado por defecto para no cambiarle el reparto a otros clientes de la API.
+ *
  * @param {string} startDate YYYY-MM-DD
  * @param {number} [horizonDays] días hacia adelante que puede usar
  * @param {Object} [schedulingPriorities] mapa { idDeOrden: prioridad } — rango 2..99
@@ -396,6 +469,7 @@ export const planTasksWindow = async (startDate, horizonDays, schedulingPrioriti
   const params = new URLSearchParams();
   params.set('startDate', startDate);
   if (horizonDays != null) params.set('horizonDays', String(horizonDays));
+  params.set('requireDieCut', 'true');
   const response = await fetch(`${API_URL}/tasks/plan-window?${params.toString()}`, {
     method: 'POST',
     headers: { ...headers(), 'Content-Type': 'application/json' },

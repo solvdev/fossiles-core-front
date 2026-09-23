@@ -1,6 +1,10 @@
 import React, { useState, useMemo, useCallback } from "react";
 import { DndContext, DragOverlay, useDraggable, useDroppable, PointerSensor, useSensor, useSensors } from "@dnd-kit/core";
-import { Row, Col, Badge, Input, Label, FormGroup, Alert } from "reactstrap";
+import {
+  Row, Col, Badge, Input, Label, FormGroup, Alert, Button,
+  InputGroup, InputGroupAddon, InputGroupText,
+} from "reactstrap";
+import DatePickerField from "components/common/DatePickerField";
 import { isWeekendYmd } from "utils/dateTimeHelper";
 import { showError } from "utils/notificationHelper";
 
@@ -23,11 +27,36 @@ export const DroppableColumn = React.memo(function DroppableColumn({ id, header,
         background: isOver ? "#fff8e1" : "#fafafa",
       }}
     >
-      <div style={{ padding: 10, borderBottom: "1px solid #eee", fontWeight: 700 }}>
+      {/* La cabecera queda fija mientras la columna se desplaza: con la mesa a media altura
+          no se sabría a cuál se está arrastrando. */}
+      <div
+        style={{
+          padding: 10,
+          borderBottom: "1px solid #eee",
+          fontWeight: 700,
+          position: "sticky",
+          top: 0,
+          background: isOver ? "#fff8e1" : "#fafafa",
+          borderRadius: "8px 8px 0 0",
+          zIndex: 1,
+        }}
+      >
         {header}
         <Badge color="light" className="ml-2 text-dark">{count}</Badge>
       </div>
-      <div style={{ padding: 10, display: "flex", flexDirection: "column", gap: 8 }}>
+      {/* Cada columna se desplaza por dentro. Sin este tope, «Sin asignar» con cientos de
+          tarjetas estiraba la fila entera —las columnas de una fila flex crecen hasta la más
+          alta— y para ver la mesa 12 había que bajar toda la página primero. */}
+      <div
+        style={{
+          padding: 10,
+          display: "flex",
+          flexDirection: "column",
+          gap: 8,
+          maxHeight: 560,
+          overflowY: "auto",
+        }}
+      >
         {children}
       </div>
     </div>
@@ -67,6 +96,7 @@ export default function RedistributeBoard({
   /** Fecha de asignación por tarjeta (permite mover a un día rezagado distinto al filtro del tablero). */
   const [manualDateByItem, setManualDateByItem] = useState({});
   const [assigningItemId, setAssigningItemId] = useState(null);
+  const [busqueda, setBusqueda] = useState("");
 
   const activeTasks = useMemo(() => (tasks || []).filter((t) => t && t.status !== "CANCELLED" && t.status !== "COMPLETED"), [tasks]);
 
@@ -105,6 +135,7 @@ export default function RedistributeBoard({
 
   const itemsByContainer = useMemo(() => {
     const map = {};
+    const q = busqueda.trim().toLowerCase();
     containers.forEach((c) => { map[c.id] = []; });
     items.forEach((it) => {
       const key = it.desk ? `desk-${it.desk}` : "unassigned";
@@ -112,6 +143,13 @@ export default function RedistributeBoard({
       // Ítems sin fecha (tareas recién creadas en el organizador) siempre visibles en "Sin asignar".
       const dateless = key === "unassigned" && !it.scheduledDate;
       if (!isSameDate && !dateless) return;
+      // El buscador esconde lo que no coincide en vez de resaltarlo: con doce mesas llenas,
+      // un resaltado obliga a recorrerlas igual para encontrar el que se pinto.
+      if (q) {
+        const coincide = [it.taskCode, it.productionOrderCode, it.productCode, it.productName, it.colorName]
+          .some((v) => (v || "").toLowerCase().includes(q));
+        if (!coincide) return;
+      }
       if (!map[key]) map[key] = [];
       map[key].push(it);
     });
@@ -119,7 +157,18 @@ export default function RedistributeBoard({
       map[k].sort((a, b) => (a.productionOrderCode || "").localeCompare(b.productionOrderCode || "") || (a.productCode || "").localeCompare(b.productCode || ""));
     });
     return map;
-  }, [items, containers, date]);
+  }, [items, containers, date, busqueda]);
+
+  /** Cuántos ítems se están viendo y cuántos hay en total para ese día, con el filtro puesto. */
+  const conteoBusqueda = useMemo(() => {
+    const visibles = Object.values(itemsByContainer).reduce((n, l) => n + l.length, 0);
+    const delDia = items.filter((it) => {
+      const key = it.desk ? `desk-${it.desk}` : "unassigned";
+      const isSameDate = !date || String(it.scheduledDate || "") === String(date || "");
+      return isSameDate || (key === "unassigned" && !it.scheduledDate);
+    }).length;
+    return { visibles, delDia };
+  }, [itemsByContainer, items, date]);
 
   const findContainerForTaskItem = useCallback((taskItemId) => {
     const it = items.find((x) => String(x.taskItemId) === String(taskItemId));
@@ -224,17 +273,49 @@ export default function RedistributeBoard({
         <Col md="3">
           <FormGroup className="mb-0">
             <Label><small>Fecha</small></Label>
-            <Input type="date" bsSize="sm" value={date} onChange={(e) => setDate(e.target.value)} />
+            <DatePickerField value={date} onChange={setDate} />
+          </FormGroup>
+        </Col>
+        <Col md="5">
+          <FormGroup className="mb-0">
+            <Label><small>Buscar en el tablero</small></Label>
+            <InputGroup size="sm">
+              <InputGroupAddon addonType="prepend">
+                <InputGroupText><i className="nc-icon nc-zoom-split" /></InputGroupText>
+              </InputGroupAddon>
+              <Input
+                type="text"
+                value={busqueda}
+                onChange={(e) => setBusqueda(e.target.value)}
+                placeholder="Tarea, OP, producto o color…"
+              />
+              {busqueda && (
+                <InputGroupAddon addonType="append">
+                  <Button color="secondary" outline onClick={() => setBusqueda("")} title="Limpiar">×</Button>
+                </InputGroupAddon>
+              )}
+            </InputGroup>
           </FormGroup>
         </Col>
         <Col className="d-flex align-items-end">
-          {activeItem?.taskItemId && <small className="text-muted">Moviendo item #{activeItem.taskItemId}…</small>}
+          {busqueda ? (
+            <small className={conteoBusqueda.visibles === 0 ? "text-danger" : "text-muted"}>
+              {conteoBusqueda.visibles === 0
+                ? "Nada coincide en esta fecha — pruebe otra fecha o limpie la búsqueda."
+                : `Mostrando ${conteoBusqueda.visibles} de ${conteoBusqueda.delDia}`}
+            </small>
+          ) : (
+            activeItem?.taskItemId && <small className="text-muted">Moviendo item #{activeItem.taskItemId}…</small>
+          )}
         </Col>
       </Row>
 
       <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
         <div style={{ overflowX: "auto", paddingBottom: 8 }}>
-          <div style={{ display: "flex", gap: 12, minWidth: 900 }}>
+          {/* `flex-start` para que cada columna mida lo suyo: por defecto la fila las estira
+              todas a la altura de la más llena, y las mesas vacías quedaban como columnas
+              grises de metros de alto. */}
+          <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
             {containers.map((c) => (
               <DroppableColumn
                 key={c.id}
@@ -262,16 +343,14 @@ export default function RedistributeBoard({
                         </div>
                     </DraggableCard>
                     <div style={{ display: "flex", flexDirection: "column", gap: 4, marginTop: 4 }}>
-                      <Input
-                        type="date"
-                        bsSize="sm"
+                      {/* Sin `soloHabiles`: aquí se permite a propósito una fecha hábil
+                          anterior, para retomar atrasos. */}
+                      <DatePickerField
                         value={
                           manualDateByItem[it.taskItemId]
                           ?? (it.scheduledDate ? String(it.scheduledDate).slice(0, 10) : (date || ""))
                         }
-                        onChange={(e) => setManualDateByItem((prev) => ({ ...prev, [it.taskItemId]: e.target.value }))}
-                        title="Fecha de asignación a la mesa (puede ser un día hábil anterior)"
-                        style={{ fontSize: 12 }}
+                        onChange={(v) => setManualDateByItem((prev) => ({ ...prev, [it.taskItemId]: v }))}
                       />
                       <div className="d-flex" style={{ gap: 4 }}>
                         <Input

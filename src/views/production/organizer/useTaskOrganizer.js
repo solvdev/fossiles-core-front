@@ -5,6 +5,7 @@ import {
   createManualTask,
   getBacklogTasks,
   getUnfinishedTasks,
+  getDieCutPending,
   clearAllDesks,
 } from "services/taskService";
 import { getProductionOrders } from "services/productionOrderService";
@@ -69,6 +70,8 @@ export default function useTaskOrganizer() {
   // --- No terminadas: IN_PROGRESS que se arrastran de días anteriores ---
   const [unfinished, setUnfinished] = useState([]);
   const [loadingUnfinished, setLoadingUnfinished] = useState(false);
+  const [dieCutPending, setDieCutPending] = useState([]);
+  const [loadingDieCut, setLoadingDieCut] = useState(false);
 
   useEffect(() => {
     const t = setTimeout(() => setSearchAplicado(search), 300);
@@ -120,6 +123,25 @@ export default function useTaskOrganizer() {
     }
   }, []);
 
+  /**
+   * La lista por troquelar: tareas pendientes con algun producto sin cortar.
+   *
+   * Es el paso entre el borrador y la cola del dia. Se carga aparte de las demas porque
+   * cambia cada vez que alguien marca un corte, y porque la pestana puede quedarse abierta
+   * mientras el troquel trabaja.
+   */
+  const loadDieCutPending = useCallback(async () => {
+    setLoadingDieCut(true);
+    try {
+      const data = await getDieCutPending();
+      setDieCutPending(Array.isArray(data) ? data : []);
+    } catch (err) {
+      showError(err.message);
+    } finally {
+      setLoadingDieCut(false);
+    }
+  }, []);
+
   const loadUnfinished = useCallback(async () => {
     setLoadingUnfinished(true);
     try {
@@ -164,7 +186,8 @@ export default function useTaskOrganizer() {
     loadTasks();
     loadBacklog();
     loadUnfinished();
-  }, [loadTasks, loadBacklog, loadUnfinished]);
+    loadDieCutPending();
+  }, [loadTasks, loadBacklog, loadUnfinished, loadDieCutPending]);
   useEffect(() => { loadDesksForDate(boardDate); }, [boardDate, loadDesksForDate]);
 
   // --- Derivados del borrador ---
@@ -338,5 +361,7 @@ export default function useTaskOrganizer() {
     backlog, loadingBacklog, loadBacklog,
     // no terminadas
     unfinished, loadingUnfinished, loadUnfinished,
+    // lista por troquelar
+    dieCutPending, loadingDieCut, loadDieCutPending,
   };
 }
