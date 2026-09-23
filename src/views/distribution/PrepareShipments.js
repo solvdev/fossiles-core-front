@@ -9,6 +9,7 @@ import {
   CardTitle,
   Input,
   Label,
+  FormGroup,
   Col,
   Row,
   Spinner,
@@ -26,6 +27,7 @@ import {
   revertSentShipment,
   cancelShipment,
   updateShipmentPackingItems,
+  updateShipmentShippingCost,
   listStandaloneInternalShipments,
   listStandaloneKioskShipments,
   getShipmentById,
@@ -172,9 +174,12 @@ const isPartialReleaseShipmentDoc = (shipment) =>
   Boolean(shipment?.partialReleaseId || shipment?.partialReleaseLabel);
 
 const shippingCostForPrepareShipment = (shipment, order, linked) => {
-  const fromShipment = Number(shipment?.shippingCost);
-  if (Number.isFinite(fromShipment) && fromShipment > 0) {
-    return fromShipment;
+  // Preferir costo guardado en el documento (incluye 0 explícito).
+  if (shipment?.shippingCost != null && shipment.shippingCost !== "") {
+    const fromShipment = Number(shipment.shippingCost);
+    if (Number.isFinite(fromShipment) && fromShipment >= 0) {
+      return fromShipment;
+    }
   }
   const isPartial = Boolean(
     shipment?.partialReleaseId || linked || isPartialReleaseShipmentDoc(shipment)
@@ -720,6 +725,7 @@ function PrepareShipments() {
   const [packingMaterials, setPackingMaterials] = useState([]);
   const [loadingPackingMaterials, setLoadingPackingMaterials] = useState(false);
   const [packingModalShipment, setPackingModalShipment] = useState(null);
+  const [modalShippingCost, setModalShippingCost] = useState("");
   const [editProductsShipment, setEditProductsShipment] = useState(null);
   const [opvPriceReviewOpen, setOpvPriceReviewOpen] = useState(false);
   const [opvPendingPrint, setOpvPendingPrint] = useState(false);
@@ -1745,6 +1751,12 @@ function PrepareShipments() {
       });
     }
     setPackingModalShipment(shipment);
+    const linked = findLinkedPartialRelease(shipment, orderPartialReleases?.releases);
+    const initial =
+      shipment?.shippingCost != null && shipment.shippingCost !== ""
+        ? String(shipment.shippingCost)
+        : String(shippingCostForPrepareShipment(shipment, selectedProductionOrder, linked) || "");
+    setModalShippingCost(initial);
   };
 
   const handleSavePackingModal = async () => {
@@ -1756,18 +1768,27 @@ function PrepareShipments() {
       setSavingPacking(true);
       setError("");
       const payload = buildPackingItemsPayloadForShipment(shipment.id);
-      const updated = await updateShipmentPackingItems(shipment.id, payload);
+      const updatedPacking = await updateShipmentPackingItems(shipment.id, payload);
+      const shippingRaw = String(modalShippingCost ?? "").trim();
+      const shippingValue = shippingRaw === "" ? null : Number(shippingRaw);
+      if (shippingRaw !== "" && (!Number.isFinite(shippingValue) || shippingValue < 0)) {
+        throw new Error("Indique un costo de envío válido (0 o mayor).");
+      }
+      const updatedShipping = await updateShipmentShippingCost(shipment.id, shippingValue);
+      const merged = {
+        ...shipment,
+        ...updatedPacking,
+        ...updatedShipping,
+        packingItems: updatedPacking.packingItems || updatedShipping.packingItems || [],
+        shippingCost: updatedShipping.shippingCost,
+      };
       setShipments((prev) =>
-        prev.map((s) =>
-          Number(s.id) === Number(shipment.id)
-            ? { ...s, ...updated, packingItems: updated.packingItems || [] }
-            : s
-        )
+        prev.map((s) => (Number(s.id) === Number(shipment.id) ? { ...s, ...merged } : s))
       );
-      showSuccess("Empaques guardados en el envío");
+      showSuccess("Empaques y costo de envío guardados");
       setPackingModalShipment(null);
     } catch (err) {
-      const message = err.message || "No se pudieron guardar los empaques";
+      const message = err.message || "No se pudieron guardar empaques / costo de envío";
       setError(message);
       showError(message);
     } finally {
@@ -4462,7 +4483,7 @@ function PrepareShipments() {
                             }
                           >
                             <i className="nc-icon nc-box mr-1" />
-                            Empaques
+                            Empaques / envío
                             {(getPackingCountForShipment(shipment.id) > 0 || resolveShipmentPackingItems(shipment).length > 0) && (
                               <Badge color="primary" className="ml-1">
                                 {Math.max(getPackingCountForShipment(shipment.id), resolveShipmentPackingItems(shipment).length)}
@@ -4581,9 +4602,25 @@ function PrepareShipments() {
 
       <Modal isOpen={Boolean(packingModalShipment)} toggle={() => setPackingModalShipment(null)} size="lg">
         <ModalHeader toggle={() => setPackingModalShipment(null)}>
-          Empaques SUM- para {packingModalShipment?.shipmentNumber || "envío"}
+          Empaques y costo de envío — {packingModalShipment?.shipmentNumber || "envío"}
         </ModalHeader>
         <ModalBody>
+          <FormGroup className="mb-3">
+            <Label>
+              <strong>Costo de envío (Q)</strong>
+            </Label>
+            <Input
+              type="number"
+              min="0"
+              step="0.01"
+              value={modalShippingCost}
+              onChange={(e) => setModalShippingCost(e.target.value)}
+              placeholder="Ej. 25.00"
+            />
+            <small className="text-muted">
+              Se imprime en el documento de este envío (incluye parciales). Guarde antes de imprimir.
+            </small>
+          </FormGroup>
           {loadingPackingMaterials ? (
             <div className="text-center py-4">
               <Spinner size="sm" /> Cargando empaques...

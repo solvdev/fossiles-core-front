@@ -153,6 +153,10 @@ function ProductionOrderShipmentGenerateModal({ isOpen, toggle, order, onGenerat
         if (luisFelipeFlow && packingFromOrder.length > 0) {
           payload.packingItems = packingFromOrder;
         }
+        const shippingNum = Number(form.shippingCost);
+        if (Number.isFinite(shippingNum) && shippingNum >= 0) {
+          payload.shippingCost = shippingNum;
+        }
         const created = await generateProductionOrderShipment(orderForGenerate.id, payload);
         showSuccess(`Envío ${created.shipmentNumber || created.id} generado`);
         if (onGenerated) onGenerated(created, orderForGenerate);
@@ -175,6 +179,9 @@ function ProductionOrderShipmentGenerateModal({ isOpen, toggle, order, onGenerat
           documentDate: form.documentDate || undefined,
           products,
           packingItems: packingFromOrder,
+          ...(Number.isFinite(Number(form.shippingCost)) && Number(form.shippingCost) >= 0
+            ? { shippingCost: Number(form.shippingCost) }
+            : {}),
         });
         const confirmed = await confirmShipmentDraft(draft.id);
         showSuccess(`Envío ${confirmed.shipmentNumber || confirmed.id} generado (OPI)`);
@@ -198,6 +205,9 @@ function ProductionOrderShipmentGenerateModal({ isOpen, toggle, order, onGenerat
           documentDate: form.documentDate || undefined,
           products,
           packingItems: packingFromOrder,
+          ...(Number.isFinite(Number(form.shippingCost)) && Number(form.shippingCost) >= 0
+            ? { shippingCost: Number(form.shippingCost) }
+            : {}),
         });
         const confirmed = await confirmShipmentDraft(draft.id);
         showSuccess(`Envío ${confirmed.shipmentNumber || confirmed.id} generado (OPCK)`);
@@ -226,6 +236,9 @@ function ProductionOrderShipmentGenerateModal({ isOpen, toggle, order, onGenerat
             products,
             ...(packingFromOrder.length > 0 ? { packingItems: packingFromOrder } : {}),
             ...(locationId ? { locationId: Number(locationId) } : {}),
+            ...(Number.isFinite(Number(form.shippingCost)) && Number(form.shippingCost) >= 0
+              ? { shippingCost: Number(form.shippingCost) }
+              : {}),
           });
           const confirmed = await confirmShipmentDraft(draft.id);
           showSuccess(
