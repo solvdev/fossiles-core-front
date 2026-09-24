@@ -562,6 +562,22 @@ export const getProductionLeatherEstimate = async (orderId) => {
   return response.json();
 };
 
+/** Materiales requeridos por OP según BOM × cantidad (para saber cuánto pedir). */
+export const getProductionMaterialsEstimate = async (orderId) => {
+  if (!orderId || orderId === 'undefined' || orderId === 'null') {
+    throw new Error('ID de orden de producción inválido');
+  }
+  const response = await fetch(
+    `${API_URL}/production-orders/${orderId}/materials-estimate`,
+    { headers: { 'Content-Type': 'application/json', ...getAuthHeader() } }
+  );
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ message: 'Error al estimar materiales de producción' }));
+    throw new Error(err.message || 'Error al estimar materiales de producción');
+  }
+  return response.json();
+};
+
 export const voidVendorShipmentDocument = async (orderId) => {
   if (!orderId || orderId === 'undefined' || orderId === 'null') {
     throw new Error('ID de orden de producción inválido');

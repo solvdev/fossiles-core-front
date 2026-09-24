@@ -3,7 +3,7 @@ import {
   Card, CardHeader, CardBody, CardTitle, Row, Col, Table,
   Input, Label, Button, Alert,
 } from "reactstrap";
-import { getProductionOrdersPage, getProductionReports, getProductionTimeEstimate, getProductionLeatherEstimate } from "services/productionOrderService";
+import { getProductionOrdersPage, getProductionReports, getProductionTimeEstimate, getProductionLeatherEstimate, getProductionMaterialsEstimate } from "services/productionOrderService";
 import NotificationAlert from "react-notification-alert";
 import { exportRowsToCsv, exportRowsToPdf } from "utils/reportExportHelper";
 import { Bar } from "react-chartjs-2";
@@ -27,6 +27,7 @@ const REPORT_TYPES = [
   { value: "efficiency", label: "Eficiencia" },
   { value: "stage", label: "Por Estado" },
   { value: "order-time", label: "Tiempo por orden" },
+  { value: "order-materials", label: "Materiales por orden" },
   // Temporalmente deshabilitado: { value: "order-leather", label: "Cuero por orden" },
 ];
 
@@ -45,6 +46,11 @@ function formatFt2(v) {
   return `${Number(v).toFixed(3)} ft²`;
 }
 
+function formatQty(v) {
+  if (v == null || Number.isNaN(Number(v))) return "—";
+  return Number(v).toFixed(3);
+}
+
 function ProductionReports() {
   const notif = useRef(null);
   const [reportType, setReportType] = useState("daily");
@@ -58,6 +64,7 @@ function ProductionReports() {
   const [loadingOrders, setLoadingOrders] = useState(false);
   const [timeEstimate, setTimeEstimate] = useState(null);
   const [leatherEstimate, setLeatherEstimate] = useState(null);
+  const [materialsEstimate, setMaterialsEstimate] = useState(null);
 
   const generateReport = async () => {
     setLoading(true);
@@ -71,6 +78,7 @@ function ProductionReports() {
         const data = await getProductionTimeEstimate(selectedOrderId);
         setTimeEstimate(data);
         setLeatherEstimate(null);
+        setMaterialsEstimate(null);
         setReport(null);
       } else if (reportType === "order-leather") {
         if (!selectedOrderId) {
@@ -81,12 +89,25 @@ function ProductionReports() {
         const data = await getProductionLeatherEstimate(selectedOrderId);
         setLeatherEstimate(data);
         setTimeEstimate(null);
+        setMaterialsEstimate(null);
+        setReport(null);
+      } else if (reportType === "order-materials") {
+        if (!selectedOrderId) {
+          notify("warning", "Seleccione una orden de producción");
+          setMaterialsEstimate(null);
+          return;
+        }
+        const data = await getProductionMaterialsEstimate(selectedOrderId);
+        setMaterialsEstimate(data);
+        setTimeEstimate(null);
+        setLeatherEstimate(null);
         setReport(null);
       } else {
         const data = await getProductionReports(reportType, dateFrom || undefined, dateTo || undefined);
         setReport(data);
         setTimeEstimate(null);
         setLeatherEstimate(null);
+        setMaterialsEstimate(null);
       }
     } catch (err) {
       notify("danger", err.message);
@@ -96,7 +117,7 @@ function ProductionReports() {
   };
 
   useEffect(() => {
-    if (reportType !== "order-time" && reportType !== "order-leather") return undefined;
+    if (reportType !== "order-time" && reportType !== "order-leather" && reportType !== "order-materials") return undefined;
     let cancelled = false;
     const timer = setTimeout(async () => {
       setLoadingOrders(true);
@@ -172,6 +193,18 @@ function ProductionReports() {
             <th className="text-right">ft² / ud</th>
             <th className="text-right">ft² línea</th>
             <th>Cuero (material)</th>
+          </tr>
+        );
+      case "order-materials":
+        return (
+          <tr>
+            <th>Producto</th>
+            <th>Color</th>
+            <th className="text-right">Uds</th>
+            <th>Material</th>
+            <th className="text-right">Por ud</th>
+            <th className="text-right">Total</th>
+            <th>Unidad</th>
           </tr>
         );
       default:
@@ -304,6 +337,41 @@ function ProductionReports() {
     ));
   };
 
+  const renderMaterialsEstimateRows = () => {
+    const lines = (materialsEstimate?.lines || []).filter((r) => r.materialId != null);
+    if (!lines.length) {
+      const notes = (materialsEstimate?.lines || []).filter((r) => r.missingBom || r.note);
+      if (!notes.length) return null;
+      return notes.map((row, i) => (
+        <tr key={row.itemId || i} className={row.missingBom ? "table-warning" : undefined}>
+          <td colSpan={7}>
+            <strong>{row.productCode || "—"}</strong>
+            {row.productName ? ` — ${row.productName}` : ""}
+            {row.note ? <div className="text-danger small">{row.note}</div> : null}
+          </td>
+        </tr>
+      ));
+    }
+    return lines.map((row, i) => (
+      <tr key={`${row.itemId}-${row.materialId}-${i}`} className={row.missingBom ? "table-warning" : undefined}>
+        <td>
+          <strong>{row.productCode || "—"}</strong>
+          {row.productName ? <div className="text-muted small">{row.productName}</div> : null}
+          {row.note ? <div className="text-danger small">{row.note}</div> : null}
+        </td>
+        <td>{row.colorName || "—"}</td>
+        <td className="text-right">{row.quantity}</td>
+        <td>
+          <strong>{row.materialSku || "—"}</strong>
+          {row.materialName ? <div className="text-muted small">{row.materialName}</div> : null}
+        </td>
+        <td className="text-right">{formatQty(row.qtyPerUnit)}</td>
+        <td className="text-right"><strong>{formatQty(row.totalQty)}</strong></td>
+        <td>{row.unit || "—"}</td>
+      </tr>
+    ));
+  };
+
   const exportConfig = () => {
     switch (reportType) {
       case "daily":
@@ -401,6 +469,19 @@ function ProductionReports() {
             { label: "Material cuero", value: "leatherMaterialName" },
           ],
         };
+      case "order-materials":
+        return {
+          filename: `materiales_produccion_${materialsEstimate?.productionOrderCode || "op"}`,
+          title: `Materiales a pedir - ${materialsEstimate?.productionOrderCode || ""}`,
+          headers: [
+            { label: "SKU", value: "materialSku" },
+            { label: "Material", value: "materialName" },
+            { label: "Unidad", value: "unit" },
+            { label: "Requerido", value: "requiredQty" },
+            { label: "Disponible", value: "availableQty" },
+            { label: "A pedir", value: "toOrderQty" },
+          ],
+        };
       case "stage":
       default:
         return {
@@ -427,6 +508,12 @@ function ProductionReports() {
       exportRowsToCsv(cfg.filename, cfg.headers, leatherEstimate.lines);
       return;
     }
+    if (reportType === "order-materials") {
+      if (!materialsEstimate?.byMaterial?.length) return;
+      const cfg = exportConfig();
+      exportRowsToCsv(cfg.filename, cfg.headers, materialsEstimate.byMaterial);
+      return;
+    }
     if (!report?.data?.length) return;
     const cfg = exportConfig();
     exportRowsToCsv(cfg.filename, cfg.headers, report.data);
@@ -443,6 +530,12 @@ function ProductionReports() {
       if (!leatherEstimate?.lines?.length) return;
       const cfg = exportConfig();
       exportRowsToPdf(cfg.title, cfg.headers, leatherEstimate.lines);
+      return;
+    }
+    if (reportType === "order-materials") {
+      if (!materialsEstimate?.byMaterial?.length) return;
+      const cfg = exportConfig();
+      exportRowsToPdf(cfg.title, cfg.headers, materialsEstimate.byMaterial);
       return;
     }
     if (!report?.data?.length) return;
@@ -525,7 +618,8 @@ function ProductionReports() {
 
   const isOrderTime = reportType === "order-time";
   const isOrderLeather = reportType === "order-leather";
-  const isOrderScoped = isOrderTime || isOrderLeather;
+  const isOrderMaterials = reportType === "order-materials";
+  const isOrderScoped = isOrderTime || isOrderLeather || isOrderMaterials;
 
   const summaryLabel = isOrderScoped
     ? null
@@ -539,7 +633,9 @@ function ProductionReports() {
       </Alert>
     );
 
-  const colSpanForEmpty = isOrderLeather
+  const colSpanForEmpty = isOrderMaterials
+    ? 7
+    : isOrderLeather
     ? 6
     : isOrderTime
     ? 4
@@ -549,6 +645,8 @@ function ProductionReports() {
     ? !!timeEstimate?.lines?.length
     : isOrderLeather
     ? !!leatherEstimate?.lines?.length
+    : isOrderMaterials
+    ? !!materialsEstimate?.byMaterial?.length
     : !!report?.data?.length;
 
   return (
@@ -572,6 +670,7 @@ function ProductionReports() {
                       setReport(null);
                       setTimeEstimate(null);
                       setLeatherEstimate(null);
+                      setMaterialsEstimate(null);
                     }}
                   >
                     {REPORT_TYPES.map((t) => (
@@ -599,6 +698,7 @@ function ProductionReports() {
                           setSelectedOrderId(e.target.value);
                           setTimeEstimate(null);
                           setLeatherEstimate(null);
+                          setMaterialsEstimate(null);
                         }}
                         disabled={loadingOrders}
                       >
@@ -800,6 +900,88 @@ function ProductionReports() {
                 </>
               )}
 
+              {isOrderMaterials && materialsEstimate && (
+                <>
+                  <Alert color="info" className="mb-3">
+                    <strong>{materialsEstimate.productionOrderCode}</strong>
+                    {" "}· {materialsEstimate.totalUnits || 0} unidades
+                    {" "}· {materialsEstimate.materialCount || 0} materiales
+                    {(materialsEstimate.linesMissingBom || 0) > 0
+                      ? ` · ${materialsEstimate.linesMissingBom} línea(s) sin BOM`
+                      : ""}
+                  </Alert>
+                  <Row className="mb-3">
+                    <Col md="3">
+                      <Card><CardBody>
+                        <small className="text-muted">Materiales</small>
+                        <h4>{materialsEstimate.materialCount || 0}</h4>
+                      </CardBody></Card>
+                    </Col>
+                    <Col md="3">
+                      <Card><CardBody>
+                        <small className="text-muted">Unidades OP</small>
+                        <h4>{materialsEstimate.totalUnits || 0}</h4>
+                      </CardBody></Card>
+                    </Col>
+                    <Col md="3">
+                      <Card><CardBody>
+                        <small className="text-muted">A pedir</small>
+                        <h4 className={(materialsEstimate.byMaterial || []).some((m) => !m.sufficient) ? "text-warning" : ""}>
+                          {(materialsEstimate.byMaterial || []).filter((m) => !m.sufficient).length}
+                        </h4>
+                      </CardBody></Card>
+                    </Col>
+                    <Col md="3">
+                      <Card><CardBody>
+                        <small className="text-muted">Sin BOM</small>
+                        <h4 className={materialsEstimate.linesMissingBom > 0 ? "text-warning" : ""}>
+                          {materialsEstimate.linesMissingBom || 0}
+                        </h4>
+                      </CardBody></Card>
+                    </Col>
+                  </Row>
+                  {(materialsEstimate.byMaterial || []).length > 0 && (
+                    <Card className="mb-3">
+                      <CardHeader><CardTitle tag="h6">Resumen a pedir (por material)</CardTitle></CardHeader>
+                      <CardBody className="pt-0">
+                        <Table responsive hover className="table-sm mb-0">
+                          <thead className="text-primary">
+                            <tr>
+                              <th>Material</th>
+                              <th>Unidad</th>
+                              <th className="text-right">Requerido</th>
+                              <th className="text-right">Disponible</th>
+                              <th className="text-right">A pedir</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {materialsEstimate.byMaterial.map((row) => (
+                              <tr key={row.materialId} className={!row.sufficient ? "table-warning" : undefined}>
+                                <td>
+                                  <strong>{row.materialSku || "—"}</strong>
+                                  {row.materialName
+                                    ? <div className="text-muted small">{row.materialName}</div>
+                                    : null}
+                                </td>
+                                <td>{row.unit || "—"}</td>
+                                <td className="text-right">{formatQty(row.requiredQty)}</td>
+                                <td className="text-right">{formatQty(row.availableQty)}</td>
+                                <td className="text-right">
+                                  <strong className={!row.sufficient ? "text-warning" : ""}>
+                                    {formatQty(row.toOrderQty)}
+                                  </strong>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </Table>
+                      </CardBody>
+                    </Card>
+                  )}
+                  <CardTitle tag="h6" className="mb-2">Detalle por producto × material</CardTitle>
+                </>
+              )}
+
               {!isOrderScoped && report && reportType !== "product-stage" && reportType !== "stage" && (
                 <Row className="mb-3">
                   <Col md="3"><Card><CardBody><small className="text-muted">Tareas</small><h4>{report.totalTasks || 0}</h4></CardBody></Card></Col>
@@ -868,6 +1050,16 @@ function ProductionReports() {
                         <tr>
                           <td colSpan={colSpanForEmpty} className="text-center text-muted">
                             Seleccione una OP y genere el estimado de cuero
+                          </td>
+                        </tr>
+                      ))
+                    : isOrderMaterials
+                    ? (materialsEstimate?.lines?.length
+                      ? renderMaterialsEstimateRows()
+                      : (
+                        <tr>
+                          <td colSpan={colSpanForEmpty} className="text-center text-muted">
+                            Seleccione una OP y genere el estimado de materiales
                           </td>
                         </tr>
                       ))
