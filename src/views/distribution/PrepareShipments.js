@@ -4477,9 +4477,13 @@ function PrepareShipments() {
                             className="mr-2"
                             disabled={
                               loadingPackingMaterials ||
-                              luisFelipePrintFlow ||
                               opiInternalFlow ||
                               standaloneInternalFlow
+                            }
+                            title={
+                              luisFelipePrintFlow
+                                ? "Empaques SUM- y costo de envío de este documento (LF)"
+                                : "Empaques SUM- y costo de envío"
                             }
                           >
                             <i className="nc-icon nc-box mr-1" />
