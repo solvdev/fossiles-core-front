@@ -1113,6 +1113,7 @@ function KioskSales() {
                         cartQtyBySize={cinchoPickCartQtyBySize}
                         onPickSize={handlePickCinchoSize}
                         onClose={() => setCinchoPickVariant(null)}
+                        posMode={selectedKioskPosMode}
                       />
 
                       <PosCheckoutModal
