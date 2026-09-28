@@ -1,6 +1,12 @@
 import {
   applyExchangePackagingCredit,
+  EXCHANGE_DIFFERENCE_NONE,
+  EXCHANGE_DIFFERENCE_WITH,
+  EXCHANGE_PRICING_CATALOG_GIVEN,
+  EXCHANGE_PRICING_SAME_UNIT,
   isExchangeDifferenceAllowed,
+  resolveExchangePricingMode,
+  shouldAskExchangeDiscount,
   sumGivenLineAmounts,
 } from "../kioskExchangeSettlement";
 
@@ -68,5 +74,22 @@ describe("isExchangeDifferenceAllowed", () => {
 
   it("allows negative (customer credit)", () => {
     expect(isExchangeDifferenceAllowed(-0.01)).toBe(true);
+  });
+});
+
+describe("resolveExchangePricingMode / shouldAskExchangeDiscount", () => {
+  it("maps NONE to SAME_UNIT_PRICE and WITH to CATALOG_GIVEN", () => {
+    expect(resolveExchangePricingMode(EXCHANGE_DIFFERENCE_NONE)).toBe(EXCHANGE_PRICING_SAME_UNIT);
+    expect(resolveExchangePricingMode(EXCHANGE_DIFFERENCE_WITH)).toBe(EXCHANGE_PRICING_CATALOG_GIVEN);
+  });
+
+  it("asks discount for WITH always", () => {
+    expect(shouldAskExchangeDiscount({ differenceMode: EXCHANGE_DIFFERENCE_WITH, exchangeMode: "SALE" })).toBe(true);
+    expect(shouldAskExchangeDiscount({ differenceMode: EXCHANGE_DIFFERENCE_WITH, exchangeMode: "FREE" })).toBe(true);
+  });
+
+  it("asks discount for NONE only on FREE (not SALE)", () => {
+    expect(shouldAskExchangeDiscount({ differenceMode: EXCHANGE_DIFFERENCE_NONE, exchangeMode: "FREE" })).toBe(true);
+    expect(shouldAskExchangeDiscount({ differenceMode: EXCHANGE_DIFFERENCE_NONE, exchangeMode: "SALE" })).toBe(false);
   });
 });

@@ -7,6 +7,28 @@ export function roundExchangeMoney(value) {
   return Number((Number(value || 0)).toFixed(2));
 }
 
+export const EXCHANGE_DIFFERENCE_NONE = "NONE";
+export const EXCHANGE_DIFFERENCE_WITH = "WITH";
+export const EXCHANGE_PRICING_SAME_UNIT = "SAME_UNIT_PRICE";
+export const EXCHANGE_PRICING_CATALOG_GIVEN = "CATALOG_GIVEN";
+
+/** Mapea intención UX → pricingMode del API. */
+export function resolveExchangePricingMode(differenceMode) {
+  return differenceMode === EXCHANGE_DIFFERENCE_NONE
+    ? EXCHANGE_PRICING_SAME_UNIT
+    : EXCHANGE_PRICING_CATALOG_GIVEN;
+}
+
+/**
+ * ¿Mostrar “se vendió con descuento?”
+ * Con diferencia: siempre. Sin diferencia: solo cambio libre (fija precio compartido).
+ * Con factura + sin diferencia: no (usa precio pagado de la línea).
+ */
+export function shouldAskExchangeDiscount({ differenceMode, exchangeMode } = {}) {
+  if (differenceMode === EXCHANGE_DIFFERENCE_WITH) return true;
+  return differenceMode === EXCHANGE_DIFFERENCE_NONE && exchangeMode === "FREE";
+}
+
 export function sumGivenLineAmounts(lines = []) {
   return roundExchangeMoney(
     (lines || []).reduce((sum, line) => {

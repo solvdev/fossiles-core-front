@@ -12,7 +12,7 @@ import {
 } from "reactstrap";
 import { ColorSelector, ProductSelector } from "components/catalog/FilterableCatalogSelectors";
 import { FilterableSelect } from "components/distribution/FilterableSelect";
-import { getKioskPosContext } from "services/kioskPosService";
+import { getKioskPosContext, getKioskSaleById, updateKioskSaleInvoiceContact } from "services/kioskPosService";
 import { getProducts } from "services/productService";
 import { getColors } from "services/colorService";
 import {
@@ -20,14 +20,25 @@ import {
   lookupKioskSale,
   previewKioskExchange,
 } from "services/kioskExchangeService";
+import { issueTaxInvoiceFromKioskSale } from "services/taxInvoiceService";
 import {
   buildKioskExchangeSlipPrintHtml,
   openExchangeSlipPrintWindow,
 } from "utils/kioskExchangeSlipPrint";
-import { applyExchangePackagingCredit, sumGivenLineAmounts } from "utils/kioskExchangeSettlement";
+import {
+  applyExchangePackagingCredit,
+  EXCHANGE_DIFFERENCE_NONE,
+  EXCHANGE_DIFFERENCE_WITH,
+  resolveExchangePricingMode,
+  shouldAskExchangeDiscount,
+  sumGivenLineAmounts,
+} from "utils/kioskExchangeSettlement";
+import { showError, showSuccess } from "utils/notificationHelper";
 import {
   formatCurrency,
   formatQty,
+  getSaleInternalNumber,
+  isFelBackdateWindowError,
   posVariantChipLabel,
   posVariantHasStock,
   posVariantNeedsSizePick,
@@ -43,6 +54,8 @@ import "../KioskSales.css";
 
 const MIRAFLORES_PRICE_EDIT_CODE = "A15";
 const DISCOUNT_PRESETS = ["10", "15", "20"];
+const DIFFERENCE_NONE = EXCHANGE_DIFFERENCE_NONE;
+const DIFFERENCE_WITH = EXCHANGE_DIFFERENCE_WITH;
 
 const WIZARD_STEPS = [
   { id: 1, label: "Ingreso" },
@@ -78,6 +91,7 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
     String(kioskCode || "").trim().toUpperCase() === MIRAFLORES_PRICE_EDIT_CODE
     || String(kioskName || "").trim().toUpperCase().includes("MIRAFLORES");
   const [step, setStep] = useState(1);
+  const [differenceMode, setDifferenceMode] = useState(DIFFERENCE_NONE);
   const [exchangeMode, setExchangeMode] = useState("SALE");
   const [saleQuery, setSaleQuery] = useState("");
   const [sale, setSale] = useState(null);
@@ -113,6 +127,7 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
   useEffect(() => {
     if (!isOpen) return;
     setStep(1);
+    setDifferenceMode(DIFFERENCE_NONE);
     setExchangeMode("SALE");
     setSaleQuery("");
     setSale(null);
@@ -270,9 +285,22 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
 
   useEffect(() => {
     if (!selectedItem) return;
+    if (differenceMode !== DIFFERENCE_WITH) {
+      setReturnedSoldWithDiscount(false);
+      setReturnedDiscountPreset("");
+      setReturnedDiscountOther("");
+      return;
+    }
     const product = (products || []).find((p) => Number(p.id) === Number(selectedItem.productId));
     applyDiscountFromCatalog(product?.salePrice, selectedItem.unitPrice);
-  }, [selectedItem, products]);
+  }, [selectedItem, products, differenceMode]);
+
+  const showDiscountFields = useMemo(
+    () => shouldAskExchangeDiscount({ differenceMode, exchangeMode }),
+    [differenceMode, exchangeMode]
+  );
+
+  const pricingMode = resolveExchangePricingMode(differenceMode);
 
   const resetError = () => setError("");
 
@@ -364,10 +392,19 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
     setGivenLines((prev) => prev.filter((line) => line.lineKey !== lineKey));
   };
 
-  const buildDiscountPayload = () => ({
-    returnedSoldWithDiscount: Boolean(returnedSoldWithDiscount),
-    returnedDiscountPercent: returnedSoldWithDiscount ? resolvedDiscountPercent : 0,
-  });
+  const buildDiscountPayload = () => {
+    // Con factura + sin diferencia: crédito = precio pagado de la línea (no recalcular catálogo).
+    if (differenceMode === DIFFERENCE_NONE && exchangeMode === "SALE") {
+      return {};
+    }
+    if (!showDiscountFields) {
+      return {};
+    }
+    return {
+      returnedSoldWithDiscount: Boolean(returnedSoldWithDiscount),
+      returnedDiscountPercent: returnedSoldWithDiscount ? resolvedDiscountPercent : 0,
+    };
+  };
 
   const buildPreviewPayload = (priceOverrides = {}) => {
     const items = givenLines.map((line) => {
@@ -399,6 +436,7 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
       givenHardwareCondition: primary.hardwareCondition || null,
       returnedQuantity: Number(returnedQty || preview?.returned?.quantity || 1),
       givenQuantity: Number(primary.quantity || returnedQty || 1),
+      pricingMode,
       ...buildDiscountPayload(),
       ...priceOverrides,
     };
@@ -413,7 +451,11 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
 
   const renderReturnedDiscountFields = () => (
     <div className="kiosk-exchange-panel">
-      <p className="kiosk-exchange-panel-title">¿Se vendió con descuento?</p>
+      <p className="kiosk-exchange-panel-title">
+        {differenceMode === DIFFERENCE_NONE
+          ? "¿La venta original tuvo descuento?"
+          : "¿Se vendió con descuento?"}
+      </p>
       <div className="kiosk-exchange-chips">
         <button
           type="button"
@@ -475,10 +517,17 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
         </div>
       )}
       <p className="kiosk-exchange-help mb-0">
-        Crédito del ingreso: precio de venta de catálogo
-        {returnedSoldWithDiscount && resolvedDiscountPercent > 0
-          ? ` con ${resolvedDiscountPercent}% de descuento.`
-          : " sin descuento."}
+        {differenceMode === DIFFERENCE_NONE
+          ? `Precio compartido (entrada y salida): catálogo${
+              returnedSoldWithDiscount && resolvedDiscountPercent > 0
+                ? ` con ${resolvedDiscountPercent}% de descuento.`
+                : " sin descuento."
+            }`
+          : `Crédito del ingreso: precio de venta de catálogo${
+              returnedSoldWithDiscount && resolvedDiscountPercent > 0
+                ? ` con ${resolvedDiscountPercent}% de descuento.`
+                : " sin descuento."
+            }`}
       </p>
     </div>
   );
@@ -490,7 +539,7 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
         setError("Selecciona el producto que ingresa al kiosko.");
         return;
       }
-      if (returnedSoldWithDiscount && !(resolvedDiscountPercent > 0)) {
+      if (showDiscountFields && returnedSoldWithDiscount && !(resolvedDiscountPercent > 0)) {
         setError("Indica el porcentaje de descuento.");
         return;
       }
@@ -501,7 +550,7 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
       setError("Selecciona la línea devuelta.");
       return;
     }
-    if (returnedSoldWithDiscount && !(resolvedDiscountPercent > 0)) {
+    if (showDiscountFields && returnedSoldWithDiscount && !(resolvedDiscountPercent > 0)) {
       setError("Indica el porcentaje de descuento.");
       return;
     }
@@ -647,6 +696,7 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
       physicalSlipNumber: physicalSlipNumber.trim(),
       reason: payment.reason || reason,
       observations: payment.observations || observations,
+      pricingMode,
       ...payment,
     };
     Object.assign(payload, buildDiscountPayload());
@@ -689,9 +739,49 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
       const result = await completeKioskExchange(buildCompleteRequest(payment));
       setCheckoutOpen(false);
       openExchangeSlipPrintWindow(buildKioskExchangeSlipPrintHtml(result.slip, displayPreview));
-      if (result?.sale && saleNeedsFelCertification(result.sale)) {
+
+      let sale = result?.sale || null;
+      const needsFel = sale && saleNeedsFelCertification(sale);
+      if (needsFel && Number(displayPreview?.differenceAmount || 0) > 0.009) {
+        try {
+          await updateKioskSaleInvoiceContact(sale.id, kioskLocationId, {
+            email: payment?.email || null,
+            phone: payment?.phone || null,
+          });
+          await issueTaxInvoiceFromKioskSale(sale.id);
+          let refreshed = await getKioskSaleById(sale.id, kioskLocationId);
+          if (!getSaleInternalNumber(refreshed)) {
+            await new Promise((resolve) => setTimeout(resolve, 400));
+            refreshed = await getKioskSaleById(sale.id, kioskLocationId);
+          }
+          sale = refreshed || sale;
+          showSuccess("Cambio registrado y factura electrónica certificada.");
+          finishExchange({ ...result, sale });
+          return;
+        } catch (felErr) {
+          const backdateBlocked = isFelBackdateWindowError(felErr.message);
+          if (!backdateBlocked && saleNeedsFelCertification(sale)) {
+            setPendingCompleteResult({ ...result, sale });
+            setPendingFelSale(sale);
+            showError(
+              felErr.message
+                || "El cambio quedó registrado pero no se pudo certificar. Completa la factura en el aviso."
+            );
+            return;
+          }
+          showError(
+            backdateBlocked
+              ? "El cambio quedó registrado. SAT no permite certificar documentos de hace más de 5 días."
+              : (felErr.message || "El cambio quedó registrado pero no se pudo certificar la factura.")
+          );
+          finishExchange({ ...result, sale });
+          return;
+        }
+      }
+
+      if (needsFel) {
         setPendingCompleteResult(result);
-        setPendingFelSale(result.sale);
+        setPendingFelSale(sale);
         return;
       }
       finishExchange(result);
@@ -770,7 +860,34 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
           {step === 1 && (
             <>
               <div className="kiosk-exchange-section">
-                <span className="kiosk-exchange-label">Tipo de cambio</span>
+                <span className="kiosk-exchange-label">¿Hay diferencia de precio?</span>
+                <div className="kiosk-exchange-mode-row">
+                  <button
+                    type="button"
+                    className={`kiosk-exchange-mode-btn${differenceMode === DIFFERENCE_NONE ? " is-active" : ""}`}
+                    onClick={() => {
+                      setDifferenceMode(DIFFERENCE_NONE);
+                      setReturnedSoldWithDiscount(false);
+                      setReturnedDiscountPreset("");
+                      setReturnedDiscountOther("");
+                    }}
+                  >
+                    <strong>Sin diferencia</strong>
+                    <span>Mismo precio · cambio de estilo/talla</span>
+                  </button>
+                  <button
+                    type="button"
+                    className={`kiosk-exchange-mode-btn${differenceMode === DIFFERENCE_WITH ? " is-active" : ""}`}
+                    onClick={() => setDifferenceMode(DIFFERENCE_WITH)}
+                  >
+                    <strong>Con diferencia</strong>
+                    <span>Cliente paga o queda saldo a favor</span>
+                  </button>
+                </div>
+              </div>
+
+              <div className="kiosk-exchange-section">
+                <span className="kiosk-exchange-label">Origen de la venta</span>
                 <div className="kiosk-exchange-mode-row">
                   <button
                     type="button"
@@ -790,6 +907,18 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
                   </button>
                 </div>
               </div>
+
+              {differenceMode === DIFFERENCE_NONE && (
+                <div className="kiosk-exchange-hint">
+                  <span className="kiosk-exchange-hint-icon" aria-hidden>i</span>
+                  <span>
+                    Entrada y salida al <strong>mismo precio unitario</strong>
+                    {exchangeMode === "SALE"
+                      ? " (el pagado en la factura, con su descuento si lo tuvo)."
+                      : ". Indica si la venta original tuvo descuento para fijar ese precio."}
+                  </span>
+                </div>
+              )}
 
               {exchangeMode === "SALE" ? (
                 <>
@@ -825,8 +954,9 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
                   <div className="kiosk-exchange-hint">
                     <span className="kiosk-exchange-hint-icon" aria-hidden>i</span>
                     <span>
-                      El ingreso se valora a precio de catálogo (con o sin descuento). El producto nuevo se cobra
-                      a precio normal cuando hay diferencia.
+                      {differenceMode === DIFFERENCE_NONE
+                        ? "El ingreso define el precio compartido (catálogo ± descuento). El producto nuevo sale al mismo precio."
+                        : "El ingreso se valora a precio de catálogo (con o sin descuento). El producto nuevo se cobra a precio normal cuando hay diferencia."}
                     </span>
                   </div>
                   <div className="kiosk-exchange-panel">
@@ -878,7 +1008,7 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
                       </div>
                     </div>
                   </div>
-                  {renderReturnedDiscountFields()}
+                  {showDiscountFields && renderReturnedDiscountFields()}
                 </>
               )}
             </>
@@ -982,7 +1112,7 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
                   />
                 </div>
               </div>
-              {renderReturnedDiscountFields()}
+              {showDiscountFields && renderReturnedDiscountFields()}
             </>
           )}
 
@@ -991,7 +1121,9 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
               <div className="kiosk-exchange-hint">
                 <span className="kiosk-exchange-hint-icon" aria-hidden>i</span>
                 <span>
-                  Puedes entregar uno o varios productos. Si el valor entregado es mayor se cobra; si es igual, sin cobro; si es menor queda saldo a favor (sin reembolso).
+                  {differenceMode === DIFFERENCE_NONE
+                    ? "Entrega el producto de reemplazo al mismo precio unitario del que ingresa (estilo/talla)."
+                    : "Puedes entregar uno o varios productos. Si el valor entregado es mayor se cobra; si es igual, sin cobro; si es menor queda saldo a favor (sin reembolso)."}
                 </span>
               </div>
               <div className="kiosk-exchange-panel">
@@ -1144,9 +1276,19 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
                   <div className="kiosk-exchange-diff-value">
                     {formatCurrency(displayPreview.differenceAmount)}
                   </div>
+                  {differenceMode === DIFFERENCE_NONE && !hasPriceDifference && !hasNegativeDifference && (
+                    <p className="small text-muted mt-2 mb-0">
+                      Mismo precio · sin cobro. Supervisora autoriza el movimiento de inventario.
+                    </p>
+                  )}
                   {hasNegativeDifference && (
                     <p className="text-warning small mt-2 mb-0">
                       Saldo a favor del cliente: {formatCurrency(Math.abs(differenceAmount))}. No se reembolsa dinero; queda registrado en la boleta.
+                    </p>
+                  )}
+                  {differenceMode === DIFFERENCE_NONE && hasPriceDifference && (
+                    <p className="text-danger small mt-2 mb-0">
+                      Marcaste sin diferencia pero hay cobro. Revisa cantidades o cambia a &quot;Con diferencia&quot;.
                     </p>
                   )}
                   {canEditPrices ? (
@@ -1235,7 +1377,7 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
               Ver resumen
             </Button>
           )}
-          {step === 4 && displayPreview && hasPriceDifference && !hasNegativeDifference && (
+          {step === 4 && displayPreview && hasPriceDifference && !hasNegativeDifference && differenceMode === DIFFERENCE_WITH && (
             <Button color="success" onClick={handleOpenCheckout}>
               Cobrar y confirmar
             </Button>
@@ -1243,6 +1385,11 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
           {step === 4 && displayPreview && !hasPriceDifference && (
             <Button color="success" onClick={() => void handleSubmitAuthorizationRequest()} disabled={saving}>
               {saving ? "Enviando..." : "Enviar solicitud de cambio"}
+            </Button>
+          )}
+          {step === 4 && displayPreview && differenceMode === DIFFERENCE_NONE && hasPriceDifference && (
+            <Button color="warning" outline disabled>
+              Corrige cantidades o elige &quot;Con diferencia&quot;
             </Button>
           )}
         </ModalFooter>
