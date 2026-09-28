@@ -65,7 +65,24 @@ const CERTIFICATION_TABS = [
   { id: "VOID", label: "Anuladas" },
 ];
 
-const UNSIGNED_STATUSES = new Set(["FAILED", "SKIPPED", "DRAFT"]);
+/** Estados desde los que se puede reintentar certificación FEL. */
+const CERTIFIABLE_STATUSES = new Set(["FAILED", "SKIPPED", "DRAFT"]);
+
+function resolveFirmaBadge(status) {
+  switch (String(status || "").toUpperCase()) {
+    case "CERTIFIED":
+      return { label: "Firmada", color: "success" };
+    case "FAILED":
+      return { label: "Error", color: "danger" };
+    case "DRAFT":
+    case "SKIPPED":
+      return { label: "Sin firmar", color: "warning" };
+    case "VOID":
+      return { label: "Anulada", color: "dark" };
+    default:
+      return { label: "—", color: "secondary" };
+  }
+}
 
 function formatCurrency(value) {
   const num = Number(value || 0);
@@ -291,7 +308,7 @@ function AccountingInvoices() {
     canCertify
     && invoice
     && (
-      UNSIGNED_STATUSES.has(invoice.status)
+      CERTIFIABLE_STATUSES.has(invoice.status)
       || (invoice.status === "VOID" && !invoice.felUuid)
     );
 
@@ -306,12 +323,6 @@ function AccountingInvoices() {
     { id: "SIGNED", label: "Firmadas", value: summary?.certified || 0, className: "text-success" },
     { id: "UNSIGNED", label: "Sin firmar", value: summary?.unsigned || 0, className: "text-warning" },
     { id: "ERROR", label: "Con error", value: summary?.failed || 0, className: "text-danger" },
-    {
-      id: "UNSIGNED",
-      label: "Borrador / omitida",
-      value: (summary?.draft || 0) + (summary?.skipped || 0),
-      className: "text-muted",
-    },
     { id: "VOID", label: "Anuladas", value: summary?.voided || 0, className: "text-dark" },
   ];
 
@@ -345,11 +356,13 @@ function AccountingInvoices() {
                   );
                 })}
               </Row>
-              {(filters.fromDate || filters.toDate || filters.sourceType || filters.internalNumber || filters.customerTaxId) && (
-                <div className="small text-muted">
-                  Resumen acotado a los filtros de origen / NIT / número / fechas activos.
-                </div>
-              )}
+              <div className="small text-muted mb-0">
+                Categorías excluyentes: Firmadas = certificadas · Sin firmar = borrador/omitida ·
+                Con error = fallo FEL · Anuladas = VOID.
+                {(filters.fromDate || filters.toDate || filters.sourceType || filters.internalNumber || filters.customerTaxId) && (
+                  <> Resumen acotado a los filtros de origen / NIT / número / fechas activos.</>
+                )}
+              </div>
             </>
           ) : (
             <Alert color="warning" className="mb-0">
@@ -617,8 +630,7 @@ function AccountingInvoices() {
               </thead>
               <tbody>
                 {invoices.map((invoice) => {
-                  const isCertified = invoice.status === "CERTIFIED";
-                  const isUnsigned = UNSIGNED_STATUSES.has(invoice.status);
+                  const firmaBadge = resolveFirmaBadge(invoice.status);
                   return (
                     <tr key={invoice.id}>
                       <td>{invoice.internalNumber || invoice.id}</td>
@@ -628,8 +640,8 @@ function AccountingInvoices() {
                       <td>{invoice.customerTaxId || "—"}</td>
                       <td>{formatCurrency(invoice.totalAmount)}</td>
                       <td>
-                        <Badge color={isCertified ? "success" : isUnsigned ? "warning" : "secondary"}>
-                          {isCertified ? "Firmada" : isUnsigned ? "Sin firmar" : "—"}
+                        <Badge color={firmaBadge.color}>
+                          {firmaBadge.label}
                         </Badge>
                         {invoice.felUuid && (
                           <div className="small text-muted mt-1" title={invoice.felUuid}>
