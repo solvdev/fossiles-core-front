@@ -14,6 +14,7 @@ import {
   getHardwareConditionLabel,
   isSyntheticHardware,
   normalizeCinchoAudience,
+  normalizeCinchoType,
   normalizeHardwareCondition,
   shouldShowInKioskPhysicalCount,
 } from "utils/productCinchoHelper";
@@ -25,7 +26,11 @@ import {
   listEntrecuerosPriceListTiers,
   resolveEntrecuerosListUnitPrice,
 } from "utils/entrecuerosPriceLists";
-import { PRODUCT_BRAND_OPTIONS, extractBrandFromText } from "utils/productBrandHelper";
+import {
+  PRODUCT_BRAND_OPTIONS,
+  extractBrandFromText,
+  entrecuerosCinchoBrandImage,
+} from "utils/productBrandHelper";
 import { getSaleYmdGuatemala, getTodayYmdGuatemala, shiftYmdGuatemala } from "utils/dateTimeHelper";
 
 export const POS_CATALOG_VIEWS = [
@@ -481,6 +486,21 @@ export const resolveImageUrl = (rawValue) => {
   } catch {
     return value;
   }
+};
+
+const isPosCinchoItem = (item) => {
+  if (normalizeCinchoType(item?.cinchoType)) return true;
+  const text = `${item?.productCode || ""} ${item?.productName || ""} ${item?.categoryName || ""}`.toUpperCase();
+  return text.includes("CINCHO");
+};
+
+/** En POS Entrecueros, cinchos de marca usan foto fija (Nautica / Levi's / Tommy / Lacoste). */
+export const resolvePosProductImageUrl = (item, { entreCueros = false } = {}) => {
+  if (entreCueros && isPosCinchoItem(item)) {
+    const brandImage = entrecuerosCinchoBrandImage(resolveItemBrand(item));
+    if (brandImage) return brandImage;
+  }
+  return resolveImageUrl(item?.productImageUrl);
 };
 
 /** FEL: apellidos,,nombres o razón social con comas → texto legible para factura */

@@ -14,7 +14,7 @@ import {
   posVariantStockQty,
   posVariantChipLabel,
   normalizePosHardwareCondition,
-  resolveImageUrl,
+  resolvePosProductImageUrl,
   variantLineKeyFor,
   sortPackagingInventory,
   isEntrecuerosPosMode,
@@ -323,7 +323,7 @@ function PosCatalogPanel({
         ) : (
           <div className="kiosk-pos-inventory-grid">
             {groupedProducts.map((group) => {
-              const imageUrl = resolveImageUrl(group.productImageUrl);
+              const imageUrl = resolvePosProductImageUrl(group, { entreCueros: entrecueros });
               const groupKey = group.groupKey || group.productId;
 
               return (

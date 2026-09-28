@@ -1,3 +1,8 @@
+import cinchoLevisImg from "assets/img/entrecueros/cinchos/levis.png";
+import cinchoNauticaImg from "assets/img/entrecueros/cinchos/nautica.png";
+import cinchoTommyImg from "assets/img/entrecueros/cinchos/tommy-hilfiger.png";
+import cinchoLacosteImg from "assets/img/entrecueros/cinchos/lacoste.png";
+
 export const PRODUCT_BRAND_OPTIONS = [
   "LEVIS",
   "NAUTICA",
@@ -15,8 +20,21 @@ export const PRODUCT_BRAND_STYLES = {
   ABERCROMBIE: { bg: "#5C3317", fg: "#FFFFFF", accent: "#E8D5A3", short: "AB" },
 };
 
+/** Fotos de catálogo POS Entrecueros para cinchos de marca. */
+export const ENTRECUEROS_CINCHO_BRAND_IMAGES = {
+  LEVIS: cinchoLevisImg,
+  NAUTICA: cinchoNauticaImg,
+  "TOMMY HILFIGER": cinchoTommyImg,
+  LACOSTE: cinchoLacosteImg,
+};
+
 export function productBrandStyle(brand) {
   return PRODUCT_BRAND_STYLES[normalizeProductBrand(brand)] || null;
+}
+
+export function entrecuerosCinchoBrandImage(brand) {
+  const key = normalizeProductBrand(brand);
+  return key ? ENTRECUEROS_CINCHO_BRAND_IMAGES[key] || "" : "";
 }
 
 export function normalizeProductBrand(value) {
