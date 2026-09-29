@@ -98,6 +98,8 @@ import KioskInventory from "views/kiosks/KioskInventory.js";
 import KioskSales from "views/kiosks/KioskSales.js";
 import KioskReturns from "views/kiosks/KioskReturns.js";
 import KioskLedgerLab from "views/kiosks/KioskLedgerLab.js";
+import KioskGoalsAdmin from "views/kiosks/KioskGoalsAdmin.js";
+import KioskSupervisorAssignments from "views/kiosks/KioskSupervisorAssignments.js";
 
 // Ventas
 import TotalSales from "views/sales/TotalSales.js";
@@ -1110,6 +1112,33 @@ const routes = [
         permissions: {
           view: "KIOSCOS.DEVOLUCIONES_REINTEGROS.VER",
           create: "KIOSCOS.DEVOLUCIONES_REINTEGROS.CREAR",
+        },
+      },
+      {
+        path: "/kiosk-goals",
+        name: "Metas de Kioskos",
+        mini: "MK",
+        component: <KioskGoalsAdmin />,
+        layout: "/admin",
+        module: "KIOSCOS",
+        // Solo quienes pueden EDITAR (admin/supervisora) llegan a esta pantalla de
+        // configuración; la encargada solo ve su meta de forma read-only en "Resumen"
+        // (KIOSCOS.METAS_KIOSKO.VER, usado ahí, no habilita esta pantalla).
+        permissions: {
+          view: "KIOSCOS.METAS_KIOSKO.EDITAR",
+          edit: "KIOSCOS.METAS_KIOSKO.EDITAR",
+        },
+      },
+      {
+        path: "/kiosk-supervisor-assignments",
+        name: "Supervisoras y Kioskos",
+        mini: "SK",
+        component: <KioskSupervisorAssignments />,
+        layout: "/admin",
+        module: "KIOSCOS",
+        permissions: {
+          view: "KIOSCOS.SUPERVISION_KIOSKO.VER",
+          edit: "KIOSCOS.SUPERVISION_KIOSKO.EDITAR",
         },
       },
     ],
