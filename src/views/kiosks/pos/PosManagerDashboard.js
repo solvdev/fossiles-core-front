@@ -1,11 +1,12 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { Card, CardBody, Col, Row, Spinner, Table } from "reactstrap";
+import { Card, CardBody, Col, Progress, Row, Spinner, Table } from "reactstrap";
 import {
   getCashSessionDailySummaries,
   getKioskManagerDashboard,
   getMyKioskSales,
   getPendingDepositSummary,
 } from "services/kioskPosService";
+import { getKioskGoalProgress } from "services/kioskGoalService";
 import { showError } from "utils/notificationHelper";
 import { getMonthStartYmdGuatemala, getTodayYmdGuatemala } from "utils/dateTimeHelper";
 import { formatCurrency, formatQty, normalizeSalePaymentMethod } from "./posUtils";
@@ -135,10 +136,48 @@ function KpiCard({ title, subtitle, metric, growthPercent, showGrowth }) {
   );
 }
 
+function GoalCommissionCard({ goalProgress }) {
+  const hasGoal = Boolean(goalProgress?.hasGoalConfigured);
+  const goalAmount = Number(goalProgress?.goalAmount || 0);
+  const soldAmount = Number(goalProgress?.soldAmount || 0);
+  const percent = Number(goalProgress?.percentAchieved || 0);
+  const tier = goalProgress?.tierLabel || "Sin comisión aún";
+  const commissionAmount = Number(goalProgress?.commissionAmount || 0);
+  const progressValue = Math.max(0, Math.min(100, percent));
+  const progressColor = percent >= 100 ? "success" : percent >= 90 ? "info" : percent >= 70 ? "warning" : "secondary";
+
+  return (
+    <div className="kiosk-pos-kpi-card">
+      <div className="kiosk-pos-kpi-title">Meta del mes</div>
+      {!hasGoal ? (
+        <div className="text-muted small mt-2">Meta no configurada para este mes.</div>
+      ) : (
+        <>
+          <div className="kiosk-pos-kpi-value">{formatCurrency(soldAmount)}</div>
+          <div className="kiosk-pos-kpi-count">de {formatCurrency(goalAmount)} ({percent.toFixed(1)}%)</div>
+          <Progress value={progressValue} color={progressColor} className="my-2" style={{ height: "8px" }} />
+          <div className="small">
+            <strong>{tier}</strong>
+            {commissionAmount > 0 && <div>Comisión del mes: {formatCurrency(commissionAmount)}</div>}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+const COMMISSION_TIER_LABELS = {
+  NONE: "Sin comisión aún (mín. 70%)",
+  TIER1: "70–89%: 2% de lo vendido",
+  TIER2: "90–99%: Q500 + 2% de lo vendido",
+  TIER3: "≥100%: Q800 + 2% de lo vendido",
+};
+
 function PosManagerDashboard({ kioskLocationId, kioskName, active }) {
   const [dashboard, setDashboard] = useState(null);
   const [dailyRows, setDailyRows] = useState([]);
   const [pendingDepositSummary, setPendingDepositSummary] = useState(null);
+  const [goalProgress, setGoalProgress] = useState(null);
   const [periodLabel, setPeriodLabel] = useState({ startDate: "", endDate: "" });
   const [loading, setLoading] = useState(false);
 
@@ -147,26 +186,34 @@ function PosManagerDashboard({ kioskLocationId, kioskName, active }) {
       setDashboard(null);
       setDailyRows([]);
       setPendingDepositSummary(null);
+      setGoalProgress(null);
       return;
     }
     try {
       setLoading(true);
       const startDate = getMonthStartYmdGuatemala();
       const endDate = getTodayYmdGuatemala();
-      const [data, sales, pendingSummary, cashSummaries] = await Promise.all([
+      const [data, sales, pendingSummary, cashSummaries, goal] = await Promise.all([
         getKioskManagerDashboard(kioskLocationId),
         getMyKioskSales(startDate, endDate, kioskLocationId),
         getPendingDepositSummary(kioskLocationId),
         getCashSessionDailySummaries(startDate, endDate, kioskLocationId),
+        getKioskGoalProgress(kioskLocationId).catch(() => null),
       ]);
       setDashboard(data || null);
       setDailyRows(aggregateDailyRows(sales, cashSummaries));
       setPendingDepositSummary(pendingSummary || null);
+      setGoalProgress(
+        goal
+          ? { ...goal, tierLabel: COMMISSION_TIER_LABELS[goal.commissionTier] || COMMISSION_TIER_LABELS.NONE }
+          : null
+      );
       setPeriodLabel({ startDate, endDate });
     } catch (err) {
       setDashboard(null);
       setDailyRows([]);
       setPendingDepositSummary(null);
+      setGoalProgress(null);
       showError(err.message || "No se pudo cargar el resumen del kiosko.");
     } finally {
       setLoading(false);
@@ -194,7 +241,7 @@ function PosManagerDashboard({ kioskLocationId, kioskName, active }) {
         {loading ? <Spinner size="sm" /> : null}
       </div>
       <Row className="kiosk-pos-dashboard-grid">
-        <Col md="6" xl="3" className="mb-3 mb-xl-0">
+        <Col md="6" xl="2" className="mb-3 mb-xl-0">
           <KpiCard
             title="Hoy"
             metric={dashboard?.today}
@@ -202,25 +249,28 @@ function PosManagerDashboard({ kioskLocationId, kioskName, active }) {
             showGrowth
           />
         </Col>
-        <Col md="6" xl="3" className="mb-3 mb-xl-0">
+        <Col md="6" xl="2" className="mb-3 mb-xl-0">
           <KpiCard
             title="Mismo día año anterior"
             metric={dashboard?.todayLastYear}
           />
         </Col>
-        <Col md="6" xl="3" className="mb-3 mb-xl-0">
+        <Col md="6" xl="2" className="mb-3 mb-xl-0">
           <KpiCard
             title="Mes anterior"
             subtitle="Total del mes calendario previo"
             metric={dashboard?.lastMonth}
           />
         </Col>
-        <Col md="6" xl="3" className="mb-3 mb-xl-0">
+        <Col md="6" xl="2" className="mb-3 mb-xl-0">
           <KpiCard
             title="Mes en curso"
             subtitle="Acumulado MTD"
             metric={dashboard?.monthToDate}
           />
+        </Col>
+        <Col md="6" xl="4" className="mb-3 mb-xl-0">
+          <GoalCommissionCard goalProgress={goalProgress} />
         </Col>
       </Row>
       <Card className="kiosk-pos-dashboard-table-card mt-3">

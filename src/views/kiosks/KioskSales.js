@@ -50,6 +50,7 @@ import PosReceiptTab from "./pos/PosReceiptTab";
 import PosCashTab from "./pos/PosCashTab";
 import PosCashClosuresTab from "./pos/PosCashClosuresTab";
 import PosManagerDashboard from "./pos/PosManagerDashboard";
+import SupervisorAggregateDashboard from "./pos/SupervisorAggregateDashboard";
 import PosInventoryTab from "./pos/PosInventoryTab";
 import { useAuth } from "contexts/AuthContext";
 import FilterableSelect from "components/distribution/FilterableSelect";
@@ -78,8 +79,9 @@ import { getHardwareConditionLabel } from "utils/productCinchoHelper";
 import "./KioskSales.css";
 
 function KioskSales() {
-  const { hasPermission } = useAuth();
+  const { hasPermission, hasRole } = useAuth();
   const canConfirmReceipt = hasPermission("DISTRIBUCION.CONFIRMACION_RECEPCION.CREAR");
+  const isSupervisoraKiosko = hasRole("SUPERVISORA_KIOSKO");
   const [activeTab, setActiveTab] = useState("POS");
   const [context, setContext] = useState(null);
   const [selectedKioskId, setSelectedKioskId] = useState("");
@@ -900,11 +902,14 @@ function KioskSales() {
       items.push({ id: "RECEIPT", label: "Recibir distribución" });
     }
     items.push({ id: "REPORTS", label: "Reportes de ventas" });
+    if (isSupervisoraKiosko) {
+      items.push({ id: "MI_SUPERVISION", label: "Mi supervisión" });
+    }
     if (context?.admin) {
       items.push({ id: "PROMOS", label: "Promociones" });
     }
     return items;
-  }, [canConfirmReceipt, context?.admin]);
+  }, [canConfirmReceipt, context?.admin, isSupervisoraKiosko]);
 
   return (
     <div className="content kiosk-pos-page">
@@ -990,6 +995,10 @@ function KioskSales() {
                       kioskName={selectedKioskName || context?.kioskName}
                       active={activeTab === "RESUMEN"}
                     />
+                  )}
+
+                  {activeTab === "MI_SUPERVISION" && isSupervisoraKiosko && (
+                    <SupervisorAggregateDashboard active={activeTab === "MI_SUPERVISION"} />
                   )}
 
                   {activeTab === "POS" && (
