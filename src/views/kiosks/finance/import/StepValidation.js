@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Alert, Button, Col, Input, Row } from "reactstrap";
 import { MONTHS_ES, fmtDateEs, fmtMoney } from "utils/financeFormat";
 import IssueResolver from "./IssueResolver";
@@ -35,6 +35,17 @@ const CODE_LABEL = {
 
 const PAGE = 100;
 
+const FORMAT_LABEL = {
+  LEGACY: "Formato anterior",
+  SHEET_YEAR: "Formato nuevo",
+};
+
+const PERIOD_SOURCE_TEXT = {
+  FILE_NAME: "del nombre del archivo",
+  DATES: "de las fechas de la hoja",
+  OVERRIDE: "corregido por ti",
+};
+
 export function SeverityChip({ severity }) {
   const meta = SEVERITY_LABEL[severity] || SEVERITY_LABEL.INFO;
   return (
@@ -45,7 +56,65 @@ export function SeverityChip({ severity }) {
   );
 }
 
-function FileCard({ file, replace, onReplaceChange, onDrop }) {
+/** Mes/año del reporte: editable en el formato nuevo, donde las fechas de la hoja pueden traer el mes equivocado. */
+function PeriodEditor({ file, busy, onPeriodChange }) {
+  const [yearDraft, setYearDraft] = useState(String(file.year || ""));
+  useEffect(() => setYearDraft(String(file.year || "")), [file.year]);
+
+  const applyYear = () => {
+    const y = Number(yearDraft);
+    if (!Number.isInteger(y) || y < 2000 || y > 2100) {
+      setYearDraft(String(file.year || ""));
+      return;
+    }
+    if (y !== file.year) onPeriodChange(y, file.month);
+  };
+
+  return (
+    <div className="mb-2">
+      <div className="d-flex align-items-center">
+        <Input
+          type="select"
+          bsSize="sm"
+          style={{ maxWidth: 140 }}
+          aria-label={"Mes del reporte " + file.fileName}
+          value={file.month || 1}
+          disabled={busy}
+          onChange={(e) => onPeriodChange(file.year, Number(e.target.value))}
+        >
+          {MONTHS_ES.map((name, i) => (
+            <option key={name} value={i + 1}>
+              {name}
+            </option>
+          ))}
+        </Input>
+        <Input
+          type="number"
+          bsSize="sm"
+          className="ml-2"
+          style={{ maxWidth: 90 }}
+          aria-label={"Año del reporte " + file.fileName}
+          min={2000}
+          max={2100}
+          value={yearDraft}
+          disabled={busy}
+          onChange={(e) => setYearDraft(e.target.value)}
+          onBlur={applyYear}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") applyYear();
+          }}
+        />
+        {busy && <span className="small text-muted ml-2">Actualizando...</span>}
+      </div>
+      <div className="small text-muted mt-1">
+        Mes {PERIOD_SOURCE_TEXT[file.periodSource] || "detectado"}. Corrígelo si no es el correcto: las fechas de este
+        formato no son confiables.
+      </div>
+    </div>
+  );
+}
+
+function FileCard({ file, replace, onReplaceChange, onDrop, onPeriodChange, periodBusy }) {
   const diff = totalsDiff(file.stats);
   const mismatch = diff !== null && Math.abs(diff) >= 0.01;
   const ai = file.alreadyImported;
@@ -69,9 +138,18 @@ function FileCard({ file, replace, onReplaceChange, onDrop }) {
   return (
     <div className={`kiw-file-card ${ai || mismatch ? "has-warning" : ""}`}>
       <h6>{file.fileName}</h6>
-      <div className="small text-muted mb-2">
-        {MONTHS_ES[(file.month || 1) - 1]} {file.year}
-      </div>
+      {file.format && (
+        <div className="mb-1">
+          <span className="badge badge-info">{FORMAT_LABEL[file.format] || file.format}</span>
+        </div>
+      )}
+      {file.periodEditable ? (
+        <PeriodEditor file={file} busy={periodBusy} onPeriodChange={onPeriodChange} />
+      ) : (
+        <div className="small text-muted mb-2">
+          {MONTHS_ES[(file.month || 1) - 1]} {file.year}
+        </div>
+      )}
       <div className="kiw-kv">
         <span>Columnas (kioscos)</span>
         <strong>{file.stats ? file.stats.columns : (file.columns || []).length}</strong>
@@ -134,6 +212,8 @@ function StepValidation({
   replaceByFile,
   onReplaceChange,
   onDropFile,
+  onPeriodChange,
+  periodBusyIdx,
   counts,
 }) {
   const [severityFilter, setSeverityFilter] = useState(new Set(SEVERITIES));
@@ -189,6 +269,8 @@ function StepValidation({
               replace={replaceByFile[i]}
               onReplaceChange={(v) => onReplaceChange(i, v)}
               onDrop={() => onDropFile(i)}
+              onPeriodChange={(year, month) => onPeriodChange(i, year, month)}
+              periodBusy={periodBusyIdx === i}
             />
           </Col>
         ))}

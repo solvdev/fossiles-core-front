@@ -56,6 +56,10 @@ function StepUpload({ files, onFilesChange, analyzing, analyzeError, onAnalyze }
         <div className="small text-muted mt-1">
           Archivos .xlsx · máximo {MAX_FILES} archivos · {formatBytes(MAX_FILE_BYTES)} cada uno
         </div>
+        <div className="small text-muted">
+          Acepta los dos formatos de reporte, incluso mezclados: el anterior (hoja «Reporte de Vtas orig.») y el nuevo (hojas
+          «ventas 2025» / «ventas 2026»).
+        </div>
         <input
           ref={inputRef}
           type="file"

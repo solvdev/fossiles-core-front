@@ -31,6 +31,8 @@ const resolveSaleDay = (sale) => {
 const aggregateDailyRows = (sales, cashSummaries) => {
   const grouped = new Map();
   (sales || []).forEach((sale) => {
+    // Las ventas de prueba no cuentan en ningun concepto (ni total, ni anuladas, ni depositos).
+    if (sale?.testSale === true) return;
     const dayKey = resolveSaleDay(sale);
     if (!dayKey) return;
 
@@ -44,7 +46,6 @@ const aggregateDailyRows = (sales, cashSummaries) => {
         cardAmount: 0,
         pendingDeposits: 0,
         voidCount: 0,
-        testCount: 0,
         cashExpenses: 0,
         cashVariance: null,
         sessionCashSales: null,
@@ -62,9 +63,6 @@ const aggregateDailyRows = (sales, cashSummaries) => {
     row.salesCount += 1;
     row.totalItems += safeNumber(sale.totalItems);
     row.totalAmount += safeNumber(sale.totalAmount);
-    if (sale.testSale === true) {
-      row.testCount += 1;
-    }
 
     const paymentMethod = normalizeSalePaymentMethod(sale.paymentMethod);
     if (paymentMethod === "EFECTIVO") {
@@ -94,7 +92,6 @@ const aggregateDailyRows = (sales, cashSummaries) => {
         cardAmount: 0,
         pendingDeposits: 0,
         voidCount: 0,
-        testCount: 0,
         cashExpenses: 0,
         cashVariance: null,
         sessionCashSales: null,
@@ -111,8 +108,10 @@ const aggregateDailyRows = (sales, cashSummaries) => {
   return Array.from(grouped.values()).sort((a, b) => String(b.day).localeCompare(String(a.day)));
 };
 
-function KpiCard({ title, subtitle, metric, growthPercent, showGrowth }) {
+function KpiCard({ title, subtitle, metric, growthPercent, showGrowth, growthLabel }) {
   const amount = Number(metric?.amount || 0);
+  // El historico del año anterior solo guarda montos diarios: sin cantidad de ventas.
+  const hasCount = metric?.count != null;
   const count = Number(metric?.count || 0);
   const growth = Number(growthPercent || 0);
   const growthUp = growth > 0;
@@ -124,12 +123,14 @@ function KpiCard({ title, subtitle, metric, growthPercent, showGrowth }) {
       <div className="kiosk-pos-kpi-title">{title}</div>
       {subtitle ? <div className="kiosk-pos-kpi-subtitle">{subtitle}</div> : null}
       <div className="kiosk-pos-kpi-value">{formatCurrency(amount)}</div>
-      <div className="kiosk-pos-kpi-count">
-        {count} {count === 1 ? "venta" : "ventas"}
-      </div>
+      {hasCount ? (
+        <div className="kiosk-pos-kpi-count">
+          {count} {count === 1 ? "venta" : "ventas"}
+        </div>
+      ) : null}
       {showGrowth ? (
         <div className={`kiosk-pos-kpi-growth ${growthClass}`}>
-          {growthUp ? "▲" : growthDown ? "▼" : "—"} {formatGrowth(growthPercent)} vs mismo día año anterior
+          {growthUp ? "▲" : growthDown ? "▼" : "—"} {formatGrowth(growthPercent)} {growthLabel}
         </div>
       ) : null}
     </div>
@@ -246,12 +247,14 @@ function PosManagerDashboard({ kioskLocationId, kioskName, active }) {
             title="Hoy"
             metric={dashboard?.today}
             growthPercent={dashboard?.growthVsLastYearPercent}
+            growthLabel="vs mismo día año anterior"
             showGrowth
           />
         </Col>
         <Col md="6" xl="2" className="mb-3 mb-xl-0">
           <KpiCard
             title="Mismo día año anterior"
+            subtitle={dashboard?.todayLastYear ? "Mismo mes y día del año pasado" : undefined}
             metric={dashboard?.todayLastYear}
           />
         </Col>
@@ -267,6 +270,11 @@ function PosManagerDashboard({ kioskLocationId, kioskName, active }) {
             title="Mes en curso"
             subtitle="Acumulado MTD"
             metric={dashboard?.monthToDate}
+            growthPercent={dashboard?.growthMonthToDateVsLastYearPercent}
+            growthLabel={`vs mismo período año anterior (${formatCurrency(
+              dashboard?.monthToDateLastYear?.amount
+            )})`}
+            showGrowth={dashboard?.monthToDateLastYear != null}
           />
         </Col>
         <Col md="6" xl="4" className="mb-3 mb-xl-0">
@@ -301,7 +309,6 @@ function PosManagerDashboard({ kioskLocationId, kioskName, active }) {
                 <th className="text-right">Tarjeta</th>
                 <th className="text-right">Depósitos pendientes</th>
                 <th className="text-right">Anuladas</th>
-                <th className="text-right">Prueba</th>
               </tr>
             </thead>
             <tbody>
@@ -321,12 +328,11 @@ function PosManagerDashboard({ kioskLocationId, kioskName, active }) {
                   <td className="text-right">{formatCurrency(row.cardAmount)}</td>
                   <td className="text-right">{row.pendingDeposits}</td>
                   <td className="text-right">{row.voidCount}</td>
-                  <td className="text-right">{row.testCount}</td>
                 </tr>
               ))}
               {dailyRows.length === 0 && (
                 <tr>
-                  <td colSpan="11" className="text-center text-muted">
+                  <td colSpan="10" className="text-center text-muted">
                     No hay ventas en el rango actual.
                   </td>
                 </tr>
@@ -360,9 +366,6 @@ function PosManagerDashboard({ kioskLocationId, kioskName, active }) {
                   </th>
                   <th className="text-right">
                     {dailyRows.reduce((sum, row) => sum + row.voidCount, 0)}
-                  </th>
-                  <th className="text-right">
-                    {dailyRows.reduce((sum, row) => sum + row.testCount, 0)}
                   </th>
                 </tr>
               </tfoot>
