@@ -154,4 +154,61 @@ describe("gridBuilders", () => {
     expect(footer.calc).toBe(true);
     expect(footer.value).toBeCloseTo(14674.89, 2);
   });
+
+  describe("meta administrada en Metas de Kioskos", () => {
+    const linkedConfig = {
+      year: 2026,
+      categories,
+      sites: [
+        {
+          siteId: 27,
+          name: "MIRAFLORES II",
+          status: "ACTIVE",
+          goalManagedExternally: true,
+          months: [{ month: 9, goal: 130000, goalSource: "METAS_KIOSCOS", costs: {}, complete: false }],
+        },
+        {
+          siteId: 5,
+          name: "MAJADAS 11",
+          status: "CLOSED",
+          goalManagedExternally: false,
+          months: [{ month: 9, goal: 5000, goalSource: "CONFIG", costs: {}, complete: false }],
+        },
+      ],
+    };
+
+    it("la celda de meta de un kiosco real es de solo lectura y muestra el valor del módulo", () => {
+      const index = indexConfig(linkedConfig);
+      const model = buildSiteGrid({ index, pending: {}, categories, siteId: 27 });
+      const goalRow = 5; // sección + 2 categorías + total + sección + meta
+      const cell = model.cellAt(goalRow, 8); // septiembre
+      expect(cell.calc).toBe(true); // calc = no editable en CostGrid
+      expect(cell.ref).toBeUndefined();
+      expect(cell.goalExternal).toBe(true);
+      expect(cell.goalSource).toBe("METAS_KIOSCOS");
+      expect(cell.value).toBe(130000);
+    });
+
+    it("la meta de un sitio histórico sí es editable", () => {
+      const index = indexConfig(linkedConfig);
+      const model = buildSiteGrid({ index, pending: {}, categories, siteId: 5 });
+      const cell = model.cellAt(5, 8);
+      expect(cell.calc).toBeUndefined();
+      expect(cell.ref).toEqual({ siteId: 5, month: 9, field: "goal" });
+      expect(cell.value).toBe(5000);
+    });
+
+    it("en la vista por mes la meta del kiosco real es solo lectura y la del histórico editable", () => {
+      const index = indexConfig(linkedConfig);
+      const siteList = [
+        { siteId: 27, name: "MIRAFLORES II", status: "ACTIVE" },
+        { siteId: 5, name: "MAJADAS 11", status: "CLOSED" },
+      ];
+      const model = buildMonthGrid({ index, pending: {}, categories, siteList, month: 9 });
+      const goalCol = model.cols.findIndex((c) => c.field === "goal");
+      expect(model.cellAt(0, goalCol).goalExternal).toBe(true);
+      expect(model.cellAt(0, goalCol).ref).toBeUndefined();
+      expect(model.cellAt(1, goalCol).ref).toEqual({ siteId: 5, month: 9, field: "goal" });
+    });
+  });
 });

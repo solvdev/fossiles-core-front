@@ -5,6 +5,8 @@
 import {
   GOAL_FIELD,
   RATE_FIELDS,
+  goalSourceOf,
+  isGoalExternal,
   costField,
   cellKey,
   effectiveValue,
@@ -70,6 +72,15 @@ export const buildSiteGrid = ({ index, pending, categories, siteId }) => {
     if (row.type === "calc") {
       return { kind: row.kind, calc: true, value: monthValue(row, col.month) };
     }
+    if (row.field === GOAL_FIELD && isGoalExternal(index, siteId)) {
+      return {
+        kind: row.kind,
+        calc: true,
+        goalExternal: true,
+        goalSource: goalSourceOf(index, siteId, col.month),
+        value: effectiveValue(index, pending, siteId, col.month, row.field),
+      };
+    }
     const ref = { siteId, month: col.month, field: row.field };
     return {
       ref,
@@ -117,6 +128,15 @@ export const buildMonthGrid = ({ index, pending, categories, siteList, month }) 
     }
     if (col.calc) {
       return { kind: col.kind, calc: true, value: siteValue(row, col) };
+    }
+    if (col.field === GOAL_FIELD && isGoalExternal(index, row.siteId)) {
+      return {
+        kind: col.kind,
+        calc: true,
+        goalExternal: true,
+        goalSource: goalSourceOf(index, row.siteId, month),
+        value: effectiveValue(index, pending, row.siteId, month, col.field),
+      };
     }
     const ref = { siteId: row.siteId, month, field: col.field };
     return {

@@ -37,6 +37,14 @@ describe("kioskFinancialsTemplate layout", () => {
     expect(cellValue(ws, "B39")).toBe(45870 + 30);
   });
 
+  it("los días del mes vienen en 0 con formato Q; los que desbordan al mes siguiente quedan vacíos", () => {
+    const { ws } = buildKioskTemplateSheet({ year: 2025, month: 9, siteNames }); // septiembre: 30 días
+    expect(cellValue(ws, "C9")).toBe(0);            // 1 de septiembre
+    expect(cellValue(ws, "E38")).toBe(0);           // 30 de septiembre
+    expect(ws.C9.z).toBe('"Q"#,##0.00;-"Q"#,##0.00');
+    expect(cellValue(ws, "C39")).toBeUndefined();   // 1 de octubre: fuera del mes
+  });
+
   it("desborda al mes siguiente en meses de 30 días (igual que los originales)", () => {
     const { ws, layout } = buildKioskTemplateSheet({ year: 2025, month: 9, siteNames });
     expect(layout.daysInMonth).toBe(30);

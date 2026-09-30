@@ -19,7 +19,8 @@ export const HEADER_ROW_INDEX = 7;
 /** Índice de la primera columna de kiosco (C). */
 export const FIRST_SITE_COL = 2;
 
-const moneyFmt = "#,##0.00";
+// Formato de moneda Excel con quetzales (positivos y negativos)
+const moneyFmt = '"Q"#,##0.00;-"Q"#,##0.00';
 const pctFmt = "0.0%";
 const dateFmt = "dd/mm/yyyy";
 
@@ -37,6 +38,8 @@ const excelSerial = (iso) => {
 };
 
 const numOrNull = (v) => (typeof v === "number" && Number.isFinite(v) ? v : null);
+/** Un día sin operación no queda en blanco en el Excel: se escribe 0. */
+const numOrZero = (v) => (typeof v === "number" && Number.isFinite(v) ? v : 0);
 
 /** Tasas del mes por sitio desde getKioskConfig(). */
 export const ratesBySiteFromConfig = (config, month) => {
@@ -107,10 +110,10 @@ export const buildOriginalSheetLayout = ({ year, month, matrix, pnl, config, cat
 
   // Filas de días.
   (matrix?.days || []).forEach((day) => {
-    const cells = { 1: excelSerial(day.date), [totalCol]: numOrNull(day.total), [cumCol]: numOrNull(day.cumulative) };
+    const cells = { 1: excelSerial(day.date), [totalCol]: numOrZero(day.total), [cumCol]: numOrZero(day.cumulative) };
     sites.forEach((s, i) => {
       const v = day.values ? day.values[s.siteId] ?? day.values[String(s.siteId)] : null;
-      cells[FIRST_SITE_COL + i] = numOrNull(v);
+      cells[FIRST_SITE_COL + i] = numOrZero(v);
     });
     push("date", "money", cells);
   });

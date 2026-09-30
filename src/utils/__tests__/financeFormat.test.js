@@ -70,3 +70,13 @@ describe("financeFormat", () => {
     expect(isoDate(2025, 8, 5)).toBe("2025-08-05");
   });
 });
+
+describe("fmtAmount (montos de tablas y grillas)", () => {
+  test("siempre con quetzales", () => {
+    const { fmtAmount } = require("../financeFormat");
+    expect(fmtAmount(1234.5)).toBe("Q 1,234.50");
+    expect(fmtAmount(0)).toBe("Q 0.00");
+    expect(fmtAmount(-200)).toBe("-Q 200.00");
+    expect(fmtAmount(130000, 0)).toBe("Q 130,000");
+  });
+});

@@ -81,13 +81,15 @@ describe("buildOriginalSheetLayout", () => {
     expect(aoa[3][1]).toBe("MES: ENERO 2025");
   });
 
-  test("filas de días: fecha serial de Excel, vacío distinto de cero", () => {
+  test("filas de días: fecha serial de Excel; un día sin operación se escribe como 0, no en blanco", () => {
     const d1 = aoa[HEADER_ROW_INDEX + 1];
     const d2 = aoa[HEADER_ROW_INDEX + 2];
     // 2025-01-01 -> serial 45658
     expect(d1[1]).toBe(45658);
     expect(d2[1]).toBe(45659);
-    expect(d1[FIRST_SITE_COL]).toBeNull();
+    expect(d1[FIRST_SITE_COL]).toBe(0); // sin dato = no operó = 0
+    expect(d1[layout.totalCol]).toBe(0);
+    expect(d1[layout.cumCol]).toBe(0);
     expect(d2[FIRST_SITE_COL]).toBe(100.5);
     expect(d2[FIRST_SITE_COL + 1]).toBe(0);
     expect(d2[layout.totalCol]).toBe(100.5);
@@ -187,8 +189,8 @@ describe("exportOriginalSheetExcel", () => {
     expect(ws.C8.v).toBe("MIRAFLORES II");
     expect(ws.B9.z).toBe("dd/mm/yyyy");
     expect(ws.C10.v).toBe(100.5);
-    expect(ws.C10.z).toBe("#,##0.00");
-    expect(ws.C9.v).toBe(""); // vacío, no 0
+    expect(ws.C10.z).toBe('"Q"#,##0.00;-"Q"#,##0.00'); // moneda con quetzales
+    expect(ws.C9.v).toBe(0); // día sin operación: 0, no vacío
     expect(ws.D10.v).toBe(0); // cero explícito
     expect(ws.C8.s.fill.fgColor.rgb).toBe("D9D9D9");
     expect(ws["!cols"][1].wch).toBeGreaterThan(20);

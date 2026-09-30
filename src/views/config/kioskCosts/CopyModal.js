@@ -196,6 +196,11 @@ function CopyModal({ isOpen, toggle, year, years, sites, onCopied }) {
                 </Label>
               </FormGroup>
             ))}
+            {include.includes("GOALS") && (
+              <small className="d-block text-muted mt-1">
+                Las metas de los kioscos con módulo Metas de Kioskos no se copian: se administran allí.
+              </small>
+            )}
           </FormGroup>
           <FormGroup check>
             <Label check>

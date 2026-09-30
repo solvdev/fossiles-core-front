@@ -479,3 +479,14 @@
 .kc-scope .form-check-label {
   color: #403d39;
 }
+
+/* Meta tomada del módulo Metas de Kioskos: solo lectura */
+.kc-cell.kc-cell-external {
+  font-style: italic;
+  box-shadow: inset 3px 0 0 #51bcda;
+}
+
+.kc-goals-note {
+  margin-bottom: 12px;
+  font-size: 13px;
+}

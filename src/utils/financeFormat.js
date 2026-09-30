@@ -80,8 +80,8 @@ export const fmtMoney = (value, { decimals = 2, prefix = "Q " } = {}) => {
   return `${negative ? "-" : ""}${prefix}${body}`;
 };
 
-/** Monto sin prefijo para celdas de grilla ('1,234.50'). */
-export const fmtAmount = (value, decimals = 2) => fmtNumber(value, decimals);
+/** Monto para celdas de tablas y grillas: siempre con quetzales ('Q 1,234.50'). */
+export const fmtAmount = (value, decimals = 2) => fmtMoney(value, { decimals });
 
 /** Porcentaje desde decimal: 0.1834 -> '18.3%'. */
 export const fmtPct = (decimal, digits = 1) => {
