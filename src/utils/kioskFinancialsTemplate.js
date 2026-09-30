@@ -42,7 +42,8 @@ const FILL_HEADER = { fgColor: { rgb: "D9D9D9" } };
 const FILL_SECTION = { fgColor: { rgb: "EDEDED" } };
 const FILL_INPUT = { fgColor: { rgb: "FFF9E5" } };
 const FILL_OVERFLOW = { fgColor: { rgb: "F2F2F2" } };
-const MONEY_FMT = "#,##0.00";
+// Formato de moneda Excel con quetzales
+const MONEY_FMT = '"Q"#,##0.00;-"Q"#,##0.00';
 const PCT_FMT = "0.0%";
 const DATE_FMT = "dd/mm/yyyy";
 
@@ -123,7 +124,9 @@ export const buildKioskTemplateSheet = ({ year, month, siteNames, categories, si
     );
     for (let i = 0; i < nSites; i += 1) {
       const s = style({ fill: inMonth ? FILL_INPUT : FILL_OVERFLOW, alignment: { horizontal: "right" } });
-      put(r, firstCol + i, { t: "z", v: undefined, s, z: MONEY_FMT });
+      // Día del mes: 0 por defecto (no operó); los días que desbordan al mes siguiente quedan vacíos.
+      if (inMonth) put(r, firstCol + i, { t: "n", v: 0, s, z: MONEY_FMT });
+      else put(r, firstCol + i, { t: "z", v: undefined, s, z: MONEY_FMT });
     }
     formula(r, totalCol, `SUM(${col(firstCol)}${r + 1}:${col(lastSiteCol)}${r + 1})`, MONEY_FMT);
   }

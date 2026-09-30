@@ -295,6 +295,7 @@ function CostGrid({ model, readOnly, onEdit, focusRequest, ariaLabel }) {
     const editable = isEditable(cell);
     const classes = ["kc-cell"];
     if (cell && cell.calc) classes.push("kc-cell-calc");
+    if (cell && cell.goalExternal) classes.push("kc-cell-external");
     if (cell && cell.dirty) classes.push("kc-cell-dirty");
     if (isActive) classes.push("kc-cell-active");
     if (!display) classes.push("kc-cell-empty");
@@ -309,6 +310,11 @@ function CostGrid({ model, readOnly, onEdit, focusRequest, ariaLabel }) {
         aria-label={label}
         aria-selected={isActive}
         aria-readonly={!editable}
+        title={
+          cell && cell.goalExternal
+            ? "Meta tomada de Metas de Kioskos (solo lectura aquí)"
+            : undefined
+        }
         className={classes.join(" ")}
         onMouseDown={(e) => {
           if (editingRef.current && isActive) return;

@@ -83,6 +83,11 @@ function KioskCosts() {
 
   const index = useMemo(() => indexConfig(config), [config]);
   const categories = useMemo(() => (config && config.categories) || [], [config]);
+  const hasExternalGoals = useMemo(
+    () => ((config && config.sites) || []).some((s) => s.goalManagedExternally),
+    [config]
+  );
+
   const siteList = useMemo(
     () => ((config && config.sites) || []).map((s) => ({ siteId: s.siteId, name: s.name, status: s.status })),
     [config]
@@ -272,6 +277,19 @@ function KioskCosts() {
               </div>
             </CardHeader>
             <CardBody>
+              {hasExternalGoals && (
+                <Alert color="info" className="kc-goals-note">
+                  <strong>La meta de ventas de cada kiosco se toma de Metas de Kioskos.</strong> Aquí se muestra en solo
+                  lectura; para cambiarla edítala allí
+                  {hasPermission("KIOSCOS.METAS_KIOSKO.EDITAR") && (
+                    <>
+                      {" "}
+                      (<Link to="/admin/kiosk-goals">ir a Metas de Kioskos</Link>)
+                    </>
+                  )}
+                  . Los sitios históricos (sin kiosco) sí se editan aquí.
+                </Alert>
+              )}
               <div className="kc-toolbar">
                 <div className="kc-field">
                   <label id="kc-year-label">Año</label>

@@ -37,9 +37,28 @@ export const indexConfig = (config) => {
     (site.months || []).forEach((m) => {
       months[m.month] = m;
     });
-    map.set(site.siteId, { siteId: site.siteId, name: site.name, status: site.status, months });
+    map.set(site.siteId, {
+      siteId: site.siteId,
+      name: site.name,
+      status: site.status,
+      goalManagedExternally: Boolean(site.goalManagedExternally),
+      months,
+    });
   });
   return map;
+};
+
+/** true: kiosco real, su meta se administra en el módulo Metas de Kioskos (solo lectura en esta pantalla). */
+export const isGoalExternal = (index, siteId) => {
+  const site = index.get(siteId);
+  return Boolean(site && site.goalManagedExternally);
+};
+
+/** METAS_KIOSCOS | CONFIG | null: de dónde salió la meta efectiva del mes. */
+export const goalSourceOf = (index, siteId, month) => {
+  const site = index.get(siteId);
+  const m = site && site.months[month];
+  return (m && m.goalSource) || null;
 };
 
 export const serverValue = (index, siteId, month, field) => {

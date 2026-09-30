@@ -96,18 +96,12 @@ export default function DailyMatrixTab({ filters }) {
                   <th scope="row" className="kfin-sticky-col kfin-sticky-col--label" title={lab.full}>
                     {lab.day} <span className="kfin-wd">{lab.wd}</span>
                   </th>
-                  <td className="kfin-sticky-col2 is-num kfin-strongnum">{d.total === null || d.total === undefined ? "—" : fmtAmount(d.total)}</td>
-                  <td className="is-num kfin-cum">{d.cumulative === null || d.cumulative === undefined ? "—" : fmtAmount(d.cumulative)}</td>
+                  <td className="kfin-sticky-col2 is-num kfin-strongnum">{fmtAmount(d.total ?? 0)}</td>
+                  <td className="is-num kfin-cum">{fmtAmount(d.cumulative ?? 0)}</td>
                   {sites.map((s) => {
-                    const v = cellValue(d, s.siteId);
-                    if (v === null) {
-                      return (
-                        <td key={s.siteId} className="is-num kfin-blank" title="Sin dato">
-                          <span aria-hidden="true">—</span>
-                          <span className="sr-only">sin dato</span>
-                        </td>
-                      );
-                    }
+                    // Sin dato = el kiosco no operó ese día: se muestra como 0.00, nunca en blanco.
+                    const raw = cellValue(d, s.siteId);
+                    const v = raw === null || raw === undefined ? 0 : raw;
                     const b = heat ? heatBucket(v, medians[s.siteId]) : null;
                     const step = b === null ? null : HEAT_STEPS[b];
                     return (
@@ -138,7 +132,7 @@ export default function DailyMatrixTab({ filters }) {
                 const t = data.siteTotals?.[s.siteId] ?? data.siteTotals?.[String(s.siteId)];
                 return (
                   <td key={s.siteId} className="is-num">
-                    {t === null || t === undefined ? "—" : fmtAmount(t)}
+                    {fmtAmount(t ?? 0)}
                   </td>
                 );
               })}
