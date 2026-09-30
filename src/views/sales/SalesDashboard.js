@@ -18,6 +18,7 @@ import {
 } from "reactstrap";
 import { getSalesDashboard } from "services/salesDashboardService";
 import { formatDateGt, getTodayYmdGuatemala } from "utils/dateTimeHelper";
+import KioskYoYCard from "views/sales/KioskYoYCard";
 
 const ACTIONS = [
   { label: "Ventas totales", path: "/admin/total-sales", color: "primary" },
@@ -305,6 +306,8 @@ function SalesDashboard() {
           </Col>
         </Row>
       )}
+
+      {data && <KioskYoYCard startDate={startDate} endDate={endDate} />}
 
       <Row className="mt-3">
         <Col md="4">

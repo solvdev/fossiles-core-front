@@ -118,6 +118,8 @@ import CostReports from "views/reports/CostReports.js";
 import KioskPerformance from "views/reports/KioskPerformance.js";
 import PurchaseReports from "views/reports/PurchaseReports.js";
 import PhaseGeneralReports from "views/reports/PhaseGeneralReports.js";
+import KioskFinancialsReports from "views/kiosks/finance/KioskFinancialsReports.js";
+import KioskImportWizard from "views/kiosks/finance/KioskImportWizard.js";
 
 // Configuración General
 import CurrenciesList from "views/catalogs/CurrenciesList.js";
@@ -133,6 +135,7 @@ import NotificationsConfig from "views/config/Notifications.js";
 import SystemSettings from "views/config/SystemSettings.js";
 import AccountingAccounts from "views/config/AccountingAccounts.js";
 import SmartPurchasingConfig from "views/config/SmartPurchasingConfig.js";
+import KioskCosts from "views/config/KioskCosts.js";
 
 // Páginas de Autenticación
 import Login from "views/pages/Login.js";
@@ -1371,6 +1374,28 @@ const routes = [
           view: "REPORTES.PRODUCCION.VER",
         },
       },
+      {
+        path: "/kiosk-financials",
+        name: "Finanzas kioscos",
+        mini: "FK",
+        component: <KioskFinancialsReports />,
+        layout: "/admin",
+        module: "KIOSCOS",
+        permissions: {
+          view: "KIOSCOS.FINANZAS.VER",
+        },
+      },
+      {
+        path: "/kiosk-financials/import",
+        name: "Importar reportes",
+        mini: "IR",
+        component: <KioskImportWizard />,
+        layout: "/admin",
+        module: "KIOSCOS",
+        permissions: {
+          view: "KIOSCOS.FINANZAS.IMPORTAR",
+        },
+      },
     ],
   },
   // 14. CONFIGURACIÓN GENERAL
@@ -1457,6 +1482,18 @@ const routes = [
         permissions: {
           view: "CONFIGURACION.CONFIGURACION_SISTEMA.VER",
           edit: "CONFIGURACION.CONFIGURACION_SISTEMA.EDITAR",
+        },
+      },
+      {
+        path: "/kiosk-costs",
+        name: "Costos por kiosco",
+        mini: "CK",
+        component: <KioskCosts />,
+        layout: "/admin",
+        module: "KIOSCOS",
+        permissions: {
+          view: "KIOSCOS.FINANZAS.VER",
+          edit: "KIOSCOS.FINANZAS.EDITAR",
         },
       },
     ],
