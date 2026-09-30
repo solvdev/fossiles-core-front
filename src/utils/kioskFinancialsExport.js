@@ -1,6 +1,7 @@
 import * as XLSX from "xlsx-js-style";
 import { boldFont, thinBorder } from "./kioskReportExcelStyle";
 import { MONTHS_ES } from "./financeFormat";
+import { FINANCE_GLOSSARY, RESULT_LABELS } from "./kioskFinancialsGlossary";
 
 /**
  * Exportación de Finanzas por kiosco.
@@ -139,7 +140,7 @@ export const buildOriginalSheetLayout = ({ year, month, matrix, pnl, config, cat
     (s) => siteTotals[s.siteId] ?? siteTotals[String(s.siteId)] ?? P(s).sales,
     numOrNull(matrix?.grandTotal ?? totals.sales)
   );
-  perSite("% Participacion", "pct", "pct", (s) => P(s).participationPct, numOrNull(totals.participationPct));
+  perSite("% Participación", "pct", "pct", (s) => P(s).participationPct, numOrNull(totals.participationPct));
   perSite("METAS", "money", "money", (s) => P(s).goal, numOrNull(totals.goal));
   perSite("% DE META", "pct", "pct", (s) => P(s).goalPct, numOrNull(totals.goalPct));
 
@@ -150,7 +151,7 @@ export const buildOriginalSheetLayout = ({ year, month, matrix, pnl, config, cat
     perSite(b.label, "rate", "pct", (s) => R(s)[b.rate], null);
     perSite("", "calc", "money", (s) => P(s).variable?.[b.calc], numOrNull(totals.variable?.[b.calc]));
   });
-  perSite("Total CI", "subtotal", "money", (s) => P(s).variable?.total, numOrNull(totals.variable?.total));
+  perSite("Total costos variables", "subtotal", "money", (s) => P(s).variable?.total, numOrNull(totals.variable?.total));
 
   push("section", "text", { 1: "Costos Fijos" });
   categories.forEach((c) => {
@@ -162,15 +163,34 @@ export const buildOriginalSheetLayout = ({ year, month, matrix, pnl, config, cat
       numOrNull(totals.fixed?.byCategory?.[c.code])
     );
   });
-  perSite("Total CI", "subtotal", "money", (s) => P(s).fixed?.total, numOrNull(totals.fixed?.total));
+  perSite("Total costos fijos", "subtotal", "money", (s) => P(s).fixed?.total, numOrNull(totals.fixed?.total));
 
-  perSite("Total Cto Oper.", "grand", "money", (s) => P(s).totalCost, numOrNull(totals.totalCost));
-  perSite("Diferencia Vta", "grand", "money", (s) => P(s).difference, numOrNull(totals.difference));
-  perSite("MARGEN", "grand", "pct", (s) => P(s).margin, numOrNull(totals.margin));
-  perSite("Punto de Equilibrio", "grand", "money", (s) => P(s).breakEven, numOrNull(totals.breakEven));
-  perSite("PE DIARIO", "grand", "money", (s) => P(s).breakEvenDaily, numOrNull(totals.breakEvenDaily));
+  perSite(RESULT_LABELS.totalCost, "grand", "money", (s) => P(s).totalCost, numOrNull(totals.totalCost));
+  perSite(
+    `${RESULT_LABELS.profit} (${RESULT_LABELS.profitFormula})`,
+    "grand",
+    "money",
+    (s) => P(s).difference,
+    numOrNull(totals.difference)
+  );
+  perSite(
+    `${RESULT_LABELS.margin} (${RESULT_LABELS.marginFormula})`,
+    "grand",
+    "pct",
+    (s) => P(s).margin,
+    numOrNull(totals.margin)
+  );
+  perSite(RESULT_LABELS.breakEven, "grand", "money", (s) => P(s).breakEven, numOrNull(totals.breakEven));
+  perSite(RESULT_LABELS.breakEvenDaily, "grand", "money", (s) => P(s).breakEvenDaily, numOrNull(totals.breakEvenDaily));
+
+  // Filas del reporte propiamente dicho; lo que sigue es el glosario.
+  const coreRowCount = aoa.length;
+  push("blank", "text", {});
+  push("section", "text", { 1: "GLOSARIO" });
+  FINANCE_GLOSSARY.forEach((g) => push("glossary", "text", { 1: g.term, [FIRST_SITE_COL]: g.definition }));
 
   return {
+    coreRowCount,
     aoa,
     rows,
     colCount,
@@ -214,6 +234,10 @@ export const exportOriginalSheetExcel = (args) => {
       if (row.kind === "title") style.font = { ...boldFont, sz: 14 };
       if (row.kind === "subtitle") style.font = { ...boldFont, sz: 12 };
       if (row.kind === "note") style.font = { ...baseFont, italic: true, color: { rgb: "666666" } };
+      if (row.kind === "glossary") {
+        style.alignment = { wrapText: true, vertical: "top" };
+        if (isLabel) style.font = boldFont;
+      }
       if (row.kind === "header") {
         style.font = boldFont;
         style.fill = fillGray;
@@ -236,13 +260,22 @@ export const exportOriginalSheetExcel = (args) => {
 
   ws["!cols"] = [
     { wch: 2 },
-    { wch: 26 },
+    { wch: 48 },
     ...Array.from({ length: totalCol - FIRST_SITE_COL }, () => ({ wch: 14 })),
     { wch: 16 },
     { wch: 16 },
   ];
   ws["!rows"] = [];
   ws["!rows"][headerRow] = { hpt: 32 };
+  // Glosario: la definición ocupa varias columnas combinadas (texto envuelto) y la fila se alta según su largo.
+  const mergeEnd = Math.min(colCount - 1, FIRST_SITE_COL + 7);
+  ws["!merges"] = [];
+  rows.forEach((row, r) => {
+    if (row.kind !== "glossary") return;
+    ws["!merges"].push({ s: { r, c: FIRST_SITE_COL }, e: { r, c: mergeEnd } });
+    const text = String(aoa[r][FIRST_SITE_COL] || "");
+    ws["!rows"][r] = { hpt: 15 * Math.max(1, Math.ceil(text.length / 100)) };
+  });
 
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, sheetName.slice(0, 31));

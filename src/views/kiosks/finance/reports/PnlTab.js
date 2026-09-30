@@ -1,6 +1,7 @@
 import React, { useMemo } from "react";
 import { getKioskPnl } from "services/kioskFinancialsService";
 import { MONTHS_ES, fmtAmount, fmtPct } from "utils/financeFormat";
+import { FINANCE_GLOSSARY, RESULT_LABELS } from "utils/kioskFinancialsGlossary";
 import useAsyncData from "./useAsyncData";
 import { BlockSkeleton, EmptyState, ErrorState } from "./common";
 import {
@@ -121,6 +122,7 @@ export function PnlTable({ sites, totals, categories, showTotal = true, showStat
                       {" "}ⓘ
                     </span>
                   ) : null}
+                  {def.sub ? <span className="kfin-sub">{def.sub}</span> : null}
                 </th>
                 {showTotal ? (
                   <td className={`kfin-sticky-col2 is-num ${tCell ? tCell.cls : ""}`}>{tCell ? tCell.text : "—"}</td>
@@ -144,6 +146,26 @@ export function PnlTable({ sites, totals, categories, showTotal = true, showStat
   );
 }
 
+/** Glosario bajo las tablas: qué significa cada concepto y cómo se calcula (mismo texto que el Excel descargado). */
+function Glossary() {
+  return (
+    <section className="kfin-glossary" aria-label="Glosario de conceptos">
+      <h6 className="kfin-glossary-title">Glosario</h6>
+      <dl>
+        {FINANCE_GLOSSARY.map((g) => (
+          <div key={g.term} className="kfin-glossary-item">
+            <dt>{g.term}</dt>
+            <dd>{g.definition}</dd>
+          </div>
+        ))}
+      </dl>
+      <p className="kfin-foot kfin-muted">
+        Montos en Q. ▼ marca pérdidas y kioscos con ventas por debajo del punto de equilibrio.
+      </p>
+    </section>
+  );
+}
+
 function MonthlyTable({ site, year }) {
   const rows = useMemo(() => buildMonthlyRows(site), [site]);
   const withSales = rows.filter((r) => r.sales);
@@ -156,8 +178,14 @@ function MonthlyTable({ site, year }) {
             <th scope="col" className="kfin-sticky-col">Mes</th>
             <th scope="col" className="is-num">Ventas</th>
             <th scope="col" className="is-num">Costo operativo</th>
-            <th scope="col" className="is-num">Diferencia</th>
-            <th scope="col" className="is-num">Margen</th>
+            <th scope="col" className="is-num">
+              {RESULT_LABELS.profit}
+              <span className="kfin-sub">{RESULT_LABELS.profitFormula}</span>
+            </th>
+            <th scope="col" className="is-num">
+              {RESULT_LABELS.margin}
+              <span className="kfin-sub">{RESULT_LABELS.marginFormula}</span>
+            </th>
             <th scope="col">Estado</th>
           </tr>
         </thead>
@@ -255,11 +283,7 @@ export default function PnlTab({ filters, config }) {
           caption={`P&L por kiosco de ${monthLabel}`}
         />
       )}
-      <p className="kfin-foot kfin-muted">
-        Diferencia = ventas − costo operativo. Margen = diferencia / ventas. Punto de equilibrio = costos fijos / (1 −
-        (comisión de venta + costo del producto + tarjeta + IVA)); el PE diario usa los días reales del mes (el Excel
-        usaba 30/31). ▼ marca pérdidas y kioscos con ventas por debajo del punto de equilibrio.
-      </p>
+      <Glossary />
     </div>
   );
 }

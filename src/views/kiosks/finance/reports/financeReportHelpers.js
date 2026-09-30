@@ -11,6 +11,7 @@ import {
   growthTone,
   isNum,
 } from "utils/financeFormat";
+import { RESULT_LABELS } from "utils/kioskFinancialsGlossary";
 
 const num = (v) => (isNum(v) ? v : null);
 
@@ -163,7 +164,7 @@ export const buildKpis = (compare) => {
     },
     {
       key: "margin",
-      label: "Margen",
+      label: RESULT_LABELS.margin,
       kind: "pct",
       value: num(t.margin),
       base: num(t.baseMargin),
@@ -401,15 +402,56 @@ export const buildPnlRowDefs = (categories) => {
       get: (s) => s.fixed?.byCategory?.[c.code] ?? null,
     })),
     { key: "fixedTotal", label: "Total costos fijos", kind: "money", subtotal: true, get: (s) => s.fixed?.total },
-    { key: "totalCost", label: "Total costo operativo", kind: "money", total: true, get: (s) => s.totalCost },
-    { key: "difference", label: "Diferencia", kind: "money", total: true, signed: true, get: (s) => s.difference },
-    { key: "margin", label: "Margen", kind: "pct", strong: true, get: (s) => s.margin },
+    {
+      key: "totalCost",
+      label: RESULT_LABELS.totalCost,
+      sub: "Costos variables + costos fijos",
+      kind: "money",
+      total: true,
+      get: (s) => s.totalCost,
+    },
+    {
+      key: "difference",
+      label: RESULT_LABELS.profit,
+      sub: RESULT_LABELS.profitFormula,
+      kind: "money",
+      total: true,
+      signed: true,
+      get: (s) => s.difference,
+    },
+    {
+      key: "margin",
+      label: RESULT_LABELS.margin,
+      sub: RESULT_LABELS.marginFormula,
+      kind: "pct",
+      strong: true,
+      get: (s) => s.margin,
+    },
     { key: "hdr-eq", label: "Equilibrio y metas", kind: "section" },
-    { key: "breakEven", label: "Punto de equilibrio", kind: "money", help: "pe", get: (s) => s.breakEven },
-    { key: "breakEvenDaily", label: "PE diario", kind: "money", get: (s) => s.breakEvenDaily },
-    { key: "participationPct", label: "% participación", kind: "pct", get: (s) => s.participationPct },
+    {
+      key: "breakEven",
+      label: RESULT_LABELS.breakEven,
+      sub: "Ventas mínimas para no perder",
+      kind: "money",
+      help: "pe",
+      get: (s) => s.breakEven,
+    },
+    {
+      key: "breakEvenDaily",
+      label: RESULT_LABELS.breakEvenDaily,
+      sub: "Equilibrio ÷ días del mes",
+      kind: "money",
+      get: (s) => s.breakEvenDaily,
+    },
+    {
+      key: "participationPct",
+      label: "% participación",
+      sub: "Ventas del kiosco ÷ total",
+      kind: "pct",
+      get: (s) => s.participationPct,
+    },
     { key: "goal", label: "Meta", kind: "money", get: (s) => s.goal },
-    { key: "goalPct", label: "% de meta", kind: "pct", get: (s) => s.goalPct },
+    { key: "goalPct", label: "% de meta", sub: "Ventas ÷ meta", kind: "pct", get: (s) => s.goalPct },
   ];
   return rows;
 };

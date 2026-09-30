@@ -158,7 +158,7 @@ function MarginChart({ series, year, baseYear }) {
           const i = items?.[0]?.dataIndex;
           if (i === undefined) return "";
           const d = series.current[i] !== null && series.base[i] !== null ? series.current[i] - series.base[i] : null;
-          return d === null ? "" : `Diferencia: ${fmtPp(d)}`;
+          return d === null ? "" : `Variación: ${fmtPp(d)}`;
         },
       }),
     [series]
@@ -209,7 +209,7 @@ function RankingTable({ rows, totals, year, baseYear }) {
               <SortTh label="Δ Q" sortKey="delta" sort={sort} onSort={onSort} align="right" />
               <SortTh label="Δ %" sortKey="deltaPct" sort={sort} onSort={onSort} align="right" />
               <SortTh label="% de meta" sortKey="goalPct" sort={sort} onSort={onSort} />
-              <SortTh label="Margen" sortKey="margin" sort={sort} onSort={onSort} align="right" />
+              <SortTh label="Margen de utilidad" sortKey="margin" sort={sort} onSort={onSort} align="right" />
             </tr>
           </thead>
           <tbody>
@@ -380,13 +380,13 @@ export default function SummaryTab({ filters, activeSiteNames }) {
 
         <ChartCard
           title="Margen mensual"
-          subtitle="Diferencia / ventas"
+          subtitle="Utilidad / ventas (utilidad = ventas − costo operativo)"
           ariaLabel={`Gráfico de margen mensual de ${year} comparado con ${baseYear}.`}
           columns={[
             { key: "label", label: "Mes" },
             { key: "current", label: `${year}`, align: "right" },
             { key: "base", label: `${baseYear}`, align: "right" },
-            { key: "delta", label: "Diferencia", align: "right" },
+            { key: "delta", label: "Variación", align: "right" },
           ]}
           rows={buildYoYTableRows(marginSeries, "pct")}
         >
