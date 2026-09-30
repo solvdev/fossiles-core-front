@@ -74,6 +74,14 @@
 .kfin .kfin-check input { position: static; opacity: 1; margin: 0; visibility: visible; }
 .kfin .kfin-foot { font-size: 0.75rem; margin: 10px 0 0; }
 .kfin .kfin-section-title { font-size: 0.95rem; margin: 18px 0 8px; }
+.kfin .kfin-sub { display: block; font-size: 0.68rem; font-weight: 400; line-height: 1.2; color: var(--kfin-muted); text-transform: none; letter-spacing: 0; }
+
+/* ---------- Glosario ---------- */
+.kfin .kfin-glossary { margin-top: 18px; padding: 12px 14px; border: 1px solid var(--kfin-line-strong); border-radius: 6px; background: var(--kfin-surface); }
+.kfin .kfin-glossary-title { font-size: 0.85rem; margin: 0 0 8px; }
+.kfin .kfin-glossary dl { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 8px 24px; margin: 0; }
+.kfin .kfin-glossary-item dt { font-size: 0.78rem; font-weight: 600; margin: 0; }
+.kfin .kfin-glossary-item dd { font-size: 0.75rem; color: var(--kfin-ink-2); margin: 0; }
 
 /* ---------- KPIs ---------- */
 .kfin .kfin-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(165px, 1fr)); gap: 12px; margin-bottom: 16px; }

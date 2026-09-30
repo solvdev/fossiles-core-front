@@ -4,6 +4,7 @@ import {
   buildOriginalSheetLayout,
   ratesBySiteFromConfig,
 } from "../kioskFinancialsExport";
+import { FINANCE_GLOSSARY } from "../kioskFinancialsGlossary";
 
 const categories = [
   { code: "ALQUILER", name: "Alquiler" },
@@ -98,10 +99,10 @@ describe("buildOriginalSheetLayout", () => {
 
   test("secuencia de etiquetas idéntica al Excel original", () => {
     const start = HEADER_ROW_INDEX + 1 + matrix.days.length;
-    const labels = aoa.slice(start).map((r) => r[1]);
+    const labels = aoa.slice(start, layout.coreRowCount).map((r) => r[1]);
     expect(labels).toEqual([
       "Total",
-      "% Participacion",
+      "% Participación",
       "METAS",
       "% DE META",
       null, // fila en blanco
@@ -115,17 +116,30 @@ describe("buildOriginalSheetLayout", () => {
       "",
       "IVA",
       "",
-      "Total CI",
+      "Total costos variables",
       "Costos Fijos",
       "Alquiler",
       "Luz",
-      "Total CI",
-      "Total Cto Oper.",
-      "Diferencia Vta",
-      "MARGEN",
-      "Punto de Equilibrio",
-      "PE DIARIO",
+      "Total costos fijos",
+      "Total costo operativo",
+      "Utilidad o pérdida (Ventas − Total costo operativo)",
+      "Margen de utilidad (Utilidad ÷ Ventas)",
+      "Punto de equilibrio",
+      "Punto de equilibrio diario",
     ]);
+  });
+
+  test("agrega un glosario debajo del reporte sin mover las filas anteriores", () => {
+    const glossaryRows = aoa.slice(layout.coreRowCount + 2);
+    expect(aoa[layout.coreRowCount + 1][1]).toBe("GLOSARIO");
+    expect(glossaryRows.length).toBe(FINANCE_GLOSSARY.length);
+    glossaryRows.forEach((row, i) => {
+      expect(row[1]).toBe(FINANCE_GLOSSARY[i].term);
+      expect(row[FIRST_SITE_COL]).toBe(FINANCE_GLOSSARY[i].definition);
+    });
+    const terms = glossaryRows.map((r) => r[1]);
+    expect(terms).toEqual(expect.arrayContaining(["Utilidad o pérdida", "Margen de utilidad", "Punto de equilibrio"]));
+    expect(layout.rows[layout.coreRowCount + 2].kind).toBe("glossary");
   });
 
   test("filas de tasa traen el porcentaje del mes y la calculada el monto", () => {
@@ -141,11 +155,11 @@ describe("buildOriginalSheetLayout", () => {
   });
 
   test("totales y resultado por kiosco y en la columna de total", () => {
-    const last = aoa.length - 1;
-    expect(labelAt(last)).toBe("PE DIARIO");
+    const last = layout.coreRowCount - 1;
+    expect(labelAt(last)).toBe("Punto de equilibrio diario");
     expect(aoa[last - 1][FIRST_SITE_COL]).toBe(90);
     const diff = aoa[last - 3];
-    expect(diff[1]).toBe("Diferencia Vta");
+    expect(diff[1]).toBe("Utilidad o pérdida (Ventas − Total costo operativo)");
     expect(diff[FIRST_SITE_COL]).toBeCloseTo(20.5);
     expect(diff[layout.totalCol]).toBeCloseTo(20.5);
   });
