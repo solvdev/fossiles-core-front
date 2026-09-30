@@ -97,10 +97,14 @@ export const copyKioskConfig = async (payload) => {
 
 /* ------------------------------ Importación ------------------------------ */
 
-/** files: File[] -> multipart, campo `files` repetido. */
-export const previewKioskImport = async (files) => {
+/**
+ * files: File[] -> multipart, campo `files` repetido.
+ * periods (opcional): { "<nombre de archivo>": { year, month } } para corregir el mes de los reportes del formato nuevo.
+ */
+export const previewKioskImport = async (files, periods) => {
   const form = new FormData();
   (files || []).forEach((file) => form.append("files", file, file.name));
+  if (periods && Object.keys(periods).length > 0) form.append("periods", JSON.stringify(periods));
   const response = await fetch(`${BASE}/imports/preview`, {
     method: "POST",
     headers: authOnlyHeaders(),

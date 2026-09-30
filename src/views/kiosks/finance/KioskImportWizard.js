@@ -32,6 +32,7 @@ function KioskImportWizard() {
   const [analyzing, setAnalyzing] = useState(false);
   const [analyzeError, setAnalyzeError] = useState("");
   const [previewFiles, setPreviewFiles] = useState(null);
+  const [periodBusyIdx, setPeriodBusyIdx] = useState(null);
   const [siteMap, setSiteMap] = useState({});
   const [resolutions, setResolutions] = useState({});
   const [replaceByFile, setReplaceByFile] = useState({});
@@ -95,6 +96,35 @@ function KioskImportWizard() {
     setResult(null);
     setAnalyzeError("");
     setCommitError("");
+  };
+
+  /** Corrige mes/año de un reporte del formato nuevo (sus fechas internas pueden venir mal): re-analiza sólo ese archivo. */
+  const changePeriod = async (fileIdx, year, month) => {
+    const file = files[fileIdx];
+    const source = file && selected.find((f) => f.name === file.fileName);
+    if (!source) return;
+    setPeriodBusyIdx(fileIdx);
+    try {
+      const data = await previewKioskImport([source], { [file.fileName]: { year, month } });
+      const fresh = data && data.files && data.files[0];
+      if (!fresh) throw new Error("El servidor no devolvió información del archivo.");
+      setPreviewFiles((prev) => prev.map((f, i) => (i === fileIdx ? fresh : f)));
+      // Las incidencias se regeneran (cambian los ids): se descartan las resoluciones y el reemplazo de ese archivo
+      setResolutions((prev) => {
+        const out = { ...prev };
+        delete out[fileIdx];
+        return out;
+      });
+      setReplaceByFile((prev) => {
+        const out = { ...prev };
+        delete out[fileIdx];
+        return out;
+      });
+    } catch (err) {
+      showError(err.message || "No se pudo actualizar el período del archivo.");
+    } finally {
+      setPeriodBusyIdx(null);
+    }
   };
 
   const handleFilesChange = (next) => {
@@ -237,7 +267,8 @@ function KioskImportWizard() {
             <div>
               <CardTitle tag="h4">Importar reportes por kiosco</CardTitle>
               <p className="text-muted small mb-0">
-                Carga los Excel mensuales de ventas y costos. Nada se guarda hasta el último paso, y cada lote se puede revertir.
+                Carga los Excel mensuales de ventas y costos, en el formato anterior o en el nuevo. Nada se guarda hasta el
+                último paso, y cada lote se puede revertir.
               </p>
             </div>
             <div className="mt-2 mt-md-0">
@@ -316,6 +347,8 @@ function KioskImportWizard() {
                   replaceByFile={replaceByFile}
                   onReplaceChange={changeReplace}
                   onDropFile={dropFile}
+                  onPeriodChange={changePeriod}
+                  periodBusyIdx={periodBusyIdx}
                   counts={counts}
                 />
               )}
