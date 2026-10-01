@@ -69,6 +69,9 @@ export default function DailyMatrixTab({ filters }) {
         </label>
       </div>
       {heat ? <HeatLegend /> : null}
+      <p className="kfin-hint kfin-noprint" style={{ maxWidth: "none" }}>
+        Sobre la tabla, la rueda la desplaza; con Shift + rueda o arrastrándola te mueves hacia los lados.
+      </p>
 
       <div className="kfin-scroll kfin-scroll--matrix" tabIndex={0} aria-label="Matriz de ventas diarias, desplazable">
         <table className="kfin-table kfin-table--matrix">

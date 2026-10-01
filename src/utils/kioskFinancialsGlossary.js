@@ -14,6 +14,14 @@ export const RESULT_LABELS = {
   breakEvenDaily: "Punto de equilibrio diario",
 };
 
+/** Cómo se mide el punto de equilibrio (selector de los reportes). */
+export const BREAK_EVEN_MODES = {
+  RATES: { label: "Tasas de cada kiosco", short: "tasas de cada kiosco" },
+  FLAT: { label: "27 % fijo", short: "27 % fijo" },
+};
+
+export const breakEvenModeLabel = (mode) => (BREAK_EVEN_MODES[mode] || BREAK_EVEN_MODES.RATES).short;
+
 export const FINANCE_GLOSSARY = [
   { term: "Ventas", definition: "Total vendido en el mes por el kiosco, con IVA incluido." },
   {
@@ -43,7 +51,10 @@ export const FINANCE_GLOSSARY = [
   {
     term: RESULT_LABELS.breakEven,
     definition:
-      "Ventas mínimas del mes para no perder: costos fijos ÷ (1 − (comisión de venta + costo del producto + tarjeta + IVA)).",
+      "Ventas mínimas del mes para no perder: costos fijos ÷ (1 − % variables). Se mide de una de dos formas, según la configuración (Costos por kiosco): " +
+      "con las tasas reales de cada kiosco (comisión de venta + costo del producto + tarjeta + IVA), que es el punto donde " +
+      "la utilidad es cero; o con un 27 % fijo para todos, como los reportes de Excel recientes (costos fijos ÷ (1 − 0.27)), " +
+      "que es más exigente para los kioscos sin comisión de venta.",
   },
   {
     term: RESULT_LABELS.breakEvenDaily,

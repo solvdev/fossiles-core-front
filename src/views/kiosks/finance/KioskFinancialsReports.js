@@ -17,6 +17,7 @@ import PnlTab from "./reports/PnlTab";
 import DailyMatrixTab from "./reports/DailyMatrixTab";
 import GoalsTab from "./reports/GoalsTab";
 import useAsyncData from "./reports/useAsyncData";
+import { useScrollAreas } from "./reports/scrollAreas";
 import { normalizeSiteIds, orderFixedCategories } from "./reports/financeReportHelpers";
 import "./KioskFinance.css";
 
@@ -49,6 +50,8 @@ export default function KioskFinancialsReports() {
   const [busy, setBusy] = useState("");
   const [notice, setNotice] = useState(null);
   const tabsRef = useRef(null);
+  // Rueda horizontal y arrastre sobre las tablas anchas (P&L por kiosco, Ventas diarias, metas...)
+  useScrollAreas(tabsRef);
 
   const sitesQuery = useAsyncData(() => getKioskSites(), []);
   const configQuery = useAsyncData(() => getKioskConfig({ year: filters.year }), [filters.year]);
