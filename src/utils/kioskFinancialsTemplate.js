@@ -205,7 +205,10 @@ export const buildKioskTemplateSheet = ({ year, month, siteNames, categories, si
     rows.rates[def.key] = r;
     text(r, L.labelCol, def.label, labelStyle);
     const rateRow = r;
-    eachSite((c, i) => inputCell(rateRow, c, cfg(i) ? cfg(i)[def.field] : null, PCT_FMT));
+    // la comisión de venta es fija (4 %): la plantilla ya la trae puesta
+    eachSite((c, i) =>
+      inputCell(rateRow, c, def.key === "sales" ? 0.04 : cfg(i) ? cfg(i)[def.field] : null, PCT_FMT)
+    );
     filler(r);
     r += 1;
     rows.rateCalc[def.key] = r;

@@ -151,6 +151,8 @@ export const buildOriginalSheetLayout = ({ year, month, matrix, pnl, config, cat
     perSite(b.label, "rate", "pct", (s) => R(s)[b.rate], null);
     perSite("", "calc", "money", (s) => P(s).variable?.[b.calc], numOrNull(totals.variable?.[b.calc]));
   });
+  // Bono por meta de la encargada (Q500 desde 90 % de la meta, Q800 desde 100 %; desde septiembre 2026)
+  perSite("Bono por meta", "calc", "money", (s) => P(s).variable?.bonus, numOrNull(totals.variable?.bonus));
   perSite("Total costos variables", "subtotal", "money", (s) => P(s).variable?.total, numOrNull(totals.variable?.total));
 
   push("section", "text", { 1: "Costos Fijos" });

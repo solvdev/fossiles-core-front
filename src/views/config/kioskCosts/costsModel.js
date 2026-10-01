@@ -14,6 +14,11 @@ export const RATE_FIELDS = [
   { field: "taxPct", label: "IVA (carga)", short: "IVA" },
 ];
 
+/** La comisión de venta es FIJA (4 %) para todos los kioscos y meses: se muestra, no se edita ni se guarda. */
+export const FIXED_RATE_FIELD = "salesCommissionPct";
+export const SALES_COMMISSION_RATE = 0.04;
+export const isFixedRateField = (field) => field === FIXED_RATE_FIELD;
+
 const COST_PREFIX = "cost:";
 export const costField = (code) => `${COST_PREFIX}${code}`;
 export const isCostField = (field) => typeof field === "string" && field.startsWith(COST_PREFIX);
@@ -124,14 +129,20 @@ export const fixedTotal = (index, pending, categories, siteId, month) =>
 export const isMonthComplete = (index, pending, categories, siteId, month) => {
   const has = (field) => effectiveValue(index, pending, siteId, month, field) !== null;
   if (!has(GOAL_FIELD)) return false;
-  if (!RATE_FIELDS.every((r) => has(r.field))) return false;
+  if (!RATE_FIELDS.filter((r) => !isFixedRateField(r.field)).every((r) => has(r.field))) return false;
   return categories.every((c) => has(costField(c.code)));
 };
 
 /** true si el mes tiene al menos algún dato capturado. */
 export const monthHasAnyData = (index, pending, categories, siteId, month) => {
   if (effectiveValue(index, pending, siteId, month, GOAL_FIELD) !== null) return true;
-  if (RATE_FIELDS.some((r) => effectiveValue(index, pending, siteId, month, r.field) !== null)) return true;
+  // la comisión de venta fija siempre tiene valor (4 %): no cuenta como "dato capturado"
+  if (
+    RATE_FIELDS.filter((r) => !isFixedRateField(r.field)).some(
+      (r) => effectiveValue(index, pending, siteId, month, r.field) !== null
+    )
+  )
+    return true;
   return categories.some((c) => effectiveValue(index, pending, siteId, month, costField(c.code)) !== null);
 };
 

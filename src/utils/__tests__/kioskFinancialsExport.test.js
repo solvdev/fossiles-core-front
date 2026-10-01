@@ -118,6 +118,7 @@ describe("buildOriginalSheetLayout", () => {
       "",
       "IVA",
       "",
+      "Bono por meta",
       "Total costos variables",
       "Costos Fijos",
       "Alquiler",
