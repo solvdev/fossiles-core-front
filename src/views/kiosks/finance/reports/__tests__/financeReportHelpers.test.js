@@ -264,6 +264,7 @@ describe("P&L", () => {
       "salesCommission",
       "cardCommission",
       "tax",
+      "bonus",
       "variableTotal",
       "hdr-fix",
       "fixed:ALQUILER",

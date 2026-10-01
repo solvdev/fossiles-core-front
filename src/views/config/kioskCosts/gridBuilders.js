@@ -5,6 +5,8 @@
 import {
   GOAL_FIELD,
   RATE_FIELDS,
+  SALES_COMMISSION_RATE,
+  isFixedRateField,
   goalSourceOf,
   isGoalExternal,
   costField,
@@ -72,6 +74,9 @@ export const buildSiteGrid = ({ index, pending, categories, siteId }) => {
     if (row.type === "calc") {
       return { kind: row.kind, calc: true, value: monthValue(row, col.month) };
     }
+    if (isFixedRateField(row.field)) {
+      return { kind: row.kind, calc: true, fixedRate: true, value: SALES_COMMISSION_RATE };
+    }
     if (row.field === GOAL_FIELD && isGoalExternal(index, siteId)) {
       return {
         kind: row.kind,
@@ -128,6 +133,9 @@ export const buildMonthGrid = ({ index, pending, categories, siteList, month }) 
     }
     if (col.calc) {
       return { kind: col.kind, calc: true, value: siteValue(row, col) };
+    }
+    if (isFixedRateField(col.field)) {
+      return { kind: col.kind, calc: true, fixedRate: true, value: SALES_COMMISSION_RATE };
     }
     if (col.field === GOAL_FIELD && isGoalExternal(index, row.siteId)) {
       return {

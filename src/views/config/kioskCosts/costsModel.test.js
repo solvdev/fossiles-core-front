@@ -211,4 +211,54 @@ describe("gridBuilders", () => {
       expect(model.cellAt(1, goalCol).ref).toEqual({ siteId: 5, month: 9, field: "goal" });
     });
   });
+
+  describe("comisión de venta fija (4 %)", () => {
+    const cfg = {
+      year: 2026,
+      categories,
+      sites: [
+        {
+          siteId: 1,
+          name: "MIRAFLORES II",
+          status: "ACTIVE",
+          months: [
+            // la base pudo traer cualquier cosa (aquí 0.31 %): la pantalla no la usa ni la deja editar
+            { month: 9, goal: 100000, productCostPct: 0.18, salesCommissionPct: 0.0031, cardCommissionPct: 0.025, taxPct: 0.025, costs: { ALQUILER: 1, LUZ: 1 } },
+          ],
+        },
+      ],
+    };
+
+    it("la fila es de solo lectura y siempre muestra 4 %", () => {
+      const index = indexConfig(cfg);
+      const model = buildSiteGrid({ index, pending: {}, categories, siteId: 1 });
+      const salesRateRow = 7; // sección + 2 categorías + total + sección + meta + costo producto + comisión de venta
+      const cell = model.cellAt(salesRateRow, 8); // septiembre
+      expect(model.rows[salesRateRow].field).toBe("salesCommissionPct");
+      expect(cell.calc).toBe(true);
+      expect(cell.fixedRate).toBe(true);
+      expect(cell.ref).toBeUndefined();
+      expect(cell.value).toBe(0.04);
+      expect(model.cellAt(salesRateRow, 0).value).toBe(0.04); // enero, aunque no tenga configuración
+    });
+
+    it("la vista por mes también la muestra fija y de solo lectura", () => {
+      const index = indexConfig(cfg);
+      const model = buildMonthGrid({ index, pending: {}, categories, siteList: [{ siteId: 1, name: "MIRAFLORES II", status: "ACTIVE" }], month: 9 });
+      const col = model.cols.findIndex((c) => c.field === "salesCommissionPct");
+      const cell = model.cellAt(0, col);
+      expect(cell.fixedRate).toBe(true);
+      expect(cell.value).toBe(0.04);
+      expect(cell.ref).toBeUndefined();
+    });
+
+    it("no cuenta para saber si un mes tiene datos ni si está completo", () => {
+      const empty = indexConfig({ year: 2026, categories, sites: [{ siteId: 1, name: "X", status: "ACTIVE", months: [{ month: 1, salesCommissionPct: 0.04, costs: {} }] }] });
+      // el servidor devuelve 4 % siempre; un mes sin nada más NO es "con datos"
+      expect(buildSiteGrid({ index: empty, pending: {}, categories, siteId: 1 }).cols[0].hasData).toBe(false);
+      // y un mes con meta + las otras 3 tasas + costos está completo aunque la comisión viniera vacía
+      const full = indexConfig({ year: 2026, categories, sites: [{ siteId: 1, name: "X", status: "ACTIVE", months: [{ month: 1, goal: 1, productCostPct: 0.18, salesCommissionPct: null, cardCommissionPct: 0.02, taxPct: 0.025, costs: { ALQUILER: 1, LUZ: 0 } }] }] });
+      expect(isMonthComplete(full, {}, categories, 1, 1)).toBe(true);
+    });
+  });
 });

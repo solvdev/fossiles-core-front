@@ -394,6 +394,7 @@ export const buildPnlRowDefs = (categories) => {
     { key: "salesCommission", label: "Comisión de venta", kind: "money", get: (s) => s.variable?.salesCommission },
     { key: "cardCommission", label: "Comisión de tarjeta", kind: "money", get: (s) => s.variable?.cardCommission },
     { key: "tax", label: "IVA", kind: "money", get: (s) => s.variable?.tax },
+    { key: "bonus", label: "Bono por meta", kind: "money", get: (s) => s.variable?.bonus },
     { key: "variableTotal", label: "Total costos variables", kind: "money", subtotal: true, get: (s) => s.variable?.total },
     { key: "hdr-fix", label: "Costos fijos", kind: "section" },
     ...(categories || []).map((c) => ({
