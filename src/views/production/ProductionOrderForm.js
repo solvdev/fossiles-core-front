@@ -164,6 +164,13 @@ function ProductionOrderForm({ orderId, isOpen, toggle, onSuccess }) {
     return map;
   }, [availableProducts]);
 
+  // OPC y OP del vendedor Luis Felipe: se muestra al lado del producto su precio de vendedor (columna del catálogo).
+  const showSellerPriceRef = isOpcOrder || isVendorOpv;
+  const getCatalogSellerPrice = (productId) => {
+    const price = Number(productCatalogById[Number(productId)]?.sellerPrice);
+    return Number.isFinite(price) && price > 0 ? price : null;
+  };
+
   const kioskOptions = useMemo(
     () =>
       (availableKiosks || []).map((kiosk) => ({
@@ -1382,7 +1389,7 @@ function ProductionOrderForm({ orderId, isOpen, toggle, onSuccess }) {
           <Card className="mb-3" style={{ backgroundColor: "#f8f9fa" }}>
             <CardBody>
               <Row>
-                <Col md={isCinchoOrderType(formData.orderType) ? "12" : "6"}>
+                <Col md={isCinchoOrderType(formData.orderType) ? (showItemUnitPrice ? "8" : "12") : "6"}>
                   <FormGroup>
                     <Label>Producto *</Label>
                     <div style={{ position: "relative" }} data-product-search>
@@ -1434,7 +1441,21 @@ function ProductionOrderForm({ orderId, isOpen, toggle, onSuccess }) {
                                 e.target.style.backgroundColor = "white";
                               }}
                             >
-                              <strong>{product.code}</strong> - {product.name || "Sin nombre"}
+                              <div className="d-flex justify-content-between align-items-center">
+                                <span>
+                                  <strong>{product.code}</strong> - {product.name || "Sin nombre"}
+                                </span>
+                                {showSellerPriceRef && (
+                                  <span
+                                    className={getCatalogSellerPrice(product.id) ? "text-success" : "text-muted"}
+                                    style={{ whiteSpace: "nowrap", marginLeft: 12 }}
+                                  >
+                                    {getCatalogSellerPrice(product.id)
+                                      ? `Q ${getCatalogSellerPrice(product.id).toFixed(2)}`
+                                      : "sin precio"}
+                                  </span>
+                                )}
+                              </div>
                             </div>
                           ))}
                         </div>
@@ -1472,6 +1493,19 @@ function ProductionOrderForm({ orderId, isOpen, toggle, onSuccess }) {
                       >
                         <small>Limpiar selección</small>
                       </Button>
+                    )}
+                    {showSellerPriceRef && itemForm.productId && (
+                      <div className="small mt-1">
+                        {getCatalogSellerPrice(itemForm.productId) ? (
+                          <span className="text-success">
+                            Precio Luis Felipe: <strong>Q {getCatalogSellerPrice(itemForm.productId).toFixed(2)}</strong>
+                          </span>
+                        ) : (
+                          <span className="text-muted">
+                            Este producto no tiene precio de vendedor en el catálogo.
+                          </span>
+                        )}
+                      </div>
                     )}
                     {itemErrors.productId && (
                       <div className="text-danger small">{itemErrors.productId}</div>
@@ -1561,6 +1595,22 @@ function ProductionOrderForm({ orderId, isOpen, toggle, onSuccess }) {
 
                 {isCinchoOrderType(formData.orderType) && (
                   <>
+                    {showItemUnitPrice && (
+                      <Col md="4">
+                        <FormGroup>
+                          <Label>Precio unitario (Q)</Label>
+                          <Input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={itemForm.unitPrice}
+                            onChange={(e) => setItemForm({ ...itemForm, unitPrice: e.target.value })}
+                            placeholder="Precio del vendedor"
+                            disabled={loading}
+                          />
+                        </FormGroup>
+                      </Col>
+                    )}
                     <Col md="4">
                       <FormGroup>
                         <div className="d-flex justify-content-between align-items-center">
