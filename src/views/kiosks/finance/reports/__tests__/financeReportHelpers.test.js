@@ -1,5 +1,10 @@
 import {
+  UNASSIGNED_SUPERVISOR,
   aggregateGoalPct,
+  applySupervisorSelection,
+  buildSupervisorOptions,
+  describeComparison,
+  selectedSupervisorOptions,
   buildCompletenessRows,
   buildGoalRows,
   buildKpis,
@@ -342,5 +347,82 @@ describe("completitud", () => {
     expect(all[0].gaps).toBe(1);
     expect(all[1].gaps).toBe(0);
     expect(buildCompletenessRows(data, [2]).map((r) => r.name)).toEqual(["B"]);
+  });
+});
+
+describe("filtro por supervisora", () => {
+  const data = {
+    supervisors: [
+      { userId: 7, name: "Ana", siteIds: [1, 2] },
+      { userId: 8, name: "Beatriz", siteIds: [2, 3] },
+      { userId: 9, name: "Sin kioscos", siteIds: [] },
+    ],
+    unassignedSiteIds: [4],
+  };
+  const options = buildSupervisorOptions(data);
+
+  test("una opción por supervisora con kioscos + 'Sin supervisora'", () => {
+    expect(options.map((o) => o.label)).toEqual(["Ana (2)", "Beatriz (2)", "Sin supervisora (1)"]);
+    expect(options[2].value).toBe(UNASSIGNED_SUPERVISOR);
+    expect(buildSupervisorOptions(null)).toEqual([]);
+    expect(buildSupervisorOptions({ supervisors: [], unassignedSiteIds: [] })).toEqual([]);
+  });
+
+  test("marcar una u otra o ambas; quitar una conserva los kioscos de la otra", () => {
+    const [ana, beatriz] = options;
+    let sites = applySupervisorSelection([], [], [ana]);
+    expect(sites).toEqual([1, 2]);
+    expect(selectedSupervisorOptions(options, sites)).toEqual([ana]);
+
+    sites = applySupervisorSelection(sites, [ana], [ana, beatriz]);
+    expect(sites).toEqual([1, 2, 3]);
+    expect(selectedSupervisorOptions(options, sites)).toEqual([ana, beatriz]);
+
+    // el kiosco 2 es de las dos: al quitar a Ana se queda porque Beatriz sigue marcada
+    sites = applySupervisorSelection(sites, [ana, beatriz], [beatriz]);
+    expect(sites).toEqual([2, 3]);
+
+    // sin ninguna marcada la selección queda vacía = todos los kioscos
+    sites = applySupervisorSelection(sites, [beatriz], []);
+    expect(sites).toEqual([]);
+    expect(selectedSupervisorOptions(options, sites)).toEqual([]);
+  });
+
+  test("conserva los kioscos sueltos que el usuario ya había elegido", () => {
+    const [ana] = options;
+    expect(applySupervisorSelection([4], [], [ana])).toEqual([1, 2, 4]);
+    expect(applySupervisorSelection([4, 1, 2], [ana], [])).toEqual([4]);
+  });
+
+  test("'Sin supervisora' marca los kioscos sin asignar", () => {
+    const none = options[2];
+    expect(applySupervisorSelection([], [], [none])).toEqual([4]);
+  });
+});
+
+describe("texto del modo de comparación", () => {
+  const base = { year: 2026, baseYear: 2025, fromMonth: 1, toMonth: 9 };
+
+  test("mismas fechas: llega hasta hoy si el rango incluye el mes en curso", () => {
+    const t = describeComparison({ ...base, mode: "SAME_PERIOD", today: "2026-09-30" });
+    expect(t).toContain("del 1 de enero hasta hoy (30 de septiembre) de 2026");
+    expect(t).toContain("esas mismas fechas de 2025");
+    expect(t).toContain("primera venta");
+  });
+
+  test("mismas fechas con un año cerrado llega al fin del último mes", () => {
+    const t = describeComparison({ ...base, year: 2025, baseYear: 2024, toMonth: 12, mode: "SAME_PERIOD", today: "2026-09-30" });
+    expect(t).toContain("hasta el fin de diciembre de 2025");
+  });
+
+  test("meses completos avisa que el mes en curso aún no termina", () => {
+    const t = describeComparison({ ...base, mode: "FULL_MONTH", today: "2026-09-30" });
+    expect(t).toContain("Meses completos de enero a septiembre: 2026 contra 2025.");
+    expect(t).toContain("Septiembre 2026 aún no termina");
+    const closed = describeComparison({ ...base, toMonth: 8, mode: "FULL_MONTH", today: "2026-09-30" });
+    expect(closed).not.toContain("aún no termina");
+    expect(describeComparison({ ...base, fromMonth: 3, toMonth: 3, mode: "FULL_MONTH", today: "2026-09-30" })).toContain(
+      "Meses completos de marzo:"
+    );
   });
 });

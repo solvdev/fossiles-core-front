@@ -174,6 +174,12 @@ export const listKioskImports = async () => {
 
 /* -------------------------------- Reportes -------------------------------- */
 
+/** Supervisoras (módulo Supervisoras y kioscos) con los sitios de sus kioscos: { supervisors, unassignedSiteIds }. */
+export const getKioskSupervisors = async () => {
+  const response = await fetch(`${BASE}/supervisors`, { headers: jsonHeaders() });
+  return parseJson(response, "No se pudo cargar las supervisoras.");
+};
+
 /** month omitido = año completo. siteIds: number[] | string. */
 export const getKioskPnl = async ({ year, month, siteIds } = {}) => {
   const response = await fetch(`${BASE}/pnl${toQuery({ year, month, siteIds })}`, {

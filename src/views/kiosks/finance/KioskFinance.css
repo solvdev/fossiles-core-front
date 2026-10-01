@@ -74,6 +74,7 @@
 .kfin .kfin-check input { position: static; opacity: 1; margin: 0; visibility: visible; }
 .kfin .kfin-foot { font-size: 0.75rem; margin: 10px 0 0; }
 .kfin .kfin-section-title { font-size: 0.95rem; margin: 18px 0 8px; }
+.kfin .kfin-hint { font-size: 0.72rem; line-height: 1.3; color: var(--kfin-ink-2); margin-top: 6px; max-width: 360px; }
 .kfin .kfin-sub { display: block; font-size: 0.68rem; font-weight: 400; line-height: 1.2; color: var(--kfin-muted); text-transform: none; letter-spacing: 0; }
 
 /* ---------- Glosario ---------- */

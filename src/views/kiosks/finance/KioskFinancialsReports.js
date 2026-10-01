@@ -5,6 +5,7 @@ import {
   getKioskDailyMatrix,
   getKioskPnl,
   getKioskSites,
+  getKioskSupervisors,
 } from "services/kioskFinancialsService";
 import { MONTHS_ES } from "utils/financeFormat";
 import { getTodayYmdGuatemala } from "utils/dateTimeHelper";
@@ -51,6 +52,8 @@ export default function KioskFinancialsReports() {
 
   const sitesQuery = useAsyncData(() => getKioskSites(), []);
   const configQuery = useAsyncData(() => getKioskConfig({ year: filters.year }), [filters.year]);
+  // Si el módulo Supervisoras y kioscos no está instalado el endpoint devuelve vacío: el selector no se muestra
+  const supervisorsQuery = useAsyncData(() => getKioskSupervisors(), []);
   // Sitios externos (p. ej. Entrecueros Pueblito): fuera de los reportes
   const sites = useMemo(() => (sitesQuery.data || []).filter((s) => !s.excludeFromReports), [sitesQuery.data]);
 
@@ -186,6 +189,8 @@ export default function KioskFinancialsReports() {
             sites={sites}
             sitesLoading={sitesQuery.loading}
             currentYear={currentYear}
+            supervisorData={supervisorsQuery.data}
+            supervisorsLoading={supervisorsQuery.loading}
           />
 
           <div ref={tabsRef} className="kfin-print-area">
