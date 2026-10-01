@@ -13,12 +13,13 @@ import {
   Spinner,
   Table,
 } from "reactstrap";
-import { formatAccountMoney, searchReceivableDocuments } from "services/customerAccountService";
+import { formatAccountMoney, getCustomerAccountPortfolioReport } from "services/customerAccountService";
 import {
   buildRutasCxcPrintHtml,
   groupRutasCxcRowsByRoute,
   normalizeRutasCxcRows,
   openBlankPrintWindow,
+  sumRutasCxcTotals,
   writeHtmlToPrintWindow,
 } from "utils/customerAccountReportPrintHtml";
 import { getRegionLabel, listRegions, listRoutes, parseRouteLocationCode } from "utils/deliveryRouteCatalog";
@@ -44,6 +45,11 @@ function CustomerAccountRutasPrintModal({
   const [printing, setPrinting] = useState(false);
   const [error, setError] = useState("");
   const [rawRows, setRawRows] = useState([]);
+  const [portfolio, setPortfolio] = useState(null);
+  const [onlyOpen, setOnlyOpen] = useState(false);
+  const [includeMovements, setIncludeMovements] = useState(false);
+  const [movementsFrom, setMovementsFrom] = useState("");
+  const [movementsTo, setMovementsTo] = useState("");
 
   const companyName = COMPANY_BY_KIND[orderKind] || COMPANY_BY_KIND.OPV;
   const portfolioLabel = orderKind === "OPC" ? "GCF" : "Fossiles";
@@ -57,6 +63,11 @@ function CustomerAccountRutasPrintModal({
     setRouteNumber(initialRouteNumber ? String(initialRouteNumber) : "");
     setError("");
     setRawRows([]);
+    setPortfolio(null);
+    setOnlyOpen(false);
+    setIncludeMovements(false);
+    setMovementsFrom("");
+    setMovementsTo("");
   }, [isOpen, orderKind, initialRegionCode, initialRouteNumber]);
 
   useEffect(() => {
@@ -66,20 +77,22 @@ function CustomerAccountRutasPrintModal({
       setLoading(true);
       setError("");
       try {
-        const docs = await searchReceivableDocuments({
+        // Cartera por documento desde el libro (sin tope de filas ni joins): cuadra con el listado.
+        // El anexo de movimientos se pide solo al imprimir; el preview no lo necesita.
+        const report = await getCustomerAccountPortfolioReport({
           search: search.trim(),
           orderKind,
-          hasCharge: true,
+          onlyOpen,
           regionCode: scope === "ROUTE" && regionCode ? regionCode : undefined,
           routeNumber: scope === "ROUTE" && routeNumber ? Number(routeNumber) : undefined,
-          allOrderTypes: false,
-          limit: 5000,
         });
         if (cancelled) return;
-        setRawRows(Array.isArray(docs) ? docs : []);
+        setPortfolio(report);
+        setRawRows(Array.isArray(report?.rows) ? report.rows : []);
       } catch (err) {
         if (cancelled) return;
         setRawRows([]);
+        setPortfolio(null);
         setError(err.message || "No se pudieron cargar los documentos para el preview.");
       } finally {
         if (!cancelled) setLoading(false);
@@ -89,7 +102,7 @@ function CustomerAccountRutasPrintModal({
     return () => {
       cancelled = true;
     };
-  }, [isOpen, orderKind, search, scope, regionCode, routeNumber]);
+  }, [isOpen, orderKind, search, scope, regionCode, routeNumber, onlyOpen]);
 
   const normalizedRows = useMemo(() => normalizeRutasCxcRows(rawRows), [rawRows]);
 
@@ -104,10 +117,13 @@ function CustomerAccountRutasPrintModal({
 
   const routeGroups = useMemo(() => groupRutasCxcRowsByRoute(filteredRows), [filteredRows]);
 
-  const previewTotal = useMemo(
-    () => filteredRows.reduce((sum, row) => sum + (Number(row.saldos ?? row.balanceDue) || 0), 0),
+  const previewTotals = useMemo(() => sumRutasCxcTotals(filteredRows), [filteredRows]);
+  const previewTotal = previewTotals.saldos;
+  const duplicateCount = useMemo(
+    () => filteredRows.filter((row) => row.duplicateCharges).length,
     [filteredRows]
   );
+  const hasPortfolioMismatch = portfolio != null && portfolio.reconciled === false;
 
   const selectedRouteLabel = useMemo(() => {
     if (scope !== "ROUTE" || !routeNumber) return "";
@@ -117,7 +133,7 @@ function CustomerAccountRutasPrintModal({
 
   const canPrint = !loading && filteredRows.length > 0 && (scope === "GLOBAL" || Boolean(routeNumber));
 
-  const handlePrint = () => {
+  const handlePrint = async () => {
     if (scope === "ROUTE" && !routeNumber) {
       showError("Selecciona la ruta a imprimir.");
       return;
@@ -133,11 +149,27 @@ function CustomerAccountRutasPrintModal({
     }
     setPrinting(true);
     try {
+      let movements = null;
+      if (includeMovements) {
+        const withMovements = await getCustomerAccountPortfolioReport({
+          search: search.trim(),
+          orderKind,
+          onlyOpen,
+          regionCode: scope === "ROUTE" && regionCode ? regionCode : undefined,
+          routeNumber: scope === "ROUTE" && routeNumber ? Number(routeNumber) : undefined,
+          includeMovements: true,
+          movementsFrom: movementsFrom || undefined,
+          movementsTo: movementsTo || undefined,
+        });
+        movements = Array.isArray(withMovements?.movements) ? withMovements.movements : [];
+      }
       const html = buildRutasCxcPrintHtml({
         rows: filteredRows,
         orderKind,
         groupByRoute: scope === "GLOBAL",
         routeLabel: scope === "ROUTE" ? selectedRouteLabel : "",
+        movements,
+        movementsPeriod: { from: movementsFrom, to: movementsTo },
       });
       writeHtmlToPrintWindow(printWindow, html);
       showSuccess("Reporte listo para imprimir.");
@@ -162,7 +194,8 @@ function CustomerAccountRutasPrintModal({
       <ModalBody>
         <Alert color="info" className="py-2">
           Empresa del reporte: <strong>{companyName}</strong>. Elige un reporte{" "}
-          <strong>global</strong> (separado por rutas) o una <strong>ruta específica</strong>.
+          <strong>global</strong> (separado por rutas) o una <strong>ruta específica</strong>. Una fila por
+          documento: <strong>Saldo = Cargos − Abonos − Créditos</strong>.
         </Alert>
 
         <div className="d-flex flex-wrap mb-3" style={{ gap: 8 }}>
@@ -180,6 +213,43 @@ function CustomerAccountRutasPrintModal({
           >
             Por ruta
           </Button>
+        </div>
+
+        <div className="mb-3">
+          <FormGroup check className="mb-1">
+            <Label check>
+              <Input type="checkbox" checked={onlyOpen} onChange={(e) => setOnlyOpen(e.target.checked)} />{" "}
+              Solo documentos con saldo pendiente
+              <span className="form-check-sign">
+                <span className="check" />
+              </span>
+            </Label>
+          </FormGroup>
+          <FormGroup check className="mb-1">
+            <Label check>
+              <Input
+                type="checkbox"
+                checked={includeMovements}
+                onChange={(e) => setIncludeMovements(e.target.checked)}
+              />{" "}
+              Incluir anexo de movimientos (hoja aparte, no forma parte de la cartera)
+              <span className="form-check-sign">
+                <span className="check" />
+              </span>
+            </Label>
+          </FormGroup>
+          {includeMovements && (
+            <div className="row mt-2">
+              <div className="col-md-6">
+                <Label className="mb-0">Movimientos desde</Label>
+                <Input type="date" value={movementsFrom} onChange={(e) => setMovementsFrom(e.target.value)} />
+              </div>
+              <div className="col-md-6">
+                <Label className="mb-0">Movimientos hasta</Label>
+                <Input type="date" value={movementsTo} onChange={(e) => setMovementsTo(e.target.value)} />
+              </div>
+            </div>
+          )}
         </div>
 
         {scope === "ROUTE" && (
@@ -231,11 +301,31 @@ function CustomerAccountRutasPrintModal({
           <strong>Preview del reporte</strong>
           <div>
             <Badge color="secondary" className="mr-1">
-              {filteredRows.length} documento(s)
+              {filteredRows.length} fila(s)
             </Badge>
-            <Badge color="warning">Total {formatAccountMoney(previewTotal)}</Badge>
+            <Badge color="warning">Saldo {formatAccountMoney(previewTotal)}</Badge>
           </div>
         </div>
+
+        {!loading && filteredRows.length > 0 && (
+          <div className="text-muted small mb-2">
+            Cargos {formatAccountMoney(previewTotals.cargos)} − Abonos {formatAccountMoney(previewTotals.abonos)} −
+            Créditos {formatAccountMoney(previewTotals.creditos)}
+            {portfolio?.reconciled && scope === "GLOBAL" && " · Cuadra con el saldo del listado de cuentas por cobrar"}
+          </div>
+        )}
+        {duplicateCount > 0 && (
+          <Alert color="warning" className="py-2">
+            {duplicateCount} documento(s) tienen más de un cargo activo en el libro (se muestran en una sola fila
+            marcada con *). Revise y anule el cargo sobrante.
+          </Alert>
+        )}
+        {hasPortfolioMismatch && scope === "GLOBAL" && (
+          <Alert color="danger" className="py-2">
+            El total de la cartera no cuadra con el saldo del listado (diferencia{" "}
+            {formatAccountMoney(portfolio.difference)}). Avise a sistemas antes de usar este reporte.
+          </Alert>
+        )}
 
         {loading ? (
           <div className="text-center py-4">
@@ -265,23 +355,28 @@ function CustomerAccountRutasPrintModal({
                       <th>Cliente</th>
                       <th className="text-right">Cargos</th>
                       <th className="text-right">Abonos</th>
+                      <th className="text-right">Créditos</th>
                       <th className="text-right">Saldos</th>
                     </tr>
                   </thead>
                   <tbody>
                     {group.rows.slice(0, 8).map((row, idx) => (
-                      <tr key={`${row.chargeEntryId || row.documentNumber}-${idx}`}>
-                        <td>{row.documentNumber || "—"}</td>
+                      <tr key={`${row.rowType || "DOC"}-${row.chargeEntryId || row.customerId}-${idx}`}>
+                        <td>
+                          {row.documentNumber || "—"}
+                          {row.duplicateCharges ? " *" : ""}
+                        </td>
                         <td>{row.legacyCode || "—"}</td>
                         <td>{row.customerName || "—"}</td>
                         <td className="text-right">{formatAccountMoney(row.cargos)}</td>
                         <td className="text-right">{formatAccountMoney(row.abonos)}</td>
+                        <td className="text-right">{formatAccountMoney(row.creditos)}</td>
                         <td className="text-right">{formatAccountMoney(row.saldos)}</td>
                       </tr>
                     ))}
                     {group.rows.length > 8 && (
                       <tr>
-                        <td colSpan={6} className="text-muted small">
+                        <td colSpan={7} className="text-muted small">
                           … y {group.rows.length - 8} más en esta ruta
                         </td>
                       </tr>
