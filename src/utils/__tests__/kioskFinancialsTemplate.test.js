@@ -45,12 +45,12 @@ describe("kioskFinancialsTemplate layout", () => {
     expect(cellValue(ws, "C39")).toBeUndefined();   // 1 de octubre: fuera del mes
   });
 
-  it("comisión de venta: 2026 = ventas × tasa solo si % de meta >= 70 %; 2025 = (ventas ÷ 1.12) × tasa", () => {
+  it("comisión de venta: siempre (ventas ÷ 1.12) × tasa; desde 2026 solo si % de meta >= 70 %", () => {
     const t26 = buildKioskTemplateSheet({ year: 2026, month: 5, siteNames });
     const f26 = t26.ws[`C${t26.rows.rateCalc.sales + 1}`].f;
-    // IF(OR(meta=0, %meta>=0.7), total*tasa, 0): sin meta definida no se puede verificar el 70 % y se aplica
+    // IF(OR(meta=0, %meta>=0.7), total/1.12*tasa, 0): sin meta definida no se puede verificar el 70 % y se aplica
     expect(f26).toBe(
-      `IF(OR(C${t26.rows.goals + 1}=0,C${t26.rows.goalPct + 1}>=0.7),C${t26.rows.total + 1}*C${t26.rows.rates.sales + 1},0)`
+      `IF(OR(C${t26.rows.goals + 1}=0,C${t26.rows.goalPct + 1}>=0.7),C${t26.rows.total + 1}/1.12*C${t26.rows.rates.sales + 1},0)`
     );
     const t25 = buildKioskTemplateSheet({ year: 2025, month: 5, siteNames });
     const f25 = t25.ws[`C${t25.rows.rateCalc.sales + 1}`].f;

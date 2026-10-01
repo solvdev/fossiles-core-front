@@ -189,10 +189,10 @@ export const buildKioskTemplateSheet = ({ year, month, siteNames, categories, si
       key: "sales",
       label: "Comision de venta",
       field: "salesCommissionPct",
-      // Desde 2026: ventas x tasa, solo si % de meta >= 70 % (sin meta definida se aplica). Antes: (ventas / 1.12) x tasa.
+      // Siempre (ventas / 1.12) x tasa. Desde 2026 solo si % de meta >= 70 % (sin meta definida se aplica).
       calc: (c, rate) =>
         year >= 2026
-          ? `IF(OR(${col(c)}${goalsNum}=0,${col(c)}${rows.goalPct + 1}>=0.7),${col(c)}${totalRowNum}*${col(c)}${rate + 1},0)`
+          ? `IF(OR(${col(c)}${goalsNum}=0,${col(c)}${rows.goalPct + 1}>=0.7),${col(c)}${totalRowNum}/1.12*${col(c)}${rate + 1},0)`
           : `${col(c)}${totalRowNum}/1.12*${col(c)}${rate + 1}`,
     },
     { key: "card", label: "Comision tarjeta", field: "cardCommissionPct", calc: (c, rate) => `${col(c)}${totalRowNum}*${col(c)}${rate + 1}` },
