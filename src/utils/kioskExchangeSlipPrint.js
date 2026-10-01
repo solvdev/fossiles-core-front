@@ -51,6 +51,11 @@ export function buildKioskExchangeSlipPrintHtml(slip, preview) {
       : slip?.returnedAmount,
     lineTotal: slip?.returnedAmount,
   };
+  const returnedLines = preview?.returnedItems?.length
+    ? preview.returnedItems
+    : slip?.returnedItems?.length
+      ? slip.returnedItems
+      : [returned];
   const given = preview?.given || {
     productCode: slip?.givenProductCode,
     productName: slip?.givenProductName,
@@ -113,10 +118,10 @@ export function buildKioskExchangeSlipPrintHtml(slip, preview) {
     ${slip?.rejectionReason ? `<div><strong>Rechazo:</strong> ${escapeHtml(slip.rejectionReason)}</div>` : ""}
   </div>
 
-  <div class="section-title">Ingreso — producto devuelto</div>
+  <div class="section-title">Ingreso — ${returnedLines.length > 1 ? "productos devueltos" : "producto devuelto"}</div>
   <table>
     <thead><tr><th>Artículo</th><th>Cant.</th><th>P. unit.</th><th>Total</th></tr></thead>
-    <tbody>${buildProductRows([returned], "returnedAmount")}</tbody>
+    <tbody>${buildProductRows(returnedLines, "returnedAmount")}</tbody>
     <tfoot><tr><th colspan="3">Total ingreso</th><th class="num">${fmtMoney(ingreso)}</th></tr></tfoot>
   </table>
 
