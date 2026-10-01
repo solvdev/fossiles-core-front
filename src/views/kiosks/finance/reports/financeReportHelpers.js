@@ -4,6 +4,7 @@
  */
 import {
   EMPTY_VALUE,
+  MONTHS_ES,
   MONTHS_ES_SHORT,
   fmtMoney,
   fmtNumber,
@@ -566,3 +567,72 @@ export const buildCompletenessRows = (data, siteIds) => {
 
 /** Normaliza la lista de ids seleccionados a números únicos. */
 export const normalizeSiteIds = (ids) => [...new Set((ids || []).map(Number).filter(Number.isFinite))];
+
+/* ------------------------------------------------------------------ */
+/* Filtro por supervisora (módulo "Supervisoras y kioscos")            */
+/* ------------------------------------------------------------------ */
+
+export const UNASSIGNED_SUPERVISOR = "none";
+
+/**
+ * Opciones del selector de supervisoras desde GET /supervisors: una por supervisora con kioscos visibles y, si
+ * existen, "Sin supervisora" (kioscos con POS que nadie tiene asignados).
+ */
+export const buildSupervisorOptions = (data) => {
+  const options = ((data && data.supervisors) || [])
+    .filter((s) => Array.isArray(s.siteIds) && s.siteIds.length > 0)
+    .map((s) => ({ value: s.userId, label: `${s.name} (${s.siteIds.length})`, siteIds: s.siteIds }));
+  const unassigned = (data && data.unassignedSiteIds) || [];
+  if (unassigned.length > 0) {
+    options.push({ value: UNASSIGNED_SUPERVISOR, label: `Sin supervisora (${unassigned.length})`, siteIds: unassigned });
+  }
+  return options;
+};
+
+/**
+ * Supervisoras que se muestran marcadas: las que tienen TODOS sus kioscos dentro de la selección de kioscos.
+ * Selección vacía = todos los kioscos = ninguna marcada (así no hay un segundo estado que desincronizar).
+ */
+export const selectedSupervisorOptions = (options, siteIds) =>
+  siteIds && siteIds.length ? options.filter((o) => o.siteIds.every((id) => siteIds.includes(id))) : [];
+
+/**
+ * Nueva selección de kioscos al marcar/desmarcar supervisoras: se agregan los kioscos de las marcadas y se quitan los
+ * de las desmarcadas (salvo los que sigan pertenciendo a una marcada). Si no queda ninguno, queda vacío = todos.
+ */
+export const applySupervisorSelection = (siteIds, previous, next) => {
+  const nextValues = new Set(next.map((o) => o.value));
+  const ids = new Set(normalizeSiteIds(siteIds));
+  previous.filter((o) => !nextValues.has(o.value)).forEach((o) => o.siteIds.forEach((id) => ids.delete(id)));
+  next.forEach((o) => o.siteIds.forEach((id) => ids.add(id)));
+  return normalizeSiteIds([...ids]).sort((a, b) => a - b);
+};
+
+/* ------------------------------------------------------------------ */
+/* Texto del modo de comparación                                       */
+/* ------------------------------------------------------------------ */
+
+const monthName = (m) => (MONTHS_ES[m - 1] || "").toLowerCase();
+
+/**
+ * Frase que explica, con las fechas reales, qué se está comparando en el Resumen.
+ * today: "yyyy-mm-dd" (hora de Guatemala).
+ */
+export const describeComparison = ({ year, baseYear, fromMonth, toMonth, mode, today }) => {
+  const cy = Number(String(today).slice(0, 4));
+  const cm = Number(String(today).slice(5, 7));
+  const cd = Number(String(today).slice(8, 10));
+  const inProgress = year === cy && toMonth >= cm;
+  if (mode === "SAME_PERIOD") {
+    const end = inProgress ? `hoy (${cd} de ${monthName(cm)})` : `el fin de ${monthName(toMonth)}`;
+    return (
+      `Mismos días en ambos años: del 1 de ${monthName(fromMonth)} hasta ${end} de ${year}, contra esas mismas fechas de ` +
+      `${baseYear}. Un kiosco que arrancó en el POS después empieza en su primera venta.`
+    );
+  }
+  const range = fromMonth === toMonth ? monthName(fromMonth) : `${monthName(fromMonth)} a ${monthName(toMonth)}`;
+  return (
+    `Meses completos de ${range}: ${year} contra ${baseYear}.` +
+    (inProgress ? ` ${MONTHS_ES[cm - 1]} ${year} aún no termina, por eso se ve más bajo que ${baseYear}.` : "")
+  );
+};

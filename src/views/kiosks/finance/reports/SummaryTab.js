@@ -311,7 +311,7 @@ export default function SummaryTab({ filters, activeSiteNames }) {
 
   const hasData = !!data && ((data.sites || []).length > 0 || (data.monthly || []).length > 0);
   const range = `${MONTHS_ES[fromMonth - 1]}${fromMonth === toMonth ? "" : ` – ${MONTHS_ES[toMonth - 1]}`}`;
-  const modeText = mode === "SAME_PERIOD" ? "Mismo periodo" : "Mes completo";
+  const modeText = mode === "SAME_PERIOD" ? "Mismas fechas" : "Meses completos";
 
   if (error) return <ErrorState message={error} onRetry={reload} />;
 
@@ -341,7 +341,7 @@ export default function SummaryTab({ filters, activeSiteNames }) {
   return (
     <div className={loading ? "kfin-refetching" : ""} aria-busy={loading}>
       <div className="kfin-context" role="note">
-        <strong>{year}</strong> contra <strong>{baseYear}</strong> · {range} · modo <strong>{modeText}</strong>
+        <strong>{year}</strong> contra <strong>{baseYear}</strong> · {range} · comparación <strong>{modeText}</strong>
         {activeSiteNames ? ` · ${activeSiteNames}` : " · todos los kioscos"}
         {data.asOf ? <span className="kfin-muted"> · datos al {fmtDateEs(data.asOf)}</span> : null}
       </div>
@@ -397,7 +397,7 @@ export default function SummaryTab({ filters, activeSiteNames }) {
       <RankingTable rows={rows} totals={totals} year={year} baseYear={baseYear} />
       <p className="kfin-foot kfin-muted">
         Costos del periodo parcial prorrateados por días. Kioscos que entraron al POS a mitad de año se comparan
-        contra los mismos días calendario del año base (modo &quot;Mismo periodo&quot;).
+        desde su primera venta contra los mismos días calendario del año base (comparación &quot;Mismas fechas&quot;).
       </p>
     </div>
   );
