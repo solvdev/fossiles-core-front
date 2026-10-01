@@ -351,7 +351,6 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
       paidTotal += Number(item.unitPrice || 0) * qty;
     });
     applyDiscountFromCatalog(catalogTotal, paidTotal);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedReturnIdsKey, products, differenceMode, exchangeMode]);
 
   const showDiscountFields = useMemo(
