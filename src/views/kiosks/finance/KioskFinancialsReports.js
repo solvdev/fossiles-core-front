@@ -51,7 +51,8 @@ export default function KioskFinancialsReports() {
 
   const sitesQuery = useAsyncData(() => getKioskSites(), []);
   const configQuery = useAsyncData(() => getKioskConfig({ year: filters.year }), [filters.year]);
-  const sites = useMemo(() => sitesQuery.data || [], [sitesQuery.data]);
+  // Sitios externos (p. ej. Entrecueros Pueblito): fuera de los reportes
+  const sites = useMemo(() => (sitesQuery.data || []).filter((s) => !s.excludeFromReports), [sitesQuery.data]);
 
   const updateFilters = useCallback((patch) => {
     setFilters((prev) => {

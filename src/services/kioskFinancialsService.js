@@ -113,6 +113,42 @@ export const previewKioskImport = async (files, periods) => {
   return parseJson(response, "No se pudieron analizar los archivos.");
 };
 
+/**
+ * Días sin sistema: sube el Excel del reporte y devuelve, por kiosco, los días anteriores a su primera venta en el POS
+ * que el reporte tiene con venta. period (opcional): { year, month } para corregir el mes del archivo.
+ */
+export const previewGapFill = async (file, period) => {
+  const form = new FormData();
+  form.append("file", file, file.name);
+  if (period) {
+    form.append("year", String(period.year));
+    form.append("month", String(period.month));
+  }
+  const response = await fetch(`${BASE}/imports/gap-fill/preview`, {
+    method: "POST",
+    headers: authOnlyHeaders(),
+    body: form,
+  });
+  return parseJson(response, "No se pudo analizar el archivo.");
+};
+
+/** siteIds: ids de los kioscos marcados en la vista previa. El servidor vuelve a leer el archivo y recalcula todo. */
+export const commitGapFill = async (file, siteIds, period) => {
+  const form = new FormData();
+  form.append("file", file, file.name);
+  form.append("siteIds", (siteIds || []).join(","));
+  if (period) {
+    form.append("year", String(period.year));
+    form.append("month", String(period.month));
+  }
+  const response = await fetch(`${BASE}/imports/gap-fill/commit`, {
+    method: "POST",
+    headers: authOnlyHeaders(),
+    body: form,
+  });
+  return parseJson(response, "No se pudo aplicar la corrección.");
+};
+
 /** payload: { replaceExisting, files: [{ fileName, sha256, year, month, siteMapping, resolutions, data }] } */
 export const commitKioskImport = async (payload) => {
   const response = await fetch(`${BASE}/imports/commit`, {

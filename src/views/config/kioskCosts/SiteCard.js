@@ -12,6 +12,7 @@ const draftFrom = (site) => ({
   closedOn: site.closedOn || "",
   override: site.posGoLiveOverride || "",
   aliases: [...(site.aliases || [])],
+  exclude: !!site.excludeFromReports,
 });
 
 const sameList = (a, b) => a.length === b.length && [...a].sort().join("|") === [...b].sort().join("|");
@@ -31,6 +32,7 @@ export const buildSiteUpdate = (site, draft) => {
     else body.clearGoLiveOverride = true;
   }
   if (!sameList(draft.aliases, site.aliases || [])) body.aliases = draft.aliases;
+  if (!!draft.exclude !== !!site.excludeFromReports) body.excludeFromReports = !!draft.exclude;
   return Object.keys(body).length ? body : null;
 };
 
@@ -90,6 +92,11 @@ function SiteCard({ site, canEdit, onSaved }) {
           ) : (
             <Badge color="info" className="mr-1">
               {site.locationCode || "POS"}
+            </Badge>
+          )}
+          {site.excludeFromReports && (
+            <Badge color="warning" className="mr-1">
+              Externo
             </Badge>
           )}
           <Badge color={site.status === "CLOSED" ? "secondary" : "success"}>
@@ -202,6 +209,19 @@ function SiteCard({ site, canEdit, onSaved }) {
             onChange={(e) => set({ closedOn: e.target.value })}
           />
         )}
+      </div>
+
+      <div className="form-check mt-2">
+        <label className="form-check-label">
+          <Input
+            type="checkbox"
+            checked={!!draft.exclude}
+            disabled={!canEdit}
+            onChange={(e) => set({ exclude: e.target.checked })}
+          />
+          Sitio externo: no aparece en ningún reporte de Finanzas
+          <span className="form-check-sign" />
+        </label>
       </div>
 
       {canEdit && (

@@ -5,6 +5,7 @@ import { commitKioskImport, getKioskSites, previewKioskImport } from "services/k
 import { MONTHS_ES } from "utils/financeFormat";
 import { showError, showSuccess, showWarning } from "utils/notificationHelper";
 import useUnsavedGuard from "views/config/kioskCosts/useUnsavedGuard";
+import GapFillModal from "./import/GapFillModal";
 import ImportHistory from "./import/ImportHistory";
 import ImportResult from "./import/ImportResult";
 import StepConfirm from "./import/StepConfirm";
@@ -44,6 +45,7 @@ function KioskImportWizard() {
   const [sitesLoading, setSitesLoading] = useState(true);
   const [showTemplate, setShowTemplate] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
+  const [showGapFill, setShowGapFill] = useState(false);
 
   const dirty = !!previewFiles && !result;
   const { pendingHref, confirmLeave, cancelLeave } = useUnsavedGuard(dirty);
@@ -51,7 +53,8 @@ function KioskImportWizard() {
   const loadSites = useCallback(async () => {
     setSitesLoading(true);
     try {
-      setSites((await getKioskSites()) || []);
+      // Los sitios externos (p. ej. Entrecueros Pueblito) no entran a ningún reporte ni importación
+      setSites(((await getKioskSites()) || []).filter((s) => !s.excludeFromReports));
     } catch (err) {
       showError(err.message || "No se pudieron cargar los sitios.");
     } finally {
@@ -272,6 +275,9 @@ function KioskImportWizard() {
               </p>
             </div>
             <div className="mt-2 mt-md-0">
+              <Button color="warning" size="sm" outline className="btn-round mr-2" onClick={() => setShowGapFill(true)}>
+                <i className="nc-icon nc-calendar-60" aria-hidden="true" /> Días sin sistema
+              </Button>
               <Button color="info" size="sm" outline className="btn-round mr-2" onClick={() => setShowTemplate(true)}>
                 <i className="nc-icon nc-cloud-download-93" aria-hidden="true" /> Descargar plantilla estándar
               </Button>
@@ -389,6 +395,7 @@ function KioskImportWizard() {
       </Card>
 
       <TemplateModal isOpen={showTemplate} toggle={() => setShowTemplate(false)} sites={sites} />
+      <GapFillModal isOpen={showGapFill} toggle={() => setShowGapFill(false)} />
       <ConfirmModal
         isOpen={pendingHref !== null}
         toggle={cancelLeave}
