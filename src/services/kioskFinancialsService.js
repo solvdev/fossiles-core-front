@@ -172,6 +172,24 @@ export const listKioskImports = async () => {
   return parseJson(response, "No se pudo cargar el historial de importaciones.");
 };
 
+/* ------------------------------- Configuración ------------------------------ */
+
+/** { breakEvenMode: "RATES" | "FLAT", flatBreakEvenRate, persisted, updatedAt } */
+export const getKioskSettings = async () => {
+  const response = await fetch(`${BASE}/settings`, { headers: jsonHeaders() });
+  return parseJson(response, "No se pudo cargar la configuración de Finanzas.");
+};
+
+/** payload: { breakEvenMode } */
+export const updateKioskSettings = async (payload) => {
+  const response = await fetch(`${BASE}/settings`, {
+    method: "PUT",
+    headers: jsonHeaders(),
+    body: JSON.stringify(payload),
+  });
+  return parseJson(response, "No se pudo guardar la configuración.");
+};
+
 /* -------------------------------- Reportes -------------------------------- */
 
 /** Supervisoras (módulo Supervisoras y kioscos) con los sitios de sus kioscos: { supervisors, unassignedSiteIds }. */
@@ -181,6 +199,7 @@ export const getKioskSupervisors = async () => {
 };
 
 /** month omitido = año completo. siteIds: number[] | string. */
+/** El método del punto de equilibrio lo toma el servidor de la configuración (getKioskSettings). */
 export const getKioskPnl = async ({ year, month, siteIds } = {}) => {
   const response = await fetch(`${BASE}/pnl${toQuery({ year, month, siteIds })}`, {
     headers: jsonHeaders(),

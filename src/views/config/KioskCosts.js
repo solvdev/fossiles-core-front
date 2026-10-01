@@ -25,6 +25,7 @@ import {
 } from "services/kioskFinancialsService";
 import { MONTHS_ES, MONTHS_ES_SHORT } from "utils/financeFormat";
 import { showError, showSuccess } from "utils/notificationHelper";
+import BreakEvenSetting from "./kioskCosts/BreakEvenSetting";
 import CompletenessHeatmap from "./kioskCosts/CompletenessHeatmap";
 import CopyModal from "./kioskCosts/CopyModal";
 import CostGrid from "./kioskCosts/CostGrid";
@@ -407,6 +408,8 @@ function KioskCosts() {
               ) : null}
             </CardBody>
           </Card>
+
+          <BreakEvenSetting canEdit={canEdit} />
 
           <CompletenessHeatmap
             data={completeness}

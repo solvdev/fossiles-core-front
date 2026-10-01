@@ -4,6 +4,7 @@ import { MONTHS_ES, MONTHS_ES_SHORT, fmtAmount, fmtMoney, fmtPct } from "utils/f
 import useAsyncData from "./useAsyncData";
 import { BlockSkeleton, EmptyState, ErrorState, KButton } from "./common";
 import { buildCompletenessRows, buildGoalRows, goalAxisMax } from "./financeReportHelpers";
+import { breakEvenModeLabel } from "utils/kioskFinancialsGlossary";
 
 const STATUS_INFO = {
   met: { icon: "✓", text: "Meta cumplida", cls: "good" },
@@ -254,7 +255,9 @@ export default function GoalsTab({ filters }) {
   return (
     <div className={loading ? "kfin-refetching" : ""} aria-busy={loading}>
       <div className="kfin-context" role="note">
-        <strong>Metas y equilibrio</strong> · {MONTHS_ES[month - 1]} {year}
+        <strong>Metas y equilibrio</strong> · {MONTHS_ES[month - 1]} {year} · punto de equilibrio con{" "}
+        <strong>{breakEvenModeLabel(data && data.breakEvenMode)}</strong>{" "}
+        <span className="kfin-muted">(se cambia en Costos por kiosco)</span>
       </div>
       {hasSales ? (
         <GoalBars pnl={data} />

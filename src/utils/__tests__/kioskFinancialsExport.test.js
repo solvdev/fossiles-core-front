@@ -124,9 +124,17 @@ describe("buildOriginalSheetLayout", () => {
       "Total costo operativo",
       "Utilidad o pérdida (Ventas − Total costo operativo)",
       "Margen de utilidad (Utilidad ÷ Ventas)",
-      "Punto de equilibrio",
+      "Punto de equilibrio (tasas de cada kiosco)",
       "Punto de equilibrio diario",
     ]);
+  });
+
+  test("la fila del punto de equilibrio dice el método con que se midió", () => {
+    const flatLayout = buildOriginalSheetLayout({
+      year: 2025, month: 1, matrix, pnl: { ...pnl, breakEvenMode: "FLAT" }, config, categories,
+    });
+    const labels = flatLayout.aoa.slice(0, flatLayout.coreRowCount).map((r) => r[1]);
+    expect(labels).toContain("Punto de equilibrio (27 % fijo)");
   });
 
   test("agrega un glosario debajo del reporte sin mover las filas anteriores", () => {

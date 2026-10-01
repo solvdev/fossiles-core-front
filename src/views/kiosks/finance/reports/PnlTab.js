@@ -1,7 +1,7 @@
 import React, { useMemo } from "react";
 import { getKioskPnl } from "services/kioskFinancialsService";
 import { MONTHS_ES, fmtAmount, fmtPct } from "utils/financeFormat";
-import { FINANCE_GLOSSARY, RESULT_LABELS } from "utils/kioskFinancialsGlossary";
+import { FINANCE_GLOSSARY, RESULT_LABELS, breakEvenModeLabel } from "utils/kioskFinancialsGlossary";
 import useAsyncData from "./useAsyncData";
 import { BlockSkeleton, EmptyState, ErrorState } from "./common";
 import {
@@ -116,8 +116,8 @@ export function PnlTable({ sites, totals, categories, showTotal = true, showStat
                       className="kfin-help"
                       tabIndex={0}
                       role="note"
-                      aria-label="PE = costos fijos / (1 − (comisión + costo + tarjeta + IVA)). El PE diario usa los días reales del mes."
-                      title="PE = costos fijos / (1 − (comisión de venta + costo del producto + tarjeta + IVA)). PE diario = PE / días reales del mes."
+                      aria-label="PE = costos fijos / (1 − % variables), con las tasas de cada kiosco o con un 27 % fijo según lo elegido. El PE diario usa los días reales del mes."
+                      title="PE = costos fijos / (1 − % variables): con las tasas reales de cada kiosco o con un 27 % fijo, según la configuración (Costos por kiosco). PE diario = PE / días reales del mes."
                     >
                       {" "}ⓘ
                     </span>
@@ -258,8 +258,14 @@ export default function PnlTab({ filters, config }) {
   return (
     <div className={loading ? "kfin-refetching" : ""} aria-busy={loading}>
       <div className="kfin-context" role="note">
-        <strong>P&amp;L {single ? sites[0].name : "por kiosco"}</strong> · {monthLabel} · montos en Q, IVA incluido en ventas
+        <strong>P&amp;L {single ? sites[0].name : "por kiosco"}</strong> · {monthLabel} · montos en Q, IVA incluido en ventas ·
+        punto de equilibrio con <strong>{breakEvenModeLabel(data.breakEvenMode)}</strong>{" "}
+        <span className="kfin-muted">(se cambia en Costos por kiosco)</span>
       </div>
+
+      <p className="kfin-hint kfin-noprint" style={{ maxWidth: "none" }}>
+        Sobre la tabla, la rueda la desplaza hacia los lados; también puedes arrastrarla o usar Shift + rueda.
+      </p>
 
       {single ? (
         <>

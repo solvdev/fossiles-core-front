@@ -1,7 +1,7 @@
 import * as XLSX from "xlsx-js-style";
 import { boldFont, thinBorder } from "./kioskReportExcelStyle";
 import { MONTHS_ES } from "./financeFormat";
-import { FINANCE_GLOSSARY, RESULT_LABELS } from "./kioskFinancialsGlossary";
+import { FINANCE_GLOSSARY, RESULT_LABELS, breakEvenModeLabel } from "./kioskFinancialsGlossary";
 
 /**
  * Exportación de Finanzas por kiosco.
@@ -180,7 +180,13 @@ export const buildOriginalSheetLayout = ({ year, month, matrix, pnl, config, cat
     (s) => P(s).margin,
     numOrNull(totals.margin)
   );
-  perSite(RESULT_LABELS.breakEven, "grand", "money", (s) => P(s).breakEven, numOrNull(totals.breakEven));
+  perSite(
+    `${RESULT_LABELS.breakEven} (${breakEvenModeLabel(pnl?.breakEvenMode)})`,
+    "grand",
+    "money",
+    (s) => P(s).breakEven,
+    numOrNull(totals.breakEven)
+  );
   perSite(RESULT_LABELS.breakEvenDaily, "grand", "money", (s) => P(s).breakEvenDaily, numOrNull(totals.breakEvenDaily));
 
   // Filas del reporte propiamente dicho; lo que sigue es el glosario.
