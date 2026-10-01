@@ -1,8 +1,10 @@
 import {
   FIRST_SITE_COL,
   HEADER_ROW_INDEX,
+  buildForecastSheets,
   buildOriginalSheetLayout,
   ratesBySiteFromConfig,
+  roundSuggestedGoal,
 } from "../kioskFinancialsExport";
 import { FINANCE_GLOSSARY } from "../kioskFinancialsGlossary";
 
@@ -217,5 +219,85 @@ describe("exportOriginalSheetExcel", () => {
     expect(ws.C8.s.fill.fgColor.rgb).toBe("D9D9D9");
     expect(ws["!cols"][1].wch).toBeGreaterThan(20);
     jest.dontMock("xlsx-js-style");
+  });
+});
+
+describe("buildForecastSheets", () => {
+  const month = (m, sales, estimated = false) => ({ month: m, baseSales: sales / 1.1, sales, estimated });
+  const months = (fn) => Array.from({ length: 12 }, (_, i) => month(i + 1, fn(i)));
+  const monthEnd = {
+    asOf: "2026-09-16", year: 2026, month: 9, daysElapsed: 15, daysRemaining: 15, daysInMonth: 30,
+    sites: [
+      { siteId: 1, name: "MIRAFLORES II", actualToDate: 1650, projected: 3300, low: 3100, high: 3500, goal: 3000, goalPctProjected: 1.1,
+        difference: 1528.79, margin: 0.4633, method: "WEEKDAY" },
+      { siteId: 2, name: "NUEVO", actualToDate: 300, projected: null, low: null, high: null, goal: null, goalPctProjected: null,
+        difference: null, margin: null, method: "INSUFFICIENT" },
+    ],
+    totals: { actualToDate: 1950, projected: 3300, goal: 3000, goalPctProjected: 1.1, difference: 1528.79, margin: 0.4633 },
+  };
+  const nextYear = {
+    asOf: "2026-09-16", baseYear: 2026, targetYear: 2027, growthMode: "SITE_OR_COMPANY", companyGrowthFactor: 1.1,
+    sites: [{
+      siteId: 1, name: "MIRAFLORES II", growthFactor: 1.1, growthSource: "SITE", growthCapped: false, baseSales: 40150, sales: 44165,
+      difference: 10000, margin: 0.2264, months: months((i) => 3000 + i * 130.4),
+    }, {
+      siteId: 4, name: "ABRIL", growthFactor: 1.2, growthSource: "COMPANY", growthCapped: true, baseSales: 20000, sales: 24000,
+      difference: 1000, margin: 0.04, months: months((i) => 2000).map((m, i) => ({ ...m, estimated: i < 2 })),
+    }],
+    skippedSites: ["MUY NUEVO"],
+    totals: { sales: 68165, baseSales: 60150, difference: 11000, margin: 0.16, months: months((i) => 5000 + i * 100) },
+  };
+
+  test("cierre del mes: una fila por kiosco, vacío donde no hay proyección y total", () => {
+    const [sheet] = buildForecastSheets({ monthEnd, nextYear: null });
+    expect(sheet.name).toBe("Cierre del mes");
+    const header = sheet.aoa[sheet.header];
+    expect(header.slice(0, 3)).toEqual(["Kiosco", "Ventas al día", "Cierre proyectado"]);
+    const rows = sheet.aoa.slice(sheet.header + 1);
+    expect(rows[0].slice(0, 3)).toEqual(["MIRAFLORES II", 1650, 3300]);
+    expect(rows[0][6]).toBe(1.1); // % meta al cierre como fracción (el formato lo muestra en %)
+    expect(rows[1].slice(0, 4)).toEqual(["NUEVO", 300, null, null]);
+    expect(rows[1][9]).toBe("Sin historia suficiente");
+    expect(rows[2][0]).toBe("Total");
+    expect(sheet.pctCols).toEqual([6, 8]);
+    expect(sheet.aoa.every((r) => r.length === 0 || r.length <= header.length)).toBe(true);
+  });
+
+  test("año siguiente: crecimiento, 12 meses, totales y notas de meses estimados y kioscos omitidos", () => {
+    const sheets = buildForecastSheets({ monthEnd: null, nextYear });
+    const sheet = sheets[0];
+    expect(sheet.name).toBe("Proyección 2027");
+    const header = sheet.aoa[sheet.header];
+    expect(header.slice(0, 6)).toEqual(["Kiosco", "Crecimiento", "Origen", "Ene", "Feb", "Mar"]);
+    expect(header).toHaveLength(3 + 12 + 4);
+    const first = sheet.aoa[sheet.header + 1];
+    expect(first[0]).toBe("MIRAFLORES II");
+    expect(first[1]).toBeCloseTo(0.1); // +10 %
+    expect(first[2]).toBe("propio");
+    expect(first).toHaveLength(header.length);
+    expect(sheet.aoa[sheet.header + 2][2]).toBe("global (limitado)");
+    const flat = sheet.aoa.flat().filter((v) => typeof v === "string");
+    expect(flat).toContain("ABRIL: Ene, Feb");
+    expect(flat.some((v) => v.includes("MUY NUEVO"))).toBe(true);
+    expect(sheet.pctCols).toEqual([1, 18]);
+  });
+
+  test("metas sugeridas: la proyección redondeada a Q100 y su total", () => {
+    const goals = buildForecastSheets({ monthEnd: null, nextYear })[1];
+    expect(goals.name).toBe("Metas sugeridas");
+    const first = goals.aoa[goals.header + 1];
+    expect(first.slice(0, 3)).toEqual(["MIRAFLORES II", 3000, 3100]); // 3000 y 3130.4 -> 3100
+    expect(first[13]).toBe(first.slice(1, 13).reduce((a, v) => a + v, 0));
+    const total = goals.aoa[goals.aoa.length - 1];
+    expect(total[0]).toBe("Total");
+    expect(total[13]).toBe(total.slice(1, 13).reduce((a, v) => a + v, 0));
+    expect(roundSuggestedGoal(1249.9)).toBe(1200);
+    expect(roundSuggestedGoal(1250)).toBe(1300);
+    expect(roundSuggestedGoal(null)).toBeNull();
+  });
+
+  test("crecimiento fijo: la nota lo dice", () => {
+    const sheet = buildForecastSheets({ monthEnd: null, nextYear: { ...nextYear, growthMode: "OVERRIDE", overrideGrowthPct: 8 } })[0];
+    expect(sheet.aoa[2][0]).toBe("Crecimiento fijo para todos los kioscos: +8.0 %.");
   });
 });

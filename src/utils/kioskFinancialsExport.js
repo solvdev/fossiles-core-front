@@ -360,3 +360,162 @@ export const downloadElementPdf = async (element, { title, filename }) => {
   pdf.save(filename);
   return true;
 };
+
+/* ------------------------------------------------------------------ */
+/* Proyecciones (Excel)                                                */
+/* ------------------------------------------------------------------ */
+
+const MONTHS_SHORT = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
+const GROWTH_SOURCE = { SITE: "propio", COMPANY: "global", OVERRIDE: "fijo", NONE: "sin base" };
+const METHOD = { WEEKDAY: "Promedio por día de la semana", RUN_RATE: "Promedio diario del mes", INSUFFICIENT: "Sin historia suficiente" };
+
+const numOrBlank = (v) => (v === null || v === undefined || v === "" ? null : Number(v));
+/** Meta sugerida: la proyección redondeada al múltiplo de 100 más cercano (Q). */
+export const roundSuggestedGoal = (value) => (value === null || value === undefined ? null : Math.round(Number(value) / 100) * 100);
+const growthText = (factor) => {
+  const pct = (Number(factor) - 1) * 100;
+  return `${pct >= 0 ? "+" : ""}${pct.toFixed(1)} %`;
+};
+
+/**
+ * Hojas del Excel de proyecciones (función pura): cierre del mes, proyección del año siguiente, metas sugeridas y
+ * notas del método. Cada hoja trae `aoa`, `header` (índice de la fila de encabezado), `pctCols` (columnas en %) y
+ * `widths`.
+ */
+export const buildForecastSheets = ({ monthEnd, nextYear }) => {
+  const sheets = [];
+  const note = "Proyección sencilla y explicable: no considera feriados, promociones, cierres extraordinarios, cambios de precio ni inflación.";
+
+  if (monthEnd) {
+    const monthName = MONTHS_ES[monthEnd.month - 1] || "";
+    const aoa = [
+      ["CIERRE PROYECTADO DEL MES"],
+      [`${monthName} ${monthEnd.year} · datos al ${monthEnd.asOf} · ${monthEnd.daysElapsed} días completos, ${monthEnd.daysRemaining} por proyectar (incluye hoy)`],
+      ["Cada día esperado = promedio de ese día de la semana en las últimas 8 semanas. Rango del 80 %. P&L con los costos y tasas vigentes de cada kiosco."],
+      [note],
+      [],
+      ["Kiosco", "Ventas al día", "Cierre proyectado", "Rango bajo (80 %)", "Rango alto (80 %)", "Meta", "% meta al cierre", "Utilidad proyectada", "Margen proyectado", "Método"],
+    ];
+    const header = aoa.length - 1;
+    (monthEnd.sites || []).forEach((s) => {
+      aoa.push([
+        s.name, numOrBlank(s.actualToDate), numOrBlank(s.projected), numOrBlank(s.low), numOrBlank(s.high),
+        numOrBlank(s.goal), numOrBlank(s.goalPctProjected), numOrBlank(s.difference), numOrBlank(s.margin), METHOD[s.method] || s.method,
+      ]);
+    });
+    const t = monthEnd.totals || {};
+    aoa.push([
+      "Total", numOrBlank(t.actualToDate), numOrBlank(t.projected), null, null, numOrBlank(t.goal),
+      numOrBlank(t.goalPctProjected), numOrBlank(t.difference), numOrBlank(t.margin), null,
+    ]);
+    sheets.push({ name: "Cierre del mes", aoa, header, pctCols: [6, 8], widths: [30, 16, 18, 18, 18, 14, 16, 18, 16, 32] });
+  }
+
+  if (nextYear) {
+    const aoa = [
+      [`PROYECCIÓN DE VENTAS ${nextYear.targetYear}`],
+      [`Cada mes de ${nextYear.targetYear} = el mismo mes de ${nextYear.baseYear} (real; proyectado en el mes en curso y los que faltan) × el crecimiento. Datos al ${nextYear.asOf}.`],
+      [
+        nextYear.growthMode === "OVERRIDE"
+          ? `Crecimiento fijo para todos los kioscos: ${growthText(1 + Number(nextYear.overrideGrowthPct) / 100)}.`
+          : `Crecimiento por kiosco (mismas fechas contra ${nextYear.baseYear}); sin base comparable se usa el global: ${
+              nextYear.companyGrowthFactor === null || nextYear.companyGrowthFactor === undefined ? "—" : growthText(nextYear.companyGrowthFactor)
+            }.`,
+      ],
+      ["Los meses marcados con * se estimaron con el nivel del kiosco × el índice estacional (el kiosco aún no tenía ese mes el año anterior)."],
+      [note],
+      [],
+      ["Kiosco", "Crecimiento", "Origen", ...MONTHS_SHORT, `Total ${nextYear.targetYear}`, `Real + proy. ${nextYear.baseYear}`, "Utilidad proyectada", "Margen proyectado"],
+    ];
+    const header = aoa.length - 1;
+    (nextYear.sites || []).forEach((s) => {
+      aoa.push([
+        s.name, numOrBlank(s.growthFactor) === null ? null : Number(s.growthFactor) - 1,
+        `${GROWTH_SOURCE[s.growthSource] || s.growthSource}${s.growthCapped ? " (limitado)" : ""}`,
+        ...(s.months || []).map((m) => numOrBlank(m.sales)),
+        numOrBlank(s.sales), numOrBlank(s.baseSales), numOrBlank(s.difference), numOrBlank(s.margin),
+      ]);
+    });
+    const t = nextYear.totals;
+    aoa.push([
+      "Total", null, null, ...((t && t.months) || []).map((m) => numOrBlank(m.sales)),
+      t ? numOrBlank(t.sales) : null, t ? numOrBlank(t.baseSales) : null, t ? numOrBlank(t.difference) : null, t ? numOrBlank(t.margin) : null,
+    ]);
+    // Los meses estimados llevan * en una columna aparte de notas (el valor se mantiene numérico)
+    const estimatedNotes = (nextYear.sites || [])
+      .filter((s) => (s.months || []).some((m) => m.estimated))
+      .map((s) => `${s.name}: ${(s.months || []).filter((m) => m.estimated).map((m) => MONTHS_SHORT[m.month - 1]).join(", ")}`);
+    if (estimatedNotes.length) {
+      aoa.push([]);
+      aoa.push(["* Meses estimados"]);
+      estimatedNotes.forEach((line) => aoa.push([line]));
+    }
+    if (nextYear.skippedSites && nextYear.skippedSites.length) {
+      aoa.push([]);
+      aoa.push([`Sin historia suficiente (menos de 2 meses), no se proyectan: ${nextYear.skippedSites.join(", ")}`]);
+    }
+    sheets.push({
+      name: `Proyección ${nextYear.targetYear}`, aoa, header, pctCols: [1, 3 + 12 + 3],
+      widths: [30, 13, 16, ...Array(12).fill(13), 16, 18, 18, 16],
+    });
+
+    const goals = [
+      [`METAS SUGERIDAS ${nextYear.targetYear}`],
+      [`Proyección de ventas redondeada a Q100. Punto de partida para capturar en Metas de Kioskos; revísala kiosco por kiosco.`],
+      [],
+      ["Kiosco", ...MONTHS_SHORT, `Total ${nextYear.targetYear}`],
+    ];
+    const goalsHeader = goals.length - 1;
+    const totalsByMonth = new Array(12).fill(0);
+    (nextYear.sites || []).forEach((s) => {
+      const rounded = (s.months || []).map((m) => roundSuggestedGoal(m.sales));
+      rounded.forEach((v, i) => {
+        totalsByMonth[i] += v || 0;
+      });
+      goals.push([s.name, ...rounded, rounded.reduce((a, v) => a + (v || 0), 0)]);
+    });
+    goals.push(["Total", ...totalsByMonth, totalsByMonth.reduce((a, v) => a + v, 0)]);
+    sheets.push({ name: "Metas sugeridas", aoa: goals, header: goalsHeader, pctCols: [], widths: [30, ...Array(12).fill(12), 16] });
+  }
+  return sheets;
+};
+
+/** Escribe y descarga el Excel de proyecciones. */
+export const exportForecastExcel = ({ monthEnd, nextYear }) => {
+  const sheets = buildForecastSheets({ monthEnd, nextYear });
+  const wb = XLSX.utils.book_new();
+  sheets.forEach((sheet) => {
+    const ws = XLSX.utils.aoa_to_sheet(sheet.aoa);
+    sheet.aoa.forEach((row, r) => {
+      row.forEach((value, c) => {
+        const addr = XLSX.utils.encode_cell({ r, c });
+        const cell = ws[addr];
+        if (!cell) return;
+        if (r === 0) {
+          cell.s = { font: { ...boldFont, sz: 14 } };
+        } else if (r === sheet.header) {
+          cell.s = { font: boldFont, fill: fillGray, border: thinBorder, alignment: { horizontal: c === 0 ? "left" : "center", wrapText: true } };
+        } else if (r > sheet.header && row.length > 1) {
+          const isTotal = row[0] === "Total";
+          const style = { border: thinBorder, font: isTotal ? boldFont : baseFont };
+          if (cell.t === "n") {
+            cell.z = sheet.pctCols.includes(c) ? pctFmt : moneyFmt;
+            style.alignment = { horizontal: "right" };
+          }
+          if (isTotal) style.fill = fillLight;
+          cell.s = style;
+        } else if (r > 0 && r < sheet.header) {
+          cell.s = { font: { ...baseFont, italic: true, color: { rgb: "666666" } } };
+        }
+      });
+    });
+    ws["!cols"] = sheet.widths.map((wch) => ({ wch }));
+    ws["!rows"] = [];
+    ws["!rows"][sheet.header] = { hpt: 32 };
+    XLSX.utils.book_append_sheet(wb, ws, sheet.name.slice(0, 31));
+  });
+  const year = nextYear ? nextYear.targetYear : monthEnd ? monthEnd.year : "";
+  const fileName = `Finanzas_Kioscos_Proyeccion_${year}.xlsx`;
+  XLSX.writeFile(wb, fileName);
+  return fileName;
+};

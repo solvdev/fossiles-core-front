@@ -1,5 +1,7 @@
 import {
   UNASSIGNED_SUPERVISOR,
+  formatGrowth,
+  goalOutlook,
   aggregateGoalPct,
   applySupervisorSelection,
   buildSupervisorOptions,
@@ -424,5 +426,22 @@ describe("texto del modo de comparación", () => {
     expect(describeComparison({ ...base, fromMonth: 3, toMonth: 3, mode: "FULL_MONTH", today: "2026-09-30" })).toContain(
       "Meses completos de marzo:"
     );
+  });
+});
+
+describe("proyecciones", () => {
+  test("formatGrowth: factor año sobre año a porcentaje con signo", () => {
+    expect(formatGrowth(1.1)).toBe("+10.0 %");
+    expect(formatGrowth(0.95)).toBe("-5.0 %");
+    expect(formatGrowth("1.0000")).toBe("+0.0 %");
+  });
+
+  test("goalOutlook: la comisión de venta se activa al 70 % de la meta", () => {
+    expect(goalOutlook(null).key).toBe("nogoal");
+    expect(goalOutlook(1.02)).toMatchObject({ key: "met", cls: "good" });
+    expect(goalOutlook(1)).toMatchObject({ key: "met" });
+    expect(goalOutlook(0.85)).toMatchObject({ key: "commission", cls: "mid" });
+    expect(goalOutlook(0.7)).toMatchObject({ key: "commission" });
+    expect(goalOutlook(0.69)).toMatchObject({ key: "below", cls: "bad" });
   });
 });

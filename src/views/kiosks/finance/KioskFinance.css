@@ -184,6 +184,7 @@
 .kfin .kfin-table--matrix th, .kfin .kfin-table--matrix td { padding: 4px 8px; }
 .kfin .kfin-table--matrix .kfin-wd { color: var(--kfin-muted); font-weight: 400; font-size: 0.68rem; }
 .kfin .kfin-table--matrix .kfin-strongnum { font-weight: 700; }
+.kfin .kfin-table--simple .kfin-strongnum { font-weight: 700; }
 .kfin .kfin-table--matrix .kfin-cum { color: var(--kfin-ink-2); }
 .kfin .kfin-table--matrix .kfin-zero { font-style: italic; box-shadow: inset 0 -2px 0 var(--kfin-mid-bg); }
 .kfin .kfin-table--matrix .kfin-heat-dark { color: #fff; }
