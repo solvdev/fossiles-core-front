@@ -609,6 +609,29 @@ export const applySupervisorSelection = (siteIds, previous, next) => {
 };
 
 /* ------------------------------------------------------------------ */
+/* Proyecciones                                                        */
+/* ------------------------------------------------------------------ */
+
+export const GROWTH_SOURCE_TEXT = { SITE: "propio", COMPANY: "global", OVERRIDE: "fijo", NONE: "sin base" };
+
+/** Factor año sobre año a texto: 1.1 -> "+10.0 %"; 0.95 -> "-5.0 %". */
+export const formatGrowth = (factor) => {
+  const pct = (Number(factor) - 1) * 100;
+  return `${pct >= 0 ? "+" : ""}${pct.toFixed(1)} %`;
+};
+
+/**
+ * Cierre proyectado frente a la meta. La comisión de venta se activa al llegar al 70 % de la meta, por eso ese es el
+ * umbral intermedio. cls = clase de la pastilla (good | mid | bad | neutral).
+ */
+export const goalOutlook = (pct) => {
+  if (pct === null || pct === undefined) return { key: "nogoal", text: "Sin meta", cls: "neutral" };
+  if (pct >= 1) return { key: "met", text: "Cumple la meta", cls: "good" };
+  if (pct >= 0.7) return { key: "commission", text: "Sobre 70 % (comisión)", cls: "mid" };
+  return { key: "below", text: "Bajo 70 % de la meta", cls: "bad" };
+};
+
+/* ------------------------------------------------------------------ */
 /* Texto del modo de comparación                                       */
 /* ------------------------------------------------------------------ */
 

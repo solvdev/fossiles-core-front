@@ -190,6 +190,22 @@ export const updateKioskSettings = async (payload) => {
   return parseJson(response, "No se pudo guardar la configuración.");
 };
 
+/* ------------------------------- Proyecciones ------------------------------- */
+
+/** Cierre proyectado del mes en curso por kiosco. asOf (yyyy-MM-dd) opcional: simula otro día. */
+export const getKioskMonthEndForecast = async ({ siteIds, asOf } = {}) => {
+  const response = await fetch(`${BASE}/forecast/month-end${toQuery({ siteIds, asOf })}`, { headers: jsonHeaders() });
+  return parseJson(response, "No se pudo calcular el cierre proyectado del mes.");
+};
+
+/** Proyección del año siguiente. growthPct (opcional, p. ej. 8) reemplaza el crecimiento de todos los kioscos. */
+export const getKioskNextYearForecast = async ({ siteIds, growthPct, targetYear, asOf } = {}) => {
+  const response = await fetch(`${BASE}/forecast/next-year${toQuery({ siteIds, growthPct, targetYear, asOf })}`, {
+    headers: jsonHeaders(),
+  });
+  return parseJson(response, "No se pudo calcular la proyección del año siguiente.");
+};
+
 /* -------------------------------- Reportes -------------------------------- */
 
 /** Supervisoras (módulo Supervisoras y kioscos) con los sitios de sus kioscos: { supervisors, unassignedSiteIds }. */

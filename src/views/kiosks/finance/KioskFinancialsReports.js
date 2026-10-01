@@ -3,19 +3,22 @@ import { Alert, Nav, NavItem, NavLink, Spinner, TabContent, TabPane } from "reac
 import {
   getKioskConfig,
   getKioskDailyMatrix,
+  getKioskMonthEndForecast,
+  getKioskNextYearForecast,
   getKioskPnl,
   getKioskSites,
   getKioskSupervisors,
 } from "services/kioskFinancialsService";
 import { MONTHS_ES } from "utils/financeFormat";
 import { getTodayYmdGuatemala } from "utils/dateTimeHelper";
-import { downloadElementPdf, exportOriginalSheetExcel } from "utils/kioskFinancialsExport";
+import { downloadElementPdf, exportForecastExcel, exportOriginalSheetExcel } from "utils/kioskFinancialsExport";
 import FinanceFilters from "./reports/FinanceFilters";
 import { KButton } from "./reports/common";
 import SummaryTab from "./reports/SummaryTab";
 import PnlTab from "./reports/PnlTab";
 import DailyMatrixTab from "./reports/DailyMatrixTab";
 import GoalsTab from "./reports/GoalsTab";
+import ForecastTab from "./reports/ForecastTab";
 import useAsyncData from "./reports/useAsyncData";
 import { useScrollAreas } from "./reports/scrollAreas";
 import { normalizeSiteIds, orderFixedCategories } from "./reports/financeReportHelpers";
@@ -26,6 +29,7 @@ const TABS = [
   { id: "pnl", label: "P&L por kiosco" },
   { id: "diario", label: "Ventas diarias" },
   { id: "metas", label: "Metas y equilibrio" },
+  { id: "proyeccion", label: "Proyección" },
 ];
 
 const initialFilters = () => {
@@ -93,6 +97,15 @@ export default function KioskFinancialsReports() {
     setBusy("xlsx");
     setNotice(null);
     try {
+      if (activeTab === "proyeccion") {
+        const [monthEnd, nextYear] = await Promise.all([
+          getKioskMonthEndForecast({ siteIds: filters.siteIds }),
+          getKioskNextYearForecast({ siteIds: filters.siteIds }),
+        ]);
+        const forecastFile = exportForecastExcel({ monthEnd, nextYear });
+        setNotice({ color: "success", text: `Excel generado: ${forecastFile}` });
+        return;
+      }
       const { year, siteIds } = filters;
       const [matrix, pnl, config] = await Promise.all([
         getKioskDailyMatrix({ year, month: exportMonth, siteIds }),
@@ -115,7 +128,9 @@ export default function KioskFinancialsReports() {
     try {
       const tab = TABS.find((t) => t.id === activeTab);
       const period =
-        activeTab === "resumen"
+        activeTab === "proyeccion"
+          ? "proyección"
+          : activeTab === "resumen"
           ? `${MONTHS_ES[filters.fromMonth - 1]}–${MONTHS_ES[filters.toMonth - 1]} ${filters.year} vs ${filters.baseYear}`
           : `${MONTHS_ES[filters.month - 1]} ${filters.year}`;
       await downloadElementPdf(tabsRef.current, {
@@ -147,7 +162,8 @@ export default function KioskFinancialsReports() {
               disabled={!!busy}
               title="Hoja con el layout original de los Excel de ventas"
             >
-              {busy === "xlsx" ? <Spinner size="sm" /> : null} Exportar Excel · {MONTHS_ES[exportMonth - 1]} {filters.year}
+              {busy === "xlsx" ? <Spinner size="sm" /> : null} Exportar Excel ·{" "}
+              {activeTab === "proyeccion" ? "Proyección" : `${MONTHS_ES[exportMonth - 1]} ${filters.year}`}
             </KButton>
             <KButton large onClick={handlePdf} disabled={!!busy}>
               {busy === "pdf" ? <Spinner size="sm" /> : null} Exportar PDF
@@ -206,6 +222,7 @@ export default function KioskFinancialsReports() {
               </TabPane>
               <TabPane tabId="diario">{activeTab === "diario" && <DailyMatrixTab filters={filters} />}</TabPane>
               <TabPane tabId="metas">{activeTab === "metas" && <GoalsTab filters={filters} />}</TabPane>
+              <TabPane tabId="proyeccion">{activeTab === "proyeccion" && <ForecastTab filters={filters} />}</TabPane>
             </TabContent>
           </div>
         </div>

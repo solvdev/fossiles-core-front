@@ -67,8 +67,11 @@ export default function FinanceFilters({
     ? describeComparison({ ...filters, today: getTodayYmdGuatemala() })
     : "";
 
+  const isForecast = tab === "proyeccion";
+
   return (
     <div className="kfin-filters kfin-noprint" role="search" aria-label="Filtros del reporte">
+      {!isForecast && (
       <div className="kfin-field">
         <label htmlFor="kfin-year">Año</label>
         <Input
@@ -83,8 +86,9 @@ export default function FinanceFilters({
           ))}
         </Input>
       </div>
+      )}
 
-      {isSummary ? (
+      {isForecast ? null : isSummary ? (
         <>
           <div className="kfin-field">
             <label htmlFor="kfin-base">Año base</label>
