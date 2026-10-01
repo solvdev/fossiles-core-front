@@ -32,7 +32,7 @@ export const FINANCE_GLOSSARY = [
   {
     term: "Comisión de venta",
     definition:
-      "Desde 2026: Ventas × % de comisión de venta, y solo si el kiosco llega al 70 % de su meta (si no llega, es 0). Hasta 2025: (Ventas ÷ 1.12) × % de comisión de venta, sin condición.",
+      "(Ventas ÷ 1.12) × % de comisión de venta. Desde 2026 solo se cobra si el kiosco llega al 70 % de su meta; si no llega, es 0. Hasta 2025 se cobraba siempre.",
   },
   { term: "Comisión de tarjeta", definition: "Ventas × % de comisión de tarjeta." },
   { term: "IVA", definition: "Ventas × % de IVA (carga de IVA sobre las ventas)." },
