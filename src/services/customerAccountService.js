@@ -78,6 +78,39 @@ export const searchReceivableDocuments = async ({
   return response.json();
 };
 
+/** Cartera por documento (cargos, abonos, créditos, saldo) + anexo opcional de movimientos. */
+export const getCustomerAccountPortfolioReport = async ({
+  search = "",
+  orderKind = "OPV",
+  onlyOpen = false,
+  regionCode,
+  routeNumber,
+  routeLocationCode,
+  includeMovements = false,
+  movementsFrom,
+  movementsTo,
+} = {}) => {
+  const params = new URLSearchParams();
+  if (search) params.set("search", search);
+  params.set("orderKind", orderKind);
+  if (onlyOpen) params.set("onlyOpen", "true");
+  if (regionCode) params.set("regionCode", regionCode);
+  if (routeNumber != null && routeNumber !== "") params.set("routeNumber", String(routeNumber));
+  if (routeLocationCode) params.set("routeLocationCode", routeLocationCode);
+  if (includeMovements) {
+    params.set("includeMovements", "true");
+    if (movementsFrom) params.set("movementsFrom", movementsFrom);
+    if (movementsTo) params.set("movementsTo", movementsTo);
+  }
+
+  const response = await fetch(`${API_URL}/customer-accounts/portfolio-report?${params}`, {
+    method: "GET",
+    headers: { "Content-Type": "application/json", ...getAuthHeader() },
+  });
+  if (!response.ok) await parseError(response, "Error al generar la cartera de clientes");
+  return response.json();
+};
+
 export const getCustomerAccountPrintReport = async ({
   search = "",
   luisFelipeOnly = true,
