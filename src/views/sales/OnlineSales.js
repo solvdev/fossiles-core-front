@@ -1514,6 +1514,7 @@ function OnlineSales() {
           colorName: it.colorName,
           size: it.size || "",
           quantity: parseInt(it.quantity, 10) || 1,
+          maxQuantity: parseInt(it.quantity, 10) || 1,
           selected: true,
         }))
       : [{
@@ -1525,6 +1526,7 @@ function OnlineSales() {
           colorName: sale.colorName,
           size: sale.size || "",
           quantity: parseInt(sale.quantity, 10) || 1,
+          maxQuantity: parseInt(sale.quantity, 10) || 1,
           selected: true,
         }];
     setExchangeItems(items.filter(i => i.productId));
@@ -1550,15 +1552,19 @@ function OnlineSales() {
         shippingCarrier: exchangeForm.shippingCarrier,
         guideNumber: exchangeForm.guideNumber || "",
         observations: exchangeForm.observations || "",
-        items: selected.map((it) => ({
-          productId: it.productId,
-          colorId: it.colorId ?? null,
-          size: it.size || "",
-          quantity: parseInt(it.quantity, 10) || 1,
-        })),
+        items: selected.map((it) => {
+          const max = it.maxQuantity || 1;
+          const qty = parseInt(it.quantity, 10) || 1;
+          return {
+            productId: it.productId,
+            colorId: it.colorId ?? null,
+            size: it.size || "",
+            quantity: Math.min(Math.max(qty, 1), max),
+          };
+        }),
       });
       setExchangeCreatedSale(created);
-      showNotification(`CAMBIO creado · ${created.shipmentNumber || created.id}`);
+      showNotification(`CAMBIO creado · ${created.shipmentNumber || created.id}. Unidades en Devoluciones.`);
     } catch (e) {
       setError(e.message || "No se pudo crear el CAMBIO.");
     } finally {
@@ -4510,10 +4516,16 @@ function OnlineSales() {
                       <Input
                         type="number"
                         min={1}
+                        max={it.maxQuantity || 1}
                         value={it.quantity}
                         onChange={(e) => {
                           const next = parseInt(e.target.value, 10);
-                          setExchangeItems(prev => prev.map(p => p.key === it.key ? { ...p, quantity: Number.isFinite(next) ? next : 1 } : p));
+                          setExchangeItems(prev => prev.map(p => {
+                            if (p.key !== it.key) return p;
+                            const max = p.maxQuantity || 1;
+                            const bounded = Number.isFinite(next) ? Math.min(Math.max(next, 1), max) : 1;
+                            return { ...p, quantity: bounded };
+                          }));
                         }}
                       />
                     </td>
@@ -4526,6 +4538,9 @@ function OnlineSales() {
           {exchangeCreatedSale && (
             <Alert color="success" className="mt-3">
               CAMBIO creado. ENVL: <strong>{exchangeCreatedSale.shipmentNumber || "—"}</strong>
+              <div className="mt-1">
+                Esas unidades entraron a bodega Devoluciones. El envío nuevo queda en Q0.
+              </div>
               <div className="mt-2">
                 <Button color="info" size="sm" onClick={() => void downloadExchangePdf(exchangeCreatedSale)}>
                   Descargar PDF

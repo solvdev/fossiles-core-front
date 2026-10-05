@@ -760,15 +760,9 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
       return { ...line, unitPrice: unit, lineTotal };
     });
     const productGiven = sumGivenLineAmounts(editedGivenItems);
-    const packagingCredit = Number(
-      preview.packagingCreditAmount != null
-        ? preview.packagingCreditAmount
-        : preview.packagingReturnedAmount || 0
-    );
     const settlement = applyExchangePackagingCredit({
       productReturnedAmount: productReturned,
       productGivenAmount: productGiven,
-      packagingCredit,
     });
     return {
       ...preview,
@@ -1401,6 +1395,23 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
             <>
               <div className="kiosk-exchange-summary">
                 <div className="kiosk-exchange-summary-card">
+                  <h6>Ingreso</h6>
+                  <p>{displayPreview.returned.productCode} · {displayPreview.returned.productName}</p>
+                  <p>Cant. {formatQty(displayPreview.returned.quantity)}</p>
+                  {canEditPrices ? (
+                    <FormGroup className="mb-2 mt-2">
+                      <span className="kiosk-exchange-label">Precio unitario</span>
+                      <Input
+                        type="number"
+                        min="0.01"
+                        step="0.01"
+                        value={editReturnedUnitPrice}
+                        onChange={(e) => setEditReturnedUnitPrice(e.target.value)}
+                      />
+                    </FormGroup>
+                  ) : null}
+                  <strong>{formatCurrency(displayPreview.returnedAmount)}</strong>
+                  {Number(displayPreview.packagingCreditAmount || 0) > 0 ? (
                   <h6>Ingreso ({displayPreview.returnedItems.length})</h6>
                   {displayPreview.returnedItems.map((line) => {
                     const key = returnedLineKey(line);
@@ -1441,8 +1452,7 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
                     </p>
                   ) : Number(displayPreview.packagingCreditAmount || 0) > 0 ? (
                     <p className="kiosk-exchange-help mb-0 mt-1">
-                      Empaque de factura {formatCurrency(displayPreview.packagingCreditAmount)} no entra: los
-                      productos tienen el mismo precio.
+                      Empaque de factura {formatCurrency(displayPreview.packagingCreditAmount)} no entra en cambios.
                     </p>
                   ) : null}
                 </div>
