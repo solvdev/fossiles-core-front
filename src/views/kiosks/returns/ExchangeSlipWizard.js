@@ -1395,23 +1395,6 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
             <>
               <div className="kiosk-exchange-summary">
                 <div className="kiosk-exchange-summary-card">
-                  <h6>Ingreso</h6>
-                  <p>{displayPreview.returned.productCode} · {displayPreview.returned.productName}</p>
-                  <p>Cant. {formatQty(displayPreview.returned.quantity)}</p>
-                  {canEditPrices ? (
-                    <FormGroup className="mb-2 mt-2">
-                      <span className="kiosk-exchange-label">Precio unitario</span>
-                      <Input
-                        type="number"
-                        min="0.01"
-                        step="0.01"
-                        value={editReturnedUnitPrice}
-                        onChange={(e) => setEditReturnedUnitPrice(e.target.value)}
-                      />
-                    </FormGroup>
-                  ) : null}
-                  <strong>{formatCurrency(displayPreview.returnedAmount)}</strong>
-                  {Number(displayPreview.packagingCreditAmount || 0) > 0 ? (
                   <h6>Ingreso ({displayPreview.returnedItems.length})</h6>
                   {displayPreview.returnedItems.map((line) => {
                     const key = returnedLineKey(line);
