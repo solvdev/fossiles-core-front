@@ -9,7 +9,7 @@ import { getProducts } from "../../services/productService";
 import { getColors } from "../../services/colorService";
 import {
   createOnlineSale, updateOnlineSale, deleteOnlineSale,
-  getOnlineSalesByDate, getOnlineSalesByDateRange, getDailySummary,
+  getOnlineSalesByDate, getOnlineSalesByDateRange, getOnlineSalesByShipment, getDailySummary,
   getEligibleForProduction, createProductionOrderFromSales, processFulfillment,
   previewFulfillment, getSaleItemsPreview, resolveMixedSale,
   importOnlineSales, returnOnlineSale, voidOnlineSale, cancelOnlineSaleDispatch, registerOnlineSaleShipment,
@@ -611,6 +611,14 @@ function OnlineSales() {
   const [returnEvents, setReturnEvents] = useState([]);
   const [loadingReturns, setLoadingReturns] = useState(false);
   const [returnsError, setReturnsError] = useState("");
+  const [returnsDocType, setReturnsDocType] = useState("");
+  const [lookupShipment, setLookupShipment] = useState("");
+  const [lookupFrom, setLookupFrom] = useState(() => dateDaysAgo(7));
+  const [lookupTo, setLookupTo] = useState(() => today());
+  const [lookupSales, setLookupSales] = useState([]);
+  const [lookupLoading, setLookupLoading] = useState(false);
+  const [lookupError, setLookupError] = useState("");
+  const [lookupSearched, setLookupSearched] = useState(false);
 
   // ─── Load inicial ───────────────────────────────────────────────
 
@@ -759,14 +767,63 @@ function OnlineSales() {
     }
   };
 
+  const canReturnOrExchange = (sale) => sale?.status === "ENVIADO" || sale?.status === "ENTREGADO";
+
+  const saleProductLabel = (sale) => {
+    const items = Array.isArray(sale?.items) && sale.items.length > 0
+      ? sale.items
+      : (sale?.productCode || sale?.productName ? [sale] : []);
+    if (items.length === 0) return "—";
+    const first = [items[0].productCode, items[0].productName].filter(Boolean).join(" ");
+    return items.length > 1 ? `${first || "Producto"} +${items.length - 1}` : (first || "—");
+  };
+
+  const isExchangeDocument = (reason) => String(reason || "").trim().toUpperCase().startsWith("CAMBIO");
+
+  const searchSalesForAction = async () => {
+    const shipment = lookupShipment.trim();
+    if (!shipment && (!lookupFrom || !lookupTo)) {
+      setLookupError("Indica el número de envío o un rango de fechas.");
+      return;
+    }
+    if (!shipment && lookupFrom > lookupTo) {
+      setLookupError("La fecha inicial no puede ser posterior a la final.");
+      return;
+    }
+    try {
+      setLookupLoading(true);
+      setLookupError("");
+      setLookupSearched(true);
+      const data = shipment
+        ? await getOnlineSalesByShipment(shipment)
+        : await getOnlineSalesByDateRange(lookupFrom, lookupTo);
+      const rows = Array.isArray(data) ? data : [];
+      setLookupSales(shipment ? rows : rows.filter(canReturnOrExchange));
+    } catch (e) {
+      setLookupError(e.message || "No se pudo buscar la venta.");
+      setLookupSales([]);
+    } finally {
+      setLookupLoading(false);
+    }
+  };
+
+  const filteredReturnEvents = useMemo(() => {
+    const events = Array.isArray(returnEvents) ? returnEvents : [];
+    if (returnsDocType === "CAMBIO") return events.filter((e) => isExchangeDocument(e.returnReason));
+    if (returnsDocType === "DEVOLUCION") return events.filter((e) => !isExchangeDocument(e.returnReason));
+    return events;
+  }, [returnEvents, returnsDocType]);
+
   const filteredReturns = useMemo(() => {
     let rows = Array.isArray(returnsRows) ? returnsRows : [];
     if (returnsCondition) {
       const cond = String(returnsCondition).toUpperCase();
       rows = rows.filter((r) => String(r?.itemCondition || "").toUpperCase() === cond);
     }
+    if (returnsDocType === "CAMBIO") rows = rows.filter((r) => isExchangeDocument(r.returnReason));
+    if (returnsDocType === "DEVOLUCION") rows = rows.filter((r) => !isExchangeDocument(r.returnReason));
     return rows;
-  }, [returnsRows, returnsCondition]);
+  }, [returnsRows, returnsCondition, returnsDocType]);
 
   const returnsTotals = useMemo(() => {
     const rows = filteredReturns || [];
@@ -1431,6 +1488,8 @@ function OnlineSales() {
       showNotification("Venta marcada como DEVOLUCIÓN. Productos ingresados al inventario de devoluciones.");
       setShowReturnModal(false);
       loadSales();
+      if (lookupSearched) searchSalesForAction();
+      if (activeTab === "devoluciones") loadReturns();
     } catch (e) {
       setError(e.message);
     }
@@ -1565,6 +1624,8 @@ function OnlineSales() {
       });
       setExchangeCreatedSale(created);
       showNotification(`CAMBIO creado · ${created.shipmentNumber || created.id}. Unidades en Devoluciones.`);
+      if (lookupSearched) searchSalesForAction();
+      if (activeTab === "devoluciones") loadReturns();
     } catch (e) {
       setError(e.message || "No se pudo crear el CAMBIO.");
     } finally {
@@ -2572,7 +2633,7 @@ function OnlineSales() {
         <NavItem>
           <NavLink className={activeTab === "devoluciones" ? "active" : ""} onClick={() => setActiveTab("devoluciones")}
             style={{ cursor: "pointer" }}>
-            ↩ Devoluciones
+            ↩ Cambios y devoluciones
           </NavLink>
         </NavItem>
         <NavItem>
@@ -2812,21 +2873,21 @@ function OnlineSales() {
                               <i className="nc-icon nc-ruler-pencil" />
                             </Button>{" "}
                             {(sale.status === "ENVIADO" || sale.status === "ENTREGADO") && (
-                              <><Button color="dark" size="sm" className="btn-icon btn-round" title="Devolución"
-                                onClick={() => openReturnModal(sale.id)} style={{ padding: "3px 7px" }}>
-                                <i className="nc-icon nc-refresh-69" />
-                              </Button>{" "}</>
+                              <>
+                                <Button color="primary" size="sm" className="btn-icon btn-round" title="Registrar CAMBIO (Q0)"
+                                  onClick={() => openExchangeModal(sale)} style={{ padding: "3px 7px" }}>
+                                  <i className="nc-icon nc-send" />
+                                </Button>{" "}
+                                <Button color="dark" size="sm" className="btn-icon btn-round" title="Devolución"
+                                  onClick={() => openReturnModal(sale.id)} style={{ padding: "3px 7px" }}>
+                                  <i className="nc-icon nc-refresh-69" />
+                                </Button>{" "}
+                              </>
                             )}
                             {sale.status === "ENVIADO" && (
                               <><Button color="warning" size="sm" className="btn-icon btn-round" title="Anular envío (stock → devoluciones)"
                                 onClick={() => openCancelDispatchModal(sale.id)} style={{ padding: "3px 7px" }}>
                                 <i className="nc-icon nc-simple-remove" />
-                              </Button>{" "}</>
-                            )}
-                            {sale.status === "DEVOLUCION" && (
-                              <><Button color="primary" size="sm" className="btn-icon btn-round" title="Registrar CAMBIO (Q0)"
-                                onClick={() => openExchangeModal(sale)} style={{ padding: "3px 7px" }}>
-                                <i className="nc-icon nc-send" />
                               </Button>{" "}</>
                             )}
                             {sale.status !== "DEVOLUCION" && sale.status !== "ANULADA"
@@ -2986,12 +3047,98 @@ function OnlineSales() {
 
         {/* ═══ TAB DEVOLUCIONES ═══ */}
         <TabPane tabId="devoluciones">
+          <Card className="mb-3">
+            <CardHeader>
+              <CardTitle tag="h4" className="mb-0">Cambios y devoluciones</CardTitle>
+              <small className="text-muted d-block">
+                Busca el envío por número o por fecha. Cambio reenvía las líneas en Q0. Devolución cierra el pedido completo.
+              </small>
+            </CardHeader>
+            <CardBody>
+              {lookupError && <Alert color="danger" toggle={() => setLookupError("")}>{lookupError}</Alert>}
+              <Row className="align-items-end">
+                <Col md="3">
+                  <Label className="mb-0" style={{ fontSize: 12 }}>Número de envío</Label>
+                  <Input
+                    bsSize="sm"
+                    value={lookupShipment}
+                    placeholder="Ej. ENVL-00105"
+                    onChange={(e) => setLookupShipment(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter") searchSalesForAction(); }}
+                  />
+                </Col>
+                <Col md="2">
+                  <Label className="mb-0" style={{ fontSize: 12 }}>Desde</Label>
+                  <Input type="date" bsSize="sm" value={lookupFrom} onChange={(e) => setLookupFrom(e.target.value)} />
+                </Col>
+                <Col md="2">
+                  <Label className="mb-0" style={{ fontSize: 12 }}>Hasta</Label>
+                  <Input type="date" bsSize="sm" value={lookupTo} onChange={(e) => setLookupTo(e.target.value)} />
+                </Col>
+                <Col md="2">
+                  <Button color="primary" size="sm" onClick={searchSalesForAction} disabled={lookupLoading}>
+                    {lookupLoading ? <><Spinner size="sm" /> Buscando...</> : "Buscar"}
+                  </Button>
+                </Col>
+              </Row>
+              <small className="text-muted d-block mt-2">
+                Si escribes el número de envío, la fecha no se usa. Por fecha solo se listan ventas ENVIADO o ENTREGADO.
+              </small>
+
+              {lookupSearched && (
+                <div className="mt-3" style={{ overflowX: "auto" }}>
+                  {lookupSales.length === 0 ? (
+                    <Alert color="info" className="mb-0">No hay ventas para esa búsqueda.</Alert>
+                  ) : (
+                    <Table bordered responsive size="sm" className="mb-0">
+                      <thead className="text-primary">
+                        <tr>
+                          <th>Envío</th>
+                          <th>Fecha</th>
+                          <th>Cliente</th>
+                          <th>Productos</th>
+                          <th>Estado</th>
+                          <th style={{ width: 220 }}>Acciones</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {lookupSales.map((sale) => (
+                          <tr key={sale.id}>
+                            <td><strong>{sale.shipmentNumber || "—"}</strong></td>
+                            <td>{sale.saleDate || "—"}</td>
+                            <td>{sale.customerName || "—"}</td>
+                            <td>{saleProductLabel(sale)}</td>
+                            <td><Badge color="info">{sale.status || "—"}</Badge></td>
+                            <td style={{ whiteSpace: "nowrap" }}>
+                              {canReturnOrExchange(sale) ? (
+                                <>
+                                  <Button color="primary" size="sm" className="mr-1" onClick={() => openExchangeModal(sale)}>
+                                    Cambio
+                                  </Button>
+                                  <Button color="dark" size="sm" onClick={() => openReturnModal(sale.id)}>
+                                    Devolución
+                                  </Button>
+                                </>
+                              ) : (
+                                <span className="text-muted">Solo ENVIADO o ENTREGADO</span>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </Table>
+                  )}
+                </div>
+              )}
+            </CardBody>
+          </Card>
+
           <Card>
             <CardHeader>
               <Row className="align-items-center">
-                <Col md="4">
-                  <CardTitle tag="h4" className="mb-0">Devoluciones (Ventas en línea)</CardTitle>
-                  <small className="text-muted d-block">Historial + acceso al inventario de DEVOLUCIÓN</small>
+                <Col md="3">
+                  <CardTitle tag="h4" className="mb-0">Historial</CardTitle>
+                  <small className="text-muted d-block">Documentos que ya ingresaron a Devoluciones</small>
                 </Col>
                 <Col md="2">
                   <Label className="mb-0" style={{ fontSize: 12 }}>Desde</Label>
@@ -3004,6 +3151,15 @@ function OnlineSales() {
                     onChange={(e) => setReturnsEndDate(e.target.value)} />
                 </Col>
                 <Col md="2">
+                  <Label className="mb-0" style={{ fontSize: 12 }}>Tipo</Label>
+                  <Input type="select" bsSize="sm" value={returnsDocType}
+                    onChange={(e) => setReturnsDocType(e.target.value)}>
+                    <option value="">Todos</option>
+                    <option value="CAMBIO">Cambio</option>
+                    <option value="DEVOLUCION">Devolución</option>
+                  </Input>
+                </Col>
+                <Col md="1">
                   <Label className="mb-0" style={{ fontSize: 12 }}>Condición</Label>
                   <Input type="select" bsSize="sm" value={returnsCondition}
                     onChange={(e) => setReturnsCondition(e.target.value)}>
@@ -3046,7 +3202,7 @@ function OnlineSales() {
                 </Col>
                 <Col md="6" className="text-right">
                   <small className="text-muted d-block">
-                    Tip: registra la devolución desde “Ventas del día” y aquí queda el historial. El stock se consulta en Inventarios → Productos → DEVOLUCIÓN.
+                    El stock se consulta en Inventarios → Productos → DEVOLUCIÓN.
                   </small>
                 </Col>
               </Row>
@@ -3055,15 +3211,16 @@ function OnlineSales() {
                 <div className="text-center py-4"><Spinner /> <div className="mt-2">Cargando devoluciones...</div></div>
               ) : (
                 <>
-                  {returnEvents.length === 0 ? (
-                    <Alert color="info">No hay eventos de devolución en el rango seleccionado.</Alert>
+                  {filteredReturnEvents.length === 0 ? (
+                    <Alert color="info">No hay documentos en el rango seleccionado.</Alert>
                   ) : (
                     <div className="mb-4" style={{ overflowX: "auto" }}>
-                      <h6 className="mb-2">Documentos de devolución</h6>
+                      <h6 className="mb-2">Documentos</h6>
                       <Table bordered responsive size="sm">
                         <thead className="text-primary">
                           <tr>
                             <th style={{ width: 90 }}>No.</th>
+                            <th style={{ width: 110 }}>Tipo</th>
                             <th style={{ width: 110 }}>Pedido</th>
                             <th style={{ width: 140 }}>Envío relacionado</th>
                             <th style={{ width: 120 }}>Condición</th>
@@ -3072,9 +3229,14 @@ function OnlineSales() {
                           </tr>
                         </thead>
                         <tbody>
-                          {returnEvents.map((e) => (
+                          {filteredReturnEvents.map((e) => (
                             <tr key={e.id}>
                               <td><strong>{e.id}</strong></td>
+                              <td>
+                                <Badge color={isExchangeDocument(e.returnReason) ? "primary" : "dark"}>
+                                  {isExchangeDocument(e.returnReason) ? "Cambio" : "Devolución"}
+                                </Badge>
+                              </td>
                               <td>#{e.onlineSaleId || "—"}</td>
                               <td>{e.relatedShipmentNumber || "—"}</td>
                               <td>
