@@ -635,15 +635,9 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
       return { ...line, unitPrice: unit, lineTotal };
     });
     const productGiven = sumGivenLineAmounts(editedGivenItems);
-    const packagingCredit = Number(
-      preview.packagingCreditAmount != null
-        ? preview.packagingCreditAmount
-        : preview.packagingReturnedAmount || 0
-    );
     const settlement = applyExchangePackagingCredit({
       productReturnedAmount: productReturned,
       productGivenAmount: productGiven,
-      packagingCredit,
     });
     return {
       ...preview,
@@ -1226,15 +1220,9 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
                     </FormGroup>
                   ) : null}
                   <strong>{formatCurrency(displayPreview.returnedAmount)}</strong>
-                  {Number(displayPreview.packagingReturnedAmount || 0) > 0 ? (
+                  {Number(displayPreview.packagingCreditAmount || 0) > 0 ? (
                     <p className="kiosk-exchange-help mb-0 mt-1">
-                      Incluye empaque de factura {formatCurrency(displayPreview.packagingReturnedAmount)} porque hay
-                      diferencia de precio del producto (sin descuento / sin stock)
-                    </p>
-                  ) : Number(displayPreview.packagingCreditAmount || 0) > 0 ? (
-                    <p className="kiosk-exchange-help mb-0 mt-1">
-                      Empaque de factura {formatCurrency(displayPreview.packagingCreditAmount)} no entra: los
-                      productos tienen el mismo precio.
+                      Empaque de factura {formatCurrency(displayPreview.packagingCreditAmount)} no entra en cambios.
                     </p>
                   ) : null}
                 </div>

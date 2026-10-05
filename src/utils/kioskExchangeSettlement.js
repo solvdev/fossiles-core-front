@@ -1,6 +1,6 @@
 /**
  * Liquidación de cambio kiosko: el empaque SUM de la factura original
- * solo entra cuando hay diferencia de precio entre productos (no empaque).
+ * nunca entra (solo se comparan productos).
  * Soporta 1→N sumando montos de productos entregados.
  */
 export function roundExchangeMoney(value) {
@@ -43,13 +43,11 @@ export function sumGivenLineAmounts(lines = []) {
 export function applyExchangePackagingCredit({
   productReturnedAmount,
   productGivenAmount,
-  packagingCredit,
 } = {}) {
   const productReturned = roundExchangeMoney(productReturnedAmount);
   const productGiven = roundExchangeMoney(productGivenAmount);
-  const credit = roundExchangeMoney(packagingCredit);
-  const packagingReturnedAmount =
-    productGiven === productReturned ? 0 : credit;
+  // El empaque de la factura original nunca entra en un cambio.
+  const packagingReturnedAmount = 0;
   const returnedAmount = roundExchangeMoney(productReturned + packagingReturnedAmount);
   const givenAmount = productGiven;
   return {
