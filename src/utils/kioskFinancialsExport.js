@@ -10,7 +10,8 @@ import { FINANCE_GLOSSARY, RESULT_LABELS, breakEvenModeLabel } from "./kioskFina
  *   Excel de ventas (etiquetas en la columna B, encabezado en la fila 8: 'Fecha' + kioscos
  *   desde la columna C, filas de días, Total, % Participacion, METAS, % DE META, bloque de
  *   costos con tasas y costos fijos, Total Cto Oper., Diferencia Vta, MARGEN,
- *   Punto de Equilibrio y PE DIARIO).
+ *   Punto de Equilibrio y PE DIARIO), cierre con costo total de operación, ventas totales,
+ *   utilidad total y % de utilidad, y el resumen de kioscos A / B / C (categoría manual por kiosco).
  * - exportOriginalSheetExcel: escribe el .xlsx con xlsx-js-style.
  * - downloadElementPdf: PDF de un elemento visible (html2canvas + jsPDF, como kioskCashCloseReport).
  */
@@ -19,6 +20,13 @@ import { FINANCE_GLOSSARY, RESULT_LABELS, breakEvenModeLabel } from "./kioskFina
 export const HEADER_ROW_INDEX = 7;
 /** Índice de la primera columna de kiosco (C). */
 export const FIRST_SITE_COL = 2;
+
+/** Categorías de ventas de los kioscos (se asignan a mano en Costos por kiosco > Sitios). */
+export const SALES_CATEGORIES = ["A", "B", "C"];
+/** Colores del bloque "Kioscos A / B / C" (verde, amarillo, azul). */
+const CATEGORY_FILL = { A: "B6D7A8", B: "FFF2CC", C: "CFE2F3" };
+/** Columnas del resumen por categoría: etiqueta (B) + ventas, costo, utilidad, % de utilidad y kioscos (C..G). */
+const CATEGORY_LAST_COL = FIRST_SITE_COL + 4;
 
 // Formato de moneda Excel con quetzales (positivos y negativos)
 const moneyFmt = '"Q"#,##0.00;-"Q"#,##0.00';
@@ -60,10 +68,11 @@ export const ratesBySiteFromConfig = (config, month) => {
  * @param {object} args.pnl respuesta de /pnl (con `month`)
  * @param {object} args.config respuesta de /config (para tasas)
  * @param {{code:string,name:string}[]} args.categories categorías fijas ordenadas
+ * @param {Object<string,string>} [args.siteCategories] siteId -> "A" | "B" | "C" (categoría de ventas manual)
  * @returns {{aoa: any[][], rows: {kind:string, fmt:string}[], colCount:number, siteCount:number,
  *   totalCol:number, cumCol:number, headerRow:number, sheetName:string}}
  */
-export const buildOriginalSheetLayout = ({ year, month, matrix, pnl, config, categories = [] }) => {
+export const buildOriginalSheetLayout = ({ year, month, matrix, pnl, config, categories = [], siteCategories = {} }) => {
   const sites = (matrix?.sites && matrix.sites.length ? matrix.sites : pnl?.sites || []).map((s) => ({
     siteId: s.siteId,
     name: s.name,
@@ -71,7 +80,7 @@ export const buildOriginalSheetLayout = ({ year, month, matrix, pnl, config, cat
   const siteCount = sites.length;
   const totalCol = FIRST_SITE_COL + siteCount;
   const cumCol = totalCol + 1;
-  const colCount = cumCol + 1;
+  const colCount = Math.max(cumCol + 1, CATEGORY_LAST_COL + 1);
 
   const pnlBySite = {};
   (pnl?.sites || []).forEach((s) => {
@@ -82,13 +91,14 @@ export const buildOriginalSheetLayout = ({ year, month, matrix, pnl, config, cat
 
   const aoa = [];
   const rows = [];
-  const push = (kind, fmt, cells) => {
+  // meta.wide: la fila usa columnas más allá del acumulado; meta.cellFmt: formato propio por columna.
+  const push = (kind, fmt, cells, meta = {}) => {
     const row = new Array(colCount).fill(null);
     Object.entries(cells).forEach(([col, value]) => {
       row[Number(col)] = value === undefined ? null : value;
     });
     aoa.push(row);
-    rows.push({ kind, fmt });
+    rows.push({ kind, fmt, ...meta });
   };
 
   const monthName = (MONTHS_ES[month - 1] || "").toUpperCase();
@@ -143,6 +153,16 @@ export const buildOriginalSheetLayout = ({ year, month, matrix, pnl, config, cat
   perSite("% Participación", "pct", "pct", (s) => P(s).participationPct, numOrNull(totals.participationPct));
   perSite("METAS", "money", "money", (s) => P(s).goal, numOrNull(totals.goal));
   perSite("% DE META", "pct", "pct", (s) => P(s).goalPct, numOrNull(totals.goalPct));
+  // Categoría de ventas (A, B o C) de cada kiosco: dato manual de Costos por kiosco > Sitios
+  const categoryOf = (s) => {
+    const c = String(siteCategories[s.siteId] ?? siteCategories[String(s.siteId)] ?? "").toUpperCase();
+    return SALES_CATEGORIES.includes(c) ? c : "";
+  };
+  const categoryCells = { 1: "CATEGORÍA VENTAS" };
+  sites.forEach((s, i) => {
+    categoryCells[FIRST_SITE_COL + i] = categoryOf(s);
+  });
+  push("category", "text", categoryCells);
 
   push("blank", "text", {});
   push("section", "text", { 1: "COSTOS" });
@@ -191,6 +211,68 @@ export const buildOriginalSheetLayout = ({ year, month, matrix, pnl, config, cat
   );
   perSite(RESULT_LABELS.breakEvenDaily, "grand", "money", (s) => P(s).breakEvenDaily, numOrNull(totals.breakEvenDaily));
 
+  // Fin del P&L por kiosco (Punto de equilibrio diario).
+  const pnlRowCount = aoa.length;
+
+  // Cierre: totales de todos los kioscos.
+  push("blank", "text", {});
+  const summary = (label, value, fmt) => push("summary", fmt, { 1: label, [FIRST_SITE_COL]: value });
+  summary("Costo total de operación", numOrNull(totals.totalCost), "money");
+  summary("Ventas totales", numOrNull(matrix?.grandTotal ?? totals.sales), "money");
+  push("blank", "text", {});
+  summary("Utilidad total", numOrNull(totals.difference), "money");
+  summary("% de utilidad", numOrNull(totals.margin), "pct");
+
+  // Resumen por categoría de ventas (A, B, C) con los kioscos que tengan esa categoría.
+  push("blank", "text", {});
+  const catCol = (n) => FIRST_SITE_COL + n;
+  push(
+    "catheader",
+    "text",
+    {
+      1: "Categoría de ventas",
+      [catCol(0)]: "Ventas",
+      [catCol(1)]: "Costo de operación",
+      [catCol(2)]: "Utilidad",
+      [catCol(3)]: "% de utilidad",
+      [catCol(4)]: "Kioscos",
+    },
+    { wide: true }
+  );
+  const catRows = [...SALES_CATEGORIES, ""].map((letter) => {
+    const members = sites.filter((s) => categoryOf(s) === letter);
+    const sum = (key) => members.reduce((acc, s) => acc + (numOrNull(P(s)[key]) ?? 0), 0);
+    const sales = sum("sales");
+    const cost = sum("totalCost");
+    const profit = sum("difference");
+    return {
+      letter,
+      count: members.length,
+      sales,
+      cost,
+      profit,
+      margin: sales > 0 ? profit / sales : null,
+    };
+  });
+  const anyCategorized = catRows.some((r) => r.letter && r.count > 0);
+  catRows.forEach((r) => {
+    if (!r.letter && !(anyCategorized && r.count > 0)) return; // "Sin categoría" sólo si hay kioscos sin asignar
+    push(
+      r.letter ? `cat${r.letter}` : "cat0",
+      "money",
+      {
+        1: r.letter ? `Kioscos ${r.letter}` : "Kioscos sin categoría",
+        [catCol(0)]: r.sales,
+        [catCol(1)]: r.cost,
+        [catCol(2)]: r.profit,
+        [catCol(3)]: r.margin,
+        [catCol(4)]: r.count,
+      },
+      { wide: true, cellFmt: { [catCol(3)]: "pct", [catCol(4)]: "count" } }
+    );
+  });
+  push("note", "text", { 1: "La categoría A, B o C de cada kiosco se asigna a mano en Costos por kiosco > Sitios." });
+
   // Filas del reporte propiamente dicho; lo que sigue es el glosario.
   const coreRowCount = aoa.length;
   push("blank", "text", {});
@@ -198,6 +280,7 @@ export const buildOriginalSheetLayout = ({ year, month, matrix, pnl, config, cat
   FINANCE_GLOSSARY.forEach((g) => push("glossary", "text", { 1: g.term, [FIRST_SITE_COL]: g.definition }));
 
   return {
+    pnlRowCount,
     coreRowCount,
     aoa,
     rows,
@@ -214,6 +297,7 @@ const fillGray = { fgColor: { rgb: "D9D9D9" } };
 const fillLight = { fgColor: { rgb: "F2F2F2" } };
 const fillBlue = { fgColor: { rgb: "B4C6E7" } };
 const baseFont = { name: "Calibri", sz: 11, color: { rgb: "000000" } };
+const countFmt = "0";
 
 /** Escribe y descarga el .xlsx con el layout original. */
 export const exportOriginalSheetExcel = (args) => {
@@ -223,6 +307,8 @@ export const exportOriginalSheetExcel = (args) => {
 
   rows.forEach((row, r) => {
     for (let c = 1; c < colCount; c += 1) {
+      // Con pocos kioscos las columnas extra sólo se usan en el resumen por categoría
+      if (c > cumCol && !row.wide) continue;
       const addr = XLSX.utils.encode_cell({ r, c });
       if (!ws[addr]) ws[addr] = { t: "s", v: "" };
       const cell = ws[addr];
@@ -233,11 +319,15 @@ export const exportOriginalSheetExcel = (args) => {
       // Formato numérico por tipo de fila (la fecha va en la columna B).
       if (cell.t === "n") {
         if (row.kind === "date" && isLabel) cell.z = dateFmt;
+        else if (row.cellFmt && row.cellFmt[c]) cell.z = row.cellFmt[c] === "pct" ? pctFmt : countFmt;
         else cell.z = row.fmt === "pct" ? pctFmt : moneyFmt;
       }
 
       const style = { font: baseFont, alignment: {} };
-      const bordered = ["header", "date", "total", "pct", "rate", "calc", "subtotal", "grand", "section"].includes(row.kind);
+      const isCategoryBlock = ["catA", "catB", "catC", "cat0"].includes(row.kind);
+      const bordered =
+        ["header", "date", "total", "pct", "rate", "calc", "subtotal", "grand", "section", "category", "summary", "catheader"].includes(row.kind) ||
+        isCategoryBlock;
       if (bordered) style.border = thinBorder;
       if (row.kind === "title") style.font = { ...boldFont, sz: 14 };
       if (row.kind === "subtitle") style.font = { ...boldFont, sz: 12 };
@@ -246,7 +336,22 @@ export const exportOriginalSheetExcel = (args) => {
         style.alignment = { wrapText: true, vertical: "top" };
         if (isLabel) style.font = boldFont;
       }
-      if (row.kind === "header") {
+      if (row.kind === "category") {
+        // Letra A/B/C de cada kiosco, centrada y con el color de su categoría
+        style.font = boldFont;
+        style.alignment = { horizontal: "center" };
+        if (!isLabel && CATEGORY_FILL[cell.v]) style.fill = { fgColor: { rgb: CATEGORY_FILL[cell.v] } };
+      } else if (row.kind === "summary") {
+        style.font = boldFont;
+        style.fill = fillLight;
+      } else if (row.kind === "catheader") {
+        style.font = boldFont;
+        style.fill = fillGray;
+        style.alignment = { horizontal: "center", vertical: "center", wrapText: true };
+      } else if (isCategoryBlock) {
+        style.font = boldFont;
+        if (row.kind !== "cat0") style.fill = { fgColor: { rgb: CATEGORY_FILL[row.kind.slice(3)] } };
+      } else if (row.kind === "header") {
         style.font = boldFont;
         style.fill = fillGray;
         style.alignment = { horizontal: "center", vertical: "center", wrapText: true };
@@ -258,7 +363,10 @@ export const exportOriginalSheetExcel = (args) => {
         style.fill = fillLight;
       }
       if (isTotalCol && ["date", "calc"].includes(row.kind)) style.font = boldFont;
-      if (!isLabel && bordered && row.kind !== "header") style.alignment = { horizontal: "right" };
+      if (!isLabel && bordered && !["header", "category", "catheader"].includes(row.kind)) {
+        style.alignment = { horizontal: "right" };
+      }
+      if (isLabel && row.kind === "category") style.alignment = { horizontal: "left" };
       if (isLabel && row.kind === "date") style.alignment = { horizontal: "left" };
       // Diferencias negativas en rojo (sin depender sólo del color: el signo '-' del número se conserva).
       if (isNumeric && row.kind === "grand" && cell.v < 0) style.font = { ...boldFont, color: { rgb: "C00000" } };

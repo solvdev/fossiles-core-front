@@ -49,6 +49,10 @@
 .kfin .kfin-field--grow { flex: 1 1 260px; min-width: 220px; }
 .kfin .kfin-field > label, .kfin .kfin-label { font-size: 0.72rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--kfin-ink-2); margin-bottom: 4px; }
 .kfin .kfin-field select.form-control { height: 38px; }
+.kfin .kfin-field--dates { min-width: 250px; }
+.kfin .kfin-daterange { display: flex; align-items: center; gap: 6px; }
+.kfin .kfin-daterange input.form-control { height: 38px; min-width: 128px; }
+.kfin .kfin-hint--error { color: #b3261e; font-weight: 600; }
 .kfin .kfin-info { border: 0; background: none; padding: 0 2px; color: var(--kfin-cur-ink); font-size: 0.95rem; line-height: 1; cursor: help; }
 .kfin .kfin-info:focus-visible, .kfin .kfin-sort:focus-visible, .kfin .kfin-help:focus-visible { outline: 2px solid var(--kfin-cur-ink); outline-offset: 2px; border-radius: 3px; }
 .kfin-tooltip { max-width: 320px; text-align: left; font-size: 0.78rem; }

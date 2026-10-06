@@ -21,7 +21,13 @@ import GoalsTab from "./reports/GoalsTab";
 import ForecastTab from "./reports/ForecastTab";
 import useAsyncData from "./reports/useAsyncData";
 import { useScrollAreas } from "./reports/scrollAreas";
-import { normalizeSiteIds, orderFixedCategories } from "./reports/financeReportHelpers";
+import {
+  fmtRangeLabel,
+  normalizeSiteIds,
+  orderFixedCategories,
+  previousPeriod,
+  sameDateLastYear,
+} from "./reports/financeReportHelpers";
 import "./KioskFinance.css";
 
 const TABS = [
@@ -44,6 +50,11 @@ const initialFilters = () => {
     month,
     mode: "SAME_PERIOD",
     siteIds: [],
+    // Modo "Fechas específicas": por defecto el mes en curso hasta hoy contra las mismas fechas del año anterior
+    from: `${today.slice(0, 8)}01`,
+    to: today,
+    baseFrom: sameDateLastYear(`${today.slice(0, 8)}01`),
+    baseTo: sameDateLastYear(today),
   };
 };
 
@@ -79,6 +90,18 @@ export default function KioskFinancialsReports() {
       // Mantiene el rango coherente (Desde <= Hasta).
       if (patch.fromMonth !== undefined && next.fromMonth > next.toMonth) next.toMonth = next.fromMonth;
       if (patch.toMonth !== undefined && next.toMonth < next.fromMonth) next.fromMonth = next.toMonth;
+      // Fechas específicas: la fecha inicial nunca pasa de la final (se arrastra la otra)
+      if (patch.from !== undefined && next.to && next.from > next.to) next.to = next.from;
+      if (patch.to !== undefined && next.from && next.to < next.from) next.from = next.to;
+      if (patch.baseFrom !== undefined && next.baseTo && next.baseFrom > next.baseTo) next.baseTo = next.baseFrom;
+      if (patch.baseTo !== undefined && next.baseFrom && next.baseTo < next.baseFrom) next.baseFrom = next.baseTo;
+      if (patch.preset === "LAST_YEAR") {
+        next.baseFrom = sameDateLastYear(next.from);
+        next.baseTo = sameDateLastYear(next.to);
+      } else if (patch.preset === "PREVIOUS") {
+        Object.assign(next, previousPeriod(next.from, next.to));
+      }
+      delete next.preset;
       if (patch.siteIds !== undefined) next.siteIds = normalizeSiteIds(patch.siteIds);
       return next;
     });
@@ -90,8 +113,14 @@ export default function KioskFinancialsReports() {
     return names.length <= 3 ? names.join(", ") : `${names.length} kioscos seleccionados`;
   }, [filters.siteIds, sites]);
 
-  // Mes que se exporta: el del tab activo (en Resumen, el último mes del rango).
-  const exportMonth = activeTab === "resumen" ? filters.toMonth : filters.month;
+  // Mes que se exporta: el del tab activo (en Resumen, el último mes del rango; con fechas específicas, el de la fecha final).
+  const customSummary = activeTab === "resumen" && filters.mode === "CUSTOM";
+  const exportMonth = customSummary
+    ? Number(filters.to.slice(5, 7))
+    : activeTab === "resumen"
+    ? filters.toMonth
+    : filters.month;
+  const exportYear = customSummary ? Number(filters.to.slice(0, 4)) : filters.year;
 
   const handleExcel = async () => {
     setBusy("xlsx");
@@ -106,14 +135,30 @@ export default function KioskFinancialsReports() {
         setNotice({ color: "success", text: `Excel generado: ${forecastFile}` });
         return;
       }
-      const { year, siteIds } = filters;
+      const { siteIds } = filters;
+      const year = exportYear;
       const [matrix, pnl, config] = await Promise.all([
         getKioskDailyMatrix({ year, month: exportMonth, siteIds }),
         getKioskPnl({ year, month: exportMonth, siteIds }),
-        configQuery.data ? Promise.resolve(configQuery.data) : getKioskConfig({ year }).catch(() => null),
+        configQuery.data && year === filters.year
+          ? Promise.resolve(configQuery.data)
+          : getKioskConfig({ year }).catch(() => null),
       ]);
       const categories = orderFixedCategories(pnl, config?.categories);
-      const fileName = exportOriginalSheetExcel({ year, month: exportMonth, matrix, pnl, config, categories });
+      // Categoría de ventas (A/B/C) de cada kiosco, configurada a mano en Costos por kiosco > Sitios
+      const siteCategories = {};
+      sites.forEach((s) => {
+        if (s.salesCategory) siteCategories[s.id] = s.salesCategory;
+      });
+      const fileName = exportOriginalSheetExcel({
+        year,
+        month: exportMonth,
+        matrix,
+        pnl,
+        config,
+        categories,
+        siteCategories,
+      });
       setNotice({ color: "success", text: `Excel generado: ${fileName}` });
     } catch (err) {
       setNotice({ color: "danger", text: err.message || "No se pudo generar el Excel." });
@@ -130,12 +175,14 @@ export default function KioskFinancialsReports() {
       const period =
         activeTab === "proyeccion"
           ? "proyección"
+          : customSummary
+          ? `${fmtRangeLabel(filters.from, filters.to)} vs ${fmtRangeLabel(filters.baseFrom, filters.baseTo)}`
           : activeTab === "resumen"
           ? `${MONTHS_ES[filters.fromMonth - 1]}–${MONTHS_ES[filters.toMonth - 1]} ${filters.year} vs ${filters.baseYear}`
           : `${MONTHS_ES[filters.month - 1]} ${filters.year}`;
       await downloadElementPdf(tabsRef.current, {
         title: `Finanzas por kiosco · ${tab.label} · ${period}`,
-        filename: `Finanzas_Kioscos_${tab.id}_${filters.year}.pdf`,
+        filename: `Finanzas_Kioscos_${tab.id}_${exportYear}.pdf`,
       });
     } catch (err) {
       setNotice({ color: "danger", text: err.message || "No se pudo generar el PDF." });
@@ -163,7 +210,7 @@ export default function KioskFinancialsReports() {
               title="Hoja con el layout original de los Excel de ventas"
             >
               {busy === "xlsx" ? <Spinner size="sm" /> : null} Exportar Excel ·{" "}
-              {activeTab === "proyeccion" ? "Proyección" : `${MONTHS_ES[exportMonth - 1]} ${filters.year}`}
+              {activeTab === "proyeccion" ? "Proyección" : `${MONTHS_ES[exportMonth - 1]} ${exportYear}`}
             </KButton>
             <KButton large onClick={handlePdf} disabled={!!busy}>
               {busy === "pdf" ? <Spinner size="sm" /> : null} Exportar PDF
