@@ -13,6 +13,7 @@ const draftFrom = (site) => ({
   override: site.posGoLiveOverride || "",
   aliases: [...(site.aliases || [])],
   exclude: !!site.excludeFromReports,
+  category: site.salesCategory || "",
 });
 
 const sameList = (a, b) => a.length === b.length && [...a].sort().join("|") === [...b].sort().join("|");
@@ -33,6 +34,8 @@ export const buildSiteUpdate = (site, draft) => {
   }
   if (!sameList(draft.aliases, site.aliases || [])) body.aliases = draft.aliases;
   if (!!draft.exclude !== !!site.excludeFromReports) body.excludeFromReports = !!draft.exclude;
+  // "" = quitar la categoría (el servidor entiende cadena vacía como "sin categoría")
+  if ((draft.category || "") !== (site.salesCategory || "")) body.salesCategory = draft.category || "";
   return Object.keys(body).length ? body : null;
 };
 
@@ -97,6 +100,11 @@ function SiteCard({ site, canEdit, onSaved }) {
           {site.excludeFromReports && (
             <Badge color="warning" className="mr-1">
               Externo
+            </Badge>
+          )}
+          {site.salesCategory && (
+            <Badge color="primary" className="mr-1" title="Categoría de ventas">
+              Cat. {site.salesCategory}
             </Badge>
           )}
           <Badge color={site.status === "CLOSED" ? "secondary" : "success"}>
@@ -209,6 +217,25 @@ function SiteCard({ site, canEdit, onSaved }) {
             onChange={(e) => set({ closedOn: e.target.value })}
           />
         )}
+      </div>
+
+      <label htmlFor={`kc-site-category-${site.id}`}>Categoría de ventas</label>
+      <div className="d-flex align-items-center flex-wrap">
+        <Input
+          id={`kc-site-category-${site.id}`}
+          type="select"
+          bsSize="sm"
+          disabled={!canEdit}
+          style={{ maxWidth: 140 }}
+          value={draft.category}
+          onChange={(e) => set({ category: e.target.value })}
+        >
+          <option value="">Sin categoría</option>
+          <option value="A">A</option>
+          <option value="B">B</option>
+          <option value="C">C</option>
+        </Input>
+        <span className="small text-muted ml-2">Manual; aparece en el Excel de Finanzas (Kioscos A / B / C)</span>
       </div>
 
       <div className="form-check mt-2">

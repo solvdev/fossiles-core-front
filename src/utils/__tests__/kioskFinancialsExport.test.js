@@ -101,12 +101,13 @@ describe("buildOriginalSheetLayout", () => {
 
   test("secuencia de etiquetas idéntica al Excel original", () => {
     const start = HEADER_ROW_INDEX + 1 + matrix.days.length;
-    const labels = aoa.slice(start, layout.coreRowCount).map((r) => r[1]);
+    const labels = aoa.slice(start, layout.pnlRowCount).map((r) => r[1]);
     expect(labels).toEqual([
       "Total",
       "% Participación",
       "METAS",
       "% DE META",
+      "CATEGORÍA VENTAS",
       null, // fila en blanco
       "COSTOS",
       "Costos Variables",
@@ -136,7 +137,7 @@ describe("buildOriginalSheetLayout", () => {
     const flatLayout = buildOriginalSheetLayout({
       year: 2025, month: 1, matrix, pnl: { ...pnl, breakEvenMode: "FLAT" }, config, categories,
     });
-    const labels = flatLayout.aoa.slice(0, flatLayout.coreRowCount).map((r) => r[1]);
+    const labels = flatLayout.aoa.slice(0, flatLayout.pnlRowCount).map((r) => r[1]);
     expect(labels).toContain("Punto de equilibrio (27 % fijo)");
   });
 
@@ -155,24 +156,77 @@ describe("buildOriginalSheetLayout", () => {
 
   test("filas de tasa traen el porcentaje del mes y la calculada el monto", () => {
     const start = HEADER_ROW_INDEX + 1 + matrix.days.length;
-    const rateRow = aoa[start + 7];
-    const calcRow = aoa[start + 8];
-    expect(labelAt(start + 7)).toBe("Costo del Pdcto");
+    const rateRow = aoa[start + 8];
+    const calcRow = aoa[start + 9];
+    expect(labelAt(start + 8)).toBe("Costo del Pdcto");
     expect(rateRow[FIRST_SITE_COL]).toBe(0.18);
     expect(rateRow[FIRST_SITE_COL + 1]).toBeNull(); // sin config para el kiosco 2
     expect(calcRow[FIRST_SITE_COL]).toBeCloseTo(18.09);
-    expect(layout.rows[start + 7]).toMatchObject({ kind: "rate", fmt: "pct" });
-    expect(layout.rows[start + 8]).toMatchObject({ kind: "calc", fmt: "money" });
+    expect(layout.rows[start + 8]).toMatchObject({ kind: "rate", fmt: "pct" });
+    expect(layout.rows[start + 9]).toMatchObject({ kind: "calc", fmt: "money" });
   });
 
   test("totales y resultado por kiosco y en la columna de total", () => {
-    const last = layout.coreRowCount - 1;
+    const last = layout.pnlRowCount - 1;
     expect(labelAt(last)).toBe("Punto de equilibrio diario");
     expect(aoa[last - 1][FIRST_SITE_COL]).toBe(90);
     const diff = aoa[last - 3];
     expect(diff[1]).toBe("Utilidad o pérdida (Ventas − Total costo operativo)");
     expect(diff[FIRST_SITE_COL]).toBeCloseTo(20.5);
     expect(diff[layout.totalCol]).toBeCloseTo(20.5);
+  });
+
+  test("cierra con costo total, ventas totales, utilidad total y % de utilidad", () => {
+    const rowsAfter = aoa.slice(layout.pnlRowCount, layout.coreRowCount);
+    const byLabel = (label) => rowsAfter.find((r) => r[1] === label);
+    expect(byLabel("Costo total de operación")[FIRST_SITE_COL]).toBe(80);
+    expect(byLabel("Ventas totales")[FIRST_SITE_COL]).toBe(100.5);
+    expect(byLabel("Utilidad total")[FIRST_SITE_COL]).toBeCloseTo(20.5);
+    expect(byLabel("% de utilidad")[FIRST_SITE_COL]).toBeCloseTo(20.5 / 100.5);
+    const i = layout.pnlRowCount + 1;
+    expect(layout.rows[i]).toMatchObject({ kind: "summary", fmt: "money" });
+    expect(layout.rows[i + 4]).toMatchObject({ kind: "summary", fmt: "pct" });
+  });
+
+  test("fila CATEGORÍA VENTAS: la letra manual de cada kiosco; sin asignar queda vacía", () => {
+    const l = buildOriginalSheetLayout({
+      year: 2025, month: 1, matrix, pnl, config, categories, siteCategories: { 1: "b", 2: "Z" },
+    });
+    const row = l.aoa.find((r) => r[1] === "CATEGORÍA VENTAS");
+    expect(row[FIRST_SITE_COL]).toBe("B");
+    expect(row[FIRST_SITE_COL + 1]).toBe(""); // letra inválida = sin categoría
+    expect(aoa.find((r) => r[1] === "CATEGORÍA VENTAS")[FIRST_SITE_COL]).toBe("");
+  });
+
+  test("resumen por categoría suma ventas, costo y utilidad de sus kioscos", () => {
+    const l = buildOriginalSheetLayout({
+      year: 2025, month: 1, matrix, pnl, config, categories, siteCategories: { 1: "A", 2: "C" },
+    });
+    const block = l.aoa.slice(l.pnlRowCount, l.coreRowCount);
+    const head = block.find((r) => r[1] === "Categoría de ventas");
+    expect(head.slice(FIRST_SITE_COL, FIRST_SITE_COL + 5)).toEqual([
+      "Ventas", "Costo de operación", "Utilidad", "% de utilidad", "Kioscos",
+    ]);
+    const a = block.find((r) => r[1] === "Kioscos A");
+    expect(a.slice(FIRST_SITE_COL, FIRST_SITE_COL + 5)).toEqual([100.5, 80, 20.5, 20.5 / 100.5, 1]);
+    const b = block.find((r) => r[1] === "Kioscos B");
+    expect(b.slice(FIRST_SITE_COL, FIRST_SITE_COL + 5)).toEqual([0, 0, 0, null, 0]);
+    const c = block.find((r) => r[1] === "Kioscos C");
+    expect(c.slice(FIRST_SITE_COL, FIRST_SITE_COL + 5)).toEqual([0, 80, -80, null, 1]);
+    expect(block.find((r) => r[1] === "Kioscos sin categoría")).toBeUndefined();
+    const kinds = l.rows.slice(l.pnlRowCount, l.coreRowCount).map((r) => r.kind);
+    expect(kinds).toEqual(expect.arrayContaining(["catheader", "catA", "catB", "catC"]));
+  });
+
+  test("agrega 'Kioscos sin categoría' sólo si hay kioscos sin asignar y alguno ya tiene categoría", () => {
+    const some = buildOriginalSheetLayout({
+      year: 2025, month: 1, matrix, pnl, config, categories, siteCategories: { 1: "A" },
+    });
+    const unassigned = some.aoa.slice(some.pnlRowCount, some.coreRowCount).find((r) => r[1] === "Kioscos sin categoría");
+    expect(unassigned[FIRST_SITE_COL + 4]).toBe(1);
+    // sin ninguna categoría configurada no se muestra la fila (A, B y C quedan en cero)
+    const none = aoa.slice(layout.pnlRowCount, layout.coreRowCount).map((r) => r[1]);
+    expect(none).not.toContain("Kioscos sin categoría");
   });
 
   test("todas las filas tienen el mismo ancho", () => {

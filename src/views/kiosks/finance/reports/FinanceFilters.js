@@ -9,10 +9,11 @@ import {
   buildSupervisorOptions,
   describeComparison,
   selectedSupervisorOptions,
+  validateCustomRange,
 } from "./financeReportHelpers";
 
 const MODE_HELP =
-  "Mismas fechas: compara lo vendido en el rango elegido, sólo hasta hoy, contra esos mismos días del año base. Un kiosco que arrancó en el POS a mitad de año se compara desde su primera venta contra los mismos días del año anterior. Meses completos: compara cada mes entero de ambos años, aunque el mes actual aún no termine.";
+  "Mismas fechas: compara lo vendido en el rango elegido, sólo hasta hoy, contra esos mismos días del año base. Un kiosco que arrancó en el POS a mitad de año se compara desde su primera venta contra los mismos días del año anterior. Meses completos: compara cada mes entero de ambos años, aunque el mes actual aún no termine. Fechas específicas: tú eliges el rango exacto del periodo actual y el rango exacto contra el que se compara (cualquier día, mes o año).";
 
 const selectStyles = {
   control: (base, state) => ({
@@ -63,15 +64,16 @@ export default function FinanceFilters({
     () => selectedSupervisorOptions(supervisorOptions, filters.siteIds),
     [supervisorOptions, filters.siteIds]
   );
-  const comparisonText = isSummary
-    ? describeComparison({ ...filters, today: getTodayYmdGuatemala() })
-    : "";
+  const today = getTodayYmdGuatemala();
+  const isCustom = isSummary && filters.mode === "CUSTOM";
+  const comparisonText = isSummary ? describeComparison({ ...filters, today }) : "";
+  const customError = isCustom ? validateCustomRange({ ...filters, today }) : null;
 
   const isForecast = tab === "proyeccion";
 
   return (
     <div className="kfin-filters kfin-noprint" role="search" aria-label="Filtros del reporte">
-      {!isForecast && (
+      {!isForecast && !isCustom && (
       <div className="kfin-field">
         <label htmlFor="kfin-year">Año</label>
         <Input
@@ -88,7 +90,71 @@ export default function FinanceFilters({
       </div>
       )}
 
-      {isForecast ? null : isSummary ? (
+      {isForecast ? null : isCustom ? (
+        <>
+          <div className="kfin-field kfin-field--dates">
+            <span className="kfin-label" id="kfin-cur-label">Periodo actual</span>
+            <div className="kfin-daterange" role="group" aria-labelledby="kfin-cur-label">
+              <Input
+                type="date"
+                bsSize="sm"
+                aria-label="Periodo actual, desde"
+                max={today}
+                value={filters.from}
+                onChange={(e) => onChange({ from: e.target.value })}
+              />
+              <span aria-hidden="true">–</span>
+              <Input
+                type="date"
+                bsSize="sm"
+                aria-label="Periodo actual, hasta"
+                max={today}
+                value={filters.to}
+                onChange={(e) => onChange({ to: e.target.value })}
+              />
+            </div>
+          </div>
+          <div className="kfin-field kfin-field--dates">
+            <span className="kfin-label" id="kfin-base-label">Comparar contra</span>
+            <div className="kfin-daterange" role="group" aria-labelledby="kfin-base-label">
+              <Input
+                type="date"
+                bsSize="sm"
+                aria-label="Periodo de comparación, desde"
+                max={today}
+                value={filters.baseFrom}
+                onChange={(e) => onChange({ baseFrom: e.target.value })}
+              />
+              <span aria-hidden="true">–</span>
+              <Input
+                type="date"
+                bsSize="sm"
+                aria-label="Periodo de comparación, hasta"
+                max={today}
+                value={filters.baseTo}
+                onChange={(e) => onChange({ baseTo: e.target.value })}
+              />
+            </div>
+          </div>
+          <div className="kfin-field">
+            <span className="kfin-label" id="kfin-preset-label">Atajos</span>
+            <KSeg aria-labelledby="kfin-preset-label">
+              <KButton
+                title="Pone el periodo de comparación en las mismas fechas, un año antes"
+                onClick={() => onChange({ preset: "LAST_YEAR" })}
+              >
+                Mismas fechas, año anterior
+              </KButton>
+              <KButton
+                title="Pone el periodo de comparación justo antes del actual, con la misma duración"
+                onClick={() => onChange({ preset: "PREVIOUS" })}
+              >
+                Periodo anterior
+              </KButton>
+            </KSeg>
+          </div>
+        </>
+      ) : isSummary ? (
         <>
           <div className="kfin-field">
             <label htmlFor="kfin-base">Año base</label>
@@ -221,9 +287,17 @@ export default function FinanceFilters({
             >
               Meses completos
             </KButton>
+            <KButton
+              large
+              active={filters.mode === "CUSTOM"}
+              aria-pressed={filters.mode === "CUSTOM"}
+              onClick={() => onChange({ mode: "CUSTOM" })}
+            >
+              Fechas específicas
+            </KButton>
           </KSeg>
-          <div className="kfin-hint" role="note">
-            {comparisonText}
+          <div className={`kfin-hint${customError ? " kfin-hint--error" : ""}`} role="note">
+            {customError || comparisonText}
           </div>
           <UncontrolledTooltip target="kfin-mode-info" placement="bottom" innerClassName="kfin-tooltip">
             {MODE_HELP}

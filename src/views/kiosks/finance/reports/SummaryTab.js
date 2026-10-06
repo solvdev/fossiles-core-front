@@ -3,6 +3,7 @@ import { Bar, Line } from "react-chartjs-2";
 import { Input } from "reactstrap";
 import { getKioskCompare } from "services/kioskFinancialsService";
 import { MONTHS_ES, fmtAmount, fmtDateEs, fmtDeltaPct, fmtPct } from "utils/financeFormat";
+import { getTodayYmdGuatemala } from "utils/dateTimeHelper";
 import useAsyncData from "./useAsyncData";
 import {
   BlockSkeleton,
@@ -20,14 +21,17 @@ import {
 import { CHART_COLORS, baseChartOptions, hatchPattern } from "./chartTheme";
 import {
   aggregateGoalPct,
+  buildDailySeries,
   buildKpis,
   buildRankingRows,
   buildYoYSeries,
   buildYoYTableRows,
   filterRowsByName,
   fmtPp,
+  fmtRangeLabel,
   pctDelta,
   sortRows,
+  validateCustomRange,
 } from "./financeReportHelpers";
 
 const periodText = (from, to) => (from && to ? `${fmtDateEs(from)} – ${fmtDateEs(to)}` : "");
@@ -168,7 +172,7 @@ function MarginChart({ series, year, baseYear }) {
 
 const DEFAULT_SORT = { key: "sales", dir: "desc" };
 
-function RankingTable({ rows, totals, year, baseYear }) {
+function RankingTable({ rows, totals, year, baseYear, showPeriod = true }) {
   const [sort, setSort] = useState(DEFAULT_SORT);
   const [search, setSearch] = useState("");
   const onSort = (key) =>
@@ -217,7 +221,7 @@ function RankingTable({ rows, totals, year, baseYear }) {
               <tr key={r.siteId}>
                 <th scope="row" className="kfin-sticky-col kfin-rowhead">
                   <div className="kfin-name">{r.name}</div>
-                  {r.periodFrom ? (
+                  {showPeriod && r.periodFrom ? (
                     <div className="kfin-period" title="Periodo comparado (kiosco) contra las mismas fechas del año base">
                       {periodText(r.periodFrom, r.periodTo)}
                     </div>
@@ -290,15 +294,36 @@ const SORT_LABELS = {
 const sortLabel = (k) => SORT_LABELS[k] || k;
 
 export default function SummaryTab({ filters, activeSiteNames }) {
-  const { year, baseYear, fromMonth, toMonth, mode, siteIds } = filters;
+  const { year, baseYear, fromMonth, toMonth, mode, siteIds, from, to, baseFrom, baseTo } = filters;
+  const isCustom = mode === "CUSTOM";
+  const customError = isCustom
+    ? validateCustomRange({ from, to, baseFrom, baseTo, today: getTodayYmdGuatemala() })
+    : null;
   const [chartKind, setChartKind] = useState("bar");
   const { data, loading, error, reload } = useAsyncData(
-    () => getKioskCompare({ year, baseYear, fromMonth, toMonth, mode, siteIds }),
-    [year, baseYear, fromMonth, toMonth, mode, siteIds.join(",")]
+    () =>
+      getKioskCompare(
+        isCustom
+          ? { mode, from, to, baseFrom, baseTo, siteIds }
+          : { year, baseYear, fromMonth, toMonth, mode, siteIds }
+      ),
+    isCustom
+      ? [mode, from, to, baseFrom, baseTo, siteIds.join(",")]
+      : [year, baseYear, fromMonth, toMonth, mode, siteIds.join(",")],
+    { enabled: !customError }
   );
 
+  // Etiquetas de cada lado: años en los modos por meses; rangos de fechas en "Fechas específicas".
+  const curLabel = isCustom ? fmtRangeLabel(from, to) : year;
+  const baseLabel = isCustom ? fmtRangeLabel(baseFrom, baseTo) : baseYear;
+  const tableCur = isCustom ? "actual" : year;
+  const tableBase = isCustom ? "base" : baseYear;
+
   const kpis = useMemo(() => buildKpis(data), [data]);
-  const salesSeries = useMemo(() => buildYoYSeries(data?.monthly, "sales"), [data]);
+  const salesSeries = useMemo(
+    () => (isCustom ? buildDailySeries(data?.daily) : buildYoYSeries(data?.monthly, "sales")),
+    [data, isCustom]
+  );
   const marginSeries = useMemo(() => buildYoYSeries(data?.monthly, "margin"), [data]);
   const rows = useMemo(() => buildRankingRows(data?.sites), [data]);
   const totals = useMemo(() => {
@@ -311,7 +336,11 @@ export default function SummaryTab({ filters, activeSiteNames }) {
 
   const hasData = !!data && ((data.sites || []).length > 0 || (data.monthly || []).length > 0);
   const range = `${MONTHS_ES[fromMonth - 1]}${fromMonth === toMonth ? "" : ` – ${MONTHS_ES[toMonth - 1]}`}`;
-  const modeText = mode === "SAME_PERIOD" ? "Mismas fechas" : "Meses completos";
+  const modeText = isCustom ? "Fechas específicas" : mode === "SAME_PERIOD" ? "Mismas fechas" : "Meses completos";
+
+  if (customError) {
+    return <EmptyState title="Revisa las fechas">{customError}</EmptyState>;
+  }
 
   if (error) return <ErrorState message={error} onRetry={reload} />;
 
@@ -331,7 +360,11 @@ export default function SummaryTab({ filters, activeSiteNames }) {
   if (!hasData) {
     return (
       <EmptyState title="Sin datos comparables">
-        No hay ventas del {range} de {year} ni de {baseYear}
+        {isCustom ? (
+          <>No hay ventas del {curLabel} ni del {baseLabel}</>
+        ) : (
+          <>No hay ventas del {range} de {year} ni de {baseYear}</>
+        )}
         {siteIds.length ? " para los kioscos seleccionados" : ""}. Verifica que los meses estén importados
         (Importar ventas) o cambia el rango.
       </EmptyState>
@@ -341,26 +374,29 @@ export default function SummaryTab({ filters, activeSiteNames }) {
   return (
     <div className={loading ? "kfin-refetching" : ""} aria-busy={loading}>
       <div className="kfin-context" role="note">
-        <strong>{year}</strong> contra <strong>{baseYear}</strong> · {range} · comparación <strong>{modeText}</strong>
+        <strong>{curLabel}</strong> contra <strong>{baseLabel}</strong>
+        {isCustom ? "" : ` · ${range}`} · comparación <strong>{modeText}</strong>
         {activeSiteNames ? ` · ${activeSiteNames}` : " · todos los kioscos"}
         {data.asOf ? <span className="kfin-muted"> · datos al {fmtDateEs(data.asOf)}</span> : null}
       </div>
 
       <div className="kfin-kpis">
         {kpis.map((k) => (
-          <KpiCard key={k.key} kpi={k} year={year} baseYear={baseYear} />
+          <KpiCard key={k.key} kpi={k} year={isCustom ? "actual" : year} baseYear={isCustom ? "periodo base" : baseYear} />
         ))}
       </div>
 
-      <div className="kfin-grid-2">
+      <div className={isCustom ? "" : "kfin-grid-2"}>
         <ChartCard
-          title={`Ventas por mes: ${year} vs ${baseYear}`}
-          subtitle={`Quetzales, IVA incluido · ${modeText.toLowerCase()}`}
-          ariaLabel={`Gráfico de ventas mensuales de ${year} comparadas con ${baseYear}. Use "Ver como tabla" para leer los valores.`}
+          title={isCustom ? "Ventas por día: periodo actual vs base" : `Ventas por mes: ${year} vs ${baseYear}`}
+          subtitle={`Quetzales, IVA incluido · ${modeText.toLowerCase()}${
+            isCustom ? " · el día 1 de un periodo contra el día 1 del otro, y así" : ""
+          }`}
+          ariaLabel={`Gráfico de ventas ${isCustom ? "diarias" : "mensuales"} de ${curLabel} comparadas con ${baseLabel}. Use "Ver como tabla" para leer los valores.`}
           columns={[
-            { key: "label", label: "Mes" },
-            { key: "current", label: `${year}`, align: "right" },
-            { key: "base", label: `${baseYear}`, align: "right" },
+            { key: "label", label: isCustom ? "Día" : "Mes" },
+            { key: "current", label: `${curLabel}`, align: "right" },
+            { key: "base", label: `${baseLabel}`, align: "right" },
             { key: "delta", label: "Variación", align: "right" },
           ]}
           rows={buildYoYTableRows(salesSeries, "money")}
@@ -375,9 +411,10 @@ export default function SummaryTab({ filters, activeSiteNames }) {
             </KSeg>
           }
         >
-          <SalesYoYChart series={salesSeries} year={year} baseYear={baseYear} kind={chartKind} />
+          <SalesYoYChart series={salesSeries} year={curLabel} baseYear={baseLabel} kind={chartKind} />
         </ChartCard>
 
+        {isCustom ? null : (
         <ChartCard
           title="Margen mensual"
           subtitle="Utilidad / ventas (utilidad = ventas − costo operativo)"
@@ -392,12 +429,15 @@ export default function SummaryTab({ filters, activeSiteNames }) {
         >
           <MarginChart series={marginSeries} year={year} baseYear={baseYear} />
         </ChartCard>
+        )}
       </div>
 
-      <RankingTable rows={rows} totals={totals} year={year} baseYear={baseYear} />
+      <RankingTable rows={rows} totals={totals} year={tableCur} baseYear={tableBase} showPeriod={!isCustom} />
       <p className="kfin-foot kfin-muted">
-        Costos del periodo parcial prorrateados por días. Kioscos que entraron al POS a mitad de año se comparan
-        desde su primera venta contra los mismos días calendario del año base (comparación &quot;Mismas fechas&quot;).
+        Costos del periodo parcial prorrateados por días.{" "}
+        {isCustom
+          ? "En \"Fechas específicas\" se usan exactamente las fechas elegidas, sin ajustar por el arranque de cada kiosco."
+          : "Kioscos que entraron al POS a mitad de año se comparan desde su primera venta contra los mismos días calendario del año base (comparación \"Mismas fechas\")."}
       </p>
     </div>
   );

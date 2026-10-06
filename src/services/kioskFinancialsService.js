@@ -230,7 +230,10 @@ export const getKioskDailyMatrix = async ({ year, month, siteIds } = {}) => {
   return parseJson(response, "No se pudo cargar la matriz de ventas diarias.");
 };
 
-/** mode: 'SAME_PERIOD' | 'FULL_MONTH'. */
+/**
+ * mode: 'SAME_PERIOD' | 'FULL_MONTH' (año, año base y meses) | 'CUSTOM' (fechas exactas:
+ * from/to contra baseFrom/baseTo, 'yyyy-MM-dd').
+ */
 export const getKioskCompare = async ({
   year,
   baseYear,
@@ -238,9 +241,17 @@ export const getKioskCompare = async ({
   toMonth,
   mode,
   siteIds,
+  from,
+  to,
+  baseFrom,
+  baseTo,
 } = {}) => {
+  const query =
+    mode === "CUSTOM"
+      ? { mode, from, to, baseFrom, baseTo, siteIds }
+      : { year, baseYear, fromMonth, toMonth, mode, siteIds };
   const response = await fetch(
-    `${BASE}/compare${toQuery({ year, baseYear, fromMonth, toMonth, mode, siteIds })}`,
+    `${BASE}/compare${toQuery(query)}`,
     { headers: jsonHeaders() }
   );
   return parseJson(response, "No se pudo cargar el comparativo.");

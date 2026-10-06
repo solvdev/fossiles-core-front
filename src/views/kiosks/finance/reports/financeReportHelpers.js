@@ -638,11 +638,85 @@ export const goalOutlook = (pct) => {
 
 const monthName = (m) => (MONTHS_ES[m - 1] || "").toLowerCase();
 
+/* ------------------------------------------------------------------ */
+/* Comparación por fechas específicas (modo CUSTOM)                    */
+/* ------------------------------------------------------------------ */
+
+const DAY_MS = 86400000;
+const CUSTOM_MAX_DAYS = 366;
+const ymdToMs = (ymd) => {
+  const [y, m, d] = String(ymd).split("-").map(Number);
+  return Date.UTC(y, m - 1, d);
+};
+const msToYmd = (ms) => new Date(ms).toISOString().slice(0, 10);
+const isYmd = (v) => typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v);
+
+export const addDaysYmd = (ymd, days) => msToYmd(ymdToMs(ymd) + days * DAY_MS);
+
+/** Días de un rango, ambos extremos incluidos. */
+export const rangeDays = (from, to) => Math.round((ymdToMs(to) - ymdToMs(from)) / DAY_MS) + 1;
+
+/** Misma fecha un año antes (29-feb pasa a 28-feb). */
+export const sameDateLastYear = (ymd) => {
+  const [y, m, d] = String(ymd).split("-").map(Number);
+  const last = new Date(Date.UTC(y - 1, m, 0)).getUTCDate();
+  return `${y - 1}-${String(m).padStart(2, "0")}-${String(Math.min(d, last)).padStart(2, "0")}`;
+};
+
+/** Periodo de la misma duración que termina el día anterior a `from`. */
+export const previousPeriod = (from, to) => {
+  const days = rangeDays(from, to);
+  return { baseFrom: addDaysYmd(from, -days), baseTo: addDaysYmd(from, -1) };
+};
+
+/** Mensaje de error (o null) para los cuatro extremos del modo CUSTOM. today = "yyyy-mm-dd". */
+export const validateCustomRange = ({ from, to, baseFrom, baseTo, today }) => {
+  const periods = [
+    ["actual", from, to],
+    ["de comparación", baseFrom, baseTo],
+  ];
+  for (const [label, a, b] of periods) {
+    if (!isYmd(a) || !isYmd(b)) return `Indica las dos fechas del periodo ${label}.`;
+    if (a > b) return `En el periodo ${label} la fecha inicial no puede ser posterior a la final.`;
+    if (today && b > today) return `El periodo ${label} no puede terminar después de hoy.`;
+    if (rangeDays(a, b) > CUSTOM_MAX_DAYS) return `El periodo ${label} no puede pasar de ${CUSTOM_MAX_DAYS} días.`;
+  }
+  return null;
+};
+
+const fmtDmy = (ymd) => `${ymd.slice(8, 10)}/${ymd.slice(5, 7)}/${ymd.slice(0, 4)}`;
+/** '01/10/2026' o '01/10/2026 – 05/10/2026'. */
+export const fmtRangeLabel = (from, to) => (from === to ? fmtDmy(from) : `${fmtDmy(from)} – ${fmtDmy(to)}`);
+
+/** Serie día a día (día N del periodo actual contra día N del de comparación), con la forma de buildYoYSeries. */
+export const buildDailySeries = (daily) => {
+  const rows = [...(daily || [])].sort((a, b) => a.index - b.index);
+  const label = (r) => {
+    const d = r.date || r.baseDate;
+    return d ? `${d.slice(8, 10)}/${d.slice(5, 7)}` : String(r.index);
+  };
+  return {
+    labels: rows.map(label),
+    current: rows.map((r) => num(r.sales)),
+    base: rows.map((r) => num(r.baseSales)),
+  };
+};
+
 /**
  * Frase que explica, con las fechas reales, qué se está comparando en el Resumen.
  * today: "yyyy-mm-dd" (hora de Guatemala).
  */
-export const describeComparison = ({ year, baseYear, fromMonth, toMonth, mode, today }) => {
+export const describeComparison = ({ year, baseYear, fromMonth, toMonth, mode, today, from, to, baseFrom, baseTo }) => {
+  if (mode === "CUSTOM") {
+    if (validateCustomRange({ from, to, baseFrom, baseTo, today })) return "Elige las fechas de los dos periodos.";
+    const a = rangeDays(from, to);
+    const b = rangeDays(baseFrom, baseTo);
+    return (
+      `Del ${fmtRangeLabel(from, to)} (${a} ${a === 1 ? "día" : "días"}) contra el ${fmtRangeLabel(baseFrom, baseTo)} ` +
+      `(${b} ${b === 1 ? "día" : "días"}).` +
+      (a !== b ? " Los periodos no duran lo mismo: compara con cuidado los totales." : "")
+    );
+  }
   const cy = Number(String(today).slice(0, 4));
   const cm = Number(String(today).slice(5, 7));
   const cd = Number(String(today).slice(8, 10));

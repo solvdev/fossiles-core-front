@@ -5,7 +5,14 @@ import {
   aggregateGoalPct,
   applySupervisorSelection,
   buildSupervisorOptions,
+  addDaysYmd,
+  buildDailySeries,
   describeComparison,
+  fmtRangeLabel,
+  previousPeriod,
+  rangeDays,
+  sameDateLastYear,
+  validateCustomRange,
   selectedSupervisorOptions,
   buildCompletenessRows,
   buildGoalRows,
@@ -444,5 +451,55 @@ describe("proyecciones", () => {
     expect(goalOutlook(0.85)).toMatchObject({ key: "commission", cls: "mid" });
     expect(goalOutlook(0.7)).toMatchObject({ key: "commission" });
     expect(goalOutlook(0.69)).toMatchObject({ key: "below", cls: "bad" });
+  });
+});
+
+describe("comparación por fechas específicas", () => {
+  const today = "2026-10-06";
+  const ok = { from: "2026-10-01", to: "2026-10-05", baseFrom: "2025-10-01", baseTo: "2025-10-05", today };
+
+  test("cuenta días con ambos extremos y suma días", () => {
+    expect(rangeDays("2026-10-01", "2026-10-05")).toBe(5);
+    expect(rangeDays("2026-10-05", "2026-10-05")).toBe(1);
+    expect(addDaysYmd("2026-10-01", -1)).toBe("2026-09-30");
+    expect(addDaysYmd("2026-02-28", 1)).toBe("2026-03-01");
+  });
+
+  test("misma fecha del año anterior ajusta el 29 de febrero", () => {
+    expect(sameDateLastYear("2026-10-06")).toBe("2025-10-06");
+    expect(sameDateLastYear("2028-02-29")).toBe("2027-02-28");
+  });
+
+  test("periodo anterior dura lo mismo y termina el día previo", () => {
+    expect(previousPeriod("2026-10-01", "2026-10-05")).toEqual({ baseFrom: "2026-09-26", baseTo: "2026-09-30" });
+    expect(previousPeriod("2026-10-06", "2026-10-06")).toEqual({ baseFrom: "2026-10-05", baseTo: "2026-10-05" });
+  });
+
+  test("valida fechas faltantes, invertidas, futuras y demasiado largas", () => {
+    expect(validateCustomRange(ok)).toBeNull();
+    expect(validateCustomRange({ ...ok, to: "" })).toContain("periodo actual");
+    expect(validateCustomRange({ ...ok, baseFrom: "2025-10-06" })).toContain("de comparación");
+    expect(validateCustomRange({ ...ok, to: "2026-10-07" })).toContain("después de hoy");
+    expect(validateCustomRange({ ...ok, from: "2025-01-01" })).toContain("366");
+  });
+
+  test("describe los dos periodos y avisa si duran distinto", () => {
+    const t = describeComparison({ ...ok, mode: "CUSTOM" });
+    expect(t).toContain("Del 01/10/2026 – 05/10/2026 (5 días) contra el 01/10/2025 – 05/10/2025 (5 días).");
+    expect(t).not.toContain("no duran lo mismo");
+    expect(describeComparison({ ...ok, baseTo: "2025-10-03", mode: "CUSTOM" })).toContain("no duran lo mismo");
+    expect(describeComparison({ ...ok, to: "", mode: "CUSTOM" })).toBe("Elige las fechas de los dos periodos.");
+    expect(fmtRangeLabel("2026-10-05", "2026-10-05")).toBe("05/10/2026");
+  });
+
+  test("serie diaria etiqueta con la fecha actual (o la base si falta)", () => {
+    const s = buildDailySeries([
+      { index: 2, date: "2026-10-02", baseDate: "2025-10-02", sales: 100, baseSales: 80 },
+      { index: 1, date: "2026-10-01", baseDate: "2025-10-01", sales: 0, baseSales: null },
+      { index: 3, date: null, baseDate: "2025-10-03", sales: null, baseSales: 5 },
+    ]);
+    expect(s.labels).toEqual(["01/10", "02/10", "03/10"]);
+    expect(s.current).toEqual([0, 100, null]);
+    expect(s.base).toEqual([null, 80, 5]);
   });
 });
