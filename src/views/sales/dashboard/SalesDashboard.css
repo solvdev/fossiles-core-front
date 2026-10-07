@@ -1,0 +1,149 @@
+/* Dashboard de ventas por fuente. Se apoya en el sistema .kfin de Finanzas kioscos (KioskFinance.css, que se
+   importa tal cual) y solo agrega lo que ese archivo no trae. Todo va bajo .sdash para no afectar otras vistas.
+   Colores de fuente aprobados en la maqueta: Kioskos #51cbce, Online #f0a63a, Vendedor LF #4f5fc7;
+   producto / empaque / envío en pizarra #3b4a5a / #6f7b88 / #a3acb6. */
+
+.kfin.sdash {
+  --sdash-accent: #252422;
+  --sdash-link: #1b6f73;
+  --sdash-amber: #c77d0a;
+}
+
+/* ---------- Cabecera: filtros en línea ---------- */
+.sdash .sdash-filters { padding: 0; align-items: flex-end; }
+.sdash .sdash-filters .kfin-field { min-width: 140px; }
+.sdash .sdash-filters .form-control { height: 40px; }
+.sdash .sdash-filters .kfin-btn--lg { min-height: 40px; }
+.sdash .sdash-tabfilters { padding-top: 4px; }
+
+/* ---------- Pestañas con punto de color ---------- */
+.sdash .kfin-tabs .nav-link { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; font-weight: 600; }
+.kfin.sdash .kfin-tabs .nav-link.active { border-bottom: 3px solid var(--sdash-tab-accent, #252422) !important; }
+.sdash .sdash-dot { width: 10px; height: 10px; border-radius: 3px; display: inline-block; flex: 0 0 auto; }
+.sdash .sdash-panel { padding-top: 16px; }
+
+/* ---------- KPIs ---------- */
+.sdash .sdash-kpis .kfin-kpi { border-top-color: var(--sdash-accent, #252422); }
+.sdash .sdash-kpis .kfin-kpi-value { font-size: 1.5rem; font-variant-numeric: tabular-nums; }
+.sdash .sdash-note { font-size: 0.78rem; color: var(--kfin-ink-2); margin-left: 6px; }
+.sdash .sdash-note:first-child { margin-left: 0; }
+.sdash .sdash-kpis .kfin-kpi-delta { min-height: 24px; }
+
+/* ---------- Filas de tarjetas ---------- */
+.sdash .sdash-row { display: flex; flex-wrap: wrap; gap: 16px; margin-bottom: 16px; }
+.sdash .sdash-row > .kfin-card, .sdash .sdash-row > .sdash-src { margin-bottom: 0; }
+.sdash .sdash-c2 { flex: 2 1 520px; min-width: 0; }
+.sdash .sdash-c1 { flex: 1 1 300px; min-width: 0; }
+.sdash .sdash-c3 { flex: 1 1 250px; min-width: 0; }
+.sdash .sdash-c2 > .kfin-card, .sdash .sdash-c1 > .kfin-card { margin-bottom: 0; height: 100%; }
+.sdash .sdash-yoy { margin-bottom: 16px; }
+.sdash .sdash-yoy .row { margin-top: 0 !important; }
+
+.sdash .sdash-link {
+  display: inline-flex; align-items: center; min-height: 44px; padding: 0; border: 0; background: none;
+  font: inherit; font-size: 0.85rem; font-weight: 700; color: var(--sdash-link); text-decoration: none; cursor: pointer;
+}
+.sdash .sdash-link:hover { text-decoration: underline; color: var(--sdash-link); }
+.sdash .sdash-link:focus-visible { outline: 2px solid var(--kfin-cur-ink); outline-offset: 2px; border-radius: 3px; }
+.sdash .sdash-subhead { margin: 18px 0 0; font-size: 0.85rem; font-weight: 700; }
+
+/* Insignia y notas */
+.sdash .sdash-badge { display: inline-block; font-size: 0.7rem; font-weight: 700; padding: 3px 9px; border-radius: 999px; background: #e8eef4; color: #2f4558; }
+.sdash .sdash-badge--amber { background: #fff1cf; color: #6b4600; }
+.sdash .sdash-def { background: #eef0fb; border: 1px solid #d4d9f3; color: #2f3a8a; font-size: 0.8rem; padding: 10px 12px; border-radius: 8px; margin-bottom: 14px; }
+
+/* ---------- Tarjetas por fuente (Consolidado) ---------- */
+.sdash .sdash-src { flex: 1 1 300px; min-width: 0; background: var(--kfin-surface); border: 1px solid var(--kfin-line); border-top: 5px solid; border-radius: 10px; padding: 16px 18px 6px; }
+.sdash .sdash-src-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
+.sdash .sdash-src-head h5 { margin: 0; font-size: 0.95rem; font-weight: 700; }
+.sdash .sdash-src-value { font-size: 1.65rem; font-weight: 700; margin: 8px 0; font-variant-numeric: tabular-nums; }
+.sdash .sdash-bar { height: 8px; border-radius: 999px; background: #eceae4; overflow: hidden; margin: 8px 0 4px; }
+.sdash .sdash-bar span { display: block; height: 100%; }
+.sdash .sdash-src .sdash-note { margin-left: 0; }
+.sdash .sdash-kv { margin: 10px 0 0; }
+.sdash .sdash-kv > div { display: flex; justify-content: space-between; gap: 12px; font-size: 0.82rem; padding: 7px 0; border-top: 1px solid #f0eee9; }
+.sdash .sdash-kv dt { font-weight: 400; color: var(--kfin-ink-2); }
+.sdash .sdash-kv dd { margin: 0; font-weight: 700; font-variant-numeric: tabular-nums; text-align: right; }
+
+/* ---------- Composición del dinero ---------- */
+.sdash .sdash-stack { display: flex; height: 32px; border-radius: 8px; overflow: hidden; margin: 10px 0 12px; background: #eceae4; }
+.sdash .sdash-stack > div { display: flex; align-items: center; justify-content: center; font-size: 0.75rem; font-weight: 700; min-width: 0; overflow: hidden; }
+.sdash .sdash-legend { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px 20px; font-size: 0.82rem; }
+.sdash .sdash-legend li { display: flex; align-items: flex-start; gap: 8px; }
+.sdash .sdash-legend .sdash-dot { margin-top: 4px; }
+.sdash .sdash-legend--col { flex-direction: column; gap: 8px; }
+
+/* ---------- Listas con barra (ranking, desgloses) ---------- */
+.sdash .sdash-pr-list { list-style: none; margin: 0; padding: 0; }
+.sdash .sdash-pr { display: flex; align-items: center; gap: 10px; padding: 9px 0; border-top: 1px solid #f0eee9; font-size: 0.82rem; }
+.sdash .sdash-pr:first-child { border-top: 0; }
+.sdash .sdash-pr-name { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+.sdash .sdash-pr-sub { color: var(--kfin-ink-2); font-size: 0.75rem; }
+.sdash .sdash-pr-sub--block { display: block; }
+.sdash .sdash-pr-bar { display: block; height: 6px; border-radius: 999px; margin-top: 6px; }
+.sdash .sdash-pr-val { font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.sdash .sdash-mini { display: block; height: 6px; border-radius: 999px; margin-top: 6px; }
+
+/* ---------- Estados (pastillas) ---------- */
+.sdash .sdash-status { display: inline-block; font-size: 0.7rem; font-weight: 700; padding: 3px 9px; border-radius: 999px; background: #eceae4; color: #3b3935; white-space: nowrap; }
+.sdash .sdash-status--ok { background: #e3f5ec; color: #17683f; }
+.sdash .sdash-status--warn { background: #fff1cf; color: #7a5600; }
+.sdash .sdash-status--bad { background: #fde9e4; color: #a1361a; }
+
+/* ---------- Tablas ---------- */
+.sdash .sdash-scroll { cursor: auto; max-height: 420px; }
+.sdash .sdash-detail-scroll { max-height: 380px; }
+.sdash .sdash-wide { min-width: 760px; }
+.sdash .sdash-recent { min-width: 560px; }
+.sdash .kfin-table .kfin-strongnum { font-weight: 700; }
+.sdash .kfin-table tbody th[scope="row"] .sdash-dot { margin-right: 6px; vertical-align: baseline; }
+
+/* ---------- Mapa de calor (rampa ámbar de la maqueta; mismos umbrales que Finanzas) ---------- */
+.sdash .sdash-h0 { background: #f4f1ea; color: #252422; }
+.sdash .sdash-h1 { background: #fbe7bd; color: #252422; }
+.sdash .sdash-h2 { background: #f7cd7e; color: #252422; }
+.sdash .sdash-h3 { background: #ee9f35; color: #252422; }
+.sdash .sdash-h4 { background: #b45f08; color: #ffffff; }
+.sdash .sdash-h5 { background: #7a3d02; color: #ffffff; }
+.sdash .sdash-hzero { background: #ffffff; color: #66615b; font-style: italic; box-shadow: inset 0 -2px 0 var(--kfin-mid-bg); }
+.sdash .kfin-heat-swatch.sdash-hzero { box-shadow: inset 0 -3px 0 var(--kfin-mid-bg); }
+.sdash .kfin-table td.sdash-hc { font-weight: 700; }
+/* En tablas, .kfin-table pinta cada celda (y al pasar el cursor): se sube la especificidad para conservar el sombreado */
+.sdash .kfin-table tbody tr td.sdash-h0 { background: #f4f1ea; color: #252422; }
+.sdash .kfin-table tbody tr td.sdash-h1 { background: #fbe7bd; color: #252422; }
+.sdash .kfin-table tbody tr td.sdash-h2 { background: #f7cd7e; color: #252422; }
+.sdash .kfin-table tbody tr td.sdash-h3 { background: #ee9f35; color: #252422; }
+.sdash .kfin-table tbody tr td.sdash-h4 { background: #b45f08; color: #ffffff; }
+.sdash .kfin-table tbody tr td.sdash-h5 { background: #7a3d02; color: #ffffff; }
+.sdash .kfin-table tbody tr td.sdash-hzero { background: #ffffff; color: #66615b; }
+
+.sdash .sdash-cal-month + .sdash-cal-month { margin-top: 18px; }
+.sdash .sdash-cal-title { margin: 14px 0 0; font-size: 0.9rem; font-weight: 700; }
+.sdash .sdash-cal { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; margin-top: 12px; }
+.sdash .sdash-cwd { font-size: 0.7rem; font-weight: 700; color: var(--kfin-ink-2); text-transform: uppercase; text-align: center; padding-bottom: 2px; }
+.sdash .sdash-cd { border-radius: 8px; padding: 8px; min-height: 64px; display: flex; flex-direction: column; justify-content: space-between; font-variant-numeric: tabular-nums; }
+.sdash .sdash-cd--empty { background: transparent; }
+.sdash .sdash-cd .sdash-dnum { font-size: 0.7rem; font-weight: 700; opacity: 0.85; }
+.sdash .sdash-cd .sdash-dv { font-size: 0.8rem; font-weight: 700; }
+.sdash .sdash-cd.sdash-hzero { border: 1px dashed var(--kfin-line-strong); }
+.sdash .sdash-cd--best { outline: 2px solid #252422; outline-offset: 1px; }
+
+.sdash .sdash-insight { background: #fff7e0; border: 1px solid #f2dc9b; border-radius: 8px; padding: 10px 12px; font-size: 0.82rem; margin-top: 14px; color: #4a3a0c; }
+
+@media (max-width: 575px) {
+  .sdash .sdash-filters { width: 100%; }
+  .sdash .sdash-filters .kfin-field { flex: 1 1 130px; }
+  .sdash .sdash-filters .kfin-btnseg { flex: 1 1 100%; }
+  .sdash .sdash-filters .kfin-btnseg .kfin-btn { flex: 1 1 auto; justify-content: center; padding: 8px 6px; }
+  .sdash .sdash-cal { gap: 4px; }
+  .sdash .sdash-cd { padding: 6px 4px; min-height: 52px; }
+  .sdash .sdash-cd .sdash-dv { font-size: 0.65rem; }
+  .sdash .sdash-cd .sdash-dnum { font-size: 0.62rem; }
+  .sdash .sdash-c2, .sdash .sdash-c1, .sdash .sdash-c3, .sdash .sdash-src { flex-basis: 100%; }
+  .sdash .sdash-src-value { font-size: 1.4rem; }
+  .sdash .card-body { padding-left: 10px; padding-right: 10px; }
+}
+
+@media print {
+  .sdash .sdash-scroll { max-height: none; }
+}
