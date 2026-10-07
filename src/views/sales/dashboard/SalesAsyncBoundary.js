@@ -21,12 +21,21 @@ export function TabSkeleton({ kpis = 5 }) {
 /**
  * Estados de carga de una pestaña: error con reintento, esqueleto en la primera carga, vacío y,
  * mientras recarga con datos previos, el contenido atenuado (kfin-refetching).
- * `children` recibe los datos y devuelve el contenido.
+ * `children` recibe los datos y devuelve el contenido. `skeleton` reemplaza el esqueleto de pestaña completa
+ * (para secciones más pequeñas).
  */
-export default function SalesAsyncBoundary({ query, isEmpty, emptyTitle, emptyText, skeletonKpis = 5, children }) {
+export default function SalesAsyncBoundary({
+  query,
+  isEmpty,
+  emptyTitle,
+  emptyText,
+  skeletonKpis = 5,
+  skeleton,
+  children,
+}) {
   const { data, loading, error, reload } = query;
   if (error) return <ErrorState message={error} onRetry={reload} />;
-  if (!data && loading) return <TabSkeleton kpis={skeletonKpis} />;
+  if (!data && loading) return skeleton || <TabSkeleton kpis={skeletonKpis} />;
   if (!data) return null;
   if (isEmpty && isEmpty(data)) {
     return <EmptyState title={emptyTitle || "Sin ventas en el periodo"}>{emptyText}</EmptyState>;

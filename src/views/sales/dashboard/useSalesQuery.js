@@ -7,8 +7,12 @@ import useAsyncData from "views/kiosks/finance/reports/useAsyncData";
  * - `refreshToken` lo incrementa el botón 'Actualizar': mientras ese token no haya terminado de cargar con éxito,
  *   la petición viaja con refresh=true para saltarse la caché de 60 s del backend (también en un reintento).
  * - Cancela la petición anterior al lanzar una nueva y al desmontar la pestaña.
+ * - `enabled: false` no consulta (p. ej. rango que el endpoint no admite).
  */
-export default function useSalesQuery(fetcher, { startDate, endDate, kioskLocationId, refreshToken = 0 }) {
+export default function useSalesQuery(
+  fetcher,
+  { startDate, endDate, kioskLocationId, refreshToken = 0, enabled = true }
+) {
   const controllerRef = useRef(null);
   const settledTokenRef = useRef(refreshToken);
 
@@ -35,6 +39,7 @@ export default function useSalesQuery(fetcher, { startDate, endDate, kioskLocati
         return result;
       });
     },
-    [startDate, endDate, kioskLocationId || "", refreshToken]
+    [startDate, endDate, kioskLocationId || "", refreshToken],
+    { enabled }
   );
 }

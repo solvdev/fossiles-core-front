@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { Nav, NavItem, NavLink } from "reactstrap";
 import { getTodayYmdGuatemala } from "utils/dateTimeHelper";
@@ -22,6 +22,8 @@ import "views/kiosks/finance/KioskFinance.css";
 import "views/sales/dashboard/SalesDashboard.css";
 
 const PANEL_ID = "sdash-panel";
+const UNSAVED_AD_SPEND_CONFIRM =
+  "Tienes cambios de inversión en publicidad sin guardar. Si cambias de pestaña se perderán. ¿Quieres salir sin guardarlos?";
 
 /**
  * Dashboard de ventas por fuente: Consolidado · Kioskos · Online · Vendedor LF.
@@ -38,6 +40,11 @@ function SalesDashboard() {
   // Borrador de las fechas: mientras se teclea una fecha incompleta no se toca la URL ni se consulta.
   const [draft, setDraft] = useState({ startDate, endDate });
   const [refreshToken, setRefreshToken] = useState(0);
+  // 'Publicidad vs ventas' (pestaña Online) avisa si hay capturas sin guardar para no perderlas al cambiar de pestaña.
+  const adSpendDirtyRef = useRef(false);
+  const onAdSpendDirtyChange = useCallback((dirty) => {
+    adSpendDirtyRef.current = dirty;
+  }, []);
 
   useEffect(() => {
     setDraft({ startDate, endDate });
@@ -63,6 +70,7 @@ function SalesDashboard() {
   const selectTab = useCallback(
     (id) => {
       if (id === tab) return;
+      if (adSpendDirtyRef.current && !window.confirm(UNSAVED_AD_SPEND_CONFIRM)) return;
       // El kiosko elegido solo aplica a la pestaña Kioskos.
       updateParams({ tab: id, startDate, endDate, kioskLocationId: "" }, { push: true });
     },
@@ -102,7 +110,7 @@ function SalesDashboard() {
       );
       break;
     case "online":
-      content = <OnlineTab {...tabProps} />;
+      content = <OnlineTab {...tabProps} onAdSpendDirtyChange={onAdSpendDirtyChange} />;
       break;
     case "vendedor":
       content = <VendorTab {...tabProps} />;
