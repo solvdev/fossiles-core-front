@@ -7,6 +7,7 @@ import { createRoot } from "react-dom/client";
 import { act } from "react-dom/test-utils";
 import { MemoryRouter } from "react-router-dom";
 import * as svc from "services/salesDashboardService";
+import * as svc2 from "services/onlineAdSpendService";
 import SalesDashboard from "views/sales/SalesDashboard";
 
 jest.mock("react-chartjs-2", () => ({
@@ -21,6 +22,11 @@ jest.mock("services/salesDashboardService", () => ({
   getSalesKiosks: jest.fn(),
   getSalesOnline: jest.fn(),
   getSalesVendor: jest.fn(),
+}));
+jest.mock("services/onlineAdSpendService", () => ({
+  getAdSpendReport: jest.fn(),
+  saveAdSpend: jest.fn(),
+  bulkSaveAdSpend: jest.fn(),
 }));
 
 const days = (n, f) =>
@@ -49,6 +55,22 @@ const consolidated = {
   dailySeries: days(30, (i) => 1000 + i).map((d) => ({ date: d.date, kiosko: 1, online: 2, vendor: 3, total: d.amount })),
 };
 
+const adSpendReport = {
+  startDate: "2026-09-01",
+  endDate: "2026-09-30",
+  totals: { salesAmount: 600, ordersCount: 6, comparableSales: 300, adSpend: 100, netResult: 200, roas: 3, daysWithSpend: 1, daysNoSpend: 29, daysWin: 1, daysLoss: 0, daysEven: 0 },
+  days: Array.from({ length: 30 }, (_, i) => ({
+    date: `2026-09-${String(i + 1).padStart(2, "0")}`,
+    salesAmount: i === 0 ? 300 : 10,
+    ordersCount: 2,
+    adSpend: i === 0 ? 100 : null,
+    netResult: i === 0 ? 200 : null,
+    roas: i === 0 ? 3 : null,
+    status: i === 0 ? "WIN" : "NO_SPEND",
+    notes: null,
+  })),
+};
+
 const renderAt = async (url) => {
   const container = document.createElement("div");
   document.body.appendChild(container);
@@ -68,6 +90,11 @@ const renderAt = async (url) => {
 
 beforeAll(() => {
   global.IS_REACT_ACT_ENVIRONMENT = true;
+});
+
+beforeEach(() => {
+  // CRA resetea los mocks entre pruebas: el reporte de publicidad responde siempre algo válido
+  svc2.getAdSpendReport.mockResolvedValue(adSpendReport);
 });
 
 test("consolidado", async () => {
@@ -115,6 +142,37 @@ test("online con mapa de calor", async () => {
   expect(text).toContain("Vendedora 1");
   expect(container.querySelectorAll(".sdash-cd").length).toBeGreaterThanOrEqual(30);
   expect(container.querySelectorAll(".sdash-cd--best").length).toBe(1);
+});
+
+test("online: 'Publicidad vs ventas' va entre el mapa de calor y las listas y consulta su propio endpoint", async () => {
+  svc.getSalesOnline.mockResolvedValue(
+    detail("ONLINE", {
+      breakdowns: { bySeller: bd("1", "Vendedora 1"), bySocialNetwork: bd("ig", "Instagram"), byPaymentMethod: bd("t", "Tarjeta"), byStatus: bd("e", "Entregado") },
+    })
+  );
+  const { container } = await renderAt("/?tab=online&startDate=2026-09-01&endDate=2026-09-30");
+  const text = container.textContent;
+  expect(text).toContain("Publicidad vs ventas");
+  expect(text).toContain("Detalle diario de publicidad");
+  expect(text).toContain("29 días sin inversión capturada no entran al resultado.");
+  expect(text.indexOf("Mapa de calor por día")).toBeLessThan(text.indexOf("Publicidad vs ventas"));
+  expect(text.indexOf("Publicidad vs ventas")).toBeLessThan(text.indexOf("Por vendedora"));
+  expect(svc2.getAdSpendReport.mock.calls[0][0]).toMatchObject({ startDate: "2026-09-01", endDate: "2026-09-30" });
+  // sin permiso de edición: solo lectura
+  expect(container.querySelector("#sdash-ad-qdate")).toBeNull();
+  expect(container.querySelector("tbody input")).toBeNull();
+});
+
+test("online: si /dashboard/online falla o viene vacío, 'Publicidad vs ventas' sigue disponible", async () => {
+  svc.getSalesOnline.mockRejectedValue(new Error("boom"));
+  let r = await renderAt("/?tab=online&startDate=2026-09-01&endDate=2026-09-30");
+  expect(r.container.textContent).toContain("boom");
+  expect(r.container.textContent).toContain("Publicidad vs ventas");
+  expect(r.container.textContent).toContain("Detalle diario de publicidad");
+  svc.getSalesOnline.mockResolvedValue(detail("ONLINE", { kpis: { ...kpis(0), salesCount: 0, totalAmount: 0 } }));
+  r = await renderAt("/?tab=online&startDate=2026-09-01&endDate=2026-09-30");
+  expect(r.container.textContent).toContain("Sin ventas en el periodo");
+  expect(r.container.textContent).toContain("Detalle diario de publicidad");
 });
 
 test("vendedor", async () => {

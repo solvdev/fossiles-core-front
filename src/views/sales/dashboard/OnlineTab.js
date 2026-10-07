@@ -7,6 +7,7 @@ import BreakdownList from "./BreakdownList";
 import ProductRankingCard from "./ProductRankingCard";
 import RecentSalesTable from "./RecentSalesTable";
 import OnlineHeatmap from "./OnlineHeatmap";
+import AdSpendSection from "./AdSpendSection";
 import { SourceDailyChart } from "./SalesCharts";
 import useSalesQuery from "./useSalesQuery";
 import {
@@ -45,12 +46,12 @@ function BreakdownCard({ title, subtitle, children, className = "sdash-c3" }) {
   );
 }
 
-function OnlineBody({ data, startDate, endDate }) {
+/** KPIs, ventas por día, composición del dinero y mapa de calor (todo de /dashboard/online). */
+function OnlineTop({ data }) {
   const compareNote = `vs ${describePeriod(data.previousStartDate, data.previousEndDate) || "periodo anterior"}`;
   const items = useMemo(() => buildKpiItems(data.kpis, KPI_CONFIG.ONLINE, { compareNote }), [data.kpis, compareNote]);
   const composition = useMemo(() => buildCompositionSegments(data.kpis), [data.kpis]);
   const period = describePeriod(data.startDate, data.endDate);
-  const b = data.breakdowns || {};
 
   return (
     <>
@@ -80,7 +81,15 @@ function OnlineBody({ data, startDate, endDate }) {
       </div>
 
       <OnlineHeatmap dailySeries={data.dailySeries} periodLabel={period} noun="venta online" />
+    </>
+  );
+}
 
+/** Desgloses, ranking de productos y últimos pedidos (se muestran debajo de 'Publicidad vs ventas'). */
+function OnlineLists({ data, startDate, endDate }) {
+  const b = data.breakdowns || {};
+  return (
+    <>
       <div className="sdash-row">
         <BreakdownCard title="Por vendedora" subtitle="Venta y pedidos">
           <BreakdownList rows={b.bySeller} color={META.color} metric="amount" countLabel="pedidos" />
@@ -113,15 +122,42 @@ function OnlineBody({ data, startDate, endDate }) {
   );
 }
 
-export default function OnlineTab({ startDate, endDate, refreshToken }) {
+/**
+ * Pestaña Online. 'Publicidad vs ventas' consulta su propio endpoint y va siempre en la misma posición del árbol
+ * (entre el mapa de calor y las listas) para no perder los borradores de captura si /dashboard/online falla,
+ * viene vacío o se recarga.
+ */
+export default function OnlineTab({ startDate, endDate, refreshToken, onAdSpendDirtyChange }) {
   const query = useSalesQuery(getSalesOnline, { startDate, endDate, refreshToken });
+  const { data, loading } = query;
+  const ready = Boolean(data) && !isEmptyKpis(data.kpis);
+  const wrapperProps = { className: loading ? "kfin-refetching" : "", "aria-busy": loading };
   return (
-    <SalesAsyncBoundary
-      query={query}
-      isEmpty={(d) => isEmptyKpis(d.kpis)}
-      emptyText="No hay ventas online en este periodo. Prueba con otro rango de fechas."
-    >
-      {(data) => <OnlineBody data={data} startDate={startDate} endDate={endDate} />}
-    </SalesAsyncBoundary>
+    <>
+      {ready ? (
+        <div {...wrapperProps}>
+          <OnlineTop data={data} />
+        </div>
+      ) : (
+        <SalesAsyncBoundary
+          query={query}
+          isEmpty={(d) => isEmptyKpis(d.kpis)}
+          emptyText="No hay ventas online en este periodo. Prueba con otro rango de fechas."
+        >
+          {() => null}
+        </SalesAsyncBoundary>
+      )}
+      <AdSpendSection
+        startDate={startDate}
+        endDate={endDate}
+        refreshToken={refreshToken}
+        onDirtyChange={onAdSpendDirtyChange}
+      />
+      {ready ? (
+        <div {...wrapperProps}>
+          <OnlineLists data={data} startDate={startDate} endDate={endDate} />
+        </div>
+      ) : null}
+    </>
   );
 }
