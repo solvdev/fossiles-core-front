@@ -67,7 +67,7 @@ function buildChargePrefill(doc, partial = null, shipment = null) {
   const unchargedShipments = [];
   (doc.partialReleases || []).forEach((pr) => {
     (pr.shipments || []).forEach((s) => {
-      if (s.chargeStatus === "NONE" || !s.chargeEntryId) {
+      if (s.chargeStatus === "NONE") {
         unchargedShipments.push({ partial: pr, shipment: s });
       }
     });
@@ -117,15 +117,17 @@ function DocumentRow({ doc, onCharge, expanded, onToggle }) {
               {expanded ? "▾" : "▸"} Parciales
             </Button>
           )}
-          <Button
-            color="primary"
-            size="sm"
-            outline
-            className="btn-round"
-            onClick={() => onCharge(buildChargePrefill(doc))}
-          >
-            Crear cargo
-          </Button>
+          {doc.chargeStatus === "NONE" && (
+            <Button
+              color="primary"
+              size="sm"
+              outline
+              className="btn-round"
+              onClick={() => onCharge(buildChargePrefill(doc))}
+            >
+              Crear cargo
+            </Button>
+          )}
         </td>
       </tr>
       {hasPartials && expanded && (
@@ -159,7 +161,7 @@ function DocumentRow({ doc, onCharge, expanded, onToggle }) {
                             {s.estimatedTotal != null ? ` · Est. ${formatAccountMoney(s.estimatedTotal)}` : ""}
                             {s.balanceDue != null ? ` · Saldo ${formatAccountMoney(s.balanceDue)}` : ""}
                           </span>
-                          {(s.chargeStatus === "NONE" || !s.chargeEntryId) && (
+                          {s.chargeStatus === "NONE" && (
                             <Button
                               color="success"
                               size="sm"
