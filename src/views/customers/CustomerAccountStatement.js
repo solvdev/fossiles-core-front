@@ -281,7 +281,7 @@ function CustomerAccountStatement() {
   const closingDueOpv = Number(statement?.closingBalanceDueOpv) || 0;
   const closingDueOpc = Number(statement?.closingBalanceDueOpc) || 0;
   const lines = statement?.lines || [];
-  const { displayLines } = useMemo(() => groupStatementLines(lines), [lines]);
+  const { displayLines } = useMemo(() => groupStatementLines(lines, statement?.openingBalance), [lines, statement?.openingBalance]);
 
   const openChargeDetail = (line) => {
     setSelectedChargeLine(line);
