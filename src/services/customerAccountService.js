@@ -78,11 +78,13 @@ export const searchReceivableDocuments = async ({
   return response.json();
 };
 
-/** Cartera por documento (cargos, abonos, créditos, saldo) + anexo opcional de movimientos. */
+/**
+ * Cartera por documento (cargos, abonos, créditos, saldo) + anexo opcional de movimientos.
+ * Solo trae documentos y clientes con saldo: lo saldado (cero) no forma parte de la cartera.
+ */
 export const getCustomerAccountPortfolioReport = async ({
   search = "",
   orderKind = "OPV",
-  onlyOpen = false,
   regionCode,
   routeNumber,
   routeLocationCode,
@@ -93,7 +95,6 @@ export const getCustomerAccountPortfolioReport = async ({
   const params = new URLSearchParams();
   if (search) params.set("search", search);
   params.set("orderKind", orderKind);
-  if (onlyOpen) params.set("onlyOpen", "true");
   if (regionCode) params.set("regionCode", regionCode);
   if (routeNumber != null && routeNumber !== "") params.set("routeNumber", String(routeNumber));
   if (routeLocationCode) params.set("routeLocationCode", routeLocationCode);
@@ -233,6 +234,20 @@ export const splitAccountBalance = (value) => {
     creditBalance: net < 0 ? Math.abs(net) : 0,
     netBalance: net,
   };
+};
+
+const BALANCE_EPSILON = 0.005;
+
+/**
+ * ¿Sigue el cliente en la cartera `kind` (OPV/OPC)? Mientras deba algo en esa cartera o tenga crédito a favor.
+ * Un cliente en cero ya no debe nada y no se lista. Con `dueOnly` quedan solo los que tienen deuda.
+ */
+export const hasPortfolioBalance = (row, kind, { dueOnly = false } = {}) => {
+  const due = Number(kind === "OPC" ? row?.balanceDueOpc : row?.balanceDueOpv) || 0;
+  if (due > BALANCE_EPSILON) return true;
+  if (dueOnly) return false;
+  const credit = Number(row?.creditBalance ?? splitAccountBalance(row?.balance).creditBalance) || 0;
+  return credit > BALANCE_EPSILON;
 };
 
 export const formatAccountMoney = (value) => {

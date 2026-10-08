@@ -35,13 +35,28 @@ describe("normalizeRutasCxcRows (cartera por documento)", () => {
     expect(row.cargos - row.abonos - row.creditos).toBe(row.saldos);
   });
 
-  it("mantiene documentos pagados (saldo 0) y una sola fila por documento", () => {
+  it("no lista documentos pagados (saldo 0): una cartera solo muestra lo que se debe", () => {
     const rows = normalizeRutasCxcRows([
       docRow({ chargeEntryId: 1, paymentsApplied: 900, creditsApplied: 100, balanceDue: 0 }),
       docRow({ chargeEntryId: 2, invoiceNumber: "ENVP-2" }),
     ]);
-    expect(rows).toHaveLength(2);
-    expect(rows.find((r) => r.chargeEntryId === 1).saldos).toBe(0);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].chargeEntryId).toBe(2);
+    expect(rows[0].saldos).toBe(400);
+  });
+
+  it("descarta también el formato legado cuando el saldo es cero", () => {
+    const rows = normalizeRutasCxcRows([
+      { hasCharge: true, chargedAmount: 100, appliedCredits: 100, balanceDue: 0, invoiceNumber: "PAGADO" },
+      { hasCharge: true, chargedAmount: 100, appliedCredits: 40, balanceDue: 60, invoiceNumber: "ABIERTO" },
+    ]);
+    expect(rows.map((r) => r.invoiceNumber)).toEqual(["ABIERTO"]);
+  });
+
+  it("una cartera con todos los documentos pagados queda vacía", () => {
+    const rows = normalizeRutasCxcRows([docRow({ paymentsApplied: 900, creditsApplied: 100, balanceDue: 0 })]);
+    expect(rows).toEqual([]);
+    expect(sumRutasCxcTotals(rows)).toEqual({ cargos: 0, abonos: 0, creditos: 0, saldos: 0 });
   });
 
   it("conserva filas de ajuste (abono a cargo anulado) con saldo negativo", () => {
