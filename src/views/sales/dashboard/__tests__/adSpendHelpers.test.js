@@ -14,6 +14,8 @@ import {
   deriveDay,
   describeBulkResult,
   displayStatus,
+  adCostRatio,
+  fmtCostPct,
   fmtResultPct,
   fmtRoas,
   fmtSigned,
@@ -126,11 +128,11 @@ describe("resultado, estado y totales", () => {
     expect(statusFromNet(0)).toBe("EVEN");
     expect(statusFromNet(0.004)).toBe("EVEN");
     expect(statusFromNet(null)).toBe("NO_SPEND");
-    expect(deriveDay(3000, 1000)).toEqual({ adSpend: 1000, netResult: 2000, resultPct: 2, roas: 3, status: "WIN" });
+    expect(deriveDay(3000, 1000)).toEqual({ adSpend: 1000, netResult: 2000, resultPct: 2000 / 3000, adCostPct: 1000 / 3000, roas: 3, status: "WIN" });
     expect(deriveDay(400, 900)).toMatchObject({ netResult: -500, status: "LOSS" });
     expect(deriveDay(500, 500)).toMatchObject({ netResult: 0, roas: 1, status: "EVEN" });
-    expect(deriveDay(1200, null)).toEqual({ adSpend: null, netResult: null, resultPct: null, roas: null, status: "NO_SPEND" });
-    expect(deriveDay(1200, 0)).toMatchObject({ netResult: 1200, resultPct: null, roas: null, status: "WIN" });
+    expect(deriveDay(1200, null)).toEqual({ adSpend: null, netResult: null, resultPct: null, adCostPct: null, roas: null, status: "NO_SPEND" });
+    expect(deriveDay(1200, 0)).toMatchObject({ netResult: 1200, resultPct: 1, roas: null, status: "WIN" });
   });
 
   test("computeTotals excluye los días sin captura del resultado (regla del contrato)", () => {
@@ -425,12 +427,14 @@ describe("gráfico", () => {
       sales: "Q 3,000.00",
       spend: "Q 1,000.00",
       result: "▲ +Q 2,000.00",
-      resultPct: "▲ +200.0%",
+      resultPct: "▲ +66.7%",
+      adCostPct: "33.3%",
       status: "Ganancia",
     });
     expect(rows[1].result).toBe("▼ -Q 500.00");
-    expect(rows[1].resultPct).toBe("▼ -55.6%");
-    expect(rows[3]).toMatchObject({ spend: "—", result: "—", resultPct: "—", status: "Sin inversión capturada" });
+    expect(rows[1].resultPct).toBe("▼ -125.0%");
+    expect(rows[1].adCostPct).toBe("225.0%");
+    expect(rows[3]).toMatchObject({ spend: "—", result: "—", resultPct: "—", adCostPct: "—", status: "Sin inversión capturada" });
     const label = buildChartAriaLabel(computeTotals(DAYS), DAYS);
     expect(label).toContain("2 días en ganancia, 1 día en pérdida y 1 día sin inversión capturada");
     expect(label).toContain("mejor día 1 de septiembre con +Q 2,000.00");
@@ -439,18 +443,30 @@ describe("gráfico", () => {
   });
 });
 
-describe("porcentaje de ganancia o pérdida sobre la inversión", () => {
-  test("resultRatio: resultado ÷ inversión; null sin inversión o con inversión 0", () => {
-    expect(resultRatio(2000, 1000)).toBe(2);
-    expect(resultRatio(-500, 900)).toBeCloseTo(-0.5556, 4);
+describe("porcentaje de ganancia o pérdida sobre la venta", () => {
+  test("resultRatio: (venta − inversión) ÷ venta; null sin resultado o con venta 0", () => {
+    expect(resultRatio(2000, 3000)).toBeCloseTo(0.6667, 4);
+    expect(resultRatio(-500, 400)).toBe(-1.25);
     expect(resultRatio(0, 500)).toBe(0);
-    expect(resultRatio(1200, 0)).toBeNull();
+    expect(resultRatio(-900, 0)).toBeNull();
     expect(resultRatio(null, 500)).toBeNull();
     expect(resultRatio(500, null)).toBeNull();
   });
 
+  test("adCostRatio: inversión ÷ venta; complementa al resultado (suman 100 % de la venta)", () => {
+    expect(adCostRatio(1000, 3000)).toBeCloseTo(0.3333, 4);
+    expect(adCostRatio(900, 400)).toBe(2.25);
+    expect(adCostRatio(0, 500)).toBe(0);
+    expect(adCostRatio(500, 0)).toBeNull();
+    expect(adCostRatio(null, 500)).toBeNull();
+    expect(adCostRatio(500, null)).toBeNull();
+    expect(adCostRatio(1000, 3000) + resultRatio(2000, 3000)).toBeCloseTo(1, 10);
+    expect(fmtCostPct(1 / 3)).toBe("33.3%");
+    expect(fmtCostPct(null)).toBe("—");
+  });
+
   test("fmtResultPct: signo explícito y un decimal", () => {
-    expect(fmtResultPct(2)).toBe("+200.0%");
+    expect(fmtResultPct(2 / 3)).toBe("+66.7%");
     expect(fmtResultPct(-0.3525)).toBe("-35.3%");
     expect(fmtResultPct(0)).toBe("0.0%");
     expect(fmtResultPct(null)).toBe("—");
@@ -466,11 +482,15 @@ describe("porcentaje de ganancia o pérdida sobre la inversión", () => {
         { date: "2026-09-03", salesAmount: 800, ordersCount: 1, adSpend: null, netResult: null, roas: null, status: "NO_SPEND" },
       ],
     });
-    expect(report.days[0].resultPct).toBe(2);
-    expect(report.days[1].resultPct).toBeCloseTo(-0.5556, 4);
+    expect(report.days[0].resultPct).toBeCloseTo(2000 / 3000, 6);
+    expect(report.days[1].resultPct).toBe(-1.25);
     expect(report.days[2].resultPct).toBeNull();
+    expect(report.days[0].adCostPct).toBeCloseTo(1000 / 3000, 6);
+    expect(report.days[1].adCostPct).toBe(2.25);
+    expect(report.days[2].adCostPct).toBeNull();
     const totals = computeTotals(report.days);
-    expect(totals.resultPct).toBeCloseTo(1500 / 1900, 6);
+    expect(totals.resultPct).toBeCloseTo(1500 / 3400, 6);
+    expect(totals.adCostPct).toBeCloseTo(1900 / 3400, 6);
     expect(computeTotals([{ date: "2026-09-03", salesAmount: 800, adSpend: null }]).resultPct).toBeNull();
   });
 });

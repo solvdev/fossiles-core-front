@@ -7,6 +7,7 @@ import {
   dayLabel,
   deriveDay,
   displayStatus,
+  fmtCostPct,
   fmtResultPct,
   fmtRoas,
   fmtSigned,
@@ -44,7 +45,7 @@ function ResultCell({ value, status }) {
   );
 }
 
-/** Ganancia o pérdida en % sobre la inversión: misma flecha y color que el resultado en Q. */
+/** Ganancia o pérdida en % sobre la venta del día ((venta − inversión) ÷ venta): misma flecha y color que el resultado en Q. */
 function PctCell({ value, status }) {
   const meta = statusMeta(status);
   if (value === null || value === undefined) return <span className="kfin-muted">—</span>;
@@ -132,6 +133,9 @@ const AdSpendRow = memo(function AdSpendRow({ day, draft, canEdit, busy, today, 
       </td>
       <td className={`is-num sdash-ad-res sdash-ad-res--${meta.tone}`}>
         <PctCell value={view.resultPct} status={status} />
+      </td>
+      <td className="is-num">
+        {view.adCostPct === null || view.adCostPct === undefined ? <span className="kfin-muted">—</span> : fmtCostPct(view.adCostPct)}
       </td>
       <td className="is-num">{view.adSpend === null || view.roas === null ? <span className="kfin-muted">—</span> : fmtRoas(view.roas)}</td>
       <td>
@@ -232,7 +236,7 @@ export default function AdSpendTable({
         <div className="sdash-ad-preview" role="note">
           <b>Vista previa con los cambios sin guardar:</b> inversión {fmtMoney(previewTotals.adSpend)} · venta de esos días{" "}
           {fmtMoney(previewTotals.comparableSales)} · resultado {fmtSigned(previewTotals.netResult)} (
-          {fmtResultPct(previewTotals.resultPct)}) · ROAS{" "}
+          {fmtResultPct(previewTotals.resultPct)}) · publicidad {fmtCostPct(previewTotals.adCostPct)} de la venta · ROAS{" "}
           {previewTotals.roas === null ? "—" : `Q ${fmtRoas(previewTotals.roas)}`}
         </div>
       ) : null}
@@ -261,8 +265,11 @@ export default function AdSpendTable({
               <th scope="col" className="is-num">
                 Resultado
               </th>
-              <th scope="col" className="is-num" title="Ganancia o pérdida ÷ inversión del día">
-                % s/ inversión
+              <th scope="col" className="is-num" title="(Venta − inversión) ÷ venta del día">
+                % resultado
+              </th>
+              <th scope="col" className="is-num" title="Inversión ÷ venta del día: cuánto de cada Q1 vendido se fue en publicidad">
+                % publicidad
               </th>
               <th scope="col" className="is-num" title="Q vendidos por cada Q1 invertido">
                 ROAS
@@ -298,6 +305,9 @@ export default function AdSpendTable({
               </td>
               <td className={`is-num sdash-ad-res sdash-ad-res--${totalMeta.tone}`}>
                 <PctCell value={totals.daysWithSpend > 0 ? totals.resultPct : null} status={totalStatus} />
+              </td>
+              <td className="is-num">
+                {totals.adCostPct === null || totals.adCostPct === undefined ? <span className="kfin-muted">—</span> : fmtCostPct(totals.adCostPct)}
               </td>
               <td className="is-num">{totals.roas === null ? <span className="kfin-muted">—</span> : fmtRoas(totals.roas)}</td>
               <td className="kfin-muted" colSpan={2}>

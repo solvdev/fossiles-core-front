@@ -47,7 +47,8 @@ describe("adSpendExport", () => {
       "Venta (Q)",
       "Inversión (Q)",
       "Resultado (Q)",
-      "Resultado (% s/ inversión)",
+      "Resultado (% s/ venta)",
+      "Publicidad (% s/ venta)",
       "ROAS",
       "Estado",
       "Notas",
@@ -59,7 +60,8 @@ describe("adSpendExport", () => {
     expect(summary["Inversión en publicidad"]).toBe(2600);
     expect(summary["Venta de los días con inversión"]).toBe(4700);
     expect(summary["Resultado (venta − inversión)"]).toBe(2100);
-    expect(summary["Resultado en % sobre la inversión"]).toBe(2100 / 2600);
+    expect(summary["Resultado en % sobre la venta"]).toBe(2100 / 4700);
+    expect(summary["Publicidad en % sobre la venta"]).toBe(2600 / 4700);
     expect(summary["Días en ganancia"]).toBe(2);
     expect(summary["Días en pérdida"]).toBe(1);
     expect(summary["Días en equilibrio"]).toBe(1);
@@ -68,15 +70,15 @@ describe("adSpendExport", () => {
 
     const first = aoa[layout.firstDayRow];
     expect(first[1]).toBe("Martes");
-    expect(first.slice(2)).toEqual([2, 3000, 1000, 2000, 2, 3, "Ganancia", ""]);
+    expect(first.slice(2)).toEqual([2, 3000, 1000, 2000, 2000 / 3000, 1000 / 3000, 3, "Ganancia", ""]);
     const loss = aoa[layout.firstDayRow + 1];
-    expect(loss.slice(3)).toEqual([400, 900, -500, -500 / 900, 400 / 900, "Pérdida", "Meta ads"]);
+    expect(loss.slice(3)).toEqual([400, 900, -500, -500 / 400, 900 / 400, 400 / 900, "Pérdida", "Meta ads"]);
     const noSpend = aoa[layout.firstDayRow + 3];
-    expect(noSpend.slice(3)).toEqual([1200, null, null, null, null, "Sin inversión capturada", ""]);
+    expect(noSpend.slice(3)).toEqual([1200, null, null, null, null, null, "Sin inversión capturada", ""]);
     const total = aoa[layout.totalRow];
     expect(total[0]).toBe("Total");
-    expect(total.slice(2, 9)).toEqual([10, 5900, 2600, 2100, 2100 / 2600, 4700 / 2600, "Ganancia"]);
-    expect(total[9]).toMatch(/solo 4 días con inversión/);
+    expect(total.slice(2, 10)).toEqual([10, 5900, 2600, 2100, 2100 / 4700, 2600 / 4700, 4700 / 2600, "Ganancia"]);
+    expect(total[10]).toMatch(/solo 4 días con inversión/);
   });
 
   test("libro: una hoja con estilos verde/rojo en resultado y formatos", () => {
@@ -93,7 +95,8 @@ describe("adSpendExport", () => {
     expect(cell(ws, r0, 6).z).toBe("+0.0%;-0.0%;0.0%");
     expect(cell(ws, r0, 6).s.fill.fgColor.rgb).toBe("C6EFCE");
     expect(cell(ws, r0, 6).s.font.color.rgb).toBe("006100");
-    expect(cell(ws, r0, 8).s.fill.fgColor.rgb).toBe("C6EFCE");
+    expect(cell(ws, r0, 7).z).toBe("0.0%");
+    expect(cell(ws, r0, 9).s.fill.fgColor.rgb).toBe("C6EFCE");
 
     expect(cell(ws, r0 + 1, 6).s.fill.fgColor.rgb).toBe("FFC7CE");
     expect(cell(ws, r0 + 1, 6).s.font.color.rgb).toBe("9C0006");
@@ -104,11 +107,11 @@ describe("adSpendExport", () => {
 
     expect(cell(ws, r0 + 2, 5).s.fill.fgColor.rgb).toBe("EDEDED");
 
-    const none = cell(ws, r0 + 3, 8);
+    const none = cell(ws, r0 + 3, 9);
     expect(none.v).toBe("Sin inversión capturada");
     expect(none.s.fill).toBeUndefined();
     expect(cell(ws, r0, 0).z).toBe("dd/mm/yyyy");
-    expect(cell(ws, r0, 7).z).toBe("0.00");
+    expect(cell(ws, r0, 8).z).toBe("0.00");
 
     const header = cell(ws, layout.headerRow, 0);
     expect(header.s.font.bold).toBe(true);
@@ -117,7 +120,7 @@ describe("adSpendExport", () => {
     const total = cell(ws, layout.totalRow, 5);
     expect(total.v).toBe(2100);
     expect(total.s.fill.fgColor.rgb).toBe("C6EFCE");
-    expect(ws["!autofilter"].ref).toBe(`A${layout.headerRow + 1}:J${layout.lastDayRow + 1}`);
+    expect(ws["!autofilter"].ref).toBe(`A${layout.headerRow + 1}:K${layout.lastDayRow + 1}`);
     expect(ws["!merges"].length).toBeGreaterThan(0);
   });
 
@@ -125,7 +128,7 @@ describe("adSpendExport", () => {
     const empty = normalizeReport({ days: [day("2026-09-01", 100, null), day("2026-09-02", 50, null)] });
     const layout = buildAdSpendSheetLayout(empty);
     const total = layout.aoa[layout.totalRow];
-    expect(total.slice(2, 9)).toEqual([4, 150, 0, null, null, null, ""]);
+    expect(total.slice(2, 10)).toEqual([4, 150, 0, null, null, null, null, ""]);
     const wb = buildAdSpendWorkbook(empty).wb;
     expect(wb.SheetNames).toHaveLength(1);
   });

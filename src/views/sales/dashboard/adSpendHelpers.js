@@ -4,7 +4,7 @@
  * Dinero en quetzales con 2 decimales. Resultado del día = venta − inversión; ROAS = venta ÷ inversión
  * (Q vendidos por cada Q1 invertido). No incluye costo de producción.
  */
-import { MONTHS_ES, fmtDelta, fmtDeltaPct, fmtMoney, fmtNumber } from "utils/financeFormat";
+import { MONTHS_ES, fmtDelta, fmtDeltaPct, fmtMoney, fmtNumber, fmtPct } from "utils/financeFormat";
 import { parseLocaleNumber } from "utils/financeInput";
 import { WEEKDAYS, fmtDayMonth, isValidYmd, weekdayIndex } from "./salesDashboardHelpers";
 
@@ -113,18 +113,33 @@ export const fmtRoas = (value) => {
 };
 
 /**
- * Resultado ÷ inversión como decimal (1.2 = ganó 120 % sobre lo invertido, -0.35 = perdió 35 %).
- * null si no hay inversión capturada o es 0 (no se puede calcular).
+ * (venta − inversión) ÷ venta como decimal: 0.4 = el resultado es el 40 % de la venta, -0.25 = la pérdida equivale
+ * al 25 % de la venta. null si no hay resultado (sin inversión capturada) o la venta es 0 (no se puede calcular).
  */
-export const resultRatio = (netResult, adSpend) => {
+export const resultRatio = (netResult, salesAmount) => {
   const net = toNum(netResult);
-  const spend = toNum(adSpend);
-  if (net === null || spend === null || spend <= 0) return null;
-  return net / spend;
+  const sales = toNum(salesAmount);
+  if (net === null || sales === null || sales <= 0) return null;
+  return net / sales;
 };
 
 /** '+120.0%' / '-35.2%' / '0.0%'; null -> '—'. */
 export const fmtResultPct = (ratio) => fmtDeltaPct(toNum(ratio));
+
+/**
+ * Costo de la publicidad como decimal de la venta: inversión ÷ venta (0.333 = de cada Q1 vendido, Q0.33 se fue en
+ * publicidad). Complementa al resultado: (venta − inversión) ÷ venta + inversión ÷ venta = 1. null sin inversión
+ * capturada o con venta 0.
+ */
+export const adCostRatio = (adSpend, salesAmount) => {
+  const spend = toNum(adSpend);
+  const sales = toNum(salesAmount);
+  if (spend === null || sales === null || sales <= 0) return null;
+  return spend / sales;
+};
+
+/** '33.3%' (sin signo); null -> '—'. */
+export const fmtCostPct = (ratio) => fmtPct(toNum(ratio));
 
 export const plural = (count, singular, pluralText) => `${count} ${count === 1 ? singular : pluralText}`;
 
@@ -208,12 +223,15 @@ export const statusFromNet = (net) => {
 export const deriveDay = (salesAmount, adSpend) => {
   const sales = toNum(salesAmount) ?? 0;
   const spend = toNum(adSpend);
-  if (spend === null) return { adSpend: null, netResult: null, resultPct: null, roas: null, status: "NO_SPEND" };
+  if (spend === null) {
+    return { adSpend: null, netResult: null, resultPct: null, adCostPct: null, roas: null, status: "NO_SPEND" };
+  }
   const netResult = roundMoney(sales - spend);
   return {
     adSpend: spend,
     netResult,
-    resultPct: resultRatio(netResult, spend),
+    resultPct: resultRatio(netResult, sales),
+    adCostPct: adCostRatio(spend, sales),
     roas: spend > 0 ? sales / spend : null,
     status: statusFromNet(netResult),
   };
@@ -238,7 +256,8 @@ const normalizeDay = (d) => {
     ordersCount: Number(d.ordersCount) || 0,
     adSpend: spend,
     netResult,
-    resultPct: resultRatio(netResult, spend),
+    resultPct: resultRatio(netResult, sales),
+    adCostPct: adCostRatio(spend, sales),
     roas: spend === null || spend <= 0 ? null : toNum(d.roas) ?? derived.roas,
     status,
     notes: d.notes ? String(d.notes) : null,
@@ -257,6 +276,7 @@ export const computeTotals = (days) => {
     adSpend: 0,
     netResult: 0,
     resultPct: null,
+    adCostPct: null,
     roas: null,
     daysWithSpend: 0,
     daysNoSpend: 0,
@@ -285,7 +305,8 @@ export const computeTotals = (days) => {
   t.comparableSales = roundMoney(t.comparableSales);
   t.adSpend = roundMoney(t.adSpend);
   t.netResult = roundMoney(t.comparableSales - t.adSpend);
-  t.resultPct = resultRatio(t.netResult, t.adSpend);
+  t.resultPct = resultRatio(t.netResult, t.comparableSales);
+  t.adCostPct = adCostRatio(t.adSpend, t.comparableSales);
   t.roas = t.adSpend > 0 ? t.comparableSales / t.adSpend : null;
   return t;
 };
@@ -296,7 +317,8 @@ const normalizeTotals = (t) => ({
   comparableSales: toNum(t.comparableSales) ?? 0,
   adSpend: toNum(t.adSpend) ?? 0,
   netResult: toNum(t.netResult) ?? 0,
-  resultPct: resultRatio(toNum(t.netResult) ?? 0, toNum(t.adSpend) ?? 0),
+  resultPct: resultRatio(toNum(t.netResult) ?? 0, toNum(t.comparableSales) ?? 0),
+  adCostPct: adCostRatio(toNum(t.adSpend) ?? 0, toNum(t.comparableSales) ?? 0),
   roas: toNum(t.roas),
   daysWithSpend: Number(t.daysWithSpend) || 0,
   daysNoSpend: Number(t.daysNoSpend) || 0,
@@ -577,6 +599,7 @@ export const buildChartTableRows = (days, today) =>
       spend: d.adSpend === null ? "—" : fmtMoney(d.adSpend),
       result: d.netResult === null ? "—" : `${meta.arrow} ${fmtSigned(d.netResult)}`,
       resultPct: d.resultPct === null || d.resultPct === undefined ? "—" : `${meta.arrow} ${fmtResultPct(d.resultPct)}`,
+      adCostPct: d.adCostPct === null || d.adCostPct === undefined ? "—" : fmtCostPct(d.adCostPct),
       status: meta.label,
     };
   });
