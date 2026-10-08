@@ -281,6 +281,7 @@ export const CHARGE_STATUS_LABELS = {
   PARTIAL: "Parcial",
   PAID: "Pagado",
   OPEN: "Pendiente",
+  COVERED: "Cubierto por otro cargo",
 };
 
 export const PAYMENT_METHODS = [
