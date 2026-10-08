@@ -1,6 +1,6 @@
 import React, { memo } from "react";
 import { fmtMoney } from "utils/financeFormat";
-import { AD_COLORS, fmtRoas, fmtSigned, plural, statusFromNet, statusMeta } from "./adSpendHelpers";
+import { AD_COLORS, fmtResultPct, fmtRoas, fmtSigned, plural, statusFromNet, statusMeta } from "./adSpendHelpers";
 
 const TONE_ACCENT = { good: AD_COLORS.win, bad: AD_COLORS.loss, neutral: AD_COLORS.even, none: AD_COLORS.line };
 
@@ -24,6 +24,9 @@ function AdSpendKpis({ totals }) {
   const hasSpend = totals.daysWithSpend > 0;
   const resultStatus = hasSpend ? statusFromNet(totals.netResult) : "NO_SPEND";
   const resultValue = hasSpend ? fmtSigned(totals.netResult) : "—";
+  const hasPct = hasSpend && totals.resultPct !== null && totals.resultPct !== undefined;
+  const pctText = hasPct ? fmtResultPct(totals.resultPct) : "";
+  const chipText = hasPct ? `${statusMeta(resultStatus).label} ${pctText}` : undefined;
   const roasValue = totals.roas === null || totals.roas === undefined ? "—" : `Q ${fmtRoas(totals.roas)}`;
   const accentOf = (status) => ({ "--sdash-accent": TONE_ACCENT[statusMeta(status).tone] });
 
@@ -62,7 +65,9 @@ function AdSpendKpis({ totals }) {
       <div
         className="kfin-kpi"
         role="group"
-        aria-label={`Resultado: ${resultValue}, ${hasSpend ? statusMeta(resultStatus).label : "sin inversión capturada"}`}
+        aria-label={`Resultado: ${resultValue}, ${hasSpend ? statusMeta(resultStatus).label : "sin inversión capturada"}${
+          hasPct ? `, ${pctText} sobre la inversión` : ""
+        }`}
         style={accentOf(resultStatus)}
       >
         <div className="kfin-kpi-label">Resultado</div>
@@ -70,8 +75,8 @@ function AdSpendKpis({ totals }) {
           {resultValue}
         </div>
         <div className="kfin-kpi-delta">
-          <StatusChip status={resultStatus} />
-          <span className="sdash-note">venta − inversión</span>
+          <StatusChip status={resultStatus}>{chipText}</StatusChip>
+          <span className="sdash-note">{hasPct ? "sobre lo invertido (venta − inversión)" : "venta − inversión"}</span>
         </div>
       </div>
 
