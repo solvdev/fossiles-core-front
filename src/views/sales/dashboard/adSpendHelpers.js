@@ -4,7 +4,7 @@
  * Dinero en quetzales con 2 decimales. Resultado del día = venta − inversión; ROAS = venta ÷ inversión
  * (Q vendidos por cada Q1 invertido). No incluye costo de producción.
  */
-import { MONTHS_ES, fmtDelta, fmtMoney, fmtNumber } from "utils/financeFormat";
+import { MONTHS_ES, fmtDelta, fmtDeltaPct, fmtMoney, fmtNumber } from "utils/financeFormat";
 import { parseLocaleNumber } from "utils/financeInput";
 import { WEEKDAYS, fmtDayMonth, isValidYmd, weekdayIndex } from "./salesDashboardHelpers";
 
@@ -112,6 +112,20 @@ export const fmtRoas = (value) => {
   return n === null ? "—" : fmtNumber(n, 2);
 };
 
+/**
+ * Resultado ÷ inversión como decimal (1.2 = ganó 120 % sobre lo invertido, -0.35 = perdió 35 %).
+ * null si no hay inversión capturada o es 0 (no se puede calcular).
+ */
+export const resultRatio = (netResult, adSpend) => {
+  const net = toNum(netResult);
+  const spend = toNum(adSpend);
+  if (net === null || spend === null || spend <= 0) return null;
+  return net / spend;
+};
+
+/** '+120.0%' / '-35.2%' / '0.0%'; null -> '—'. */
+export const fmtResultPct = (ratio) => fmtDeltaPct(toNum(ratio));
+
 export const plural = (count, singular, pluralText) => `${count} ${count === 1 ? singular : pluralText}`;
 
 /** Aviso de días sin captura; null si no hay ninguno. */
@@ -194,9 +208,15 @@ export const statusFromNet = (net) => {
 export const deriveDay = (salesAmount, adSpend) => {
   const sales = toNum(salesAmount) ?? 0;
   const spend = toNum(adSpend);
-  if (spend === null) return { adSpend: null, netResult: null, roas: null, status: "NO_SPEND" };
+  if (spend === null) return { adSpend: null, netResult: null, resultPct: null, roas: null, status: "NO_SPEND" };
   const netResult = roundMoney(sales - spend);
-  return { adSpend: spend, netResult, roas: spend > 0 ? sales / spend : null, status: statusFromNet(netResult) };
+  return {
+    adSpend: spend,
+    netResult,
+    resultPct: resultRatio(netResult, spend),
+    roas: spend > 0 ? sales / spend : null,
+    status: statusFromNet(netResult),
+  };
 };
 
 /** Estado que se muestra en la tabla: los días futuros no admiten captura. */
@@ -211,12 +231,14 @@ const normalizeDay = (d) => {
   const sales = toNum(d.salesAmount) ?? 0;
   const derived = deriveDay(sales, spend);
   const status = ["WIN", "LOSS", "EVEN", "NO_SPEND"].includes(d.status) ? d.status : derived.status;
+  const netResult = spend === null ? null : toNum(d.netResult) ?? derived.netResult;
   return {
     date: String(d.date).slice(0, 10),
     salesAmount: sales,
     ordersCount: Number(d.ordersCount) || 0,
     adSpend: spend,
-    netResult: spend === null ? null : toNum(d.netResult) ?? derived.netResult,
+    netResult,
+    resultPct: resultRatio(netResult, spend),
     roas: spend === null || spend <= 0 ? null : toNum(d.roas) ?? derived.roas,
     status,
     notes: d.notes ? String(d.notes) : null,
@@ -234,6 +256,7 @@ export const computeTotals = (days) => {
     comparableSales: 0,
     adSpend: 0,
     netResult: 0,
+    resultPct: null,
     roas: null,
     daysWithSpend: 0,
     daysNoSpend: 0,
@@ -262,6 +285,7 @@ export const computeTotals = (days) => {
   t.comparableSales = roundMoney(t.comparableSales);
   t.adSpend = roundMoney(t.adSpend);
   t.netResult = roundMoney(t.comparableSales - t.adSpend);
+  t.resultPct = resultRatio(t.netResult, t.adSpend);
   t.roas = t.adSpend > 0 ? t.comparableSales / t.adSpend : null;
   return t;
 };
@@ -272,6 +296,7 @@ const normalizeTotals = (t) => ({
   comparableSales: toNum(t.comparableSales) ?? 0,
   adSpend: toNum(t.adSpend) ?? 0,
   netResult: toNum(t.netResult) ?? 0,
+  resultPct: resultRatio(toNum(t.netResult) ?? 0, toNum(t.adSpend) ?? 0),
   roas: toNum(t.roas),
   daysWithSpend: Number(t.daysWithSpend) || 0,
   daysNoSpend: Number(t.daysNoSpend) || 0,
@@ -551,6 +576,7 @@ export const buildChartTableRows = (days, today) =>
       sales: fmtMoney(d.salesAmount),
       spend: d.adSpend === null ? "—" : fmtMoney(d.adSpend),
       result: d.netResult === null ? "—" : `${meta.arrow} ${fmtSigned(d.netResult)}`,
+      resultPct: d.resultPct === null || d.resultPct === undefined ? "—" : `${meta.arrow} ${fmtResultPct(d.resultPct)}`,
       status: meta.label,
     };
   });

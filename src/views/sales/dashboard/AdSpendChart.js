@@ -7,6 +7,7 @@ import {
   buildChartAriaLabel,
   buildChartTableRows,
   displayStatus,
+  fmtResultPct,
   fmtRoas,
   statusMeta,
 } from "./adSpendHelpers";
@@ -42,7 +43,11 @@ function AdSpendChart({ days, totals, today, periodLabel }) {
       if (!d) return "";
       const meta = statusMeta(displayStatus(d, today));
       const lines = [`${fmtCount(d.ordersCount)} pedidos`];
-      if (d.adSpend !== null) lines.push(`ROAS: ${fmtRoas(d.roas)} · ${meta.arrow} ${meta.label}`);
+      if (d.adSpend !== null) {
+        const pct = d.resultPct === null || d.resultPct === undefined ? "" : ` ${fmtResultPct(d.resultPct)}`;
+        lines.push(`${meta.arrow} ${meta.label}${pct} sobre la inversión`);
+        lines.push(`ROAS: ${fmtRoas(d.roas)}`);
+      }
       else lines.push(meta.label);
       return lines;
     };
@@ -64,6 +69,7 @@ function AdSpendChart({ days, totals, today, periodLabel }) {
         { key: "sales", label: "Venta", align: "right" },
         { key: "spend", label: "Inversión", align: "right" },
         { key: "result", label: "Resultado", align: "right" },
+        { key: "resultPct", label: "% s/ inversión", align: "right" },
         { key: "status", label: "Estado" },
       ]}
       rows={rows}
