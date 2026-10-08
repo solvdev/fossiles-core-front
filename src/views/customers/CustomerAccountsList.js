@@ -22,6 +22,7 @@ import {
   getCreditBadgeStyle,
   getCustomerAccountSummary,
   getDueBadgeStyle,
+  hasPortfolioBalance,
   searchReceivableDocuments,
   splitAccountBalance,
 } from "services/customerAccountService";
@@ -349,6 +350,10 @@ function CustomerAccountsList() {
         limit: 500,
       });
       let rows = Array.isArray(data) ? data : [];
+      // "Todos" no incluye lo ya pagado (saldo cero): se consulta eligiendo "Pagado" en Estado de cobro.
+      if (!chargeStatusFilter) {
+        rows = rows.filter((r) => r.chargeStatus !== "PAID");
+      }
       if (documentViewFilter === "withShipment") {
         rows = rows.filter((r) => r.productShipmentId || r.documentLevel === "SHIPMENT");
       }
@@ -378,10 +383,12 @@ function CustomerAccountsList() {
     loadDocumentSearch();
   }, [loadDocumentSearch]);
 
-  const filteredRows = useMemo(() => {
-    if (!positiveBalanceOnly) return rows;
-    return rows.filter((r) => rowDueForKind(r, kindTab) > 0);
-  }, [rows, positiveBalanceOnly, kindTab]);
+  // Un cliente sin saldo en la cartera activa ya no debe nada y no se lista (queda si tiene crédito a favor;
+  // con "Solo saldo pendiente" quedan solo los que deben).
+  const filteredRows = useMemo(
+    () => rows.filter((r) => hasPortfolioBalance(r, kindTab, { dueOnly: positiveBalanceOnly })),
+    [rows, positiveBalanceOnly, kindTab]
+  );
 
   const portfolioTotalsByKind = useMemo(() => {
     let opv = 0;
@@ -522,7 +529,7 @@ function CustomerAccountsList() {
                       value={chargeStatusFilter}
                       onChange={(e) => setChargeStatusFilter(e.target.value)}
                     >
-                      <option value="">Todos</option>
+                      <option value="">Todos (sin pagados)</option>
                       <option value="NONE">Sin cargo</option>
                       <option value="CHARGED">Cargado (sin abono)</option>
                       <option value="PARTIAL">Abono parcial</option>
@@ -637,7 +644,7 @@ function CustomerAccountsList() {
                   kindTab={kindTab}
                   onSelect={setKindTab}
                   totalsByKind={portfolioTotalsByKind}
-                  clientCount={rows.length}
+                  clientCount={filteredRows.length}
                 />
               )}
 
@@ -781,7 +788,10 @@ function CustomerAccountsList() {
               {loading ? (
                 <div className="text-center py-4">Cargando...</div>
               ) : filteredRows.length === 0 ? (
-                <Alert color="info">No hay clientes que coincidan con los filtros.</Alert>
+                <Alert color="info">
+                  No hay clientes con saldo en la cartera {kindTab === "OPC" ? "GCF" : "Fossiles"} con los
+                  filtros actuales. Los clientes sin saldo no se muestran.
+                </Alert>
               ) : (
                 groupedRows.map((group) => {
                   const groupKey = `${group.regionCode}-${group.routeNumber ?? "none"}`;

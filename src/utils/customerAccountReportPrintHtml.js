@@ -8,6 +8,9 @@ const COMPANY_BY_KIND = {
   OPC: "GRUPO COMERCIAL FUTURA",
 };
 
+/** Por debajo de medio centavo un saldo es cero (mismo criterio del backend). */
+const BALANCE_EPSILON = 0.005;
+
 function fmtMoneyPlain(value) {
   const n = Number(value) || 0;
   return n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -70,9 +73,9 @@ function isPortfolioRow(row) {
 export function normalizeRutasCxcRows(rows = []) {
   return (Array.isArray(rows) ? rows : [])
     .filter((row) => {
-      // Filas de /portfolio-report: ya vienen una por documento (incluye pagadas, saldo inicial y ajustes).
+      // Filas de /portfolio-report: ya vienen una por documento (con saldo, saldo inicial y ajustes).
       if (isPortfolioRow(row)) return true;
-      // Filas legadas de receivable-search: solo documentos con cargo (abiertos, parciales y pagados).
+      // Filas legadas de receivable-search: solo documentos con cargo (el saldo en cero se descarta abajo).
       const hasCharge =
         row.hasCharge === true ||
         row.chargeEntryId != null ||
@@ -109,6 +112,9 @@ export function normalizeRutasCxcRows(rows = []) {
         dueDate: row.dueDate || row.chargeDate,
       };
     })
+    // La cartera es de saldos: un documento en cero ya no se debe y no se lista ni se imprime (un saldo
+    // negativo, crédito a favor, sí). El backend ya lo filtra; esto cubre datos legados o un backend anterior.
+    .filter((row) => Math.abs(row.saldos) >= BALANCE_EPSILON)
     .sort((a, b) => {
       const clasifCmp = String(a.clasif || "").localeCompare(String(b.clasif || ""), "es");
       if (clasifCmp !== 0) return clasifCmp;
