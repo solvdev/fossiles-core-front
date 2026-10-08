@@ -1,6 +1,6 @@
 import React, { memo } from "react";
 import { fmtMoney } from "utils/financeFormat";
-import { AD_COLORS, fmtResultPct, fmtRoas, fmtSigned, plural, statusFromNet, statusMeta } from "./adSpendHelpers";
+import { AD_COLORS, fmtCostPct, fmtResultPct, fmtRoas, fmtSigned, plural, statusFromNet, statusMeta } from "./adSpendHelpers";
 
 const TONE_ACCENT = { good: AD_COLORS.win, bad: AD_COLORS.loss, neutral: AD_COLORS.even, none: AD_COLORS.line };
 
@@ -35,7 +35,9 @@ function AdSpendKpis({ totals }) {
       <div
         className="kfin-kpi"
         role="group"
-        aria-label={`Inversión en publicidad: ${fmtMoney(totals.adSpend)}`}
+        aria-label={`Inversión en publicidad: ${fmtMoney(totals.adSpend)}${
+          totals.adCostPct !== null && totals.adCostPct !== undefined ? `, ${fmtCostPct(totals.adCostPct)} de la venta` : ""
+        }`}
         style={{ "--sdash-accent": AD_COLORS.spend }}
       >
         <div className="kfin-kpi-label">Inversión en publicidad</div>
@@ -43,7 +45,10 @@ function AdSpendKpis({ totals }) {
           {fmtMoney(totals.adSpend)}
         </div>
         <div className="kfin-kpi-delta">
-          <span className="sdash-note">{plural(totals.daysWithSpend, "día con inversión", "días con inversión")}</span>
+          <span className="sdash-note">
+            {plural(totals.daysWithSpend, "día con inversión", "días con inversión")}
+            {totals.adCostPct !== null && totals.adCostPct !== undefined ? ` · ${fmtCostPct(totals.adCostPct)} de la venta` : ""}
+          </span>
         </div>
       </div>
 
@@ -66,7 +71,7 @@ function AdSpendKpis({ totals }) {
         className="kfin-kpi"
         role="group"
         aria-label={`Resultado: ${resultValue}, ${hasSpend ? statusMeta(resultStatus).label : "sin inversión capturada"}${
-          hasPct ? `, ${pctText} sobre la inversión` : ""
+          hasPct ? `, ${pctText} sobre la venta` : ""
         }`}
         style={accentOf(resultStatus)}
       >
@@ -76,7 +81,7 @@ function AdSpendKpis({ totals }) {
         </div>
         <div className="kfin-kpi-delta">
           <StatusChip status={resultStatus}>{chipText}</StatusChip>
-          <span className="sdash-note">{hasPct ? "sobre lo invertido (venta − inversión)" : "venta − inversión"}</span>
+          <span className="sdash-note">{hasPct ? "de la venta (venta − inversión)" : "venta − inversión"}</span>
         </div>
       </div>
 

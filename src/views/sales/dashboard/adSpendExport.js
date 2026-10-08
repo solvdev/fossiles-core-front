@@ -21,12 +21,13 @@ export const HEADERS = [
   "Venta (Q)",
   "Inversión (Q)",
   "Resultado (Q)",
-  "Resultado (% s/ inversión)",
+  "Resultado (% s/ venta)",
+  "Publicidad (% s/ venta)",
   "ROAS",
   "Estado",
   "Notas",
 ];
-const COL = { date: 0, weekday: 1, orders: 2, sales: 3, spend: 4, result: 5, pct: 6, roas: 7, status: 8, notes: 9 };
+const COL = { date: 0, weekday: 1, orders: 2, sales: 3, spend: 4, result: 5, pct: 6, costPct: 7, roas: 8, status: 9, notes: 10 };
 /** Columna del valor en el bloque de resumen (la etiqueta ocupa de la A a la C). */
 const SUMMARY_VALUE_COL = 3;
 
@@ -34,6 +35,7 @@ const moneyFmt = '"Q"#,##0.00;-"Q"#,##0.00';
 const dateFmt = "dd/mm/yyyy";
 const roasFmt = "0.00";
 const pctFmt = "+0.0%;-0.0%;0.0%";
+const costPctFmt = "0.0%";
 const countFmt = "0";
 
 const fillGray = { fgColor: { rgb: "D9D9D9" } };
@@ -91,7 +93,8 @@ export const buildAdSpendSheetLayout = (report) => {
   summary("Inversión en publicidad", numOrNull(totals.adSpend), "money");
   summary("Venta de los días con inversión", numOrNull(totals.comparableSales), "money");
   summary("Resultado (venta − inversión)", hasSpend ? numOrNull(totals.netResult) : null, "money", resultStatus);
-  summary("Resultado en % sobre la inversión", hasSpend ? numOrNull(totals.resultPct) : null, "pct", resultStatus);
+  summary("Resultado en % sobre la venta", hasSpend ? numOrNull(totals.resultPct) : null, "pct", resultStatus);
+  summary("Publicidad en % sobre la venta", numOrNull(totals.adCostPct), "costPct");
   summary("ROAS (Q vendidos por cada Q1 invertido)", numOrNull(totals.roas), "roas");
   summary("Días en ganancia", totals.daysWin, "count");
   summary("Días en pérdida", totals.daysLoss, "count");
@@ -113,6 +116,7 @@ export const buildAdSpendSheetLayout = (report) => {
         [COL.spend]: numOrNull(d.adSpend),
         [COL.result]: numOrNull(d.netResult),
         [COL.pct]: numOrNull(d.resultPct),
+        [COL.costPct]: numOrNull(d.adCostPct),
         [COL.roas]: numOrNull(d.roas),
         [COL.status]: statusMeta(d.status).label,
         [COL.notes]: d.notes || "",
@@ -129,6 +133,7 @@ export const buildAdSpendSheetLayout = (report) => {
       [COL.spend]: numOrNull(totals.adSpend),
       [COL.result]: hasSpend ? numOrNull(totals.netResult) : null,
       [COL.pct]: hasSpend ? numOrNull(totals.resultPct) : null,
+      [COL.costPct]: numOrNull(totals.adCostPct),
       [COL.roas]: numOrNull(totals.roas),
       [COL.status]: hasSpend ? statusMeta(resultStatus).label : "",
       [COL.notes]: `Resultado y ROAS: solo ${totals.daysWithSpend} ${
@@ -175,10 +180,11 @@ export const buildAdSpendWorkbook = (report) => {
       if (cell.t === "n") {
         if (row.kind === "kv") {
           cell.z =
-            row.fmt === "money" ? moneyFmt : row.fmt === "roas" ? roasFmt : row.fmt === "pct" ? pctFmt : countFmt;
+            row.fmt === "money" ? moneyFmt : row.fmt === "roas" ? roasFmt : row.fmt === "pct" ? pctFmt : row.fmt === "costPct" ? costPctFmt : countFmt;
         } else if (c === COL.date) cell.z = dateFmt;
         else if (c === COL.orders) cell.z = countFmt;
         else if (c === COL.pct) cell.z = pctFmt;
+        else if (c === COL.costPct) cell.z = costPctFmt;
         else if (c === COL.roas) cell.z = roasFmt;
         else cell.z = moneyFmt;
         style.alignment = { horizontal: "right" };
@@ -245,7 +251,7 @@ export const buildAdSpendWorkbook = (report) => {
     }
   });
 
-  ws["!cols"] = [{ wch: 12 }, { wch: 12 }, { wch: 10 }, { wch: 16 }, { wch: 16 }, { wch: 16 }, { wch: 16 }, { wch: 10 }, { wch: 24 }, { wch: 52 }];
+  ws["!cols"] = [{ wch: 12 }, { wch: 12 }, { wch: 10 }, { wch: 16 }, { wch: 16 }, { wch: 16 }, { wch: 16 }, { wch: 16 }, { wch: 10 }, { wch: 24 }, { wch: 52 }];
   ws["!rows"] = [];
   ws["!rows"][headerRow] = { hpt: 24 };
   ws["!merges"] = [];
