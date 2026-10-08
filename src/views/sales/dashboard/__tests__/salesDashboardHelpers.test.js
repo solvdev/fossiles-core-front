@@ -9,12 +9,14 @@ import {
   buildKioskOptions,
   buildKpiItems,
   buildMonthCalendars,
+  buildMonthOptions,
   buildSourceTable,
   buildStackedTrendData,
   buildWeekdayInsight,
   buildWeeklyBars,
   consolidatedDailyAsPoints,
   describePeriod,
+  detectMonth,
   fmtQty,
   fmtSharePercent,
   groupBreakdownTail,
@@ -22,6 +24,8 @@ import {
   isEmptyKpis,
   isValidYmd,
   KPI_CONFIG,
+  monthLabel,
+  monthRange,
   normalizeDaily,
   parseDashboardParams,
   peakPoint,
@@ -29,8 +33,10 @@ import {
   previousRange,
   segmentsFromBreakdown,
   shareOf,
+  shiftMonth,
   shortcutRange,
   statusTone,
+  stepMonth,
   topWeekdayIndexes,
   totalSalesLink,
   trendLabels,
@@ -160,6 +166,151 @@ describe("fechas y URL", () => {
     expect(totalSalesLink("kiosko", "2026-09-01", "2026-09-30")).toBe(
       "/admin/total-sales?channel=kiosko&startDate=2026-09-01&endDate=2026-09-30"
     );
+  });
+});
+
+describe("selector de mes", () => {
+  const TODAY = "2026-10-08";
+
+  test("shiftMonth cruza el año en ambos sentidos", () => {
+    expect(shiftMonth("2026-10", -1)).toBe("2026-09");
+    expect(shiftMonth("2026-01", -1)).toBe("2025-12");
+    expect(shiftMonth("2025-12", 1)).toBe("2026-01");
+    expect(shiftMonth("2026-10", -24)).toBe("2024-10");
+    expect(shiftMonth("2026-03", 0)).toBe("2026-03");
+  });
+
+  test("monthLabel usa el nombre del mes en español con año", () => {
+    expect(monthLabel("2026-10")).toBe("Octubre 2026");
+    expect(monthLabel("2026-03-15")).toBe("Marzo 2026");
+  });
+
+  test("monthRange: mes pasado completo, con febrero bisiesto y no bisiesto", () => {
+    expect(monthRange("2026-09", TODAY)).toEqual({ startDate: "2026-09-01", endDate: "2026-09-30" });
+    expect(monthRange("2026-07", TODAY)).toEqual({ startDate: "2026-07-01", endDate: "2026-07-31" });
+    expect(monthRange("2028-02", "2028-10-08")).toEqual({ startDate: "2028-02-01", endDate: "2028-02-29" });
+    expect(monthRange("2026-02", TODAY)).toEqual({ startDate: "2026-02-01", endDate: "2026-02-28" });
+    // 2000 es bisiesto (divisible entre 400)
+    expect(monthRange("2000-02", TODAY)).toEqual({ startDate: "2000-02-01", endDate: "2000-02-29" });
+  });
+
+  test("monthRange: el mes en curso llega hasta hoy (igual que el atajo Mes)", () => {
+    expect(monthRange("2026-10", TODAY)).toEqual({ startDate: "2026-10-01", endDate: TODAY });
+    expect(monthRange("2026-10", TODAY)).toEqual(shortcutRange("month", TODAY));
+    expect(monthRange("2026-10-20", TODAY)).toEqual({ startDate: "2026-10-01", endDate: TODAY });
+    expect(monthRange(shiftMonth("2026-10", -1), TODAY)).toEqual(shortcutRange("prevMonth", TODAY));
+    // el mismo mes pero en otro año no es el mes en curso
+    expect(monthRange("2025-10", TODAY)).toEqual({ startDate: "2025-10-01", endDate: "2025-10-31" });
+  });
+
+  test("monthRange rechaza valores que no son un mes", () => {
+    expect(monthRange("", TODAY)).toBeNull();
+    expect(monthRange("2026-13", TODAY)).toBeNull();
+    expect(monthRange("2026-00", TODAY)).toBeNull();
+    expect(monthRange("septiembre", TODAY)).toBeNull();
+    expect(monthRange(undefined, TODAY)).toBeNull();
+  });
+
+  test("detectMonth reconoce el mes calendario completo y el mes en curso hasta hoy", () => {
+    expect(detectMonth("2026-09-01", "2026-09-30", TODAY)).toBe("2026-09"); // exactamente el mes anterior
+    expect(detectMonth("2026-10-01", TODAY, TODAY)).toBe("2026-10"); // mes en curso hasta hoy
+    expect(detectMonth("2026-10-01", "2026-10-31", TODAY)).toBe("2026-10"); // mes en curso completo
+    expect(detectMonth("2028-02-01", "2028-02-29", TODAY)).toBe("2028-02");
+    expect(detectMonth("2026-02-01", "2026-02-28", TODAY)).toBe("2026-02");
+    // hoy es el día 1: el mes en curso es de un solo día
+    expect(detectMonth("2026-10-01", "2026-10-01", "2026-10-01")).toBe("2026-10");
+  });
+
+  test("detectMonth devuelve '' para rangos personalizados", () => {
+    expect(detectMonth("2026-09-02", "2026-09-30", TODAY)).toBe("");
+    expect(detectMonth("2026-09-01", "2026-09-29", TODAY)).toBe("");
+    expect(detectMonth("2026-09-01", "2026-10-31", TODAY)).toBe("");
+    expect(detectMonth("2026-08-15", "2026-09-14", TODAY)).toBe("");
+    // un mes que ya pasó no se reconoce "hasta hoy"
+    expect(detectMonth("2026-09-01", TODAY, TODAY)).toBe("");
+    // mes en curso cortado en otro día
+    expect(detectMonth("2026-10-01", "2026-10-07", TODAY)).toBe("");
+    expect(detectMonth("0002-09-01", "0002-09-30", TODAY)).toBe("");
+    expect(detectMonth("", "", TODAY)).toBe("");
+  });
+
+  test("detectMonth coincide con el resultado de monthRange para cualquier mes", () => {
+    for (let i = 0; i < 30; i += 1) {
+      const ym = shiftMonth("2026-10", -i);
+      const range = monthRange(ym, TODAY);
+      expect(detectMonth(range.startDate, range.endDate, TODAY)).toBe(ym);
+    }
+  });
+
+  test("buildMonthOptions: Personalizado + 25 meses en español, del más reciente al más antiguo", () => {
+    const options = buildMonthOptions(TODAY);
+    expect(options).toHaveLength(26);
+    expect(options[0]).toEqual({ value: "", label: "Personalizado" });
+    expect(options[1]).toEqual({ value: "2026-10", label: "Octubre 2026" });
+    expect(options[2]).toEqual({ value: "2026-09", label: "Septiembre 2026" });
+    expect(options[3]).toEqual({ value: "2026-08", label: "Agosto 2026" });
+    // cruza el año: enero 2026 -> diciembre 2025
+    const jan = options.findIndex((o) => o.value === "2026-01");
+    expect(options[jan + 1]).toEqual({ value: "2025-12", label: "Diciembre 2025" });
+    // el último es el mes 24 hacia atrás
+    expect(options[options.length - 1]).toEqual({ value: "2024-10", label: "Octubre 2024" });
+    const values = options.slice(1).map((o) => o.value);
+    expect(values).toEqual([...values].sort().reverse());
+    expect(new Set(values).size).toBe(25);
+  });
+
+  test("buildMonthOptions respeta count y agrega el mes seleccionado si cae fuera de la ventana", () => {
+    expect(buildMonthOptions(TODAY, 3).map((o) => o.value)).toEqual(["", "2026-10", "2026-09", "2026-08"]);
+    expect(buildMonthOptions(TODAY, 0).map((o) => o.value)).toEqual([""]);
+    // dentro de la ventana: no se duplica
+    expect(buildMonthOptions(TODAY, 3, "2026-09")).toHaveLength(4);
+    // más antiguo: va al final; futuro: va primero (después de Personalizado)
+    expect(buildMonthOptions(TODAY, 3, "2023-03").map((o) => o.value)).toEqual(["", "2026-10", "2026-09", "2026-08", "2023-03"]);
+    expect(buildMonthOptions(TODAY, 3, "2026-12").map((o) => o.value)).toEqual(["", "2026-12", "2026-10", "2026-09", "2026-08"]);
+    expect(buildMonthOptions(TODAY, 3, "2023-03").pop().label).toBe("Marzo 2023");
+    // un valor que no es mes se ignora
+    expect(buildMonthOptions(TODAY, 3, "basura")).toHaveLength(4);
+  });
+
+  test("stepMonth retrocede desde el mes seleccionado y cruza el año", () => {
+    expect(stepMonth("2026-09-01", "2026-09-30", TODAY, -1)).toEqual({ startDate: "2026-08-01", endDate: "2026-08-31" });
+    expect(stepMonth("2026-01-01", "2026-01-31", TODAY, -1)).toEqual({ startDate: "2025-12-01", endDate: "2025-12-31" });
+    // desde el mes en curso (hasta hoy) al anterior
+    expect(stepMonth("2026-10-01", TODAY, TODAY, -1)).toEqual({ startDate: "2026-09-01", endDate: "2026-09-30" });
+    // marzo -> febrero bisiesto y no bisiesto
+    expect(stepMonth("2028-03-01", "2028-03-31", "2028-10-08", -1)).toEqual({ startDate: "2028-02-01", endDate: "2028-02-29" });
+    expect(stepMonth("2026-03-01", "2026-03-31", TODAY, -1)).toEqual({ startDate: "2026-02-01", endDate: "2026-02-28" });
+  });
+
+  test("stepMonth avanza, cruza diciembre -> enero y el mes en curso termina hoy", () => {
+    expect(stepMonth("2025-12-01", "2025-12-31", TODAY, 1)).toEqual({ startDate: "2026-01-01", endDate: "2026-01-31" });
+    expect(stepMonth("2026-09-01", "2026-09-30", TODAY, 1)).toEqual({ startDate: "2026-10-01", endDate: TODAY });
+    // enero de un año nuevo cuando hoy ya está en él
+    expect(stepMonth("2025-12-01", "2025-12-31", "2026-01-05", 1)).toEqual({ startDate: "2026-01-01", endDate: "2026-01-05" });
+  });
+
+  test("stepMonth no pasa del mes en curso hacia adelante", () => {
+    expect(stepMonth("2026-10-01", TODAY, TODAY, 1)).toBeNull();
+    expect(stepMonth("2026-10-01", "2026-10-31", TODAY, 1)).toBeNull();
+    expect(stepMonth("2026-12-01", "2026-12-31", TODAY, 1)).toBeNull();
+    // hacia atrás sí se puede aunque el mes seleccionado sea futuro
+    expect(stepMonth("2026-12-01", "2026-12-31", TODAY, -1)).toEqual({ startDate: "2026-11-01", endDate: "2026-11-30" });
+  });
+
+  test("stepMonth con rango personalizado parte del mes de Desde", () => {
+    // 15/09 - 03/10: ◀ -> agosto completo, ▶ -> octubre hasta hoy
+    expect(stepMonth("2026-09-15", "2026-10-03", TODAY, -1)).toEqual({ startDate: "2026-08-01", endDate: "2026-08-31" });
+    expect(stepMonth("2026-09-15", "2026-10-03", TODAY, 1)).toEqual({ startDate: "2026-10-01", endDate: TODAY });
+    // rango dentro del mes en curso: no hay siguiente, el anterior es septiembre
+    expect(stepMonth("2026-10-03", "2026-10-07", TODAY, 1)).toBeNull();
+    expect(stepMonth("2026-10-03", "2026-10-07", TODAY, -1)).toEqual({ startDate: "2026-09-01", endDate: "2026-09-30" });
+    expect(stepMonth("2026-09-05", "2026-09-30", TODAY, -1)).toEqual({ startDate: "2026-08-01", endDate: "2026-08-31" });
+  });
+
+  test("stepMonth no sale del rango de años válido y rechaza fechas inválidas", () => {
+    expect(stepMonth("2000-01-01", "2000-01-31", TODAY, -1)).toBeNull();
+    expect(stepMonth("", "", TODAY, -1)).toBeNull();
+    expect(stepMonth("nope", "2026-09-30", TODAY, 1)).toBeNull();
   });
 });
 
