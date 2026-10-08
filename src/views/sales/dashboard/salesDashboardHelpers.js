@@ -171,6 +171,81 @@ export const activeShortcut = (startDate, endDate, today) => {
   return hit ? hit.id : "";
 };
 
+/* ------------------------------------------------------------------ */
+/* Selector de mes                                                     */
+/* ------------------------------------------------------------------ */
+
+/** Meses del selector: el mes en curso + los 24 anteriores. */
+export const MONTH_OPTIONS_COUNT = 25;
+
+export const CUSTOM_MONTH_LABEL = "Personalizado";
+
+const YM_RE = /^(\d{4})-(0[1-9]|1[0-2])(?:-\d{2})?$/;
+
+/** 'yyyy-mm' de una fecha 'yyyy-mm-dd' (o del propio 'yyyy-mm'). */
+const monthOf = (ymdOrYm) => String(ymdOrYm).slice(0, 7);
+
+/** 'Septiembre 2026' desde 'yyyy-mm' (o 'yyyy-mm-dd'). */
+export const monthLabel = (ymdOrYm) => {
+  const ym = monthOf(ymdOrYm);
+  return `${MONTHS_ES[Number(ym.slice(5, 7)) - 1]} ${ym.slice(0, 4)}`;
+};
+
+/** Suma o resta meses a 'yyyy-mm' ('2026-01' - 1 -> '2025-12'). */
+export const shiftMonth = (ym, delta) => {
+  const index = Number(String(ym).slice(0, 4)) * 12 + (Number(String(ym).slice(5, 7)) - 1) + Number(delta || 0);
+  return `${String(Math.floor(index / 12)).padStart(4, "0")}-${String((index % 12) + 1).padStart(2, "0")}`;
+};
+
+/**
+ * Rango de un mes calendario ('yyyy-mm' o 'yyyy-mm-dd'): del día 1 al último día, salvo el mes en curso, que
+ * llega hasta hoy (misma regla que el atajo 'Mes'). null si el valor no es un mes válido.
+ */
+export const monthRange = (ymOrYmd, todayYmd) => {
+  if (!YM_RE.test(String(ymOrYmd))) return null;
+  const startDate = monthStartYmd(ymOrYmd);
+  return { startDate, endDate: monthOf(ymOrYmd) === monthOf(todayYmd) ? todayYmd : monthEndYmd(startDate) };
+};
+
+/**
+ * Mes calendario ('yyyy-mm') que coincide exactamente con el rango, o '' si es un rango personalizado.
+ * Coincide cuando Desde es el día 1 y Hasta es el último día del mes o, solo en el mes en curso, hoy.
+ */
+export const detectMonth = (startDate, endDate, todayYmd) => {
+  if (!isValidYmd(startDate) || !isValidYmd(endDate) || startDate !== monthStartYmd(startDate)) return "";
+  const ym = monthOf(startDate);
+  const isCurrent = ym === monthOf(todayYmd);
+  return endDate === monthEndYmd(startDate) || (isCurrent && endDate === todayYmd) ? ym : "";
+};
+
+/**
+ * Opciones del <select> de mes: primero 'Personalizado' (value ''), luego el mes de `todayYmd` y los
+ * `count - 1` anteriores, del más reciente al más antiguo. Si `selectedYm` (el mes detectado del rango) cae
+ * fuera de esa ventana se agrega en su lugar para que el selector no muestre otro mes.
+ */
+export const buildMonthOptions = (todayYmd, count = MONTH_OPTIONS_COUNT, selectedYm = "") => {
+  const current = monthOf(todayYmd);
+  const months = Array.from({ length: Math.max(0, count) }, (_, i) => shiftMonth(current, -i));
+  const extra = YM_RE.test(String(selectedYm)) ? monthOf(selectedYm) : "";
+  if (extra && !months.includes(extra)) {
+    months.push(extra);
+    months.sort((a, b) => b.localeCompare(a));
+  }
+  return [{ value: "", label: CUSTOM_MONTH_LABEL }, ...months.map((ym) => ({ value: ym, label: monthLabel(ym) }))];
+};
+
+/**
+ * Rango del mes anterior (delta -1) o siguiente (delta +1) al seleccionado. Si el rango es personalizado se
+ * parte del mes de Desde. null si no se puede: pasar del mes en curso hacia adelante o salir de 2000–2100.
+ */
+export const stepMonth = (startDate, endDate, todayYmd, delta) => {
+  if (!isValidYmd(startDate)) return null;
+  const base = detectMonth(startDate, endDate, todayYmd) || monthOf(startDate);
+  const target = shiftMonth(base, delta);
+  if ((delta > 0 && target > monthOf(todayYmd)) || !isValidYmd(`${target}-01`)) return null;
+  return monthRange(target, todayYmd);
+};
+
 /**
  * Aplica el cambio de una fecha al rango. Devuelve null si el valor no es una fecha completa y válida
  * (p. ej. mientras se teclea el año). Si Desde pasa de Hasta (o al revés) se arrastra la otra.

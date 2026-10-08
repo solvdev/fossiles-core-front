@@ -8,20 +8,34 @@ import KioskTab from "views/sales/dashboard/KioskTab";
 import OnlineTab from "views/sales/dashboard/OnlineTab";
 import VendorTab from "views/sales/dashboard/VendorTab";
 import {
+  MONTH_OPTIONS_COUNT,
   SHORTCUTS,
   SOURCE_DESCRIPTION,
   TABS,
   activeShortcut,
   applyRangeChange,
+  buildMonthOptions,
   describePeriod,
+  detectMonth,
+  monthRange,
   parseDashboardParams,
   previousRange,
   shortcutRange,
+  stepMonth,
 } from "views/sales/dashboard/salesDashboardHelpers";
 import "views/kiosks/finance/KioskFinance.css";
 import "views/sales/dashboard/SalesDashboard.css";
 
 const PANEL_ID = "sdash-panel";
+
+/** Triángulo de los botones de mes (SVG: los glifos ◀ ▶ se dibujan como emoji en algunos móviles). */
+function MonthStepIcon({ direction }) {
+  return (
+    <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true" focusable="false">
+      <path d={direction < 0 ? "M11.5 2v12L3.5 8z" : "M4.5 2v12l8-6z"} fill="currentColor" />
+    </svg>
+  );
+}
 const UNSAVED_AD_SPEND_CONFIRM =
   "Tienes cambios de inversión en publicidad sin guardar. Si cambias de pestaña se perderán. ¿Quieres salir sin guardarlos?";
 
@@ -84,10 +98,27 @@ function SalesDashboard() {
     if (next) updateParams({ startDate: next.startDate, endDate: next.endDate });
   };
 
-  const applyShortcut = (id) => {
-    const range = shortcutRange(id, getTodayYmdGuatemala());
-    updateParams({ startDate: range.startDate, endDate: range.endDate });
+  const applyRange = (range) => {
+    if (range) updateParams({ startDate: range.startDate, endDate: range.endDate });
   };
+
+  const applyShortcut = (id) => applyRange(shortcutRange(id, getTodayYmdGuatemala()));
+
+  // Mes calendario completo (o mes en curso hasta hoy); "" = rango personalizado. Sale de la URL, no del borrador:
+  // una fecha a medio teclear no cambia el selector.
+  const selectedMonth = detectMonth(startDate, endDate, today);
+  const monthOptions = useMemo(
+    () => buildMonthOptions(today, MONTH_OPTIONS_COUNT, selectedMonth),
+    [today, selectedMonth]
+  );
+  const canStepBack = stepMonth(startDate, endDate, today, -1) !== null;
+  const canStepForward = stepMonth(startDate, endDate, today, 1) !== null;
+
+  const onMonthChange = (event) => {
+    if (event.target.value) applyRange(monthRange(event.target.value, getTodayYmdGuatemala()));
+  };
+
+  const onMonthStep = (delta) => applyRange(stepMonth(startDate, endDate, getTodayYmdGuatemala(), delta));
 
   const currentShortcut = activeShortcut(startDate, endDate, today);
   const previous = previousRange(startDate, endDate);
@@ -128,46 +159,88 @@ function SalesDashboard() {
             <p className="kfin-subtitle">{subtitle}</p>
           </div>
           <div className="kfin-filters sdash-filters kfin-noprint">
-            <div className="kfin-field">
-              <label htmlFor="sdash-start">Desde</label>
-              <input
-                id="sdash-start"
-                type="date"
-                className="form-control"
-                value={draft.startDate}
-                onChange={onDateChange("startDate")}
-              />
+            <div className="sdash-fgroup">
+              <div className="kfin-field sdash-month">
+                <label htmlFor="sdash-month">Mes</label>
+                <div className="sdash-month-control" role="group" aria-label="Selector de mes">
+                  <KButton
+                    large
+                    className="sdash-month-step"
+                    aria-label="Mes anterior"
+                    title="Mes anterior"
+                    disabled={!canStepBack}
+                    onClick={() => onMonthStep(-1)}
+                  >
+                    <MonthStepIcon direction={-1} />
+                  </KButton>
+                  <select
+                    id="sdash-month"
+                    className="form-control sdash-month-select"
+                    value={selectedMonth}
+                    onChange={onMonthChange}
+                  >
+                    {monthOptions.map((o) => (
+                      // 'Personalizado' no se elige a mano: se activa solo y queda deshabilitado mientras el rango es un mes
+                      <option key={o.value || "custom"} value={o.value} disabled={o.value === "" && selectedMonth !== ""}>
+                        {o.label}
+                      </option>
+                    ))}
+                  </select>
+                  <KButton
+                    large
+                    className="sdash-month-step"
+                    aria-label="Mes siguiente"
+                    title="Mes siguiente"
+                    disabled={!canStepForward}
+                    onClick={() => onMonthStep(1)}
+                  >
+                    <MonthStepIcon direction={1} />
+                  </KButton>
+                </div>
+              </div>
+              <div className="kfin-field">
+                <label htmlFor="sdash-start">Desde</label>
+                <input
+                  id="sdash-start"
+                  type="date"
+                  className="form-control"
+                  value={draft.startDate}
+                  onChange={onDateChange("startDate")}
+                />
+              </div>
+              <div className="kfin-field">
+                <label htmlFor="sdash-end">Hasta</label>
+                <input
+                  id="sdash-end"
+                  type="date"
+                  className="form-control"
+                  value={draft.endDate}
+                  onChange={onDateChange("endDate")}
+                />
+              </div>
             </div>
-            <div className="kfin-field">
-              <label htmlFor="sdash-end">Hasta</label>
-              <input
-                id="sdash-end"
-                type="date"
-                className="form-control"
-                value={draft.endDate}
-                onChange={onDateChange("endDate")}
-              />
+            <div className="sdash-fgroup">
+              <KSeg aria-label="Atajos de fecha">
+                {SHORTCUTS.map((s) => (
+                  <KButton
+                    key={s.id}
+                    large
+                    active={currentShortcut === s.id}
+                    aria-pressed={currentShortcut === s.id}
+                    onClick={() => applyShortcut(s.id)}
+                  >
+                    {s.label}
+                  </KButton>
+                ))}
+              </KSeg>
+              <KButton
+                large
+                onClick={() => setRefreshToken((n) => n + 1)}
+                title="Vuelve a consultar sin usar la caché de 60 segundos"
+              >
+                Actualizar
+              </KButton>
             </div>
-            <KSeg aria-label="Atajos de fecha">
-              {SHORTCUTS.map((s) => (
-                <KButton
-                  key={s.id}
-                  large
-                  active={currentShortcut === s.id}
-                  aria-pressed={currentShortcut === s.id}
-                  onClick={() => applyShortcut(s.id)}
-                >
-                  {s.label}
-                </KButton>
-              ))}
-            </KSeg>
-            <KButton
-              large
-              onClick={() => setRefreshToken((n) => n + 1)}
-              title="Vuelve a consultar sin usar la caché de 60 segundos"
-            >
-              Actualizar
-            </KButton>
           </div>
         </div>
 

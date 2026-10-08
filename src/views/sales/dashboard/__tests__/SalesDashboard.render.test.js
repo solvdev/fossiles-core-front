@@ -221,3 +221,84 @@ test("atajos de fecha y Actualizar consultan de nuevo; Actualizar viaja con refr
   await click("Actualizar");
   expect(last().refresh).toBe(true);
 });
+
+test("selector de mes: elige, avanza/retrocede y pasa a 'Personalizado' al teclear fechas", async () => {
+  svc.getSalesOnline.mockClear();
+  svc.getSalesOnline.mockResolvedValue(detail("ONLINE", { breakdowns: {} }));
+  const { container } = await renderAt("/?tab=online&startDate=2026-03-01&endDate=2026-03-31");
+  const select = container.querySelector("#sdash-month");
+  const start = container.querySelector("#sdash-start");
+  const end = container.querySelector("#sdash-end");
+  const stepButton = (label) => container.querySelector(`button[aria-label="${label}"]`);
+  const settle = () =>
+    act(async () => {
+      await new Promise((r) => setTimeout(r, 20));
+    });
+  const setValue = async (element, value, eventName) => {
+    // React sigue el valor con un descriptor propio: se asigna con el setter nativo para que detecte el cambio
+    Object.getOwnPropertyDescriptor(Object.getPrototypeOf(element), "value").set.call(element, value);
+    await act(async () => {
+      element.dispatchEvent(new Event(eventName, { bubbles: true }));
+    });
+    await settle();
+  };
+  const click = async (element) => {
+    await act(async () => {
+      element.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await settle();
+  };
+  const calls = svc.getSalesOnline.mock.calls;
+  const lastRange = () => ({ startDate: calls[calls.length - 1][0].startDate, endDate: calls[calls.length - 1][0].endDate });
+
+  // etiquetado y estado inicial: marzo 2026 completo
+  expect(container.querySelector('label[for="sdash-month"]').textContent).toBe("Mes");
+  expect(select.value).toBe("2026-03");
+  expect(select.options[0].value).toBe("");
+  expect(select.options[0].textContent).toBe("Personalizado");
+  expect(select.options[0].disabled).toBe(true);
+  expect([...select.options].find((o) => o.value === "2026-03").textContent).toBe("Marzo 2026");
+  expect(stepButton("Mes anterior").disabled).toBe(false);
+  expect(stepButton("Mes siguiente").disabled).toBe(false);
+
+  // elegir un mes fija Desde = día 1 y Hasta = último día (febrero de 2026 no es bisiesto)
+  await setValue(select, "2026-02", "change");
+  expect(lastRange()).toEqual({ startDate: "2026-02-01", endDate: "2026-02-28" });
+  expect(start.value).toBe("2026-02-01");
+  expect(end.value).toBe("2026-02-28");
+  expect(select.value).toBe("2026-02");
+
+  // ◀ / ▶ cruzan el año
+  await click(stepButton("Mes anterior"));
+  expect(lastRange()).toEqual({ startDate: "2026-01-01", endDate: "2026-01-31" });
+  await click(stepButton("Mes anterior"));
+  expect(lastRange()).toEqual({ startDate: "2025-12-01", endDate: "2025-12-31" });
+  await click(stepButton("Mes siguiente"));
+  expect(lastRange()).toEqual({ startDate: "2026-01-01", endDate: "2026-01-31" });
+
+  // una fecha a medio teclear no consulta ni cambia el selector
+  const callsBefore = calls.length;
+  await setValue(end, "0002-01-31", "input");
+  expect(calls.length).toBe(callsBefore);
+  expect(select.value).toBe("2026-01");
+
+  // un rango que ya no es un mes completo pasa a 'Personalizado' y se puede seguir tecleando
+  await setValue(end, "2026-01-20", "input");
+  expect(lastRange()).toEqual({ startDate: "2026-01-01", endDate: "2026-01-20" });
+  expect(select.value).toBe("");
+  expect(select.options[0].disabled).toBe(false);
+
+  // desde un rango personalizado ◀ parte del mes de Desde
+  await click(stepButton("Mes anterior"));
+  expect(lastRange()).toEqual({ startDate: "2025-12-01", endDate: "2025-12-31" });
+  expect(select.value).toBe("2025-12");
+
+  // los atajos siguen funcionando y el selector refleja el mes que coincide
+  await click([...container.querySelectorAll("button")].find((b) => b.textContent.trim() === "Mes anterior"));
+  const prevMonth = lastRange();
+  expect(prevMonth.startDate.endsWith("-01")).toBe(true);
+  expect(select.value).toBe(prevMonth.startDate.slice(0, 7));
+  await click([...container.querySelectorAll("button")].find((b) => b.textContent.trim() === "Mes"));
+  expect(select.value).toBe(lastRange().startDate.slice(0, 7));
+  expect(stepButton("Mes siguiente").disabled).toBe(true);
+});
