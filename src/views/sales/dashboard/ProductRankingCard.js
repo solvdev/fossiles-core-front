@@ -4,13 +4,15 @@ import { barPct, fmtQty } from "./salesDashboardHelpers";
 
 /**
  * Top de productos TERMINADOS por unidades (el backend ya excluye empaques). Siempre lleva el rótulo
- * 'Solo producto terminado · sin empaques'.
+ * 'Solo producto terminado · sin empaques'; `scopeNote` agrega otro rótulo (p. ej. 'Solo POS' en Kioskos, donde el
+ * histórico de Finanzas kioscos no tiene productos).
  */
 export default function ProductRankingCard({
   title = "Productos más vendidos",
   rows,
   color = "#3b4a5a",
   footnote,
+  scopeNote,
   className = "",
 }) {
   const list = rows || [];
@@ -20,8 +22,9 @@ export default function ProductRankingCard({
       <header className="kfin-card-head">
         <div>
           <h5 className="kfin-card-title">{title}</h5>
-          <div className="kfin-card-sub">
+          <div className="kfin-card-sub sdash-badges">
             <span className="sdash-badge">Solo producto terminado · sin empaques</span>
+            {scopeNote ? <span className="sdash-badge sdash-badge--amber">{scopeNote}</span> : null}
           </div>
         </div>
       </header>

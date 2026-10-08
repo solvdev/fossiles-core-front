@@ -3,7 +3,7 @@ import useAsyncData from "views/kiosks/finance/reports/useAsyncData";
 
 /**
  * Carga una fuente del dashboard (useAsyncData + AbortController).
- * - Se recarga al cambiar las fechas, el kiosko o `refreshToken`.
+ * - Se recarga al cambiar las fechas, el kiosko (`siteId`, sitio de Finanzas kioscos) o `refreshToken`.
  * - `refreshToken` lo incrementa el botón 'Actualizar': mientras ese token no haya terminado de cargar con éxito,
  *   la petición viaja con refresh=true para saltarse la caché de 60 s del backend (también en un reintento).
  * - Cancela la petición anterior al lanzar una nueva y al desmontar la pestaña.
@@ -11,7 +11,7 @@ import useAsyncData from "views/kiosks/finance/reports/useAsyncData";
  */
 export default function useSalesQuery(
   fetcher,
-  { startDate, endDate, kioskLocationId, refreshToken = 0, enabled = true }
+  { startDate, endDate, siteId, refreshToken = 0, enabled = true }
 ) {
   const controllerRef = useRef(null);
   const settledTokenRef = useRef(refreshToken);
@@ -31,7 +31,7 @@ export default function useSalesQuery(
       return fetcher({
         startDate,
         endDate,
-        kioskLocationId: kioskLocationId || undefined,
+        siteId: siteId || undefined,
         refresh: refreshToken !== settledTokenRef.current,
         signal: controller.signal,
       }).then((result) => {
@@ -39,7 +39,7 @@ export default function useSalesQuery(
         return result;
       });
     },
-    [startDate, endDate, kioskLocationId || "", refreshToken],
+    [startDate, endDate, siteId || "", refreshToken],
     { enabled }
   );
 }

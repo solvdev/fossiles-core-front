@@ -65,7 +65,7 @@ export const tabById = (id) => TABS.find((t) => t.id === id) || TABS[0];
 
 export const SOURCE_DESCRIPTION = {
   consolidado: "Kioskos, Online y Vendedor LF por separado",
-  kioskos: "solo kioskos (POS)",
+  kioskos: "solo kioskos (histórico + POS)",
   online: "solo ventas online (sin canceladas ni anuladas)",
   vendedor: "solo Vendedor LF (Luis Felipe)",
 };
@@ -104,6 +104,9 @@ export const fmtQty = (value) => {
 };
 
 export const fmtCount = (value) => fmtNumber(value ?? 0, 0);
+
+/** Conteo, o '—' si es 0 (p. ej. tickets de un kiosko que solo tiene histórico: no hay tickets que contar). */
+export const fmtCountOrDash = (value) => (Number(value) > 0 ? fmtCount(value) : "—");
 
 export const moneyOrDash = (value) => (isNum(value) && value !== 0 ? fmtMoney(value) : "—");
 
@@ -172,24 +175,20 @@ export const activeShortcut = (startDate, endDate, today) => {
 };
 
 /* ------------------------------------------------------------------ */
-/* Selector de mes                                                     */
+/* Selectores de mes y año                                             */
 /* ------------------------------------------------------------------ */
 
-/** Meses del selector: el mes en curso + los 24 anteriores. */
-export const MONTH_OPTIONS_COUNT = 25;
+/** Primer año con ventas de kioscos en Finanzas: el selector de año arranca aquí. */
+export const FIRST_SALES_YEAR = 2023;
 
+/** Opción del selector de mes cuando el rango no es un mes calendario completo. */
 export const CUSTOM_MONTH_LABEL = "Personalizado";
 
 const YM_RE = /^(\d{4})-(0[1-9]|1[0-2])(?:-\d{2})?$/;
+const MM_RE = /^(0[1-9]|1[0-2])$/;
 
 /** 'yyyy-mm' de una fecha 'yyyy-mm-dd' (o del propio 'yyyy-mm'). */
 const monthOf = (ymdOrYm) => String(ymdOrYm).slice(0, 7);
-
-/** 'Septiembre 2026' desde 'yyyy-mm' (o 'yyyy-mm-dd'). */
-export const monthLabel = (ymdOrYm) => {
-  const ym = monthOf(ymdOrYm);
-  return `${MONTHS_ES[Number(ym.slice(5, 7)) - 1]} ${ym.slice(0, 4)}`;
-};
 
 /** Suma o resta meses a 'yyyy-mm' ('2026-01' - 1 -> '2025-12'). */
 export const shiftMonth = (ym, delta) => {
@@ -219,20 +218,74 @@ export const detectMonth = (startDate, endDate, todayYmd) => {
 };
 
 /**
- * Opciones del <select> de mes: primero 'Personalizado' (value ''), luego el mes de `todayYmd` y los
- * `count - 1` anteriores, del más reciente al más antiguo. Si `selectedYm` (el mes detectado del rango) cae
- * fuera de esa ventana se agrega en su lugar para que el selector no muestre otro mes.
+ * Valor de los selects 'Mes' y 'Año' para un rango (siempre sale de la URL, nunca de un borrador a medio teclear).
+ * month = '01'…'12' cuando el rango es un mes calendario completo (o el mes en curso hasta hoy) y '' cuando es
+ * personalizado; year = año de Desde en ambos casos.
  */
-export const buildMonthOptions = (todayYmd, count = MONTH_OPTIONS_COUNT, selectedYm = "") => {
-  const current = monthOf(todayYmd);
-  const months = Array.from({ length: Math.max(0, count) }, (_, i) => shiftMonth(current, -i));
-  const extra = YM_RE.test(String(selectedYm)) ? monthOf(selectedYm) : "";
-  if (extra && !months.includes(extra)) {
-    months.push(extra);
-    months.sort((a, b) => b.localeCompare(a));
-  }
-  return [{ value: "", label: CUSTOM_MONTH_LABEL }, ...months.map((ym) => ({ value: ym, label: monthLabel(ym) }))];
+export const monthYearOf = (startDate, endDate, todayYmd) => {
+  const ym = detectMonth(startDate, endDate, todayYmd);
+  const year = isValidYmd(startDate) ? Number(startDate.slice(0, 4)) : Number(String(todayYmd).slice(0, 4));
+  return { month: ym ? ym.slice(5, 7) : "", year };
 };
+
+/**
+ * Opciones del <select> 'Mes' para el año `year`: 'Personalizado' (value '') y Enero…Diciembre (value '01'…'12').
+ * 'Personalizado' no se elige a mano: se activa solo y queda deshabilitado mientras el rango es un mes completo
+ * (`selectedMonth` distinto de ''). Los meses posteriores al mes en curso vienen deshabilitados: no hay ventas futuras.
+ */
+export const buildMonthSelectOptions = (year, todayYmd, selectedMonth = "") => [
+  { value: "", label: CUSTOM_MONTH_LABEL, disabled: selectedMonth !== "" },
+  ...MONTHS_ES.map((label, i) => {
+    const mm = String(i + 1).padStart(2, "0");
+    return { value: mm, label, disabled: `${year}-${mm}` > monthOf(todayYmd) };
+  }),
+];
+
+/**
+ * Opciones del <select> 'Año': del año de `todayYmd` hacia atrás hasta FIRST_SALES_YEAR, el más reciente primero y
+ * sin años futuros. Si `selectedYear` (el año de Desde) cae fuera de esa ventana —enlace viejo o fecha tecleada— se
+ * agrega, deshabilitado, para que el selector no muestre otro año.
+ */
+export const buildYearSelectOptions = (todayYmd, selectedYear = null) => {
+  const current = Number(String(todayYmd).slice(0, 4));
+  const first = Math.min(FIRST_SALES_YEAR, current);
+  const options = [];
+  for (let year = current; year >= first; year -= 1) {
+    options.push({ value: String(year), label: String(year), disabled: false });
+  }
+  // Solo un año de 4 dígitos (Number(null) o Number('') serían 0, no un año).
+  const selected = /^\d{4}$/.test(String(selectedYear)) ? Number(selectedYear) : null;
+  if (selected !== null && (selected > current || selected < first)) {
+    options.push({ value: String(selected), label: String(selected), disabled: true });
+    options.sort((a, b) => Number(b.value) - Number(a.value));
+  }
+  return options;
+};
+
+/** Rango del mes `ym` acotado al mes en curso (no se eligen meses futuros); null si queda fuera de 2000–2100. */
+const clampedMonthRange = (ym, todayYmd) => {
+  const target = ym > monthOf(todayYmd) ? monthOf(todayYmd) : ym;
+  return isValidYmd(`${target}-01`) ? monthRange(target, todayYmd) : null;
+};
+
+/**
+ * Rango al elegir un mes en el selector 'Mes' (`month` = '01'…'12'): ese mes completo del año de Desde, o hasta hoy
+ * si es el mes en curso (misma regla que el atajo 'Mes'). null si el mes o la fecha no son válidos.
+ */
+export const rangeForMonthPick = (startDate, todayYmd, month) =>
+  MM_RE.test(String(month)) && isValidYmd(startDate)
+    ? clampedMonthRange(`${startDate.slice(0, 4)}-${month}`, todayYmd)
+    : null;
+
+/**
+ * Rango al elegir un año en el selector 'Año' (`year` = 'yyyy'): el mes de Desde en ese año —si el rango es un mes
+ * completo es ese mes; si es personalizado, el mes en que empieza— acotado al mes en curso (de diciembre 2025 a
+ * 2026 se llega al mes actual, no a un diciembre futuro). null si el año o la fecha no son válidos.
+ */
+export const rangeForYearPick = (startDate, todayYmd, year) =>
+  /^\d{4}$/.test(String(year)) && isValidYmd(startDate)
+    ? clampedMonthRange(`${year}-${startDate.slice(5, 7)}`, todayYmd)
+    : null;
 
 /**
  * Rango del mes anterior (delta -1) o siguiente (delta +1) al seleccionado. Si el rango es personalizado se
@@ -261,8 +314,10 @@ export const applyRangeChange = (range, field, value) => {
 };
 
 /**
- * Estado de la URL (?tab=&startDate=&endDate=&kioskLocationId=). Acepta URLSearchParams u objeto plano.
- * Valores inválidos caen al predeterminado (mes en curso hasta hoy, pestaña Consolidado).
+ * Estado de la URL (?tab=&startDate=&endDate=&siteId=). Acepta URLSearchParams u objeto plano.
+ * Valores inválidos caen al predeterminado (mes en curso hasta hoy, pestaña Consolidado, todos los kioskos).
+ * `siteId` = id del sitio de Finanzas kioscos (filtro de la pestaña Kioskos). El ?kioskLocationId= de enlaces
+ * viejos se ignora: el filtro ya no es por ubicación del POS, y esos enlaces abren con todos los kioskos.
  */
 export const parseDashboardParams = (params, today) => {
   const get = (key) => {
@@ -274,9 +329,9 @@ export const parseDashboardParams = (params, today) => {
   let startDate = isValidYmd(get("startDate")) ? get("startDate") : monthStartYmd(today);
   let endDate = isValidYmd(get("endDate")) ? get("endDate") : today;
   if (startDate > endDate) [startDate, endDate] = [endDate, startDate];
-  const kiosk = get("kioskLocationId");
-  const kioskLocationId = /^\d+$/.test(kiosk) ? kiosk : "";
-  return { tab, startDate, endDate, kioskLocationId };
+  const site = get("siteId");
+  const siteId = /^\d+$/.test(site) ? site : "";
+  return { tab, startDate, endDate, siteId };
 };
 
 /** '01/09/2026 – 30/09/2026' o 'Septiembre 2026' cuando el rango es un mes calendario completo. */
@@ -316,17 +371,22 @@ export const KPI_CONFIG = {
     countNote: "ventas y órdenes del periodo",
     avgLabel: "Ticket promedio",
     avgNote: "total ÷ operaciones",
+    // El histórico de Finanzas kioscos no tiene tickets: el backend lo deja fuera del promedio.
+    avgNoteHistorical: "total sin histórico ÷ operaciones",
     showUnits: false,
   },
+  // Kioskos = Finanzas kioscos (histórico + POS): el total incluye el histórico; tickets, unidades y ticket
+  // promedio salen solo del POS.
   KIOSKO: {
     totalLabel: "Ventas de kioskos",
     todayNote: "todos los kioskos",
     todayNoteFiltered: "kiosko seleccionado",
-    countLabel: "Tickets",
+    countLabel: "Tickets (POS)",
     countNote: "ventas completadas",
-    avgLabel: "Ticket promedio",
-    avgNote: "total ÷ tickets",
+    avgLabel: "Ticket promedio (POS)",
+    avgNote: "venta POS ÷ tickets",
     showUnits: true,
+    unitsLabel: "Unidades terminadas (POS)",
   },
   ONLINE: {
     totalLabel: "Ventas online",
@@ -348,9 +408,13 @@ export const KPI_CONFIG = {
   },
 };
 
+/** true si parte del total viene del histórico de Finanzas kioscos (sin tickets ni desglose). */
+export const hasHistoricalAmount = (kpis) => Number(kpis?.historicalAmount) > 0;
+
 /**
  * Tarjetas de KPI desde SourceKpis. `compareNote` = 'vs agosto 2026'.
  * growth: decimal | null (sin base comparable) | undefined (la tarjeta no muestra variación).
+ * El promedio muestra '—' si no hay tickets/órdenes (p. ej. un kiosko que solo tiene histórico), no 'Q 0.00'.
  */
 export const buildKpiItems = (kpis, config, { compareNote = "vs periodo anterior", filtered = false } = {}) => {
   if (!kpis || !config) return [];
@@ -369,10 +433,20 @@ export const buildKpiItems = (kpis, config, { compareNote = "vs periodo anterior
       note: filtered && config.todayNoteFiltered ? config.todayNoteFiltered : config.todayNote,
     },
     { key: "count", label: config.countLabel, value: fmtCount(kpis.salesCount), note: config.countNote },
-    { key: "avg", label: config.avgLabel, value: fmtMoney(kpis.avgTicket), note: config.avgNote },
+    {
+      key: "avg",
+      label: config.avgLabel,
+      value: Number(kpis.salesCount) > 0 ? fmtMoney(kpis.avgTicket) : "—",
+      note: hasHistoricalAmount(kpis) && config.avgNoteHistorical ? config.avgNoteHistorical : config.avgNote,
+    },
   ];
   if (config.showUnits) {
-    items.push({ key: "units", label: "Unidades terminadas", value: fmtQty(kpis.unitsFinished), note: "sin empaques" });
+    items.push({
+      key: "units",
+      label: config.unitsLabel || "Unidades terminadas",
+      value: fmtQty(kpis.unitsFinished),
+      note: "sin empaques",
+    });
   }
   return items;
 };
@@ -384,14 +458,30 @@ export const isEmptyKpis = (kpis) => !kpis || (!(Number(kpis.salesCount) > 0) &&
 /* Composición del dinero                                              */
 /* ------------------------------------------------------------------ */
 
-/** Producto / empaque / envío: grises pizarra aprobados. `ink` = color del texto dentro del segmento. */
+/**
+ * Producto / empaque / envío: grises pizarra aprobados. `ink` = color del texto dentro del segmento.
+ * 'Histórico (sin desglose)' (solo kioskos: la parte del total que viene de Finanzas kioscos sin tickets) es gris claro
+ * con rayado (`pattern: "hatch"`) para que no dependa solo del color. Aparece únicamente si su monto es > 0.
+ */
 export const COMPOSITION_STYLE = [
   { key: "product", label: "Producto terminado", field: "productAmount", color: "#3b4a5a", ink: "#ffffff" },
   { key: "packaging", label: "Empaque", field: "packagingAmount", color: "#6f7b88", ink: "#ffffff" },
   { key: "shipping", label: "Envío", field: "shippingAmount", color: "#a3acb6", ink: "#252422" },
+  {
+    key: "historical",
+    label: "Histórico (sin desglose)",
+    field: "historicalAmount",
+    color: "#e4e7eb",
+    ink: "#252422",
+    pattern: "hatch",
+  },
 ];
 
-/** Segmentos con monto > 0 y su participación (0..1) sobre el total de la composición. */
+/**
+ * Segmentos con monto > 0 y su participación (0..1) sobre el total de la composición. Producto + empaque + envío +
+ * histórico suman el total del canal; la base es la suma de las partes (no `totalAmount`) para que las
+ * participaciones siempre sumen 100 %, aunque el backend no mande alguna parte.
+ */
 export const buildCompositionSegments = (kpis) => {
   if (!kpis) return [];
   const parts = COMPOSITION_STYLE.map((s) => ({ ...s, amount: Number(kpis[s.field]) || 0 }));
@@ -400,7 +490,15 @@ export const buildCompositionSegments = (kpis) => {
   if (!(total > 0)) return [];
   return parts
     .filter((p) => p.amount > 0)
-    .map((p) => ({ key: p.key, label: p.label, amount: p.amount, share: p.amount / total, color: p.color, ink: p.ink }));
+    .map((p) => ({
+      key: p.key,
+      label: p.label,
+      amount: p.amount,
+      share: p.amount / total,
+      color: p.color,
+      ink: p.ink,
+      ...(p.pattern ? { pattern: p.pattern } : {}),
+    }));
 };
 
 /** Paleta para mezclas por categoría (forma de pago). */
@@ -484,13 +582,18 @@ export const statusColor = (label) => STATUS_COLORS[statusTone(label)];
 /* Selector de kiosko                                                  */
 /* ------------------------------------------------------------------ */
 
-export const buildKioskOptions = (kioskOptions, selectedId) => {
+/**
+ * Opciones del selector de kiosko desde `kioskOptions` del backend ({ siteId, kioskId, kioskCode, kioskName }).
+ * El valor es el id del SITIO de Finanzas kioscos (`siteId`): un kiosko histórico no tiene ubicación del POS
+ * (`kioskId` null) y aun así se puede elegir. Si el sitio elegido no viene en la lista se agrega con un nombre genérico.
+ */
+export const buildKioskOptions = (kioskOptions, selectedSiteId) => {
   const list = (kioskOptions || [])
-    .filter((k) => k && k.kioskId !== null && k.kioskId !== undefined)
-    .map((k) => ({ value: String(k.kioskId), label: k.kioskName || k.kioskCode || `Kiosko ${k.kioskId}` }))
+    .filter((k) => k && k.siteId !== null && k.siteId !== undefined)
+    .map((k) => ({ value: String(k.siteId), label: k.kioskName || k.kioskCode || `Kiosko ${k.siteId}` }))
     .sort((a, b) => a.label.localeCompare(b.label, "es", { sensitivity: "base" }));
-  if (selectedId && !list.some((o) => o.value === String(selectedId))) {
-    list.push({ value: String(selectedId), label: `Kiosko ${selectedId}` });
+  if (selectedSiteId && !list.some((o) => o.value === String(selectedSiteId))) {
+    list.push({ value: String(selectedSiteId), label: `Kiosko ${selectedSiteId}` });
   }
   return [{ value: "", label: "Todos los kioskos" }, ...list];
 };
@@ -642,6 +745,10 @@ export const buildWeeklyTableRows = (weeks) =>
 /* Tabla 'Producto terminado por fuente' (Consolidado)                  */
 /* ------------------------------------------------------------------ */
 
+/**
+ * Filas por fuente + totales. Producto + empaque + envío + histórico = total de cada fila; `hasHistorical` es
+ * true si alguna fuente trae histórico (entonces la tabla agrega la columna 'Histórico').
+ */
 export const buildSourceTable = (sources) => {
   const rows = (sources || []).map((s) => {
     const meta = SOURCE_META[s.channel] || { label: s.label, color: "#6f7b88" };
@@ -657,17 +764,20 @@ export const buildSourceTable = (sources) => {
       avgPrice: units > 0 ? product / units : null,
       packagingAmount: Number(k.packagingAmount) || 0,
       shippingAmount: Number(k.shippingAmount) || 0,
+      historicalAmount: Number(k.historicalAmount) || 0,
       totalAmount: Number(k.totalAmount) || 0,
     };
   });
   const sum = (field) => rows.reduce((a, r) => a + r[field], 0);
   return {
     rows,
+    hasHistorical: rows.some((r) => r.historicalAmount > 0),
     totals: {
       units: sum("units"),
       productAmount: sum("productAmount"),
       packagingAmount: sum("packagingAmount"),
       shippingAmount: sum("shippingAmount"),
+      historicalAmount: sum("historicalAmount"),
       totalAmount: sum("totalAmount"),
     },
   };

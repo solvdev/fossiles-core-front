@@ -16,18 +16,20 @@
 .sdash .sdash-filters .kfin-btn--lg { min-height: 40px; }
 .sdash .sdash-tabfilters { padding-top: 4px; }
 
-/* Dos grupos ([Mes · Desde · Hasta] y [atajos · Actualizar]): si no caben en una línea el segundo baja completo
+/* Dos grupos ([Mes · Año · Desde · Hasta] y [atajos · Actualizar]): si no caben en una línea el segundo baja completo
    en vez de dejar un botón suelto. */
-.sdash .sdash-fgroup { display: flex; flex-wrap: wrap; gap: 12px 14px; align-items: flex-end; }
+.sdash .sdash-fgroup, .sdash .sdash-dates { display: flex; flex-wrap: wrap; gap: 12px 14px; align-items: flex-end; }
 
-/* Selector de mes: ◀ [select] ▶. El select iguala la altura de Desde/Hasta; los botones miden 44 px de toque pero
-   con margen negativo para no hacer más alta la fila. */
-.sdash .sdash-filters .sdash-month { min-width: 0; }
-.sdash .sdash-month-control { display: flex; align-items: center; gap: 4px; }
-.sdash .sdash-filters .kfin-field select.sdash-month-select { flex: 1 1 auto; width: auto; min-width: 0; height: 40px; }
+/* Selector de mes y año: ◀ [Mes] [Año] ▶. Los selects igualan la altura de Desde/Hasta (40 px; `.kfin-field
+   select.form-control` trae 38 px y gana por especificidad, de ahí el selector largo). Los botones miden 44 px de
+   toque pero con margen negativo para no hacer más alta la fila; alineados abajo quedan centrados con los selects. */
+.sdash .sdash-monthyear { display: flex; align-items: flex-end; gap: 4px; }
+.sdash .sdash-filters .kfin-field.sdash-month { flex: 0 0 auto; width: 152px; min-width: 0; }
+.sdash .sdash-filters .kfin-field.sdash-year { flex: 0 0 auto; width: 96px; min-width: 0; }
+.sdash .sdash-filters .kfin-field select.form-control { height: 40px; text-overflow: ellipsis; }
 .sdash .sdash-filters .kfin-btn.sdash-month-step { flex: 0 0 auto; justify-content: center; min-width: 44px; min-height: 44px; margin: -2px 0; padding: 0; }
 .sdash .sdash-month-step svg { display: block; }
-.sdash .sdash-month-select:focus-visible { outline: 2px solid var(--kfin-cur-ink); outline-offset: 2px; }
+.sdash .sdash-filters select.form-control:focus-visible { outline: 2px solid var(--kfin-cur-ink); outline-offset: 2px; }
 
 /* ---------- Pestañas con punto de color ---------- */
 .sdash .kfin-tabs .nav-link { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; font-weight: 600; }
@@ -58,12 +60,18 @@
 }
 .sdash .sdash-link:hover { text-decoration: underline; color: var(--sdash-link); }
 .sdash .sdash-link:focus-visible { outline: 2px solid var(--kfin-cur-ink); outline-offset: 2px; border-radius: 3px; }
-.sdash .sdash-subhead { margin: 18px 0 0; font-size: 0.85rem; font-weight: 700; }
+.sdash .sdash-subhead { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin: 18px 0 0; font-size: 0.85rem; font-weight: 700; }
 
 /* Insignia y notas */
 .sdash .sdash-badge { display: inline-block; font-size: 0.7rem; font-weight: 700; padding: 3px 9px; border-radius: 999px; background: #e8eef4; color: #2f4558; }
 .sdash .sdash-badge--amber { background: #fff1cf; color: #6b4600; }
+.sdash .sdash-badges { display: flex; flex-wrap: wrap; gap: 4px 6px; }
 .sdash .sdash-def { background: #eef0fb; border: 1px solid #d4d9f3; color: #2f3a8a; font-size: 0.8rem; padding: 10px 12px; border-radius: 8px; margin-bottom: 14px; }
+
+/* Notas bajo los KPIs de Kioskos: cuánto es histórico (solo si hay) y de dónde sale cada número */
+.sdash .sdash-kpinotes { margin: -4px 0 16px; }
+.sdash .sdash-kpinotes .sdash-def { margin-bottom: 8px; }
+.sdash .sdash-caption { margin: 0; font-size: 0.78rem; color: var(--kfin-ink-2); }
 
 /* ---------- Tarjetas por fuente (Consolidado) ---------- */
 .sdash .sdash-src { flex: 1 1 300px; min-width: 0; background: var(--kfin-surface); border: 1px solid var(--kfin-line); border-top: 5px solid; border-radius: 10px; padding: 16px 18px 6px; }
@@ -81,6 +89,9 @@
 /* ---------- Composición del dinero ---------- */
 .sdash .sdash-stack { display: flex; height: 32px; border-radius: 8px; overflow: hidden; margin: 10px 0 12px; background: #eceae4; }
 .sdash .sdash-stack > div { display: flex; align-items: center; justify-content: center; font-size: 0.75rem; font-weight: 700; min-width: 0; overflow: hidden; }
+/* 'Histórico (sin desglose)': gris claro con rayado diagonal y borde, para que no dependa solo del color */
+.sdash .sdash-stack > .sdash-hatch { background-image: repeating-linear-gradient(135deg, rgba(59, 74, 90, 0.42) 0 2px, transparent 2px 7px); box-shadow: inset 1px 0 0 #8f99a3; }
+.sdash .sdash-dot.sdash-hatch { background-image: repeating-linear-gradient(135deg, rgba(59, 74, 90, 0.6) 0 1.5px, transparent 1.5px 4px); box-shadow: inset 0 0 0 1px #8f99a3; }
 .sdash .sdash-legend { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px 20px; font-size: 0.82rem; }
 .sdash .sdash-legend li { display: flex; align-items: flex-start; gap: 8px; }
 .sdash .sdash-legend .sdash-dot { margin-top: 4px; }
@@ -107,6 +118,7 @@
 .sdash .sdash-scroll { cursor: auto; max-height: 420px; }
 .sdash .sdash-detail-scroll { max-height: 380px; }
 .sdash .sdash-wide { min-width: 760px; }
+.sdash .sdash-wide--hist { min-width: 880px; }
 .sdash .sdash-recent { min-width: 560px; }
 .sdash .kfin-table .kfin-strongnum { font-weight: 700; }
 .sdash .kfin-table tbody th[scope="row"] .sdash-dot { margin-right: 6px; vertical-align: baseline; }
@@ -147,7 +159,15 @@
   .sdash .sdash-filters { width: 100%; }
   .sdash .sdash-filters .sdash-fgroup { flex: 1 1 100%; }
   .sdash .sdash-filters .kfin-field { flex: 1 1 130px; }
-  .sdash .sdash-filters .sdash-month { flex: 1 1 100%; }
+  .sdash .sdash-filters .sdash-dates { flex: 1 1 100%; }
+  /* Mes y Año en una fila y ◀ ▶ debajo, a media fila cada uno: en una sola fila 'Septiembre' / 'Personalizado' no caben
+     junto a dos botones de 44 px. El orden del DOM sigue siendo ◀ Mes Año ▶. */
+  .sdash .sdash-filters .sdash-monthyear { flex: 1 1 100%; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 8px; max-width: 420px; }
+  .sdash .sdash-filters .kfin-field.sdash-month { grid-area: 1 / 1; width: auto; }
+  .sdash .sdash-filters .kfin-field.sdash-year { grid-area: 1 / 2; width: auto; }
+  .sdash .sdash-filters .sdash-monthyear .kfin-btn.sdash-month-step { width: 100%; margin: 0; }
+  .sdash .sdash-filters .sdash-monthyear .kfin-btn.sdash-month-step:first-child { grid-area: 2 / 1; }
+  .sdash .sdash-filters .sdash-monthyear .kfin-btn.sdash-month-step:last-child { grid-area: 2 / 2; }
   .sdash .sdash-filters .kfin-btnseg { flex: 1 1 100%; }
   .sdash .sdash-filters .kfin-btnseg .kfin-btn { flex: 1 1 auto; justify-content: center; padding: 8px 6px; }
   .sdash .sdash-cal { gap: 4px; }

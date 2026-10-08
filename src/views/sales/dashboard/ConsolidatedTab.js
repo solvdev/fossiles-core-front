@@ -19,6 +19,7 @@ import {
   fmtQty,
   fmtSharePercent,
   growthDelta,
+  hasHistoricalAmount,
   isEmptyKpis,
   moneyOrDash,
 } from "./salesDashboardHelpers";
@@ -75,6 +76,9 @@ function SourceCard({ source, onOpen }) {
 
 function FinishedBySourceTable({ sources }) {
   const table = useMemo(() => buildSourceTable(sources), [sources]);
+  // 'Histórico' (Finanzas kioscos, sin tickets ni desglose) es una columna más del total: solo aparece si alguna
+  // fuente lo trae, y entonces producto + empaque + envío + histórico = total en cada fila.
+  const withHistorical = table.hasHistorical;
   return (
     <section className="kfin-card" aria-label="Producto terminado por fuente">
       <header className="kfin-card-head">
@@ -82,12 +86,15 @@ function FinishedBySourceTable({ sources }) {
           <h5 className="kfin-card-title">Producto terminado por fuente</h5>
           <div className="kfin-card-sub">
             Cada fuente por su lado, sin mezclar rankings ni precios. Las unidades no incluyen empaques.
+            {withHistorical ? " El histórico de Finanzas kioscos no tiene unidades ni desglose." : ""}
           </div>
         </div>
       </header>
       <div className="kfin-scroll sdash-scroll">
-        <table className="kfin-table kfin-table--simple sdash-wide">
-          <caption className="sr-only">Unidades y dinero de producto terminado, empaque y envío por fuente</caption>
+        <table className={`kfin-table kfin-table--simple sdash-wide${withHistorical ? " sdash-wide--hist" : ""}`}>
+          <caption className="sr-only">
+            Unidades y dinero de producto terminado, empaque, envío{withHistorical ? ", histórico" : ""} por fuente
+          </caption>
           <thead>
             <tr>
               <th scope="col">Fuente</th>
@@ -96,6 +103,7 @@ function FinishedBySourceTable({ sources }) {
               <th scope="col" className="is-num">Precio promedio por unidad</th>
               <th scope="col" className="is-num">Empaque</th>
               <th scope="col" className="is-num">Envío</th>
+              {withHistorical ? <th scope="col" className="is-num">Histórico</th> : null}
               <th scope="col" className="is-num">Total</th>
             </tr>
           </thead>
@@ -110,6 +118,7 @@ function FinishedBySourceTable({ sources }) {
                 <td className="is-num">{r.avgPrice === null ? "—" : fmtMoney(r.avgPrice)}</td>
                 <td className="is-num">{moneyOrDash(r.packagingAmount)}</td>
                 <td className="is-num">{moneyOrDash(r.shippingAmount)}</td>
+                {withHistorical ? <td className="is-num">{moneyOrDash(r.historicalAmount)}</td> : null}
                 <td className="is-num kfin-strongnum">{fmtMoney(r.totalAmount)}</td>
               </tr>
             ))}
@@ -122,6 +131,7 @@ function FinishedBySourceTable({ sources }) {
               <td className="is-num" />
               <td className="is-num">{moneyOrDash(table.totals.packagingAmount)}</td>
               <td className="is-num">{moneyOrDash(table.totals.shippingAmount)}</td>
+              {withHistorical ? <td className="is-num">{moneyOrDash(table.totals.historicalAmount)}</td> : null}
               <td className="is-num">{fmtMoney(table.totals.totalAmount)}</td>
             </tr>
           </tfoot>
@@ -148,6 +158,7 @@ function ConsolidatedBody({ data, onSelectTab }) {
             <h5 className="kfin-card-title">¿De qué está hecho el dinero?</h5>
             <div className="kfin-card-sub">
               El dinero incluye empaque y envío porque tienen costo. Las métricas de producto de cada fuente los excluyen.
+              {hasHistoricalAmount(data.totals) ? " El histórico de Finanzas kioscos no tiene desglose." : ""}
             </div>
           </div>
         </header>
