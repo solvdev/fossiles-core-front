@@ -28,15 +28,15 @@ const parseJson = async (response, fallbackMessage) => {
 
 /**
  * Dashboard de ventas por fuente. Todos aceptan `refresh` (true = omite/invalida la caché de 60 s del backend)
- * y `signal` (AbortSignal) para cancelar la petición.
+ * y `signal` (AbortSignal) para cancelar la petición. `siteId` (solo kioskos) = id del sitio de Finanzas kioscos.
  */
 const getDashboardSource = async (path, params, fallbackMessage) => {
-  const { startDate, endDate, kioskLocationId, refresh, signal } = params || {};
+  const { startDate, endDate, siteId, refresh, signal } = params || {};
   const response = await fetch(
     `${API_URL}/sales/dashboard/${path}${toQuery({
       startDate,
       endDate,
-      kioskLocationId,
+      siteId,
       refresh: refresh ? "true" : undefined,
     })}`,
     { headers: headers(), signal }
@@ -51,10 +51,10 @@ export const getSalesConsolidated = ({ startDate, endDate, refresh, signal } = {
     "No se pudo cargar el consolidado de ventas."
   );
 
-export const getSalesKiosks = ({ startDate, endDate, kioskLocationId, refresh, signal } = {}) =>
+export const getSalesKiosks = ({ startDate, endDate, siteId, refresh, signal } = {}) =>
   getDashboardSource(
     "kiosks",
-    { startDate, endDate, kioskLocationId, refresh, signal },
+    { startDate, endDate, siteId, refresh, signal },
     "No se pudo cargar las ventas de kioskos."
   );
 

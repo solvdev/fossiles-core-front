@@ -8,18 +8,19 @@ import KioskTab from "views/sales/dashboard/KioskTab";
 import OnlineTab from "views/sales/dashboard/OnlineTab";
 import VendorTab from "views/sales/dashboard/VendorTab";
 import {
-  MONTH_OPTIONS_COUNT,
   SHORTCUTS,
   SOURCE_DESCRIPTION,
   TABS,
   activeShortcut,
   applyRangeChange,
-  buildMonthOptions,
+  buildMonthSelectOptions,
+  buildYearSelectOptions,
   describePeriod,
-  detectMonth,
-  monthRange,
+  monthYearOf,
   parseDashboardParams,
   previousRange,
+  rangeForMonthPick,
+  rangeForYearPick,
   shortcutRange,
   stepMonth,
 } from "views/sales/dashboard/salesDashboardHelpers";
@@ -41,13 +42,13 @@ const UNSAVED_AD_SPEND_CONFIRM =
 
 /**
  * Dashboard de ventas por fuente: Consolidado · Kioskos · Online · Vendedor LF.
- * El estado vive en la URL (?tab=&startDate=&endDate=&kioskLocationId=) y cada pestaña consulta su propio
- * endpoint solo cuando está activa.
+ * El estado vive en la URL (?tab=&startDate=&endDate=&siteId=) y cada pestaña consulta su propio
+ * endpoint solo cuando está activa. `siteId` = sitio de Finanzas kioscos (solo pestaña Kioskos).
  */
 function SalesDashboard() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [today] = useState(getTodayYmdGuatemala);
-  const { tab, startDate, endDate, kioskLocationId } = useMemo(
+  const { tab, startDate, endDate, siteId } = useMemo(
     () => parseDashboardParams(searchParams, today),
     [searchParams, today]
   );
@@ -85,8 +86,9 @@ function SalesDashboard() {
     (id) => {
       if (id === tab) return;
       if (adSpendDirtyRef.current && !window.confirm(UNSAVED_AD_SPEND_CONFIRM)) return;
-      // El kiosko elegido solo aplica a la pestaña Kioskos.
-      updateParams({ tab: id, startDate, endDate, kioskLocationId: "" }, { push: true });
+      // El kiosko elegido solo aplica a la pestaña Kioskos. Se limpia también el ?kioskLocationId= de enlaces viejos
+      // (ya no se lee; así deja de viajar en la URL).
+      updateParams({ tab: id, startDate, endDate, siteId: "", kioskLocationId: "" }, { push: true });
     },
     [tab, startDate, endDate, updateParams]
   );
@@ -104,19 +106,21 @@ function SalesDashboard() {
 
   const applyShortcut = (id) => applyRange(shortcutRange(id, getTodayYmdGuatemala()));
 
-  // Mes calendario completo (o mes en curso hasta hoy); "" = rango personalizado. Sale de la URL, no del borrador:
-  // una fecha a medio teclear no cambia el selector.
-  const selectedMonth = detectMonth(startDate, endDate, today);
+  // Selectores Mes y Año: mes calendario completo (o mes en curso hasta hoy) o "" = rango personalizado; el año es el
+  // de Desde. Salen de la URL, no del borrador: una fecha a medio teclear no cambia los selectores.
+  const { month: selectedMonth, year: selectedYear } = monthYearOf(startDate, endDate, today);
   const monthOptions = useMemo(
-    () => buildMonthOptions(today, MONTH_OPTIONS_COUNT, selectedMonth),
-    [today, selectedMonth]
+    () => buildMonthSelectOptions(selectedYear, today, selectedMonth),
+    [selectedYear, today, selectedMonth]
   );
+  const yearOptions = useMemo(() => buildYearSelectOptions(today, selectedYear), [today, selectedYear]);
   const canStepBack = stepMonth(startDate, endDate, today, -1) !== null;
   const canStepForward = stepMonth(startDate, endDate, today, 1) !== null;
 
-  const onMonthChange = (event) => {
-    if (event.target.value) applyRange(monthRange(event.target.value, getTodayYmdGuatemala()));
-  };
+  // Elegir un mes o un año deja el rango en ese mes calendario completo (el mes en curso termina hoy).
+  const onMonthChange = (event) => applyRange(rangeForMonthPick(startDate, getTodayYmdGuatemala(), event.target.value));
+
+  const onYearChange = (event) => applyRange(rangeForYearPick(startDate, getTodayYmdGuatemala(), event.target.value));
 
   const onMonthStep = (delta) => applyRange(stepMonth(startDate, endDate, getTodayYmdGuatemala(), delta));
 
@@ -135,8 +139,8 @@ function SalesDashboard() {
       content = (
         <KioskTab
           {...tabProps}
-          kioskLocationId={kioskLocationId}
-          onKioskChange={(value) => updateParams({ kioskLocationId: value })}
+          siteId={siteId}
+          onKioskChange={(value) => updateParams({ siteId: value, kioskLocationId: "" })}
         />
       );
       break;
@@ -160,63 +164,71 @@ function SalesDashboard() {
           </div>
           <div className="kfin-filters sdash-filters kfin-noprint">
             <div className="sdash-fgroup">
-              <div className="kfin-field sdash-month">
-                <label htmlFor="sdash-month">Mes</label>
-                <div className="sdash-month-control" role="group" aria-label="Selector de mes">
-                  <KButton
-                    large
-                    className="sdash-month-step"
-                    aria-label="Mes anterior"
-                    title="Mes anterior"
-                    disabled={!canStepBack}
-                    onClick={() => onMonthStep(-1)}
-                  >
-                    <MonthStepIcon direction={-1} />
-                  </KButton>
-                  <select
-                    id="sdash-month"
-                    className="form-control sdash-month-select"
-                    value={selectedMonth}
-                    onChange={onMonthChange}
-                  >
+              <div className="sdash-monthyear" role="group" aria-label="Selector de mes y año">
+                <KButton
+                  large
+                  className="sdash-month-step"
+                  aria-label="Mes anterior"
+                  title="Mes anterior"
+                  disabled={!canStepBack}
+                  onClick={() => onMonthStep(-1)}
+                >
+                  <MonthStepIcon direction={-1} />
+                </KButton>
+                <div className="kfin-field sdash-month">
+                  <label htmlFor="sdash-month">Mes</label>
+                  <select id="sdash-month" className="form-control" value={selectedMonth} onChange={onMonthChange}>
                     {monthOptions.map((o) => (
                       // 'Personalizado' no se elige a mano: se activa solo y queda deshabilitado mientras el rango es un mes
-                      <option key={o.value || "custom"} value={o.value} disabled={o.value === "" && selectedMonth !== ""}>
+                      <option key={o.value || "custom"} value={o.value} disabled={o.disabled}>
                         {o.label}
                       </option>
                     ))}
                   </select>
-                  <KButton
-                    large
-                    className="sdash-month-step"
-                    aria-label="Mes siguiente"
-                    title="Mes siguiente"
-                    disabled={!canStepForward}
-                    onClick={() => onMonthStep(1)}
-                  >
-                    <MonthStepIcon direction={1} />
-                  </KButton>
                 </div>
+                <div className="kfin-field sdash-year">
+                  <label htmlFor="sdash-year">Año</label>
+                  <select id="sdash-year" className="form-control" value={String(selectedYear)} onChange={onYearChange}>
+                    {yearOptions.map((o) => (
+                      <option key={o.value} value={o.value} disabled={o.disabled}>
+                        {o.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <KButton
+                  large
+                  className="sdash-month-step"
+                  aria-label="Mes siguiente"
+                  title="Mes siguiente"
+                  disabled={!canStepForward}
+                  onClick={() => onMonthStep(1)}
+                >
+                  <MonthStepIcon direction={1} />
+                </KButton>
               </div>
-              <div className="kfin-field">
-                <label htmlFor="sdash-start">Desde</label>
-                <input
-                  id="sdash-start"
-                  type="date"
-                  className="form-control"
-                  value={draft.startDate}
-                  onChange={onDateChange("startDate")}
-                />
-              </div>
-              <div className="kfin-field">
-                <label htmlFor="sdash-end">Hasta</label>
-                <input
-                  id="sdash-end"
-                  type="date"
-                  className="form-control"
-                  value={draft.endDate}
-                  onChange={onDateChange("endDate")}
-                />
+              {/* Desde y Hasta bajan juntos cuando no caben junto al selector de mes y año */}
+              <div className="sdash-dates">
+                <div className="kfin-field">
+                  <label htmlFor="sdash-start">Desde</label>
+                  <input
+                    id="sdash-start"
+                    type="date"
+                    className="form-control"
+                    value={draft.startDate}
+                    onChange={onDateChange("startDate")}
+                  />
+                </div>
+                <div className="kfin-field">
+                  <label htmlFor="sdash-end">Hasta</label>
+                  <input
+                    id="sdash-end"
+                    type="date"
+                    className="form-control"
+                    value={draft.endDate}
+                    onChange={onDateChange("endDate")}
+                  />
+                </div>
               </div>
             </div>
             <div className="sdash-fgroup">

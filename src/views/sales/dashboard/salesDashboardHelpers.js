@@ -253,8 +253,9 @@ export const buildYearSelectOptions = (todayYmd, selectedYear = null) => {
   for (let year = current; year >= first; year -= 1) {
     options.push({ value: String(year), label: String(year), disabled: false });
   }
-  const selected = Number(selectedYear);
-  if (Number.isInteger(selected) && (selected > current || selected < first)) {
+  // Solo un año de 4 dígitos (Number(null) o Number('') serían 0, no un año).
+  const selected = /^\d{4}$/.test(String(selectedYear)) ? Number(selectedYear) : null;
+  if (selected !== null && (selected > current || selected < first)) {
     options.push({ value: String(selected), label: String(selected), disabled: true });
     options.sort((a, b) => Number(b.value) - Number(a.value));
   }

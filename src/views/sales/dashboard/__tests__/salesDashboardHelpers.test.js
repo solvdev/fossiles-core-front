@@ -9,28 +9,36 @@ import {
   buildKioskOptions,
   buildKpiItems,
   buildMonthCalendars,
-  buildMonthOptions,
+  buildMonthSelectOptions,
   buildSourceTable,
   buildStackedTrendData,
   buildWeekdayInsight,
   buildWeeklyBars,
+  buildYearSelectOptions,
+  compositionAriaLabel,
   consolidatedDailyAsPoints,
+  CUSTOM_MONTH_LABEL,
   describePeriod,
   detectMonth,
+  FIRST_SALES_YEAR,
+  fmtCountOrDash,
   fmtQty,
   fmtSharePercent,
   groupBreakdownTail,
   growthDelta,
+  hasHistoricalAmount,
   isEmptyKpis,
   isValidYmd,
   KPI_CONFIG,
-  monthLabel,
   monthRange,
+  monthYearOf,
   normalizeDaily,
   parseDashboardParams,
   peakPoint,
   percentToDecimal,
   previousRange,
+  rangeForMonthPick,
+  rangeForYearPick,
   segmentsFromBreakdown,
   shareOf,
   shiftMonth,
@@ -136,22 +144,37 @@ describe("fechas y URL", () => {
       tab: "consolidado",
       startDate: "2026-10-01",
       endDate: "2026-10-07",
-      kioskLocationId: "",
+      siteId: "",
     });
     expect(
       parseDashboardParams(
-        new URLSearchParams("tab=online&startDate=2026-09-01&endDate=2026-09-30&kioskLocationId=12"),
+        new URLSearchParams("tab=kioskos&startDate=2026-09-01&endDate=2026-09-30&siteId=12"),
         today
       )
-    ).toEqual({ tab: "online", startDate: "2026-09-01", endDate: "2026-09-30", kioskLocationId: "12" });
+    ).toEqual({ tab: "kioskos", startDate: "2026-09-01", endDate: "2026-09-30", siteId: "12" });
     const bad = parseDashboardParams(
-      new URLSearchParams("tab=xx&startDate=nope&endDate=2026-09-30&kioskLocationId=abc"),
+      new URLSearchParams("tab=xx&startDate=nope&endDate=2026-09-30&siteId=abc"),
       today
     );
     // startDate inválido -> inicio del mes en curso, que queda después de endDate: se intercambian
     expect(bad.tab).toBe("consolidado");
     expect(bad.startDate <= bad.endDate).toBe(true);
-    expect(bad.kioskLocationId).toBe("");
+    expect(bad.siteId).toBe("");
+  });
+
+  test("parseDashboardParams ignora el ?kioskLocationId= de enlaces viejos", () => {
+    const today = "2026-10-07";
+    const legacy = parseDashboardParams(
+      new URLSearchParams("tab=kioskos&startDate=2026-09-01&endDate=2026-09-30&kioskLocationId=12"),
+      today
+    );
+    expect(legacy).toEqual({ tab: "kioskos", startDate: "2026-09-01", endDate: "2026-09-30", siteId: "" });
+    expect(legacy).not.toHaveProperty("kioskLocationId");
+    // si vienen ambos manda siteId
+    expect(parseDashboardParams({ tab: "kioskos", siteId: "3", kioskLocationId: "12" }, today).siteId).toBe("3");
+    // solo dígitos
+    expect(parseDashboardParams({ siteId: "-1" }, today).siteId).toBe("");
+    expect(parseDashboardParams({ siteId: "1e3" }, today).siteId).toBe("");
   });
 
   test("describePeriod muestra el mes completo por nombre", () => {
@@ -169,7 +192,7 @@ describe("fechas y URL", () => {
   });
 });
 
-describe("selector de mes", () => {
+describe("selectores de mes y año", () => {
   const TODAY = "2026-10-08";
 
   test("shiftMonth cruza el año en ambos sentidos", () => {
@@ -178,11 +201,6 @@ describe("selector de mes", () => {
     expect(shiftMonth("2025-12", 1)).toBe("2026-01");
     expect(shiftMonth("2026-10", -24)).toBe("2024-10");
     expect(shiftMonth("2026-03", 0)).toBe("2026-03");
-  });
-
-  test("monthLabel usa el nombre del mes en español con año", () => {
-    expect(monthLabel("2026-10")).toBe("Octubre 2026");
-    expect(monthLabel("2026-03-15")).toBe("Marzo 2026");
   });
 
   test("monthRange: mes pasado completo, con febrero bisiesto y no bisiesto", () => {
@@ -242,34 +260,189 @@ describe("selector de mes", () => {
     }
   });
 
-  test("buildMonthOptions: Personalizado + 25 meses en español, del más reciente al más antiguo", () => {
-    const options = buildMonthOptions(TODAY);
-    expect(options).toHaveLength(26);
-    expect(options[0]).toEqual({ value: "", label: "Personalizado" });
-    expect(options[1]).toEqual({ value: "2026-10", label: "Octubre 2026" });
-    expect(options[2]).toEqual({ value: "2026-09", label: "Septiembre 2026" });
-    expect(options[3]).toEqual({ value: "2026-08", label: "Agosto 2026" });
-    // cruza el año: enero 2026 -> diciembre 2025
-    const jan = options.findIndex((o) => o.value === "2026-01");
-    expect(options[jan + 1]).toEqual({ value: "2025-12", label: "Diciembre 2025" });
-    // el último es el mes 24 hacia atrás
-    expect(options[options.length - 1]).toEqual({ value: "2024-10", label: "Octubre 2024" });
-    const values = options.slice(1).map((o) => o.value);
-    expect(values).toEqual([...values].sort().reverse());
-    expect(new Set(values).size).toBe(25);
+  test("monthYearOf: mes completo -> mes y año; rango personalizado -> '' y el año de Desde", () => {
+    expect(monthYearOf("2026-09-01", "2026-09-30", TODAY)).toEqual({ month: "09", year: 2026 });
+    // mes en curso hasta hoy (atajo 'Mes') y mes en curso completo
+    expect(monthYearOf("2026-10-01", TODAY, TODAY)).toEqual({ month: "10", year: 2026 });
+    expect(monthYearOf("2026-10-01", "2026-10-31", TODAY)).toEqual({ month: "10", year: 2026 });
+    // febrero bisiesto
+    expect(monthYearOf("2028-02-01", "2028-02-29", TODAY)).toEqual({ month: "02", year: 2028 });
+    // personalizado: el selector de mes queda en '' y el de año en el año de Desde
+    expect(monthYearOf("2026-09-05", "2026-09-30", TODAY)).toEqual({ month: "", year: 2026 });
+    expect(monthYearOf("2025-12-15", "2026-01-10", TODAY)).toEqual({ month: "", year: 2025 });
+    expect(monthYearOf("2026-10-01", "2026-10-07", TODAY)).toEqual({ month: "", year: 2026 });
+    // fechas inválidas: año en curso
+    expect(monthYearOf("", "", TODAY)).toEqual({ month: "", year: 2026 });
   });
 
-  test("buildMonthOptions respeta count y agrega el mes seleccionado si cae fuera de la ventana", () => {
-    expect(buildMonthOptions(TODAY, 3).map((o) => o.value)).toEqual(["", "2026-10", "2026-09", "2026-08"]);
-    expect(buildMonthOptions(TODAY, 0).map((o) => o.value)).toEqual([""]);
+  test("buildYearSelectOptions: del año en curso a 2023, el más reciente primero y sin años futuros", () => {
+    expect(FIRST_SALES_YEAR).toBe(2023);
+    const options = buildYearSelectOptions(TODAY);
+    expect(options.map((o) => o.value)).toEqual(["2026", "2025", "2024", "2023"]);
+    expect(options.map((o) => o.label)).toEqual(["2026", "2025", "2024", "2023"]);
+    expect(options.every((o) => o.disabled === false)).toBe(true);
+    // la lista crece con el año en curso (2023 siempre es el último) y nunca pasa del año de hoy
+    expect(buildYearSelectOptions("2027-01-05").map((o) => o.value)).toEqual(["2027", "2026", "2025", "2024", "2023"]);
+    expect(buildYearSelectOptions("2023-06-01").map((o) => o.value)).toEqual(["2023"]);
+    // reloj anterior a 2023: al menos el año en curso
+    expect(buildYearSelectOptions("2022-06-01").map((o) => o.value)).toEqual(["2022"]);
+    // orden descendente y sin duplicados
+    const values = buildYearSelectOptions("2030-03-01").map((o) => Number(o.value));
+    expect(values).toEqual([...values].sort((a, b) => b - a));
+    expect(new Set(values).size).toBe(values.length);
+  });
+
+  test("buildYearSelectOptions agrega, deshabilitado, el año de Desde si cae fuera de la ventana", () => {
     // dentro de la ventana: no se duplica
-    expect(buildMonthOptions(TODAY, 3, "2026-09")).toHaveLength(4);
-    // más antiguo: va al final; futuro: va primero (después de Personalizado)
-    expect(buildMonthOptions(TODAY, 3, "2023-03").map((o) => o.value)).toEqual(["", "2026-10", "2026-09", "2026-08", "2023-03"]);
-    expect(buildMonthOptions(TODAY, 3, "2026-12").map((o) => o.value)).toEqual(["", "2026-12", "2026-10", "2026-09", "2026-08"]);
-    expect(buildMonthOptions(TODAY, 3, "2023-03").pop().label).toBe("Marzo 2023");
-    // un valor que no es mes se ignora
-    expect(buildMonthOptions(TODAY, 3, "basura")).toHaveLength(4);
+    expect(buildYearSelectOptions(TODAY, 2025).map((o) => o.value)).toEqual(["2026", "2025", "2024", "2023"]);
+    // enlace viejo (2022) va al final; fecha futura tecleada (2027) va primero; ninguno se puede elegir a mano
+    const old = buildYearSelectOptions(TODAY, 2022);
+    expect(old.map((o) => o.value)).toEqual(["2026", "2025", "2024", "2023", "2022"]);
+    expect(old[old.length - 1].disabled).toBe(true);
+    expect(old.slice(0, -1).every((o) => o.disabled === false)).toBe(true);
+    const future = buildYearSelectOptions(TODAY, 2027);
+    expect(future.map((o) => o.value)).toEqual(["2027", "2026", "2025", "2024", "2023"]);
+    expect(future[0].disabled).toBe(true);
+    // un valor que no es un año se ignora
+    expect(buildYearSelectOptions(TODAY, "basura")).toHaveLength(4);
+    expect(buildYearSelectOptions(TODAY, null)).toHaveLength(4);
+    expect(buildYearSelectOptions(TODAY, "")).toHaveLength(4);
+    expect(buildYearSelectOptions(TODAY, undefined)).toHaveLength(4);
+    expect(buildYearSelectOptions(TODAY, 0)).toHaveLength(4);
+  });
+
+  test("buildMonthSelectOptions: Personalizado + Enero…Diciembre", () => {
+    const options = buildMonthSelectOptions(2025, TODAY, "03");
+    expect(options).toHaveLength(13);
+    expect(options[0]).toEqual({ value: "", label: CUSTOM_MONTH_LABEL, disabled: true });
+    expect(CUSTOM_MONTH_LABEL).toBe("Personalizado");
+    expect(options.slice(1).map((o) => o.value)).toEqual([
+      "01", "02", "03", "04", "05", "06", "07", "08", "09", "10", "11", "12",
+    ]);
+    expect(options.slice(1).map((o) => o.label)).toEqual([
+      "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre",
+    ]);
+  });
+
+  test("buildMonthSelectOptions: 'Personalizado' solo se puede elegir cuando el rango no es un mes completo", () => {
+    expect(buildMonthSelectOptions(2026, TODAY, "")[0]).toEqual({ value: "", label: "Personalizado", disabled: false });
+    expect(buildMonthSelectOptions(2026, TODAY, "09")[0].disabled).toBe(true);
+    expect(buildMonthSelectOptions(2026, TODAY)[0].disabled).toBe(false);
+  });
+
+  test("buildMonthSelectOptions deshabilita los meses posteriores al mes en curso", () => {
+    const disabledMonths = (year) => buildMonthSelectOptions(year, TODAY, "").slice(1).filter((o) => o.disabled).map((o) => o.value);
+    // año en curso (hoy = 8 de octubre): noviembre y diciembre
+    expect(disabledMonths(2026)).toEqual(["11", "12"]);
+    // años pasados: todos disponibles; año futuro (solo si viene de la URL): ninguno
+    expect(disabledMonths(2025)).toEqual([]);
+    expect(disabledMonths(2023)).toEqual([]);
+    expect(disabledMonths(2027)).toHaveLength(12);
+    // el mes en curso sí se puede elegir
+    expect(buildMonthSelectOptions(2026, TODAY, "").find((o) => o.value === "10").disabled).toBe(false);
+    // en enero solo está disponible enero
+    expect(buildMonthSelectOptions(2027, "2027-01-05", "").slice(1).filter((o) => !o.disabled).map((o) => o.value)).toEqual(["01"]);
+  });
+
+  test("rangeForMonthPick: mes completo del año de Desde, con febrero bisiesto y no bisiesto", () => {
+    expect(rangeForMonthPick("2026-03-01", TODAY, "09")).toEqual({ startDate: "2026-09-01", endDate: "2026-09-30" });
+    expect(rangeForMonthPick("2026-09-01", TODAY, "07")).toEqual({ startDate: "2026-07-01", endDate: "2026-07-31" });
+    expect(rangeForMonthPick("2026-09-01", TODAY, "02")).toEqual({ startDate: "2026-02-01", endDate: "2026-02-28" });
+    // 2028 es bisiesto; 2100 no lo es (divisible entre 100 pero no entre 400); 2000 sí
+    expect(rangeForMonthPick("2028-05-10", "2028-10-08", "02")).toEqual({ startDate: "2028-02-01", endDate: "2028-02-29" });
+    expect(rangeForMonthPick("2024-05-01", TODAY, "02")).toEqual({ startDate: "2024-02-01", endDate: "2024-02-29" });
+    expect(rangeForMonthPick("2025-05-01", TODAY, "02")).toEqual({ startDate: "2025-02-01", endDate: "2025-02-28" });
+    expect(rangeForMonthPick("2000-05-01", TODAY, "02")).toEqual({ startDate: "2000-02-01", endDate: "2000-02-29" });
+    expect(rangeForMonthPick("2100-05-01", "2100-10-08", "02")).toEqual({ startDate: "2100-02-01", endDate: "2100-02-28" });
+    // diciembre y enero: sin pasar al año siguiente
+    expect(rangeForMonthPick("2025-06-15", TODAY, "12")).toEqual({ startDate: "2025-12-01", endDate: "2025-12-31" });
+    expect(rangeForMonthPick("2025-06-15", TODAY, "01")).toEqual({ startDate: "2025-01-01", endDate: "2025-01-31" });
+  });
+
+  test("rangeForMonthPick: el mes en curso llega hasta hoy y los meses futuros se acotan al mes en curso", () => {
+    expect(rangeForMonthPick("2026-03-01", TODAY, "10")).toEqual({ startDate: "2026-10-01", endDate: TODAY });
+    expect(rangeForMonthPick("2026-03-01", TODAY, "10")).toEqual(shortcutRange("month", TODAY));
+    // un mes posterior al actual (el selector no lo ofrece, pero la regla se mantiene) -> mes en curso
+    expect(rangeForMonthPick("2026-03-01", TODAY, "12")).toEqual({ startDate: "2026-10-01", endDate: TODAY });
+    expect(rangeForMonthPick("2026-03-01", TODAY, "11")).toEqual({ startDate: "2026-10-01", endDate: TODAY });
+    // desde un año futuro de la URL también se acota
+    expect(rangeForMonthPick("2027-03-01", TODAY, "05")).toEqual({ startDate: "2026-10-01", endDate: TODAY });
+    // el mismo mes pero de un año pasado es completo
+    expect(rangeForMonthPick("2025-03-01", TODAY, "10")).toEqual({ startDate: "2025-10-01", endDate: "2025-10-31" });
+  });
+
+  test("rangeForMonthPick: con rango personalizado usa el año de Desde y rechaza valores inválidos", () => {
+    expect(rangeForMonthPick("2025-12-15", TODAY, "03")).toEqual({ startDate: "2025-03-01", endDate: "2025-03-31" });
+    expect(rangeForMonthPick("2026-03-01", TODAY, "")).toBeNull(); // 'Personalizado' no es un mes
+    expect(rangeForMonthPick("2026-03-01", TODAY, "13")).toBeNull();
+    expect(rangeForMonthPick("2026-03-01", TODAY, "00")).toBeNull();
+    expect(rangeForMonthPick("2026-03-01", TODAY, "3")).toBeNull();
+    expect(rangeForMonthPick("2026-03-01", TODAY, undefined)).toBeNull();
+    expect(rangeForMonthPick("", TODAY, "03")).toBeNull();
+    expect(rangeForMonthPick("nope", TODAY, "03")).toBeNull();
+  });
+
+  test("rangeForYearPick: conserva el mes y calcula febrero según el año elegido", () => {
+    // marzo 2026 -> 2025: marzo 2025 completo
+    expect(rangeForYearPick("2026-03-01", TODAY, "2025")).toEqual({ startDate: "2025-03-01", endDate: "2025-03-31" });
+    // febrero 2025 (28 días) -> 2024 (bisiesto, 29 días) -> 2023 (28)
+    expect(rangeForYearPick("2025-02-01", TODAY, "2024")).toEqual({ startDate: "2024-02-01", endDate: "2024-02-29" });
+    expect(rangeForYearPick("2024-02-01", TODAY, "2023")).toEqual({ startDate: "2023-02-01", endDate: "2023-02-28" });
+    // enero y diciembre: el mes se conserva sin cruzar de año
+    expect(rangeForYearPick("2025-12-01", TODAY, "2024")).toEqual({ startDate: "2024-12-01", endDate: "2024-12-31" });
+    expect(rangeForYearPick("2024-01-01", TODAY, "2025")).toEqual({ startDate: "2025-01-01", endDate: "2025-01-31" });
+    // cada mes del año recibe exactamente su rango: el mes de Desde se detecta de vuelta
+    for (let m = 1; m <= 12; m += 1) {
+      const mm = String(m).padStart(2, "0");
+      const range = rangeForYearPick(`2025-${mm}-01`, TODAY, "2024");
+      expect(detectMonth(range.startDate, range.endDate, TODAY)).toBe(`2024-${mm}`);
+    }
+  });
+
+  test("rangeForYearPick: al pasar al año en curso, un mes posterior al actual se acota al mes en curso", () => {
+    // diciembre 2025 -> 2026: no existe diciembre de 2026 todavía -> octubre 2026 hasta hoy
+    expect(rangeForYearPick("2025-12-01", TODAY, "2026")).toEqual({ startDate: "2026-10-01", endDate: TODAY });
+    expect(rangeForYearPick("2025-11-01", TODAY, "2026")).toEqual({ startDate: "2026-10-01", endDate: TODAY });
+    // el mes actual y los anteriores se conservan
+    expect(rangeForYearPick("2025-10-01", TODAY, "2026")).toEqual({ startDate: "2026-10-01", endDate: TODAY });
+    expect(rangeForYearPick("2025-09-01", TODAY, "2026")).toEqual({ startDate: "2026-09-01", endDate: "2026-09-30" });
+    // inicio de año: en enero solo se llega a enero
+    expect(rangeForYearPick("2025-07-01", "2027-01-05", "2027")).toEqual({ startDate: "2027-01-01", endDate: "2027-01-05" });
+    // un año futuro (no está en la lista, pero la regla se mantiene) -> mes en curso
+    expect(rangeForYearPick("2025-03-01", TODAY, "2027")).toEqual({ startDate: "2026-10-01", endDate: TODAY });
+  });
+
+  test("rangeForYearPick con rango personalizado usa el mes de Desde en el año elegido", () => {
+    // 15/03/2026 – 10/04/2026 -> 2025: marzo 2025 completo (el mes en que empieza)
+    expect(rangeForYearPick("2026-03-15", TODAY, "2025")).toEqual({ startDate: "2025-03-01", endDate: "2025-03-31" });
+    // 15/12/2025 – 10/01/2026 -> 2026: diciembre no existe aún -> mes en curso
+    expect(rangeForYearPick("2025-12-15", TODAY, "2026")).toEqual({ startDate: "2026-10-01", endDate: TODAY });
+    // 29/02/2024 – ... -> 2023: febrero 2023 (sin día 29)
+    expect(rangeForYearPick("2024-02-29", TODAY, "2023")).toEqual({ startDate: "2023-02-01", endDate: "2023-02-28" });
+    // dentro del mes en curso: 03/10/2026 – 07/10/2026 -> 2025: octubre 2025 completo
+    expect(rangeForYearPick("2026-10-03", TODAY, "2025")).toEqual({ startDate: "2025-10-01", endDate: "2025-10-31" });
+  });
+
+  test("rangeForYearPick rechaza años y fechas inválidos", () => {
+    expect(rangeForYearPick("2026-03-01", TODAY, "")).toBeNull();
+    expect(rangeForYearPick("2026-03-01", TODAY, "26")).toBeNull();
+    expect(rangeForYearPick("2026-03-01", TODAY, "20x6")).toBeNull();
+    expect(rangeForYearPick("2026-03-01", TODAY, undefined)).toBeNull();
+    // fuera de 2000–2100
+    expect(rangeForYearPick("2026-03-01", TODAY, "1999")).toBeNull();
+    expect(rangeForYearPick("", TODAY, "2025")).toBeNull();
+    expect(rangeForYearPick("nope", TODAY, "2025")).toBeNull();
+  });
+
+  test("diciembre/enero: ◀ ▶ cruzan el año y los selectores llegan al mismo rango", () => {
+    // ◀ desde enero 2026 = diciembre 2025 = elegir el año 2025 y el mes 12
+    expect(stepMonth("2026-01-01", "2026-01-31", TODAY, -1)).toEqual(rangeForMonthPick("2025-06-01", TODAY, "12"));
+    expect(stepMonth("2026-01-01", "2026-01-31", TODAY, -1)).toEqual({ startDate: "2025-12-01", endDate: "2025-12-31" });
+    // ▶ desde diciembre 2025 = enero 2026 = elegir el año 2026 y el mes 01
+    expect(stepMonth("2025-12-01", "2025-12-31", TODAY, 1)).toEqual(rangeForMonthPick("2026-06-01", TODAY, "01"));
+    expect(stepMonth("2025-12-01", "2025-12-31", TODAY, 1)).toEqual({ startDate: "2026-01-01", endDate: "2026-01-31" });
+    // cambiar de año desde diciembre conserva diciembre; el selector de año no hace el salto de ▶
+    expect(rangeForYearPick("2025-12-01", TODAY, "2024")).toEqual({ startDate: "2024-12-01", endDate: "2024-12-31" });
   });
 
   test("stepMonth retrocede desde el mes seleccionado y cruza el año", () => {
@@ -320,6 +493,7 @@ describe("KPIs y composición", () => {
     productAmount: 252500,
     packagingAmount: 15900,
     shippingAmount: 0,
+    historicalAmount: 0,
     previousTotalAmount: 244000,
     growthPercent: 10,
     dailyAmount: 8120,
@@ -334,8 +508,24 @@ describe("KPIs y composición", () => {
     expect(items[0].value).toBe("Q 268,400.00");
     expect(items[0].growth).toBeCloseTo(0.1, 6);
     expect(items[0].note).toBe("vs agosto 2026");
-    expect(items[2].label).toBe("Tickets");
     expect(items[4].value).toBe("2,310");
+  });
+
+  test("kioskos rotula como (POS) lo que solo viene del POS: tickets, ticket promedio y unidades", () => {
+    const items = buildKpiItems(kpis, KPI_CONFIG.KIOSKO);
+    expect(items.map((i) => i.label)).toEqual([
+      "Ventas de kioskos",
+      "Ventas de hoy",
+      "Tickets (POS)",
+      "Ticket promedio (POS)",
+      "Unidades terminadas (POS)",
+    ]);
+    expect(items[2].value).toBe("1,046");
+    expect(items[3].value).toBe("Q 256.60");
+    expect(items[3].note).toBe("venta POS ÷ tickets");
+    // el total sigue siendo el de Finanzas kioscos (con histórico): sin rótulo (POS)
+    expect(items[0].label).not.toMatch(/POS/);
+    expect(items[1].label).not.toMatch(/POS/);
   });
 
   test("consolidado no muestra unidades y vendedor usa 'Órdenes'", () => {
@@ -343,6 +533,42 @@ describe("KPIs y composición", () => {
     const vendor = buildKpiItems(kpis, KPI_CONFIG.VENDOR);
     expect(vendor[2].label).toBe("Órdenes");
     expect(vendor[3].label).toBe("Promedio por orden");
+    // online y vendedor no usan el rótulo (POS)
+    expect(buildKpiItems(kpis, KPI_CONFIG.ONLINE).map((i) => i.label).join("|")).not.toMatch(/POS/);
+    expect(vendor.map((i) => i.label).join("|")).not.toMatch(/POS/);
+  });
+
+  test("el ticket promedio es '—' si no hay tickets (kiosko solo con histórico), no 'Q 0.00'", () => {
+    const historicalOnly = { ...kpis, totalAmount: 5000, productAmount: 0, packagingAmount: 0, historicalAmount: 5000, salesCount: 0, unitsFinished: 0, avgTicket: 0 };
+    const items = buildKpiItems(historicalOnly, KPI_CONFIG.KIOSKO);
+    expect(items[2].value).toBe("0");
+    expect(items[3].value).toBe("—");
+    expect(items[4].value).toBe("0");
+    expect(items[0].value).toBe("Q 5,000.00");
+    // con tickets sí se muestra el promedio
+    expect(buildKpiItems({ ...kpis, salesCount: 2, avgTicket: 150 }, KPI_CONFIG.KIOSKO)[3].value).toBe("Q 150.00");
+  });
+
+  test("la nota del ticket promedio del consolidado aclara que el histórico queda fuera", () => {
+    expect(buildKpiItems(kpis, KPI_CONFIG.consolidado)[3].note).toBe("total ÷ operaciones");
+    expect(buildKpiItems({ ...kpis, historicalAmount: 0 }, KPI_CONFIG.consolidado)[3].note).toBe("total ÷ operaciones");
+    expect(buildKpiItems({ ...kpis, historicalAmount: 1200 }, KPI_CONFIG.consolidado)[3].note).toBe(
+      "total sin histórico ÷ operaciones"
+    );
+  });
+
+  test("hasHistoricalAmount y fmtCountOrDash", () => {
+    expect(hasHistoricalAmount({ historicalAmount: 0.01 })).toBe(true);
+    expect(hasHistoricalAmount({ historicalAmount: "1200.00" })).toBe(true);
+    expect(hasHistoricalAmount({ historicalAmount: 0 })).toBe(false);
+    expect(hasHistoricalAmount({ historicalAmount: null })).toBe(false);
+    expect(hasHistoricalAmount({})).toBe(false);
+    expect(hasHistoricalAmount(null)).toBe(false);
+    expect(fmtCountOrDash(0)).toBe("—");
+    expect(fmtCountOrDash(null)).toBe("—");
+    expect(fmtCountOrDash(undefined)).toBe("—");
+    expect(fmtCountOrDash(12)).toBe("12");
+    expect(fmtCountOrDash(1046)).toBe("1,046");
   });
 
   test("nota de 'hoy' con kiosko filtrado", () => {
@@ -368,6 +594,58 @@ describe("KPIs y composición", () => {
     });
     expect(seg.map((s) => s.key)).toEqual(["product", "packaging", "shipping"]);
     expect(seg[0].share).toBeCloseTo(0.918, 3);
+  });
+
+  test("buildCompositionSegments agrega el 4.º segmento 'Histórico (sin desglose)' solo si historicalAmount > 0", () => {
+    const seg = buildCompositionSegments({
+      totalAmount: 100000,
+      productAmount: 60000,
+      packagingAmount: 15000,
+      shippingAmount: 0,
+      historicalAmount: 25000,
+    });
+    expect(seg.map((s) => s.key)).toEqual(["product", "packaging", "historical"]);
+    const historical = seg[2];
+    expect(historical.label).toBe("Histórico (sin desglose)");
+    expect(historical.amount).toBe(25000);
+    expect(historical.share).toBeCloseTo(0.25, 6);
+    // gris claro con trama: no depende solo del color
+    expect(historical.pattern).toBe("hatch");
+    expect(historical.color).toBe("#e4e7eb");
+    expect(seg.slice(0, 2).every((s) => s.pattern === undefined)).toBe(true);
+    // las participaciones suman 100 % con las cuatro partes
+    expect(seg.reduce((a, s) => a + s.share, 0)).toBeCloseTo(1, 6);
+    expect(seg[0].share).toBeCloseTo(0.6, 6);
+
+    // sin histórico (0, ausente, nulo): los tres segmentos de siempre
+    [0, undefined, null].forEach((historicalAmount) => {
+      const none = buildCompositionSegments({ productAmount: 90, packagingAmount: 6, shippingAmount: 4, historicalAmount });
+      expect(none.map((s) => s.key)).toEqual(["product", "packaging", "shipping"]);
+      expect(none.reduce((a, s) => a + s.share, 0)).toBeCloseTo(1, 6);
+    });
+  });
+
+  test("buildCompositionSegments con las cuatro partes y un kiosko solo con histórico", () => {
+    const all = buildCompositionSegments({
+      totalAmount: 1000,
+      productAmount: 400,
+      packagingAmount: 100,
+      shippingAmount: 100,
+      historicalAmount: 400,
+    });
+    expect(all.map((s) => s.key)).toEqual(["product", "packaging", "shipping", "historical"]);
+    expect(all.map((s) => s.share)).toEqual([0.4, 0.1, 0.1, 0.4]);
+    // un sitio histórico (sin POS): un solo segmento al 100 %
+    const only = buildCompositionSegments({ totalAmount: 5000, productAmount: 0, packagingAmount: 0, shippingAmount: 0, historicalAmount: 5000 });
+    expect(only).toHaveLength(1);
+    expect(only[0]).toMatchObject({ key: "historical", amount: 5000, share: 1, pattern: "hatch" });
+    // si el backend solo manda el total, se conserva el comportamiento anterior (no hay nada que repartir)
+    expect(buildCompositionSegments({ totalAmount: 800 })).toEqual([]);
+  });
+
+  test("compositionAriaLabel incluye el histórico con su porcentaje", () => {
+    const seg = buildCompositionSegments({ productAmount: 600, packagingAmount: 150, shippingAmount: 0, historicalAmount: 250 });
+    expect(compositionAriaLabel(seg)).toBe("Producto terminado 60.0%, Empaque 15.0%, Histórico (sin desglose) 25.0%");
   });
 
   test("isEmptyKpis", () => {
@@ -419,6 +697,47 @@ describe("KPIs y composición", () => {
     expect(table.totals.units).toBe(2850);
     expect(table.totals.totalAmount).toBe(390350);
     expect(table.totals.shippingAmount).toBe(7450);
+    // sin histórico en ninguna fuente: no hay columna extra y el monto histórico es 0
+    expect(table.hasHistorical).toBe(false);
+    expect(table.totals.historicalAmount).toBe(0);
+    expect(table.rows.map((r) => r.historicalAmount)).toEqual([0, 0, 0]);
+  });
+
+  test("buildSourceTable suma la parte histórica: producto + empaque + envío + histórico = total", () => {
+    const table = buildSourceTable([
+      {
+        channel: "KIOSKO",
+        label: "Kioskos",
+        kpis: { unitsFinished: 1000, productAmount: 100000, packagingAmount: 8000, shippingAmount: 0, historicalAmount: 42000, totalAmount: 150000 },
+      },
+      {
+        channel: "ONLINE",
+        label: "Online",
+        kpis: { unitsFinished: 540, productAmount: 111000, packagingAmount: 3500, shippingAmount: 7450, historicalAmount: 0, totalAmount: 121950 },
+      },
+      {
+        channel: "VENDOR",
+        label: "Vendedor LF",
+        kpis: { unitsFinished: 0, productAmount: 0, packagingAmount: 0, shippingAmount: 0, totalAmount: 0 },
+      },
+    ]);
+    expect(table.hasHistorical).toBe(true);
+    expect(table.rows[0].historicalAmount).toBe(42000);
+    expect(table.rows[1].historicalAmount).toBe(0);
+    expect(table.rows[2].historicalAmount).toBe(0); // ausente en el JSON -> 0
+    expect(table.totals.historicalAmount).toBe(42000);
+    // el precio promedio por unidad sigue siendo producto ÷ unidades del POS (el histórico no entra)
+    expect(table.rows[0].avgPrice).toBe(100);
+    // cada fila y el total cuadran contra su total
+    [...table.rows, table.totals].forEach((r) => {
+      expect(r.productAmount + r.packagingAmount + r.shippingAmount + r.historicalAmount).toBe(r.totalAmount);
+    });
+    expect(table.totals.totalAmount).toBe(271950);
+    // basta con que una sola fuente traiga histórico
+    const onlyOnline = buildSourceTable([
+      { channel: "ONLINE", label: "Online", kpis: { productAmount: 10, historicalAmount: 3, totalAmount: 13 } },
+    ]);
+    expect(onlyOnline.hasHistorical).toBe(true);
   });
 
   test("statusTone clasifica por texto sin acentos", () => {
@@ -431,17 +750,35 @@ describe("KPIs y composición", () => {
     expect(statusTone(null)).toBe("neutral");
   });
 
-  test("buildKioskOptions", () => {
+  test("buildKioskOptions usa el id del sitio de Finanzas kioscos como valor", () => {
     const opts = buildKioskOptions(
       [
-        { kioskId: 2, kioskCode: "K2", kioskName: "Zeta" },
-        { kioskId: 1, kioskCode: "K1", kioskName: "Alfa" },
+        { siteId: 22, kioskId: 2, kioskCode: "K2", kioskName: "Zeta" },
+        { siteId: 11, kioskId: 1, kioskCode: "K1", kioskName: "Alfa" },
       ],
       "9"
     );
     expect(opts.map((o) => o.label)).toEqual(["Todos los kioskos", "Alfa", "Zeta", "Kiosko 9"]);
-    expect(opts[0].value).toBe("");
+    expect(opts.map((o) => o.value)).toEqual(["", "11", "22", "9"]);
     expect(buildKioskOptions(null, "").length).toBe(1);
+  });
+
+  test("buildKioskOptions incluye los kioskos históricos (sin ubicación del POS) y no duplica el elegido", () => {
+    const opts = buildKioskOptions(
+      [
+        { siteId: 5, kioskId: null, kioskCode: "", kioskName: "Plaza Antigua (histórico)" },
+        { siteId: 3, kioskId: 30, kioskCode: "K30", kioskName: "Centro" },
+        { siteId: 7, kioskId: null, kioskCode: "H7", kioskName: "" },
+        { kioskId: 99, kioskCode: "X", kioskName: "Sin sitio" }, // sin siteId no se puede filtrar: se omite
+        null,
+      ],
+      "5"
+    );
+    // ordenado por nombre (Centro, H7, Plaza…); el sitio elegido ya viene en la lista: no se agrega otra vez
+    expect(opts.map((o) => o.value)).toEqual(["", "3", "7", "5"]);
+    expect(opts.map((o) => o.label)).toEqual(["Todos los kioskos", "Centro", "H7", "Plaza Antigua (histórico)"]);
+    // el valor es siteId aunque kioskId coincida con otro sitio
+    expect(buildKioskOptions([{ siteId: 4, kioskId: 3, kioskName: "A" }, { siteId: 3, kioskId: 4, kioskName: "B" }], "").map((o) => o.value)).toEqual(["", "4", "3"]);
   });
 });
 

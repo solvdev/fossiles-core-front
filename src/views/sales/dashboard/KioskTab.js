@@ -18,14 +18,18 @@ import {
   buildKioskOptions,
   buildKpiItems,
   describePeriod,
-  fmtCount,
+  fmtCountOrDash,
   fmtSharePercent,
+  hasHistoricalAmount,
   isEmptyKpis,
   segmentsFromBreakdown,
   totalSalesLink,
 } from "./salesDashboardHelpers";
 
 const META = SOURCE_META.KIOSKO;
+const POS_ONLY = "Solo POS";
+const SOURCE_CAPTION =
+  "Ventas de kioscos = misma fuente que Finanzas kioscos (histórico + POS), con empaque incluido. Tickets, unidades, pagos y productos son solo del POS.";
 const RECENT_COLUMNS = [
   { key: "saleDate", label: "Fecha" },
   { key: "party", label: "Kiosko" },
@@ -34,6 +38,10 @@ const RECENT_COLUMNS = [
   { key: "totalAmount", label: "Total" },
 ];
 
+/**
+ * Ranking por kiosko (breakdowns.byKiosk, una fila por SITIO de Finanzas kioscos: key = siteId). La venta incluye el
+ * histórico; los tickets son solo del POS, así que un kiosko solo con histórico muestra '—' en vez de 0.
+ */
 function KioskRanking({ rows }) {
   const list = rows || [];
   const max = list.length ? Math.max(...list.map((r) => Number(r.amount) || 0)) : 0;
@@ -42,7 +50,7 @@ function KioskRanking({ rows }) {
       <header className="kfin-card-head">
         <div>
           <h5 className="kfin-card-title">Ranking por kiosko</h5>
-          <div className="kfin-card-sub">Ordenado por venta del periodo</div>
+          <div className="kfin-card-sub">Ordenado por venta del periodo · los tickets son solo del POS</div>
         </div>
         <Link className="sdash-link" to="/admin/kiosk-sales">
           Abrir POS de kioskos →
@@ -50,11 +58,11 @@ function KioskRanking({ rows }) {
       </header>
       <div className="kfin-scroll sdash-scroll">
         <table className="kfin-table kfin-table--simple">
-          <caption className="sr-only">Tickets, venta y participación por kiosko</caption>
+          <caption className="sr-only">Tickets del POS, venta y participación por kiosko</caption>
           <thead>
             <tr>
               <th scope="col">Kiosko</th>
-              <th scope="col" className="is-num">Tickets</th>
+              <th scope="col" className="is-num">Tickets (POS)</th>
               <th scope="col" className="is-num">Venta</th>
               <th scope="col" className="is-num">% del total</th>
             </tr>
@@ -70,7 +78,7 @@ function KioskRanking({ rows }) {
                     style={{ width: `${barPct(Number(r.amount) || 0, max)}%`, background: META.color }}
                   />
                 </th>
-                <td className="is-num">{fmtCount(r.count)}</td>
+                <td className="is-num">{fmtCountOrDash(r.count)}</td>
                 <td className="is-num kfin-strongnum">{fmtMoney(r.amount)}</td>
                 <td className="is-num">{fmtSharePercent(r.sharePercent)}</td>
               </tr>
@@ -86,6 +94,23 @@ function KioskRanking({ rows }) {
         </table>
       </div>
     </section>
+  );
+}
+
+/**
+ * Bajo los KPIs: cuánto del total viene del histórico (solo si hay) y, siempre, de dónde sale cada número. Sin
+ * esto el total de Finanzas kioscos (histórico + POS) no cuadraría con los tickets y el desglose, que son del POS.
+ */
+function KioskSourceNotes({ kpis }) {
+  return (
+    <div className="sdash-kpinotes">
+      {hasHistoricalAmount(kpis) ? (
+        <div className="sdash-def" role="note">
+          <b>{fmtMoney(kpis.historicalAmount)}</b> vienen del histórico de Finanzas kioscos (sin tickets ni productos).
+        </div>
+      ) : null}
+      <p className="sdash-caption">{SOURCE_CAPTION}</p>
+    </div>
   );
 }
 
@@ -105,6 +130,7 @@ function KioskBody({ data, startDate, endDate, filtered }) {
   return (
     <>
       <SourceKpiRow items={items} accent={META.color} />
+      <KioskSourceNotes kpis={data.kpis} />
 
       <div className="sdash-row">
         <div className="sdash-c2">
@@ -119,18 +145,23 @@ function KioskBody({ data, startDate, endDate, filtered }) {
           <header className="kfin-card-head">
             <div>
               <h5 className="kfin-card-title">Composición y pago</h5>
-              <div className="kfin-card-sub">Dinero del periodo y forma de pago</div>
+              <div className="kfin-card-sub">Dinero del periodo (histórico + POS) y forma de pago (POS)</div>
             </div>
           </header>
           <CompositionBar segments={composition} />
-          <h6 className="sdash-subhead">Forma de pago</h6>
+          <h6 className="sdash-subhead">
+            Forma de pago <span className="sdash-badge sdash-badge--amber">{POS_ONLY}</span>
+          </h6>
           <CompositionBar segments={payment} showAmount={false} />
+          <div className="kfin-card-foot">
+            Porcentajes sobre la venta del POS{hasHistoricalAmount(data.kpis) ? "; el histórico no tiene forma de pago" : ""}.
+          </div>
         </section>
       </div>
 
       <div className="sdash-row">
         <KioskRanking rows={data.breakdowns?.byKiosk} />
-        <ProductRankingCard className="sdash-c1" rows={data.topProducts} color="#3b4a5a" />
+        <ProductRankingCard className="sdash-c1" rows={data.topProducts} color="#3b4a5a" scopeNote={POS_ONLY} />
       </div>
 
       <div className="sdash-yoy">
@@ -139,7 +170,7 @@ function KioskBody({ data, startDate, endDate, filtered }) {
 
       <RecentSalesTable
         title="Últimas ventas"
-        subtitle={`Las ${(data.recentSales || []).length} más recientes del periodo`}
+        subtitle={`Las ${(data.recentSales || []).length} más recientes del periodo · solo POS`}
         columns={RECENT_COLUMNS}
         keyPrefix="kiosko"
         rows={data.recentSales}
@@ -149,13 +180,17 @@ function KioskBody({ data, startDate, endDate, filtered }) {
   );
 }
 
-export default function KioskTab({ startDate, endDate, kioskLocationId, onKioskChange, refreshToken }) {
-  const query = useSalesQuery(getSalesKiosks, { startDate, endDate, kioskLocationId, refreshToken });
+/**
+ * Pestaña Kioskos. `siteId` = sitio de Finanzas kioscos elegido ('' = todos); el selector y la URL usan el id del
+ * sitio (un kiosko histórico no tiene ubicación del POS).
+ */
+export default function KioskTab({ startDate, endDate, siteId, onKioskChange, refreshToken }) {
+  const query = useSalesQuery(getSalesKiosks, { startDate, endDate, siteId, refreshToken });
   // Las opciones del selector no dependen del kiosko elegido (el backend las manda siempre completas); se conservan
   // mientras recarga o si el kiosko elegido no tiene ventas, para que siempre se pueda volver a 'Todos'.
   const optionsRef = useRef([]);
   if (query.data && Array.isArray(query.data.kioskOptions)) optionsRef.current = query.data.kioskOptions;
-  const options = buildKioskOptions(optionsRef.current, kioskLocationId);
+  const options = buildKioskOptions(optionsRef.current, siteId);
 
   return (
     <>
@@ -165,7 +200,7 @@ export default function KioskTab({ startDate, endDate, kioskLocationId, onKioskC
           <select
             id="sdash-kiosk"
             className="form-control"
-            value={kioskLocationId || ""}
+            value={siteId || ""}
             onChange={(e) => onKioskChange(e.target.value)}
           >
             {options.map((o) => (
@@ -180,12 +215,12 @@ export default function KioskTab({ startDate, endDate, kioskLocationId, onKioskC
         query={query}
         isEmpty={(d) => isEmptyKpis(d.kpis)}
         emptyText={
-          kioskLocationId
+          siteId
             ? "El kiosko seleccionado no tiene ventas en este periodo. Elige otro kiosko o cambia el rango de fechas."
             : "No hay ventas de kioskos en este periodo. Prueba con otro rango de fechas."
         }
       >
-        {(data) => <KioskBody data={data} startDate={startDate} endDate={endDate} filtered={!!kioskLocationId} />}
+        {(data) => <KioskBody data={data} startDate={startDate} endDate={endDate} filtered={!!siteId} />}
       </SalesAsyncBoundary>
     </>
   );
