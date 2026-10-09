@@ -11,6 +11,38 @@ const parseError = async (response, fallback) => {
   throw new Error(errorData.message || fallback);
 };
 
+const jsonHeaders = (requestId) => ({
+  "Content-Type": "application/json",
+  ...getAuthHeader(),
+  ...(requestId ? { "X-Request-Id": String(requestId) } : {}),
+});
+
+/** Un id por acción del usuario. El backend puede ignorar el header. */
+export const createClientRequestId = () => {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (ch) => {
+    const rand = Math.floor(Math.random() * 16);
+    const value = ch === "x" ? rand : (rand & 0x3) | 0x8;
+    return value.toString(16);
+  });
+};
+
+/**
+ * Marca una acción en curso. Devuelve el id de la petición, o null si ya hay una.
+ * El segundo clic debe salir sin disparar otra solicitud.
+ */
+export const tryBeginSingleFlight = (gate) => {
+  if (!gate || gate.current) return null;
+  gate.current = true;
+  return createClientRequestId();
+};
+
+export const endSingleFlight = (gate) => {
+  if (gate) gate.current = false;
+};
+
 export const MOVEMENT_CONCEPTS = [
   { code: "1", label: "Factura", entryType: "CHARGE", description: "Cargo / factura" },
   { code: "2", label: "Nota de crédito", entryType: "CREDIT_NOTE", description: "Nota de crédito" },
@@ -194,10 +226,10 @@ export const getReceivableDocuments = async (customerId, { orderKind } = {}) => 
   return response.json();
 };
 
-export const createCustomerAccountEntry = async (customerId, payload) => {
+export const createCustomerAccountEntry = async (customerId, payload, { requestId } = {}) => {
   const response = await fetch(`${API_URL}/customer-accounts/customers/${customerId}/entries`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", ...getAuthHeader() },
+    headers: jsonHeaders(requestId),
     body: JSON.stringify(payload),
   });
   if (!response.ok) await parseError(response, "Error al registrar movimiento");
@@ -217,10 +249,10 @@ export const createCustomerAccountDocumentSettlement = async (customerId, payloa
   return response.json();
 };
 
-export const voidCustomerAccountEntry = async (entryId, voidReason) => {
+export const voidCustomerAccountEntry = async (entryId, voidReason, { requestId } = {}) => {
   const response = await fetch(`${API_URL}/customer-accounts/entries/${entryId}/void`, {
     method: "PUT",
-    headers: { "Content-Type": "application/json", ...getAuthHeader() },
+    headers: jsonHeaders(requestId),
     body: JSON.stringify({ voidReason }),
   });
   if (!response.ok) await parseError(response, "Error al anular movimiento");
@@ -253,6 +285,12 @@ export const hasPortfolioBalance = (row, kind, { dueOnly = false } = {}) => {
 export const formatAccountMoney = (value) => {
   const num = Number(value || 0);
   return `Q ${num.toLocaleString("es-GT", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+};
+
+/** `totalCreditNotes` del resumen. Si el API no lo manda, es cero. */
+export const creditNotesAmount = (value) => {
+  const amount = Number(value);
+  return Number.isFinite(amount) ? amount : 0;
 };
 
 const badgeBase = {
@@ -315,39 +353,29 @@ export const getConceptLabel = (code) => {
 
 const CREDIT_ENTRY_TYPES = new Set(["PAYMENT", "CREDIT_NOTE", "RETURN"]);
 
-const normDocKey = (value) => String(value || "").trim().toUpperCase();
+export const entryAppliesToCharge = (entryType) => CREDIT_ENTRY_TYPES.has(entryType);
 
-/** Busca el cargo (factura) al que pertenece un abono/NC/devolución. */
+const sameEntryId = (left, right) =>
+  left != null && right != null && String(left) === String(right);
+
+const roundMoney = (value) => Math.round((Number(value) || 0) * 100) / 100;
+
+/**
+ * Un abono, nota de crédito o devolución se anida bajo un cargo solo si
+ * appliedToEntryId apunta a ese cargo y el cargo no está anulado.
+ * No se adivina por envío, factura ni orden.
+ */
 export const findParentChargeId = (line, charges = []) => {
   if (!line || !CREDIT_ENTRY_TYPES.has(line.entryType)) return null;
-  if (line.appliedToEntryId != null) {
-    const byId = charges.find((c) => c.id === line.appliedToEntryId);
-    if (byId) return byId.id;
-  }
-  if (line.productShipmentId != null) {
-    const byShipment = charges.find((c) => c.productShipmentId === line.productShipmentId);
-    if (byShipment) return byShipment.id;
-  }
-  const inv = normDocKey(line.invoiceNumber || line.vendorShipmentNumber);
-  if (inv) {
-    const byInvoice = charges.find(
-      (c) => normDocKey(c.invoiceNumber || c.vendorShipmentNumber) === inv
-    );
-    if (byInvoice) return byInvoice.id;
-  }
-  if (line.productionOrderId != null && line.partialReleaseId != null) {
-    const byRelease = charges.find(
-      (c) =>
-        c.productionOrderId === line.productionOrderId &&
-        c.partialReleaseId === line.partialReleaseId
-    );
-    if (byRelease) return byRelease.id;
-  }
-  if (line.productionOrderId != null) {
-    const sameOrder = charges.filter((c) => c.productionOrderId === line.productionOrderId);
-    if (sameOrder.length === 1) return sameOrder[0].id;
-  }
-  return null;
+  if (line.appliedToEntryId == null) return null;
+  const parent = (Array.isArray(charges) ? charges : []).find(
+    (charge) =>
+      charge &&
+      charge.status !== "VOID" &&
+      (charge.entryType == null || charge.entryType === "CHARGE") &&
+      sameEntryId(charge.id, line.appliedToEntryId)
+  );
+  return parent ? parent.id : null;
 };
 
 /**
@@ -356,7 +384,7 @@ export const findParentChargeId = (line, charges = []) => {
  */
 export const groupStatementLines = (lines = [], openingBalance = 0) => {
   const list = Array.isArray(lines) ? lines : [];
-  const charges = list.filter((line) => line.entryType === "CHARGE");
+  const charges = list.filter((line) => line.entryType === "CHARGE" && line.status !== "VOID");
   const childrenByChargeId = new Map();
   const nestedIds = new Set();
 
@@ -370,14 +398,8 @@ export const groupStatementLines = (lines = [], openingBalance = 0) => {
     nestedIds.add(line.id);
   });
 
-  // Tabla principal: facturas + saldo inicial + créditos sin documento asociado.
-  const topLevel = list.filter((line) => {
-    if (nestedIds.has(line.id)) return false;
-    if (CREDIT_ENTRY_TYPES.has(line.entryType) && findParentChargeId(line, charges) != null) {
-      return false;
-    }
-    return true;
-  });
+  // Tabla principal: facturas, saldo inicial y créditos sin cargo vinculado.
+  const topLevel = list.filter((line) => !nestedIds.has(line.id));
 
   // El saldo se recalcula sobre las filas visibles: cada factura absorbe los abonos aplicados a ella
   // (crédito = abonos del documento), de modo que Débito − Crédito = pendiente y el saldo acumulado
@@ -405,3 +427,96 @@ export const groupStatementLines = (lines = [], openingBalance = 0) => {
 };
 
 export const isChargeLine = (line) => line?.entryType === "CHARGE";
+
+/** Totales del estado de cuenta. Las filas VOID no entran, haya o no toggle de anulados. */
+export const sumStatementTotals = (lines = []) => {
+  const totals = {
+    totalCharges: 0,
+    totalPayments: 0,
+    totalCreditNotes: 0,
+    totalReturns: 0,
+    netMovement: 0,
+  };
+  (Array.isArray(lines) ? lines : []).forEach((line) => {
+    if (!line || line.status === "VOID") return;
+    const debit = Number(line.debit) || 0;
+    const credit = Number(line.credit) || 0;
+    totals.netMovement += debit - credit;
+    if (line.entryType === "CHARGE") totals.totalCharges += debit;
+    else if (line.entryType === "PAYMENT") totals.totalPayments += credit;
+    else if (line.entryType === "CREDIT_NOTE") totals.totalCreditNotes += credit;
+    else if (line.entryType === "RETURN") totals.totalReturns += credit;
+  });
+  return {
+    totalCharges: roundMoney(totals.totalCharges),
+    totalPayments: roundMoney(totals.totalPayments),
+    totalCreditNotes: roundMoney(totals.totalCreditNotes),
+    totalReturns: roundMoney(totals.totalReturns),
+    netMovement: roundMoney(totals.netMovement),
+  };
+};
+
+/** Filas de la tabla. Por defecto oculta anulados; los totales no dependen de este filtro. */
+export const filterStatementDisplayLines = (displayLines = [], { showVoided = false } = {}) => {
+  const list = Array.isArray(displayLines) ? displayLines : [];
+  if (showVoided) return list;
+  return list.filter((line) => line.status !== "VOID");
+};
+
+/** Cargos no anulados, con saldo abierto ya neto de abonos activos. */
+export const listOpenCharges = (lines = []) => {
+  const { displayLines } = groupStatementLines(lines, 0);
+  return displayLines.filter((line) => line.entryType === "CHARGE" && line.status !== "VOID");
+};
+
+export const formatOpenChargeLabel = (charge) => {
+  const kind = charge?.orderKind || "—";
+  const order = charge?.productionOrderCode || charge?.documentNumber || charge?.orderCode || "—";
+  const envp = charge?.invoiceNumber || charge?.vendorShipmentNumber || "—";
+  return `${kind} · ${order} · ENVP ${envp} · Saldo ${formatAccountMoney(charge?.chargeBalanceDue)}`;
+};
+
+const orderIdFromCharge = (charge) => {
+  const orderId = charge?.productionOrderId;
+  if (orderId == null || orderId === "") return null;
+  const parsed = Number(orderId);
+  return Number.isFinite(parsed) ? parsed : null;
+};
+
+/**
+ * Arma el cuerpo de alta.
+ * Pago, nota de crédito y devolución envían appliedToEntryId y copian productionOrderId
+ * y orderKind del cargo elegido. No usan la orden ni el tipo que tenga la pantalla.
+ * El alta de cargo no cambia.
+ */
+export const buildAccountEntryPayload = ({ entryType, conceptCode, form, charge = null }) => {
+  const amount = Number(form.amount);
+  const receipt = String(form.receiptNumber || "").trim();
+  const movementConceptCode =
+    conceptCode == null || conceptCode === "OPENING" || conceptCode === "RETURN" ? null : conceptCode;
+  const payload = {
+    entryType,
+    movementConceptCode,
+    entryDate: form.entryDate,
+    collectionDate: entryType === "PAYMENT" ? form.collectionDate || null : null,
+    amount,
+    grossCollectedAmount: entryType === "PAYMENT" ? amount : null,
+    reference: form.reference || receipt || null,
+    receiptNumber: receipt || null,
+    description: form.description || null,
+    paymentMethod: entryType === "PAYMENT" ? form.paymentMethod || null : null,
+  };
+
+  if (entryAppliesToCharge(entryType)) {
+    payload.appliedToEntryId = Number(form.appliedToEntryId);
+    payload.productionOrderId = orderIdFromCharge(charge);
+    payload.orderKind = charge?.orderKind ? String(charge.orderKind) : null;
+    return payload;
+  }
+
+  payload.productionOrderId = form.productionOrderId ? Number(form.productionOrderId) : null;
+  payload.partialReleaseId = form.partialReleaseId ? Number(form.partialReleaseId) : null;
+  payload.productShipmentId = form.productShipmentId ? Number(form.productShipmentId) : null;
+  payload.vendorShipmentNumber = form.vendorShipmentNumber || null;
+  return payload;
+};

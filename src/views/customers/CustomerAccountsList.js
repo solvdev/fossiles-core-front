@@ -18,6 +18,7 @@ import {
 } from "reactstrap";
 import {
   CHARGE_STATUS_LABELS,
+  creditNotesAmount,
   formatAccountMoney,
   getCreditBadgeStyle,
   getCustomerAccountSummary,
@@ -177,6 +178,7 @@ function CustomerRow({ row, kindTab }) {
       <td>{row.phone || "—"}</td>
       <BalanceCell amount={due} type="due" />
       <BalanceCell amount={credit} type="credit" />
+      <td className="text-right">{formatAccountMoney(creditNotesAmount(row.totalCreditNotes))}</td>
       <td>{row.lastChargeDate || "—"}</td>
       <td>{row.lastPaymentDate || "—"}</td>
       <td>{row.lfOrderCount || 0}</td>
@@ -403,29 +405,32 @@ function CustomerAccountsList() {
   const totals = useMemo(() => {
     let totalDue = 0;
     let totalCredit = 0;
+    let totalCreditNotes = 0;
     let withDebt = 0;
     filteredRows.forEach((r) => {
       const due = rowDueForKind(r, kindTab);
       const credit = Number(r.creditBalance ?? splitAccountBalance(r.balance).creditBalance) || 0;
       totalDue += due;
       totalCredit += credit;
+      totalCreditNotes += creditNotesAmount(r.totalCreditNotes);
       if (due > 0) withDebt += 1;
     });
-    return { totalDue, totalCredit, withDebt, count: filteredRows.length };
+    return { totalDue, totalCredit, totalCreditNotes, withDebt, count: filteredRows.length };
   }, [filteredRows, kindTab]);
 
   const regionTotals = useMemo(() => {
     const totalsByRegion = {
-      CA: { due: 0, credit: 0, count: 0 },
-      CB: { due: 0, credit: 0, count: 0 },
-      CC: { due: 0, credit: 0, count: 0 },
-      NONE: { due: 0, credit: 0, count: 0 },
+      CA: { due: 0, credit: 0, creditNotes: 0, count: 0 },
+      CB: { due: 0, credit: 0, creditNotes: 0, count: 0 },
+      CC: { due: 0, credit: 0, creditNotes: 0, count: 0 },
+      NONE: { due: 0, credit: 0, creditNotes: 0, count: 0 },
     };
     filteredRows.forEach((row) => {
       const region = parseRouteLocationCode(row.routeLocationCode)?.regionCode || "NONE";
       const bucket = totalsByRegion[region] || totalsByRegion.NONE;
       bucket.due += rowDueForKind(row, kindTab);
       bucket.credit += Number(row.creditBalance ?? splitAccountBalance(row.balance).creditBalance) || 0;
+      bucket.creditNotes += creditNotesAmount(row.totalCreditNotes);
       bucket.count += 1;
     });
     return totalsByRegion;
@@ -436,15 +441,17 @@ function CustomerAccountsList() {
     return groups.map((group) => {
       let totalDue = 0;
       let totalCredit = 0;
+      let totalCreditNotes = 0;
       let withDebt = 0;
       group.rows.forEach((row) => {
         const due = rowDueForKind(row, kindTab);
         const credit = Number(row.creditBalance ?? splitAccountBalance(row.balance).creditBalance) || 0;
         totalDue += due;
         totalCredit += credit;
+        totalCreditNotes += creditNotesAmount(row.totalCreditNotes);
         if (due > 0) withDebt += 1;
       });
-      return { ...group, totalDue, totalCredit, withDebt };
+      return { ...group, totalDue, totalCredit, totalCreditNotes, withDebt };
     });
   }, [filteredRows, kindTab]);
 
@@ -701,7 +708,7 @@ function CustomerAccountsList() {
               </Card>
 
               <Row className="mb-3">
-                <Col md="3">
+                <Col md="2">
                   <div
                     className="border rounded p-3 text-center"
                     style={{
@@ -723,7 +730,7 @@ function CustomerAccountsList() {
                     </strong>
                   </div>
                 </Col>
-                <Col md="3">
+                <Col md="2">
                   <div
                     className="border rounded p-3 text-center"
                     style={{
@@ -745,10 +752,16 @@ function CustomerAccountsList() {
                     </strong>
                   </div>
                 </Col>
-                <Col md="3">
+                <Col md="2">
                   <div className="border rounded p-3 text-center">
                     <div className="text-muted small">Total crédito a favor</div>
                     <strong style={{ color: "#148f77" }}>{formatAccountMoney(totals.totalCredit)}</strong>
+                  </div>
+                </Col>
+                <Col md="2">
+                  <div className="border rounded p-3 text-center">
+                    <div className="text-muted small">Notas de crédito</div>
+                    <strong>{formatAccountMoney(totals.totalCreditNotes)}</strong>
                   </div>
                 </Col>
                 <Col md="2">
@@ -757,7 +770,7 @@ function CustomerAccountsList() {
                     <strong>{totals.withDebt}</strong>
                   </div>
                 </Col>
-                <Col md="1">
+                <Col md="2">
                   <div className="border rounded p-3 text-center">
                     <div className="text-muted small">Clientes</div>
                     <strong>{totals.count}</strong>
@@ -778,7 +791,8 @@ function CustomerAccountsList() {
                       </div>
                       <div className="small">
                         {regionTotals[code]?.count || 0} cliente(s) · Crédito:{" "}
-                        {formatAccountMoney(regionTotals[code]?.credit || 0)}
+                        {formatAccountMoney(regionTotals[code]?.credit || 0)} · Notas de crédito:{" "}
+                        {formatAccountMoney(regionTotals[code]?.creditNotes || 0)}
                       </div>
                     </div>
                   </Col>
@@ -813,7 +827,8 @@ function CustomerAccountsList() {
                             <span className="text-muted small ml-2">
                               {group.rows.length} cliente(s) · {kindTab}:{" "}
                               {formatAccountMoney(group.totalDue)} · Crédito:{" "}
-                              {formatAccountMoney(group.totalCredit)}
+                              {formatAccountMoney(group.totalCredit)} · Notas de crédito:{" "}
+                              {formatAccountMoney(group.totalCreditNotes)}
                             </span>
                           </Col>
                           <Col xs="auto">
@@ -834,6 +849,7 @@ function CustomerAccountsList() {
                                 <th>Teléfono</th>
                                 <th className="text-right">Saldo por cobrar ({kindTab})</th>
                                 <th className="text-right">Crédito a favor</th>
+                                <th className="text-right">Notas de crédito</th>
                                 <th>Último cargo</th>
                                 <th>Último pago</th>
                                 <th>Órdenes LF</th>

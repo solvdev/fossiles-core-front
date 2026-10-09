@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import {
   Alert,
@@ -33,6 +33,9 @@ import CustomerAccountChargeDetailModal from "components/customers/CustomerAccou
 import {
   CHARGE_STATUS_LABELS,
   ENTRY_TYPE_LABELS,
+  creditNotesAmount,
+  endSingleFlight,
+  filterStatementDisplayLines,
   formatAccountMoney,
   getConceptLabel,
   getCreditBadgeStyle,
@@ -42,6 +45,8 @@ import {
   groupStatementLines,
   isChargeLine,
   splitAccountBalance,
+  sumStatementTotals,
+  tryBeginSingleFlight,
   voidCustomerAccountEntry,
 } from "services/customerAccountService";
 import { showError, showSuccess } from "utils/notificationHelper";
@@ -210,6 +215,8 @@ function CustomerAccountStatement() {
   const [voidTarget, setVoidTarget] = useState(null);
   const [voidReason, setVoidReason] = useState("");
   const [voiding, setVoiding] = useState(false);
+  const [showVoided, setShowVoided] = useState(false);
+  const voidGate = useRef(false);
 
   const load = useCallback(async () => {
     if (!customerId) return;
@@ -257,13 +264,16 @@ function CustomerAccountStatement() {
   };
 
   const handleVoid = async () => {
+    if (voidGate.current) return;
     if (!voidTarget?.id || !voidReason.trim()) {
       showError("Indique el motivo de anulación.");
       return;
     }
+    const requestId = tryBeginSingleFlight(voidGate);
+    if (!requestId) return;
     setVoiding(true);
     try {
-      await voidCustomerAccountEntry(voidTarget.id, voidReason.trim());
+      await voidCustomerAccountEntry(voidTarget.id, voidReason.trim(), { requestId });
       showSuccess("Movimiento anulado.");
       setVoidModalOpen(false);
       setVoidTarget(null);
@@ -272,6 +282,7 @@ function CustomerAccountStatement() {
     } catch (err) {
       showError(err.message || "No se pudo anular");
     } finally {
+      endSingleFlight(voidGate);
       setVoiding(false);
     }
   };
@@ -283,7 +294,15 @@ function CustomerAccountStatement() {
   const closingDueOpv = Number(statement?.closingBalanceDueOpv) || 0;
   const closingDueOpc = Number(statement?.closingBalanceDueOpc) || 0;
   const lines = statement?.lines || [];
-  const { displayLines } = useMemo(() => groupStatementLines(lines, statement?.openingBalance), [lines, statement?.openingBalance]);
+  const movementTotals = useMemo(() => sumStatementTotals(lines), [lines]);
+  const { displayLines } = useMemo(
+    () => groupStatementLines(lines, statement?.openingBalance),
+    [lines, statement?.openingBalance]
+  );
+  const visibleLines = useMemo(
+    () => filterStatementDisplayLines(displayLines, { showVoided }),
+    [displayLines, showVoided]
+  );
 
   const openChargeDetail = (line) => {
     setSelectedChargeLine(line);
@@ -420,15 +439,19 @@ function CustomerAccountStatement() {
                   </Col>
                   <Col md="2">
                     <small className="text-muted d-block">Cargos</small>
-                    <strong>{formatAccountMoney(statement.totalCharges)}</strong>
+                    <strong>{formatAccountMoney(movementTotals.totalCharges)}</strong>
                   </Col>
                   <Col md="2">
                     <small className="text-muted d-block">Pagos</small>
-                    <strong>{formatAccountMoney(statement.totalPayments)}</strong>
+                    <strong>{formatAccountMoney(movementTotals.totalPayments)}</strong>
                   </Col>
                   <Col md="2">
                     <small className="text-muted d-block">Devoluciones</small>
-                    <strong>{formatAccountMoney(statement.totalReturns)}</strong>
+                    <strong>{formatAccountMoney(movementTotals.totalReturns)}</strong>
+                  </Col>
+                  <Col md="2">
+                    <small className="text-muted d-block">Notas de crédito</small>
+                    <strong>{formatAccountMoney(creditNotesAmount(statement.totalCreditNotes))}</strong>
                   </Col>
                 </Row>
               )}
@@ -456,13 +479,31 @@ function CustomerAccountStatement() {
 
               <TabContent activeTab={activeTab}>
                 <TabPane tabId="movements">
-                  <p className="text-muted small mb-2">
-                    Solo se listan las <strong>Facturas</strong>. Pagos, abonos, notas de crédito, descargas y devoluciones del envío se ven con <strong>Ver detalle</strong>.
-                  </p>
+                  <div className="d-flex flex-wrap align-items-center justify-content-between mb-2">
+                    <p className="text-muted small mb-0 mr-3">
+                      Solo se listan las <strong>Facturas</strong>. Pagos, abonos, notas de crédito, descargas y devoluciones del envío se ven con <strong>Ver detalle</strong>.
+                      Los anulados no entran en los totales.
+                    </p>
+                    <FormGroup check className="mb-0">
+                      <Label check>
+                        <Input
+                          type="checkbox"
+                          checked={showVoided}
+                          onChange={(e) => setShowVoided(e.target.checked)}
+                        />
+                        <span className="form-check-sign" />
+                        Mostrar anulados
+                      </Label>
+                    </FormGroup>
+                  </div>
                   {loading ? (
                     <div className="text-center py-4">Cargando...</div>
-                  ) : displayLines.length === 0 ? (
-                    <Alert color="info">No hay movimientos en el período seleccionado.</Alert>
+                  ) : visibleLines.length === 0 ? (
+                    <Alert color="info">
+                      {displayLines.length > 0
+                        ? "No hay movimientos activos en el período. Active «Mostrar anulados» para verlos."
+                        : "No hay movimientos en el período seleccionado."}
+                    </Alert>
                   ) : (
                     <Table responsive>
                       <thead className="text-primary">
@@ -480,7 +521,7 @@ function CustomerAccountStatement() {
                         </tr>
                       </thead>
                       <tbody>
-                        {displayLines.map((line) => (
+                        {visibleLines.map((line) => (
                           <tr key={line.id}>
                             <td>{line.entryDate}</td>
                             <td>{getConceptLabel(line.movementConceptCode)}</td>
