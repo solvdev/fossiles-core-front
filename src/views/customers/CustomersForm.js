@@ -13,7 +13,7 @@ import {
   Col,
   Spinner,
 } from "reactstrap";
-import { getCustomerById, createCustomer, updateCustomer, getCustomersByNit } from "services/customerService";
+import { getCustomerById, createCustomer, updateCustomer, getCustomersByNit, parseCreditDays } from "services/customerService";
 import { lookupTaxpayerByNit } from "services/kioskPosService";
 import {
   formatFelCustomerName,
@@ -38,6 +38,7 @@ function CustomersForm({ customerId, isOpen, toggle, onSuccess, defaultName = ""
     address: "",
     status: "active",
     routeLocationCode: "",
+    creditDays: "0",
   });
   const [routeRegionCode, setRouteRegionCode] = useState("");
   const [routeNumber, setRouteNumber] = useState("");
@@ -103,6 +104,7 @@ function CustomersForm({ customerId, isOpen, toggle, onSuccess, defaultName = ""
         address: customer.address || "",
         status: customer.status || "active",
         routeLocationCode: customer.routeLocationCode || "",
+        creditDays: String(customer.creditDays ?? 0),
       });
       setCustomerName(customer.name || "");
       syncRouteFromCode(customer.routeLocationCode || "");
@@ -125,6 +127,7 @@ function CustomersForm({ customerId, isOpen, toggle, onSuccess, defaultName = ""
       address: "",
       status: "active",
       routeLocationCode: "",
+      creditDays: "0",
     });
     setRouteRegionCode("");
     setRouteNumber("");
@@ -202,6 +205,8 @@ function CustomersForm({ customerId, isOpen, toggle, onSuccess, defaultName = ""
     if (formData.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
       newErrors.email = "El email no es válido";
     }
+    const creditDays = parseCreditDays(formData.creditDays);
+    if (!creditDays.ok) newErrors.creditDays = creditDays.message;
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
@@ -245,10 +250,12 @@ function CustomersForm({ customerId, isOpen, toggle, onSuccess, defaultName = ""
     try {
       setLoading(true);
       setError("");
+      const creditDays = parseCreditDays(formData.creditDays);
       const payload = {
         ...formData,
         nit: normalizeNit(formData.nit) || formData.nit,
         routeLocationCode: formData.routeLocationCode || "",
+        creditDays: creditDays.value,
       };
       const saved = customerId
         ? await updateCustomer(customerId, payload)
@@ -366,6 +373,22 @@ function CustomersForm({ customerId, isOpen, toggle, onSuccess, defaultName = ""
             </Col>
           </Row>
           <Row>
+            <Col md="6">
+              <FormGroup>
+                <Label>Días de crédito</Label>
+                <Input
+                  type="number"
+                  min="0"
+                  max="60"
+                  step="1"
+                  value={formData.creditDays}
+                  onChange={(e) => setFormData({ ...formData, creditDays: e.target.value })}
+                  invalid={!!errors.creditDays}
+                />
+                {errors.creditDays && <div className="text-danger small">{errors.creditDays}</div>}
+                <small className="text-muted">Entero de 0 a 60. 0 es de contado.</small>
+              </FormGroup>
+            </Col>
             <Col md="6">
               <FormGroup>
                 <Label>Clave CxC (legacy)</Label>

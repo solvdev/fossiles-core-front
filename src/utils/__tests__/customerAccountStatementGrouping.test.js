@@ -135,8 +135,10 @@ describe("totales sin filas VOID", () => {
     const totals = sumStatementTotals(lines);
     expect(totals).toEqual({
       totalCharges: 100,
+      totalAdjustments: 0,
       totalPayments: 30,
       totalCreditNotes: 5,
+      totalDiscounts: 0,
       totalReturns: 0,
       netMovement: 65,
     });
