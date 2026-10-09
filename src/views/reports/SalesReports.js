@@ -105,7 +105,7 @@ const REPORT_TYPE_OPTIONS = [
   {
     value: REPORT_TYPES.CARD,
     label: "Ventas por tarjeta",
-    hint: "Tarjeta 100% y la parte con tarjeta de ventas mixtas (misma lógica que TARJETAS en hoja principal).",
+    hint: "Tarjeta 100% y la parte con tarjeta de ventas mixtas (monto de factura).",
   },
   {
     value: REPORT_TYPES.DISBURSEMENTS,
@@ -125,7 +125,7 @@ const REPORT_TYPE_OPTIONS = [
   {
     value: REPORT_TYPES.MAIN_SHEET,
     label: "Hoja principal",
-    hint: "Resumen por corte de conteo físico: ventas diarias, tarjetas, depósitos, gastos y cuadre.",
+    hint: "Resumen por corte: ventas, tarjetas (voucher), depósitos, gastos y diferencia (voucher + cierres del periodo).",
   },
   {
     value: REPORT_TYPES.CONSOLIDATED,

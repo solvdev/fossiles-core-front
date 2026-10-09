@@ -17,10 +17,18 @@ import {
   Table,
 } from "reactstrap";
 import { getOpvShipments } from "services/salesDashboardService";
-import { CHARGE_STATUS_LABELS } from "services/customerAccountService";
+import CustomerAccountEntryModal from "components/customers/CustomerAccountEntryModal";
+import {
+  CHARGE_STATUS_LABELS,
+  buildChargePrefill,
+  canGenerateOrderCharge,
+  formatEstimatedAmount,
+} from "services/customerAccountService";
 
 const fmtMoney = (value) =>
   `Q ${Number(value || 0).toLocaleString("es-GT", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+const fmtMoneyOrDash = (value) => (value == null || value === "" ? "—" : fmtMoney(value));
 
 const ORDER_STATUS_LABELS = {
   PENDING: "Pendiente",
@@ -48,7 +56,7 @@ function statusBadgeColor(status) {
   return "light";
 }
 
-function ShipmentRow({ row, expanded, onToggle }) {
+function ShipmentRow({ row, expanded, onToggle, onCreateCharge }) {
   const chargeLabel = CHARGE_STATUS_LABELS[row.chargeStatus] || row.chargeStatus || "—";
   const orderLabel = ORDER_STATUS_LABELS[row.orderStatus] || row.orderStatus || "—";
   const shipLabel = row.shipmentStatus
@@ -98,13 +106,18 @@ function ShipmentRow({ row, expanded, onToggle }) {
         <td>
           <Badge color={statusBadgeColor(row.chargeStatus)}>{chargeLabel}</Badge>
         </td>
-        <td className="text-right">{fmtMoney(row.itemsSubtotal)}</td>
-        <td className="text-right">{fmtMoney(row.packingSubtotal)}</td>
-        <td className="text-right">{fmtMoney(row.shippingCost)}</td>
+        <td className="text-right">{fmtMoneyOrDash(row.itemsSubtotal)}</td>
+        <td className="text-right">{fmtMoneyOrDash(row.packingSubtotal)}</td>
+        <td className="text-right">{fmtMoneyOrDash(row.shippingCost)}</td>
         <td className="text-right">
-          <strong>{fmtMoney(row.estimatedTotal)}</strong>
+          <strong>{formatEstimatedAmount(row.estimatedTotal)}</strong>
         </td>
-        <td className="text-right">
+        <td className="text-right text-nowrap">
+          {canGenerateOrderCharge(row) && (
+            <Button color="success" size="sm" className="btn-round mr-1" onClick={() => onCreateCharge(row)}>
+              Generar cargo
+            </Button>
+          )}
           {row.customerId && (
             <Link
               to={`/admin/customer-accounts/${row.customerId}`}
@@ -178,6 +191,7 @@ function OpvShipmentsPage() {
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
   const [expandedRows, setExpandedRows] = useState({});
+  const [chargeRow, setChargeRow] = useState(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -220,11 +234,15 @@ function OpvShipmentsPage() {
   const totals = useMemo(() => {
     let estimated = 0;
     let withCharge = 0;
+    let anyEstimate = false;
     rows.forEach((r) => {
-      estimated += Number(r.estimatedTotal) || 0;
+      if (r.estimatedTotal != null && r.estimatedTotal !== "") {
+        estimated += Number(r.estimatedTotal) || 0;
+        anyEstimate = true;
+      }
       if (r.hasCharge) withCharge += 1;
     });
-    return { count: rows.length, estimated, withCharge };
+    return { count: rows.length, estimated, withCharge, anyEstimate };
   }, [rows]);
 
   const toggleRow = (key) => {
@@ -334,7 +352,9 @@ function OpvShipmentsPage() {
                     </div>
                     <div className="border rounded px-3 py-2 text-center bg-light">
                       <div className="small text-muted">Total estimado</div>
-                      <strong className="text-primary">{fmtMoney(totals.estimated)}</strong>
+                      <strong className="text-primary">
+                        {totals.anyEstimate ? fmtMoney(totals.estimated) : "—"}
+                      </strong>
                     </div>
                     <div className="border rounded px-3 py-2 text-center bg-light">
                       <div className="small text-muted">Con cargo registrado</div>
@@ -376,6 +396,7 @@ function OpvShipmentsPage() {
                             row={row}
                             expanded={!!expandedRows[key]}
                             onToggle={() => toggleRow(key)}
+                            onCreateCharge={setChargeRow}
                           />
                         );
                       })}
@@ -387,6 +408,21 @@ function OpvShipmentsPage() {
           </Card>
         </Col>
       </Row>
+      <CustomerAccountEntryModal
+        isOpen={Boolean(chargeRow)}
+        toggle={() => setChargeRow(null)}
+        customerId={chargeRow?.customerId}
+        customerInfo={{
+          customerName: chargeRow?.customerName,
+          legacyCode: chargeRow?.customerLegacyCode,
+        }}
+        defaultConceptCode="1"
+        initialDoc={chargeRow ? buildChargePrefill(chargeRow) : null}
+        onSaved={() => {
+          setChargeRow(null);
+          load();
+        }}
+      />
     </div>
   );
 }

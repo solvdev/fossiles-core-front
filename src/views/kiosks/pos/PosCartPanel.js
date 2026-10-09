@@ -1,7 +1,11 @@
 import React, { useMemo } from "react";
 import { Badge, Button, Card, CardBody, Input } from "reactstrap";
 import { isPackagingProductCode } from "utils/kioskPackagingHelper";
-import { cartUnlocksEntrecuerosWholesale, entrecuerosVolumeKey } from "utils/entrecuerosPriceLists";
+import {
+  entrecuerosCartQuantities,
+  entrecuerosVolumeKey,
+  lineReceivesEntrecuerosCourtesy,
+} from "utils/entrecuerosPriceLists";
 import {
   formatCurrency,
   formatQty,
@@ -25,15 +29,15 @@ function PosCartPanel({
   const qtyByProduct = useMemo(() => {
     const map = {};
     (cart || []).forEach((line) => {
-      const key = entrecueros ? entrecuerosVolumeKey(line) : line.productId;
-      map[key] = (map[key] || 0) + Number(line.quantity || 0);
+      map[line.productId] = (map[line.productId] || 0) + Number(line.quantity || 0);
     });
     return map;
-  }, [cart, entrecueros]);
-  const wholesaleUnlocked = useMemo(
-    () => (entrecueros ? cartUnlocksEntrecuerosWholesale(cart) : false),
+  }, [cart]);
+  const entrecuerosVolume = useMemo(
+    () => (entrecueros ? entrecuerosCartQuantities(cart) : null),
     [cart, entrecueros]
   );
+  const wholesaleUnlocked = Boolean(entrecuerosVolume?.courtesyActive);
   return (
     <Card className="kiosk-pos-block kiosk-pos-cart-panel">
       <CardBody>
@@ -75,10 +79,16 @@ function PosCartPanel({
             cart.map((line) => {
               const isPackaging = Boolean(line.isPackaging) || isPackagingProductCode(line.productCode);
               const showPriceControls = canEditPrices && !isPackaging;
-              const productQty = qtyByProduct[entrecueros ? entrecuerosVolumeKey(line) : line.productId]
-                || Number(line.quantity || 0);
+              const volumeKey = entrecueros ? entrecuerosVolumeKey(line) : null;
+              const groupedQty = entrecueros ? entrecuerosVolume?.qtyByKey[volumeKey] : undefined;
+              const productQty = entrecueros
+                ? (groupedQty != null ? groupedQty : Number(line.quantity || 0))
+                : (qtyByProduct[line.productId] || Number(line.quantity || 0));
+              const courtesy = entrecueros
+                ? lineReceivesEntrecuerosCourtesy(line, groupedQty || 0, wholesaleUnlocked)
+                : false;
               const priceState = entrecueros
-                ? describeEntrecuerosPriceState(line, productQty, wholesaleUnlocked)
+                ? describeEntrecuerosPriceState(line, productQty, courtesy)
                 : null;
               return (
               <div key={line.key} className="kiosk-pos-cart-line">

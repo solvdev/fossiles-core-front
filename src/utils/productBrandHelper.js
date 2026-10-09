@@ -1,9 +1,16 @@
+import cinchoLevisImg from "assets/img/entrecueros/cinchos/levis.png";
+import cinchoNauticaImg from "assets/img/entrecueros/cinchos/nautica.png";
+import cinchoTommyImg from "assets/img/entrecueros/cinchos/tommy-hilfiger.png";
+import cinchoLacosteImg from "assets/img/entrecueros/cinchos/lacoste.png";
+import cinchoTimberlandImg from "assets/img/entrecueros/cinchos/timberland.png";
+
 export const PRODUCT_BRAND_OPTIONS = [
   "LEVIS",
   "NAUTICA",
   "TOMMY HILFIGER",
   "LACOSTE",
   "ABERCROMBIE",
+  "TIMBERLAND",
 ];
 
 /** Colores de marca con contraste alto (el badge secondary del tema queda ilegible). */
@@ -13,10 +20,25 @@ export const PRODUCT_BRAND_STYLES = {
   "TOMMY HILFIGER": { bg: "#001E62", fg: "#FFFFFF", accent: "#D0121A", short: "TH" },
   LACOSTE: { bg: "#004D27", fg: "#FFFFFF", accent: "#C4A35A", short: "LC" },
   ABERCROMBIE: { bg: "#5C3317", fg: "#FFFFFF", accent: "#E8D5A3", short: "AB" },
+  TIMBERLAND: { bg: "#C4A35A", fg: "#1A1A1A", accent: "#5C3317", short: "TB" },
+};
+
+/** Fotos de catálogo POS Entrecueros para cinchos de marca. */
+export const ENTRECUEROS_CINCHO_BRAND_IMAGES = {
+  LEVIS: cinchoLevisImg,
+  NAUTICA: cinchoNauticaImg,
+  "TOMMY HILFIGER": cinchoTommyImg,
+  LACOSTE: cinchoLacosteImg,
+  TIMBERLAND: cinchoTimberlandImg,
 };
 
 export function productBrandStyle(brand) {
   return PRODUCT_BRAND_STYLES[normalizeProductBrand(brand)] || null;
+}
+
+export function entrecuerosCinchoBrandImage(brand) {
+  const key = normalizeProductBrand(brand);
+  return key ? ENTRECUEROS_CINCHO_BRAND_IMAGES[key] || "" : "";
 }
 
 export function normalizeProductBrand(value) {

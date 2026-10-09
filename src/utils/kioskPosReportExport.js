@@ -153,8 +153,10 @@ export const buildSaleItemExportLines = (sale) => {
 };
 
 const resolveItemName = (item) => {
+  const code = String(item?.productCode || "").trim();
   const name = String(item?.productName || "Producto").trim();
-  return name.startsWith("*") ? name : `* ${name}`;
+  const label = code ? `${code} ${name}` : name;
+  return label.startsWith("*") ? label : `* ${label}`;
 };
 
 const resolveItemDescription = (item) => {

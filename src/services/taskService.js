@@ -408,15 +408,22 @@ export const planTasksWindow = async (startDate, horizonDays, schedulingPrioriti
   return response.json();
 };
 
-export const runAutoPlan = async (productionOrderId) => {
-  const query = productionOrderId != null ? `?productionOrderId=${encodeURIComponent(productionOrderId)}` : '';
+export const runAutoPlan = async (productionOrderId, { regenerate = false, date } = {}) => {
+  const params = new URLSearchParams();
+  if (productionOrderId != null) params.append('productionOrderId', String(productionOrderId));
+  if (regenerate) params.append('regenerate', 'true');
+  if (date) params.append('date', date);
+  const query = params.toString() ? `?${params}` : '';
   const response = await fetch(`${API_URL}/tasks/auto-plan${query}`, {
     method: 'POST',
     headers: headers(),
   });
   if (!response.ok) {
-    const err = await response.json().catch(() => ({ message: 'Error al generar y asignar' }));
-    throw new Error(err.message || 'Error al generar y asignar');
+    const err = await response.json().catch(() => ({}));
+    const detail = err.message || err.error || err.detail
+      || (typeof err === 'string' ? err : null)
+      || `Error al generar y asignar (${response.status})`;
+    throw new Error(detail);
   }
   return response.json();
 };

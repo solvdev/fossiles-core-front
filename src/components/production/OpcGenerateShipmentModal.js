@@ -138,6 +138,10 @@ function OpcGenerateShipmentModal({ isOpen, toggle, order, partialRelease, onGen
       if (locationId) {
         payload.locationId = Number(locationId);
       }
+      const shippingNum = Number(form.shippingCost);
+      if (Number.isFinite(shippingNum) && shippingNum >= 0) {
+        payload.shippingCost = shippingNum;
+      }
       const packingFromOrder = mapPackingItemsForApi(orderForGenerate.packingItems);
       if (luisFelipeFlow && !partialRelease?.id && packingFromOrder.length > 0) {
         payload.packingItems = packingFromOrder;
@@ -227,6 +231,11 @@ function OpcGenerateShipmentModal({ isOpen, toggle, order, partialRelease, onGen
                   value={form.shippingCost}
                   onChange={(e) => patchForm({ shippingCost: e.target.value })}
                 />
+                <small className="text-muted">
+                  {partialRelease?.id
+                    ? "Se guarda en este envío parcial."
+                    : "También se guarda en la OP."}
+                </small>
               </FormGroup>
             </Col>
             <Col md="4">
@@ -307,6 +316,22 @@ function OpcGenerateShipmentModal({ isOpen, toggle, order, partialRelease, onGen
               ))}
             </tbody>
           </Table>
+        )}
+        {!luisFelipeFlow && (
+          <FormGroup>
+            <Label>
+              <strong>Costo de envío (Q)</strong>
+            </Label>
+            <Input
+              type="number"
+              min="0"
+              step="0.01"
+              value={form.shippingCost}
+              onChange={(e) => patchForm({ shippingCost: e.target.value })}
+              placeholder="0.00"
+            />
+            <small className="text-muted">Se asigna a este documento de envío e imprime en Preparar envíos.</small>
+          </FormGroup>
         )}
         <FormGroup>
           <Label for="opc-ship-dest">

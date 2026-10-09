@@ -38,20 +38,11 @@ export const resolveLivePhysicalTotal = (row, counts, physicalSizes, physicalSiz
   return COUNT_LOCATION_KEYS.reduce((sum, key) => sum + Number((counts || {})[key] || 0), 0);
 };
 
-export const computeDiferenciaConteo = (total, inventarioFinal, salidaDevolucion = 0) => {
-  const raw = Number(total || 0) - Number(inventarioFinal || 0);
-  if (raw <= 0) return raw;
-  return Math.max(0, raw - Math.max(0, Number(salidaDevolucion || 0)));
-};
-
-/** Empaques SUM-: no aplican ajuste por devolución a bodega en la columna Dif. */
-export const resolveSalidaDevolucionForDiff = (row) => {
-  if (row?.packaging || isPackagingProductCode(row?.productCode)) return 0;
-  return Number(row?.salidaDevolucion || 0);
-};
+export const computeDiferenciaConteo = (total, inventarioFinal) =>
+  Number(total || 0) - Number(inventarioFinal || 0);
 
 export const computeConteoRowDiferencia = (total, row) =>
-  computeDiferenciaConteo(total, row?.inventarioFinal, resolveSalidaDevolucionForDiff(row));
+  computeDiferenciaConteo(total, row?.inventarioFinal);
 
 /** Sobrante: solo el número (verde en UI). Faltante: conserva el signo −. */
 export const formatConteoDiffDisplay = (diferencia) => String(Number(diferencia || 0));
@@ -195,7 +186,6 @@ export const sumDisplayRows = (rows) => {
   const sumField = (field) => rows.reduce((sum, row) => sum + Number(row[field] || 0), 0);
   const total = rows.reduce((sum, row) => sum + Number(row.total || 0), 0);
   const inventarioFinal = sumField("inventarioFinal");
-  // Sumar diffs de fila: computeDiferenciaConteo no es lineal al agregar salidaDevolucion.
   return {
     inventarioInicial: sumField("inventarioInicial"),
     comprasAjustes: sumField("comprasAjustes"),
@@ -208,7 +198,7 @@ export const sumDisplayRows = (rows) => {
     inventarioFinal,
     counts: totalCounts,
     total,
-    diferencia: rows.reduce((sum, row) => sum + Number(row.diferencia || 0), 0),
+    diferencia: computeDiferenciaConteo(total, inventarioFinal),
   };
 };
 
@@ -324,7 +314,7 @@ const expandCinchoRowBySizes = (row) => {
       inventarioFinal,
       counts,
       total,
-      diferencia: computeConteoRowDiferencia(total, row),
+      diferencia: computeDiferenciaConteo(total, inventarioFinal),
     };
   });
 };

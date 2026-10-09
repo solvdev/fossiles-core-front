@@ -32,6 +32,31 @@ const today = () => new Date().toISOString().split("T")[0];
 const DEFAULT_RECEIVER_NAME = "DAVID FERNANDO GARCIA MORALES";
 const RECEPTION_DEFAULTS_KEY = "fossiles.leatherReception.defaults";
 
+const DELIVERY_ORDER_FAMILIES = [
+  { key: "ALL", label: "Todas" },
+  { key: "OPL", label: "OPL" },
+  { key: "OPK", label: "OPK" },
+  { key: "OPV", label: "OPV" },
+  { key: "OPI", label: "OPI" },
+  { key: "OPCK", label: "OPCK" },
+  { key: "OPD", label: "OPD" },
+  { key: "OPC", label: "OPC" },
+];
+
+function resolveDeliveryOrderFamily(order) {
+  const ot = String(order?.orderType || "").trim().toUpperCase();
+  if (ot === "VENTA_EN_LINEA") return "OPL";
+  if (ot === "NORMAL") return "OPK";
+  if (ot === "MARCAS" || ot === "OPV") return "OPV";
+  if (ot === "INTERNA") return "OPI";
+  if (ot === "CLIENTE_KIOSKO") return "OPCK";
+  if (ot === "DISTRIBUTION") return "OPD";
+  if (ot === "CINCHOS" || ot === "CINCHOS_FOSSILES" || ot === "CINCHOS_MARCAS") return "OPC";
+  const code = String(order?.code || "").trim().toUpperCase();
+  const dash = code.indexOf("-");
+  return dash > 0 ? code.slice(0, dash) : (code || "OTRO");
+}
+
 function loadReceptionDefaults() {
   try {
     const raw = localStorage.getItem(RECEPTION_DEFAULTS_KEY);
@@ -131,6 +156,7 @@ function LeatherInventory() {
   const [deliveryBatchMaterialSearch, setDeliveryBatchMaterialSearch] = useState("");
   const [deliveryRowMaterialSearch, setDeliveryRowMaterialSearch] = useState({});
   const [deliveryRowProductSearch, setDeliveryRowProductSearch] = useState({});
+  const [deliveryOrderFamily, setDeliveryOrderFamily] = useState("ALL");
   const [savingDelivery, setSavingDelivery] = useState(false);
 
   // ─── Modal Editar ───────────────────────────────────────────────
@@ -540,6 +566,7 @@ function LeatherInventory() {
       setDeliveryBatchMaterialSearch("");
       setDeliveryRowMaterialSearch({});
       setDeliveryRowProductSearch({});
+      setDeliveryOrderFamily("ALL");
       setDeliveryItems([]);
       loadAll();
     } catch (err) {
@@ -1206,6 +1233,65 @@ function LeatherInventory() {
       return s && s.pendingLeather > 0;
     });
   }, [activeOrders, taskSummaryByOrder, deliveredOrdersFromMovements]);
+
+  const deliveryFamilyCounts = useMemo(() => {
+    const counts = {};
+    leatherQueueOrders.forEach((o) => {
+      const family = resolveDeliveryOrderFamily(o) || "OTRO";
+      counts[family] = (counts[family] || 0) + 1;
+    });
+    return counts;
+  }, [leatherQueueOrders]);
+
+  const visibleDeliveryFamilies = useMemo(() => {
+    const known = DELIVERY_ORDER_FAMILIES.filter(
+      (f) => f.key === "ALL" || deliveryFamilyCounts[f.key]
+    );
+    if (deliveryFamilyCounts.OTRO) {
+      known.push({ key: "OTRO", label: "Otras" });
+    }
+    return known;
+  }, [deliveryFamilyCounts]);
+
+  const filteredDeliveryOrders = useMemo(() => {
+    if (deliveryOrderFamily === "ALL") return leatherQueueOrders;
+    return leatherQueueOrders.filter(
+      (o) => resolveDeliveryOrderFamily(o) === deliveryOrderFamily
+    );
+  }, [leatherQueueOrders, deliveryOrderFamily]);
+
+  const deliveryOrderSelectOptions = useMemo(() => {
+    return filteredDeliveryOrders.map((o) => {
+      const family = resolveDeliveryOrderFamily(o);
+      const pending = taskSummaryByOrder[o.id]?.pendingLeather || 0;
+      const label = `${formatProductionOrderSelectLabel(o)} · ${family} · Pend. cuero: ${pending}`;
+      return {
+        value: String(o.id),
+        label,
+        searchText: [
+          o.code,
+          o.customerName,
+          o.sellerName,
+          o.orderType,
+          family,
+          o.status,
+        ]
+          .filter(Boolean)
+          .join(" "),
+      };
+    });
+  }, [filteredDeliveryOrders, taskSummaryByOrder]);
+
+  const handleDeliveryFamilyChange = (family) => {
+    setDeliveryOrderFamily(family);
+    if (!deliveryForm.productionOrderId) return;
+    const order = productionOrders.find(
+      (o) => String(o.id) === String(deliveryForm.productionOrderId)
+    );
+    if (family !== "ALL" && resolveDeliveryOrderFamily(order) !== family) {
+      handleSelectDeliveryOrder("");
+    }
+  };
 
   const activeProductOptions = useMemo(() => {
     return (products || []).filter((p) => String(p.status || "").toLowerCase() !== "inactive");
@@ -2216,8 +2302,8 @@ function LeatherInventory() {
       </Modal>
 
       {/* ═══ MODAL ENTREGA A PRODUCCIÓN ═══ */}
-      <Modal isOpen={showDeliveryModal} toggle={() => { setShowDeliveryModal(false); setDeliveryItems([]); setDeliveryBatchMaterialId(""); setDeliveryBatchMaterialSearch(""); setDeliveryRowMaterialSearch({}); setDeliveryRowProductSearch({}); setDeliveryMode("WITH_PO"); }} size="xl">
-        <ModalHeader toggle={() => { setShowDeliveryModal(false); setDeliveryItems([]); setDeliveryBatchMaterialId(""); setDeliveryBatchMaterialSearch(""); setDeliveryRowMaterialSearch({}); setDeliveryRowProductSearch({}); setDeliveryMode("WITH_PO"); }}>
+      <Modal isOpen={showDeliveryModal} toggle={() => { setShowDeliveryModal(false); setDeliveryItems([]); setDeliveryBatchMaterialId(""); setDeliveryBatchMaterialSearch(""); setDeliveryRowMaterialSearch({}); setDeliveryRowProductSearch({}); setDeliveryOrderFamily("ALL"); setDeliveryMode("WITH_PO"); }} size="xl">
+        <ModalHeader toggle={() => { setShowDeliveryModal(false); setDeliveryItems([]); setDeliveryBatchMaterialId(""); setDeliveryBatchMaterialSearch(""); setDeliveryRowMaterialSearch({}); setDeliveryRowProductSearch({}); setDeliveryOrderFamily("ALL"); setDeliveryMode("WITH_PO"); }}>
           <i className="nc-icon nc-delivery-fast text-info" style={{ marginRight: 6 }} />
           Entrega de Cuero a Producción
         </ModalHeader>
@@ -2235,6 +2321,7 @@ function LeatherInventory() {
                     setDeliveryBatchMaterialSearch("");
                     setDeliveryRowMaterialSearch({});
                     setDeliveryRowProductSearch({});
+                    setDeliveryOrderFamily("ALL");
                     setDeliveryForm(p => ({
                       ...p,
                       productionOrderId: nextMode === "WITH_PO" ? p.productionOrderId : "",
@@ -2272,20 +2359,39 @@ function LeatherInventory() {
             <Col md="6">
               <FormGroup>
                 <Label>Orden de Producción *</Label>
-                <Input type="select" value={deliveryForm.productionOrderId}
-                  onChange={e => handleSelectDeliveryOrder(e.target.value)}>
-                  <option value="">Seleccione...</option>
-                  {leatherQueueOrders.map(o => {
-                    const s = taskSummaryByOrder[o.id];
+                <div className="mb-2">
+                  {visibleDeliveryFamilies.map((f) => {
+                    const count = f.key === "ALL"
+                      ? leatherQueueOrders.length
+                      : deliveryFamilyCounts[f.key] || 0;
+                    const selected = deliveryOrderFamily === f.key;
                     return (
-                    <option key={o.id} value={o.id}>
-                      {formatProductionOrderSelectLabel(o)} ({o.status}) · Pend. cuero: {s?.pendingLeather || 0}
-                    </option>
+                      <Button
+                        key={f.key}
+                        size="sm"
+                        color={selected ? "info" : "light"}
+                        className="mr-1 mb-1"
+                        onClick={() => handleDeliveryFamilyChange(f.key)}
+                      >
+                        {f.label} ({count})
+                      </Button>
                     );
                   })}
-                </Input>
-                {leatherQueueOrders.length === 0 && (
-                  <small className="text-muted">No hay órdenes pendientes de cuero en este momento.</small>
+                </div>
+                <FilterableSelect
+                  value={deliveryForm.productionOrderId}
+                  onChange={handleSelectDeliveryOrder}
+                  options={deliveryOrderSelectOptions}
+                  placeholder="Buscar por código, cliente o tipo..."
+                  emptyLabel="Seleccione..."
+                  maxVisibleOptions={200}
+                />
+                {filteredDeliveryOrders.length === 0 && (
+                  <small className="text-muted">
+                    {leatherQueueOrders.length === 0
+                      ? "No hay órdenes pendientes de cuero en este momento."
+                      : "No hay órdenes de este tipo pendientes de cuero."}
+                  </small>
                 )}
               </FormGroup>
             </Col>

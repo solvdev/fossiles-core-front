@@ -14,18 +14,24 @@ import {
   getHardwareConditionLabel,
   isSyntheticHardware,
   normalizeCinchoAudience,
+  normalizeCinchoType,
   normalizeHardwareCondition,
   shouldShowInKioskPhysicalCount,
 } from "utils/productCinchoHelper";
 import {
-  cartUnlocksEntrecuerosWholesale,
-  ENTRECUEROS_LOWEST_TIER_QTY,
+  entrecuerosCartQuantities,
   entrecuerosPriceKind,
   entrecuerosVolumeKey,
+  lineReceivesEntrecuerosCourtesy,
   listEntrecuerosPriceListTiers,
   resolveEntrecuerosListUnitPrice,
+  roundEntrecuerosMoney,
 } from "utils/entrecuerosPriceLists";
-import { PRODUCT_BRAND_OPTIONS, extractBrandFromText } from "utils/productBrandHelper";
+import {
+  PRODUCT_BRAND_OPTIONS,
+  extractBrandFromText,
+  entrecuerosCinchoBrandImage,
+} from "utils/productBrandHelper";
 import { getSaleYmdGuatemala, getTodayYmdGuatemala, shiftYmdGuatemala } from "utils/dateTimeHelper";
 
 export const POS_CATALOG_VIEWS = [
@@ -483,6 +489,21 @@ export const resolveImageUrl = (rawValue) => {
   }
 };
 
+const isPosCinchoItem = (item) => {
+  if (normalizeCinchoType(item?.cinchoType)) return true;
+  const text = `${item?.productCode || ""} ${item?.productName || ""} ${item?.categoryName || ""}`.toUpperCase();
+  return text.includes("CINCHO");
+};
+
+/** En POS Entrecueros, cinchos de marca usan foto fija (Nautica / Levi's / Tommy / Lacoste). */
+export const resolvePosProductImageUrl = (item, { entreCueros = false } = {}) => {
+  if (entreCueros && isPosCinchoItem(item)) {
+    const brandImage = entrecuerosCinchoBrandImage(resolveItemBrand(item));
+    if (brandImage) return brandImage;
+  }
+  return resolveImageUrl(item?.productImageUrl);
+};
+
 /** FEL: apellidos,,nombres o razón social con comas → texto legible para factura */
 export const formatFelCustomerName = (raw) => {
   const trimmed = String(raw || "").trim();
@@ -691,6 +712,12 @@ export const canCertifyKioskSaleFel = (sale, kioskLocationId) =>
   saleIsActiveOnKiosk(sale, kioskLocationId)
   && saleIsWithinFelBackdateWindow(sale)
   && saleNeedsFelCertification(sale);
+
+/** Anular venta POS: caja abierta del kiosko, aunque la venta sea de un turno anterior. */
+export const canVoidKioskSale = (sale, cashSession) => {
+  if (!cashSession || String(cashSession.status || "").toUpperCase() !== "OPEN" || !sale) return false;
+  return String(sale.status || "").toUpperCase() === "COMPLETED";
+};
 
 export const getSaleInternalNumber = (sale) =>
   sale?.internalNumber || sale?.invoice?.internalNumber || "";
@@ -1007,36 +1034,56 @@ export const isEntrecuerosPosMode = (source) =>
 
 export const listEntrecuerosPriceTiers = (source) => listEntrecuerosPriceListTiers(source);
 
-export const resolveEntrecuerosUnitPrice = (source, qty, wholesaleUnlocked = false) =>
-  resolveEntrecuerosListUnitPrice(source, qty, wholesaleUnlocked);
+export const resolveEntrecuerosUnitPrice = (source, qty, courtesy = false) =>
+  resolveEntrecuerosListUnitPrice(source, qty, courtesy);
 
-export const describeEntrecuerosPriceState = (source, qty, wholesaleUnlocked = false) => {
+export const describeEntrecuerosPriceState = (source, qty, courtesy = false) => {
   const n = Number(qty || 0);
-  const pricedQty = wholesaleUnlocked ? Math.max(n, ENTRECUEROS_LOWEST_TIER_QTY) : n;
   const tiers = listEntrecuerosPriceTiers(source);
+  const receivesCourtesy = Boolean(courtesy);
   let active = tiers[0] || { minQty: 1, label: "1", unitPrice: 0 };
-  tiers.forEach((tier) => {
-    if (pricedQty >= tier.minQty) active = tier;
-  });
-  const next = wholesaleUnlocked ? null : (tiers.find((tier) => tier.minQty > n) || null);
+  if (receivesCourtesy && tiers.length > 0) {
+    active = tiers.reduce((best, tier) => (tier.minQty >= best.minQty ? tier : best), tiers[0]);
+  } else {
+    tiers.forEach((tier) => {
+      if (n >= tier.minQty) active = tier;
+    });
+  }
+  const next = receivesCourtesy ? null : (tiers.find((tier) => tier.minQty > n) || null);
   const missing = next ? Math.max(next.minQty - n, 0) : 0;
-  return { qty: n, active, next, missing, tiers, wholesaleUnlocked: Boolean(wholesaleUnlocked) };
+  return {
+    qty: n,
+    active,
+    next,
+    missing,
+    tiers,
+    courtesy: receivesCourtesy,
+    wholesaleUnlocked: receivesCourtesy,
+  };
+};
+
+const preservedCatalogUnitPrice = (line, unitPrice) => {
+  if (line?.catalogUnitPrice != null && line.catalogUnitPrice !== "") return line.catalogUnitPrice;
+  if (line?.catalogPrice != null && line.catalogPrice !== "") return line.catalogPrice;
+  if (line?.suggestedUnitPrice != null && line.suggestedUnitPrice !== "") return line.suggestedUnitPrice;
+  return unitPrice;
 };
 
 export const applyEntrecuerosCartPrices = (cart) => {
-  const qtyByKey = {};
-  (cart || []).forEach((line) => {
-    const key = entrecuerosVolumeKey(line);
-    qtyByKey[key] = (qtyByKey[key] || 0) + Number(line.quantity || 0);
-  });
-  const wholesaleUnlocked = cartUnlocksEntrecuerosWholesale(cart);
+  const { qtyByKey, courtesyActive } = entrecuerosCartQuantities(cart);
   return (cart || []).map((line) => {
-    const unitPrice = resolveEntrecuerosUnitPrice(
-      line,
-      qtyByKey[entrecuerosVolumeKey(line)] || 0,
-      wholesaleUnlocked
-    );
-    return { ...line, unitPrice, catalogUnitPrice: unitPrice };
+    const key = entrecuerosVolumeKey(line);
+    const inGroup = Object.prototype.hasOwnProperty.call(qtyByKey, key);
+    const groupQty = inGroup ? qtyByKey[key] : Number(line.quantity || 0);
+    const courtesy = lineReceivesEntrecuerosCourtesy(line, inGroup ? groupQty : 0, courtesyActive);
+    const unitPrice = resolveEntrecuerosUnitPrice(line, groupQty, courtesy);
+    const quantity = Number(line.quantity || 0);
+    return {
+      ...line,
+      unitPrice,
+      lineTotal: roundEntrecuerosMoney(unitPrice * quantity),
+      catalogUnitPrice: preservedCatalogUnitPrice(line, unitPrice),
+    };
   });
 };
 

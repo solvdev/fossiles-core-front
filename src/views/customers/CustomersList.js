@@ -286,6 +286,7 @@ function CustomersList() {
                         >
                           Teléfono {getSortIcon("phone")}
                         </th>
+                        <th>Días de crédito</th>
                         <th 
                           style={{ cursor: "pointer", userSelect: "none" }}
                           onClick={() => handleSort("email")}
@@ -316,6 +317,7 @@ function CustomersList() {
                             <td>{c.name}</td>
                             <td>{c.nit}</td>
                             <td>{c.phone}</td>
+                            <td>{c.creditDays ?? 0}</td>
                             <td>{c.email}</td>
                             <td><RouteCell code={c.routeLocationCode} /></td>
                             <td>{c.status === "active" ? <Badge color="success">Activo</Badge> : <Badge color="secondary">Inactivo</Badge>}</td>
