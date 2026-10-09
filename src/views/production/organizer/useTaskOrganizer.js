@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import {
   getTasks,
   getOrganizerOrders,
@@ -18,6 +18,9 @@ import {
   MAX_HOURS_PER_TASK_HARD_CAP,
   lineCountsAgainstCupo,
 } from "utils/taskHoursHelper";
+
+/** Cuánto se reutiliza el listado de OPs antes de volver a pedirlo. */
+const ORDERS_TTL_MS = 5 * 60 * 1000;
 
 /**
  * Estado del Organizador de Tareas: órdenes con restantes, tarea borrador
@@ -101,9 +104,21 @@ export default function useTaskOrganizer() {
     }
   }, [typeFilter, searchAplicado, page]);
 
+  /**
+   * Las OPs solo sirven aquí para separar las tareas de cinchos, y el listado completo tarda
+   * decenas de segundos. Se guardan unos minutos en vez de pedirlas en cada clic a «Tablero».
+   */
+  const ordersCache = useRef({ at: 0, data: null });
+
   const loadTasks = useCallback(async () => {
     try {
-      const [data, orders] = await Promise.all([getTasks(), getProductionOrders()]);
+      const cached = ordersCache.current;
+      const fresh = cached.data && Date.now() - cached.at < ORDERS_TTL_MS;
+      const [data, orders] = await Promise.all([
+        getTasks(),
+        fresh ? Promise.resolve(cached.data) : getProductionOrders(),
+      ]);
+      if (!fresh) ordersCache.current = { at: Date.now(), data: orders };
       setProductionOrders(Array.isArray(orders) ? orders : []);
       setTasks(buildTableCenterTasks(Array.isArray(data) ? data : [], orders));
     } catch (err) {

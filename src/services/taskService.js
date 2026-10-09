@@ -99,6 +99,22 @@ export const scheduleTask = async (id, data) => {
   return response.json();
 };
 
+/**
+ * Pide mesa al backend con la regla única del sistema: día de la tarea, mesa con menos carga
+ * que tenga cupo y desempate al azar. Solo acepta tareas pendientes y troqueladas.
+ */
+export const autoAssignTaskDesk = async (id) => {
+  const response = await fetch(`${API_URL}/tasks/${id}/auto-desk`, {
+    method: 'POST',
+    headers: headers(),
+  });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ message: 'Error al asignar mesa' }));
+    throw new Error(err.message || 'Error al asignar mesa');
+  }
+  return response.json();
+};
+
 export const moveTaskItem = async (taskItemId, targetDesk, targetDate) => {
   const response = await fetch(`${API_URL}/tasks/move-item`, {
     method: 'PUT',

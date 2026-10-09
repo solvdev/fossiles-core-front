@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import {
   Row, Col, Card, CardBody, Nav, NavItem, NavLink, TabContent, TabPane, Badge, Button,
 } from "reactstrap";
@@ -16,12 +16,20 @@ import DieCutListPanel from "./organizer/DieCutListPanel";
 import RedistributeBoard from "./components/RedistributeBoard";
 import useMoveTaskItem from "./hooks/useMoveTaskItem";
 
+const TABS = ["organize", "diecut", "board", "backlog", "unfinished"];
+
 /**
- * Redistribución y atrasos. La generación de tareas es automática en el Centro
- * de Producción (inicio del día + al abrir el centro).
+ * Armado manual de tareas, troquelado, tablero y atrasos. El plan automático corre con el
+ * botón «Planificar» del Centro de Producción; no hay generación programada.
+ *
+ * Acepta `?tab=diecut` (y las demás pestañas) para que el Centro pueda mandar directo al paso.
  */
 export default function TaskOrganizer() {
-  const [activeTab, setActiveTab] = useState("organize");
+  const [searchParams] = useSearchParams();
+  const [activeTab, setActiveTab] = useState(() => {
+    const tab = searchParams.get("tab");
+    return TABS.includes(tab) ? tab : "organize";
+  });
   const navigate = useNavigate();
   const org = useTaskOrganizer();
   const onMove = useMoveTaskItem(org.setTasks);
