@@ -98,12 +98,12 @@ describe("productionTimeHelper", () => {
     });
 
     it("descuenta la noche: lunes 14:00 a martes 09:00 son 5 h de trabajo", () => {
-      const min = workingMinutesBetween(localAt(LUNES, 14, 0), localAt(LUNES[0], 7, 11, 9, 0));
+      const min = workingMinutesBetween(localAt(LUNES, 14, 0), localAt([LUNES[0], 7, 11], 9, 0));
       expect(min).toBe(300);
     });
 
     it("descuenta el fin de semana: viernes 16:00 a lunes 08:00 son 2 h", () => {
-      const min = workingMinutesBetween(localAt(VIERNES, 16, 0), localAt(LUNES[0], 7, 17, 8, 0));
+      const min = workingMinutesBetween(localAt(VIERNES, 16, 0), localAt([LUNES[0], 7, 17], 8, 0));
       expect(min).toBe(120);
     });
 
