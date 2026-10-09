@@ -33,6 +33,8 @@ import "bootstrap/dist/css/bootstrap.css";
 import "assets/scss/paper-dashboard.scss?v=1.3.1";
 import "assets/demo/demo.css";
 import "perfect-scrollbar/css/perfect-scrollbar.css";
+// Va al final para poder pisar al template sin pelearse a golpe de !important.
+import "assets/css/fossiles-ui.css";
 
 // Importar el interceptor de fetch para detectar tokens expirados
 import "utils/fetchInterceptor";
