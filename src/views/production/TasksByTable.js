@@ -30,6 +30,7 @@ import {
   setLeatherDelivery,
   setTaskItemLeatherDelivery,
   scheduleTask,
+  autoAssignTaskDesk,
   getDaySaleCandidates,
   addDaySaleItemsToTask,
   runAutoPlan,
@@ -51,7 +52,7 @@ import { showSuccess, showError } from "utils/notificationHelper";
 import TaskTicketPrint from "./TaskTicketPrint";
 import DownloadOpsModal, { mergeOrdersForDownload } from "components/production/DownloadOpsModal";
 import { taskSkipsMaterials } from "utils/materialRequirementHelper";
-import { formatDateGt, formatDateTimeGt, getTodayYmdGuatemala } from "utils/dateTimeHelper";
+import { formatDateGt, formatDateTimeGt, getTodayYmdGuatemala, isWeekendYmd } from "utils/dateTimeHelper";
 import { openOplDispatchSummaryPrintWindow, downloadOplDispatchSummaryExcel } from "utils/oplDispatchSummaryExport";
 import { formatProductionOrderSelectLabel } from "utils/productionOrderDisplayHelper";
 import { openProductionTasksSheetPrintWindow, downloadProductionTasksSheetExcel } from "utils/productionTasksSheetPrintHtml";
@@ -452,7 +453,7 @@ function TasksByTable() {
   const loadProductionOrders = async () => {
     setLoadingOrders(true);
     try {
-      const data = await getProductionOrders();
+      const data = await getProductionOrders({ cached: true });
       const activeStatuses = new Set(["PENDING", "IN_PROGRESS", "DRAFT"]);
       const closedStatuses = new Set(["COMPLETED", "CANCELLED", "PRODUCED", "FINISHED", "TERMINATED", "DONE"]);
       const active = (data || []).filter((o) => {
@@ -512,10 +513,14 @@ function TasksByTable() {
       const cincho = result?.cinchoTasksCreated || 0;
       const cleared = result?.clearedAutoPlanTasks || 0;
       const blocked = (result?.blockedNoLeather || []).length;
-      const dayLabel = result?.planDate || planDate;
+      const sinCupo = (result?.deferredNoCapacity || []).length;
+      const conservadas = result?.keptWithProgress || 0;
+      const dayLabel = formatDateGt(result?.planDate || planDate);
       showSuccess(
-        `Plan ${dayLabel}: ${centro} centro · ${cincho} cinchos`
-          + (cleared ? ` · liberadas ${cleared}` : "")
+        `Plan del ${dayLabel}: ${centro} tareas de centro · ${cincho} de cinchos`
+          + (cleared ? ` · ${cleared} rehechas` : "")
+          + (conservadas ? ` · ${conservadas} con avance se conservaron` : "")
+          + (sinCupo ? ` · ${sinCupo} línea(s) sin cupo quedan para otro día` : "")
           + (blocked ? ` · ${blocked} sin cuero` : "")
       );
       await Promise.all([loadTasks({ background: true }), loadDayPlanPanels()]);
@@ -735,32 +740,16 @@ function TasksByTable() {
     }
   };
 
+  /**
+   * La mesa la elige el backend con la misma regla que usa al troquelar: menor carga con
+   * cupo y desempate al azar. Antes se calculaba aquí, sin cupo ni compuerta de troquel,
+   * y el backend rechazaba la mitad de los intentos.
+   */
   const handleAutoAssignDesk = async (taskId) => {
-    const centerTasks = buildTableCenterTasks(tasks, productionOrders);
-    const task = centerTasks.find((t) => t.id === taskId);
-    const targetDate = task?.scheduledDate || getTodayYmdGuatemala();
-
-    let bestDesk = 1;
-    let bestLoad = Infinity;
-
-    for (let d = 1; d <= numDesks; d++) {
-      const load = centerTasks
-        .filter((t) => t.desk === d && t.scheduledDate === targetDate && t.status !== "CANCELLED" && t.status !== "COMPLETED")
-        .reduce((sum, t) => sum + getTaskBaseHours(t), 0);
-      if (load < bestLoad) {
-        bestLoad = load;
-        bestDesk = d;
-      }
-    }
-
     try {
-      const data = { desk: bestDesk };
-      if (!task?.scheduledDate) {
-        data.scheduledDate = targetDate;
-      }
-      const updated = await scheduleTask(taskId, data);
+      const updated = await autoAssignTaskDesk(taskId);
       setTasks((prev) => prev.map((t) => (t.id === taskId ? updated : t)));
-      showSuccess(`Asignada a Mesa ${bestDesk} (${(bestLoad).toFixed(1)}h carga)`);
+      showSuccess(`${updated.code || "Tarea"} asignada a Mesa ${updated.desk}`);
     } catch (err) {
       showError(err.message);
     }
@@ -822,16 +811,22 @@ function TasksByTable() {
     setQuickPreset(null);
   };
 
+  // Tipo de orden por id, para no recorrer la lista de OPs una vez por tarea al filtrar.
+  const orderTypeById = useMemo(() => {
+    const map = new Map();
+    [...productionOrders, ...productionOrdersForFilter].forEach((o) => {
+      if (o?.id != null) map.set(Number(o.id), String(o.orderType || "").toUpperCase());
+    });
+    return map;
+  }, [productionOrdersForFilter, productionOrders]);
+
   const isOplTask = useCallback((task) => {
     const code = String(task?.productionOrderCode || "").toUpperCase();
     if (code.startsWith("OPL")) return true;
     const orderId = Number(task?.productionOrderId);
     if (!Number.isFinite(orderId)) return false;
-    const order =
-      productionOrdersForFilter.find((o) => Number(o.id) === orderId)
-      || productionOrders.find((o) => Number(o.id) === orderId);
-    return String(order?.orderType || "").toUpperCase() === "VENTA_EN_LINEA";
-  }, [productionOrdersForFilter, productionOrders]);
+    return orderTypeById.get(orderId) === "VENTA_EN_LINEA";
+  }, [orderTypeById]);
 
   const matchesQuickPreset = useCallback((task) => {
     if (!quickPreset) return true;
@@ -949,7 +944,8 @@ function TasksByTable() {
     );
     document.querySelectorAll("[data-tbs-key]").forEach((el) => observer.observe(el));
     return () => observer.disconnect();
-  }, [tasks, filterDate, viewMode, deskVisible]);
+    // deskVisible no va aquí: cada bloque cargado volvía a crear el observador entero.
+  }, [tasks, filterDate, viewMode]);
 
   const productionOrderFilterOptions = useMemo(() => {
     const map = new Map();
@@ -1453,16 +1449,46 @@ function TasksByTable() {
    * que esta pantalla no puede contar completadas — antes se devolvia `completed: 0` fijo.
    * En su lugar se expone "esperando bodega", que si esta en los datos y hoy no se veia.
    */
+  /**
+   * Resumen de la jornada elegida (hoy si no hay fecha). Antes sumaba todos los días, y
+   * "Sin asignar" mezclaba lo que espera troquel (que no puede ir a mesa) con lo que ya
+   * está listo: el número salía siempre en rojo y no decía qué hacer.
+   */
+  const statsDay = filterDate || getTodayYmdGuatemala();
+  // El plan nunca arma días pasados: con una fecha vieja elegida, el backend planifica hoy.
+  const todayYmd = getTodayYmdGuatemala();
+  const planDay = useMemo(() => {
+    let ymd = filterDate && filterDate > todayYmd ? filterDate : todayYmd;
+    // Sábado o domingo: el backend planifica el siguiente día hábil; la etiqueta dice lo mismo.
+    while (isWeekendYmd(ymd)) {
+      const [y, m, d] = ymd.split("-").map(Number);
+      const next = new Date(y, m - 1, d + 1);
+      ymd = `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, "0")}-${String(next.getDate()).padStart(2, "0")}`;
+    }
+    return ymd;
+  }, [filterDate, todayYmd]);
+  const planDayLabel = planDay === todayYmd ? "hoy" : `el ${formatDateGt(planDay)}`;
+  // Las tarjetas usan el mismo corte que el resumen de arriba, para que los números cuadren.
+  const unassignedUpToDay = unassignedTasks.filter((t) => !t.scheduledDate || t.scheduledDate <= statsDay);
+  const unassignedLater = unassignedTasks.filter((t) => t.scheduledDate && t.scheduledDate > statsDay);
   const stats = useMemo(() => {
     const active = tableCenterTasks.filter((t) => t.status !== "CANCELLED" && t.status !== "COMPLETED");
-    const pending = active.filter((t) => t.status === "PENDING").length;
-    const inProgress = active.filter((t) => t.status === "IN_PROGRESS").length;
-    const awaitingWarehouse = active.filter((t) => t.status === "AWAITING_WAREHOUSE").length;
-    const dieCut = active.filter((t) => t.dieCutReady).length;
-    const unassigned = active.filter((t) => !t.desk).length;
-    const totalMin = active.reduce((sum, t) => sum + Math.round((t.estimatedHours || 0) * 60), 0);
-    return { pending, inProgress, awaitingWarehouse, dieCut, unassigned, totalMin, total: active.length };
-  }, [tableCenterTasks]);
+    const ofDay = active.filter((t) => t.scheduledDate === statsDay);
+    const sinMesaHastaHoy = active.filter(
+      (t) => t.status === "PENDING" && !t.desk && (!t.scheduledDate || t.scheduledDate <= statsDay)
+    );
+    const waitingCut = sinMesaHastaHoy.filter((t) => !t.dieCutReady).length;
+    const readyNoDesk = sinMesaHastaHoy.length - waitingCut;
+    return {
+      waitingCut,
+      readyNoDesk,
+      unassigned: waitingCut + readyNoDesk,
+      pending: ofDay.filter((t) => t.status === "PENDING").length,
+      inProgress: ofDay.filter((t) => t.status === "IN_PROGRESS").length,
+      awaitingWarehouse: active.filter((t) => t.status === "AWAITING_WAREHOUSE").length,
+      dayHours: ofDay.reduce((sum, t) => sum + getTaskBaseHours(t), 0),
+    };
+  }, [tableCenterTasks, statsDay]);
 
   const daySaleModalOrderCodes = useMemo(() => {
     const unique = [...new Set((daySaleCandidates || []).map((c) => c.productionOrderCode).filter(Boolean))];
@@ -1738,33 +1764,39 @@ function TasksByTable() {
         <Col>
           <Card className="mb-0">
             <CardBody className="py-2">
+              <small className="text-muted d-block text-center mb-1">
+                Resumen del {formatDateGt(statsDay)}
+              </small>
               <div className="d-flex justify-content-around text-center flex-wrap">
-                <div className="px-3">
-                  <small className="text-muted d-block">Sin Asignar</small>
-                  <strong style={{ fontSize: "20px", color: stats.unassigned > 0 ? "#e74c3c" : "#28a745" }}>
-                    {stats.unassigned}
+                <div className="px-3" title="Tareas sin mesa con producto por cortar. Se marcan en Organizador › Por troquelar.">
+                  <small className="text-muted d-block">Esperan troquel</small>
+                  <strong style={{ fontSize: "20px", color: stats.waitingCut > 0 ? "#e67e22" : "#28a745" }}>
+                    {stats.waitingCut}
+                  </strong>
+                </div>
+                <div className="px-3" title="Cortadas pero sin mesa: no había cupo. Entran a la primera mesa que se libere.">
+                  <small className="text-muted d-block">Listas sin mesa</small>
+                  <strong style={{ fontSize: "20px", color: stats.readyNoDesk > 0 ? "#e74c3c" : "#28a745" }}>
+                    {stats.readyNoDesk}
                   </strong>
                 </div>
                 <div className="px-3">
-                  <small className="text-muted d-block">Pendientes</small>
+                  <small className="text-muted d-block">Pendientes del día</small>
                   <strong style={{ fontSize: "20px", color: "#ffc107" }}>{stats.pending}</strong>
                 </div>
                 <div className="px-3">
-                  <small className="text-muted d-block">En Proceso</small>
+                  <small className="text-muted d-block">En proceso</small>
                   <strong style={{ fontSize: "20px", color: "#17a2b8" }}>{stats.inProgress}</strong>
                 </div>
                 <div className="px-3">
                   <small className="text-muted d-block">Esperando bodega</small>
                   <strong style={{ fontSize: "20px", color: "#6c757d" }}>{stats.awaitingWarehouse}</strong>
                 </div>
-                <div className="px-3">
-                  <small className="text-muted d-block">✂️ Troqueladas</small>
-                  <strong style={{ fontSize: "20px" }}>{stats.dieCut}/{stats.total}</strong>
-                </div>
-                <div className="px-3">
-                  <small className="text-muted d-block">Tiempo Total</small>
+                <div className="px-3" title={`Cupo: ${MAX_HOURS_PER_DESK} h por mesa`}>
+                  <small className="text-muted d-block">Horas del día</small>
                   <strong style={{ fontSize: "20px" }}>
-                    {formatProductionDuration(stats.totalMin / 60)}
+                    {formatProductionDuration(stats.dayHours)}
+                    <small className="text-muted" style={{ fontSize: 12 }}> / {formatProductionDuration(numDesks * MAX_HOURS_PER_DESK)}</small>
                   </strong>
                 </div>
               </div>
@@ -1948,16 +1980,16 @@ function TasksByTable() {
                     className="mb-0"
                     onClick={() => handleRunAutoPlan({ regenerate: true })}
                     disabled={loading || refreshing || autoPlanning}
-                    title={`Libera auto-plan pendientes del día y regenera desde ${filterDate || getTodayYmdGuatemala()} (fin de semana → siguiente hábil)`}
+                    title={`Arma las tareas solo para ${planDayLabel}, por prioridad y hasta llenar el cupo de las mesas. `
+                      + "Rehace las tareas automáticas que aún no tienen avance; las que ya tienen cuero, corte, "
+                      + "materiales o mesa se respetan. Lo que no cabe queda para el siguiente día."}
                   >
                     {autoPlanning ? (
                       <Spinner size="sm" className="mr-1" />
                     ) : (
                       <i className="nc-icon nc-settings-gear-65 mr-1" />
                     )}
-                    {autoPlanning
-                      ? "Planificando…"
-                      : `Regenerar plan (${filterDate || "hoy"})`}
+                    {autoPlanning ? "Planificando…" : `Planificar ${planDayLabel}`}
                   </Button>
                 </div>
               </div>
@@ -1968,7 +2000,7 @@ function TasksByTable() {
               {autoPlanning && (
                 <Alert color="info" className="mb-2 py-2 d-flex align-items-center" style={{ gap: 8 }}>
                   <Spinner size="sm" color="info" style={{ width: 14, height: 14, borderWidth: 2 }} />
-                  Regenerando plan: liberando auto-plan pendientes y reagrupando productos…
+                  Planificando {planDayLabel}: rehaciendo tareas sin avance y llenando el cupo del día…
                 </Alert>
               )}
               {viewMode === "operation" && (
@@ -2135,9 +2167,18 @@ function TasksByTable() {
               <Card className="mb-3" style={{ border: "1px solid #e2e8f0", backgroundColor: "#f8fafc" }}>
                 <CardBody className="py-2">
                   <span style={{ fontSize: 13 }}>
-                    <strong>Las tareas se generan solas</strong>
+                    <strong>Cómo fluye una tarea:</strong>
                     <span className="text-muted">
-                      {" "}— al iniciar el día (00:05 GT) y al abrir este centro. Se parten por unidades por tarea y se asignan a mesa. Lo que falte de cuero queda en la cola.
+                      {" "}1) marque qué va primero en la{" "}
+                      <a href="#colaDelDia" onClick={(e) => { e.preventDefault(); navigate("/admin/task-organizer"); }}>
+                        Cola del día
+                      </a>{" "}y pulse <strong>Planificar</strong> (botón amarillo): arma las tareas del día por esa prioridad ·
+                      {" "}2) se entrega cuero y se marca el corte en{" "}
+                      <a href="#porTroquelar" onClick={(e) => { e.preventDefault(); navigate("/admin/task-organizer?tab=diecut"); }}>
+                        Por troquelar
+                      </a>{" "}·
+                      {" "}3) al cortar, el sistema le asigna mesa solo ·
+                      {" "}4) en la mesa: Iniciar y Completar. Lo que no cabe o no tiene cuero espera al siguiente día.
                     </span>
                   </span>
                 </CardBody>
@@ -2530,7 +2571,7 @@ function TasksByTable() {
                           <Card className="mb-3" style={{ backgroundColor: "#f8f9fa" }}>
                             <CardBody className="py-2">
                               <small className="text-muted d-block mb-2">
-                                <strong>Carga base por mesa (hoy y próximos días)</strong> — Máx {MAX_HOURS_PER_DESK}h por mesa/día (sin extras de venta del dia)
+                                <strong>Carga por mesa del {formatDateGt(filterDate || getTodayYmdGuatemala())}</strong> — cupo {MAX_HOURS_PER_DESK} h por mesa (las ventas del día no cuentan)
                               </small>
                               <Row>
                                 {deskOptions.slice(0, numDesks).map((d) => {
@@ -2539,9 +2580,6 @@ function TasksByTable() {
                                     .filter((t) => t.desk === d && t.scheduledDate === todayStr && t.status !== "CANCELLED")
                                     .reduce((sum, t) => sum + getTaskBaseHours(t), 0);
                                   const pct = Math.min((load / MAX_HOURS_PER_DESK) * 100, 100);
-                                  const totalLoad = tableCenterTasks
-                                    .filter((t) => t.desk === d && t.status !== "CANCELLED" && t.status !== "COMPLETED")
-                                    .reduce((sum, t) => sum + getTaskBaseHours(t), 0);
 
                                   return (
                                     <Col key={d} className="text-center px-1" style={{ minWidth: "60px" }}>
@@ -2552,8 +2590,7 @@ function TasksByTable() {
                                         style={{ height: "8px", marginBottom: "2px" }}
                                       />
                                       <small className="text-muted" style={{ fontSize: "10px" }}>
-                                        {formatProductionDuration(load)} inicio
-                                        {totalLoad > load && ` · ${formatProductionDuration(totalLoad)} total`}
+                                        {formatProductionDuration(load)}
                                       </small>
                                     </Col>
                                   );
@@ -2562,112 +2599,138 @@ function TasksByTable() {
                             </CardBody>
                           </Card>
 
-                          <Alert color="warning" className="py-2">
-                            <strong>Pendientes de asignar:</strong> elija mesa y fecha por tarjeta, o use autoasignar.
-                          </Alert>
-                          <Row>
-                            {unassignedTasks.map((task) => (
-                              <Col key={task.id} md="6" xl="4" className="mb-3">
-                                <Card
-                                  className="h-100"
-                                  style={{
-                                    border: "1px solid #ffe8a1",
-                                    boxShadow: "0 2px 8px rgba(0,0,0,0.05)",
-                                  }}
-                                >
-                                  <CardBody className="py-3">
-                                    <div className="d-flex justify-content-between align-items-start mb-2">
-                                      <div>
-                                        <Badge color="dark" className="mr-1">{task.code}</Badge>
-                                        <Badge
-                                          color="light"
-                                          className="text-dark border"
-                                          style={{ ...BADGE_READABLE_ON_LIGHT, fontSize: "11px" }}
-                                        >
-                                          {task.productionOrderCode}
-                                        </Badge>
-                                      </div>
-                                      <div className="text-right">
-                                        <Badge
-                                          color="light"
-                                          className="text-dark border"
-                                          style={{ ...BADGE_READABLE_ON_LIGHT, fontSize: "10px" }}
-                                        >
-                                          {task.quantity} uds
-                                        </Badge>
-                                      </div>
-                                    </div>
+                          {[
+                            {
+                              key: "ready",
+                              list: unassignedUpToDay.filter((t) => t.dieCutReady),
+                              color: "success",
+                              title: "Cortadas sin mesa",
+                              hint: "No había cupo cuando se cortaron. Entran solas a la primera mesa que se libere, o use «Asignar mesa».",
+                            },
+                            {
+                              key: "cut",
+                              list: unassignedUpToDay.filter((t) => !t.dieCutReady),
+                              color: "warning",
+                              title: "Esperan troquel",
+                              hint: "Al marcar el corte de todos sus productos, el sistema les asigna mesa.",
+                            },
+                          ].filter((g) => g.list.length > 0).map((grupo) => (
+                            <React.Fragment key={grupo.key}>
+                              <Alert color={grupo.color} className="py-2">
+                                <strong>{grupo.title} ({grupo.list.length}):</strong> {grupo.hint}
+                              </Alert>
+                              <Row>
+                                {grupo.list.map((task) => (
+                                  <Col key={task.id} md="6" xl="4" className="mb-3">
+                                    <Card
+                                      className="h-100"
+                                      style={{
+                                        border: "1px solid #ffe8a1",
+                                        boxShadow: "0 2px 8px rgba(0,0,0,0.05)",
+                                      }}
+                                    >
+                                      <CardBody className="py-3">
+                                        <div className="d-flex justify-content-between align-items-start mb-2">
+                                          <div>
+                                            <Badge color="dark" className="mr-1">{task.code}</Badge>
+                                            <Badge
+                                              color="light"
+                                              className="text-dark border"
+                                              style={{ ...BADGE_READABLE_ON_LIGHT, fontSize: "11px" }}
+                                            >
+                                              {task.productionOrderCode}
+                                            </Badge>
+                                          </div>
+                                          <div className="text-right">
+                                            <Badge
+                                              color="light"
+                                              className="text-dark border"
+                                              style={{ ...BADGE_READABLE_ON_LIGHT, fontSize: "10px" }}
+                                            >
+                                              {task.quantity} uds
+                                            </Badge>
+                                          </div>
+                                        </div>
 
-                                    <div className="mb-2">
-                                      {renderTaskItems(task, true)}
-                                    </div>
+                                        <div className="mb-2">
+                                          {renderTaskItems(task, true)}
+                                        </div>
 
-                                    <div className="d-flex align-items-center justify-content-between mb-2">
-                                      <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
-                                        {renderPhaseControl(task, "LEATHER", true)}
-                                        {renderPhaseControl(task, "DIE_CUT", true)}
-                                        {renderPhaseControl(task, "MATERIALS", true)}
-                                      </div>
-                                      {renderTaskTimeBadge(task)}
-                                    </div>
+                                        <div className="d-flex align-items-center justify-content-between mb-2">
+                                          <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+                                            {renderPhaseControl(task, "LEATHER", true)}
+                                            {renderPhaseControl(task, "DIE_CUT", true)}
+                                            {renderPhaseControl(task, "MATERIALS", true)}
+                                          </div>
+                                          {renderTaskTimeBadge(task)}
+                                        </div>
 
-                                    <Row className="mb-2">
-                                      <Col xs="6">
-                                        <Label className="mb-1"><small>Mesa</small></Label>
-                                        <Input
-                                          type="select"
-                                          bsSize="sm"
-                                          value={task.desk || ""}
-                                          onChange={(e) => handleScheduleField(task.id, "desk", e.target.value ? parseInt(e.target.value) : null)}
-                                        >
-                                          <option value="">—</option>
-                                          {deskOptions.map((d) => (
-                                            <option key={d} value={d}>
-                                              {deskDisplayLabel(d, supervisorMapForDate(task.scheduledDate || getTodayYmdGuatemala()))}
-                                            </option>
-                                          ))}
-                                        </Input>
-                                      </Col>
-                                      <Col xs="6">
-                                        <Label className="mb-1"><small>F. Inicio</small></Label>
-                                        <Input
-                                          type="date"
-                                          bsSize="sm"
-                                          value={task.scheduledDate || ""}
-                                          onChange={(e) => handleScheduleField(task.id, "scheduledDate", e.target.value)}
-                                        />
-                                      </Col>
-                                    </Row>
+                                        <div className="mb-2 d-flex align-items-end" style={{ gap: 8 }}>
+                                          <div style={{ flex: 1 }}>
+                                            <Label className="mb-1"><small>Día</small></Label>
+                                            <Input
+                                              type="date"
+                                              bsSize="sm"
+                                              value={task.scheduledDate || ""}
+                                              onChange={(e) => handleScheduleField(task.id, "scheduledDate", e.target.value)}
+                                            />
+                                          </div>
+                                          {task.dieCutReady ? (
+                                            <Badge color="success" className="mb-1">Cortada · lista para mesa</Badge>
+                                          ) : (
+                                            <Badge color="warning" className="mb-1" title="A mesa solo baja lo cortado">Falta troquel</Badge>
+                                          )}
+                                        </div>
 
-                                    <div className="d-flex justify-content-between align-items-center">
-                                      <small className="text-muted">
-                                        Hora: {task.startTime || "Auto al iniciar"}
-                                      </small>
-                                      <div className="d-flex" style={{ gap: 6 }}>
-                                        <Button
-                                          color="warning"
-                                          size="sm"
-                                          onClick={() => openDaySaleModal(task)}
-                                          title="Agregar productos de venta del día"
-                                          style={{ fontWeight: 700 }}
-                                        >
-                                          + Del Dia
-                                        </Button>
-                                        <Button
-                                          color="success"
-                                          size="sm"
-                                          onClick={() => handleAutoAssignDesk(task.id)}
-                                          title="Asignar automáticamente a la mesa con menor carga"
-                                        >
-                                          <i className="nc-icon nc-send" /> Auto
-                                        </Button>
-                                      </div>
-                                    </div>
-                                  </CardBody>
-                                </Card>
-                              </Col>
-                            ))}
-                          </Row>
+                                        <div className="d-flex justify-content-between align-items-center">
+                                          <small className="text-muted">
+                                            Hora: {task.startTime || "Auto al iniciar"}
+                                          </small>
+                                          <div className="d-flex" style={{ gap: 6 }}>
+                                            <Button
+                                              color="warning"
+                                              size="sm"
+                                              onClick={() => openDaySaleModal(task)}
+                                              title="Agregar productos de venta del día"
+                                              style={{ fontWeight: 700 }}
+                                            >
+                                              + Del Dia
+                                            </Button>
+                                            {task.dieCutReady ? (
+                                              <Button
+                                                color="success"
+                                                size="sm"
+                                                onClick={() => handleAutoAssignDesk(task.id)}
+                                                title="El sistema elige la mesa con menos carga y cupo libre"
+                                              >
+                                                <i className="nc-icon nc-send" /> Asignar mesa
+                                              </Button>
+                                            ) : (
+                                              <Button
+                                                color="secondary"
+                                                outline
+                                                size="sm"
+                                                onClick={() => navigate("/admin/task-organizer?tab=diecut")}
+                                                title="Marcar el corte; al quedar toda cortada la mesa se asigna sola"
+                                              >
+                                                Ir a troquelar
+                                              </Button>
+                                            )}
+                                          </div>
+                                        </div>
+                                      </CardBody>
+                                    </Card>
+                                  </Col>
+                                ))}
+                              </Row>
+                            </React.Fragment>
+                          ))}
+                          {unassignedLater.length > 0 && (
+                            <small className="text-muted d-block mb-2">
+                              Además hay {unassignedLater.length} tarea(s) sin mesa para días siguientes;
+                              elija ese día en «Jornada» para verlas.
+                            </small>
+                          )}
                           <div className="text-right mt-2">
                             <Button
                               color="info"
@@ -3674,13 +3737,14 @@ function TasksByTable() {
             Diseñado para usuarios nuevos: siga estos 4 pasos para trabajar sin errores.
           </Alert>
           <ol className="mb-2" style={{ paddingLeft: "18px" }}>
-            <li className="mb-1"><strong>Tareas automáticas</strong> al inicio del día y al abrir el centro (partidas y asignadas a mesa).</li>
-            <li className="mb-1"><strong>Redistribuir</strong> solo si hay que mover una línea entre mesas o fechas.</li>
-            <li className="mb-1"><strong>Completar prerequisitos</strong>: cuero y troquelado (materiales se entrega en Vista Materiales).</li>
-            <li className="mb-1"><strong>Monitorear cronograma</strong> y cambiar estados (iniciar, pausar, completar).</li>
+            <li className="mb-1"><strong>Prioridad</strong>: en Organizador › Cola del día marque qué órdenes van primero. Se guarda al marcar.</li>
+            <li className="mb-1"><strong>Planificar el día</strong> con el botón amarillo: arma las tareas solo para ese día, primero la cola y luego el resto, hasta llenar el cupo de las mesas. No corre solo.</li>
+            <li className="mb-1"><strong>Cuero y troquel</strong>: entregar cuero y marcar el corte en Organizador › Por troquelar (materiales en Vista Materiales).</li>
+            <li className="mb-1"><strong>La mesa la pone el sistema</strong> al quedar la tarea toda cortada: la mesa con menos carga y cupo libre.</li>
+            <li className="mb-1"><strong>En la mesa</strong>: Iniciar y Completar desde Cronograma. Redistribuir solo para mover una línea a mano.</li>
           </ol>
           <Alert color="light" style={{ border: "1px solid #e2e8f0" }}>
-            Consejo: las líneas sin cuero esperan en la cola; al ingresar cuero el plan las toma solo.
+            Consejo: lo que no tiene cuero o no cupo hoy no se pierde; entra al planificar el siguiente día.
           </Alert>
         </ModalBody>
       </Modal>
