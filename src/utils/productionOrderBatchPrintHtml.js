@@ -285,7 +285,7 @@ function getBatchPrintDocumentStyles() {
             .section-h { font-size: 13px; margin: 14px 0 8px; border-bottom: 1px solid #ccc; padding-bottom: 4px; }
             .batch-summary thead th { background: #e8eef5; }
             .batch-summary td, .batch-summary th { font-size: 10px; }
-            .col-op { min-width: 52px; background: #f8fafc; font-weight: 700; }
+            .col-op { min-width: 52px; background: #f8fafc; font-weight: 700; text-align: left; }
             .op-cell { vertical-align: top; }
             tr.op-first-row td { border-top: 2px solid #333; }
             .lines-unified { margin-top: 4px; }
@@ -444,12 +444,20 @@ function mergeBatchMatrixGroups(orders) {
           brandName: item.brandName || "-",
           colorQty: {},
           observationsByColor: {},
+          opCodes: [],
+          opCodesByColor: {},
         });
       }
       const g = groups.get(key);
       const cname = String(item?.colorName || "").trim() || "-";
       const qty = itemLineQty(item);
       g.colorQty[cname] = (g.colorQty[cname] || 0) + qty;
+      const opCode = String(order.code || "").trim();
+      if (opCode) {
+        if (!g.opCodes.includes(opCode)) g.opCodes.push(opCode);
+        if (!g.opCodesByColor[cname]) g.opCodesByColor[cname] = [];
+        if (!g.opCodesByColor[cname].includes(opCode)) g.opCodesByColor[cname].push(opCode);
+      }
       const obs = String(item?.observations || "").trim();
       if (obs) {
         if (!g.observationsByColor[cname]) g.observationsByColor[cname] = [];
@@ -483,6 +491,7 @@ function buildUnifiedMatrixDetailTable(orders) {
     "<th>CÓDIGO</th>",
     "<th>PRODUCTO</th>",
     ...(showBrand ? ["<th>MARCA</th>"] : []),
+    "<th>OP</th>",
     ...colors.map((c) => `<th>${escapeHtml(c)}</th>`),
     "<th>TOTAL</th>",
     "<th>COMENTARIOS</th>",
@@ -504,6 +513,7 @@ function buildUnifiedMatrixDetailTable(orders) {
           <td>${escapeHtml(g.productCode)}</td>
           <td>${escapeHtml(g.productName)}</td>
           ${showBrand ? `<td>${escapeHtml(g.brandName)}</td>` : ""}
+          <td class="col-op">${escapeHtml(g.opCodes.join(", "))}</td>
           ${colorCells.join("")}
           <td class="numeric">${escapeHtml(rowTotal)}</td>
           <td class="col-comments">${escapeHtml(obsJoined)}</td>
@@ -513,7 +523,7 @@ function buildUnifiedMatrixDetailTable(orders) {
 
   const matrixGrand = footTotals.reduce((a, b) => a + b, 0);
   const footColorCells = footTotals.map((t) => `<td class="numeric"><strong>${escapeHtml(t)}</strong></td>`).join("");
-  const leadCols = 2 + (showBrand ? 1 : 0);
+  const leadCols = 3 + (showBrand ? 1 : 0);
 
   return `
       <h2 class="section-h">Detalle consolidado del lote</h2>
@@ -536,7 +546,7 @@ function buildUnifiedMatrixDetailTable(orders) {
 function mergeBatchCinchoLines(orders) {
   const allItems = [];
   sortProductionOrdersByCode(orders).forEach((order) => {
-    (order.items || []).forEach((item) => allItems.push(item));
+    (order.items || []).forEach((item) => allItems.push({ ...item, _opCode: order.code }));
   });
   return mergeCinchoItemsByProductCodeAndColor(allItems);
 }
@@ -559,6 +569,7 @@ function buildUnifiedCinchoDetailTable(orders) {
   if (other.length) headerRow1.push(`<th colspan="${other.length}" class="group-h">OTRA(S)</th>`);
   headerRow1.push(`<th rowspan="2" class="col-total-h">TOTAL</th>`);
   headerRow1.push(`<th rowspan="2" class="col-color-h">COLOR</th>`);
+  headerRow1.push(`<th rowspan="2" class="col-op-h">OP</th>`);
   headerRow1.push(`<th rowspan="2" class="col-comments-h">COMENTARIOS</th>`);
   const headerRow2 = sizeCols.map((n) => `<th class="size-col">${escapeHtml(String(n))}</th>`).join("");
 
@@ -587,6 +598,7 @@ function buildUnifiedCinchoDetailTable(orders) {
           ${cells}
           <td class="numeric col-total">${escapeHtml(rt)}</td>
           <td class="col-color">${escapeHtml(color)}</td>
+          <td class="col-op">${escapeHtml((item.opCodes || []).join(", "))}</td>
           <td class="col-comments">${escapeHtml(obs)}</td>
         </tr>`;
     })
@@ -608,6 +620,7 @@ function buildUnifiedCinchoDetailTable(orders) {
             <td><strong>TOTAL LOTE</strong></td>
             ${footCells}
             <td class="numeric"><strong>${escapeHtml(grandTotal)}</strong></td>
+            <td></td>
             <td></td>
             <td></td>
           </tr>
@@ -641,10 +654,13 @@ function mergeBatchFlatLines(orders) {
             size: line.size || "—",
             qty: 0,
             observationParts: [],
+            opCodes: [],
           });
         }
         const r = map.get(key);
         r.qty += Number(line.plannedQty || 0);
+        const opCode = String(order.code || "").trim();
+        if (opCode && !r.opCodes.includes(opCode)) r.opCodes.push(opCode);
         const obs = String(item?.observations || "").trim();
         if (obs) addObservationCount(r.observationParts, obs, line.plannedQty || 1);
       });
@@ -678,6 +694,7 @@ function buildUnifiedFlatDetailTable(orders) {
       <tr>
         <td>${escapeHtml(r.productCode)}</td>
         <td>${escapeHtml(r.productName)}</td>
+        <td class="col-op">${escapeHtml(r.opCodes.join(", "))}</td>
         <td>${escapeHtml(r.colorName)}</td>
         <td>${escapeHtml(r.size)}</td>
         <td class="numeric">${escapeHtml(r.qty)}</td>
@@ -692,6 +709,7 @@ function buildUnifiedFlatDetailTable(orders) {
           <tr>
             <th>Código</th>
             <th>Producto</th>
+            <th>OP</th>
             <th>Color</th>
             <th>Talla</th>
             <th>Cant.</th>
@@ -873,6 +891,7 @@ function buildMergedBatchDetailExcelRows(orders) {
         rows.push([
           g.productCode,
           g.productName,
+          (g.opCodesByColor[color] || []).join(", ") || "—",
           color,
           "—",
           qty,
@@ -893,6 +912,7 @@ function buildMergedBatchDetailExcelRows(orders) {
         rows.push([
           item.productCode || "-",
           "—",
+          (item.opCodes || []).join(", ") || "—",
           item.colorName || "-",
           size,
           q,
@@ -905,6 +925,7 @@ function buildMergedBatchDetailExcelRows(orders) {
   return mergeBatchFlatLines(orders).map((r) => [
     r.productCode,
     r.productName,
+    r.opCodes.join(", ") || "—",
     r.colorName,
     r.size,
     r.qty,
@@ -921,7 +942,7 @@ export function downloadProductionOrdersBatchExcel(orders, tasks = []) {
   const wsResumen = XLSX.utils.aoa_to_sheet(buildSummarySheetRows(sorted, tasks));
   XLSX.utils.book_append_sheet(wb, wsResumen, "Resumen_clientes");
 
-  const detailHeaders = ["Cod. Producto", "Producto", "Color", "Talla", "Cant.", "Comentarios"];
+  const detailHeaders = ["Cod. Producto", "Producto", "OP", "Color", "Talla", "Cant.", "Comentarios"];
   const detailRows = buildMergedBatchDetailExcelRows(sorted);
   const wsDetail = XLSX.utils.aoa_to_sheet([detailHeaders, ...detailRows]);
   XLSX.utils.book_append_sheet(wb, wsDetail, "Detalle_unificado");

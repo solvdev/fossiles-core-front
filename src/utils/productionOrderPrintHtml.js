@@ -188,9 +188,13 @@ export function mergeCinchoItemsByProductCodeAndColor(items) {
         colorName: colorPart || "-",
         sizes: {},
         observationParts: [],
+        opCodes: [],
       });
     }
     const g = map.get(key);
+    // _opCode lo pone quien arma el lote (la impresión de varias OPs); sin él no hay columna OP.
+    const opCode = String(item?._opCode || "").trim();
+    if (opCode && !g.opCodes.includes(opCode)) g.opCodes.push(opCode);
     if (displayCode !== "-" && g.productCode === "-") g.productCode = displayCode;
     if (colorPart && (g.colorName === "-" || !String(g.colorName || "").trim())) g.colorName = colorPart;
 
@@ -215,6 +219,7 @@ export function mergeCinchoItemsByProductCodeAndColor(items) {
       colorName: String(g.colorName || "").trim() || "-",
       sizes: g.sizes,
       observations: formatObservationsWithCounts(g.observationParts),
+      opCodes: g.opCodes,
     }))
     .filter((g) => Object.keys(g.sizes).length > 0 || g.observations)
     .sort((a, b) => {
