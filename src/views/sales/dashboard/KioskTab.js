@@ -6,6 +6,8 @@ import KioskYoYCard from "views/sales/KioskYoYCard";
 import SalesAsyncBoundary from "./SalesAsyncBoundary";
 import SourceKpiRow from "./SourceKpiRow";
 import CompositionBar from "./CompositionBar";
+import CategoryBadge from "./CategoryBadge";
+import KioskHeatmapSection from "./KioskHeatmapSection";
 import ProductRankingCard from "./ProductRankingCard";
 import RecentSalesTable from "./RecentSalesTable";
 import { SourceDailyChart } from "./SalesCharts";
@@ -40,7 +42,8 @@ const RECENT_COLUMNS = [
 
 /**
  * Ranking por kiosko (breakdowns.byKiosk, una fila por SITIO de Finanzas kioscos: key = siteId). La venta incluye el
- * histórico; los tickets son solo del POS, así que un kiosko solo con histórico muestra '—' en vez de 0.
+ * histórico; los tickets son solo del POS, así que un kiosko solo con histórico muestra '—' en vez de 0. Cada kiosko
+ * lleva su clasificación (Cat. A, B, C o Sin clasificar) junto al nombre.
  */
 function KioskRanking({ rows }) {
   const list = rows || [];
@@ -58,7 +61,7 @@ function KioskRanking({ rows }) {
       </header>
       <div className="kfin-scroll sdash-scroll">
         <table className="kfin-table kfin-table--simple">
-          <caption className="sr-only">Tickets del POS, venta y participación por kiosko</caption>
+          <caption className="sr-only">Clasificación, tickets del POS, venta y participación por kiosko</caption>
           <thead>
             <tr>
               <th scope="col">Kiosko</th>
@@ -71,7 +74,8 @@ function KioskRanking({ rows }) {
             {list.map((r, i) => (
               <tr key={`${r.key ?? r.label}-${i}`}>
                 <th scope="row">
-                  {r.label || "Sin dato"}
+                  <span className="sdash-rank-name">{r.label || "Sin dato"}</span>{" "}
+                  <CategoryBadge category={r.category} />
                   <span
                     className="sdash-mini"
                     aria-hidden="true"
@@ -114,7 +118,8 @@ function KioskSourceNotes({ kpis }) {
   );
 }
 
-function KioskBody({ data, startDate, endDate, filtered }) {
+/** KPIs, ventas por día, composición y pago, ranking por kiosko, productos y comparación con el año anterior. */
+function KioskTop({ data, startDate, endDate, filtered }) {
   const compareNote = `vs ${describePeriod(data.previousStartDate, data.previousEndDate) || "periodo anterior"}`;
   const items = useMemo(
     () => buildKpiItems(data.kpis, KPI_CONFIG.KIOSKO, { compareNote, filtered }),
@@ -167,30 +172,43 @@ function KioskBody({ data, startDate, endDate, filtered }) {
       <div className="sdash-yoy">
         <KioskYoYCard startDate={startDate} endDate={endDate} />
       </div>
-
-      <RecentSalesTable
-        title="Últimas ventas"
-        subtitle={`Las ${(data.recentSales || []).length} más recientes del periodo · solo POS`}
-        columns={RECENT_COLUMNS}
-        keyPrefix="kiosko"
-        rows={data.recentSales}
-        link={{ to: totalSalesLink(META.totalSalesChannel, startDate, endDate), label: "Ver todas las ventas" }}
-      />
     </>
+  );
+}
+
+/** Últimas ventas del POS (va debajo del mapa de calor de kioscos). */
+function KioskRecent({ data, startDate, endDate }) {
+  return (
+    <RecentSalesTable
+      title="Últimas ventas"
+      subtitle={`Las ${(data.recentSales || []).length} más recientes del periodo · solo POS`}
+      columns={RECENT_COLUMNS}
+      keyPrefix="kiosko"
+      rows={data.recentSales}
+      link={{ to: totalSalesLink(META.totalSalesChannel, startDate, endDate), label: "Ver todas las ventas" }}
+    />
   );
 }
 
 /**
  * Pestaña Kioskos. `siteId` = sitio de Finanzas kioscos elegido ('' = todos); el selector y la URL usan el id del
  * sitio (un kiosko histórico no tiene ubicación del POS).
+ *
+ * 'Mapa de calor de kioscos' consulta su propio endpoint y va siempre en la misma posición del árbol (entre las
+ * tarjetas de arriba y 'Últimas ventas'), igual que 'Publicidad vs ventas' en Online: así no desaparece si
+ * /dashboard/kiosks falla, viene vacío (p. ej. el kiosko elegido no vendió) o se recarga.
  */
 export default function KioskTab({ startDate, endDate, siteId, onKioskChange, refreshToken }) {
   const query = useSalesQuery(getSalesKiosks, { startDate, endDate, siteId, refreshToken });
+  const { data, loading } = query;
   // Las opciones del selector no dependen del kiosko elegido (el backend las manda siempre completas); se conservan
   // mientras recarga o si el kiosko elegido no tiene ventas, para que siempre se pueda volver a 'Todos'.
   const optionsRef = useRef([]);
-  if (query.data && Array.isArray(query.data.kioskOptions)) optionsRef.current = query.data.kioskOptions;
+  if (data && Array.isArray(data.kioskOptions)) optionsRef.current = data.kioskOptions;
   const options = buildKioskOptions(optionsRef.current, siteId);
+  const selected = siteId ? options.find((o) => o.value === String(siteId)) : null;
+  const ready = Boolean(data) && !isEmptyKpis(data.kpis);
+  const wrapperProps = { className: loading ? "kfin-refetching" : "", "aria-busy": loading };
 
   return (
     <>
@@ -211,17 +229,37 @@ export default function KioskTab({ startDate, endDate, siteId, onKioskChange, re
           </select>
         </div>
       </div>
-      <SalesAsyncBoundary
-        query={query}
-        isEmpty={(d) => isEmptyKpis(d.kpis)}
-        emptyText={
-          siteId
-            ? "El kiosko seleccionado no tiene ventas en este periodo. Elige otro kiosko o cambia el rango de fechas."
-            : "No hay ventas de kioskos en este periodo. Prueba con otro rango de fechas."
-        }
-      >
-        {(data) => <KioskBody data={data} startDate={startDate} endDate={endDate} filtered={!!siteId} />}
-      </SalesAsyncBoundary>
+      {ready ? (
+        <div {...wrapperProps}>
+          <KioskTop data={data} startDate={startDate} endDate={endDate} filtered={!!siteId} />
+        </div>
+      ) : (
+        <SalesAsyncBoundary
+          query={query}
+          isEmpty={(d) => isEmptyKpis(d.kpis)}
+          emptyText={
+            siteId
+              ? "El kiosko seleccionado no tiene ventas en este periodo. Elige otro kiosko o cambia el rango de fechas."
+              : "No hay ventas de kioskos en este periodo. Prueba con otro rango de fechas."
+          }
+        >
+          {() => null}
+        </SalesAsyncBoundary>
+      )}
+      <KioskHeatmapSection
+        startDate={startDate}
+        endDate={endDate}
+        refreshToken={refreshToken}
+        dailySeries={ready ? data.dailySeries : null}
+        calendarPeriod={ready ? describePeriod(data.startDate, data.endDate) : ""}
+        calendarScope={selected ? selected.name : "todos los kioscos"}
+        calendarBusy={ready && loading}
+      />
+      {ready ? (
+        <div {...wrapperProps}>
+          <KioskRecent data={data} startDate={startDate} endDate={endDate} />
+        </div>
+      ) : null}
     </>
   );
 }

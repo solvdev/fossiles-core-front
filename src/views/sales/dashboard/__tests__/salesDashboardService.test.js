@@ -3,6 +3,7 @@
  * Kioskos filtra por `siteId` (sitio de Finanzas kioscos), ya no por `kioskLocationId`.
  */
 import {
+  getKioskHeatmap,
   getSalesConsolidated,
   getSalesKiosks,
   getSalesOnline,
@@ -83,6 +84,52 @@ describe("getSalesKiosks", () => {
     global.fetch.mockResolvedValue({ ok: false, status: 500, json: () => Promise.reject(new Error("no json")) });
     await expect(getSalesKiosks({ startDate: "2026-09-01", endDate: "2026-09-30" })).rejects.toThrow(
       "No se pudo cargar las ventas de kioskos."
+    );
+  });
+});
+
+describe("getKioskHeatmap", () => {
+  test("pide /sales/dashboard/kiosks/heatmap con el rango y el token", async () => {
+    await getKioskHeatmap({ startDate: "2026-09-01", endDate: "2026-09-30" });
+    const { path, params, options } = lastRequest();
+    expect(path).toMatch(/\/sales\/dashboard\/kiosks\/heatmap$/);
+    expect(params).toEqual({ startDate: "2026-09-01", endDate: "2026-09-30" });
+    expect(options.headers.Authorization).toBe("Bearer test-token");
+    expect(options.headers["Content-Type"]).toBe("application/json");
+  });
+
+  test("compara todos los kioscos: aunque se le pase siteId o kioskLocationId, no viajan", async () => {
+    await getKioskHeatmap({ startDate: "2026-09-01", endDate: "2026-09-30", siteId: "5", kioskLocationId: "12" });
+    expect(lastRequest().params).toEqual({ startDate: "2026-09-01", endDate: "2026-09-30" });
+  });
+
+  test("refresh viaja como refresh=true solo cuando se pide", async () => {
+    await getKioskHeatmap({ startDate: "2026-09-01", endDate: "2026-09-30", refresh: true });
+    expect(lastRequest().params).toEqual({ startDate: "2026-09-01", endDate: "2026-09-30", refresh: "true" });
+    await getKioskHeatmap({ startDate: "2026-09-01", endDate: "2026-09-30", refresh: false });
+    expect(lastRequest().params).not.toHaveProperty("refresh");
+  });
+
+  test("pasa la señal de cancelación y devuelve el JSON", async () => {
+    global.fetch.mockResolvedValue(okResponse({ days: [], sites: [], categories: [] }));
+    const controller = new AbortController();
+    const data = await getKioskHeatmap({ startDate: "2026-09-01", endDate: "2026-09-30", signal: controller.signal });
+    expect(data).toEqual({ days: [], sites: [], categories: [] });
+    expect(lastRequest().options.signal).toBe(controller.signal);
+  });
+
+  test("un error del backend sube con su mensaje (p. ej. más de 400 días) y, sin cuerpo, con el mensaje por defecto", async () => {
+    global.fetch.mockResolvedValue({
+      ok: false,
+      status: 400,
+      json: () => Promise.resolve({ message: "El mapa de calor admite un máximo de 400 días." }),
+    });
+    await expect(getKioskHeatmap({ startDate: "2024-01-01", endDate: "2026-09-30" })).rejects.toThrow(
+      "El mapa de calor admite un máximo de 400 días."
+    );
+    global.fetch.mockResolvedValue({ ok: false, status: 500, json: () => Promise.reject(new Error("no json")) });
+    await expect(getKioskHeatmap({ startDate: "2026-09-01", endDate: "2026-09-30" })).rejects.toThrow(
+      "No se pudo cargar el mapa de calor de kioscos."
     );
   });
 });

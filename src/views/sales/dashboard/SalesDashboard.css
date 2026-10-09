@@ -123,24 +123,43 @@
 .sdash .kfin-table .kfin-strongnum { font-weight: 700; }
 .sdash .kfin-table tbody th[scope="row"] .sdash-dot { margin-right: 6px; vertical-align: baseline; }
 
-/* ---------- Mapa de calor (rampa ámbar de la maqueta; mismos umbrales que Finanzas) ---------- */
-.sdash .sdash-h0 { background: #f4f1ea; color: #252422; }
-.sdash .sdash-h1 { background: #fbe7bd; color: #252422; }
-.sdash .sdash-h2 { background: #f7cd7e; color: #252422; }
-.sdash .sdash-h3 { background: #ee9f35; color: #252422; }
-.sdash .sdash-h4 { background: #b45f08; color: #ffffff; }
-.sdash .sdash-h5 { background: #7a3d02; color: #ffffff; }
+/* ---------- Mapa de calor (rampa ámbar de la maqueta; mismos umbrales que Finanzas) ----------
+   Los colores salen de variables: Online usa las ámbar de aquí y Kioskos las reemplaza dentro de .sdash-heat--kiosk
+   (sección 'Mapa de calor de kioscos', más abajo), sin tocar las clases. */
+.kfin.sdash {
+  --sdash-h0-bg: #f4f1ea; --sdash-h0-fg: #252422;
+  --sdash-h1-bg: #fbe7bd; --sdash-h1-fg: #252422;
+  --sdash-h2-bg: #f7cd7e; --sdash-h2-fg: #252422;
+  --sdash-h3-bg: #ee9f35; --sdash-h3-fg: #252422;
+  --sdash-h4-bg: #b45f08; --sdash-h4-fg: #ffffff;
+  --sdash-h5-bg: #7a3d02; --sdash-h5-fg: #ffffff;
+  --sdash-wbar-strong: #c77d0a; --sdash-wbar-soft: #f0a63a;
+  --sdash-heatbadge-bg: #fff1cf; --sdash-heatbadge-fg: #6b4600;
+  --sdash-insight-bg: #fff7e0; --sdash-insight-line: #f2dc9b; --sdash-insight-fg: #4a3a0c;
+}
+.sdash .sdash-h0 { background: var(--sdash-h0-bg); color: var(--sdash-h0-fg); }
+.sdash .sdash-h1 { background: var(--sdash-h1-bg); color: var(--sdash-h1-fg); }
+.sdash .sdash-h2 { background: var(--sdash-h2-bg); color: var(--sdash-h2-fg); }
+.sdash .sdash-h3 { background: var(--sdash-h3-bg); color: var(--sdash-h3-fg); }
+.sdash .sdash-h4 { background: var(--sdash-h4-bg); color: var(--sdash-h4-fg); }
+.sdash .sdash-h5 { background: var(--sdash-h5-bg); color: var(--sdash-h5-fg); }
 .sdash .sdash-hzero { background: #ffffff; color: #66615b; font-style: italic; box-shadow: inset 0 -2px 0 var(--kfin-mid-bg); }
 .sdash .kfin-heat-swatch.sdash-hzero { box-shadow: inset 0 -3px 0 var(--kfin-mid-bg); }
 .sdash .kfin-table td.sdash-hc { font-weight: 700; }
-/* En tablas, .kfin-table pinta cada celda (y al pasar el cursor): se sube la especificidad para conservar el sombreado */
-.sdash .kfin-table tbody tr td.sdash-h0 { background: #f4f1ea; color: #252422; }
-.sdash .kfin-table tbody tr td.sdash-h1 { background: #fbe7bd; color: #252422; }
-.sdash .kfin-table tbody tr td.sdash-h2 { background: #f7cd7e; color: #252422; }
-.sdash .kfin-table tbody tr td.sdash-h3 { background: #ee9f35; color: #252422; }
-.sdash .kfin-table tbody tr td.sdash-h4 { background: #b45f08; color: #ffffff; }
-.sdash .kfin-table tbody tr td.sdash-h5 { background: #7a3d02; color: #ffffff; }
-.sdash .kfin-table tbody tr td.sdash-hzero { background: #ffffff; color: #66615b; }
+/* En tablas, .kfin-table pinta cada celda (y al pasar el cursor; y el pie con su propio fondo): se sube la especificidad
+   para conservar el sombreado, también en la fila de totales (tfoot) de las matrices de kioscos */
+.sdash .kfin-table tbody tr td.sdash-h0, .sdash .kfin-table tfoot tr td.sdash-h0 { background: var(--sdash-h0-bg); color: var(--sdash-h0-fg); }
+.sdash .kfin-table tbody tr td.sdash-h1, .sdash .kfin-table tfoot tr td.sdash-h1 { background: var(--sdash-h1-bg); color: var(--sdash-h1-fg); }
+.sdash .kfin-table tbody tr td.sdash-h2, .sdash .kfin-table tfoot tr td.sdash-h2 { background: var(--sdash-h2-bg); color: var(--sdash-h2-fg); }
+.sdash .kfin-table tbody tr td.sdash-h3, .sdash .kfin-table tfoot tr td.sdash-h3 { background: var(--sdash-h3-bg); color: var(--sdash-h3-fg); }
+.sdash .kfin-table tbody tr td.sdash-h4, .sdash .kfin-table tfoot tr td.sdash-h4 { background: var(--sdash-h4-bg); color: var(--sdash-h4-fg); }
+.sdash .kfin-table tbody tr td.sdash-h5, .sdash .kfin-table tfoot tr td.sdash-h5 { background: var(--sdash-h5-bg); color: var(--sdash-h5-fg); }
+.sdash .kfin-table tbody tr td.sdash-hzero, .sdash .kfin-table tfoot tr td.sdash-hzero { background: #ffffff; color: #66615b; }
+
+/* Barras del promedio por día de la semana y avisos del mapa de calor (ámbar en Online, verde azulado en Kioskos) */
+.sdash .sdash-wbar--strong { background: var(--sdash-wbar-strong); }
+.sdash .sdash-wbar--soft { background: var(--sdash-wbar-soft); }
+.sdash .sdash-badge--heat { background: var(--sdash-heatbadge-bg); color: var(--sdash-heatbadge-fg); }
 
 .sdash .sdash-cal-month + .sdash-cal-month { margin-top: 18px; }
 .sdash .sdash-cal-title { margin: 14px 0 0; font-size: 0.9rem; font-weight: 700; }
@@ -153,7 +172,7 @@
 .sdash .sdash-cd.sdash-hzero { border: 1px dashed var(--kfin-line-strong); }
 .sdash .sdash-cd--best { outline: 2px solid #252422; outline-offset: 1px; }
 
-.sdash .sdash-insight { background: #fff7e0; border: 1px solid #f2dc9b; border-radius: 8px; padding: 10px 12px; font-size: 0.82rem; margin-top: 14px; color: #4a3a0c; }
+.sdash .sdash-insight { background: var(--sdash-insight-bg); border: 1px solid var(--sdash-insight-line); border-radius: 8px; padding: 10px 12px; font-size: 0.82rem; margin-top: 14px; color: var(--sdash-insight-fg); }
 
 @media (max-width: 575px) {
   .sdash .sdash-filters { width: 100%; }
@@ -259,4 +278,104 @@
 
 @media print {
   .sdash .sdash-ad-scroll { max-height: none; }
+}
+
+/* ---------- Mapa de calor de kioscos (pestaña Kioskos) ---------- */
+/* Misma escala de 6 tonos que Online pero en verde azulado (el color de Kioskos, #51cbce): claro -> oscuro, texto oscuro
+   en los 4 primeros y blanco en los 2 últimos (contraste >= 4.5:1 en todos). Solo aplica dentro de .sdash-heat--kiosk. */
+.sdash .sdash-heat--kiosk {
+  --sdash-h0-bg: #e6f5f5; --sdash-h0-fg: #252422;
+  --sdash-h1-bg: #c8e9ea; --sdash-h1-fg: #252422;
+  --sdash-h2-bg: #94d9dc; --sdash-h2-fg: #252422;
+  --sdash-h3-bg: #51cbce; --sdash-h3-fg: #252422;
+  --sdash-h4-bg: #1b7c81; --sdash-h4-fg: #ffffff;
+  --sdash-h5-bg: #0d4a4e; --sdash-h5-fg: #ffffff;
+  --sdash-wbar-strong: #1b8f94; --sdash-wbar-soft: #51cbce;
+  --sdash-heatbadge-bg: #d9f1f2; --sdash-heatbadge-fg: #0f4e52;
+  --sdash-insight-bg: #eaf7f7; --sdash-insight-line: #b9e3e5; --sdash-insight-fg: #14474a;
+}
+
+.kfin.sdash { --sdash-mx-name-w: 176px; --sdash-mx-cat-w: 108px; --sdash-mx-total-w: 108px; }
+
+.sdash .sdash-kheat { margin: 8px 0 16px; padding-top: 20px; border-top: 1px solid var(--kfin-line); }
+.sdash .sdash-kheat-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-start; gap: 10px 16px; margin-bottom: 12px; }
+.sdash .sdash-kheat-title { margin: 0; font-size: 1.15rem; font-weight: 700; }
+.sdash .sdash-kheat-sub { margin: 2px 0 0; font-size: 0.82rem; color: var(--kfin-ink-2); }
+.sdash .sdash-kheat .sdash-heat { margin-top: 0; }
+
+/* Clasificación del kiosco (Cat. A / B / C / Sin clasificar): siempre con texto; el color solo refuerza */
+.sdash .sdash-cat { display: inline-block; vertical-align: middle; font-size: 0.68rem; font-weight: 700; line-height: 1.3; padding: 1px 8px; border-radius: 999px; border: 1px solid transparent; white-space: nowrap; letter-spacing: 0; text-transform: none; }
+.sdash .sdash-cat--a { background: #3b4a5a; color: #ffffff; }
+.sdash .sdash-cat--b { background: #d9e0e7; color: #2b3744; }
+.sdash .sdash-cat--c { background: #f1f3f5; color: #3b4a5a; border-color: #c9d0d8; }
+.sdash .sdash-cat--none { background: #ffffff; color: #4d4a45; border: 1px dashed #b9b6ae; font-weight: 600; }
+.sdash .sdash-rank-name + .sdash-cat { margin-left: 2px; }
+
+/* Insights: una frase por línea; el borde izquierdo, el fondo y la etiqueta (A favor / Atención) marcan el tono */
+.sdash .sdash-ins-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.sdash .sdash-ins { --sdash-tone-line: #6f7b88; --sdash-tone-bg: #f2f4f6; --sdash-tone-ink: #3b4a5a; display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; padding: 9px 12px 9px 14px; border-radius: 8px; border-left: 4px solid var(--sdash-tone-line); background: var(--sdash-tone-bg); font-size: 0.86rem; line-height: 1.4; color: var(--kfin-ink); }
+.sdash .sdash-ins--good { --sdash-tone-line: #2e8b57; --sdash-tone-bg: #eaf6f0; --sdash-tone-ink: #17683f; }
+.sdash .sdash-ins--warn { --sdash-tone-line: #c77d0a; --sdash-tone-bg: #fff6e0; --sdash-tone-ink: #7a5600; }
+.sdash .sdash-ins-tag { flex: 0 0 auto; font-size: 0.66rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--sdash-tone-ink); }
+.sdash .sdash-ins-text { flex: 1 1 240px; min-width: 0; overflow-wrap: anywhere; }
+
+/* Filtro por clasificación */
+.sdash .sdash-kheat-filter { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 0 0 12px; }
+.sdash .sdash-kheat-filter .kfin-label { margin: 0; }
+.sdash .sdash-kheat-filter .kfin-btnseg { max-width: 100%; }
+.sdash .sdash-kheat-filter .kfin-btn { min-height: 36px; min-width: 40px; justify-content: center; }
+.sdash .sdash-kheat-filter .kfin-btn:disabled { opacity: 0.45; }
+.sdash .sdash-kheat-filter .kfin-hint { margin: 0; max-width: none; }
+
+/* Resumen 'Por clasificación' */
+.sdash .sdash-cat-table { min-width: 760px; }
+.sdash .sdash-cat-table tbody th[scope="row"] { min-width: 150px; }
+.sdash .sdash-cat-table .kfin-delta { font-size: 0.74rem; }
+.sdash .sdash-sub { color: var(--kfin-ink-2); }
+/* Con la tabla desplazada (móvil) la clasificación de cada fila queda a la vista */
+.sdash .sdash-cat-table thead th:first-child, .sdash .sdash-cat-table tbody th[scope="row"], .sdash .sdash-cat-table tfoot th[scope="row"] { position: sticky; left: 0; z-index: 2; box-shadow: 1px 0 0 var(--kfin-line); }
+.sdash .sdash-cat-table thead th:first-child, .sdash .sdash-cat-table tfoot th[scope="row"] { z-index: 5; }
+
+/* Matrices kiosco x día y kiosco x día de la semana. Columnas fijas: Kiosko, Cat. y Total (a mano para tener tres; las de
+   Finanzas solo traen dos). En móvil solo queda fija la de Kiosko y el resto se desplaza dentro de la caja. */
+.sdash .sdash-mx-scroll { max-height: min(640px, 80vh); }
+.sdash .sdash-mx { width: auto; min-width: 100%; font-size: 0.76rem; }
+.sdash .sdash-mx th, .sdash .sdash-mx td { padding: 4px 8px; }
+.sdash .sdash-mx thead th { text-align: right; line-height: 1.2; }
+.sdash .sdash-mx thead th.sdash-mx-c1, .sdash .sdash-mx thead th.sdash-mx-c2 { text-align: left; }
+.sdash .sdash-mx .sdash-mx-day { min-width: 58px; }
+.sdash .sdash-mx .sdash-mx-wd { display: block; font-size: 0.66rem; font-weight: 400; text-transform: none; letter-spacing: 0; color: var(--kfin-ink-2); }
+.sdash .sdash-mx td.sdash-mx-cell { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.sdash .sdash-mx td.sdash-mx-na { color: var(--kfin-ink-2); }
+.sdash .sdash-mx td.sdash-mx-best { font-weight: 700; box-shadow: inset 0 0 0 2px #252422; }
+.sdash .sdash-mx tbody th[scope="row"], .sdash .sdash-mx tfoot th[scope="row"] { text-align: left; white-space: normal; overflow-wrap: anywhere; line-height: 1.2; }
+.sdash .sdash-mx .sdash-mx-c1, .sdash .sdash-mx .sdash-mx-c2, .sdash .sdash-mx .sdash-mx-c3 { position: sticky; z-index: 2; }
+.sdash .sdash-mx .sdash-mx-c1 { left: 0; width: var(--sdash-mx-name-w); min-width: var(--sdash-mx-name-w); max-width: var(--sdash-mx-name-w); }
+.sdash .sdash-mx .sdash-mx-c2 { left: var(--sdash-mx-name-w); width: var(--sdash-mx-cat-w); min-width: var(--sdash-mx-cat-w); max-width: var(--sdash-mx-cat-w); }
+.sdash .sdash-mx .sdash-mx-c3 { left: calc(var(--sdash-mx-name-w) + var(--sdash-mx-cat-w)); min-width: var(--sdash-mx-total-w); text-align: right; font-weight: 700; box-shadow: 1px 0 0 var(--kfin-line-strong); background: #faf9f7; }
+.sdash .sdash-mx thead .sdash-mx-c1, .sdash .sdash-mx thead .sdash-mx-c2, .sdash .sdash-mx thead .sdash-mx-c3,
+.sdash .sdash-mx tfoot .sdash-mx-c1, .sdash .sdash-mx tfoot .sdash-mx-c2, .sdash .sdash-mx tfoot .sdash-mx-c3 { z-index: 5; }
+.sdash .sdash-mx tfoot .sdash-mx-c3 { background: #faf9f7; }
+
+@media (max-width: 575px) {
+  .kfin.sdash { --sdash-mx-name-w: 118px; --sdash-mx-cat-w: 96px; }
+  .sdash .sdash-mx .sdash-mx-c2, .sdash .sdash-mx .sdash-mx-c3 { left: auto; box-shadow: none; }
+  .sdash .sdash-mx tbody .sdash-mx-c2, .sdash .sdash-mx tbody .sdash-mx-c3 { position: static; }
+  /* En la cabecera y el pie siguen fijas arriba/abajo, pero al desplazarse no deben tapar la columna Kiosko */
+  .sdash .sdash-mx thead .sdash-mx-c2, .sdash .sdash-mx thead .sdash-mx-c3,
+  .sdash .sdash-mx tfoot .sdash-mx-c2, .sdash .sdash-mx tfoot .sdash-mx-c3 { z-index: 3; }
+  .sdash .sdash-kheat-title { font-size: 1.05rem; }
+  .sdash .sdash-ins { padding: 8px 10px 8px 12px; }
+  .sdash .sdash-kheat-filter .kfin-btnseg { flex: 1 1 100%; }
+  .sdash .sdash-kheat-filter .kfin-btnseg .kfin-btn { flex: 1 1 auto; padding: 8px 6px; min-height: 44px; }
+}
+
+/* Pantallas muy angostas (≤ 380 px): los cinco botones del filtro no caben en una línea y bajan como fichas sueltas */
+@media (max-width: 380px) {
+  .kfin.sdash .sdash-kheat-filter .kfin-btnseg { flex-wrap: wrap; gap: 6px; }
+  .kfin.sdash .sdash-kheat-filter .kfin-btnseg .kfin-btn { margin-left: 0; border-radius: 6px; }
+}
+
+@media print {
+  .sdash .sdash-mx-scroll { max-height: none; }
 }
