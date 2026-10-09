@@ -23,6 +23,7 @@ import {
   buildBrandOptions,
 } from "./posUtils";
 import { PRODUCT_AUDIENCE_OPTIONS } from "utils/productAudienceHelper";
+import { entrecuerosPosCanAddItem } from "utils/kioskPackagingHelper";
 
 function PosCatalogPanel({
   inventory,
@@ -44,23 +45,28 @@ function PosCatalogPanel({
   const entrecueros = isEntrecuerosPosMode({ posMode });
   const [catalogGroup, setCatalogGroup] = useState("");
   const [brandFilter, setBrandFilter] = useState("");
-  const categoryOptions = useMemo(() => buildCategoryOptions(inventory), [inventory]);
-  const colorOptions = useMemo(() => buildColorOptions(inventory), [inventory]);
-  const brandOptions = useMemo(() => buildBrandOptions(inventory), [inventory]);
-  const isPackagingView = catalogView === "PACKAGING";
+  const catalogInventory = useMemo(() => {
+    if (!entrecueros) return inventory;
+    return (inventory || []).filter((item) => entrecuerosPosCanAddItem(true, item));
+  }, [inventory, entrecueros]);
+  const effectiveCatalogView = entrecueros ? "PRODUCTS" : catalogView;
+  const categoryOptions = useMemo(() => buildCategoryOptions(catalogInventory), [catalogInventory]);
+  const colorOptions = useMemo(() => buildColorOptions(catalogInventory), [catalogInventory]);
+  const brandOptions = useMemo(() => buildBrandOptions(catalogInventory), [catalogInventory]);
+  const isPackagingView = effectiveCatalogView === "PACKAGING";
 
   const filteredInventory = useMemo(
     () =>
-      filterPosInventory(inventory, {
+      filterPosInventory(catalogInventory, {
         search: productSearch,
         categoryFilter: entrecueros ? "" : categoryFilter,
         audienceFilter,
         colorFilter,
-        catalogView,
+        catalogView: effectiveCatalogView,
         catalogGroup: entrecueros ? catalogGroup : "",
         brandFilter: entrecueros ? brandFilter : "",
       }),
-    [inventory, productSearch, categoryFilter, audienceFilter, colorFilter, catalogView, catalogGroup, brandFilter, entrecueros]
+    [catalogInventory, productSearch, categoryFilter, audienceFilter, colorFilter, effectiveCatalogView, catalogGroup, brandFilter, entrecueros]
   );
 
   const groupedProducts = useMemo(
@@ -96,6 +102,16 @@ function PosCatalogPanel({
     }
   };
 
+  const handleAddProduct = (item) => {
+    if (!entrecuerosPosCanAddItem(entrecueros, item)) return;
+    onAddProduct(item);
+  };
+
+  const handlePickSizedVariant = (variant) => {
+    if (!entrecuerosPosCanAddItem(entrecueros, variant)) return;
+    onPickSizedVariant(variant);
+  };
+
   return (
     <Card className="kiosk-pos-block kiosk-pos-catalog">
       <CardBody>
@@ -109,21 +125,23 @@ function PosCatalogPanel({
           />
         </div>
 
-        <div className="kiosk-pos-filter-row">
-          <span className="kiosk-pos-filter-label">Vista</span>
-          <div className="kiosk-pos-chips">
-            {POS_CATALOG_VIEWS.map((option) => (
-              <button
-                key={`view-${option.value}`}
-                type="button"
-                className={`kiosk-pos-chip ${catalogView === option.value ? "active" : ""}`}
-                onClick={() => handleCatalogViewChange(option.value)}
-              >
-                {option.label}
-              </button>
-            ))}
+        {!entrecueros && (
+          <div className="kiosk-pos-filter-row">
+            <span className="kiosk-pos-filter-label">Vista</span>
+            <div className="kiosk-pos-chips">
+              {POS_CATALOG_VIEWS.map((option) => (
+                <button
+                  key={`view-${option.value}`}
+                  type="button"
+                  className={`kiosk-pos-chip ${catalogView === option.value ? "active" : ""}`}
+                  onClick={() => handleCatalogViewChange(option.value)}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
           </div>
-        </div>
+        )}
 
         {!isPackagingView && (
           <>
@@ -295,7 +313,7 @@ function PosCatalogPanel({
                   key={variantKey}
                   type="button"
                   className={`kiosk-pos-packaging-card ${outOfStock ? "disabled" : ""}`}
-                  onClick={outOfStock ? undefined : () => onAddProduct(item)}
+                  onClick={outOfStock ? undefined : () => handleAddProduct(item)}
                   disabled={outOfStock}
                   title={
                     outOfStock
@@ -378,7 +396,7 @@ function PosCatalogPanel({
                             outOfStock
                               ? undefined
                               : () =>
-                                  needsSize ? onPickSizedVariant(variant) : onAddProduct(variant)
+                                  needsSize ? handlePickSizedVariant(variant) : handleAddProduct(variant)
                           }
                           disabled={outOfStock}
                           title={`${chipLabel} · Stock: ${formatQty(stock)}${
