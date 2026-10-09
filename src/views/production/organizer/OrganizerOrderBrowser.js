@@ -53,6 +53,13 @@ function formatAssignmentLine(a) {
 // qué órdenes y para qué día, y el sistema decide la mesa. Dejar que la eligieran era
 // lo que causaba el conflicto entre los operarios y el auxiliar de producción.
 
+/** Por qué el botón Agregar está como está, en una frase. */
+const motivoBoton = (inDraft, restante) => {
+  if (inDraft) return "Ya está en la tarea borrador. Quítelo de la tarea para volver a agregarlo.";
+  if (restante <= 0) return "No queda cantidad por asignar: las unidades ya están en otras tareas.";
+  return `Agregar ${restante} unidad(es) a la tarea borrador`;
+};
+
 /** Fila de ítem con input de cantidad parcial y botón Agregar. */
 function OrganizerItemRow({ order, item, inDraft, onAdd, onJumpToAssignment }) {
   const [qty, setQty] = useState(item.remainingQuantity);
@@ -143,19 +150,25 @@ function OrganizerItemRow({ order, item, inDraft, onAdd, onJumpToAssignment }) {
         <td />
       )}
       <td className="text-right" style={{ width: 110 }}>
-        <Button
-          size="sm"
-          color={inDraft ? "secondary" : "primary"}
-          disabled={inDraft || item.remainingQuantity <= 0}
-          onClick={() => {
-            // OPL always excluded from cupo (daySaleExtra equivalent).
-            if (onAdd(order, item, qty, !!order.onlineSale)) {
-              setQty(item.remainingQuantity);
-            }
-          }}
-        >
-          {inDraft ? "En tarea" : "Agregar"}
-        </Button>
+        {/* El boton dice POR QUE no se puede, no solo que no se puede: son dos motivos muy
+            distintos -ya esta en el borrador, o no queda nada por asignar- y antes los dos se
+            veian igual, como un boton gris sin explicacion. El title va en el span porque un
+            button deshabilitado no dispara eventos de raton y el tooltip no saldria. */}
+        <span title={motivoBoton(inDraft, item.remainingQuantity)}>
+          <Button
+            size="sm"
+            color={inDraft ? "secondary" : "primary"}
+            disabled={inDraft || item.remainingQuantity <= 0}
+            onClick={() => {
+              // OPL always excluded from cupo (daySaleExtra equivalent).
+              if (onAdd(order, item, qty, !!order.onlineSale)) {
+                setQty(item.remainingQuantity);
+              }
+            }}
+          >
+            {inDraft ? "En tarea" : item.remainingQuantity <= 0 ? "Sin restante" : "Agregar"}
+          </Button>
+        </span>
       </td>
     </tr>
   );
