@@ -1,8 +1,9 @@
 import React from "react";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import KioskSales from "./KioskSales";
 import {
+  createKioskPosSale,
   getCurrentCashSession,
   getKioskPosContext,
   getKioskPromotions,
@@ -10,6 +11,19 @@ import {
   getOldestPendingFelSale,
   getPendingDepositSummary,
 } from "services/kioskPosService";
+
+const mockPackagingGate = { allow: false };
+
+jest.mock("utils/kioskPackagingHelper", () => {
+  const actual = jest.requireActual("utils/kioskPackagingHelper");
+  return {
+    ...actual,
+    entrecuerosPosCanAddItem: (isEntrecuerosPos, item) => {
+      if (mockPackagingGate.allow) return true;
+      return actual.entrecuerosPosCanAddItem(isEntrecuerosPos, item);
+    },
+  };
+});
 
 jest.mock("services/kioskPosService");
 jest.mock("services/taxInvoiceService");
@@ -50,6 +64,17 @@ const inventory = [
     suggestedUnitPrice: 5,
     isPackaging: true,
   },
+  {
+    productId: 33,
+    productCode: "BOX-2",
+    productName: "Sobre kraft",
+    colorId: 5,
+    colorName: "Tostado",
+    hardwareCondition: "NUEVO",
+    quantity: 2,
+    suggestedUnitPrice: 3,
+    packaging: true,
+  },
 ];
 
 function mockPos(posMode) {
@@ -67,9 +92,30 @@ function mockPos(posMode) {
   getOldestPendingFelSale.mockResolvedValue(null);
 }
 
+async function confirmSale({ entrecueros }) {
+  fireEvent.click(screen.getByRole("button", { name: /Cobrar Q/ }));
+  if (entrecueros) {
+    fireEvent.change(await screen.findByPlaceholderText("Ej. 1842"), {
+      target: { value: "1842" },
+    });
+  }
+  fireEvent.click(screen.getByRole("button", { name: "EXACTO" }));
+  const confirm = screen.getByRole("button", {
+    name: entrecueros ? /Confirmar venta/ : /Confirmar y facturar/,
+  });
+  expect(confirm).toBeEnabled();
+  fireEvent.click(confirm);
+}
+
 describe("KioskSales empaques", () => {
   beforeEach(() => {
+    mockPackagingGate.allow = false;
     jest.clearAllMocks();
+    createKioskPosSale.mockResolvedValue({
+      id: 91,
+      saleNumber: "POS-91",
+      felStatus: "SKIPPED",
+    });
   });
 
   it("no deja agregar empaque en Entrecueros", async () => {
@@ -108,5 +154,41 @@ describe("KioskSales empaques", () => {
     expect(screen.getByText("Empaque")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Cobrar Q 15.00/ })).toBeInTheDocument();
     expect(screen.queryByText(/-Q/)).not.toBeInTheDocument();
+  });
+
+  it("no envía empaques de bandera que ya están en el carrito de Entrecueros", async () => {
+    mockPackagingGate.allow = true;
+    mockPos("ENTRECUEROS");
+    render(<KioskSales />);
+
+    expect(await screen.findByText("Caja abierta")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Café\s+3/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Tostado\s+2/ }));
+    expect(document.querySelectorAll(".kiosk-pos-cart-line")).toHaveLength(2);
+
+    mockPackagingGate.allow = false;
+    await confirmSale({ entrecueros: true });
+
+    expect(createKioskPosSale).not.toHaveBeenCalled();
+  });
+
+  it("el kiosko sí registra empaques de bandera", async () => {
+    mockPos("STANDARD");
+    render(<KioskSales />);
+
+    expect(await screen.findByText("Caja abierta")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Café\s+3/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Tostado\s+2/ }));
+    expect(document.querySelectorAll(".kiosk-pos-cart-line")).toHaveLength(2);
+
+    await confirmSale({ entrecueros: false });
+
+    await waitFor(() => expect(createKioskPosSale).toHaveBeenCalledTimes(1));
+    expect(createKioskPosSale).toHaveBeenCalledWith(expect.objectContaining({
+      items: expect.arrayContaining([
+        expect.objectContaining({ productId: 32 }),
+        expect.objectContaining({ productId: 33 }),
+      ]),
+    }));
   });
 });

@@ -34,7 +34,11 @@ import {
 import { issueTaxInvoiceFromKioskSale } from "services/taxInvoiceService";
 import { countShipmentsInTransit } from "services/productDistributionService";
 import { getTodayYmdGuatemala } from "utils/dateTimeHelper";
-import { entrecuerosPosCanAddItem, isPackagingProductCode } from "utils/kioskPackagingHelper";
+import {
+  entrecuerosPosCanAddItem,
+  isPackagingProductCode,
+  isPosPackagingItem,
+} from "utils/kioskPackagingHelper";
 import { filterVisibleKioskStockRows, resolveCinchoUnitPriceWithSize } from "utils/productCinchoHelper";
 import { showError, showSuccess } from "utils/notificationHelper";
 import PosAdminKioskPicker from "./pos/PosAdminKioskPicker";
@@ -340,6 +344,7 @@ function KioskSales() {
           key,
           productId: inventoryItem.productId,
           productCode: inventoryItem.productCode,
+          code: inventoryItem.code,
           productName: inventoryItem.productName,
           colorId: inventoryItem.colorId,
           colorName: inventoryItem.colorName,
@@ -349,7 +354,11 @@ function KioskSales() {
           audienceCategory: inventoryItem.audienceCategory || "UNISEX",
           categoryId: inventoryItem.categoryId ?? null,
           categoryName: inventoryItem.categoryName || "",
-          isPackaging: isPackagingProductCode(inventoryItem.productCode),
+          isPackaging:
+            Boolean(inventoryItem.isPackaging)
+            || isPackagingProductCode(inventoryItem.productCode)
+            || isPackagingProductCode(inventoryItem.code),
+          packaging: inventoryItem.packaging,
           availableQty,
           quantity: 1,
           catalogUnitPrice,
@@ -539,7 +548,7 @@ function KioskSales() {
       return;
     }
     for (const line of cart) {
-      if (!entrecuerosPosCanAddItem(isEntrecuerosPos, line)) {
+      if (isEntrecuerosPos && isPosPackagingItem(line)) {
         showError("Entrecueros no vende empaques.");
         return;
       }
