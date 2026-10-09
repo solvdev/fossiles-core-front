@@ -69,7 +69,6 @@ describe("kioskInventoryFormHelper", () => {
           locationDestinationId: 2,
           productId: 10,
           quantity: 2,
-          physicalSlipNumber: "B-100",
         })
       ).toBe("");
       expect(
