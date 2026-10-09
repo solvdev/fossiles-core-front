@@ -26,6 +26,7 @@ jest.mock("utils/dateTimeHelper", () => ({
 jest.mock("services/salesDashboardService", () => ({
   getSalesConsolidated: jest.fn(),
   getSalesKiosks: jest.fn(),
+  getKioskHeatmap: jest.fn(),
   getSalesOnline: jest.fn(),
   getSalesVendor: jest.fn(),
 }));
@@ -83,17 +84,18 @@ const kioskKpis = (overrides) => ({
   previousTotalAmount: 120000, growthPercent: 25, dailyAmount: 1500, salesCount: 640, unitsFinished: 900, avgTicket: 168.75,
   ...overrides,
 });
+// Clasificación A/B/C de cada kiosko (kiosk_site.sales_category): Kiosko Centro = A; Plaza Antigua, sin clasificar.
 const kioskDetail = (overrides) =>
   detail("KIOSKO", {
     kpis: kioskKpis(),
     kioskOptions: [
-      { siteId: 5, kioskId: null, kioskCode: "", kioskName: "Plaza Antigua" },
-      { siteId: 3, kioskId: 30, kioskCode: "K3", kioskName: "Kiosko Centro" },
+      { siteId: 5, kioskId: null, kioskCode: "", kioskName: "Plaza Antigua", category: null },
+      { siteId: 3, kioskId: 30, kioskCode: "K3", kioskName: "Kiosko Centro", category: "A" },
     ],
     breakdowns: {
       byKiosk: [
-        { key: "3", label: "Kiosko Centro", count: 640, amount: 108000, sharePercent: 72 },
-        { key: "5", label: "Plaza Antigua", count: 0, amount: 42000, sharePercent: 28 },
+        { key: "3", label: "Kiosko Centro", count: 640, amount: 108000, sharePercent: 72, category: "A" },
+        { key: "5", label: "Plaza Antigua", count: 0, amount: 42000, sharePercent: 28, category: null },
       ],
       byPaymentMethod: [
         { key: "EFECTIVO", label: "Efectivo", count: 400, amount: 70000, sharePercent: 64.8 },
@@ -102,6 +104,38 @@ const kioskDetail = (overrides) =>
     },
     ...overrides,
   });
+
+// Mapa de calor de kioscos (GET /dashboard/kiosks/heatmap, Addendum 3): septiembre 2026, siempre TODOS los sitios
+// aunque el selector de kiosko tenga uno elegido. Kiosko Centro (Cat. A) vende más los viernes y sábados.
+const SEPT_DAYS = Array.from({ length: 30 }, (_, i) => `2026-09-${String(i + 1).padStart(2, "0")}`);
+const heatSite = (overrides, amountFor) => {
+  const daily = SEPT_DAYS.map((date, i) => amountFor(i + 1, new Date(`${date}T00:00:00Z`).getUTCDay()));
+  const total = daily.reduce((a, v) => a + v, 0);
+  return { locationId: null, source: "POS", daysWithSales: daily.filter((v) => v > 0).length, daily, total, ...overrides };
+};
+const heatmapResponse = (overrides) => {
+  const centro = heatSite(
+    { siteId: 3, name: "Kiosko Centro", category: "A", previousTotal: 90000, growthPercent: 20 },
+    (day, wd) => (wd === 5 || wd === 6 ? 5000 : 2500)
+  );
+  const plaza = heatSite(
+    { siteId: 5, name: "Plaza Antigua", category: null, previousTotal: 0, growthPercent: 100 },
+    () => 1000
+  );
+  return {
+    startDate: "2026-09-01",
+    endDate: "2026-09-30",
+    previousStartDate: "2026-08-02",
+    previousEndDate: "2026-08-31",
+    days: SEPT_DAYS,
+    sites: [centro, plaza],
+    categories: [
+      { category: "A", kioskCount: 1, total: centro.total, previousTotal: 90000, growthPercent: 20, sharePercent: 78.5 },
+      { category: null, kioskCount: 1, total: plaza.total, previousTotal: 0, growthPercent: 100, sharePercent: 21.5 },
+    ],
+    ...overrides,
+  };
+};
 
 // Última ?query de la URL (MemoryRouter no la expone de otra forma).
 let lastSearch = "";
@@ -154,8 +188,9 @@ beforeAll(() => {
 });
 
 beforeEach(() => {
-  // CRA resetea los mocks entre pruebas: el reporte de publicidad responde siempre algo válido
+  // CRA resetea los mocks entre pruebas: el reporte de publicidad y el mapa de calor responden siempre algo válido
   svc2.getAdSpendReport.mockResolvedValue(adSpendReport);
+  svc.getKioskHeatmap.mockResolvedValue(heatmapResponse());
 });
 
 test("consolidado", async () => {
@@ -305,8 +340,11 @@ test("kioskos: fuente de Finanzas kioscos — aviso del histórico, pie fijo, r�
   // ranking por kiosko: el sitio histórico (sin tickets) muestra '—' y no '0'
   const rows = [...container.querySelectorAll('section[aria-label="Ranking por kiosko"] tbody tr')];
   const cells = (row) => [...row.children].map((c) => c.textContent);
-  expect(cells(rows[0])).toEqual(["Kiosko Centro", "640", "Q 108,000.00", "72.0%"]);
-  expect(cells(rows[1])).toEqual(["Plaza Antigua", "—", "Q 42,000.00", "28.0%"]);
+  // cada kiosko lleva su clasificación junto al nombre (con texto: 'Cat. A' / 'Sin clasificar')
+  expect(cells(rows[0])).toEqual(["Kiosko Centro Cat. A", "640", "Q 108,000.00", "72.0%"]);
+  expect(cells(rows[1])).toEqual(["Plaza Antigua Sin clasificar", "—", "Q 42,000.00", "28.0%"]);
+  expect(rows[0].querySelector(".sdash-cat--a").textContent).toBe("Cat. A");
+  expect(rows[1].querySelector(".sdash-cat--none").textContent).toBe("Sin clasificar");
   const rankingHeaders = [...container.querySelectorAll('section[aria-label="Ranking por kiosko"] thead th')].map((e) => e.textContent);
   expect(rankingHeaders).toEqual(["Kiosko", "Tickets (POS)", "Venta", "% del total"]);
   expect(text).toContain("Las 1 más recientes del periodo · solo POS");
@@ -358,9 +396,10 @@ test("kioskos: el selector de kiosko usa el id del sitio y la consulta y la URL 
   const select = container.querySelector("#sdash-kiosk");
   expect(container.querySelector('label[for="sdash-kiosk"]').textContent).toBe("Kiosko");
   // opciones: Todos + todos los sitios con venta (el histórico, sin ubicación del POS, incluido), por nombre
+  // (el kiosko clasificado lleva 'Cat. A' en el texto; el valor sigue siendo el id del sitio)
   expect([...select.options].map((o) => [o.value, o.textContent])).toEqual([
     ["", "Todos los kioskos"],
-    ["3", "Kiosko Centro"],
+    ["3", "Kiosko Centro · Cat. A"],
     ["5", "Plaza Antigua"],
   ]);
   expect(select.value).toBe("");
@@ -415,6 +454,151 @@ test("cambiar de pestaña quita el kiosko elegido (siteId) de la URL", async () 
   expect(urlParam("kioskLocationId")).toBeNull();
   expect(urlParam("startDate")).toBe("2026-09-01");
   expect(urlParam("endDate")).toBe("2026-09-30");
+});
+
+test("kioskos: 'Mapa de calor de kioscos' va entre el ranking y 'Últimas ventas' y consulta su propio endpoint", async () => {
+  svc.getSalesKiosks.mockResolvedValue(kioskDetail());
+  const { container } = await renderAt("/?tab=kioskos&startDate=2026-09-01&endDate=2026-09-30");
+  const text = container.textContent;
+  expect(text).toContain("Mapa de calor de kioscos");
+  expect(text.indexOf("Ranking por kiosko")).toBeLessThan(text.indexOf("Mapa de calor de kioscos"));
+  expect(text.indexOf("Mapa de calor de kioscos")).toBeLessThan(text.indexOf("Últimas ventas"));
+
+  // hermanos directos: tarjetas de arriba -> mapa de calor -> últimas ventas
+  const section = container.querySelector("#sdash-kheat-title").closest("section");
+  expect(section.previousElementSibling.querySelector('section[aria-label="Ranking por kiosko"]')).not.toBeNull();
+  expect(section.nextElementSibling.querySelector('section[aria-label="Últimas ventas"]')).not.toBeNull();
+
+  // su propio endpoint: rango del dashboard, sin caché saltada y sin kiosko (compara a todos)
+  const calls = svc.getKioskHeatmap.mock.calls;
+  expect(calls).toHaveLength(1);
+  expect(calls[0][0]).toMatchObject({ startDate: "2026-09-01", endDate: "2026-09-30", refresh: false });
+  expect(calls[0][0].siteId).toBeUndefined();
+
+  // calendario con la paleta de Kioskos (de /dashboard/kiosks), insights, resumen y las dos matrices
+  const heat = section.querySelector(".sdash-heat");
+  expect(heat.classList.contains("sdash-heat--kiosk")).toBe(true);
+  expect(heat.textContent).toContain("Mapa de calor por día");
+  expect(heat.textContent).toContain("venta de kioscos por día (Q)");
+  expect(heat.textContent).toContain("Es el mismo criterio de la matriz de ventas diarias del módulo de Finanzas kioscos.");
+  expect(heat.textContent).not.toContain("ventas online");
+  expect(heat.querySelector(".sdash-badge--heat").textContent).toContain("Mediana del mes");
+  expect(heat.querySelectorAll(".sdash-cd").length).toBeGreaterThanOrEqual(30);
+  expect(section.querySelector('section[aria-label="Insights del mapa de calor"] li')).not.toBeNull();
+  expect(section.querySelector('section[aria-label="Por clasificación"] tbody tr')).not.toBeNull();
+  expect(section.querySelectorAll('section[aria-label="Kioscos por día de la semana"] tbody tr')).toHaveLength(2);
+  expect(section.querySelectorAll('section[aria-label="Kioscos por día"] tbody tr')).toHaveLength(2);
+  expect(section.textContent).toContain("ahora: todos los kioscos");
+});
+
+test("kioskos: si /dashboard/kiosks falla, el mapa de calor sigue en su lugar con sus matrices (sin calendario)", async () => {
+  svc.getSalesKiosks.mockRejectedValue(new Error("boom"));
+  const { container } = await renderAt("/?tab=kioskos&startDate=2026-09-01&endDate=2026-09-30");
+  expect(container.textContent).toContain("boom");
+  expect(container.textContent).toContain("Mapa de calor de kioscos");
+  expect(container.querySelector('section[aria-label="Insights del mapa de calor"]')).not.toBeNull();
+  expect(container.querySelector('section[aria-label="Kioscos por día de la semana"]')).not.toBeNull();
+  expect(container.querySelector('section[aria-label="Kioscos por día"]')).not.toBeNull();
+  // el calendario necesita la serie diaria de /dashboard/kiosks
+  expect(container.querySelector(".sdash-heat")).toBeNull();
+  expect(container.textContent).not.toContain("Últimas ventas");
+  expect(svc.getKioskHeatmap).toHaveBeenCalledTimes(1);
+});
+
+test("kioskos: el mapa de calor no se desmonta cuando /dashboard/kiosks falla al recargar y conserva el filtro elegido", async () => {
+  svc.getSalesKiosks.mockResolvedValueOnce(kioskDetail());
+  const { container } = await renderAt("/?tab=kioskos&startDate=2026-09-01&endDate=2026-09-30");
+  const section = container.querySelector("#sdash-kheat-title").closest("section");
+  await click(buttonByText(section, "A"));
+  expect([...section.querySelectorAll('section[aria-label="Kioscos por día de la semana"] tbody th')].map((th) => th.textContent)).toEqual(["Kiosko Centro"]);
+
+  // 'Actualizar' recarga las dos consultas; /dashboard/kiosks falla y la pestaña pasa a mostrar el error
+  svc.getSalesKiosks.mockRejectedValue(new Error("boom"));
+  await click(buttonByText(container, "Actualizar"));
+  expect(container.textContent).toContain("boom");
+  expect(container.textContent).not.toContain("Últimas ventas");
+  // el mismo nodo del mapa de calor sigue ahí, con su filtro y sus datos
+  expect(container.querySelector("#sdash-kheat-title").closest("section")).toBe(section);
+  expect(buttonByText(section, "A").getAttribute("aria-pressed")).toBe("true");
+  expect([...section.querySelectorAll('section[aria-label="Kioscos por día de la semana"] tbody th')].map((th) => th.textContent)).toEqual(["Kiosko Centro"]);
+});
+
+test("kioskos: si el kiosko elegido no vendió, el mapa de calor sigue comparando a todos los kioscos", async () => {
+  svc.getSalesKiosks.mockResolvedValue(
+    kioskDetail({ kpis: kioskKpis({ totalAmount: 0, salesCount: 0, historicalAmount: 0, productAmount: 0, packagingAmount: 0 }) })
+  );
+  const { container } = await renderAt("/?tab=kioskos&startDate=2026-09-01&endDate=2026-09-30&siteId=5");
+  expect(container.textContent).toContain("El kiosko seleccionado no tiene ventas en este periodo.");
+  expect(container.textContent).toContain("Mapa de calor de kioscos");
+  expect(container.querySelectorAll('section[aria-label="Kioscos por día de la semana"] tbody tr')).toHaveLength(2);
+  expect(container.querySelector(".sdash-heat")).toBeNull();
+  expect(svc.getKioskHeatmap.mock.calls[0][0].siteId).toBeUndefined();
+});
+
+test("kioskos: el calendario sigue al selector de kiosko, pero las matrices y los insights no se vuelven a consultar", async () => {
+  svc.getSalesKiosks.mockResolvedValue(kioskDetail());
+  const { container } = await renderAt("/?tab=kioskos&startDate=2026-09-01&endDate=2026-09-30");
+  const section = () => container.querySelector("#sdash-kheat-title").closest("section");
+  expect(svc.getKioskHeatmap).toHaveBeenCalledTimes(1);
+  expect(section().textContent).toContain("ahora: todos los kioscos");
+
+  await setValue(container.querySelector("#sdash-kiosk"), "5", "change");
+  const kioskCalls = svc.getSalesKiosks.mock.calls;
+  expect(kioskCalls[kioskCalls.length - 1][0].siteId).toBe("5");
+  expect(svc.getKioskHeatmap).toHaveBeenCalledTimes(1);
+  expect(section().textContent).toContain("ahora: Plaza Antigua");
+  // las matrices siguen mostrando los dos kioscos
+  expect(section().querySelectorAll('section[aria-label="Kioscos por día de la semana"] tbody tr')).toHaveLength(2);
+});
+
+test("kioskos: Actualizar y el cambio de rango vuelven a consultar el mapa de calor", async () => {
+  svc.getSalesKiosks.mockResolvedValue(kioskDetail());
+  const { container } = await renderAt("/?tab=kioskos&startDate=2026-09-01&endDate=2026-09-30");
+  const calls = svc.getKioskHeatmap.mock.calls;
+  const last = () => calls[calls.length - 1][0];
+  expect(calls).toHaveLength(1);
+  await click(buttonByText(container, "Actualizar"));
+  expect(calls).toHaveLength(2);
+  expect(last().refresh).toBe(true);
+  expect(last()).toMatchObject({ startDate: "2026-09-01", endDate: "2026-09-30" });
+  await click(buttonByText(container, "7 días"));
+  expect(calls).toHaveLength(3);
+  expect(last()).toMatchObject({ startDate: "2026-10-02", endDate: "2026-10-08", refresh: false });
+});
+
+test("kioskos: si el mapa de calor falla, solo esa sección muestra el error (con reintento) y el resto de la pestaña sigue", async () => {
+  svc.getSalesKiosks.mockResolvedValue(kioskDetail());
+  svc.getKioskHeatmap.mockRejectedValueOnce(new Error("sin conexión con finanzas"));
+  const { container } = await renderAt("/?tab=kioskos&startDate=2026-09-01&endDate=2026-09-30");
+  const section = container.querySelector("#sdash-kheat-title").closest("section");
+  expect(section.textContent).toContain("sin conexión con finanzas");
+  expect(section.querySelector('section[aria-label="Kioscos por día de la semana"]')).toBeNull();
+  // el calendario (de /dashboard/kiosks) y la pestaña no se afectan
+  expect(section.querySelector(".sdash-heat")).not.toBeNull();
+  expect(container.textContent).toContain("Ranking por kiosko");
+  expect(container.textContent).toContain("Últimas ventas");
+  await click(buttonByText(section, "Reintentar"));
+  expect(svc.getKioskHeatmap).toHaveBeenCalledTimes(2);
+  expect(section.querySelectorAll('section[aria-label="Kioscos por día de la semana"] tbody tr')).toHaveLength(2);
+});
+
+test("online: el mapa de calor conserva la rampa ámbar; la paleta de Kioskos solo aplica en Kioskos", async () => {
+  svc.getSalesOnline.mockResolvedValue(
+    detail("ONLINE", {
+      breakdowns: { bySeller: bd("1", "Vendedora 1"), bySocialNetwork: bd("ig", "Instagram"), byPaymentMethod: bd("t", "Tarjeta"), byStatus: bd("e", "Entregado") },
+    })
+  );
+  const { container } = await renderAt("/?tab=online&startDate=2026-09-01&endDate=2026-09-30");
+  const heat = container.querySelector(".sdash-heat");
+  expect(heat).not.toBeNull();
+  expect(heat.classList.contains("sdash-heat--kiosk")).toBe(false);
+  expect(container.querySelector(".sdash-heat--kiosk")).toBeNull();
+  expect(heat.querySelector(".sdash-badge--heat").textContent).toContain("Mediana del mes");
+  expect(heat.textContent).toContain("venta online por día (Q)");
+  expect(heat.textContent).toContain("Es el mismo criterio del módulo de Finanzas kioscos, aplicado a las ventas online.");
+  // Online no consulta ni muestra el mapa de calor de kioscos
+  expect(svc.getKioskHeatmap).not.toHaveBeenCalled();
+  expect(container.textContent).not.toContain("Mapa de calor de kioscos");
 });
 
 test("online con mapa de calor", async () => {

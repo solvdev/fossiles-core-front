@@ -13,8 +13,8 @@ import {
   topWeekdayIndexes,
 } from "./salesDashboardHelpers";
 
-const BAR_STRONG = "#c77d0a";
-const BAR_SOFT = "#f0a63a";
+const ONLINE_FOOT_NOTE = "Es el mismo criterio del módulo de Finanzas kioscos, aplicado a las ventas online.";
+const KIOSK_FOOT_NOTE = "Es el mismo criterio de la matriz de ventas diarias del módulo de Finanzas kioscos.";
 
 const cellDescription = (cell) => {
   const base = `${WEEKDAYS[cell.weekday].name} ${cell.day}: ${fmtMoney(cell.amount)}`;
@@ -22,10 +22,19 @@ const cellDescription = (cell) => {
   return `${base}${ratio}${cell.isBest ? ", mejor día" : ""}`;
 };
 
-function HeatLegend() {
+/**
+ * Leyenda del sombreado (6 tonos + celda sin venta + ★ del mejor día). Se reutiliza en las matrices de kioscos con otro
+ * título; `bestLabel` vacío oculta la clave de la estrella.
+ */
+export function HeatLegend({
+  title = "Sombreado vs. mediana:",
+  ariaLabel = "Escala de sombreado respecto a la mediana del mes",
+  zeroLabel = "0.00 sin venta",
+  bestLabel = "mejor día",
+}) {
   return (
-    <div className="kfin-heat-legend" role="group" aria-label="Escala de sombreado respecto a la mediana del mes">
-      <span className="kfin-heat-legend-title">Sombreado vs. mediana:</span>
+    <div className="kfin-heat-legend" role="group" aria-label={ariaLabel}>
+      <span className="kfin-heat-legend-title">{title}</span>
       {HEAT_LABELS.map((label, i) => (
         <span className="kfin-heat-key" key={label}>
           <span className={`kfin-heat-swatch sdash-h${i}`} aria-hidden="true" />
@@ -34,11 +43,13 @@ function HeatLegend() {
       ))}
       <span className="kfin-heat-key">
         <span className="kfin-heat-swatch sdash-hzero" aria-hidden="true" />
-        0.00 sin venta
+        {zeroLabel}
       </span>
-      <span className="kfin-heat-key">
-        <span aria-hidden="true">★</span> mejor día
-      </span>
+      {bestLabel ? (
+        <span className="kfin-heat-key">
+          <span aria-hidden="true">★</span> {bestLabel}
+        </span>
+      ) : null}
     </div>
   );
 }
@@ -94,8 +105,12 @@ function MonthCalendar({ calendar, showTitle }) {
  * Rango de varios meses: se muestra un calendario por cada mes que toca el rango (apilados) y cada mes se
  * sombrea contra su propia mediana (la de los días con venta del mes dentro del rango). El promedio por día
  * de la semana y la tabla de detalle cubren todo el rango; el acumulado corre a lo largo del rango completo.
+ *
+ * `variant`: 'online' (rampa ámbar, la de siempre) o 'kiosk' (rampa verde azulada de Kioskos). Los colores salen del
+ * contenedor `.sdash-heat` y su modificador `.sdash-heat--kiosk` (variables CSS), así que Online no cambia.
+ * `footNote` reemplaza la última frase del pie (por defecto la de Online).
  */
-export default function OnlineHeatmap({ dailySeries, periodLabel, noun = "venta online" }) {
+export default function OnlineHeatmap({ dailySeries, periodLabel, noun = "venta online", variant = "online", footNote }) {
   const calendars = useMemo(() => buildMonthCalendars(dailySeries), [dailySeries]);
   const detail = useMemo(() => buildDetailRows(calendars), [calendars]);
   const weekdays = useMemo(() => aggregateWeekdays(dailySeries), [dailySeries]);
@@ -106,9 +121,10 @@ export default function OnlineHeatmap({ dailySeries, periodLabel, noun = "venta 
   const multi = calendars.length > 1;
   const maxAvg = Math.max(...weekdays.map((w) => w.avg));
   const grandTotal = detail.length ? detail[detail.length - 1].cumulative : 0;
+  const closing = footNote || (variant === "kiosk" ? KIOSK_FOOT_NOTE : ONLINE_FOOT_NOTE);
 
   return (
-    <>
+    <div className={`sdash-heat${variant === "kiosk" ? " sdash-heat--kiosk" : ""}`}>
       <div className="sdash-row">
         <section className="kfin-card sdash-c2" aria-label="Mapa de calor por día">
           <header className="kfin-card-head">
@@ -119,7 +135,7 @@ export default function OnlineHeatmap({ dailySeries, periodLabel, noun = "venta 
               </div>
             </div>
             {!multi && calendars[0].median ? (
-              <span className="sdash-badge sdash-badge--amber">
+              <span className="sdash-badge sdash-badge--heat">
                 Mediana del mes: {fmtMoney(calendars[0].median, { decimals: 0 })}
               </span>
             ) : null}
@@ -143,12 +159,9 @@ export default function OnlineHeatmap({ dailySeries, periodLabel, noun = "venta 
                 <div className="sdash-pr-name">
                   <span>{w.name}</span>
                   <span
-                    className="sdash-pr-bar"
+                    className={`sdash-pr-bar sdash-wbar sdash-wbar--${strong.includes(w.index) ? "strong" : "soft"}`}
                     aria-hidden="true"
-                    style={{
-                      width: `${barPct(w.avg, maxAvg)}%`,
-                      background: strong.includes(w.index) ? BAR_STRONG : BAR_SOFT,
-                    }}
+                    style={{ width: `${barPct(w.avg, maxAvg)}%` }}
                   />
                 </div>
                 <span className="sdash-pr-val" title={`${w.days} ${w.days === 1 ? "día" : "días"} en el periodo`}>
@@ -225,10 +238,9 @@ export default function OnlineHeatmap({ dailySeries, periodLabel, noun = "venta 
           </table>
         </div>
         <div className="kfin-card-foot">
-          Umbrales del sombreado (× mediana de los días con venta del mes): {HEAT_THRESHOLDS.join(", ")}. Es el mismo
-          criterio del módulo de Finanzas kioscos, aplicado a las ventas online.
+          Umbrales del sombreado (× mediana de los días con venta del mes): {HEAT_THRESHOLDS.join(", ")}. {closing}
         </div>
       </section>
-    </>
+    </div>
   );
 }

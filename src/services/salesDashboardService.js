@@ -58,6 +58,18 @@ export const getSalesKiosks = ({ startDate, endDate, siteId, refresh, signal } =
     "No se pudo cargar las ventas de kioskos."
   );
 
+/**
+ * Mapa de calor de kioscos: venta diaria de TODOS los sitios de Finanzas kioscos (periodo actual + anterior),
+ * con su clasificación A/B/C. No acepta filtro por kiosko (sirve para comparar kioscos entre sí): aunque quien
+ * llama pase `siteId`, no viaja. El backend admite hasta 400 días.
+ */
+export const getKioskHeatmap = ({ startDate, endDate, refresh, signal } = {}) =>
+  getDashboardSource(
+    "kiosks/heatmap",
+    { startDate, endDate, refresh, signal },
+    "No se pudo cargar el mapa de calor de kioscos."
+  );
+
 export const getSalesOnline = ({ startDate, endDate, refresh, signal } = {}) =>
   getDashboardSource("online", { startDate, endDate, refresh, signal }, "No se pudo cargar las ventas online.");
 
