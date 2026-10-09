@@ -453,7 +453,7 @@ function TasksByTable() {
   const loadProductionOrders = async () => {
     setLoadingOrders(true);
     try {
-      const data = await getProductionOrders();
+      const data = await getProductionOrders({ cached: true });
       const activeStatuses = new Set(["PENDING", "IN_PROGRESS", "DRAFT"]);
       const closedStatuses = new Set(["COMPLETED", "CANCELLED", "PRODUCED", "FINISHED", "TERMINATED", "DONE"]);
       const active = (data || []).filter((o) => {

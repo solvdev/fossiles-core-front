@@ -21,9 +21,6 @@ import {
   lineCountsAgainstCupo,
 } from "utils/taskHoursHelper";
 
-/** Cuánto se reutiliza el listado de OPs antes de volver a pedirlo. */
-const ORDERS_TTL_MS = 5 * 60 * 1000;
-
 /**
  * Estado del Organizador de Tareas: órdenes con restantes, tarea borrador
  * (carrito en memoria), tablero de mesas y backlog de pendientes atrasadas.
@@ -134,21 +131,11 @@ export default function useTaskOrganizer() {
     }
   }, [typeFilter, searchAplicado, page]);
 
-  /**
-   * Las OPs solo sirven aquí para separar las tareas de cinchos, y el listado completo tarda
-   * decenas de segundos. Se guardan unos minutos en vez de pedirlas en cada clic a «Tablero».
-   */
-  const ordersCache = useRef({ at: 0, data: null });
-
   const loadTasks = useCallback(async () => {
     try {
-      const cached = ordersCache.current;
-      const fresh = cached.data && Date.now() - cached.at < ORDERS_TTL_MS;
-      const [data, orders] = await Promise.all([
-        getTasks(),
-        fresh ? Promise.resolve(cached.data) : getProductionOrders(),
-      ]);
-      if (!fresh) ordersCache.current = { at: Date.now(), data: orders };
+      // Las OPs solo sirven aquí para separar las tareas de cinchos: la versión cacheada del
+      // servidor basta, y evita esperar el listado completo en cada clic a «Tablero».
+      const [data, orders] = await Promise.all([getTasks(), getProductionOrders({ cached: true })]);
       setProductionOrders(Array.isArray(orders) ? orders : []);
       setTasks(buildTableCenterTasks(Array.isArray(data) ? data : [], orders));
     } catch (err) {
