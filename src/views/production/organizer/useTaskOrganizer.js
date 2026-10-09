@@ -7,6 +7,8 @@ import {
   getUnfinishedTasks,
   getDieCutPending,
   clearAllDesks,
+  getDayQueue,
+  saveDayQueue,
 } from "services/taskService";
 import { getProductionOrders } from "services/productionOrderService";
 import { getDeskCountForDate } from "services/deskCountService";
@@ -38,19 +40,47 @@ export default function useTaskOrganizer() {
   // La búsqueda ya no filtra en memoria: cada tecla sería una consulta con LIKE.
   const [searchAplicado, setSearchAplicado] = useState("");
 
-  // --- Cola del día: qué órdenes entran y en qué orden ---
-  // Se guarda como lista de {id, code}, no como orden del arreglo visible: si se guardara
-  // así, cambiar de página o de filtro destruiría la cola.
+  // --- Cola del día: qué órdenes entran primero y en qué orden ---
+  // Vive en el servidor: se guarda al marcar, porque «Planificar» (que decide qué entra en el
+  // día) corre antes del corte. Antes solo se guardaba al distribuir, ya tarde, y se perdía
+  // al recargar la página aunque las prioridades sí quedaban puestas en las órdenes.
   const [colaDelDia, setColaDelDia] = useState([]);
+  const colaRef = useRef([]);
+  const guardarCola = useCallback(async (siguiente) => {
+    const anterior = colaRef.current;
+    colaRef.current = siguiente;
+    setColaDelDia(siguiente);
+    try {
+      const guardada = await saveDayQueue(siguiente.map((o) => o.id));
+      if (Array.isArray(guardada)) {
+        colaRef.current = guardada;
+        setColaDelDia(guardada);
+      }
+    } catch (err) {
+      colaRef.current = anterior;
+      setColaDelDia(anterior);
+      showError(err.message);
+    }
+  }, []);
   const alternarEnCola = useCallback((order) => {
-    setColaDelDia((prev) => prev.some((o) => o.id === order.id)
-      ? prev.filter((o) => o.id !== order.id)
-      : [...prev, { id: order.id, code: order.code }]);
-  }, []);
+    const actual = colaRef.current;
+    guardarCola(actual.some((o) => o.id === order.id)
+      ? actual.filter((o) => o.id !== order.id)
+      : [...actual, { id: order.id, code: order.code }]);
+  }, [guardarCola]);
   const quitarDeCola = useCallback((id) => {
-    setColaDelDia((prev) => prev.filter((o) => o.id !== id));
+    guardarCola(colaRef.current.filter((o) => o.id !== id));
+  }, [guardarCola]);
+  const limpiarCola = useCallback(() => guardarCola([]), [guardarCola]);
+  useEffect(() => {
+    getDayQueue()
+      .then((cola) => {
+        const lista = Array.isArray(cola) ? cola : [];
+        colaRef.current = lista;
+        setColaDelDia(lista);
+      })
+      .catch(() => { /* sin cola guardada, se empieza vacía */ });
   }, []);
-  const limpiarCola = useCallback(() => setColaDelDia([]), []);
 
   // --- Tarea borrador ---
   const [draftLines, setDraftLines] = useState([]);

@@ -99,6 +99,33 @@ export const scheduleTask = async (id, data) => {
   return response.json();
 };
 
+/** Cola del día guardada en el servidor: [{ id, code }] en orden de prioridad. */
+export const getDayQueue = async () => {
+  const response = await fetch(`${API_URL}/tasks/day-queue`, { headers: headers() });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ message: 'Error al leer la cola del día' }));
+    throw new Error(err.message || 'Error al leer la cola del día');
+  }
+  return response.json();
+};
+
+/**
+ * Reemplaza la cola del día. El orden de `orderIds` es la prioridad que usan «Planificar» y
+ * «Distribuir»; las órdenes que salen de la lista vuelven a la prioridad de su tipo.
+ */
+export const saveDayQueue = async (orderIds) => {
+  const response = await fetch(`${API_URL}/tasks/day-queue`, {
+    method: 'PUT',
+    headers: headers(),
+    body: JSON.stringify({ orderIds }),
+  });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ message: 'Error al guardar la cola del día' }));
+    throw new Error(err.message || 'Error al guardar la cola del día');
+  }
+  return response.json();
+};
+
 /**
  * Pide mesa al backend con la regla única del sistema: día de la tarea, mesa con menos carga
  * que tenga cupo y desempate al azar. Solo acepta tareas pendientes y troqueladas.

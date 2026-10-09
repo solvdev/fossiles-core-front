@@ -52,7 +52,7 @@ import { showSuccess, showError } from "utils/notificationHelper";
 import TaskTicketPrint from "./TaskTicketPrint";
 import DownloadOpsModal, { mergeOrdersForDownload } from "components/production/DownloadOpsModal";
 import { taskSkipsMaterials } from "utils/materialRequirementHelper";
-import { formatDateGt, formatDateTimeGt, getTodayYmdGuatemala } from "utils/dateTimeHelper";
+import { formatDateGt, formatDateTimeGt, getTodayYmdGuatemala, isWeekendYmd } from "utils/dateTimeHelper";
 import { openOplDispatchSummaryPrintWindow, downloadOplDispatchSummaryExcel } from "utils/oplDispatchSummaryExport";
 import { formatProductionOrderSelectLabel } from "utils/productionOrderDisplayHelper";
 import { openProductionTasksSheetPrintWindow, downloadProductionTasksSheetExcel } from "utils/productionTasksSheetPrintHtml";
@@ -1457,7 +1457,20 @@ function TasksByTable() {
   const statsDay = filterDate || getTodayYmdGuatemala();
   // El plan nunca arma días pasados: con una fecha vieja elegida, el backend planifica hoy.
   const todayYmd = getTodayYmdGuatemala();
-  const planDayLabel = filterDate && filterDate > todayYmd ? `el ${formatDateGt(filterDate)}` : "hoy";
+  const planDay = useMemo(() => {
+    let ymd = filterDate && filterDate > todayYmd ? filterDate : todayYmd;
+    // Sábado o domingo: el backend planifica el siguiente día hábil; la etiqueta dice lo mismo.
+    while (isWeekendYmd(ymd)) {
+      const [y, m, d] = ymd.split("-").map(Number);
+      const next = new Date(y, m - 1, d + 1);
+      ymd = `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, "0")}-${String(next.getDate()).padStart(2, "0")}`;
+    }
+    return ymd;
+  }, [filterDate, todayYmd]);
+  const planDayLabel = planDay === todayYmd ? "hoy" : `el ${formatDateGt(planDay)}`;
+  // Las tarjetas usan el mismo corte que el resumen de arriba, para que los números cuadren.
+  const unassignedUpToDay = unassignedTasks.filter((t) => !t.scheduledDate || t.scheduledDate <= statsDay);
+  const unassignedLater = unassignedTasks.filter((t) => t.scheduledDate && t.scheduledDate > statsDay);
   const stats = useMemo(() => {
     const active = tableCenterTasks.filter((t) => t.status !== "CANCELLED" && t.status !== "COMPLETED");
     const ofDay = active.filter((t) => t.scheduledDate === statsDay);
@@ -2156,7 +2169,10 @@ function TasksByTable() {
                   <span style={{ fontSize: 13 }}>
                     <strong>Cómo fluye una tarea:</strong>
                     <span className="text-muted">
-                      {" "}1) <strong>Planificar</strong> arma las tareas del día (botón amarillo) ·
+                      {" "}1) marque qué va primero en la{" "}
+                      <a href="#colaDelDia" onClick={(e) => { e.preventDefault(); navigate("/admin/task-organizer"); }}>
+                        Cola del día
+                      </a>{" "}y pulse <strong>Planificar</strong> (botón amarillo): arma las tareas del día por esa prioridad ·
                       {" "}2) se entrega cuero y se marca el corte en{" "}
                       <a href="#porTroquelar" onClick={(e) => { e.preventDefault(); navigate("/admin/task-organizer?tab=diecut"); }}>
                         Por troquelar
@@ -2586,14 +2602,14 @@ function TasksByTable() {
                           {[
                             {
                               key: "ready",
-                              list: unassignedTasks.filter((t) => t.dieCutReady),
+                              list: unassignedUpToDay.filter((t) => t.dieCutReady),
                               color: "success",
                               title: "Cortadas sin mesa",
                               hint: "No había cupo cuando se cortaron. Entran solas a la primera mesa que se libere, o use «Asignar mesa».",
                             },
                             {
                               key: "cut",
-                              list: unassignedTasks.filter((t) => !t.dieCutReady),
+                              list: unassignedUpToDay.filter((t) => !t.dieCutReady),
                               color: "warning",
                               title: "Esperan troquel",
                               hint: "Al marcar el corte de todos sus productos, el sistema les asigna mesa.",
@@ -2709,6 +2725,12 @@ function TasksByTable() {
                               </Row>
                             </React.Fragment>
                           ))}
+                          {unassignedLater.length > 0 && (
+                            <small className="text-muted d-block mb-2">
+                              Además hay {unassignedLater.length} tarea(s) sin mesa para días siguientes;
+                              elija ese día en «Jornada» para verlas.
+                            </small>
+                          )}
                           <div className="text-right mt-2">
                             <Button
                               color="info"
@@ -3715,7 +3737,8 @@ function TasksByTable() {
             Diseñado para usuarios nuevos: siga estos 4 pasos para trabajar sin errores.
           </Alert>
           <ol className="mb-2" style={{ paddingLeft: "18px" }}>
-            <li className="mb-1"><strong>Planificar el día</strong> con el botón amarillo: arma las tareas solo para ese día, hasta llenar el cupo de las mesas. No corre solo.</li>
+            <li className="mb-1"><strong>Prioridad</strong>: en Organizador › Cola del día marque qué órdenes van primero. Se guarda al marcar.</li>
+            <li className="mb-1"><strong>Planificar el día</strong> con el botón amarillo: arma las tareas solo para ese día, primero la cola y luego el resto, hasta llenar el cupo de las mesas. No corre solo.</li>
             <li className="mb-1"><strong>Cuero y troquel</strong>: entregar cuero y marcar el corte en Organizador › Por troquelar (materiales en Vista Materiales).</li>
             <li className="mb-1"><strong>La mesa la pone el sistema</strong> al quedar la tarea toda cortada: la mesa con menos carga y cupo libre.</li>
             <li className="mb-1"><strong>En la mesa</strong>: Iniciar y Completar desde Cronograma. Redistribuir solo para mover una línea a mano.</li>
