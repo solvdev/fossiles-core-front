@@ -460,7 +460,7 @@ describe("anular un cargo con pagos, notas o devoluciones", () => {
     });
   });
 
-  test("BUG: el selector incluye un cargo anulado, uno sin saldo y uno de otro cliente", async () => {
+  test("el selector de destino solo lista cargos activos del mismo cliente con saldo", async () => {
     getReceivableDocuments.mockResolvedValue(mixedReceivables);
     await renderStatement(
       statementOf([charge({ invoiceNumber: "ENVP-ORIGEN", debit: 1783 }), ...credits(), voidedChargeOnStatement])
