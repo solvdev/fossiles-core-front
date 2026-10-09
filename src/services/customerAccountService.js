@@ -211,6 +211,18 @@ export const getLfSalesDocuments = async (customerId, { withBalance = true } = {
   return response.json();
 };
 
+export const getOrderChargeQuote = async (productionOrderId) => {
+  const response = await fetch(
+    `${API_URL}/customer-accounts/production-orders/${productionOrderId}/charge-quote`,
+    {
+      method: "GET",
+      headers: { "Content-Type": "application/json", ...getAuthHeader() },
+    }
+  );
+  if (!response.ok) await parseError(response, "Error al cotizar el cargo");
+  return response.json();
+};
+
 export const getReceivableDocuments = async (customerId, { orderKind } = {}) => {
   const params = new URLSearchParams();
   if (orderKind) params.set("orderKind", orderKind);
@@ -249,11 +261,19 @@ export const createCustomerAccountDocumentSettlement = async (customerId, payloa
   return response.json();
 };
 
-export const voidCustomerAccountEntry = async (entryId, voidReason, { requestId } = {}) => {
+export const voidCustomerAccountEntry = async (
+  entryId,
+  voidReason,
+  { requestId, reassignToChargeId } = {}
+) => {
+  const body = { voidReason };
+  if (reassignToChargeId != null && reassignToChargeId !== "") {
+    body.reassignToChargeId = Number(reassignToChargeId);
+  }
   const response = await fetch(`${API_URL}/customer-accounts/entries/${entryId}/void`, {
     method: "PUT",
     headers: jsonHeaders(requestId),
-    body: JSON.stringify({ voidReason }),
+    body: JSON.stringify(body),
   });
   if (!response.ok) await parseError(response, "Error al anular movimiento");
   return response.json();
@@ -322,6 +342,7 @@ export const getBalanceBadgeStyle = (value) => {
 
 export const ENTRY_TYPE_LABELS = {
   CHARGE: "Cargo",
+  CHARGE_ADJUSTMENT: "Ajuste de envío",
   PAYMENT: "Pago / Abono",
   CREDIT_NOTE: "Nota de crédito",
   OPENING_BALANCE: "Saldo inicial",
@@ -333,8 +354,100 @@ export const CHARGE_STATUS_LABELS = {
   CHARGED: "Cargado",
   PARTIAL: "Parcial",
   PAID: "Pagado",
-  OPEN: "Pendiente",
-  COVERED: "Cubierto por otro cargo",
+};
+
+/** Monto estimado ausente (parcial planificado sin envío): no es un importe. */
+export const formatEstimatedAmount = (value) => {
+  if (value == null || value === "") return "Sin envío";
+  const num = Number(value);
+  if (!Number.isFinite(num)) return "Sin envío";
+  return formatAccountMoney(num);
+};
+
+/** Importe del API. Si el campo no viene, no se inventa un cero. */
+export const formatServerAmount = (value) => {
+  if (value == null || value === "") return "—";
+  const num = Number(value);
+  if (!Number.isFinite(num)) return "—";
+  return formatAccountMoney(num);
+};
+
+/**
+ * El cargo es de la orden, no del parcial. Solo se ofrece si la orden no tiene cargo
+ * y la fila no es un parcial ni un envío.
+ */
+export const canGenerateOrderCharge = (row, { customerId } = {}) => {
+  if (!row || row.productionOrderId == null || row.productionOrderId === "") return false;
+  const customer = row.customerId != null && row.customerId !== "" ? row.customerId : customerId;
+  if (customer == null || customer === "") return false;
+  if (row.hasCharge === true) return false;
+  if (row.partialReleaseId != null && row.partialReleaseId !== "") return false;
+  if (String(row.documentLevel || "").toUpperCase() === "SHIPMENT") return false;
+  const status = String(row.chargeStatus || "NONE").toUpperCase();
+  return status === "NONE";
+};
+
+/** Prefill del alta de cargo: orden y ENVP padre. Sin parcial, sin envío y sin monto estimado. */
+export const buildChargePrefill = (doc) => {
+  if (!doc) return null;
+  return {
+    productionOrderId: doc.productionOrderId,
+    orderCode: doc.orderCode || doc.productionOrderCode || null,
+    orderKind: doc.orderKind || null,
+    vendorShipmentNumber: doc.vendorShipmentNumber || null,
+  };
+};
+
+export const shippingLinesPendingAdjustment = (shippingLines = [], childEntries = []) => {
+  const taken = new Set(
+    (Array.isArray(childEntries) ? childEntries : [])
+      .filter((line) => line && line.entryType === "CHARGE_ADJUSTMENT" && line.status !== "VOID")
+      .map((line) => String(line.productShipmentId))
+  );
+  return (Array.isArray(shippingLines) ? shippingLines : []).filter(
+    (line) => line && line.productShipmentId != null && line.productShipmentId !== "" && !taken.has(String(line.productShipmentId))
+  );
+};
+
+export const isOverdueReceivableLine = (line, today) => {
+  if (!line || line.dueDate == null || line.dueDate === "") return false;
+  if (!(Number(line.lineOpenBalance) > 0)) return false;
+  return String(line.dueDate) < String(today || "");
+};
+
+export const formatDueDateLabel = (dueDate) => {
+  if (dueDate == null || dueDate === "") return "Corriente";
+  return String(dueDate);
+};
+
+export const formatStatementLineAmount = (value) => {
+  if (value == null || value === "") return "—";
+  return formatAccountMoney(value);
+};
+
+const moneyCents = (value) => Math.round((Number(value) || 0) * 100);
+
+/** El abono no puede pasar el saldo abierto que mandó el servidor. */
+export const amountExceedsOpenBalance = (amount, openBalance) => {
+  const cap = Number(openBalance);
+  if (!Number.isFinite(cap)) return false;
+  return moneyCents(amount) > moneyCents(cap);
+};
+
+export const buildChargeAdjustmentPayload = ({ shippingLine, entryDate, productionOrderId }) => {
+  const payload = {
+    entryType: "CHARGE_ADJUSTMENT",
+    entryDate,
+    amount: Number(shippingLine?.shippingCost ?? shippingLine?.amount),
+    productShipmentId: Number(shippingLine?.productShipmentId),
+  };
+  if (productionOrderId != null && productionOrderId !== "") {
+    payload.productionOrderId = Number(productionOrderId);
+  }
+  if (shippingLine?.shipmentNumber) {
+    payload.description = `Envío ${shippingLine.shipmentNumber}`;
+  }
+  return payload;
 };
 
 export const PAYMENT_METHODS = [
@@ -352,8 +465,119 @@ export const getConceptLabel = (code) => {
 };
 
 const CREDIT_ENTRY_TYPES = new Set(["PAYMENT", "CREDIT_NOTE", "RETURN"]);
+const NESTED_ENTRY_TYPES = new Set(["PAYMENT", "CREDIT_NOTE", "RETURN", "CHARGE_ADJUSTMENT"]);
 
 export const entryAppliesToCharge = (entryType) => CREDIT_ENTRY_TYPES.has(entryType);
+
+const activeChildrenOf = (line, types) =>
+  (line?.childEntries || []).filter(
+    (child) => child && child.status !== "VOID" && types.has(child.entryType)
+  );
+
+export const activeCreditEntries = (line) => activeChildrenOf(line, CREDIT_ENTRY_TYPES);
+
+export const activeAdjustmentEntries = (line) =>
+  (line?.childEntries || []).filter(
+    (child) => child && child.status !== "VOID" && child.entryType === "CHARGE_ADJUSTMENT"
+  );
+
+/** Pagos, notas y devoluciones activos: hay que indicar el cargo destino al anular. */
+export const chargeRequiresReassignment = (line) =>
+  line?.entryType === "CHARGE" && activeCreditEntries(line).length > 0;
+
+export const movedCreditTotal = (line) =>
+  roundMoney(
+    activeCreditEntries(line).reduce(
+      (sum, child) => sum + (Number(child.credit) || Number(child.amount) || 0),
+      0
+    )
+  );
+
+/**
+ * Un ajuste de envío solo se mueve si el destino es de la misma orden.
+ * Si no se puede comparar la orden, no se bloquea en el cliente.
+ */
+export const adjustmentsBlockTarget = (charge, target) => {
+  if (activeAdjustmentEntries(charge).length === 0 || !target) return false;
+  const sourceOrder = charge?.productionOrderId;
+  const targetOrder = target?.productionOrderId;
+  if (sourceOrder == null || sourceOrder === "" || targetOrder == null || targetOrder === "") return false;
+  return String(sourceOrder) !== String(targetOrder);
+};
+
+export const ADJUSTMENT_DIFFERENT_ORDER_MESSAGE =
+  "Este cargo tiene ajustes de envío activos. Anúlelos primero: solo se mueven si el cargo destino es de la misma orden.";
+
+export const formatReceivableTargetLabel = (doc) => {
+  const kind = doc?.orderKind || "—";
+  const order = doc?.orderCode || doc?.documentNumber || "—";
+  const envp = doc?.invoiceNumber || doc?.vendorShipmentNumber || "—";
+  return `${kind} · ${order} · ENVP ${envp} · Saldo ${formatAccountMoney(doc?.balanceDue)}`;
+};
+
+const entryIdOf = (row) => {
+  const id = row?.chargeEntryId ?? row?.id;
+  if (id == null || id === "") return null;
+  return String(id);
+};
+
+const customerKeyOf = (row) => {
+  if (!row || typeof row !== "object") return null;
+  const nested = row.customer && typeof row.customer === "object" ? row.customer.id : row.customer;
+  const value = row.customerId ?? row.customerID ?? row.customer_id ?? nested;
+  if (value == null || value === "") return null;
+  return String(value);
+};
+
+const openBalanceOf = (row) => {
+  const value = row?.balanceDue ?? row?.chargeBalanceDue ?? row?.openBalance ?? row?.lineOpenBalance;
+  return Number(value);
+};
+
+/**
+ * Destinos del selector al anular un cargo con abonos.
+ * El servidor decide; esto solo oculta lo que no puede ser destino.
+ */
+export const filterReassignChargeTargets = (docs = [], { voidedCharge, customerId } = {}) => {
+  const excludedId = entryIdOf(voidedCharge);
+  const expectedCustomer =
+    customerKeyOf(voidedCharge) ?? (customerId != null && customerId !== "" ? String(customerId) : null);
+  return (Array.isArray(docs) ? docs : []).filter((doc) => {
+    if (!doc) return false;
+    const type = doc.entryType ?? doc.type;
+    if (type != null && type !== "" && String(type).toUpperCase() !== "CHARGE") return false;
+    if (String(doc.status || "").toUpperCase() === "VOID") return false;
+    const id = entryIdOf(doc);
+    if (!id || (excludedId && id === excludedId)) return false;
+    if (!(openBalanceOf(doc) > 0)) return false;
+    const docCustomer = customerKeyOf(doc);
+    if (docCustomer && expectedCustomer && docCustomer !== expectedCustomer) return false;
+    return true;
+  });
+};
+
+const chargeReference = (charge) => {
+  if (!charge) return null;
+  const ref =
+    charge.invoiceNumber ||
+    charge.vendorShipmentNumber ||
+    charge.documentNumber ||
+    charge.productionOrderCode ||
+    charge.orderCode ||
+    charge.reference;
+  return ref != null && String(ref).trim() !== "" ? String(ref).trim() : null;
+};
+
+/** Nota de un abono movido. Null si el API no manda reassignedFromEntryId. */
+export const formatReassignedFromNote = (line, knownLines = []) => {
+  if (!line || line.reassignedFromEntryId == null || line.reassignedFromEntryId === "") return null;
+  const id = line.reassignedFromEntryId;
+  const source = (Array.isArray(knownLines) ? knownLines : []).find(
+    (row) => row && String(row.id) === String(id)
+  );
+  const ref = chargeReference(source);
+  return ref ? `Movido desde cargo #${id} (${ref})` : `Movido desde cargo #${id}`;
+};
 
 const sameEntryId = (left, right) =>
   left != null && right != null && String(left) === String(right);
@@ -366,7 +590,7 @@ const roundMoney = (value) => Math.round((Number(value) || 0) * 100) / 100;
  * No se adivina por envío, factura ni orden.
  */
 export const findParentChargeId = (line, charges = []) => {
-  if (!line || !CREDIT_ENTRY_TYPES.has(line.entryType)) return null;
+  if (!line || !NESTED_ENTRY_TYPES.has(line.entryType)) return null;
   if (line.appliedToEntryId == null) return null;
   const parent = (Array.isArray(charges) ? charges : []).find(
     (charge) =>
@@ -389,7 +613,7 @@ export const groupStatementLines = (lines = [], openingBalance = 0) => {
   const nestedIds = new Set();
 
   list.forEach((line) => {
-    if (!CREDIT_ENTRY_TYPES.has(line.entryType)) return;
+    if (!NESTED_ENTRY_TYPES.has(line.entryType)) return;
     const parentId = findParentChargeId(line, charges);
     if (parentId == null) return;
     const children = childrenByChargeId.get(parentId) || [];
@@ -408,18 +632,28 @@ export const groupStatementLines = (lines = [], openingBalance = 0) => {
   const displayLines = topLevel.map((line) => {
     const children = (childrenByChargeId.get(line.id) || []).slice();
     const activeChildren = children.filter((c) => c.status === "ACTIVE");
-    const appliedTotal = activeChildren.reduce((sum, c) => sum + (Number(c.credit) || 0), 0);
+    const activeCredits = activeChildren.filter((c) => CREDIT_ENTRY_TYPES.has(c.entryType));
+    const appliedTotal = activeCredits.reduce((sum, c) => sum + (Number(c.credit) || 0), 0);
+    const adjustmentDebit = activeChildren
+      .filter((c) => c.entryType === "CHARGE_ADJUSTMENT")
+      .reduce((sum, c) => sum + (Number(c.debit) || 0), 0);
     const isActive = line.status === "ACTIVE";
     const isCharge = line.entryType === "CHARGE" && isActive;
     const debit = Number(line.debit) || 0;
     const credit = isCharge ? appliedTotal : Number(line.credit) || 0;
-    if (isActive) running += debit - credit;
+    if (isActive) running += debit + (isCharge ? adjustmentDebit : 0) - credit;
+    const serverDue = line.chargeBalanceDue;
+    const fallbackDue = Math.max(0, roundMoney(debit + adjustmentDebit - appliedTotal));
     return {
       ...line,
       credit,
       childEntries: children,
-      childCount: activeChildren.length,
-      chargeBalanceDue: isCharge ? Math.max(0, debit - appliedTotal) : line.chargeBalanceDue,
+      childCount: activeCredits.length,
+      chargeBalanceDue: isCharge
+        ? serverDue != null && serverDue !== ""
+          ? Number(serverDue)
+          : fallbackDue
+        : line.chargeBalanceDue,
       runningBalance: isActive ? Math.round(running * 100) / 100 : null,
     };
   });
@@ -432,8 +666,10 @@ export const isChargeLine = (line) => line?.entryType === "CHARGE";
 export const sumStatementTotals = (lines = []) => {
   const totals = {
     totalCharges: 0,
+    totalAdjustments: 0,
     totalPayments: 0,
     totalCreditNotes: 0,
+    totalDiscounts: 0,
     totalReturns: 0,
     netMovement: 0,
   };
@@ -442,15 +678,20 @@ export const sumStatementTotals = (lines = []) => {
     const debit = Number(line.debit) || 0;
     const credit = Number(line.credit) || 0;
     totals.netMovement += debit - credit;
+    const discount = Number(line.paymentDiscountAmount) || 0;
+    if (discount > 0) totals.totalDiscounts += discount;
     if (line.entryType === "CHARGE") totals.totalCharges += debit;
+    else if (line.entryType === "CHARGE_ADJUSTMENT") totals.totalAdjustments += debit;
     else if (line.entryType === "PAYMENT") totals.totalPayments += credit;
     else if (line.entryType === "CREDIT_NOTE") totals.totalCreditNotes += credit;
     else if (line.entryType === "RETURN") totals.totalReturns += credit;
   });
   return {
     totalCharges: roundMoney(totals.totalCharges),
+    totalAdjustments: roundMoney(totals.totalAdjustments),
     totalPayments: roundMoney(totals.totalPayments),
     totalCreditNotes: roundMoney(totals.totalCreditNotes),
+    totalDiscounts: roundMoney(totals.totalDiscounts),
     totalReturns: roundMoney(totals.totalReturns),
     netMovement: roundMoney(totals.netMovement),
   };
@@ -487,7 +728,7 @@ const orderIdFromCharge = (charge) => {
  * Arma el cuerpo de alta.
  * Pago, nota de crédito y devolución envían appliedToEntryId y copian productionOrderId
  * y orderKind del cargo elegido. No usan la orden ni el tipo que tenga la pantalla.
- * El alta de cargo no cambia.
+ * El cargo es de la orden: monto de la cotización, sin parcial ni envío.
  */
 export const buildAccountEntryPayload = ({ entryType, conceptCode, form, charge = null }) => {
   const amount = Number(form.amount);
@@ -515,8 +756,10 @@ export const buildAccountEntryPayload = ({ entryType, conceptCode, form, charge 
   }
 
   payload.productionOrderId = form.productionOrderId ? Number(form.productionOrderId) : null;
-  payload.partialReleaseId = form.partialReleaseId ? Number(form.partialReleaseId) : null;
-  payload.productShipmentId = form.productShipmentId ? Number(form.productShipmentId) : null;
   payload.vendorShipmentNumber = form.vendorShipmentNumber || null;
+  if (entryType !== "CHARGE") {
+    payload.partialReleaseId = form.partialReleaseId ? Number(form.partialReleaseId) : null;
+    payload.productShipmentId = form.productShipmentId ? Number(form.productShipmentId) : null;
+  }
   return payload;
 };

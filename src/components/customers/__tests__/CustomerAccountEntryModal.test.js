@@ -2,7 +2,11 @@ import React from "react";
 import { createRoot } from "react-dom/client";
 import { act } from "react-dom/test-utils";
 import CustomerAccountEntryModal from "components/customers/CustomerAccountEntryModal";
-import { createCustomerAccountEntry, getCustomerAccountStatement } from "services/customerAccountService";
+import {
+  createCustomerAccountEntry,
+  getCustomerAccountStatement,
+  getOrderChargeQuote,
+} from "services/customerAccountService";
 
 jest.mock("services/customerAccountService", () => {
   const actual = jest.requireActual("services/customerAccountService");
@@ -10,6 +14,7 @@ jest.mock("services/customerAccountService", () => {
     ...actual,
     createCustomerAccountEntry: jest.fn(),
     getCustomerAccountStatement: jest.fn(),
+    getOrderChargeQuote: jest.fn(),
   };
 });
 
@@ -106,6 +111,13 @@ beforeAll(() => {
 
 beforeEach(() => {
   getCustomerAccountStatement.mockResolvedValue({ lines: statementLines });
+  getOrderChargeQuote.mockResolvedValue({
+    amount: 1500,
+    productsTotal: 1500,
+    shippingTotal: 115,
+    orderTotal: 1615,
+    shippingLines: [{ productShipmentId: 4, shipmentNumber: "ENV-4", shippingCost: 115 }],
+  });
   createCustomerAccountEntry.mockResolvedValue({ id: 1 });
 });
 
@@ -200,5 +212,53 @@ describe("CustomerAccountEntryModal", () => {
       click(buttonByText(document.body, "Guardar"));
     });
     expect(createCustomerAccountEntry).toHaveBeenCalledTimes(2);
+  });
+
+  test("el cargo guarda el monto de la cotización y no se puede editar", async () => {
+    await renderModal();
+    const amount = document.body.querySelector('input[type="number"]');
+    expect(amount.readOnly).toBe(true);
+    expect(amount.value).toBe("1500.00");
+    expect(document.body.textContent).toContain("Productos");
+    expect(document.body.textContent).toContain("ENV-4");
+
+    await act(async () => {
+      click(buttonByText(document.body, "Guardar"));
+    });
+
+    const payload = createCustomerAccountEntry.mock.calls[0][1];
+    expect(payload.entryType).toBe("CHARGE");
+    expect(payload.amount).toBe(1500);
+    expect(payload.productionOrderId).toBe(77);
+    expect(payload).not.toHaveProperty("partialReleaseId");
+    expect(payload).not.toHaveProperty("productShipmentId");
+  });
+
+  test("el abono no pasa el saldo del cargo y muestra el rechazo del servidor", async () => {
+    await renderModal();
+    await chooseCreditAndCharge();
+    const amount = document.body.querySelector('input[type="number"]');
+    await act(async () => {
+      setValue(amount, "500");
+    });
+    await act(async () => {
+      click(buttonByText(document.body, "Guardar"));
+    });
+    expect(createCustomerAccountEntry).not.toHaveBeenCalled();
+    expect(document.body.textContent).toContain("no puede ser mayor al saldo pendiente");
+
+    await act(async () => {
+      setValue(document.body.querySelector('input[type="number"]'), "20");
+    });
+    createCustomerAccountEntry.mockRejectedValueOnce(
+      new Error("El monto excede el saldo pendiente del documento (Q 120.00).")
+    );
+    await act(async () => {
+      click(buttonByText(document.body, "Guardar"));
+    });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    expect(document.body.textContent).toContain("El monto excede el saldo pendiente del documento (Q 120.00).");
   });
 });

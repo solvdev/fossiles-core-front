@@ -58,18 +58,19 @@ describe("buildAccountEntryPayload", () => {
     }
   );
 
-  test("el alta de cargo sigue enviando la orden de la pantalla y no el cargo aplicado", () => {
+  test("el alta de cargo usa el monto cotizado y no manda el parcial", () => {
     const payload = buildAccountEntryPayload({
       entryType: "CHARGE",
       conceptCode: "1",
-      form: screenForm({ appliedToEntryId: "" }),
+      form: screenForm({ appliedToEntryId: "", amount: "1500.00" }),
       charge: selectedCharge,
     });
 
+    expect(payload.amount).toBe(1500);
     expect(payload.productionOrderId).toBe(77);
-    expect(payload.partialReleaseId).toBe(3);
-    expect(payload.productShipmentId).toBe(8);
     expect(payload.vendorShipmentNumber).toBe("ENVP-PANTALLA");
+    expect(payload).not.toHaveProperty("partialReleaseId");
+    expect(payload).not.toHaveProperty("productShipmentId");
     expect(payload).not.toHaveProperty("orderKind");
     expect(payload).not.toHaveProperty("appliedToEntryId");
   });
@@ -149,5 +150,13 @@ describe("X-Request-Id", () => {
     expect(options.method).toBe("PUT");
     expect(options.headers["X-Request-Id"]).toBe("req-void");
     expect(JSON.parse(options.body)).toEqual({ voidReason: "duplicado" });
+  });
+
+  test("la anulación incluye reassignToChargeId solo cuando hay destino", async () => {
+    await voidCustomerAccountEntry(8, "error de captura", { requestId: "req-move", reassignToChargeId: "15" });
+    expect(JSON.parse(global.fetch.mock.calls[0][1].body)).toEqual({
+      voidReason: "error de captura",
+      reassignToChargeId: 15,
+    });
   });
 });

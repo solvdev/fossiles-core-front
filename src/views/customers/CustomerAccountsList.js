@@ -18,8 +18,12 @@ import {
 } from "reactstrap";
 import {
   CHARGE_STATUS_LABELS,
+  buildChargePrefill,
+  canGenerateOrderCharge,
   creditNotesAmount,
   formatAccountMoney,
+  formatEstimatedAmount,
+  formatServerAmount,
   getCreditBadgeStyle,
   getCustomerAccountSummary,
   getDueBadgeStyle,
@@ -179,6 +183,11 @@ function CustomerRow({ row, kindTab }) {
       <BalanceCell amount={due} type="due" />
       <BalanceCell amount={credit} type="credit" />
       <td className="text-right">{formatAccountMoney(creditNotesAmount(row.totalCreditNotes))}</td>
+      <td className="text-right">{formatServerAmount(row.totalCharges)}</td>
+      <td className="text-right">{formatServerAmount(row.totalAdjustments)}</td>
+      <td className="text-right">{formatServerAmount(row.totalPayments)}</td>
+      <td className="text-right">{formatServerAmount(row.totalDiscounts)}</td>
+      <td className="text-right">{formatServerAmount(row.totalReturns)}</td>
       <td>{row.lastChargeDate || "—"}</td>
       <td>{row.lastPaymentDate || "—"}</td>
       <td>{row.lfOrderCount || 0}</td>
@@ -216,7 +225,7 @@ function DocumentSearchRow({ row, onCreateCharge }) {
             ? "secondary"
             : "light";
 
-  const canCreateCharge = !row.hasCharge && row.customerId && row.productionOrderId;
+  const canCreateCharge = canGenerateOrderCharge(row);
 
   return (
     <tr>
@@ -249,13 +258,9 @@ function DocumentSearchRow({ row, onCreateCharge }) {
           <Badge color="warning" className="ml-1">Abono</Badge>
         )}
       </td>
-      <td className="text-right">
-        {row.estimatedTotal != null && !row.hasCharge
-          ? formatAccountMoney(row.estimatedTotal)
-          : row.hasCharge
-            ? formatAccountMoney(row.chargedAmount)
-            : "—"}
-      </td>
+      <td className="text-right">{formatEstimatedAmount(row.estimatedTotal)}</td>
+      <td className="text-right">{row.hasCharge ? formatAccountMoney(row.chargedAmount) : "—"}</td>
+      <td className="text-right">{row.hasCharge ? formatServerAmount(row.appliedCredits) : "—"}</td>
       <td className="text-right">
         {row.hasCharge ? (
           <span style={getDueBadgeStyle(row.balanceDue)}>
@@ -687,7 +692,9 @@ function CustomerAccountsList() {
                             <th>Orden</th>
                             <th>Nº envío</th>
                             <th>Estado cobro</th>
-                            <th className="text-right">Monto est./cargo</th>
+                            <th className="text-right">Estimado</th>
+                            <th className="text-right">Cargo</th>
+                            <th className="text-right">Créditos aplicados</th>
                             <th className="text-right">Saldo</th>
                             <th className="text-right">Acciones</th>
                           </tr>
@@ -850,6 +857,11 @@ function CustomerAccountsList() {
                                 <th className="text-right">Saldo por cobrar ({kindTab})</th>
                                 <th className="text-right">Crédito a favor</th>
                                 <th className="text-right">Notas de crédito</th>
+                                <th className="text-right">Cargos</th>
+                                <th className="text-right">Ajustes (envío)</th>
+                                <th className="text-right">Pagos</th>
+                                <th className="text-right">Descuentos</th>
+                                <th className="text-right">Devoluciones</th>
                                 <th>Último cargo</th>
                                 <th>Último pago</th>
                                 <th>Órdenes LF</th>
@@ -887,15 +899,7 @@ function CustomerAccountsList() {
           routeLocationCode: chargeModalRow?.routeLocationCode,
         }}
         defaultConceptCode="1"
-        initialDoc={chargeModalRow ? {
-          productionOrderId: chargeModalRow.productionOrderId,
-          partialReleaseId: chargeModalRow.partialReleaseId,
-          productShipmentId: chargeModalRow.productShipmentId,
-          vendorShipmentNumber: chargeModalRow.vendorShipmentNumber,
-          estimatedTotal: chargeModalRow.estimatedTotal,
-          orderCode: chargeModalRow.orderCode,
-          orderKind: chargeModalRow.orderKind,
-        } : null}
+        initialDoc={chargeModalRow ? buildChargePrefill(chargeModalRow) : null}
         onSaved={handleChargeSaved}
       />
 

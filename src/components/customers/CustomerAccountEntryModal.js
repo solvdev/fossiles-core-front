@@ -13,14 +13,17 @@ import {
 } from "reactstrap";
 import CustomerAccountDischargeModal from "components/customers/CustomerAccountDischargeModal";
 import {
+  amountExceedsOpenBalance,
   buildAccountEntryPayload,
   createCustomerAccountEntry,
   endSingleFlight,
   entryAppliesToCharge,
   formatAccountMoney,
+  formatEstimatedAmount,
   formatOpenChargeLabel,
   getCustomerAccountStatement,
   getMovementConcept,
+  getOrderChargeQuote,
   listOpenCharges,
   MOVEMENT_CONCEPTS,
   PAYMENT_METHODS,
@@ -65,6 +68,8 @@ function CustomerAccountEntryModal({
   const [dischargeOpen, setDischargeOpen] = useState(false);
   const [openCharges, setOpenCharges] = useState([]);
   const [chargesLoading, setChargesLoading] = useState(false);
+  const [quote, setQuote] = useState(null);
+  const [quoteLoading, setQuoteLoading] = useState(false);
   const savingRef = useRef(false);
 
   const selectedConcept = useMemo(
@@ -97,17 +102,9 @@ function CustomerAccountEntryModal({
     if (initialDoc) {
       base.productionOrderId = String(initialDoc.productionOrderId || "");
       base.vendorShipmentNumber = initialDoc.vendorShipmentNumber || "";
-      const shipmentRef = initialDoc.shipmentNumber ? ` · ${initialDoc.shipmentNumber}` : "";
-      base.description = `${initialDoc.orderKind || "LF"} ${initialDoc.orderCode || ""}${shipmentRef}`.trim();
-      const estimated = initialDoc.estimatedTotal;
-      if (estimated != null && Number(estimated) > 0) {
-        base.amount = String(Number(estimated).toFixed(2));
-      }
-      if (initialDoc.partialReleaseId) {
-        base.partialReleaseId = String(initialDoc.partialReleaseId);
-      }
-      if (initialDoc.productShipmentId) {
-        base.productShipmentId = String(initialDoc.productShipmentId);
+      base.description = `${initialDoc.orderKind || "LF"} ${initialDoc.orderCode || ""}`.trim();
+      if (initialDoc.appliedToEntryId) {
+        base.appliedToEntryId = String(initialDoc.appliedToEntryId);
       }
     }
     setForm(base);
@@ -137,6 +134,49 @@ function CustomerAccountEntryModal({
   }, [isOpen, customerId]);
 
   useEffect(() => {
+    if (!isOpen || selectedEntryType !== "CHARGE") {
+      setQuote(null);
+      setQuoteLoading(false);
+      return undefined;
+    }
+    const orderId = form.productionOrderId;
+    if (!orderId) {
+      setQuote(null);
+      return undefined;
+    }
+    let cancelled = false;
+    setQuoteLoading(true);
+    setQuote(null);
+    getOrderChargeQuote(orderId)
+      .then((next) => {
+        if (cancelled) return;
+        setQuote(next);
+        const quoted = Number(next?.amount);
+        if (Number.isFinite(quoted)) {
+          setForm((prev) =>
+            prev.movementConceptCode === "1" ? { ...prev, amount: quoted.toFixed(2) } : prev
+          );
+        }
+      })
+      .catch((err) => {
+        if (!cancelled) setError(err.message || "No se pudo cotizar el cargo");
+      })
+      .finally(() => {
+        if (!cancelled) setQuoteLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, selectedEntryType, form.productionOrderId]);
+
+  useEffect(() => {
+    if (!isOpen || !requiresCharge || !selectedCharge) return;
+    const due = Number(selectedCharge.chargeBalanceDue);
+    if (!Number.isFinite(due)) return;
+    setForm((prev) => ({ ...prev, amount: due.toFixed(2) }));
+  }, [isOpen, requiresCharge, selectedCharge]);
+
+  useEffect(() => {
     if (!isOpen) return;
     if (form.movementConceptCode === "11" || (defaultConceptCode === "11" && isOpen)) {
       setDischargeOpen(true);
@@ -163,9 +203,6 @@ function CustomerAccountEntryModal({
     if (!form.description && doc.orderCode) {
       patch("description", `${doc.orderKind || "LF"} ${doc.orderCode}`);
     }
-    if (!form.amount && doc.estimatedTotal != null) {
-      patch("amount", String(Number(doc.estimatedTotal).toFixed(2)));
-    }
   };
 
   const handleSubmit = async () => {
@@ -187,9 +224,23 @@ function CustomerAccountEntryModal({
       return;
     }
 
-    const amount = Number(form.amount);
+    if (entryType === "CHARGE") {
+      const quoted = Number(quote?.amount);
+      if (quoteLoading || !quote || !Number.isFinite(quoted) || quoted <= 0) {
+        setError(quoteLoading ? "Espere la cotización del cargo." : "No se pudo obtener el monto del cargo.");
+        return;
+      }
+    }
+
+    const amount = entryType === "CHARGE" ? Number(quote.amount) : Number(form.amount);
     if (!Number.isFinite(amount) || amount <= 0) {
       setError("Ingrese un monto válido mayor a cero.");
+      return;
+    }
+    if (entryAppliesToCharge(entryType) && selectedCharge && amountExceedsOpenBalance(amount, selectedCharge.chargeBalanceDue)) {
+      setError(
+        `El monto no puede ser mayor al saldo pendiente (${formatAccountMoney(selectedCharge.chargeBalanceDue)}).`
+      );
       return;
     }
     if (!form.entryDate) {
@@ -215,10 +266,14 @@ function CustomerAccountEntryModal({
     setSaving(true);
     setError("");
     try {
+      const payloadForm =
+        entryType === "CHARGE"
+          ? { ...form, amount: Number(quote.amount).toFixed(2), partialReleaseId: "", productShipmentId: "" }
+          : form;
       const payload = buildAccountEntryPayload({
         entryType,
         conceptCode: form.movementConceptCode,
-        form,
+        form: payloadForm,
         charge: selectedCharge,
       });
       const saved = await createCustomerAccountEntry(customerId, payload, { requestId });
@@ -385,15 +440,66 @@ function CustomerAccountEntryModal({
             </>
           )}
 
+          {isCharge && (
+            <div className="border rounded p-3 mb-3">
+              <h6 className="text-primary mb-2">Cotización del cargo</h6>
+              {quoteLoading && <p className="text-muted mb-0">Cargando cotización...</p>}
+              {!quoteLoading && !quote && (
+                <p className="text-muted mb-0">Seleccione la orden para ver el monto que guardará el servidor.</p>
+              )}
+              {quote && (
+                <>
+                  <div className="d-flex justify-content-between">
+                    <span>Productos</span>
+                    <strong>{formatAccountMoney(quote.productsTotal)}</strong>
+                  </div>
+                  {(quote.shippingLines || []).length === 0 ? (
+                    <div className="text-muted small mt-2">Sin envío</div>
+                  ) : (
+                    (quote.shippingLines || []).map((line) => (
+                      <div
+                        key={line.productShipmentId}
+                        className="d-flex justify-content-between small mt-1"
+                      >
+                        <span>Envío {line.shipmentNumber || line.productShipmentId}</span>
+                        <span>{formatAccountMoney(line.shippingCost)}</span>
+                      </div>
+                    ))
+                  )}
+                  <div className="d-flex justify-content-between mt-2">
+                    <span>Envío</span>
+                    <span>{formatAccountMoney(quote.shippingTotal)}</span>
+                  </div>
+                  <div className="d-flex justify-content-between">
+                    <span>Total</span>
+                    <strong>{formatAccountMoney(quote.orderTotal)}</strong>
+                  </div>
+                  <small className="text-muted d-block mt-2">
+                    El cargo guarda solo los productos. Cada envío se agrega después, con Agregar envío.
+                  </small>
+                </>
+              )}
+            </div>
+          )}
+
           <FormGroup>
             <Label>Monto (Q) *</Label>
             <Input
               type="number"
               min="0"
               step="0.01"
-              value={form.amount}
+              value={isCharge ? (quote?.amount != null ? Number(quote.amount).toFixed(2) : "") : form.amount}
               onChange={(e) => patch("amount", e.target.value)}
+              readOnly={isCharge}
             />
+            {requiresCharge && selectedCharge && (
+              <small className="text-muted">
+                Saldo pendiente del cargo: {formatAccountMoney(selectedCharge.chargeBalanceDue)}
+              </small>
+            )}
+            {isCharge && (
+              <small className="text-muted">El monto lo calcula el servidor y no se puede editar.</small>
+            )}
           </FormGroup>
 
           <FormGroup>
@@ -433,7 +539,7 @@ function CustomerAccountEntryModal({
                   <option key={doc.productionOrderId} value={doc.productionOrderId}>
                     {doc.orderKind} {doc.orderCode}
                     {doc.vendorShipmentNumber ? ` · ${doc.vendorShipmentNumber}` : ""}
-                    {doc.estimatedTotal != null ? ` · ${formatAccountMoney(doc.estimatedTotal)}` : ""}
+                    {` · ${formatEstimatedAmount(doc.estimatedTotal)}`}
                   </option>
                 ))}
               </Input>

@@ -31,68 +31,47 @@ import CustomerAccountReturnModal from "components/customers/CustomerAccountRetu
 import CustomerAccountDischargeModal from "components/customers/CustomerAccountDischargeModal";
 import CustomerAccountChargeDetailModal from "components/customers/CustomerAccountChargeDetailModal";
 import {
+  ADJUSTMENT_DIFFERENT_ORDER_MESSAGE,
   CHARGE_STATUS_LABELS,
   ENTRY_TYPE_LABELS,
+  adjustmentsBlockTarget,
+  buildChargePrefill,
+  canGenerateOrderCharge,
+  chargeRequiresReassignment,
   creditNotesAmount,
   endSingleFlight,
+  filterReassignChargeTargets,
   filterStatementDisplayLines,
   formatAccountMoney,
+  formatDueDateLabel,
+  amountExceedsOpenBalance,
+  formatEstimatedAmount,
+  formatReassignedFromNote,
+  formatReceivableTargetLabel,
+  formatStatementLineAmount,
   getConceptLabel,
   getCreditBadgeStyle,
   getCustomerAccountStatement,
   getDueBadgeStyle,
   getLfSalesDocuments,
+  getReceivableDocuments,
   groupStatementLines,
   isChargeLine,
+  isOverdueReceivableLine,
+  movedCreditTotal,
   splitAccountBalance,
   sumStatementTotals,
   tryBeginSingleFlight,
   voidCustomerAccountEntry,
 } from "services/customerAccountService";
+import { getTodayYmdGuatemala } from "utils/dateTimeHelper";
 import { showError, showSuccess } from "utils/notificationHelper";
 import {
   buildSingleCustomerReportPrintHtml,
   openCustomerAccountReportPrintWindow,
 } from "utils/customerAccountReportPrintHtml";
 
-function buildChargePrefill(doc, partial = null, shipment = null) {
-  if (shipment) {
-    return {
-      productionOrderId: doc.productionOrderId,
-      orderCode: doc.orderCode,
-      orderKind: doc.orderKind,
-      vendorShipmentNumber: doc.vendorShipmentNumber,
-      partialReleaseId: partial?.partialReleaseId ?? null,
-      productShipmentId: shipment.productShipmentId,
-      shipmentNumber: shipment.shipmentNumber,
-      estimatedTotal: shipment.estimatedTotal ?? partial?.estimatedTotal ?? doc.estimatedTotal,
-    };
-  }
-
-  const unchargedShipments = [];
-  (doc.partialReleases || []).forEach((pr) => {
-    (pr.shipments || []).forEach((s) => {
-      if (s.chargeStatus === "NONE") {
-        unchargedShipments.push({ partial: pr, shipment: s });
-      }
-    });
-  });
-
-  if (unchargedShipments.length === 1) {
-    const { partial, shipment: s } = unchargedShipments[0];
-    return buildChargePrefill(doc, partial, s);
-  }
-
-  return {
-    productionOrderId: doc.productionOrderId,
-    orderCode: doc.orderCode,
-    orderKind: doc.orderKind,
-    vendorShipmentNumber: doc.vendorShipmentNumber,
-    estimatedTotal: doc.estimatedTotal,
-  };
-}
-
-function DocumentRow({ doc, onCharge, expanded, onToggle }) {
+function DocumentRow({ doc, customerId, onCharge, expanded, onToggle }) {
   const partials = doc.partialReleases || [];
   const hasPartials = partials.length > 0;
 
@@ -113,7 +92,7 @@ function DocumentRow({ doc, onCharge, expanded, onToggle }) {
         </td>
         <td>{CHARGE_STATUS_LABELS[doc.chargeStatus] || doc.chargeStatus || "—"}</td>
         <td>{doc.deliveryDate || doc.startDate || "—"}</td>
-        <td className="text-right">{formatAccountMoney(doc.estimatedTotal)}</td>
+        <td className="text-right">{formatEstimatedAmount(doc.estimatedTotal)}</td>
         <td className="text-right">{formatAccountMoney(doc.chargedAmount)}</td>
         <td className="text-right">{formatAccountMoney(doc.balanceDue)}</td>
         <td className="text-right">
@@ -122,7 +101,7 @@ function DocumentRow({ doc, onCharge, expanded, onToggle }) {
               {expanded ? "▾" : "▸"} Parciales
             </Button>
           )}
-          {doc.chargeStatus === "NONE" && (
+          {canGenerateOrderCharge(doc, { customerId }) && (
             <Button
               color="primary"
               size="sm"
@@ -155,7 +134,7 @@ function DocumentRow({ doc, onCharge, expanded, onToggle }) {
                   <tr key={pr.partialReleaseId ?? pr.label}>
                     <td>{pr.label || `#${pr.sequenceNum}`}</td>
                     <td>{CHARGE_STATUS_LABELS[pr.chargeStatus] || pr.chargeStatus || "—"}</td>
-                    <td className="text-right">{formatAccountMoney(pr.estimatedTotal)}</td>
+                    <td className="text-right">{formatEstimatedAmount(pr.estimatedTotal)}</td>
                     <td className="text-right">{formatAccountMoney(pr.chargedAmount)}</td>
                     <td className="text-right">{formatAccountMoney(pr.balanceDue)}</td>
                     <td>
@@ -163,19 +142,9 @@ function DocumentRow({ doc, onCharge, expanded, onToggle }) {
                         <div key={s.productShipmentId} className="small d-flex flex-wrap align-items-center">
                           <span className="mr-2">
                             {s.shipmentNumber} · {CHARGE_STATUS_LABELS[s.chargeStatus] || s.chargeStatus}
-                            {s.estimatedTotal != null ? ` · Est. ${formatAccountMoney(s.estimatedTotal)}` : ""}
+                            {` · ${formatEstimatedAmount(s.estimatedTotal)}`}
                             {s.balanceDue != null ? ` · Saldo ${formatAccountMoney(s.balanceDue)}` : ""}
                           </span>
-                          {s.chargeStatus === "NONE" && (
-                            <Button
-                              color="success"
-                              size="sm"
-                              className="btn-round py-0 px-2"
-                              onClick={() => onCharge(buildChargePrefill(doc, pr, s))}
-                            >
-                              Cargo
-                            </Button>
-                          )}
                         </div>
                       ))}
                     </td>
@@ -215,8 +184,12 @@ function CustomerAccountStatement() {
   const [voidTarget, setVoidTarget] = useState(null);
   const [voidReason, setVoidReason] = useState("");
   const [voiding, setVoiding] = useState(false);
+  const [reassignToChargeId, setReassignToChargeId] = useState("");
+  const [voidTargets, setVoidTargets] = useState([]);
+  const [voidTargetsLoading, setVoidTargetsLoading] = useState(false);
   const [showVoided, setShowVoided] = useState(false);
   const voidGate = useRef(false);
+  const selectedChargeIdRef = useRef(null);
 
   const load = useCallback(async () => {
     if (!customerId) return;
@@ -232,6 +205,13 @@ function CustomerAccountStatement() {
       ]);
       setStatement(stmt);
       setLfDocuments(Array.isArray(docs) ? docs : []);
+      const selectedId = selectedChargeIdRef.current;
+      if (selectedId != null) {
+        const grouped = groupStatementLines(stmt?.lines || [], stmt?.openingBalance);
+        const next = grouped.displayLines.find((line) => String(line.id) === String(selectedId));
+        setSelectedChargeLine(next || null);
+        if (!next) setChargeDetailOpen(false);
+      }
     } catch (err) {
       setError(err.message || "Error al cargar estado de cuenta");
     } finally {
@@ -263,21 +243,78 @@ function CustomerAccountStatement() {
     setEntryModalOpen(true);
   };
 
+  const needsReassignment = chargeRequiresReassignment(voidTarget);
+  const movedTotal = needsReassignment ? movedCreditTotal(voidTarget) : 0;
+  const reassignTarget = voidTargets.find((doc) => String(doc.chargeEntryId) === String(reassignToChargeId)) || null;
+  const adjustmentsBlocked = needsReassignment && adjustmentsBlockTarget(voidTarget, reassignTarget);
+  const balanceWarning =
+    needsReassignment &&
+    reassignTarget &&
+    amountExceedsOpenBalance(movedTotal, reassignTarget.balanceDue);
+
+  useEffect(() => {
+    if (!voidModalOpen || !needsReassignment || !customerId) {
+      setVoidTargets([]);
+      setVoidTargetsLoading(false);
+      return undefined;
+    }
+    let cancelled = false;
+    setVoidTargetsLoading(true);
+    getReceivableDocuments(customerId)
+      .then((docs) => {
+        if (cancelled) return;
+        setVoidTargets(
+          filterReassignChargeTargets(docs, { voidedCharge: voidTarget, customerId })
+        );
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setVoidTargets([]);
+          showError(err.message || "No se pudieron cargar los cargos destino");
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setVoidTargetsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [voidModalOpen, needsReassignment, customerId, voidTarget]);
+
+  const openVoid = (line) => {
+    setVoidTarget(line);
+    setVoidReason("");
+    setReassignToChargeId("");
+    setVoidModalOpen(true);
+  };
+
   const handleVoid = async () => {
     if (voidGate.current) return;
     if (!voidTarget?.id || !voidReason.trim()) {
       showError("Indique el motivo de anulación.");
       return;
     }
+    if (needsReassignment && !reassignToChargeId) {
+      showError("Seleccione el cargo al que se mueven los pagos y abonos.");
+      return;
+    }
+    if (adjustmentsBlocked) {
+      showError(ADJUSTMENT_DIFFERENT_ORDER_MESSAGE);
+      return;
+    }
     const requestId = tryBeginSingleFlight(voidGate);
     if (!requestId) return;
     setVoiding(true);
     try {
-      await voidCustomerAccountEntry(voidTarget.id, voidReason.trim(), { requestId });
+      await voidCustomerAccountEntry(voidTarget.id, voidReason.trim(), {
+        requestId,
+        reassignToChargeId: needsReassignment ? reassignToChargeId : undefined,
+      });
       showSuccess("Movimiento anulado.");
       setVoidModalOpen(false);
       setVoidTarget(null);
       setVoidReason("");
+      setReassignToChargeId("");
       load();
     } catch (err) {
       showError(err.message || "No se pudo anular");
@@ -305,9 +342,17 @@ function CustomerAccountStatement() {
   );
 
   const openChargeDetail = (line) => {
+    selectedChargeIdRef.current = line?.id ?? null;
     setSelectedChargeLine(line);
     setChargeDetailOpen(true);
   };
+
+  const openAdjustForCharge = (chargeLine) => {
+    setChargeDetailOpen(false);
+    openEntryModal("2", { appliedToEntryId: chargeLine.id });
+  };
+
+  const today = getTodayYmdGuatemala();
 
   const openDischargeForCharge = (chargeLine) => {
     setChargeDetailOpen(false);
@@ -442,16 +487,32 @@ function CustomerAccountStatement() {
                     <strong>{formatAccountMoney(movementTotals.totalCharges)}</strong>
                   </Col>
                   <Col md="2">
+                    <small className="text-muted d-block">Ajustes (envío)</small>
+                    <strong>{formatAccountMoney(movementTotals.totalAdjustments)}</strong>
+                  </Col>
+                  <Col md="2">
                     <small className="text-muted d-block">Pagos</small>
                     <strong>{formatAccountMoney(movementTotals.totalPayments)}</strong>
+                  </Col>
+                  <Col md="2">
+                    <small className="text-muted d-block">Notas de crédito</small>
+                    <strong>{formatAccountMoney(creditNotesAmount(statement.totalCreditNotes))}</strong>
+                  </Col>
+                  <Col md="2">
+                    <small className="text-muted d-block">Descuentos</small>
+                    <strong>{formatAccountMoney(movementTotals.totalDiscounts)}</strong>
                   </Col>
                   <Col md="2">
                     <small className="text-muted d-block">Devoluciones</small>
                     <strong>{formatAccountMoney(movementTotals.totalReturns)}</strong>
                   </Col>
                   <Col md="2">
-                    <small className="text-muted d-block">Notas de crédito</small>
-                    <strong>{formatAccountMoney(creditNotesAmount(statement.totalCreditNotes))}</strong>
+                    <small className="text-muted d-block">Saldo</small>
+                    <strong>
+                      {formatAccountMoney(
+                        statement.closingBalance != null ? statement.closingBalance : statement.closingBalanceDue
+                      )}
+                    </strong>
                   </Col>
                 </Row>
               )}
@@ -517,71 +578,144 @@ function CustomerAccountStatement() {
                           <th className="text-right">Débito</th>
                           <th className="text-right">Crédito</th>
                           <th className="text-right">Saldo</th>
+                          <th>Vencimiento</th>
+                          <th className="text-right">Crédito aplicado</th>
+                          <th className="text-right">Saldo de línea</th>
                           <th />
                         </tr>
                       </thead>
                       <tbody>
-                        {visibleLines.map((line) => (
-                          <tr key={line.id}>
-                            <td>{line.entryDate}</td>
-                            <td>{getConceptLabel(line.movementConceptCode)}</td>
-                            <td>{ENTRY_TYPE_LABELS[line.entryType] || line.entryType}</td>
-                            <td>{line.receiptNumber || line.reference || "—"}</td>
-                            <td>{line.invoiceNumber || line.vendorShipmentNumber || "—"}</td>
-                            <td>
-                              {line.documentNumber || line.productionOrderCode || "—"}
-                              {line.orderKind ? ` (${line.orderKind})` : ""}
-                              {isChargeLine(line) && line.childCount > 0 && (
-                                <Badge color="info" className="ml-1" style={{ fontSize: 10 }}>
-                                  {line.childCount} liq.
-                                </Badge>
-                              )}
-                            </td>
-                            <td className="text-right">
-                              {Number(line.debit) > 0 ? formatAccountMoney(line.debit) : "—"}
-                            </td>
-                            <td className="text-right">
-                              {Number(line.credit) > 0 ? formatAccountMoney(line.credit) : "—"}
-                            </td>
-                            <td className="text-right">
-                              {line.runningBalance != null ? formatAccountMoney(line.runningBalance) : "—"}
-                              {isChargeLine(line) && line.chargeBalanceDue != null && Number(line.chargeBalanceDue) > 0 && (
-                                <div className="small text-muted">
-                                  Pend. {formatAccountMoney(line.chargeBalanceDue)}
-                                </div>
-                              )}
-                            </td>
-                            <td className="text-right text-nowrap">
-                              {isChargeLine(line) && (
-                                <Button
-                                  color="info"
-                                  size="sm"
-                                  outline
-                                  className="btn-round mr-1"
-                                  onClick={() => openChargeDetail(line)}
-                                >
-                                  Ver detalle
-                                </Button>
-                              )}
-                              {line.status === "ACTIVE" && (
-                                <Button
-                                  color="danger"
-                                  size="sm"
-                                  outline
-                                  className="btn-round"
-                                  onClick={() => {
-                                    setVoidTarget(line);
-                                    setVoidReason("");
-                                    setVoidModalOpen(true);
-                                  }}
-                                >
-                                  Anular
-                                </Button>
-                              )}
-                              {line.status === "VOID" && <Badge color="secondary">Anulado</Badge>}
-                            </td>
-                          </tr>
-                        ))}
+                        {visibleLines.map((line) => {
+                          const movedNote = formatReassignedFromNote(line, lines);
+                          const showAging = line.entryType === "CHARGE" || line.entryType === "CHARGE_ADJUSTMENT";
+                          const adjustments = (line.childEntries || []).filter(
+                            (child) =>
+                              child.entryType === "CHARGE_ADJUSTMENT" && (showVoided || child.status !== "VOID")
+                          );
+                          return (
+                            <React.Fragment key={line.id}>
+                              <tr className={isOverdueReceivableLine(line, today) ? "table-danger" : undefined}>
+                                <td>{line.entryDate}</td>
+                                <td>
+                                  {getConceptLabel(line.movementConceptCode)}
+                                  {movedNote && <div className="small text-muted">{movedNote}</div>}
+                                </td>
+                                <td>{ENTRY_TYPE_LABELS[line.entryType] || line.entryType}</td>
+                                <td>{line.receiptNumber || line.reference || "—"}</td>
+                                <td>{line.invoiceNumber || line.vendorShipmentNumber || "—"}</td>
+                                <td>
+                                  {line.documentNumber || line.productionOrderCode || "—"}
+                                  {line.orderKind ? ` (${line.orderKind})` : ""}
+                                  {isChargeLine(line) && line.childCount > 0 && (
+                                    <Badge color="info" className="ml-1" style={{ fontSize: 10 }}>
+                                      {line.childCount} liq.
+                                    </Badge>
+                                  )}
+                                </td>
+                                <td className="text-right">
+                                  {Number(line.debit) > 0 ? formatAccountMoney(line.debit) : "—"}
+                                </td>
+                                <td className="text-right">
+                                  {Number(line.credit) > 0 ? formatAccountMoney(line.credit) : "—"}
+                                </td>
+                                <td className="text-right">
+                                  {line.runningBalance != null ? formatAccountMoney(line.runningBalance) : "—"}
+                                  {isChargeLine(line) && line.chargeBalanceDue != null && Number(line.chargeBalanceDue) > 0 && (
+                                    <div className="small text-muted">
+                                      Pend. {formatAccountMoney(line.chargeBalanceDue)}
+                                    </div>
+                                  )}
+                                </td>
+                                <td>{showAging ? formatDueDateLabel(line.dueDate) : "—"}</td>
+                                <td className="text-right">
+                                  {showAging ? formatStatementLineAmount(line.allocatedCredit) : "—"}
+                                </td>
+                                <td className="text-right">
+                                  {showAging ? formatStatementLineAmount(line.lineOpenBalance) : "—"}
+                                </td>
+                                <td className="text-right text-nowrap">
+                                  {isChargeLine(line) && (
+                                    <Button
+                                      color="info"
+                                      size="sm"
+                                      outline
+                                      className="btn-round mr-1"
+                                      onClick={() => openChargeDetail(line)}
+                                    >
+                                      Ver detalle
+                                    </Button>
+                                  )}
+                                  {isChargeLine(line) && line.status === "ACTIVE" && (
+                                    <Button
+                                      color="secondary"
+                                      size="sm"
+                                      outline
+                                      className="btn-round mr-1"
+                                      onClick={() => openAdjustForCharge(line)}
+                                    >
+                                      Ajustar
+                                    </Button>
+                                  )}
+                                  {line.status === "ACTIVE" && (
+                                    <Button
+                                      color="danger"
+                                      size="sm"
+                                      outline
+                                      className="btn-round"
+                                      onClick={() => openVoid(line)}
+                                    >
+                                      Anular
+                                    </Button>
+                                  )}
+                                  {line.status === "VOID" && <Badge color="secondary">Anulado</Badge>}
+                                </td>
+                              </tr>
+                              {adjustments.map((adj) => {
+                                const adjNote = formatReassignedFromNote(adj, lines);
+                                return (
+                                  <tr
+                                    key={adj.id}
+                                    className={isOverdueReceivableLine(adj, today) ? "table-danger" : undefined}
+                                  >
+                                    <td className="pl-4">{adj.entryDate}</td>
+                                    <td>
+                                      Ajuste de envío
+                                      {adjNote && <div className="small text-muted">{adjNote}</div>}
+                                    </td>
+                                    <td>{ENTRY_TYPE_LABELS.CHARGE_ADJUSTMENT}</td>
+                                    <td>{adj.reference || "—"}</td>
+                                    <td>{adj.invoiceNumber || adj.vendorShipmentNumber || "—"}</td>
+                                    <td>{adj.documentNumber || adj.productionOrderCode || "—"}</td>
+                                    <td className="text-right">
+                                      {Number(adj.debit) > 0 ? formatAccountMoney(adj.debit) : "—"}
+                                    </td>
+                                    <td className="text-right">—</td>
+                                    <td className="text-right">
+                                      {adj.runningBalance != null ? formatAccountMoney(adj.runningBalance) : "—"}
+                                    </td>
+                                    <td>{formatDueDateLabel(adj.dueDate)}</td>
+                                    <td className="text-right">{formatStatementLineAmount(adj.allocatedCredit)}</td>
+                                    <td className="text-right">{formatStatementLineAmount(adj.lineOpenBalance)}</td>
+                                    <td className="text-right">
+                                      {adj.status === "ACTIVE" && (
+                                        <Button
+                                          color="danger"
+                                          size="sm"
+                                          outline
+                                          className="btn-round"
+                                          onClick={() => openVoid(adj)}
+                                        >
+                                          Anular
+                                        </Button>
+                                      )}
+                                      {adj.status === "VOID" && <Badge color="secondary">Anulado</Badge>}
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </React.Fragment>
+                          );
+                        })}
                       </tbody>
                     </Table>
                   )}
@@ -624,6 +758,7 @@ function CustomerAccountStatement() {
                           <DocumentRow
                             key={doc.productionOrderId}
                             doc={doc}
+                            customerId={customerId}
                             expanded={expandedOrders[doc.productionOrderId]}
                             onToggle={() =>
                               setExpandedOrders((prev) => ({
@@ -697,17 +832,20 @@ function CustomerAccountStatement() {
       <CustomerAccountChargeDetailModal
         isOpen={chargeDetailOpen}
         toggle={() => {
+          selectedChargeIdRef.current = null;
           setChargeDetailOpen(false);
           setSelectedChargeLine(null);
         }}
         chargeLine={selectedChargeLine}
+        customerId={Number(customerId)}
+        knownLines={lines}
         onDischarge={openDischargeForCharge}
         onDiscountReturn={openDiscountReturnForCharge}
+        onAdjust={openAdjustForCharge}
+        onChanged={load}
         onVoidChild={(child) => {
           setChargeDetailOpen(false);
-          setVoidTarget(child);
-          setVoidReason("");
-          setVoidModalOpen(true);
+          openVoid(child);
         }}
       />
 
@@ -718,6 +856,40 @@ function CustomerAccountStatement() {
             {voidTarget &&
               `${ENTRY_TYPE_LABELS[voidTarget.entryType] || voidTarget.entryType} — ${voidTarget.entryDate}`}
           </p>
+          {needsReassignment && (
+            <>
+              <Alert color="info" className="py-2">
+                Total a mover: <strong>{formatAccountMoney(movedTotal)}</strong>
+              </Alert>
+              <FormGroup>
+                <Label>Mover pagos/abonos a *</Label>
+                <Input
+                  type="select"
+                  value={reassignToChargeId}
+                  onChange={(e) => setReassignToChargeId(e.target.value)}
+                  disabled={voidTargetsLoading || voiding}
+                >
+                  <option value="">— Seleccione un cargo —</option>
+                  {voidTargets.map((doc) => (
+                    <option key={doc.chargeEntryId} value={doc.chargeEntryId}>
+                      {formatReceivableTargetLabel(doc)}
+                    </option>
+                  ))}
+                </Input>
+                {voidTargetsLoading && <small className="text-muted">Cargando cargos...</small>}
+                {!voidTargetsLoading && voidTargets.length === 0 && (
+                  <small className="text-muted">No hay otro cargo activo con saldo para este cliente.</small>
+                )}
+              </FormGroup>
+              {balanceWarning && (
+                <Alert color="warning" className="py-2">
+                  El total a mover ({formatAccountMoney(movedTotal)}) supera el saldo del cargo destino (
+                  {formatAccountMoney(reassignTarget.balanceDue)}). El servidor puede rechazar el movimiento.
+                </Alert>
+              )}
+              {adjustmentsBlocked && <Alert color="warning">{ADJUSTMENT_DIFFERENT_ORDER_MESSAGE}</Alert>}
+            </>
+          )}
           <FormGroup>
             <Label>Motivo</Label>
             <Input type="textarea" rows={3} value={voidReason} onChange={(e) => setVoidReason(e.target.value)} />
@@ -727,7 +899,11 @@ function CustomerAccountStatement() {
           <Button color="secondary" onClick={() => setVoidModalOpen(false)} disabled={voiding}>
             Cancelar
           </Button>
-          <Button color="danger" onClick={handleVoid} disabled={voiding}>
+          <Button
+            color="danger"
+            onClick={handleVoid}
+            disabled={voiding || (needsReassignment && !reassignToChargeId) || adjustmentsBlocked}
+          >
             {voiding ? "Anulando..." : "Confirmar anulación"}
           </Button>
         </ModalFooter>
