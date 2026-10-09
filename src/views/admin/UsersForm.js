@@ -14,12 +14,13 @@ import {
   Col,
   Alert,
 } from "reactstrap";
-import { createUser, updateUser, getUserById, uploadUserProfilePhoto } from "services/userService";
+import { createUser, updateUser, getUserById } from "services/userService";
 import { getRoles } from "services/roleService";
 import { getDepartments } from "services/departmentService";
 import { getCostCenters } from "services/costCenterService";
 import { getOperationalUnits } from "services/operationalUnitService";
 import { encrypt } from "services/encryptionService";
+import soluLogo from "assets/img/solu-logo.png";
 
 function UsersForm({ userId, onSuccess, onCancel }) {
   const [formData, setFormData] = useState({
@@ -43,8 +44,6 @@ function UsersForm({ userId, onSuccess, onCancel }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
-  const [profileImageFile, setProfileImageFile] = useState(null);
-  const [profileImagePreview, setProfileImagePreview] = useState("");
 
   useEffect(() => {
     loadLookups();
@@ -88,8 +87,6 @@ function UsersForm({ userId, onSuccess, onCancel }) {
         operationalUnitId: user.operationalUnit ? String(user.operationalUnit.id) : "",
         roleIds: user.roles ? user.roles.map((role) => role.id) : [],
       });
-      setProfileImagePreview(resolveImageUrl(user.profileImageUrl));
-      setProfileImageFile(null);
     } catch (err) {
       setError(err.message || "Error al cargar el usuario");
     } finally {
@@ -174,15 +171,12 @@ function UsersForm({ userId, onSuccess, onCancel }) {
         userData.password = encrypt(formData.password);
       }
 
-      let targetUserId = userId;
       if (userId && userId !== 'undefined' && userId !== 'null') {
         await updateUser(userId, userData);
         setSuccess("Usuario actualizado correctamente");
       } else {
-        const createdUser = await createUser(userData);
-        targetUserId = createdUser?.id;
+        await createUser(userData);
         setSuccess("Usuario creado correctamente");
-        // Limpiar formulario
         setFormData({
           username: "",
           email: "",
@@ -196,11 +190,6 @@ function UsersForm({ userId, onSuccess, onCancel }) {
           operationalUnitId: "",
           roleIds: [],
         });
-      }
-
-      if (profileImageFile && targetUserId) {
-        await uploadUserProfilePhoto(targetUserId, profileImageFile);
-        setSuccess(userId ? "Usuario y foto actualizados correctamente" : "Usuario y foto creados correctamente");
       }
 
       if (onSuccess) {
@@ -244,34 +233,6 @@ function UsersForm({ userId, onSuccess, onCancel }) {
     }
   };
 
-  const resolveImageUrl = (rawValue) => {
-    const raw = String(rawValue || "").trim();
-    if (!raw) return "";
-    if (
-      raw.startsWith("http://") ||
-      raw.startsWith("https://") ||
-      raw.startsWith("data:") ||
-      raw.startsWith("blob:")
-    ) {
-      return raw;
-    }
-    try {
-      const apiUrl = process.env.REACT_APP_API_URL || "http://localhost:8080/api";
-      const origin = new URL(apiUrl).origin;
-      return `${origin}${raw.startsWith("/") ? raw : `/${raw}`}`;
-    } catch {
-      return raw;
-    }
-  };
-
-  const handleProfileImageChange = (event) => {
-    const file = event.target.files?.[0] || null;
-    setProfileImageFile(file);
-    if (!file) return;
-    const preview = URL.createObjectURL(file);
-    setProfileImagePreview(preview);
-  };
-
   return (
     <div className="content">
       <Row>
@@ -291,42 +252,18 @@ function UsersForm({ userId, onSuccess, onCancel }) {
                     <FormGroup>
                       <Label>Foto de perfil</Label>
                       <div className="mb-2">
-                        {profileImagePreview ? (
-                          <img
-                            src={profileImagePreview}
-                            alt="Foto de perfil"
-                            style={{
-                              width: "96px",
-                              height: "96px",
-                              objectFit: "cover",
-                              borderRadius: "50%",
-                              border: "1px solid #d9d9d9",
-                            }}
-                          />
-                        ) : (
-                          <div
-                            style={{
-                              width: "96px",
-                              height: "96px",
-                              borderRadius: "50%",
-                              border: "1px dashed #d9d9d9",
-                              display: "flex",
-                              alignItems: "center",
-                              justifyContent: "center",
-                              color: "#9a9a9a",
-                              fontSize: "12px",
-                            }}
-                          >
-                            Sin foto
-                          </div>
-                        )}
+                        <img
+                          src={soluLogo}
+                          alt="Solu"
+                          style={{
+                            width: "96px",
+                            height: "96px",
+                            objectFit: "cover",
+                            borderRadius: "50%",
+                            border: "1px solid #d9d9d9",
+                          }}
+                        />
                       </div>
-                      <Input
-                        type="file"
-                        accept="image/*"
-                        onChange={handleProfileImageChange}
-                        disabled={loading}
-                      />
                     </FormGroup>
                   </Col>
                   <Col md="6">

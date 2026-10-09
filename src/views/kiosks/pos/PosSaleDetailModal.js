@@ -31,6 +31,7 @@ import {
   DEFAULT_POS_CARD_BRAND,
   formatSaleCardPaymentDetail,
   canCertifyKioskSaleFel,
+  canVoidKioskSale,
 } from "./posUtils";
 import PosInvoiceEmailModal from "./PosInvoiceEmailModal";
 
@@ -121,12 +122,7 @@ function PosSaleDetailModal({
     Boolean(cashSessionOpen) &&
     !isVoid &&
     String(sale?.status || "").toUpperCase() === "COMPLETED";
-  const canVoidSale =
-    Boolean(cashSessionOpen) &&
-    !isVoid &&
-    String(sale?.status || "").toUpperCase() === "COMPLETED" &&
-    (sale?.cashSessionId == null ||
-      Number(sale.cashSessionId) === Number(cashSession?.id));
+  const canVoidSale = canVoidKioskSale(sale, cashSessionOpen ? cashSession : null);
   const depositApplicable = isDepositApplicable(sale);
   const pendingDeposit = isSalePendingDeposit(sale);
   const grossDepositAmount = getSaleGrossDepositAmount(sale);

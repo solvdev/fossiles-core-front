@@ -38,6 +38,7 @@ import {
   buildNormalColorMatrixTableHtml,
 } from "utils/productionOrderPrintHtml";
 import { isManagedCinchoOrderType, isCinchoOrderType } from "utils/cinchoProductionHelper";
+import { isLuisFelipeVendorFlow } from "utils/luisFelipeVendorHelper";
 
 const OP_EXPORT_HEADERS = [
   { label: "OP", value: "opCode" },
@@ -189,7 +190,10 @@ function ProductionOrdersList() {
     return statusMap[status] || status || "-";
   };
 
-  const getTypeBadge = (type) => {
+  const getTypeBadge = (order) => {
+    if (isLuisFelipeVendorFlow(order?.orderType, order?.sellerName)) {
+      return <Badge color="info">VENDEDOR</Badge>;
+    }
     const typeMap = {
       CINCHOS: { color: "primary", text: "CINCHOS" },
       CINCHOS_FOSSILES: { color: "primary", text: "CINCHOS FOSSILES" },
@@ -200,11 +204,14 @@ function ProductionOrdersList() {
       VENTA_EN_LINEA: { color: "secondary", text: "VENTA EN LÍNEA" },
       CLIENTE_KIOSKO: { color: "danger", text: "CLIENTE KIOSKO" },
     };
-    const typeInfo = typeMap[type] || { color: "secondary", text: type };
+    const typeInfo = typeMap[order?.orderType] || { color: "secondary", text: order?.orderType };
     return <Badge color={typeInfo.color}>{typeInfo.text}</Badge>;
   };
 
-  const getTypeLabel = (type) => {
+  const getTypeLabel = (order) => {
+    if (isLuisFelipeVendorFlow(order?.orderType, order?.sellerName)) {
+      return "VENDEDOR";
+    }
     const typeMap = {
       CINCHOS: "CINCHOS",
       CINCHOS_FOSSILES: "CINCHOS FOSSILES",
@@ -217,7 +224,7 @@ function ProductionOrdersList() {
       CLIENTE_KIOSKO: "CLIENTE KIOSKO",
       INTERNA: "INTERNA",
     };
-    return typeMap[type] || type || "-";
+    return typeMap[order?.orderType] || order?.orderType || "-";
   };
 
   const getTotalQuantity = (items) => {
@@ -338,7 +345,7 @@ function ProductionOrdersList() {
           : order.customerName || "-";
       const baseRow = {
         opCode: order.code || "-",
-        type: getTypeLabel(order.orderType),
+        type: getTypeLabel(order),
         process: stage.label,
         status: getStatusLabel(order.status),
         customer,
@@ -449,7 +456,7 @@ function ProductionOrdersList() {
     // Solo se pintan los campos que tienen valor. El diseno anterior rellenaba los huecos
     // con <th></th><td></td>, que salian como celdas vacias en la hoja impresa.
     const campos = [
-      ["Tipo", getTypeLabel(order.orderType)],
+      ["Tipo", getTypeLabel(order)],
       ["Estado", getStatusLabel(order.status)],
       ["Proceso", stage.label],
       [order.orderType === "DISTRIBUTION" ? "Distribución" : "Cliente", customer],
@@ -1027,7 +1034,7 @@ function ProductionOrdersList() {
                           </td>
                           <td>{order.createdAt ? formatDateGt(order.createdAt) : "-"}</td>
                           <td><Badge color={stage.color || "secondary"}>{stage.label || "-"}</Badge></td>
-                          <td>{getTypeBadge(order.orderType)}</td>
+                          <td>{getTypeBadge(order)}</td>
                           <td>
                             {order.orderType === "DISTRIBUTION" && order.distributionNumber
                               ? <><Badge color="warning" className="mr-1">Dist.</Badge>{order.distributionNumber}</>

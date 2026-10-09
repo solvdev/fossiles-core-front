@@ -78,6 +78,40 @@ export const searchReceivableDocuments = async ({
   return response.json();
 };
 
+/**
+ * Cartera por documento (cargos, abonos, créditos, saldo) + anexo opcional de movimientos.
+ * Solo trae documentos y clientes con saldo: lo saldado (cero) no forma parte de la cartera.
+ */
+export const getCustomerAccountPortfolioReport = async ({
+  search = "",
+  orderKind = "OPV",
+  regionCode,
+  routeNumber,
+  routeLocationCode,
+  includeMovements = false,
+  movementsFrom,
+  movementsTo,
+} = {}) => {
+  const params = new URLSearchParams();
+  if (search) params.set("search", search);
+  params.set("orderKind", orderKind);
+  if (regionCode) params.set("regionCode", regionCode);
+  if (routeNumber != null && routeNumber !== "") params.set("routeNumber", String(routeNumber));
+  if (routeLocationCode) params.set("routeLocationCode", routeLocationCode);
+  if (includeMovements) {
+    params.set("includeMovements", "true");
+    if (movementsFrom) params.set("movementsFrom", movementsFrom);
+    if (movementsTo) params.set("movementsTo", movementsTo);
+  }
+
+  const response = await fetch(`${API_URL}/customer-accounts/portfolio-report?${params}`, {
+    method: "GET",
+    headers: { "Content-Type": "application/json", ...getAuthHeader() },
+  });
+  if (!response.ok) await parseError(response, "Error al generar la cartera de clientes");
+  return response.json();
+};
+
 export const getCustomerAccountPrintReport = async ({
   search = "",
   luisFelipeOnly = true,
@@ -202,6 +236,20 @@ export const splitAccountBalance = (value) => {
   };
 };
 
+const BALANCE_EPSILON = 0.005;
+
+/**
+ * ¿Sigue el cliente en la cartera `kind` (OPV/OPC)? Mientras deba algo en esa cartera o tenga crédito a favor.
+ * Un cliente en cero ya no debe nada y no se lista. Con `dueOnly` quedan solo los que tienen deuda.
+ */
+export const hasPortfolioBalance = (row, kind, { dueOnly = false } = {}) => {
+  const due = Number(kind === "OPC" ? row?.balanceDueOpc : row?.balanceDueOpv) || 0;
+  if (due > BALANCE_EPSILON) return true;
+  if (dueOnly) return false;
+  const credit = Number(row?.creditBalance ?? splitAccountBalance(row?.balance).creditBalance) || 0;
+  return credit > BALANCE_EPSILON;
+};
+
 export const formatAccountMoney = (value) => {
   const num = Number(value || 0);
   return `Q ${num.toLocaleString("es-GT", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -248,6 +296,7 @@ export const CHARGE_STATUS_LABELS = {
   PARTIAL: "Parcial",
   PAID: "Pagado",
   OPEN: "Pendiente",
+  COVERED: "Cubierto por otro cargo",
 };
 
 export const PAYMENT_METHODS = [
@@ -305,7 +354,7 @@ export const findParentChargeId = (line, charges = []) => {
  * Agrupa líneas del estado de cuenta: solo Facturas (y saldo inicial) en la tabla;
  * descargas, NC, pagos y devoluciones van como hijos del cargo (Ver detalle).
  */
-export const groupStatementLines = (lines = []) => {
+export const groupStatementLines = (lines = [], openingBalance = 0) => {
   const list = Array.isArray(lines) ? lines : [];
   const charges = list.filter((line) => line.entryType === "CHARGE");
   const childrenByChargeId = new Map();
@@ -330,19 +379,26 @@ export const groupStatementLines = (lines = []) => {
     return true;
   });
 
+  // El saldo se recalcula sobre las filas visibles: cada factura absorbe los abonos aplicados a ella
+  // (crédito = abonos del documento), de modo que Débito − Crédito = pendiente y el saldo acumulado
+  // no arrastra facturas ya liquidadas.
+  let running = Number(openingBalance) || 0;
   const displayLines = topLevel.map((line) => {
     const children = (childrenByChargeId.get(line.id) || []).slice();
-    const appliedTotal = children
-      .filter((c) => c.status === "ACTIVE")
-      .reduce((sum, c) => sum + (Number(c.credit) || 0), 0);
-    const isCharge = line.entryType === "CHARGE" && line.status === "ACTIVE";
+    const activeChildren = children.filter((c) => c.status === "ACTIVE");
+    const appliedTotal = activeChildren.reduce((sum, c) => sum + (Number(c.credit) || 0), 0);
+    const isActive = line.status === "ACTIVE";
+    const isCharge = line.entryType === "CHARGE" && isActive;
+    const debit = Number(line.debit) || 0;
+    const credit = isCharge ? appliedTotal : Number(line.credit) || 0;
+    if (isActive) running += debit - credit;
     return {
       ...line,
+      credit,
       childEntries: children,
-      childCount: children.filter((c) => c.status === "ACTIVE").length,
-      chargeBalanceDue: isCharge
-        ? Math.max(0, (Number(line.debit) || 0) - appliedTotal)
-        : line.chargeBalanceDue,
+      childCount: activeChildren.length,
+      chargeBalanceDue: isCharge ? Math.max(0, debit - appliedTotal) : line.chargeBalanceDue,
+      runningBalance: isActive ? Math.round(running * 100) / 100 : null,
     };
   });
   return { displayLines, childrenByChargeId };

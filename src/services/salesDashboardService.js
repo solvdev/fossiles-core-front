@@ -26,13 +26,47 @@ const parseJson = async (response, fallbackMessage) => {
   throw new Error(errorData.message || fallbackMessage);
 };
 
-export const getSalesDashboard = async ({ startDate, endDate, kioskLocationId, scope } = {}) => {
+/**
+ * Dashboard de ventas por fuente. Todos aceptan `refresh` (true = omite/invalida la caché de 60 s del backend)
+ * y `signal` (AbortSignal) para cancelar la petición. `siteId` (solo kioskos) = id del sitio de Finanzas kioscos.
+ */
+const getDashboardSource = async (path, params, fallbackMessage) => {
+  const { startDate, endDate, siteId, refresh, signal } = params || {};
   const response = await fetch(
-    `${API_URL}/sales/dashboard${toQuery({ startDate, endDate, kioskLocationId, scope })}`,
-    { headers: headers() }
+    `${API_URL}/sales/dashboard/${path}${toQuery({
+      startDate,
+      endDate,
+      siteId,
+      refresh: refresh ? "true" : undefined,
+    })}`,
+    { headers: headers(), signal }
   );
-  return parseJson(response, "No se pudo cargar el dashboard de ventas.");
+  return parseJson(response, fallbackMessage);
 };
+
+export const getSalesConsolidated = ({ startDate, endDate, refresh, signal } = {}) =>
+  getDashboardSource(
+    "consolidated",
+    { startDate, endDate, refresh, signal },
+    "No se pudo cargar el consolidado de ventas."
+  );
+
+export const getSalesKiosks = ({ startDate, endDate, siteId, refresh, signal } = {}) =>
+  getDashboardSource(
+    "kiosks",
+    { startDate, endDate, siteId, refresh, signal },
+    "No se pudo cargar las ventas de kioskos."
+  );
+
+export const getSalesOnline = ({ startDate, endDate, refresh, signal } = {}) =>
+  getDashboardSource("online", { startDate, endDate, refresh, signal }, "No se pudo cargar las ventas online.");
+
+export const getSalesVendor = ({ startDate, endDate, refresh, signal } = {}) =>
+  getDashboardSource(
+    "vendor",
+    { startDate, endDate, refresh, signal },
+    "No se pudo cargar las ventas de Vendedor LF."
+  );
 
 export const getUnifiedSales = async ({ startDate, endDate, channel, kioskLocationId, limit } = {}) => {
   const response = await fetch(

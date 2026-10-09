@@ -98,6 +98,8 @@ import KioskInventory from "views/kiosks/KioskInventory.js";
 import KioskSales from "views/kiosks/KioskSales.js";
 import KioskReturns from "views/kiosks/KioskReturns.js";
 import KioskLedgerLab from "views/kiosks/KioskLedgerLab.js";
+import KioskGoalsAdmin from "views/kiosks/KioskGoalsAdmin.js";
+import KioskSupervisorAssignments from "views/kiosks/KioskSupervisorAssignments.js";
 
 // Ventas
 import TotalSales from "views/sales/TotalSales.js";
@@ -118,6 +120,8 @@ import CostReports from "views/reports/CostReports.js";
 import KioskPerformance from "views/reports/KioskPerformance.js";
 import PurchaseReports from "views/reports/PurchaseReports.js";
 import PhaseGeneralReports from "views/reports/PhaseGeneralReports.js";
+import KioskFinancialsReports from "views/kiosks/finance/KioskFinancialsReports.js";
+import KioskImportWizard from "views/kiosks/finance/KioskImportWizard.js";
 
 // Configuración General
 import CurrenciesList from "views/catalogs/CurrenciesList.js";
@@ -133,6 +137,7 @@ import NotificationsConfig from "views/config/Notifications.js";
 import SystemSettings from "views/config/SystemSettings.js";
 import AccountingAccounts from "views/config/AccountingAccounts.js";
 import SmartPurchasingConfig from "views/config/SmartPurchasingConfig.js";
+import KioskCosts from "views/config/KioskCosts.js";
 
 // Páginas de Autenticación
 import Login from "views/pages/Login.js";
@@ -1112,6 +1117,33 @@ const routes = [
           create: "KIOSCOS.DEVOLUCIONES_REINTEGROS.CREAR",
         },
       },
+      {
+        path: "/kiosk-goals",
+        name: "Metas de Kioskos",
+        mini: "MK",
+        component: <KioskGoalsAdmin />,
+        layout: "/admin",
+        module: "KIOSCOS",
+        // Solo quienes pueden EDITAR (admin/supervisora) llegan a esta pantalla de
+        // configuración; la encargada solo ve su meta de forma read-only en "Resumen"
+        // (KIOSCOS.METAS_KIOSKO.VER, usado ahí, no habilita esta pantalla).
+        permissions: {
+          view: "KIOSCOS.METAS_KIOSKO.EDITAR",
+          edit: "KIOSCOS.METAS_KIOSKO.EDITAR",
+        },
+      },
+      {
+        path: "/kiosk-supervisor-assignments",
+        name: "Supervisoras y Kioskos",
+        mini: "SK",
+        component: <KioskSupervisorAssignments />,
+        layout: "/admin",
+        module: "KIOSCOS",
+        permissions: {
+          view: "KIOSCOS.SUPERVISION_KIOSKO.VER",
+          edit: "KIOSCOS.SUPERVISION_KIOSKO.EDITAR",
+        },
+      },
     ],
   },
   // 13. VENTAS
@@ -1371,6 +1403,28 @@ const routes = [
           view: "REPORTES.PRODUCCION.VER",
         },
       },
+      {
+        path: "/kiosk-financials",
+        name: "Finanzas kioscos",
+        mini: "FK",
+        component: <KioskFinancialsReports />,
+        layout: "/admin",
+        module: "KIOSCOS",
+        permissions: {
+          view: "KIOSCOS.FINANZAS.VER",
+        },
+      },
+      {
+        path: "/kiosk-financials/import",
+        name: "Importar reportes",
+        mini: "IR",
+        component: <KioskImportWizard />,
+        layout: "/admin",
+        module: "KIOSCOS",
+        permissions: {
+          view: "KIOSCOS.FINANZAS.IMPORTAR",
+        },
+      },
     ],
   },
   // 14. CONFIGURACIÓN GENERAL
@@ -1457,6 +1511,18 @@ const routes = [
         permissions: {
           view: "CONFIGURACION.CONFIGURACION_SISTEMA.VER",
           edit: "CONFIGURACION.CONFIGURACION_SISTEMA.EDITAR",
+        },
+      },
+      {
+        path: "/kiosk-costs",
+        name: "Costos por kiosco",
+        mini: "CK",
+        component: <KioskCosts />,
+        layout: "/admin",
+        module: "KIOSCOS",
+        permissions: {
+          view: "KIOSCOS.FINANZAS.VER",
+          edit: "KIOSCOS.FINANZAS.EDITAR",
         },
       },
     ],

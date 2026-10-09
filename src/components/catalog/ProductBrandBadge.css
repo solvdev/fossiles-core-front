@@ -65,6 +65,14 @@
   color: #7a3e1d;
 }
 
+.kiosk-brand-chip--timberland {
+  background-color: #c4a35a !important;
+  color: #1a1a1a !important;
+}
+.kiosk-brand-chip--timberland .kiosk-brand-chip__mark {
+  color: #5c3317;
+}
+
 .kiosk-brand-chip--nino {
   background-color: #1d4ed8 !important;
 }

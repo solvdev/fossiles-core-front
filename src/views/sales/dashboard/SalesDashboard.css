@@ -1,0 +1,262 @@
+/* Dashboard de ventas por fuente. Se apoya en el sistema .kfin de Finanzas kioscos (KioskFinance.css, que se
+   importa tal cual) y solo agrega lo que ese archivo no trae. Todo va bajo .sdash para no afectar otras vistas.
+   Colores de fuente aprobados en la maqueta: Kioskos #51cbce, Online #f0a63a, Vendedor LF #4f5fc7;
+   producto / empaque / envío en pizarra #3b4a5a / #6f7b88 / #a3acb6. */
+
+.kfin.sdash {
+  --sdash-accent: #252422;
+  --sdash-link: #1b6f73;
+  --sdash-amber: #c77d0a;
+}
+
+/* ---------- Cabecera: filtros en línea ---------- */
+.sdash .sdash-filters { padding: 0; align-items: flex-end; }
+.sdash .sdash-filters .kfin-field { min-width: 140px; }
+.sdash .sdash-filters .form-control { height: 40px; }
+.sdash .sdash-filters .kfin-btn--lg { min-height: 40px; }
+.sdash .sdash-tabfilters { padding-top: 4px; }
+
+/* Dos grupos ([Mes · Año · Desde · Hasta] y [atajos · Actualizar]): si no caben en una línea el segundo baja completo
+   en vez de dejar un botón suelto. */
+.sdash .sdash-fgroup, .sdash .sdash-dates { display: flex; flex-wrap: wrap; gap: 12px 14px; align-items: flex-end; }
+
+/* Selector de mes y año: ◀ [Mes] [Año] ▶. Los selects igualan la altura de Desde/Hasta (40 px; `.kfin-field
+   select.form-control` trae 38 px y gana por especificidad, de ahí el selector largo). Los botones miden 44 px de
+   toque pero con margen negativo para no hacer más alta la fila; alineados abajo quedan centrados con los selects. */
+.sdash .sdash-monthyear { display: flex; align-items: flex-end; gap: 4px; }
+.sdash .sdash-filters .kfin-field.sdash-month { flex: 0 0 auto; width: 152px; min-width: 0; }
+.sdash .sdash-filters .kfin-field.sdash-year { flex: 0 0 auto; width: 96px; min-width: 0; }
+.sdash .sdash-filters .kfin-field select.form-control { height: 40px; text-overflow: ellipsis; }
+.sdash .sdash-filters .kfin-btn.sdash-month-step { flex: 0 0 auto; justify-content: center; min-width: 44px; min-height: 44px; margin: -2px 0; padding: 0; }
+.sdash .sdash-month-step svg { display: block; }
+.sdash .sdash-filters select.form-control:focus-visible { outline: 2px solid var(--kfin-cur-ink); outline-offset: 2px; }
+
+/* ---------- Pestañas con punto de color ---------- */
+.sdash .kfin-tabs .nav-link { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; font-weight: 600; }
+.kfin.sdash .kfin-tabs .nav-link.active { border-bottom: 3px solid var(--sdash-tab-accent, #252422) !important; }
+.sdash .sdash-dot { width: 10px; height: 10px; border-radius: 3px; display: inline-block; flex: 0 0 auto; }
+.sdash .sdash-panel { padding-top: 16px; }
+
+/* ---------- KPIs ---------- */
+.sdash .sdash-kpis .kfin-kpi { border-top-color: var(--sdash-accent, #252422); }
+.sdash .sdash-kpis .kfin-kpi-value { font-size: 1.5rem; font-variant-numeric: tabular-nums; }
+.sdash .sdash-note { font-size: 0.78rem; color: var(--kfin-ink-2); margin-left: 6px; }
+.sdash .sdash-note:first-child { margin-left: 0; }
+.sdash .sdash-kpis .kfin-kpi-delta { min-height: 24px; }
+
+/* ---------- Filas de tarjetas ---------- */
+.sdash .sdash-row { display: flex; flex-wrap: wrap; gap: 16px; margin-bottom: 16px; }
+.sdash .sdash-row > .kfin-card, .sdash .sdash-row > .sdash-src { margin-bottom: 0; }
+.sdash .sdash-c2 { flex: 2 1 520px; min-width: 0; }
+.sdash .sdash-c1 { flex: 1 1 300px; min-width: 0; }
+.sdash .sdash-c3 { flex: 1 1 250px; min-width: 0; }
+.sdash .sdash-c2 > .kfin-card, .sdash .sdash-c1 > .kfin-card { margin-bottom: 0; height: 100%; }
+.sdash .sdash-yoy { margin-bottom: 16px; }
+.sdash .sdash-yoy .row { margin-top: 0 !important; }
+
+.sdash .sdash-link {
+  display: inline-flex; align-items: center; min-height: 44px; padding: 0; border: 0; background: none;
+  font: inherit; font-size: 0.85rem; font-weight: 700; color: var(--sdash-link); text-decoration: none; cursor: pointer;
+}
+.sdash .sdash-link:hover { text-decoration: underline; color: var(--sdash-link); }
+.sdash .sdash-link:focus-visible { outline: 2px solid var(--kfin-cur-ink); outline-offset: 2px; border-radius: 3px; }
+.sdash .sdash-subhead { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin: 18px 0 0; font-size: 0.85rem; font-weight: 700; }
+
+/* Insignia y notas */
+.sdash .sdash-badge { display: inline-block; font-size: 0.7rem; font-weight: 700; padding: 3px 9px; border-radius: 999px; background: #e8eef4; color: #2f4558; }
+.sdash .sdash-badge--amber { background: #fff1cf; color: #6b4600; }
+.sdash .sdash-badges { display: flex; flex-wrap: wrap; gap: 4px 6px; }
+.sdash .sdash-def { background: #eef0fb; border: 1px solid #d4d9f3; color: #2f3a8a; font-size: 0.8rem; padding: 10px 12px; border-radius: 8px; margin-bottom: 14px; }
+
+/* Notas bajo los KPIs de Kioskos: cuánto es histórico (solo si hay) y de dónde sale cada número */
+.sdash .sdash-kpinotes { margin: -4px 0 16px; }
+.sdash .sdash-kpinotes .sdash-def { margin-bottom: 8px; }
+.sdash .sdash-caption { margin: 0; font-size: 0.78rem; color: var(--kfin-ink-2); }
+
+/* ---------- Tarjetas por fuente (Consolidado) ---------- */
+.sdash .sdash-src { flex: 1 1 300px; min-width: 0; background: var(--kfin-surface); border: 1px solid var(--kfin-line); border-top: 5px solid; border-radius: 10px; padding: 16px 18px 6px; }
+.sdash .sdash-src-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
+.sdash .sdash-src-head h5 { margin: 0; font-size: 0.95rem; font-weight: 700; }
+.sdash .sdash-src-value { font-size: 1.65rem; font-weight: 700; margin: 8px 0; font-variant-numeric: tabular-nums; }
+.sdash .sdash-bar { height: 8px; border-radius: 999px; background: #eceae4; overflow: hidden; margin: 8px 0 4px; }
+.sdash .sdash-bar span { display: block; height: 100%; }
+.sdash .sdash-src .sdash-note { margin-left: 0; }
+.sdash .sdash-kv { margin: 10px 0 0; }
+.sdash .sdash-kv > div { display: flex; justify-content: space-between; gap: 12px; font-size: 0.82rem; padding: 7px 0; border-top: 1px solid #f0eee9; }
+.sdash .sdash-kv dt { font-weight: 400; color: var(--kfin-ink-2); }
+.sdash .sdash-kv dd { margin: 0; font-weight: 700; font-variant-numeric: tabular-nums; text-align: right; }
+
+/* ---------- Composición del dinero ---------- */
+.sdash .sdash-stack { display: flex; height: 32px; border-radius: 8px; overflow: hidden; margin: 10px 0 12px; background: #eceae4; }
+.sdash .sdash-stack > div { display: flex; align-items: center; justify-content: center; font-size: 0.75rem; font-weight: 700; min-width: 0; overflow: hidden; }
+/* 'Histórico (sin desglose)': gris claro con rayado diagonal y borde, para que no dependa solo del color */
+.sdash .sdash-stack > .sdash-hatch { background-image: repeating-linear-gradient(135deg, rgba(59, 74, 90, 0.42) 0 2px, transparent 2px 7px); box-shadow: inset 1px 0 0 #8f99a3; }
+.sdash .sdash-dot.sdash-hatch { background-image: repeating-linear-gradient(135deg, rgba(59, 74, 90, 0.6) 0 1.5px, transparent 1.5px 4px); box-shadow: inset 0 0 0 1px #8f99a3; }
+.sdash .sdash-legend { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px 20px; font-size: 0.82rem; }
+.sdash .sdash-legend li { display: flex; align-items: flex-start; gap: 8px; }
+.sdash .sdash-legend .sdash-dot { margin-top: 4px; }
+.sdash .sdash-legend--col { flex-direction: column; gap: 8px; }
+
+/* ---------- Listas con barra (ranking, desgloses) ---------- */
+.sdash .sdash-pr-list { list-style: none; margin: 0; padding: 0; }
+.sdash .sdash-pr { display: flex; align-items: center; gap: 10px; padding: 9px 0; border-top: 1px solid #f0eee9; font-size: 0.82rem; }
+.sdash .sdash-pr:first-child { border-top: 0; }
+.sdash .sdash-pr-name { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+.sdash .sdash-pr-sub { color: var(--kfin-ink-2); font-size: 0.75rem; }
+.sdash .sdash-pr-sub--block { display: block; }
+.sdash .sdash-pr-bar { display: block; height: 6px; border-radius: 999px; margin-top: 6px; }
+.sdash .sdash-pr-val { font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.sdash .sdash-mini { display: block; height: 6px; border-radius: 999px; margin-top: 6px; }
+
+/* ---------- Estados (pastillas) ---------- */
+.sdash .sdash-status { display: inline-block; font-size: 0.7rem; font-weight: 700; padding: 3px 9px; border-radius: 999px; background: #eceae4; color: #3b3935; white-space: nowrap; }
+.sdash .sdash-status--ok { background: #e3f5ec; color: #17683f; }
+.sdash .sdash-status--warn { background: #fff1cf; color: #7a5600; }
+.sdash .sdash-status--bad { background: #fde9e4; color: #a1361a; }
+
+/* ---------- Tablas ---------- */
+.sdash .sdash-scroll { cursor: auto; max-height: 420px; }
+.sdash .sdash-detail-scroll { max-height: 380px; }
+.sdash .sdash-wide { min-width: 760px; }
+.sdash .sdash-wide--hist { min-width: 880px; }
+.sdash .sdash-recent { min-width: 560px; }
+.sdash .kfin-table .kfin-strongnum { font-weight: 700; }
+.sdash .kfin-table tbody th[scope="row"] .sdash-dot { margin-right: 6px; vertical-align: baseline; }
+
+/* ---------- Mapa de calor (rampa ámbar de la maqueta; mismos umbrales que Finanzas) ---------- */
+.sdash .sdash-h0 { background: #f4f1ea; color: #252422; }
+.sdash .sdash-h1 { background: #fbe7bd; color: #252422; }
+.sdash .sdash-h2 { background: #f7cd7e; color: #252422; }
+.sdash .sdash-h3 { background: #ee9f35; color: #252422; }
+.sdash .sdash-h4 { background: #b45f08; color: #ffffff; }
+.sdash .sdash-h5 { background: #7a3d02; color: #ffffff; }
+.sdash .sdash-hzero { background: #ffffff; color: #66615b; font-style: italic; box-shadow: inset 0 -2px 0 var(--kfin-mid-bg); }
+.sdash .kfin-heat-swatch.sdash-hzero { box-shadow: inset 0 -3px 0 var(--kfin-mid-bg); }
+.sdash .kfin-table td.sdash-hc { font-weight: 700; }
+/* En tablas, .kfin-table pinta cada celda (y al pasar el cursor): se sube la especificidad para conservar el sombreado */
+.sdash .kfin-table tbody tr td.sdash-h0 { background: #f4f1ea; color: #252422; }
+.sdash .kfin-table tbody tr td.sdash-h1 { background: #fbe7bd; color: #252422; }
+.sdash .kfin-table tbody tr td.sdash-h2 { background: #f7cd7e; color: #252422; }
+.sdash .kfin-table tbody tr td.sdash-h3 { background: #ee9f35; color: #252422; }
+.sdash .kfin-table tbody tr td.sdash-h4 { background: #b45f08; color: #ffffff; }
+.sdash .kfin-table tbody tr td.sdash-h5 { background: #7a3d02; color: #ffffff; }
+.sdash .kfin-table tbody tr td.sdash-hzero { background: #ffffff; color: #66615b; }
+
+.sdash .sdash-cal-month + .sdash-cal-month { margin-top: 18px; }
+.sdash .sdash-cal-title { margin: 14px 0 0; font-size: 0.9rem; font-weight: 700; }
+.sdash .sdash-cal { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; margin-top: 12px; }
+.sdash .sdash-cwd { font-size: 0.7rem; font-weight: 700; color: var(--kfin-ink-2); text-transform: uppercase; text-align: center; padding-bottom: 2px; }
+.sdash .sdash-cd { border-radius: 8px; padding: 8px; min-height: 64px; display: flex; flex-direction: column; justify-content: space-between; font-variant-numeric: tabular-nums; }
+.sdash .sdash-cd--empty { background: transparent; }
+.sdash .sdash-cd .sdash-dnum { font-size: 0.7rem; font-weight: 700; opacity: 0.85; }
+.sdash .sdash-cd .sdash-dv { font-size: 0.8rem; font-weight: 700; }
+.sdash .sdash-cd.sdash-hzero { border: 1px dashed var(--kfin-line-strong); }
+.sdash .sdash-cd--best { outline: 2px solid #252422; outline-offset: 1px; }
+
+.sdash .sdash-insight { background: #fff7e0; border: 1px solid #f2dc9b; border-radius: 8px; padding: 10px 12px; font-size: 0.82rem; margin-top: 14px; color: #4a3a0c; }
+
+@media (max-width: 575px) {
+  .sdash .sdash-filters { width: 100%; }
+  .sdash .sdash-filters .sdash-fgroup { flex: 1 1 100%; }
+  .sdash .sdash-filters .kfin-field { flex: 1 1 130px; }
+  .sdash .sdash-filters .sdash-dates { flex: 1 1 100%; }
+  /* Mes y Año en una fila y ◀ ▶ debajo, a media fila cada uno: en una sola fila 'Septiembre' / 'Personalizado' no caben
+     junto a dos botones de 44 px. El orden del DOM sigue siendo ◀ Mes Año ▶. */
+  .sdash .sdash-filters .sdash-monthyear { flex: 1 1 100%; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 8px; max-width: 420px; }
+  .sdash .sdash-filters .kfin-field.sdash-month { grid-area: 1 / 1; width: auto; }
+  .sdash .sdash-filters .kfin-field.sdash-year { grid-area: 1 / 2; width: auto; }
+  .sdash .sdash-filters .sdash-monthyear .kfin-btn.sdash-month-step { width: 100%; margin: 0; }
+  .sdash .sdash-filters .sdash-monthyear .kfin-btn.sdash-month-step:first-child { grid-area: 2 / 1; }
+  .sdash .sdash-filters .sdash-monthyear .kfin-btn.sdash-month-step:last-child { grid-area: 2 / 2; }
+  .sdash .sdash-filters .kfin-btnseg { flex: 1 1 100%; }
+  .sdash .sdash-filters .kfin-btnseg .kfin-btn { flex: 1 1 auto; justify-content: center; padding: 8px 6px; }
+  .sdash .sdash-cal { gap: 4px; }
+  .sdash .sdash-cd { padding: 6px 4px; min-height: 52px; }
+  .sdash .sdash-cd .sdash-dv { font-size: 0.65rem; }
+  .sdash .sdash-cd .sdash-dnum { font-size: 0.62rem; }
+  .sdash .sdash-c2, .sdash .sdash-c1, .sdash .sdash-c3, .sdash .sdash-src { flex-basis: 100%; }
+  .sdash .sdash-src-value { font-size: 1.4rem; }
+  .sdash .card-body { padding-left: 10px; padding-right: 10px; }
+}
+
+@media print {
+  .sdash .sdash-scroll { max-height: none; }
+}
+
+/* ---------- Publicidad vs ventas (pestaña Online) ---------- */
+.kfin.sdash { --sdash-win-ink: #17683f; --sdash-win-bg: #e3f5ec; --sdash-loss-ink: #a1361a; --sdash-loss-bg: #fde9e4; }
+
+.sdash .sdash-ad { margin: 8px 0 16px; padding-top: 20px; border-top: 1px solid var(--kfin-line); }
+.sdash .sdash-ad-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-start; gap: 10px 16px; margin-bottom: 12px; }
+.sdash .sdash-ad-title { margin: 0; font-size: 1.15rem; font-weight: 700; }
+.sdash .sdash-ad-sub { margin: 2px 0 0; font-size: 0.82rem; color: var(--kfin-ink-2); }
+.sdash .sdash-ad .kfin-btn { min-height: 40px; }
+.sdash .sdash-ad-vs { font-size: 0.9rem; font-weight: 600; color: var(--kfin-muted); }
+
+/* Mensajes de resultado (guardado, error, aviso) */
+.sdash .sdash-ad-msg { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 10px 12px; border: 1px solid; border-radius: 8px; font-size: 0.85rem; margin-bottom: 14px; }
+.sdash .sdash-ad-msg--success { background: var(--sdash-win-bg); border-color: #b9e3cc; color: var(--sdash-win-ink); }
+.sdash .sdash-ad-msg--danger { background: var(--sdash-loss-bg); border-color: #f4c3b6; color: var(--sdash-loss-ink); }
+.sdash .sdash-ad-msg--info { background: #eef0fb; border-color: #d4d9f3; color: #2f3a8a; }
+.sdash .sdash-ad-msg-close { flex: 0 0 auto; border: 0; background: none; color: inherit; font-size: 1.4rem; line-height: 1; min-width: 44px; min-height: 44px; margin: -12px -12px -12px 0; cursor: pointer; }
+.sdash .sdash-ad-msg-close:focus-visible { outline: 2px solid var(--kfin-cur-ink); outline-offset: -4px; border-radius: 6px; }
+.sdash .sdash-ad-warning { background: #fff7e0; border: 1px solid #f2dc9b; color: #4a3a0c; border-radius: 8px; padding: 9px 12px; font-size: 0.85rem; font-weight: 600; margin-bottom: 16px; }
+
+/* Captura rápida */
+.sdash .sdash-ad-quick.kfin-card { display: flex; flex-wrap: wrap; gap: 12px 14px; align-items: flex-start; }
+.sdash .sdash-ad-quick .kfin-field { flex: 0 1 180px; min-width: 150px; }
+.sdash .sdash-ad-quick .form-control { height: 40px; }
+.sdash .sdash-ad-quick .kfin-btn { margin-top: 22px; }
+.sdash .sdash-ad-quick-note { flex: 1 1 260px; align-self: center; font-size: 0.8rem; color: var(--kfin-ink-2); }
+
+/* Barra de guardado y vista previa */
+.sdash .sdash-ad-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-bottom: 10px; }
+.sdash .sdash-ad-pending { font-size: 0.82rem; font-weight: 600; color: var(--kfin-muted); }
+.sdash .sdash-ad-pending.is-pending { color: #7a5600; }
+.sdash .sdash-ad-hint { font-size: 0.78rem; color: var(--kfin-ink-2); margin-bottom: 8px; }
+.sdash .sdash-ad-bar .sdash-ad-hint { margin-bottom: 0; }
+.sdash .sdash-ad-hint--bad { color: var(--sdash-loss-ink); font-weight: 600; }
+.sdash .sdash-ad-preview { background: #eef0fb; border: 1px solid #d4d9f3; color: #2f3a8a; border-radius: 8px; padding: 8px 12px; font-size: 0.8rem; margin-bottom: 10px; }
+
+/* Resultado: verde ganancia / rojo pérdida (siempre con flecha y texto) */
+.sdash .sdash-ad-res--good, .sdash .sdash-ad-result--good { color: var(--sdash-win-ink); }
+.sdash .sdash-ad-res--bad, .sdash .sdash-ad-result--bad { color: var(--sdash-loss-ink); }
+.sdash .sdash-ad-res--neutral, .sdash .sdash-ad-result--neutral { color: var(--kfin-neutral-ink); }
+.sdash .sdash-ad-res { font-weight: 700; }
+.sdash .sdash-status--none { background: transparent; border: 1px dashed var(--kfin-line-strong); color: var(--kfin-ink-2); }
+.sdash .sdash-ad-unsaved { display: inline-block; margin-left: 6px; padding: 2px 7px; border-radius: 999px; background: #fff1cf; color: #7a5600; font-size: 0.68rem; font-weight: 700; white-space: nowrap; }
+
+/* Tabla 'Detalle diario de publicidad' */
+.sdash .sdash-ad-scroll { max-height: min(620px, 78vh); }
+.sdash .sdash-ad-table { min-width: 940px; }
+.sdash .sdash-ad-table .sdash-ad-date { min-width: 96px; white-space: nowrap; }
+.sdash .sdash-ad-cell { min-width: 150px; vertical-align: top; }
+.sdash .sdash-ad-notes { min-width: 210px; }
+.sdash .sdash-ad-money { display: inline-flex; align-items: center; gap: 4px; width: 100%; font-weight: 600; color: var(--kfin-ink-2); }
+.sdash .sdash-ad-static { display: block; }
+.sdash .sdash-ad-input { width: 100%; min-width: 0; min-height: 36px; padding: 4px 8px; border: 1px solid var(--kfin-line-strong); border-radius: 6px; background: #fff; color: var(--kfin-ink); font: inherit; font-size: 0.85rem; text-align: right; font-variant-numeric: tabular-nums; }
+.sdash .sdash-ad-input--text { text-align: left; }
+.sdash .sdash-ad-input:focus { border-color: var(--kfin-cur-ink); }
+.sdash .sdash-ad-input:focus-visible { outline: 2px solid var(--kfin-cur-ink); outline-offset: 1px; }
+.sdash .sdash-ad-input:disabled { background: #f6f5f2; color: var(--kfin-muted); cursor: not-allowed; }
+.sdash .sdash-ad-input[aria-invalid="true"] { border-color: var(--sdash-loss-ink); background: #fff8f6; }
+.sdash .sdash-ad-error { margin-top: 3px; font-size: 0.72rem; font-weight: 600; line-height: 1.2; color: var(--sdash-loss-ink); }
+.sdash .kfin-table tbody tr.sdash-ad-row--dirty td, .sdash .kfin-table tbody tr.sdash-ad-row--dirty th { background-color: #fffaf0; }
+.sdash .sdash-ad-row--dirty th.sdash-ad-date { box-shadow: inset 3px 0 0 var(--sdash-amber), 1px 0 0 var(--kfin-line); }
+.sdash .sdash-ad-row--invalid th.sdash-ad-date { box-shadow: inset 3px 0 0 var(--sdash-loss-ink), 1px 0 0 var(--kfin-line); }
+.sdash .sdash-ad-row--future td, .sdash .sdash-ad-row--future th { color: var(--kfin-muted); }
+.sdash .kfin-table tbody tr td.sdash-ad-res--good { background-color: var(--sdash-win-bg); }
+.sdash .kfin-table tbody tr td.sdash-ad-res--bad { background-color: var(--sdash-loss-bg); }
+
+@media (max-width: 575px) {
+  .sdash .sdash-ad .kfin-btn, .sdash .sdash-ad-input, .sdash .sdash-ad-quick .form-control { min-height: 44px; }
+  .sdash .sdash-ad-head .kfin-card-actions { width: 100%; }
+  .sdash .sdash-ad-head .kfin-card-actions .kfin-btn, .sdash .sdash-ad-bar .kfin-btn { flex: 1 1 100%; justify-content: center; }
+  .sdash .sdash-ad-quick .kfin-field { flex: 1 1 100%; }
+  .sdash .sdash-ad-quick .kfin-btn { width: 100%; justify-content: center; margin-top: 0; }
+  .sdash .sdash-ad-table { min-width: 860px; }
+}
+
+@media print {
+  .sdash .sdash-ad-scroll { max-height: none; }
+}

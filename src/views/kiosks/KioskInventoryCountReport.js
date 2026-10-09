@@ -273,8 +273,7 @@ const sumFilteredRows = (rows) => {
     inventarioFinal,
     counts: totalCounts,
     total,
-    // Sumar diffs de fila (computeDiferenciaConteo no es lineal al agregar).
-    diferencia: rows.reduce((s, r) => s + Number(r.diferencia || 0), 0),
+    diferencia: computeConteoRowDiferencia(total, { inventarioFinal }),
   };
 };
 
