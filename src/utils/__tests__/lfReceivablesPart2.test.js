@@ -8,6 +8,7 @@ import {
   buildChargeAdjustmentPayload,
   canGenerateOrderCharge,
   chargeRequiresReassignment,
+  filterReassignChargeTargets,
   formatEstimatedAmount,
   formatReassignedFromNote,
   shippingLinesPendingAdjustment,
@@ -146,5 +147,48 @@ describe("días de crédito", () => {
     expect(parseCreditDays("61").ok).toBe(false);
     expect(parseCreditDays("1.5").ok).toBe(false);
     expect(parseCreditDays("").ok).toBe(false);
+  });
+});
+
+describe("filterReassignChargeTargets", () => {
+  const receivable = (overrides = {}) => ({
+    chargeEntryId: 5,
+    customerId: 223,
+    orderKind: "OPC",
+    invoiceNumber: "ENVP-DESTINO",
+    balanceDue: 2046,
+    ...overrides,
+  });
+  const idsOf = (docs) => docs.map((doc) => String(doc.chargeEntryId));
+
+  test("deja solo cargos activos del mismo cliente con saldo, sin el que se anula", () => {
+    const docs = [
+      receivable({ chargeEntryId: 1, invoiceNumber: "ENVP-ORIGEN", balanceDue: 1449.55 }),
+      receivable({ chargeEntryId: 5, invoiceNumber: "ENVP-DESTINO", balanceDue: 2046 }),
+      receivable({ chargeEntryId: 6, invoiceNumber: "ENVP-OTRA", balanceDue: 80 }),
+      receivable({ chargeEntryId: 7, invoiceNumber: "ENVP-ANULADO", balanceDue: 90, status: "VOID" }),
+      receivable({ chargeEntryId: 8, invoiceNumber: "ENVP-CERO", balanceDue: 0 }),
+      receivable({ chargeEntryId: 9, customerId: 999, invoiceNumber: "ENVP-AJENO", balanceDue: 500 }),
+      receivable({ chargeEntryId: 10, entryType: "PAYMENT", balanceDue: 70 }),
+    ];
+    expect(
+      idsOf(filterReassignChargeTargets(docs, { voidedCharge: { id: 1 }, customerId: 223 }))
+    ).toEqual(["5", "6"]);
+  });
+
+  test("sin cliente en la opción la conserva; un cliente conocido distinto no", () => {
+    const docs = [
+      receivable({ chargeEntryId: 5, customerId: undefined }),
+      receivable({ chargeEntryId: 9, customerId: undefined, customer: { id: 999 } }),
+    ];
+    expect(
+      idsOf(filterReassignChargeTargets(docs, { voidedCharge: { id: 1, customerId: 223 } }))
+    ).toEqual(["5"]);
+  });
+
+  test("sin tipo ni estado los trata como cargo activo", () => {
+    const docs = [receivable({ chargeEntryId: 5, entryType: undefined, status: undefined })];
+    expect(idsOf(filterReassignChargeTargets(docs, { voidedCharge: { id: 1 }, customerId: "223" }))).toEqual(["5"]);
+    expect(filterReassignChargeTargets(null, { voidedCharge: { id: 1 } })).toEqual([]);
   });
 });

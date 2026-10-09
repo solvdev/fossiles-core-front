@@ -40,6 +40,7 @@ import {
   chargeRequiresReassignment,
   creditNotesAmount,
   endSingleFlight,
+  filterReassignChargeTargets,
   filterStatementDisplayLines,
   formatAccountMoney,
   formatDueDateLabel,
@@ -262,10 +263,9 @@ function CustomerAccountStatement() {
     getReceivableDocuments(customerId)
       .then((docs) => {
         if (cancelled) return;
-        const rows = (Array.isArray(docs) ? docs : []).filter(
-          (doc) => String(doc.chargeEntryId) !== String(voidTarget?.id)
+        setVoidTargets(
+          filterReassignChargeTargets(docs, { voidedCharge: voidTarget, customerId })
         );
-        setVoidTargets(rows);
       })
       .catch((err) => {
         if (!cancelled) {

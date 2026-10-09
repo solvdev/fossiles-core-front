@@ -515,6 +515,47 @@ export const formatReceivableTargetLabel = (doc) => {
   return `${kind} · ${order} · ENVP ${envp} · Saldo ${formatAccountMoney(doc?.balanceDue)}`;
 };
 
+const entryIdOf = (row) => {
+  const id = row?.chargeEntryId ?? row?.id;
+  if (id == null || id === "") return null;
+  return String(id);
+};
+
+const customerKeyOf = (row) => {
+  if (!row || typeof row !== "object") return null;
+  const nested = row.customer && typeof row.customer === "object" ? row.customer.id : row.customer;
+  const value = row.customerId ?? row.customerID ?? row.customer_id ?? nested;
+  if (value == null || value === "") return null;
+  return String(value);
+};
+
+const openBalanceOf = (row) => {
+  const value = row?.balanceDue ?? row?.chargeBalanceDue ?? row?.openBalance ?? row?.lineOpenBalance;
+  return Number(value);
+};
+
+/**
+ * Destinos del selector al anular un cargo con abonos.
+ * El servidor decide; esto solo oculta lo que no puede ser destino.
+ */
+export const filterReassignChargeTargets = (docs = [], { voidedCharge, customerId } = {}) => {
+  const excludedId = entryIdOf(voidedCharge);
+  const expectedCustomer =
+    customerKeyOf(voidedCharge) ?? (customerId != null && customerId !== "" ? String(customerId) : null);
+  return (Array.isArray(docs) ? docs : []).filter((doc) => {
+    if (!doc) return false;
+    const type = doc.entryType ?? doc.type;
+    if (type != null && type !== "" && String(type).toUpperCase() !== "CHARGE") return false;
+    if (String(doc.status || "").toUpperCase() === "VOID") return false;
+    const id = entryIdOf(doc);
+    if (!id || (excludedId && id === excludedId)) return false;
+    if (!(openBalanceOf(doc) > 0)) return false;
+    const docCustomer = customerKeyOf(doc);
+    if (docCustomer && expectedCustomer && docCustomer !== expectedCustomer) return false;
+    return true;
+  });
+};
+
 const chargeReference = (charge) => {
   if (!charge) return null;
   const ref =
