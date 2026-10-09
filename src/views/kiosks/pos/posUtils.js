@@ -18,12 +18,13 @@ import {
   shouldShowInKioskPhysicalCount,
 } from "utils/productCinchoHelper";
 import {
-  cartUnlocksEntrecuerosWholesale,
-  ENTRECUEROS_LOWEST_TIER_QTY,
+  entrecuerosCartQuantities,
   entrecuerosPriceKind,
   entrecuerosVolumeKey,
+  lineReceivesEntrecuerosCourtesy,
   listEntrecuerosPriceListTiers,
   resolveEntrecuerosListUnitPrice,
+  roundEntrecuerosMoney,
 } from "utils/entrecuerosPriceLists";
 import { PRODUCT_BRAND_OPTIONS, extractBrandFromText } from "utils/productBrandHelper";
 import { getSaleYmdGuatemala, getTodayYmdGuatemala, shiftYmdGuatemala } from "utils/dateTimeHelper";
@@ -1007,36 +1008,56 @@ export const isEntrecuerosPosMode = (source) =>
 
 export const listEntrecuerosPriceTiers = (source) => listEntrecuerosPriceListTiers(source);
 
-export const resolveEntrecuerosUnitPrice = (source, qty, wholesaleUnlocked = false) =>
-  resolveEntrecuerosListUnitPrice(source, qty, wholesaleUnlocked);
+export const resolveEntrecuerosUnitPrice = (source, qty, courtesy = false) =>
+  resolveEntrecuerosListUnitPrice(source, qty, courtesy);
 
-export const describeEntrecuerosPriceState = (source, qty, wholesaleUnlocked = false) => {
+export const describeEntrecuerosPriceState = (source, qty, courtesy = false) => {
   const n = Number(qty || 0);
-  const pricedQty = wholesaleUnlocked ? Math.max(n, ENTRECUEROS_LOWEST_TIER_QTY) : n;
   const tiers = listEntrecuerosPriceTiers(source);
+  const receivesCourtesy = Boolean(courtesy);
   let active = tiers[0] || { minQty: 1, label: "1", unitPrice: 0 };
-  tiers.forEach((tier) => {
-    if (pricedQty >= tier.minQty) active = tier;
-  });
-  const next = wholesaleUnlocked ? null : (tiers.find((tier) => tier.minQty > n) || null);
+  if (receivesCourtesy && tiers.length > 0) {
+    active = tiers.reduce((best, tier) => (tier.minQty >= best.minQty ? tier : best), tiers[0]);
+  } else {
+    tiers.forEach((tier) => {
+      if (n >= tier.minQty) active = tier;
+    });
+  }
+  const next = receivesCourtesy ? null : (tiers.find((tier) => tier.minQty > n) || null);
   const missing = next ? Math.max(next.minQty - n, 0) : 0;
-  return { qty: n, active, next, missing, tiers, wholesaleUnlocked: Boolean(wholesaleUnlocked) };
+  return {
+    qty: n,
+    active,
+    next,
+    missing,
+    tiers,
+    courtesy: receivesCourtesy,
+    wholesaleUnlocked: receivesCourtesy,
+  };
+};
+
+const preservedCatalogUnitPrice = (line, unitPrice) => {
+  if (line?.catalogUnitPrice != null && line.catalogUnitPrice !== "") return line.catalogUnitPrice;
+  if (line?.catalogPrice != null && line.catalogPrice !== "") return line.catalogPrice;
+  if (line?.suggestedUnitPrice != null && line.suggestedUnitPrice !== "") return line.suggestedUnitPrice;
+  return unitPrice;
 };
 
 export const applyEntrecuerosCartPrices = (cart) => {
-  const qtyByKey = {};
-  (cart || []).forEach((line) => {
-    const key = entrecuerosVolumeKey(line);
-    qtyByKey[key] = (qtyByKey[key] || 0) + Number(line.quantity || 0);
-  });
-  const wholesaleUnlocked = cartUnlocksEntrecuerosWholesale(cart);
+  const { qtyByKey, courtesyActive } = entrecuerosCartQuantities(cart);
   return (cart || []).map((line) => {
-    const unitPrice = resolveEntrecuerosUnitPrice(
-      line,
-      qtyByKey[entrecuerosVolumeKey(line)] || 0,
-      wholesaleUnlocked
-    );
-    return { ...line, unitPrice, catalogUnitPrice: unitPrice };
+    const key = entrecuerosVolumeKey(line);
+    const inGroup = Object.prototype.hasOwnProperty.call(qtyByKey, key);
+    const groupQty = inGroup ? qtyByKey[key] : Number(line.quantity || 0);
+    const courtesy = lineReceivesEntrecuerosCourtesy(line, inGroup ? groupQty : 0, courtesyActive);
+    const unitPrice = resolveEntrecuerosUnitPrice(line, groupQty, courtesy);
+    const quantity = Number(line.quantity || 0);
+    return {
+      ...line,
+      unitPrice,
+      lineTotal: roundEntrecuerosMoney(unitPrice * quantity),
+      catalogUnitPrice: preservedCatalogUnitPrice(line, unitPrice),
+    };
   });
 };
 
