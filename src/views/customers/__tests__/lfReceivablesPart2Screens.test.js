@@ -1534,44 +1534,43 @@ describe("días de crédito del cliente", () => {
   });
 });
 
-describe("compatibilidad con el back de hoy", () => {
-  test("sin reassignedFromEntryId no hay nota, y un cargo sin abonos se anula igual", async () => {
-    const calls = [];
-    useRealVoid(async (url, init) => {
-      calls.push({ url: String(url), init });
-      return jsonResponse();
-    });
+describe("reassignedFromEntryId, dueDate y lineOpenBalance nulos o ausentes", () => {
+  test("no hay nota de movido, el vencimiento dice Corriente y el saldo de línea no es NaN", async () => {
     await renderStatement(
       statementOf([
         charge({
-          id: 7,
-          invoiceNumber: "FAC-LIBRE",
+          id: 31,
+          invoiceNumber: "ENVP-AUSENTE",
           debit: 100,
+          chargeBalanceDue: 100,
         }),
-        {
-          id: 3,
-          entryType: "PAYMENT",
-          status: "ACTIVE",
-          entryDate: "2026-10-02",
-          debit: 0,
-          credit: 10,
-          appliedToEntryId: null,
-          invoiceNumber: "RC-VIEJO",
-        },
+        charge({
+          id: 32,
+          invoiceNumber: "ENVP-NULO",
+          debit: 80,
+          chargeBalanceDue: 80,
+          reassignedFromEntryId: null,
+          dueDate: null,
+          lineOpenBalance: null,
+        }),
       ])
     );
 
-    expect(screen.queryByText(/Movido desde cargo/)).not.toBeInTheDocument();
-    expect(screen.getByText("RC-VIEJO")).toBeInTheDocument();
+    const table = screen.getAllByRole("table").find((node) =>
+      within(node).queryByRole("columnheader", { name: "Saldo de línea" })
+    );
+    if (!table) throw new Error("No está la tabla de movimientos");
 
-    const dialog = await openVoidFor("FAC-LIBRE");
-    expect(dialog).not.toHaveTextContent("Mover pagos/abonos a");
-    replaceInputValue(controlByLabel("Motivo", dialog), "cargo de más");
-    userEvent.click(within(dialog).getByRole("button", { name: "Confirmar anulación" }));
+    expect(screen.queryByText(/Movido desde/)).not.toBeInTheDocument();
+    expect(document.body.textContent).not.toMatch(/NaN/);
 
-    await waitFor(() => expect(calls).toHaveLength(1));
-    expect(JSON.parse(calls[0].init.body)).toEqual({ voidReason: "cargo de más" });
-    expect(calls[0].init.headers["X-Request-Id"]).toEqual(expect.any(String));
-    expect(screen.getByText("FAC-LIBRE")).toBeInTheDocument();
+    ["ENVP-AUSENTE", "ENVP-NULO"].forEach((invoice) => {
+      const row = within(table).getByRole("row", { name: new RegExp(invoice) });
+      expect(cellByHeader(row, table, "Vencimiento")).toHaveTextContent("Corriente");
+      const lineBalance = cellByHeader(row, table, "Saldo de línea");
+      expect(lineBalance).toHaveTextContent("—");
+      expect(lineBalance).not.toHaveTextContent(/NaN/);
+      expect(row).not.toHaveTextContent(/Movido desde/);
+    });
   });
 });
