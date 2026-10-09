@@ -56,9 +56,60 @@ const inventory = [
     suggestedUnitPrice: 3,
     packaging: true,
   },
+  {
+    productId: 40,
+    productCode: "CIN-1",
+    productName: "Cincho verde",
+    colorId: 8,
+    colorName: "Verde",
+    hardwareCondition: "NUEVO",
+    quantity: 4,
+    suggestedUnitPrice: 100,
+    sizes: { "34": 2, "36": 2 },
+  },
+  {
+    productId: 41,
+    productCode: "SUM-T",
+    productName: "Funda talla",
+    colorId: 9,
+    colorName: "Gris",
+    hardwareCondition: "NUEVO",
+    quantity: 2,
+    suggestedUnitPrice: 11,
+    sizes: { "34": 2 },
+  },
+  {
+    productId: 42,
+    productCode: "EMP-T",
+    productName: "Bolsa talla",
+    colorId: 10,
+    colorName: "Marfil",
+    hardwareCondition: "NUEVO",
+    quantity: 2,
+    suggestedUnitPrice: 6,
+    isPackaging: true,
+    sizes: { U: 2 },
+  },
+  {
+    productId: 43,
+    productCode: "BOX-T",
+    productName: "Sobre talla",
+    colorId: 11,
+    colorName: "Crema",
+    hardwareCondition: "NUEVO",
+    quantity: 2,
+    suggestedUnitPrice: 4,
+    packaging: true,
+    sizes: { U: 2 },
+  },
 ];
 
-function CatalogHarness({ posMode = "STANDARD", initialCatalogView = "PRODUCTS", onAddProduct = () => {} }) {
+function CatalogHarness({
+  posMode = "STANDARD",
+  initialCatalogView = "PRODUCTS",
+  onAddProduct = () => {},
+  onPickSizedVariant = () => {},
+}) {
   const [catalogView, setCatalogView] = useState(initialCatalogView);
   const [productSearch, setProductSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("");
@@ -80,7 +131,7 @@ function CatalogHarness({ posMode = "STANDARD", initialCatalogView = "PRODUCTS",
       onColorFilterChange={setColorFilter}
       cartQtyByColorKey={{}}
       onAddProduct={onAddProduct}
-      onPickSizedVariant={() => {}}
+      onPickSizedVariant={onPickSizedVariant}
       posMode={posMode}
     />
   );
@@ -142,5 +193,29 @@ describe("PosCatalogPanel empaques", () => {
     expect(onAddProduct.mock.calls[0][0]).toEqual(
       expect.objectContaining({ productCode: "SUM-01", suggestedUnitPrice: 15 })
     );
+  });
+
+  it("no abre la talla de un empaque en Entrecueros aunque la vista haya quedado en Empaques", () => {
+    const onPickSizedVariant = jest.fn();
+    const onAddProduct = jest.fn();
+    render(
+      <CatalogHarness
+        posMode="ENTRECUEROS"
+        initialCatalogView="PACKAGING"
+        onAddProduct={onAddProduct}
+        onPickSizedVariant={onPickSizedVariant}
+      />
+    );
+
+    expect(screen.queryByRole("button", { name: "Empaques" })).not.toBeInTheDocument();
+    expect(screen.queryByText("Funda talla")).not.toBeInTheDocument();
+    expect(screen.queryByText("Bolsa talla")).not.toBeInTheDocument();
+    expect(screen.queryByText("Sobre talla")).not.toBeInTheDocument();
+    expect(screen.queryByText("SUM-T")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /Verde\s+Talla/ }));
+    expect(onPickSizedVariant).toHaveBeenCalledTimes(1);
+    expect(onPickSizedVariant.mock.calls[0][0].productCode).toBe("CIN-1");
+    expect(onAddProduct).not.toHaveBeenCalled();
   });
 });
