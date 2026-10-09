@@ -5,9 +5,15 @@
 import { getAuthHeader } from './authService';
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8080/api';
 
-export const getProductionOrders = async () => {
+/**
+ * @param {{ cached?: boolean }} [options] `cached: true` usa la caché del Centro de Producción
+ *   en el servidor (hasta 2 min, se suelta al escribir órdenes o planificar). Solo para pantallas
+ *   que usan el listado como referencia; las que operan sobre las órdenes lo piden fresco.
+ */
+export const getProductionOrders = async ({ cached = false } = {}) => {
   try {
-    const response = await fetch(`${API_URL}/production-orders`, {
+    const query = cached ? '?cached=true' : '';
+    const response = await fetch(`${API_URL}/production-orders${query}`, {
       method: 'GET',
       headers: {
         'Content-Type': 'application/json',

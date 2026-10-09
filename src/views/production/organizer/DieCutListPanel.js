@@ -128,8 +128,9 @@ export default function DieCutListPanel({ tareas, loading, onReload }) {
   const conBloqueo = async (clave, accion, exito) => {
     setTrabajando(clave);
     try {
-      await accion();
-      if (exito) showSuccess(exito);
+      const resultado = await accion();
+      const mensaje = typeof exito === "function" ? exito(resultado) : exito;
+      if (mensaje) showSuccess(mensaje);
       if (onReload) await onReload();
     } catch (e) {
       showError(e.message);
@@ -157,7 +158,7 @@ export default function DieCutListPanel({ tareas, loading, onReload }) {
       detail: refTarea(tarea),
       warning: valor
         ? (faltan === 0
-          ? `${tarea.code || "La tarea"} queda completa y ya puede bajar a mesa.`
+          ? `${tarea.code || "La tarea"} queda completa: el sistema le asigna mesa al marcar.`
           : `Quedan ${contar(faltan, "producto")} por cortar en ${tarea.code || "la tarea"}.`)
         : `${tarea.code || "La tarea"} vuelve a esta lista y no bajará a mesa.`,
       confirmText: valor ? "Marcar" : "Quitar",
@@ -165,7 +166,12 @@ export default function DieCutListPanel({ tareas, loading, onReload }) {
         conBloqueo(
           `tq-${item.id}`,
           () => setTaskItemDieCut(tarea.id, item.id, valor),
-          valor ? "Corte marcado" : "Corte quitado"
+          (t) => {
+            if (!valor) return "Corte quitado";
+            if (t?.desk) return `Corte marcado · ${t.code || "tarea"} pasó a Mesa ${t.desk}`;
+            if (t?.dieCutReady) return "Corte marcado · sin cupo de mesa hoy: entra a la primera que se libere";
+            return "Corte marcado";
+          }
         ),
     });
   };
@@ -206,7 +212,7 @@ export default function DieCutListPanel({ tareas, loading, onReload }) {
       title: "Separar lo que falta cortar",
       message: `${contar(sinCortar, "producto")} ${concordar(sinCortar, "pasa", "pasan")} a una tarea nueva. `
         + `${contar(cortados, "producto")} ${concordar(cortados, "se queda", "se quedan")} en ${tarea.code || "la tarea"}, `
-        + "lista para mesa.",
+        + "y el sistema le asigna mesa.",
       detail: "La tarea nueva queda sin mesa ni día, dentro de la misma orden.",
       confirmText: "Separar",
       accion: () =>
@@ -258,7 +264,7 @@ export default function DieCutListPanel({ tareas, loading, onReload }) {
         <div>
           <strong>Lista por troquelar</strong>
           <small className="text-muted d-block">
-            Los productos que esperan troquel. A mesa solo baja lo que ya está cortado.
+            Los productos que esperan troquel. Al cortar todo lo de una tarea, el sistema le asigna mesa.
           </small>
         </div>
         <div className="d-flex flex-wrap align-items-center" style={{ gap: 6 }}>

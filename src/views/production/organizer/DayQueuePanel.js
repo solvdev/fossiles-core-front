@@ -31,7 +31,8 @@ const CABECERAS_NO_CUPO = [
  */
 export default function DayQueuePanel({ marcadas, onQuitar, onLimpiar, onDistribuido }) {
   const [dia, setDia] = useState(getTodayYmdGuatemala());
-  const [horizonte, setHorizonte] = useState(2);
+  // Por defecto solo ese día: repartir a días siguientes es la excepción, no la regla.
+  const [horizonte, setHorizonte] = useState(1);
   const [enviando, setEnviando] = useState(false);
   const [resultado, setResultado] = useState(null);
   const [verNoCupo, setVerNoCupo] = useState(false);
@@ -103,7 +104,7 @@ export default function DayQueuePanel({ marcadas, onQuitar, onLimpiar, onDistrib
       <CardHeader style={{ backgroundColor: "#eaf4ff", padding: "8px 16px" }}>
         <strong style={{ fontSize: 14 }}>Cola del día ({marcadas.length})</strong>
         <small className="text-muted d-block">
-          Usted elige el orden y el día. La mesa la elige el sistema.
+          Se guarda al marcar. «Planificar» en el Centro arma primero estas órdenes, en este orden. La mesa la elige el sistema.
         </small>
       </CardHeader>
       <CardBody className="py-2">
@@ -134,8 +135,8 @@ export default function DayQueuePanel({ marcadas, onQuitar, onLimpiar, onDistrib
 
         {marcadas.length === 0 ? (
           <Alert color="light" className="py-2 mb-2">
-            Marque órdenes en el listado de la izquierda para que se repartan primero.
-            El resto se distribuye igual, detrás, en el orden que ya tiene.
+            Marque órdenes en el listado de la izquierda para que se planifiquen primero.
+            El resto entra igual, detrás: ventas en línea, kiosko y luego por antigüedad.
           </Alert>
         ) : (
           <>
