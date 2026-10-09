@@ -34,7 +34,11 @@ import {
 import { issueTaxInvoiceFromKioskSale } from "services/taxInvoiceService";
 import { countShipmentsInTransit } from "services/productDistributionService";
 import { getTodayYmdGuatemala } from "utils/dateTimeHelper";
-import { isPackagingProductCode } from "utils/kioskPackagingHelper";
+import {
+  entrecuerosPosCanAddItem,
+  isPackagingProductCode,
+  isPosPackagingItem,
+} from "utils/kioskPackagingHelper";
 import { filterVisibleKioskStockRows, resolveCinchoUnitPriceWithSize } from "utils/productCinchoHelper";
 import { showError, showSuccess } from "utils/notificationHelper";
 import PosAdminKioskPicker from "./pos/PosAdminKioskPicker";
@@ -294,6 +298,10 @@ function KioskSales() {
   };
 
   const addToCart = (inventoryItem, size = null) => {
+    if (!entrecuerosPosCanAddItem(isEntrecuerosPos, inventoryItem)) {
+      showError("Entrecueros no vende empaques.");
+      return;
+    }
     if (posVariantNeedsSizePick(inventoryItem) && !size) {
       setCinchoPickVariant(inventoryItem);
       return;
@@ -338,6 +346,7 @@ function KioskSales() {
           key,
           productId: inventoryItem.productId,
           productCode: inventoryItem.productCode,
+          code: inventoryItem.code,
           productName: inventoryItem.productName,
           colorId: inventoryItem.colorId,
           colorName: inventoryItem.colorName,
@@ -347,7 +356,11 @@ function KioskSales() {
           audienceCategory: inventoryItem.audienceCategory || "UNISEX",
           categoryId: inventoryItem.categoryId ?? null,
           categoryName: inventoryItem.categoryName || "",
-          isPackaging: isPackagingProductCode(inventoryItem.productCode),
+          isPackaging:
+            Boolean(inventoryItem.isPackaging)
+            || isPackagingProductCode(inventoryItem.productCode)
+            || isPackagingProductCode(inventoryItem.code),
+          packaging: inventoryItem.packaging,
           availableQty,
           quantity: 1,
           catalogUnitPrice,
@@ -537,6 +550,10 @@ function KioskSales() {
       return;
     }
     for (const line of cart) {
+      if (isEntrecuerosPos && isPosPackagingItem(line)) {
+        showError("Entrecueros no vende empaques.");
+        return;
+      }
       const qty = Number(line.quantity || 0);
       if (!Number.isFinite(qty) || qty <= 0) {
         showError(`Cantidad inválida para ${line.productName}.`);
@@ -847,14 +864,16 @@ function KioskSales() {
 
   const availabilityOptions = useMemo(
     () =>
-      (context?.inventory || []).map((item) => ({
-        value: lineKeyFor(item.productId, item.colorId, null, item.hardwareCondition),
-        label: `${item.productCode} - ${item.productName} (${item.colorName || "Sin color"}${
-          item.hardwareLabel ? ` · ${item.hardwareLabel}` : ""
-        })`,
-        searchText: `${item.productCode} ${item.productName} ${item.colorName || ""} ${item.hardwareLabel || ""}`,
-      })),
-    [context?.inventory]
+      (context?.inventory || [])
+        .filter((item) => entrecuerosPosCanAddItem(isEntrecuerosPos, item))
+        .map((item) => ({
+          value: lineKeyFor(item.productId, item.colorId, null, item.hardwareCondition),
+          label: `${item.productCode} - ${item.productName} (${item.colorName || "Sin color"}${
+            item.hardwareLabel ? ` · ${item.hardwareLabel}` : ""
+          })`,
+          searchText: `${item.productCode} ${item.productName} ${item.colorName || ""} ${item.hardwareLabel || ""}`,
+        })),
+    [context?.inventory, isEntrecuerosPos]
   );
 
   const selectedKioskName = useMemo(() => {
