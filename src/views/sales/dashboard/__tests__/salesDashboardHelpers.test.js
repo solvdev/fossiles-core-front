@@ -780,6 +780,32 @@ describe("KPIs y composición", () => {
     // el valor es siteId aunque kioskId coincida con otro sitio
     expect(buildKioskOptions([{ siteId: 4, kioskId: 3, kioskName: "A" }, { siteId: 3, kioskId: 4, kioskName: "B" }], "").map((o) => o.value)).toEqual(["", "4", "3"]);
   });
+
+  test("buildKioskOptions agrega 'Cat. A/B/C' al texto de los kioscos clasificados y ordena por nombre", () => {
+    const opts = buildKioskOptions(
+      [
+        { siteId: 7, kioskId: 70, kioskCode: "S", kioskName: "Sur", category: "b" },
+        { siteId: 3, kioskId: 30, kioskCode: "C", kioskName: "Centro", category: "A" },
+        { siteId: 5, kioskId: null, kioskCode: "", kioskName: "Plaza", category: null },
+        { siteId: 8, kioskId: 80, kioskCode: "N", kioskName: "Norte", category: "Z" },
+        { siteId: 9, kioskId: 90, kioskCode: "O", kioskName: "Oeste" },
+      ],
+      "42"
+    );
+    expect(opts.map((o) => o.label)).toEqual([
+      "Todos los kioskos",
+      "Centro · Cat. A",
+      "Norte",
+      "Oeste",
+      "Plaza",
+      "Sur · Cat. B",
+      "Kiosko 42",
+    ]);
+    // el valor sigue siendo el id del sitio y se conservan el nombre y la clasificación normalizada
+    expect(opts.map((o) => o.value)).toEqual(["", "3", "8", "9", "5", "7", "42"]);
+    expect(opts.map((o) => o.name)).toEqual(["Todos los kioskos", "Centro", "Norte", "Oeste", "Plaza", "Sur", "Kiosko 42"]);
+    expect(opts.map((o) => o.category)).toEqual([null, "A", null, null, null, "B", null]);
+  });
 });
 
 describe("series diarias, semanas y tendencia", () => {

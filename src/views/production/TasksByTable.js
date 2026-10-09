@@ -75,6 +75,7 @@ import {
 } from "services/cinchoDayStatusService";
 import CinchosDayBoard from "./CinchosDayBoard";
 import RedistributeBoard from "./components/RedistributeBoard";
+import { useAuth } from "contexts/AuthContext";
 import useMoveTaskItem from "./hooks/useMoveTaskItem";
 import { MAX_HOURS_PER_DESK, getTaskBaseHours, getTaskExtraHours } from "utils/taskHoursHelper";
 import { formatProductionDuration, workingMinutesBetween } from "utils/productionTimeHelper";
@@ -321,6 +322,9 @@ function TasksByTable() {
   const [error, setError] = useState("");
   const [deskConfigWarning, setDeskConfigWarning] = useState("");
   const [viewMode, setViewMode] = useState("operation"); // "operation" | "schedule" | "redistribute"
+  // Mover líneas entre mesas y fechas solo lo hacen administración y producción.
+  const { hasAnyRole } = useAuth();
+  const canRedistribute = hasAnyRole(["ADMIN", "ADMINISTRADOR", "PRODUCCION"]);
   const [filterDesk, setFilterDesk] = useState("");
   const [filterDate, setFilterDate] = useState("");
   const [filterStatus, setFilterStatus] = useState("all");
@@ -1835,15 +1839,17 @@ function TasksByTable() {
                       <i className="nc-icon nc-calendar-60 mr-1" />
                       Cronograma
                     </Button>
-                    <Button
-                      color={viewMode === "redistribute" ? "warning" : "outline-secondary"}
-                      size="sm"
-                      onClick={() => setViewMode("redistribute")}
-                      title="Mover productos entre mesas y fechas"
-                    >
-                      <i className="nc-icon nc-send mr-1" />
-                      Redistribuir
-                    </Button>
+                    {canRedistribute && (
+                      <Button
+                        color={viewMode === "redistribute" ? "warning" : "outline-secondary"}
+                        size="sm"
+                        onClick={() => setViewMode("redistribute")}
+                        title="Mover productos entre mesas y fechas"
+                      >
+                        <i className="nc-icon nc-send mr-1" />
+                        Redistribuir
+                      </Button>
+                    )}
                 </div>
               </div>
 
@@ -2750,7 +2756,7 @@ function TasksByTable() {
                   {/* ============================================================ */}
                   {/* ============ REDISTRIBUTE (MANUAL) VIEW ============ */}
                   {/* ============================================================ */}
-                  {viewMode === "redistribute" && (
+                  {viewMode === "redistribute" && canRedistribute && (
                     <RedistributeBoard
                       tasks={tableCenterTasks}
                       numDesks={workingDesksCount}

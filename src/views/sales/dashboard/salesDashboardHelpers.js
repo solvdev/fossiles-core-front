@@ -579,23 +579,59 @@ export const STATUS_COLORS = { ok: "#2e8b57", warn: "#b9801b", bad: "#c4472a", n
 export const statusColor = (label) => STATUS_COLORS[statusTone(label)];
 
 /* ------------------------------------------------------------------ */
+/* Clasificación del kiosko (A, B o C)                                  */
+/* ------------------------------------------------------------------ */
+
+/** Rótulo de un kiosco que aún no tiene clasificación. */
+export const UNCLASSIFIED_LABEL = "Sin clasificar";
+
+/**
+ * 'A' | 'B' | 'C' desde `kiosk_site.sales_category` (se tolera minúscula y espacios); cualquier otro valor, o su
+ * ausencia, es null = sin clasificar. La clasificación se asigna a mano en Finanzas kioscos (Costos por kiosco).
+ */
+export const normalizeCategory = (value) => {
+  const code = String(value === null || value === undefined ? "" : value)
+    .trim()
+    .toUpperCase();
+  return code === "A" || code === "B" || code === "C" ? code : null;
+};
+
+/** 'Cat. A' (mismo rótulo que Finanzas kioscos) o 'Sin clasificar'. */
+export const categoryLabel = (category) => {
+  const code = normalizeCategory(category);
+  return code ? `Cat. ${code}` : UNCLASSIFIED_LABEL;
+};
+
+/* ------------------------------------------------------------------ */
 /* Selector de kiosko                                                  */
 /* ------------------------------------------------------------------ */
 
 /**
- * Opciones del selector de kiosko desde `kioskOptions` del backend ({ siteId, kioskId, kioskCode, kioskName }).
- * El valor es el id del SITIO de Finanzas kioscos (`siteId`): un kiosko histórico no tiene ubicación del POS
- * (`kioskId` null) y aun así se puede elegir. Si el sitio elegido no viene en la lista se agrega con un nombre genérico.
+ * Opciones del selector de kiosko desde `kioskOptions` del backend ({ siteId, kioskId, kioskCode, kioskName,
+ * category }). El valor es el id del SITIO de Finanzas kioscos (`siteId`): un kiosko histórico no tiene ubicación del
+ * POS (`kioskId` null) y aun así se puede elegir. Un kiosko clasificado lleva 'Cat. A' (o B, C) tras el nombre; el
+ * orden es por nombre. `name` = nombre sin la clasificación. Si el sitio elegido no viene en la lista se agrega con un
+ * nombre genérico.
  */
 export const buildKioskOptions = (kioskOptions, selectedSiteId) => {
   const list = (kioskOptions || [])
     .filter((k) => k && k.siteId !== null && k.siteId !== undefined)
-    .map((k) => ({ value: String(k.siteId), label: k.kioskName || k.kioskCode || `Kiosko ${k.siteId}` }))
-    .sort((a, b) => a.label.localeCompare(b.label, "es", { sensitivity: "base" }));
+    .map((k) => {
+      const name = k.kioskName || k.kioskCode || `Kiosko ${k.siteId}`;
+      const category = normalizeCategory(k.category);
+      return {
+        value: String(k.siteId),
+        label: category ? `${name} · ${categoryLabel(category)}` : name,
+        name,
+        category,
+      };
+    })
+    .sort((a, b) => a.name.localeCompare(b.name, "es", { sensitivity: "base" }));
   if (selectedSiteId && !list.some((o) => o.value === String(selectedSiteId))) {
-    list.push({ value: String(selectedSiteId), label: `Kiosko ${selectedSiteId}` });
+    const name = `Kiosko ${selectedSiteId}`;
+    list.push({ value: String(selectedSiteId), label: name, name, category: null });
   }
-  return [{ value: "", label: "Todos los kioskos" }, ...list];
+  return [{ value: "", label: "Todos los kioskos", name: "Todos los kioskos", category: null }, ...list];
 };
 
 /* ------------------------------------------------------------------ */
