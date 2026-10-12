@@ -45,6 +45,13 @@ function mergeRowFromSyncItem(row, item) {
       const eQty = item.physicalSizesByLocation.E?.[row.sizeLabel] ?? 0;
       const boQty = item.physicalSizesByLocation.BO?.[row.sizeLabel] ?? 0;
       counts = { ...(row.counts || {}), E: eQty, BO: boQty };
+    } else if (item.physicalSizesByLocation && Object.keys(item.physicalSizesByLocation).length > 0) {
+      // Entre Cueros: cincho por talla contado en V1..V7, E y BO.
+      const next = { ...(row.counts || {}) };
+      Object.keys(item.physicalSizesByLocation).forEach((locKey) => {
+        next[locKey] = item.physicalSizesByLocation[locKey]?.[row.sizeLabel] ?? 0;
+      });
+      counts = next;
     }
     if (item.sizeObservations && Object.prototype.hasOwnProperty.call(item.sizeObservations, row.sizeLabel)) {
       observation = item.sizeObservations[row.sizeLabel] || null;
