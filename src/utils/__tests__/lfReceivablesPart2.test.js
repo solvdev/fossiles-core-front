@@ -6,7 +6,9 @@ import {
   adjustmentsBlockTarget,
   amountExceedsOpenBalance,
   buildChargeAdjustmentPayload,
-  canGenerateOrderCharge,
+  canGenerateShipmentCharge,
+  isDispatchedShipmentStatus,
+  listChargeableShipments,
   chargeRequiresReassignment,
   filterReassignChargeTargets,
   formatEstimatedAmount,
@@ -46,19 +48,57 @@ describe("estados de cobro", () => {
 });
 
 describe("generar cargo y estimado nulo", () => {
-  const order = {
+  const shipment = {
     customerId: 1,
     productionOrderId: 10,
+    productShipmentId: 21,
+    shipmentStatus: "SENT",
     hasCharge: false,
     chargeStatus: "NONE",
-    documentLevel: "ORDER",
+    documentLevel: "SHIPMENT",
   };
 
-  test("oculta el cargo si la orden ya tiene cargo o la fila es un parcial", () => {
-    expect(canGenerateOrderCharge(order)).toBe(true);
-    expect(canGenerateOrderCharge({ ...order, hasCharge: true, chargeStatus: "CHARGED" })).toBe(false);
-    expect(canGenerateOrderCharge({ ...order, partialReleaseId: 4, documentLevel: "SHIPMENT" })).toBe(false);
-    expect(canGenerateOrderCharge({ ...order, chargeStatus: "PAID" })).toBe(false);
+  test("el cargo solo se ofrece para un envío despachado que quedó sin cargo", () => {
+    expect(canGenerateShipmentCharge(shipment)).toBe(true);
+    expect(canGenerateShipmentCharge({ ...shipment, shipmentStatus: "DELIVERED" })).toBe(true);
+    expect(canGenerateShipmentCharge({ ...shipment, shipmentStatus: undefined })).toBe(true);
+    expect(canGenerateShipmentCharge({ ...shipment, shipmentStatus: "CONFIRMED" })).toBe(false);
+    expect(canGenerateShipmentCharge({ ...shipment, shipmentStatus: "DRAFT" })).toBe(false);
+    expect(canGenerateShipmentCharge({ ...shipment, shipmentStatus: "CANCELLED" })).toBe(false);
+    expect(canGenerateShipmentCharge({ ...shipment, hasCharge: true, chargeStatus: "CHARGED" })).toBe(false);
+    expect(canGenerateShipmentCharge({ ...shipment, chargeStatus: "PAID" })).toBe(false);
+  });
+
+  test("una orden completa o una fila sin envío nunca ofrece cargo", () => {
+    expect(canGenerateShipmentCharge({ ...shipment, productShipmentId: null, documentLevel: "ORDER" })).toBe(false);
+    expect(canGenerateShipmentCharge({ ...shipment, productShipmentId: undefined, partialReleaseId: 4 })).toBe(false);
+  });
+
+  test("despachado es SENT o DELIVERED", () => {
+    expect(isDispatchedShipmentStatus("SENT")).toBe(true);
+    expect(isDispatchedShipmentStatus("delivered")).toBe(true);
+    expect(isDispatchedShipmentStatus("CONFIRMED")).toBe(false);
+    expect(isDispatchedShipmentStatus(null)).toBe(false);
+  });
+
+  test("lista solo los envíos despachados sin cargo de un documento", () => {
+    const doc = {
+      partialReleases: [
+        {
+          partialReleaseId: 1,
+          shipments: [
+            { productShipmentId: 1, status: "SENT", chargeStatus: "NONE" },
+            { productShipmentId: 2, status: "SENT", chargeStatus: "CHARGED" },
+            { productShipmentId: 3, status: "CONFIRMED", chargeStatus: "NONE" },
+          ],
+        },
+        { partialReleaseId: 2, shipments: [{ productShipmentId: 4, status: "DELIVERED", chargeStatus: "NONE" }] },
+      ],
+    };
+    expect(listChargeableShipments(doc).map((s) => [s.productShipmentId, s.partialReleaseId])).toEqual([
+      [1, 1],
+      [4, 2],
+    ]);
   });
 
   test("un parcial planificado sin estimado no muestra monto", () => {

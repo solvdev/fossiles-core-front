@@ -23,7 +23,8 @@ import {
   formatOpenChargeLabel,
   getCustomerAccountStatement,
   getMovementConcept,
-  getOrderChargeQuote,
+  getShipmentChargeQuote,
+  listChargeableShipments,
   listOpenCharges,
   MOVEMENT_CONCEPTS,
   PAYMENT_METHODS,
@@ -101,6 +102,8 @@ function CustomerAccountEntryModal({
     };
     if (initialDoc) {
       base.productionOrderId = String(initialDoc.productionOrderId || "");
+      base.productShipmentId = initialDoc.productShipmentId != null ? String(initialDoc.productShipmentId) : "";
+      base.partialReleaseId = initialDoc.partialReleaseId != null ? String(initialDoc.partialReleaseId) : "";
       base.vendorShipmentNumber = initialDoc.vendorShipmentNumber || "";
       base.description = `${initialDoc.orderKind || "LF"} ${initialDoc.orderCode || ""}`.trim();
       if (initialDoc.appliedToEntryId) {
@@ -139,15 +142,15 @@ function CustomerAccountEntryModal({
       setQuoteLoading(false);
       return undefined;
     }
-    const orderId = form.productionOrderId;
-    if (!orderId) {
+    const shipmentId = form.productShipmentId;
+    if (!shipmentId) {
       setQuote(null);
       return undefined;
     }
     let cancelled = false;
     setQuoteLoading(true);
     setQuote(null);
-    getOrderChargeQuote(orderId)
+    getShipmentChargeQuote(shipmentId)
       .then((next) => {
         if (cancelled) return;
         setQuote(next);
@@ -167,7 +170,7 @@ function CustomerAccountEntryModal({
     return () => {
       cancelled = true;
     };
-  }, [isOpen, selectedEntryType, form.productionOrderId]);
+  }, [isOpen, selectedEntryType, form.productShipmentId]);
 
   useEffect(() => {
     if (!isOpen || !requiresCharge || !selectedCharge) return;
@@ -200,6 +203,10 @@ function CustomerAccountEntryModal({
     if (!doc) return;
     patch("productionOrderId", String(doc.productionOrderId || ""));
     patch("vendorShipmentNumber", doc.vendorShipmentNumber || "");
+    const chargeable = listChargeableShipments(doc);
+    const only = chargeable.length === 1 ? chargeable[0] : null;
+    patch("productShipmentId", only ? String(only.productShipmentId) : "");
+    patch("partialReleaseId", only && only.partialReleaseId != null ? String(only.partialReleaseId) : "");
     if (!form.description && doc.orderCode) {
       patch("description", `${doc.orderKind || "LF"} ${doc.orderCode}`);
     }
@@ -224,6 +231,10 @@ function CustomerAccountEntryModal({
       return;
     }
 
+    if (entryType === "CHARGE" && !form.productShipmentId) {
+      setError("El cargo se genera por envío despachado. Seleccione el envío.");
+      return;
+    }
     if (entryType === "CHARGE") {
       const quoted = Number(quote?.amount);
       if (quoteLoading || !quote || !Number.isFinite(quoted) || quoted <= 0) {
@@ -268,7 +279,7 @@ function CustomerAccountEntryModal({
     try {
       const payloadForm =
         entryType === "CHARGE"
-          ? { ...form, amount: Number(quote.amount).toFixed(2), partialReleaseId: "", productShipmentId: "" }
+          ? { ...form, amount: Number(quote.amount).toFixed(2) }
           : form;
       const payload = buildAccountEntryPayload({
         entryType,
@@ -530,6 +541,8 @@ function CustomerAccountEntryModal({
                 onChange={(e) => {
                   const id = e.target.value;
                   patch("productionOrderId", id);
+                  patch("productShipmentId", "");
+                  patch("partialReleaseId", "");
                   const doc = lfDocuments.find((d) => String(d.productionOrderId) === id);
                   if (doc) handleOrderLink(doc);
                 }}
@@ -543,6 +556,41 @@ function CustomerAccountEntryModal({
                   </option>
                 ))}
               </Input>
+            </FormGroup>
+          )}
+
+          {isCharge && (
+            <FormGroup>
+              <Label>Envío despachado</Label>
+              <Input
+                type="select"
+                value={form.productShipmentId || ""}
+                onChange={(e) => {
+                  const id = e.target.value;
+                  const doc = lfDocuments.find((d) => String(d.productionOrderId) === String(form.productionOrderId));
+                  const shipment = listChargeableShipments(doc).find((s) => String(s.productShipmentId) === id);
+                  patch("productShipmentId", id);
+                  patch("partialReleaseId", shipment && shipment.partialReleaseId != null ? String(shipment.partialReleaseId) : "");
+                }}
+              >
+                <option value="">— Seleccione el envío —</option>
+                {listChargeableShipments(
+                  lfDocuments.find((d) => String(d.productionOrderId) === String(form.productionOrderId))
+                ).map((s) => (
+                  <option key={s.productShipmentId} value={s.productShipmentId}>
+                    {s.shipmentNumber} · {formatEstimatedAmount(s.estimatedTotal)}
+                  </option>
+                ))}
+                {form.productShipmentId &&
+                  !listChargeableShipments(
+                    lfDocuments.find((d) => String(d.productionOrderId) === String(form.productionOrderId))
+                  ).some((s) => String(s.productShipmentId) === String(form.productShipmentId)) && (
+                    <option value={form.productShipmentId}>Envío #{form.productShipmentId}</option>
+                  )}
+              </Input>
+              <small className="text-muted">
+                El cargo nace solo al despachar el envío. Aquí solo se genera el de un envío despachado que quedó sin cargo.
+              </small>
             </FormGroup>
           )}
 

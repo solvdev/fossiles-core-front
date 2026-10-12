@@ -21,6 +21,7 @@ import {
   getConceptLabel,
   getDueBadgeStyle,
   getOrderChargeQuote,
+  getShipmentChargeQuote,
   isOverdueReceivableLine,
   shippingLinesPendingAdjustment,
   tryBeginSingleFlight,
@@ -61,7 +62,12 @@ function CustomerAccountChargeDetailModal({
     }
     let cancelled = false;
     setQuoteError("");
-    getOrderChargeQuote(chargeLine.productionOrderId)
+    // Un cargo por despacho solo ofrece el costo de envío de su propio envío; el cargo por orden completa
+    // (anterior a este modelo) ofrece el de todos los envíos de la orden.
+    const request = chargeLine.productShipmentId
+      ? getShipmentChargeQuote(chargeLine.productShipmentId)
+      : getOrderChargeQuote(chargeLine.productionOrderId);
+    request
       .then((next) => {
         if (!cancelled) setQuote(next);
       })

@@ -21,7 +21,7 @@ import CustomerAccountEntryModal from "components/customers/CustomerAccountEntry
 import {
   CHARGE_STATUS_LABELS,
   buildChargePrefill,
-  canGenerateOrderCharge,
+  canGenerateShipmentCharge,
   formatEstimatedAmount,
 } from "services/customerAccountService";
 
@@ -113,7 +113,7 @@ function ShipmentRow({ row, expanded, onToggle, onCreateCharge }) {
           <strong>{formatEstimatedAmount(row.estimatedTotal)}</strong>
         </td>
         <td className="text-right text-nowrap">
-          {canGenerateOrderCharge(row) && (
+          {canGenerateShipmentCharge(row) && (
             <Button color="success" size="sm" className="btn-round mr-1" onClick={() => onCreateCharge(row)}>
               Generar cargo
             </Button>

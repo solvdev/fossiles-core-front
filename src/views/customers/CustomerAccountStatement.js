@@ -36,7 +36,7 @@ import {
   ENTRY_TYPE_LABELS,
   adjustmentsBlockTarget,
   buildChargePrefill,
-  canGenerateOrderCharge,
+  canGenerateShipmentCharge,
   chargeRequiresReassignment,
   creditNotesAmount,
   endSingleFlight,
@@ -101,17 +101,6 @@ function DocumentRow({ doc, customerId, onCharge, expanded, onToggle }) {
               {expanded ? "▾" : "▸"} Parciales
             </Button>
           )}
-          {canGenerateOrderCharge(doc, { customerId }) && (
-            <Button
-              color="primary"
-              size="sm"
-              outline
-              className="btn-round"
-              onClick={() => onCharge(buildChargePrefill(doc))}
-            >
-              Crear cargo
-            </Button>
-          )}
         </td>
       </tr>
       {hasPartials && expanded && (
@@ -145,6 +134,22 @@ function DocumentRow({ doc, customerId, onCharge, expanded, onToggle }) {
                             {` · ${formatEstimatedAmount(s.estimatedTotal)}`}
                             {s.balanceDue != null ? ` · Saldo ${formatAccountMoney(s.balanceDue)}` : ""}
                           </span>
+                          {canGenerateShipmentCharge(
+                            { ...s, productionOrderId: doc.productionOrderId, partialReleaseId: pr.partialReleaseId },
+                            { customerId }
+                          ) && (
+                            <Button
+                              color="primary"
+                              size="sm"
+                              outline
+                              className="btn-round py-0"
+                              onClick={() =>
+                                onCharge(buildChargePrefill(doc, { ...s, partialReleaseId: pr.partialReleaseId }))
+                              }
+                            >
+                              Generar cargo
+                            </Button>
+                          )}
                         </div>
                       ))}
                     </td>
