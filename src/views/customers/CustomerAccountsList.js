@@ -19,7 +19,7 @@ import {
 import {
   CHARGE_STATUS_LABELS,
   buildChargePrefill,
-  canGenerateOrderCharge,
+  canGenerateShipmentCharge,
   creditNotesAmount,
   formatAccountMoney,
   formatEstimatedAmount,
@@ -225,7 +225,7 @@ function DocumentSearchRow({ row, onCreateCharge }) {
             ? "secondary"
             : "light";
 
-  const canCreateCharge = canGenerateOrderCharge(row);
+  const canCreateCharge = canGenerateShipmentCharge(row);
 
   return (
     <tr>

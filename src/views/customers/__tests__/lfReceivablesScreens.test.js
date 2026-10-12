@@ -13,6 +13,7 @@ import {
   getCustomerAccountSummary,
   getLfSalesDocuments,
   getReceivableDocuments,
+  getShipmentChargeQuote,
   searchReceivableDocuments,
   voidCustomerAccountEntry,
 } from "services/customerAccountService";
@@ -23,6 +24,7 @@ jest.mock("services/customerAccountService", () => {
     ...actual,
     getCustomerAccountStatement: jest.fn(),
     getLfSalesDocuments: jest.fn(),
+    getShipmentChargeQuote: jest.fn(),
     getReceivableDocuments: jest.fn(),
     getCustomerAccountSummary: jest.fn(),
     searchReceivableDocuments: jest.fn(),
@@ -105,7 +107,25 @@ const opcOrderOnScreen = {
   deliveryDate: "2026-10-01",
   chargedAmount: 0,
   balanceDue: 80,
-  partialReleases: [],
+  partialReleases: [
+    {
+      partialReleaseId: 5,
+      label: "Parcial 1",
+      chargeStatus: "NONE",
+      estimatedTotal: 80,
+      chargedAmount: 0,
+      balanceDue: 0,
+      shipments: [
+        {
+          productShipmentId: 71,
+          shipmentNumber: "ENV-77",
+          status: "SENT",
+          chargeStatus: "NONE",
+          estimatedTotal: 80,
+        },
+      ],
+    },
+  ],
 };
 
 const roundMoney = (value) => Math.round(value * 100) / 100;
@@ -170,7 +190,8 @@ async function openNewMovement() {
 
 async function openChargeFromPickedOrder() {
   userEvent.click(screen.getByText("Documentos OPV / OPC"));
-  const create = await screen.findByRole("button", { name: "Crear cargo" });
+  userEvent.click(await screen.findByRole("button", { name: /Parciales/ }));
+  const create = await screen.findByRole("button", { name: "Generar cargo" });
   userEvent.click(create);
   await screen.findByRole("heading", { name: "Altas de cuentas por cobrar" });
   return entryDialog();
@@ -211,6 +232,13 @@ beforeEach(() => {
   global.fetch = jest.fn(() => Promise.reject(new Error("Las pruebas no deben llamar HTTP")));
   getCustomerAccountStatement.mockResolvedValue(statementOf([]));
   getLfSalesDocuments.mockResolvedValue([]);
+  getShipmentChargeQuote.mockResolvedValue({
+    amount: 80,
+    productsTotal: 80,
+    shippingTotal: 0,
+    orderTotal: 80,
+    shippingLines: [],
+  });
   getReceivableDocuments.mockResolvedValue([]);
   getCustomerAccountSummary.mockResolvedValue([]);
   searchReceivableDocuments.mockResolvedValue([]);

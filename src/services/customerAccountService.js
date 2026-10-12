@@ -211,6 +211,19 @@ export const getLfSalesDocuments = async (customerId, { withBalance = true } = {
   return response.json();
 };
 
+/** Cargo por despacho: lo calcula el servidor para un envío ya despachado (productos enviados + costo de envío). */
+export const getShipmentChargeQuote = async (productShipmentId) => {
+  const response = await fetch(
+    `${API_URL}/customer-accounts/shipments/${productShipmentId}/charge-quote`,
+    {
+      method: "GET",
+      headers: { "Content-Type": "application/json", ...getAuthHeader() },
+    }
+  );
+  if (!response.ok) await parseError(response, "Error al cotizar el cargo del envío");
+  return response.json();
+};
+
 export const getOrderChargeQuote = async (productionOrderId) => {
   const response = await fetch(
     `${API_URL}/customer-accounts/production-orders/${productionOrderId}/charge-quote`,
@@ -372,30 +385,57 @@ export const formatServerAmount = (value) => {
   return formatAccountMoney(num);
 };
 
+/** Un envío cuenta para cuentas por cobrar solo cuando ya salió: en tránsito (SENT) o recibido (DELIVERED). */
+export const isDispatchedShipmentStatus = (status) => {
+  const normalized = String(status || "").toUpperCase();
+  return normalized === "SENT" || normalized === "DELIVERED";
+};
+
 /**
- * El cargo es de la orden, no del parcial. Solo se ofrece si la orden no tiene cargo
- * y la fila no es un parcial ni un envío.
+ * El cargo nace al despachar el envío (lo crea el sistema). Este botón es solo el reintento: se ofrece para un
+ * envío despachado que quedó sin cargo. Nunca para una orden completa ni para un envío que no ha salido.
  */
-export const canGenerateOrderCharge = (row, { customerId } = {}) => {
+export const canGenerateShipmentCharge = (row, { customerId } = {}) => {
   if (!row || row.productionOrderId == null || row.productionOrderId === "") return false;
+  if (row.productShipmentId == null || row.productShipmentId === "") return false;
   const customer = row.customerId != null && row.customerId !== "" ? row.customerId : customerId;
   if (customer == null || customer === "") return false;
   if (row.hasCharge === true) return false;
-  if (row.partialReleaseId != null && row.partialReleaseId !== "") return false;
-  if (String(row.documentLevel || "").toUpperCase() === "SHIPMENT") return false;
+  const shipmentStatus = row.shipmentStatus ?? row.status;
+  if (shipmentStatus != null && shipmentStatus !== "" && !isDispatchedShipmentStatus(shipmentStatus)) return false;
   const status = String(row.chargeStatus || "NONE").toUpperCase();
   return status === "NONE";
 };
 
-/** Prefill del alta de cargo: orden y ENVP padre. Sin parcial, sin envío y sin monto estimado. */
-export const buildChargePrefill = (doc) => {
+/** Prefill del alta de cargo: la orden y el envío despachado que se cobra. El monto lo cotiza el servidor. */
+export const buildChargePrefill = (doc, shipment = null) => {
   if (!doc) return null;
+  const source = shipment || doc;
   return {
     productionOrderId: doc.productionOrderId,
     orderCode: doc.orderCode || doc.productionOrderCode || null,
     orderKind: doc.orderKind || null,
     vendorShipmentNumber: doc.vendorShipmentNumber || null,
+    productShipmentId: source.productShipmentId ?? null,
+    partialReleaseId: shipment?.partialReleaseId ?? doc.partialReleaseId ?? null,
+    shipmentNumber: source.shipmentNumber || null,
   };
+};
+
+/** Envíos de un documento LF que ya salieron y todavía no tienen cargo (los que se pueden cobrar). */
+export const listChargeableShipments = (doc) => {
+  const result = [];
+  (doc?.partialReleases || []).forEach((partial) => {
+    (partial.shipments || []).forEach((shipment) => {
+      if (
+        isDispatchedShipmentStatus(shipment.status) &&
+        String(shipment.chargeStatus || "NONE").toUpperCase() === "NONE"
+      ) {
+        result.push({ ...shipment, partialReleaseId: partial.partialReleaseId ?? null });
+      }
+    });
+  });
+  return result;
 };
 
 export const shippingLinesPendingAdjustment = (shippingLines = [], childEntries = []) => {
@@ -757,9 +797,7 @@ export const buildAccountEntryPayload = ({ entryType, conceptCode, form, charge 
 
   payload.productionOrderId = form.productionOrderId ? Number(form.productionOrderId) : null;
   payload.vendorShipmentNumber = form.vendorShipmentNumber || null;
-  if (entryType !== "CHARGE") {
-    payload.partialReleaseId = form.partialReleaseId ? Number(form.partialReleaseId) : null;
-    payload.productShipmentId = form.productShipmentId ? Number(form.productShipmentId) : null;
-  }
+  payload.partialReleaseId = form.partialReleaseId ? Number(form.partialReleaseId) : null;
+  payload.productShipmentId = form.productShipmentId ? Number(form.productShipmentId) : null;
   return payload;
 };

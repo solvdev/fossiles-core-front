@@ -417,7 +417,7 @@ describe("nota de abono movido y envío por agregar", () => {
 });
 
 describe("catálogo OPV", () => {
-  test("Generar cargo no sale si ya hay cargo, ni en el parcial, y el estimado nulo no es un monto", async () => {
+  test("Generar cargo sale solo en un envío despachado sin cargo, y el estimado nulo no es un monto", async () => {
     getOpvShipments.mockResolvedValue([
       {
         productionOrderId: 1,
@@ -437,7 +437,9 @@ describe("catálogo OPV", () => {
         customerName: "Sin cargo",
         hasCharge: false,
         chargeStatus: "NONE",
-        documentLevel: "ORDER",
+        documentLevel: "SHIPMENT",
+        productShipmentId: 22,
+        shipmentStatus: "SENT",
         estimatedTotal: null,
         itemsSubtotal: null,
         packingSubtotal: null,
@@ -452,6 +454,8 @@ describe("catálogo OPV", () => {
         chargeStatus: "NONE",
         documentLevel: "SHIPMENT",
         partialReleaseId: 9,
+        productShipmentId: 33,
+        shipmentStatus: "CONFIRMED",
         estimatedTotal: null,
       },
     ]);
