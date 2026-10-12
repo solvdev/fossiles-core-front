@@ -385,10 +385,10 @@ export const formatServerAmount = (value) => {
   return formatAccountMoney(num);
 };
 
-/** Un envío cuenta para cuentas por cobrar solo cuando ya salió: en tránsito (SENT) o recibido (DELIVERED). */
+/** Un envío cuenta para cuentas por cobrar solo cuando ya salió: en tránsito (SENT) o recibido (DELIVERED, RECEIVED, COMPLETED). */
 export const isDispatchedShipmentStatus = (status) => {
   const normalized = String(status || "").toUpperCase();
-  return normalized === "SENT" || normalized === "DELIVERED";
+  return normalized === "SENT" || normalized === "DELIVERED" || normalized === "COMPLETED" || normalized === "RECEIVED";
 };
 
 /**
