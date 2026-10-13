@@ -14,7 +14,7 @@ import {
   previewFulfillment, getSaleItemsPreview, resolveMixedSale,
   importOnlineSales, returnOnlineSale, voidOnlineSale, cancelOnlineSaleDispatch, registerOnlineSaleShipment,
   getReturnInventory, getReturnEvents, getReturnForPrint,
-  createOnlineSaleExchange,
+  createOnlineSaleExchange, searchOnlineSaleShipments,
   PAYMENT_METHODS, SALESPERSONS, SOCIAL_NETWORKS, SHIPPING_CARRIERS, SALE_STATUSES
 } from "../../services/onlineSaleService";
 import { getWarehouseView } from "../../services/productionOrderService";
@@ -602,6 +602,13 @@ function OnlineSales() {
   });
   const [creatingExchange, setCreatingExchange] = useState(false);
   const [exchangeCreatedSale, setExchangeCreatedSale] = useState(null);
+  // Destino del cambio: envío nuevo o agregar a un envío existente
+  const [exchangeTargetMode, setExchangeTargetMode] = useState("NEW"); // NEW | EXISTING
+  const [exchangeShipmentQuery, setExchangeShipmentQuery] = useState("");
+  const [exchangeShipmentResults, setExchangeShipmentResults] = useState([]);
+  const [exchangeShipmentLoading, setExchangeShipmentLoading] = useState(false);
+  const [exchangeTargetSale, setExchangeTargetSale] = useState(null);
+  const [exchangeAddedToExisting, setExchangeAddedToExisting] = useState(false);
 
   // Inventario de devoluciones (historial)
   const [returnsStartDate, setReturnsStartDate] = useState(() => dateDaysAgo(30));
@@ -1534,8 +1541,34 @@ function OnlineSales() {
       observations: "CAMBIO por producto dañado / parcial",
     });
     setExchangeCreatedSale(null);
+    setExchangeTargetMode("NEW");
+    setExchangeShipmentQuery("");
+    setExchangeShipmentResults([]);
+    setExchangeTargetSale(null);
+    setExchangeAddedToExisting(false);
     setShowExchangeModal(true);
   };
+
+  // Búsqueda (con retardo) de envíos existentes para agregar el cambio
+  useEffect(() => {
+    if (!showExchangeModal || exchangeTargetMode !== "EXISTING") return undefined;
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      try {
+        setExchangeShipmentLoading(true);
+        const rows = await searchOnlineSaleShipments(exchangeShipmentQuery);
+        if (!cancelled) setExchangeShipmentResults(Array.isArray(rows) ? rows : []);
+      } catch (e) {
+        if (!cancelled) setError(e?.message || "No se pudieron buscar los envíos.");
+      } finally {
+        if (!cancelled) setExchangeShipmentLoading(false);
+      }
+    }, 300);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [showExchangeModal, exchangeTargetMode, exchangeShipmentQuery]);
 
   const handleCreateExchange = async () => {
     if (!exchangeOriginalSale) return;
@@ -1544,9 +1577,15 @@ function OnlineSales() {
       setError("Seleccione al menos un item con cantidad para el CAMBIO.");
       return;
     }
+    const addToExisting = exchangeTargetMode === "EXISTING";
+    if (addToExisting && !exchangeTargetSale) {
+      setError("Seleccione el envío existente al que se agregará el cambio.");
+      return;
+    }
     try {
       setCreatingExchange(true);
       const created = await createOnlineSaleExchange(exchangeOriginalSale.id, {
+        targetOnlineSaleId: addToExisting ? exchangeTargetSale.id : null,
         shippingCarrier: exchangeForm.shippingCarrier,
         guideNumber: exchangeForm.guideNumber || "",
         observations: exchangeForm.observations || "",
@@ -1558,7 +1597,13 @@ function OnlineSales() {
         })),
       });
       setExchangeCreatedSale(created);
-      showNotification(`CAMBIO creado · ${created.shipmentNumber || created.id}`);
+      setExchangeAddedToExisting(addToExisting);
+      if (addToExisting) {
+        setSales(prev => prev.map(s => (s.id === created.id ? created : s)));
+        showNotification(`CAMBIO agregado al envío ${created.shipmentNumber || created.id}`);
+      } else {
+        showNotification(`CAMBIO creado · ${created.shipmentNumber || created.id}`);
+      }
     } catch (e) {
       setError(e.message || "No se pudo crear el CAMBIO.");
     } finally {
@@ -4440,7 +4485,7 @@ function OnlineSales() {
       {/* ═══ MODAL CAMBIO ═══ */}
       <Modal isOpen={showExchangeModal} toggle={() => setShowExchangeModal(false)} size="lg">
         <ModalHeader toggle={() => setShowExchangeModal(false)}>
-          🔁 Registrar CAMBIO (nuevo envío Q0)
+          🔁 Registrar CAMBIO (Q0)
         </ModalHeader>
         <ModalBody>
           {exchangeOriginalSale && (
@@ -4449,9 +4494,102 @@ function OnlineSales() {
               <div><strong>Cliente:</strong> {exchangeOriginalSale.customerName || "—"}</div>
               <div><strong>Envío relacionado:</strong> {exchangeOriginalSale.shipmentNumber || "—"}</div>
               <div className="mt-2 text-muted" style={{ fontSize: 12 }}>
-                El cambio se crea como un nuevo envío con monto <strong>Q0</strong> y con un <strong>ENVL nuevo</strong>.
+                {exchangeTargetMode === "EXISTING"
+                  ? <>Los productos se agregan al envío elegido a <strong>Q0</strong>, sin crear un ENVL nuevo.</>
+                  : <>El cambio se crea como un nuevo envío con monto <strong>Q0</strong> y con un <strong>ENVL nuevo</strong>.</>}
               </div>
             </Alert>
+          )}
+
+          <FormGroup tag="fieldset" className="mb-3" disabled={Boolean(exchangeCreatedSale)}>
+            <Label className="d-block">Envío del cambio</Label>
+            <FormGroup check inline>
+              <Label check>
+                <Input
+                  type="radio"
+                  name="exchangeTargetMode"
+                  checked={exchangeTargetMode === "NEW"}
+                  onChange={() => { setExchangeTargetMode("NEW"); setExchangeTargetSale(null); }}
+                />{" "}
+                Envío nuevo
+              </Label>
+            </FormGroup>
+            <FormGroup check inline>
+              <Label check>
+                <Input
+                  type="radio"
+                  name="exchangeTargetMode"
+                  checked={exchangeTargetMode === "EXISTING"}
+                  onChange={() => setExchangeTargetMode("EXISTING")}
+                />{" "}
+                Agregar a un envío existente
+              </Label>
+            </FormGroup>
+          </FormGroup>
+
+          {exchangeTargetMode === "EXISTING" && !exchangeCreatedSale && (
+            <div className="mb-3">
+              {exchangeTargetSale ? (
+                <Alert color="info" className="mb-0">
+                  <div>
+                    <strong>Envío seleccionado:</strong> {exchangeTargetSale.shipmentNumber}
+                    {" · "}Pedido #{exchangeTargetSale.saleNumber || exchangeTargetSale.id}
+                    {" · "}{exchangeTargetSale.customerName || "—"}{" "}
+                    {getStatusBadge(exchangeTargetSale.status)}
+                  </div>
+                  <Button color="link" size="sm" className="p-0" onClick={() => setExchangeTargetSale(null)}>
+                    Cambiar envío
+                  </Button>
+                </Alert>
+              ) : (
+                <>
+                  <Input
+                    value={exchangeShipmentQuery}
+                    onChange={(e) => setExchangeShipmentQuery(e.target.value)}
+                    placeholder="Buscar por ENVL, cliente o No. de pedido..."
+                    autoFocus
+                  />
+                  <div style={{ maxHeight: 220, overflowY: "auto" }} className="mt-2">
+                    {exchangeShipmentLoading ? (
+                      <div className="text-muted"><Spinner size="sm" /> Buscando...</div>
+                    ) : exchangeShipmentResults.length === 0 ? (
+                      <div className="text-muted">No se encontraron envíos.</div>
+                    ) : (
+                      <Table bordered hover responsive size="sm" className="mb-0">
+                        <thead className="text-primary">
+                          <tr>
+                            <th>ENVL</th>
+                            <th>Pedido</th>
+                            <th>Cliente</th>
+                            <th>Fecha</th>
+                            <th>Estado</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {exchangeShipmentResults.map((s) => {
+                            const closed = ["ENVIADO", "ENTREGADO", "ANULADA", "CANCELADO", "DEVOLUCION"].includes(s.status);
+                            return (
+                              <tr
+                                key={s.id}
+                                style={{ cursor: closed ? "not-allowed" : "pointer", opacity: closed ? 0.5 : 1 }}
+                                title={closed ? "No se puede agregar a un envío en este estado" : "Seleccionar envío"}
+                                onClick={() => { if (!closed) setExchangeTargetSale(s); }}
+                              >
+                                <td><strong>{s.shipmentNumber}</strong></td>
+                                <td>#{s.saleNumber || s.id}</td>
+                                <td>{s.customerName || "—"}</td>
+                                <td>{s.saleDate || "—"}</td>
+                                <td>{getStatusBadge(s.status)}</td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </Table>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
           )}
 
           <Row className="mb-3">
@@ -4525,22 +4663,28 @@ function OnlineSales() {
 
           {exchangeCreatedSale && (
             <Alert color="success" className="mt-3">
-              CAMBIO creado. ENVL: <strong>{exchangeCreatedSale.shipmentNumber || "—"}</strong>
-              <div className="mt-2">
-                <Button color="info" size="sm" onClick={() => void downloadExchangePdf(exchangeCreatedSale)}>
-                  Descargar PDF
-                </Button>{" "}
-                <Button color="default" size="sm" onClick={() => printExchangeDocument(exchangeCreatedSale)}>
-                  Imprimir
-                </Button>
-              </div>
+              {exchangeAddedToExisting ? "CAMBIO agregado al envío existente. " : "CAMBIO creado. "}
+              ENVL: <strong>{exchangeCreatedSale.shipmentNumber || "—"}</strong>
+              {!exchangeAddedToExisting && (
+                <div className="mt-2">
+                  <Button color="info" size="sm" onClick={() => void downloadExchangePdf(exchangeCreatedSale)}>
+                    Descargar PDF
+                  </Button>{" "}
+                  <Button color="default" size="sm" onClick={() => printExchangeDocument(exchangeCreatedSale)}>
+                    Imprimir
+                  </Button>
+                </div>
+              )}
             </Alert>
           )}
         </ModalBody>
         <ModalFooter>
           <Button color="secondary" onClick={() => setShowExchangeModal(false)}>Cerrar</Button>
-          <Button color="primary" onClick={handleCreateExchange} disabled={creatingExchange}>
-            {creatingExchange ? <><Spinner size="sm" /> Creando...</> : "Crear CAMBIO"}
+          <Button color="primary" onClick={handleCreateExchange}
+            disabled={creatingExchange || Boolean(exchangeCreatedSale) || (exchangeTargetMode === "EXISTING" && !exchangeTargetSale)}>
+            {creatingExchange
+              ? <><Spinner size="sm" /> Guardando...</>
+              : (exchangeTargetMode === "EXISTING" ? "Agregar al envío" : "Crear CAMBIO")}
           </Button>
         </ModalFooter>
       </Modal>
