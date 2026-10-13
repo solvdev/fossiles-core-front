@@ -16,6 +16,7 @@ import {
   Table,
 } from "reactstrap";
 import { FilterableSelect } from "components/distribution/FilterableSelect";
+import { ProductBrandBadge } from "components/catalog/ProductBrandBadge";
 import { formatDateTimeGt } from "utils/dateTimeHelper";
 import {
   formatKioscoMovementReference,
@@ -82,6 +83,7 @@ function KioskInventoryMovementsPanel({
           movement.productCode,
           movement.productName,
           movement.colorName,
+          movement.hardwareLabel,
         ]
           .filter(Boolean)
           .join(" ")
@@ -263,6 +265,7 @@ function KioskInventoryMovementsPanel({
                       <td>
                         {movement.productCode || movement.productId}
                         {movement.productName ? ` — ${movement.productName}` : ""}
+                        <ProductBrandBadge value={movement.hardwareCondition} entreCueros />
                       </td>
                       <td>{movement.colorName || "—"}</td>
                       <td>{movement.sizeKey || "—"}</td>
