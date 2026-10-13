@@ -61,6 +61,42 @@ const getStatusBadge = (status) => {
   return found ? <Badge color={found.color}>{found.label}</Badge> : <Badge>{status}</Badge>;
 };
 
+// Estados no válidos como destino de un CAMBIO (el envío ya no existe operativamente)
+const EXCHANGE_TARGET_BLOCKED_STATUSES = ["ANULADA", "CANCELADO", "DEVOLUCION"];
+
+// Colores propios con buen contraste (los badges del tema salen casi blancos sobre fondo claro)
+const EXCHANGE_STATUS_STYLES = {
+  PENDIENTE: { bg: "#FFF1CC", fg: "#6B4A00" },
+  EN_PRODUCCION: { bg: "#D8EEF6", fg: "#0A4C60" },
+  PRODUCIDO: { bg: "#DCEBEC", fg: "#27494A" },
+  ENVIADO: { bg: "#E3E6EA", fg: "#2B3138" },
+  ENTREGADO: { bg: "#D6F0E0", fg: "#14612F" },
+  CANCELADO: { bg: "#FBDDD3", fg: "#8E2A0C" },
+  ANULADA: { bg: "#FBDDD3", fg: "#8E2A0C" },
+  DEVOLUCION: { bg: "#DADADA", fg: "#1F1F1F" },
+};
+
+const getExchangeStatusChip = (status) => {
+  const found = SALE_STATUSES.find((s) => s.value === status);
+  const style = EXCHANGE_STATUS_STYLES[status] || { bg: "#E3E6EA", fg: "#2B3138" };
+  return (
+    <span
+      style={{
+        display: "inline-block",
+        padding: "2px 8px",
+        borderRadius: 10,
+        fontSize: 11,
+        fontWeight: 700,
+        whiteSpace: "nowrap",
+        background: style.bg,
+        color: style.fg,
+      }}
+    >
+      {found ? found.label : (status || "—")}
+    </span>
+  );
+};
+
 const getFelInvoiceBadge = (sale) => {
   const status = sale?.invoiceStatus;
   if (status === "CERTIFIED") return <Badge color="success">Certificada</Badge>;
@@ -4697,17 +4733,37 @@ function OnlineSales() {
           {exchangeTargetMode === "EXISTING" && !exchangeCreatedSale && (
             <div className="mb-3">
               {exchangeTargetSale ? (
-                <Alert color="info" className="mb-0">
-                  <div>
-                    <strong>Envío seleccionado:</strong> {exchangeTargetSale.shipmentNumber}
-                    {" · "}Pedido #{exchangeTargetSale.saleNumber || exchangeTargetSale.id}
-                    {" · "}{exchangeTargetSale.customerName || "—"}{" "}
-                    {getStatusBadge(exchangeTargetSale.status)}
+                <div
+                  style={{
+                    background: "#E8F4F8",
+                    border: "1px solid #9FD3E3",
+                    borderRadius: 6,
+                    color: "#1F2D3D",
+                    padding: "10px 14px",
+                  }}
+                >
+                  <div style={{ fontSize: 12, fontWeight: 700, color: "#0A4C60", textTransform: "uppercase" }}>
+                    Envío seleccionado
                   </div>
-                  <Button color="link" size="sm" className="p-0" onClick={() => setExchangeTargetSale(null)}>
+                  <div style={{ fontSize: 15, fontWeight: 700 }}>
+                    {exchangeTargetSale.shipmentNumber}{" "}
+                    {getExchangeStatusChip(exchangeTargetSale.status)}
+                  </div>
+                  <div>
+                    Pedido #{exchangeTargetSale.saleNumber || exchangeTargetSale.id}
+                    {" · "}{exchangeTargetSale.customerName || "—"}
+                    {" · "}{exchangeTargetSale.saleDate || "—"}
+                  </div>
+                  {["ENVIADO", "ENTREGADO"].includes(exchangeTargetSale.status) && (
+                    <div style={{ marginTop: 4, fontSize: 12, color: "#6B4A00" }}>
+                      Este envío ya salió: el cambio solo se registra en él (no se vuelve a despachar
+                      ni se descuenta inventario de Bodega PT).
+                    </div>
+                  )}
+                  <Button color="link" size="sm" className="p-0 mt-1" onClick={() => setExchangeTargetSale(null)}>
                     Cambiar envío
                   </Button>
-                </Alert>
+                </div>
               ) : (
                 <>
                   <Input
@@ -4716,42 +4772,72 @@ function OnlineSales() {
                     placeholder="Buscar por ENVL, cliente o No. de pedido..."
                     autoFocus
                   />
-                  <div style={{ maxHeight: 220, overflowY: "auto" }} className="mt-2">
+                  <div
+                    style={{
+                      maxHeight: 240,
+                      overflowY: "auto",
+                      border: "1px solid #D5D9DE",
+                      borderRadius: 6,
+                      background: "#fff",
+                      color: "#1F2D3D",
+                    }}
+                    className="mt-2"
+                  >
                     {exchangeShipmentLoading ? (
-                      <div className="text-muted"><Spinner size="sm" /> Buscando...</div>
+                      <div style={{ padding: 12, color: "#4A5568" }}><Spinner size="sm" /> Buscando...</div>
                     ) : exchangeShipmentResults.length === 0 ? (
-                      <div className="text-muted">No se encontraron envíos.</div>
+                      <div style={{ padding: 12, color: "#4A5568" }}>No se encontraron envíos.</div>
                     ) : (
-                      <Table bordered hover responsive size="sm" className="mb-0">
-                        <thead className="text-primary">
-                          <tr>
-                            <th>ENVL</th>
-                            <th>Pedido</th>
-                            <th>Cliente</th>
-                            <th>Fecha</th>
-                            <th>Estado</th>
+                      <table style={{ width: "100%", fontSize: 13, borderCollapse: "collapse" }}>
+                        <thead>
+                          <tr style={{ background: "#F1F4F7", position: "sticky", top: 0 }}>
+                            {["ENVL", "Pedido", "Cliente", "Fecha", "Estado"].map((h) => (
+                              <th
+                                key={h}
+                                style={{
+                                  padding: "6px 10px",
+                                  color: "#2B3138",
+                                  fontSize: 11,
+                                  textTransform: "uppercase",
+                                  letterSpacing: 0.3,
+                                  borderBottom: "1px solid #D5D9DE",
+                                  textAlign: "left",
+                                }}
+                              >
+                                {h}
+                              </th>
+                            ))}
                           </tr>
                         </thead>
                         <tbody>
                           {exchangeShipmentResults.map((s) => {
-                            const closed = ["ENVIADO", "ENTREGADO", "ANULADA", "CANCELADO", "DEVOLUCION"].includes(s.status);
+                            const blocked = EXCHANGE_TARGET_BLOCKED_STATUSES.includes(s.status);
                             return (
                               <tr
                                 key={s.id}
-                                style={{ cursor: closed ? "not-allowed" : "pointer", opacity: closed ? 0.5 : 1 }}
-                                title={closed ? "No se puede agregar a un envío en este estado" : "Seleccionar envío"}
-                                onClick={() => { if (!closed) setExchangeTargetSale(s); }}
+                                className="exchange-shipment-row"
+                                style={{
+                                  cursor: blocked ? "not-allowed" : "pointer",
+                                  color: blocked ? "#7B8794" : "#1F2D3D",
+                                  borderBottom: "1px solid #EBEEF1",
+                                }}
+                                title={blocked
+                                  ? `No se puede elegir: el envío está ${s.status}`
+                                  : "Clic para seleccionar este envío"}
+                                onClick={() => { if (!blocked) setExchangeTargetSale(s); }}
+                                onMouseEnter={(e) => { if (!blocked) e.currentTarget.style.background = "#E8F4F8"; }}
+                                onMouseLeave={(e) => { e.currentTarget.style.background = ""; }}
                               >
-                                <td><strong>{s.shipmentNumber}</strong></td>
-                                <td>#{s.saleNumber || s.id}</td>
-                                <td>{s.customerName || "—"}</td>
-                                <td>{s.saleDate || "—"}</td>
-                                <td>{getStatusBadge(s.status)}</td>
+                                <td style={{ padding: "6px 10px", fontWeight: 700 }}>{s.shipmentNumber}</td>
+                                <td style={{ padding: "6px 10px" }}>#{s.saleNumber || s.id}</td>
+                                <td style={{ padding: "6px 10px" }}>{s.customerName || "—"}</td>
+                                <td style={{ padding: "6px 10px", whiteSpace: "nowrap" }}>{s.saleDate || "—"}</td>
+                                <td style={{ padding: "6px 10px" }}>{getExchangeStatusChip(s.status)}</td>
                               </tr>
                             );
                           })}
                         </tbody>
-                      </Table>
+                      </table>
                     )}
                   </div>
                 </>
