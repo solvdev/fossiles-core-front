@@ -1,3 +1,5 @@
+import { isCinchoOrderType } from "utils/cinchoProductionHelper";
+
 const stripDiacritics = (value) =>
   String(value || "")
     .normalize("NFD")
@@ -10,3 +12,15 @@ export const isLuisFelipeSeller = (sellerName) => normalizeSellerName(sellerName
 
 /** Flujo OPV vendedor: empaques, costo de envío, ENVP y formato de impresión especial. */
 export const isLuisFelipeVendorFlow = (_orderType, sellerName) => isLuisFelipeSeller(sellerName);
+
+/** OPC (cinchos) de Luis Felipe: el destino es un cliente del catálogo, nunca un kiosco. */
+export const isLuisFelipeOpcOrder = (orderType, sellerName) =>
+  isCinchoOrderType(orderType) && isLuisFelipeSeller(sellerName);
+
+/**
+ * La orden puede marcarse "para kiosco" (destino = kiosco o texto libre): OP normal (OPK) y OPC de cualquier
+ * vendedor que no sea Luis Felipe. Las OPC de Luis Felipe van a clientes del catálogo.
+ */
+export const orderAllowsKioskDestination = (orderType, sellerName) =>
+  String(orderType || "").trim().toUpperCase() === "NORMAL"
+  || (isCinchoOrderType(orderType) && !isLuisFelipeSeller(sellerName));

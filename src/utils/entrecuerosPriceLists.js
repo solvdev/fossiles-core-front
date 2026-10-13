@@ -1,4 +1,4 @@
-import { isSyntheticHardware, normalizeCinchoAudience, normalizeCinchoType } from "utils/productCinchoHelper";
+import { normalizeCinchoAudience, normalizeCinchoType } from "utils/productCinchoHelper";
 import { isPackagingProductCode } from "utils/kioskPackagingHelper";
 
 export const ENTRECUEROS_PRICE_KIND = {
@@ -10,103 +10,146 @@ export const ENTRECUEROS_PRICE_KIND = {
   WALLET_SYNTHETIC: "WALLET_SYNTHETIC",
   CARDHOLDER_SYNTHETIC: "CARDHOLDER_SYNTHETIC",
   PRODUCT: "PRODUCT",
+  PACKAGING: "PACKAGING",
 };
 
-function money(value) {
-  const n = Number(value || 0);
-  return Number.isFinite(n) ? n : 0;
+export const ENTRECUEROS_WHOLESALE_UNLOCK_QTY = 6;
+
+const LIST_CASUAL_TIERS = [
+  { minQty: 1, label: "1", unitPrice: 100 },
+  { minQty: 3, label: "3+", unitPrice: 90 },
+  { minQty: 6, label: "6+", unitPrice: 80 },
+  { minQty: 12, label: "12+", unitPrice: 75 },
+];
+
+function stripDiacritics(value) {
+  return String(value || "").normalize("NFD").replace(/\p{M}/gu, "");
 }
 
-function isCinchoSource(source) {
-  if (normalizeCinchoType(source?.cinchoType)) return true;
-  const text = `${source?.productCode || ""} ${source?.productName || ""} ${source?.categoryName || ""}`.toUpperCase();
-  return text.includes("CINCHO");
+function compactHardware(value) {
+  return stripDiacritics(value).trim().toUpperCase().replace(/[\s_]/g, "");
 }
 
-function isWalletSource(source) {
-  const text = `${source?.productCode || ""} ${source?.productName || ""} ${source?.categoryName || ""}`.toUpperCase();
-  return text.includes("BILLETER") || text.includes("WALLET");
+function isSyntheticVariant(value) {
+  const compact = compactHardware(value);
+  if (compact.startsWith("NOSINTETIC")) return false;
+  return compact === "SINTETICO"
+    || compact === "SINTETICA"
+    || compact.startsWith("SINTETICO:")
+    || compact.startsWith("SINTETICA:");
 }
 
-export function entrecuerosPriceKind(source) {
-  if (!source || isPackagingProductCode(source.productCode)) {
-    return ENTRECUEROS_PRICE_KIND.PRODUCT;
-  }
-  const hardware = source.hardwareCondition;
-  const cincho = isCinchoSource(source);
-  const audience = normalizeCinchoAudience(hardware);
-  if (cincho && audience === "DAMA") return ENTRECUEROS_PRICE_KIND.DAMA;
-  if (cincho && (audience === "NINO" || Boolean(source.cinchoForKids))) {
-    return ENTRECUEROS_PRICE_KIND.NINO;
-  }
-  if (cincho && normalizeCinchoType(source.cinchoType) === "REVERSIBLE") {
+function isCinchoLine(source) {
+  const type = normalizeCinchoType(source?.cinchoType);
+  if (type === "CASUAL" || type === "REVERSIBLE") return true;
+  const code = String(source?.productCode || "").trim().toUpperCase();
+  if (code.startsWith("FOSS")) return true;
+  const name = stripDiacritics(source?.productName).toLowerCase();
+  return name.includes("cincho");
+}
+
+function cinchoKind(source) {
+  if (normalizeCinchoType(source?.cinchoType) === "REVERSIBLE") {
     return ENTRECUEROS_PRICE_KIND.REVERSIBLE;
   }
-  if (cincho) return ENTRECUEROS_PRICE_KIND.CASUAL;
-  const name = String(source.productName || "").toUpperCase();
-  const synthetic = isSyntheticHardware(hardware);
-  if (name.includes("TARJETER")) return ENTRECUEROS_PRICE_KIND.CARDHOLDER_SYNTHETIC;
-  if (isWalletSource(source)) {
-    return synthetic ? ENTRECUEROS_PRICE_KIND.WALLET_SYNTHETIC : ENTRECUEROS_PRICE_KIND.WALLET_LEATHER;
-  }
-  return synthetic ? ENTRECUEROS_PRICE_KIND.WALLET_SYNTHETIC : ENTRECUEROS_PRICE_KIND.PRODUCT;
+  const audience = normalizeCinchoAudience(source?.hardwareCondition);
+  if (audience === "NINO") return ENTRECUEROS_PRICE_KIND.NINO;
+  if (audience === "DAMA") return ENTRECUEROS_PRICE_KIND.DAMA;
+  return ENTRECUEROS_PRICE_KIND.CASUAL;
 }
 
-export const ENTRECUEROS_WHOLESALE_UNLOCK_QTY = 6;
-export const ENTRECUEROS_LOWEST_TIER_QTY = 12;
+/**
+ * First match wins. Hardware is the line variant (`hardwareCondition`).
+ * Packaging, cincho, tarjetero, billetera, then any other synthetic product.
+ */
+export function entrecuerosPriceKind(source) {
+  if (!source) return ENTRECUEROS_PRICE_KIND.PRODUCT;
+  if (source.isPackaging || isPackagingProductCode(source.productCode)) {
+    return ENTRECUEROS_PRICE_KIND.PACKAGING;
+  }
+  if (isCinchoLine(source)) return cinchoKind(source);
+  const name = String(source.productName || "").toUpperCase();
+  if (name.includes("TARJETER")) return ENTRECUEROS_PRICE_KIND.CARDHOLDER_SYNTHETIC;
+  const synthetic = isSyntheticVariant(source.hardwareCondition);
+  if (name.includes("BILLETERA")) {
+    return synthetic
+      ? ENTRECUEROS_PRICE_KIND.WALLET_SYNTHETIC
+      : ENTRECUEROS_PRICE_KIND.WALLET_LEATHER;
+  }
+  if (synthetic) return ENTRECUEROS_PRICE_KIND.WALLET_SYNTHETIC;
+  return ENTRECUEROS_PRICE_KIND.PRODUCT;
+}
 
 export function entrecuerosVolumeKey(source) {
   const kind = entrecuerosPriceKind(source);
-  if (kind === ENTRECUEROS_PRICE_KIND.PRODUCT) {
+  if (kind === ENTRECUEROS_PRICE_KIND.PRODUCT || kind === ENTRECUEROS_PRICE_KIND.PACKAGING) {
     return `${source?.productId ?? ""}|${kind}`;
   }
   return kind;
 }
 
-function isPackagingSource(source) {
-  return Boolean(source?.isPackaging) || isPackagingProductCode(source?.productCode);
+export function isEntrecuerosPackagingLine(source) {
+  return entrecuerosPriceKind(source) === ENTRECUEROS_PRICE_KIND.PACKAGING;
 }
 
-export function cartUnlocksEntrecuerosWholesale(cart) {
-  const qtyByKey = {};
-  (cart || []).forEach((line) => {
-    if (!line || isPackagingSource(line)) return;
-    const key = entrecuerosVolumeKey(line);
-    qtyByKey[key] = (qtyByKey[key] || 0) + Number(line.quantity || 0);
-  });
-  return Object.values(qtyByKey).some((qty) => qty >= ENTRECUEROS_WHOLESALE_UNLOCK_QTY);
+function isExactB1Code(source) {
+  const code = String(source?.productCode || "").trim().toUpperCase();
+  return code === "B-1" || code === "B1";
+}
+
+export function roundEntrecuerosMoney(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return 0;
+  const sign = n < 0 ? -1 : 1;
+  const cents = Math.floor(Math.abs(n) * 100 + 0.5 + 1e-8);
+  return (sign * cents) / 100;
+}
+
+function firstPositive(values) {
+  for (const value of values) {
+    const n = Number(value);
+    if (Number.isFinite(n) && n > 0) return n;
+  }
+  return 0;
+}
+
+function catalogUnit(source) {
+  return firstPositive([
+    source?.catalogPrice,
+    source?.catalogUnitPrice,
+    source?.suggestedUnitPrice,
+  ]);
 }
 
 function hasProductTiers(source) {
-  return [source?.entrecuerosPriceUnit, source?.entrecuerosPriceQty3, source?.entrecuerosPriceQty6, source?.entrecuerosPriceQty12]
-    .some((value) => money(value) > 0);
+  return firstPositive([
+    source?.entrecuerosPriceUnit,
+    source?.entrecuerosPriceQty3,
+    source?.entrecuerosPriceQty6,
+    source?.entrecuerosPriceQty12,
+  ]) > 0;
 }
 
 function listProductTiers(source) {
-  const p1 = money(source?.entrecuerosPriceUnit || source?.catalogUnitPrice || source?.suggestedUnitPrice);
-  const tiers = [{ minQty: 1, label: "1", unitPrice: p1 }];
-  const p3 = money(source?.entrecuerosPriceQty3);
-  const p6 = money(source?.entrecuerosPriceQty6);
-  const p12 = money(source?.entrecuerosPriceQty12);
-  if (p3 > 0) tiers.push({ minQty: 3, label: "3+", unitPrice: p3 });
-  if (p6 > 0) tiers.push({ minQty: 6, label: "6+", unitPrice: p6 });
-  if (p12 > 0) tiers.push({ minQty: 12, label: "12+", unitPrice: p12 });
-  return tiers.filter((tier) => money(tier.unitPrice) > 0);
+  const tiers = [];
+  const unit = firstPositive([source?.entrecuerosPriceUnit, catalogUnit(source)]);
+  if (unit > 0) tiers.push({ minQty: 1, label: "1", unitPrice: unit });
+  const qty3 = firstPositive([source?.entrecuerosPriceQty3]);
+  const qty6 = firstPositive([source?.entrecuerosPriceQty6]);
+  const qty12 = firstPositive([source?.entrecuerosPriceQty12]);
+  if (qty3 > 0) tiers.push({ minQty: 3, label: "3+", unitPrice: qty3 });
+  if (qty6 > 0) tiers.push({ minQty: 6, label: "6+", unitPrice: qty6 });
+  if (qty12 > 0) tiers.push({ minQty: 12, label: "12+", unitPrice: qty12 });
+  return tiers;
 }
 
 function listCasualTiers(source) {
   if (hasProductTiers(source)) return listProductTiers(source);
-  return [
-    { minQty: 1, label: "1", unitPrice: 100 },
-    { minQty: 3, label: "3+", unitPrice: 90 },
-    { minQty: 6, label: "6+", unitPrice: 80 },
-    { minQty: 12, label: "12+", unitPrice: 75 },
-  ];
+  return LIST_CASUAL_TIERS;
 }
 
 function listSyntheticWalletTiers(source) {
-  const code = String(source?.productCode || "").trim().toUpperCase();
-  if (code.includes("B-1") || code === "B1") {
+  if (isExactB1Code(source)) {
     return [{ minQty: 1, label: "1", unitPrice: 40 }];
   }
   return [
@@ -117,6 +160,8 @@ function listSyntheticWalletTiers(source) {
 
 export function listEntrecuerosPriceListTiers(source) {
   switch (entrecuerosPriceKind(source)) {
+    case ENTRECUEROS_PRICE_KIND.PACKAGING:
+      return [{ minQty: 1, label: "1", unitPrice: catalogUnit(source) }];
     case ENTRECUEROS_PRICE_KIND.NINO:
       return [
         { minQty: 1, label: "1", unitPrice: 65 },
@@ -149,15 +194,71 @@ export function listEntrecuerosPriceListTiers(source) {
   }
 }
 
-export function resolveEntrecuerosListUnitPrice(source, qty, wholesaleUnlocked = false) {
-  const n = wholesaleUnlocked && !isPackagingSource(source)
-    ? ENTRECUEROS_LOWEST_TIER_QTY
-    : Number(qty || 0);
+function priceForQuantity(tiers, qty) {
   let price = 0;
-  listEntrecuerosPriceListTiers(source).forEach((tier) => {
-    if (n >= tier.minQty) price = tier.unitPrice;
+  tiers.forEach((tier) => {
+    if (qty >= tier.minQty) price = tier.unitPrice;
   });
   return price;
+}
+
+function topTierPrice(tiers) {
+  return tiers.reduce((best, tier) => (tier.minQty >= best.minQty ? tier : best), tiers[0])?.unitPrice || 0;
+}
+
+/**
+ * `courtesy` prices the line at its own highest configured tier (12, else 6, else 3, else 1, else catalog).
+ * Packaging, reversible, and exact B-1 ignore it.
+ */
+export function resolveEntrecuerosListUnitPrice(source, qty, courtesy = false) {
+  const kind = entrecuerosPriceKind(source);
+  if (kind === ENTRECUEROS_PRICE_KIND.PACKAGING) {
+    return roundEntrecuerosMoney(catalogUnit(source));
+  }
+  const tiers = listEntrecuerosPriceListTiers(source);
+  if (!tiers.length) return 0;
+  const fixedB1 = kind === ENTRECUEROS_PRICE_KIND.WALLET_SYNTHETIC && isExactB1Code(source);
+  const useTop = Boolean(courtesy)
+    && kind !== ENTRECUEROS_PRICE_KIND.REVERSIBLE
+    && !fixedB1;
+  const price = useTop ? topTierPrice(tiers) : priceForQuantity(tiers, Number(qty || 0));
+  return roundEntrecuerosMoney(price);
+}
+
+export function entrecuerosCartQuantities(cart) {
+  const qtyByKey = {};
+  (cart || []).forEach((line) => {
+    if (!line || isEntrecuerosPackagingLine(line)) return;
+    const key = entrecuerosVolumeKey(line);
+    qtyByKey[key] = (qtyByKey[key] || 0) + Number(line.quantity || 0);
+  });
+  let topQty = 0;
+  Object.values(qtyByKey).forEach((qty) => {
+    if (qty > topQty) topQty = qty;
+  });
+  return {
+    qtyByKey,
+    courtesyActive: topQty >= ENTRECUEROS_WHOLESALE_UNLOCK_QTY,
+  };
+}
+
+export function lineReceivesEntrecuerosCourtesy(source, groupQty, courtesyActive) {
+  if (!courtesyActive || isEntrecuerosPackagingLine(source)) return false;
+  return Number(groupQty || 0) < ENTRECUEROS_WHOLESALE_UNLOCK_QTY;
+}
+
+export function cartUnlocksEntrecuerosWholesale(cart) {
+  return entrecuerosCartQuantities(cart).courtesyActive;
+}
+
+export function sumEntrecuerosLineTotals(lines) {
+  const cents = (lines || []).reduce((sum, line) => {
+    const total = line?.lineTotal != null
+      ? Number(line.lineTotal)
+      : roundEntrecuerosMoney(Number(line?.unitPrice || 0) * Number(line?.quantity || 0));
+    return sum + Math.round(roundEntrecuerosMoney(total) * 100);
+  }, 0);
+  return cents / 100;
 }
 
 export const ENTRECUEROS_VARIANT_FILTERS = [

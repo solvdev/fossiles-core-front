@@ -3,6 +3,7 @@ import {
   Card, CardBody, CardHeader, CardTitle, Table, Badge, Button, Progress,
   Input, FormGroup, Label, Row, Col,
 } from "reactstrap";
+import DatePickerField from "components/common/DatePickerField";
 import { MAX_HOURS_PER_DESK, MAX_HOURS_PER_TASK_HARD_CAP } from "utils/taskHoursHelper";
 import { isWeekendYmd } from "utils/dateTimeHelper";
 import { showError } from "utils/notificationHelper";
@@ -142,12 +143,12 @@ export default function DraftTaskPanel({
                   sistema elige dónde. Dejar elegir mesa aquí es lo que causaba el
                   conflicto entre los operarios y el auxiliar. */}
               <Label><small>Día de trabajo</small></Label>
-              <Input
-                type="date"
-                bsSize="sm"
+              {/* El calendario ya no deja elegir fin de semana, pero la guarda se queda:
+                  protege de un valor que llegue por otro camino. */}
+              <DatePickerField
                 value={scheduledDate}
-                onChange={(e) => {
-                  const v = e.target.value;
+                soloHabiles
+                onChange={(v) => {
                   if (isWeekendYmd(v)) {
                     showError("Solo se trabaja de lunes a viernes: elige una fecha entre semana.");
                     return;

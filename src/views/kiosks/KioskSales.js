@@ -34,7 +34,11 @@ import {
 import { issueTaxInvoiceFromKioskSale } from "services/taxInvoiceService";
 import { countShipmentsInTransit } from "services/productDistributionService";
 import { getTodayYmdGuatemala } from "utils/dateTimeHelper";
-import { isPackagingProductCode } from "utils/kioskPackagingHelper";
+import {
+  entrecuerosPosCanAddItem,
+  isPackagingProductCode,
+  isPosPackagingItem,
+} from "utils/kioskPackagingHelper";
 import { filterVisibleKioskStockRows, resolveCinchoUnitPriceWithSize } from "utils/productCinchoHelper";
 import { showError, showSuccess } from "utils/notificationHelper";
 import PosAdminKioskPicker from "./pos/PosAdminKioskPicker";
@@ -50,6 +54,7 @@ import PosReceiptTab from "./pos/PosReceiptTab";
 import PosCashTab from "./pos/PosCashTab";
 import PosCashClosuresTab from "./pos/PosCashClosuresTab";
 import PosManagerDashboard from "./pos/PosManagerDashboard";
+import SupervisorAggregateDashboard from "./pos/SupervisorAggregateDashboard";
 import PosInventoryTab from "./pos/PosInventoryTab";
 import { useAuth } from "contexts/AuthContext";
 import FilterableSelect from "components/distribution/FilterableSelect";
@@ -78,8 +83,9 @@ import { getHardwareConditionLabel } from "utils/productCinchoHelper";
 import "./KioskSales.css";
 
 function KioskSales() {
-  const { hasPermission } = useAuth();
+  const { hasPermission, hasRole } = useAuth();
   const canConfirmReceipt = hasPermission("DISTRIBUCION.CONFIRMACION_RECEPCION.CREAR");
+  const isSupervisoraKiosko = hasRole("SUPERVISORA_KIOSKO");
   const [activeTab, setActiveTab] = useState("POS");
   const [context, setContext] = useState(null);
   const [selectedKioskId, setSelectedKioskId] = useState("");
@@ -292,6 +298,10 @@ function KioskSales() {
   };
 
   const addToCart = (inventoryItem, size = null) => {
+    if (!entrecuerosPosCanAddItem(isEntrecuerosPos, inventoryItem)) {
+      showError("Entrecueros no vende empaques.");
+      return;
+    }
     if (posVariantNeedsSizePick(inventoryItem) && !size) {
       setCinchoPickVariant(inventoryItem);
       return;
@@ -336,6 +346,7 @@ function KioskSales() {
           key,
           productId: inventoryItem.productId,
           productCode: inventoryItem.productCode,
+          code: inventoryItem.code,
           productName: inventoryItem.productName,
           colorId: inventoryItem.colorId,
           colorName: inventoryItem.colorName,
@@ -345,7 +356,11 @@ function KioskSales() {
           audienceCategory: inventoryItem.audienceCategory || "UNISEX",
           categoryId: inventoryItem.categoryId ?? null,
           categoryName: inventoryItem.categoryName || "",
-          isPackaging: isPackagingProductCode(inventoryItem.productCode),
+          isPackaging:
+            Boolean(inventoryItem.isPackaging)
+            || isPackagingProductCode(inventoryItem.productCode)
+            || isPackagingProductCode(inventoryItem.code),
+          packaging: inventoryItem.packaging,
           availableQty,
           quantity: 1,
           catalogUnitPrice,
@@ -535,6 +550,10 @@ function KioskSales() {
       return;
     }
     for (const line of cart) {
+      if (isEntrecuerosPos && isPosPackagingItem(line)) {
+        showError("Entrecueros no vende empaques.");
+        return;
+      }
       const qty = Number(line.quantity || 0);
       if (!Number.isFinite(qty) || qty <= 0) {
         showError(`Cantidad inválida para ${line.productName}.`);
@@ -845,14 +864,16 @@ function KioskSales() {
 
   const availabilityOptions = useMemo(
     () =>
-      (context?.inventory || []).map((item) => ({
-        value: lineKeyFor(item.productId, item.colorId, null, item.hardwareCondition),
-        label: `${item.productCode} - ${item.productName} (${item.colorName || "Sin color"}${
-          item.hardwareLabel ? ` · ${item.hardwareLabel}` : ""
-        })`,
-        searchText: `${item.productCode} ${item.productName} ${item.colorName || ""} ${item.hardwareLabel || ""}`,
-      })),
-    [context?.inventory]
+      (context?.inventory || [])
+        .filter((item) => entrecuerosPosCanAddItem(isEntrecuerosPos, item))
+        .map((item) => ({
+          value: lineKeyFor(item.productId, item.colorId, null, item.hardwareCondition),
+          label: `${item.productCode} - ${item.productName} (${item.colorName || "Sin color"}${
+            item.hardwareLabel ? ` · ${item.hardwareLabel}` : ""
+          })`,
+          searchText: `${item.productCode} ${item.productName} ${item.colorName || ""} ${item.hardwareLabel || ""}`,
+        })),
+    [context?.inventory, isEntrecuerosPos]
   );
 
   const selectedKioskName = useMemo(() => {
@@ -900,11 +921,14 @@ function KioskSales() {
       items.push({ id: "RECEIPT", label: "Recibir distribución" });
     }
     items.push({ id: "REPORTS", label: "Reportes de ventas" });
+    if (isSupervisoraKiosko) {
+      items.push({ id: "MI_SUPERVISION", label: "Mi supervisión" });
+    }
     if (context?.admin) {
       items.push({ id: "PROMOS", label: "Promociones" });
     }
     return items;
-  }, [canConfirmReceipt, context?.admin]);
+  }, [canConfirmReceipt, context?.admin, isSupervisoraKiosko]);
 
   return (
     <div className="content kiosk-pos-page">
@@ -990,6 +1014,10 @@ function KioskSales() {
                       kioskName={selectedKioskName || context?.kioskName}
                       active={activeTab === "RESUMEN"}
                     />
+                  )}
+
+                  {activeTab === "MI_SUPERVISION" && isSupervisoraKiosko && (
+                    <SupervisorAggregateDashboard active={activeTab === "MI_SUPERVISION"} />
                   )}
 
                   {activeTab === "POS" && (
@@ -1113,6 +1141,7 @@ function KioskSales() {
                         cartQtyBySize={cinchoPickCartQtyBySize}
                         onPickSize={handlePickCinchoSize}
                         onClose={() => setCinchoPickVariant(null)}
+                        posMode={selectedKioskPosMode}
                       />
 
                       <PosCheckoutModal

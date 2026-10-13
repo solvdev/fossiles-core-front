@@ -5,6 +5,22 @@
 import { getAuthHeader } from './authService';
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8080/api';
 
+export const CREDIT_DAYS_MIN = 0;
+export const CREDIT_DAYS_MAX = 60;
+
+/** Entero 0–60. El API rechaza lo que quede fuera. */
+export const parseCreditDays = (value) => {
+  const text = String(value ?? "").trim();
+  if (!/^\d+$/.test(text)) {
+    return { ok: false, message: "Días de crédito debe ser un entero entre 0 y 60." };
+  }
+  const days = Number(text);
+  if (days < CREDIT_DAYS_MIN || days > CREDIT_DAYS_MAX) {
+    return { ok: false, message: "Días de crédito debe ser un entero entre 0 y 60." };
+  }
+  return { ok: true, value: days };
+};
+
 export const getCustomers = async () => {
   try {
     const response = await fetch(`${API_URL}/customers`, {

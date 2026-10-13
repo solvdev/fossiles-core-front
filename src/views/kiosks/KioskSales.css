@@ -2494,6 +2494,239 @@ span.kiosk-pos-tier-chip {
   color: #0f6b52;
 }
 
+.kiosk-exchange-selected.is-empty {
+  background: #f3f4f6;
+  border-color: var(--pos-border, rgba(0, 0, 0, 0.08));
+  color: #6b7280;
+}
+
+.kiosk-exchange-selected {
+  margin-bottom: 0.85rem;
+  font-weight: 600;
+}
+
+.kiosk-exchange-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0.85rem 0 0.5rem;
+}
+
+.kiosk-exchange-toolbar-actions {
+  display: flex;
+  gap: 14px;
+}
+
+.kiosk-exchange-linkbtn {
+  padding: 4px 0;
+  border: 0;
+  background: transparent;
+  color: var(--pos-primary, #1d9e75);
+  font-size: 0.8125rem;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.kiosk-exchange-linkbtn:hover:not(:disabled) {
+  text-decoration: underline;
+}
+
+.kiosk-exchange-linkbtn:disabled {
+  color: #9ca3af;
+  cursor: default;
+}
+
+.kiosk-exchange-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0.85rem 0;
+}
+
+.kiosk-exchange-toolbar + .kiosk-exchange-lines {
+  margin-top: 0;
+}
+
+.kiosk-exchange-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 10px 14px;
+  border: 1px solid var(--pos-border, rgba(0, 0, 0, 0.08));
+  border-radius: 12px;
+  background: #fff;
+  transition: border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+}
+
+.kiosk-exchange-line:hover:not(.is-reference) {
+  border-color: rgba(29, 158, 117, 0.45);
+}
+
+.kiosk-exchange-line.is-selected {
+  border-color: var(--pos-primary, #1d9e75);
+  background: var(--pos-primary-soft, #e1f5ee);
+  box-shadow: 0 0 0 1px var(--pos-primary, #1d9e75);
+}
+
+.kiosk-exchange-line.is-reference {
+  background: #f9fafb;
+  opacity: 0.75;
+}
+
+.kiosk-exchange-line-pick {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1 1 220px;
+  min-width: 0;
+  min-height: 44px;
+  margin: 0;
+  cursor: pointer;
+}
+
+/* El checkbox real queda oculto pero accesible por teclado; la casilla visual lo refleja. */
+.kiosk-exchange-line-input {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+  pointer-events: none;
+}
+
+.kiosk-exchange-line-input:focus-visible + .kiosk-exchange-check {
+  outline: 2px solid var(--pos-primary, #1d9e75);
+  outline-offset: 2px;
+}
+
+.kiosk-exchange-check {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  border: 2px solid #cbd5e1;
+  border-radius: 8px;
+  background: #fff;
+  color: #fff;
+  font-size: 1rem;
+  font-weight: 700;
+  line-height: 1;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+
+.kiosk-exchange-check.is-disabled {
+  border-style: dashed;
+  border-color: #d1d5db;
+  color: #9ca3af;
+}
+
+.kiosk-exchange-line.is-selected .kiosk-exchange-check {
+  background: var(--pos-primary, #1d9e75);
+  border-color: var(--pos-primary, #1d9e75);
+}
+
+.kiosk-exchange-line-main {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  flex: 1;
+  min-width: 0;
+}
+
+.kiosk-exchange-line-title {
+  font-size: 0.9rem;
+  font-weight: 650;
+  color: #111827;
+  line-height: 1.3;
+}
+
+.kiosk-exchange-line-meta {
+  font-size: 0.75rem;
+  color: #6b7280;
+  line-height: 1.35;
+}
+
+.kiosk-exchange-qty-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.kiosk-exchange-qty-label,
+.kiosk-exchange-qty-of {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #0f6b52;
+}
+
+.kiosk-exchange-qty {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid rgba(29, 158, 117, 0.45);
+  border-radius: 999px;
+  background: #fff;
+  overflow: hidden;
+}
+
+.kiosk-exchange-qty button {
+  width: 40px;
+  height: 40px;
+  border: 0;
+  background: transparent;
+  color: #0f6b52;
+  font-size: 1.25rem;
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.kiosk-exchange-qty button:hover:not(:disabled) {
+  background: var(--pos-primary-soft, #e1f5ee);
+}
+
+.kiosk-exchange-qty button:disabled {
+  color: #cbd5e1;
+  cursor: default;
+}
+
+.kiosk-exchange-qty input {
+  width: 46px;
+  height: 40px;
+  border: 0;
+  background: transparent;
+  text-align: center;
+  font-size: 1rem;
+  font-weight: 700;
+  color: #111827;
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
+.kiosk-exchange-qty input::-webkit-outer-spin-button,
+.kiosk-exchange-qty input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.kiosk-exchange-qty input:focus {
+  outline: none;
+  background: var(--pos-primary-soft, #e1f5ee);
+}
+
+.kiosk-exchange-balance {
+  margin: 10px 0 0;
+  font-size: 0.8rem;
+  color: #6b7280;
+}
+
+.kiosk-exchange-balance.is-warn {
+  color: #b45309;
+}
+
 .kiosk-exchange-summary {
   display: grid;
   grid-template-columns: 1fr 1fr 1fr;

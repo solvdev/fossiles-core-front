@@ -170,16 +170,28 @@ export const getOrderCustomerHint = (order) => {
   return `${names[0]} +${names.length - 1}`;
 };
 
-export const getOrderProductHint = (order, max = 3) => {
+/** Piezas aún por recibir de un ítem (pedido − recibido en bodega). */
+export const getItemPendingReceiptQty = (item) => {
+  const planned = Number(item?.quantity || 0);
+  const received = Number(item?.warehouseReceivedQty || 0);
+  return Math.max(planned - received, 0);
+};
+
+/**
+ * Códigos de producto de la OP.
+ * @param {{ pendingOnly?: boolean }} options — en recepción: solo ítems con faltante.
+ */
+export const getOrderProductHint = (order, max = 3, { pendingOnly = false } = {}) => {
   const codes = [];
   const seen = new Set();
   (order?.items || []).forEach((item) => {
+    if (pendingOnly && getItemPendingReceiptQty(item) <= 0) return;
     const code = String(item?.productCode || "").trim();
     if (!code || seen.has(code)) return;
     seen.add(code);
     codes.push(code);
   });
-  if (codes.length === 0) return "Sin productos";
+  if (codes.length === 0) return pendingOnly ? "Sin pendientes" : "Sin productos";
   const shown = codes.slice(0, max).join(" · ");
   return codes.length > max ? `${shown} +${codes.length - max}` : shown;
 };

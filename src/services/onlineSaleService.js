@@ -115,6 +115,18 @@ export const getEligibleForProduction = async (startDate, endDate) => {
 
 // ─── Rango de fechas (para resumen mensual) ─────────────────────
 
+export const getOnlineSalesByShipment = async (shipmentNumber) => {
+  const response = await fetch(
+    `${API_URL}/online-sales/by-shipment?shipmentNumber=${encodeURIComponent(shipmentNumber)}`,
+    { headers: headers() }
+  );
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ message: 'Error al buscar el envío' }));
+    throw new Error(err.message || 'Error al buscar el envío');
+  }
+  return response.json();
+};
+
 export const getOnlineSalesByDateRange = async (startDate, endDate) => {
   const response = await fetch(`${API_URL}/online-sales/by-date-range?startDate=${startDate}&endDate=${endDate}`, { headers: headers() });
   if (!response.ok) {

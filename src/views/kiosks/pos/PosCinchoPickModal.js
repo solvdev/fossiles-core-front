@@ -5,11 +5,12 @@ import {
   formatCurrency,
   formatQty,
   getColorSwatch,
+  isEntrecuerosPosMode,
   posVariantSizeEntries,
-  resolveImageUrl,
+  resolvePosProductImageUrl,
 } from "./posUtils";
 
-function PosCinchoPickModal({ isOpen, variant, cartQtyBySize, onPickSize, onClose }) {
+function PosCinchoPickModal({ isOpen, variant, cartQtyBySize, onPickSize, onClose, posMode = "STANDARD" }) {
   const sizeEntries = useMemo(() => posVariantSizeEntries(variant), [variant]);
   const basePrice = Number(variant?.suggestedUnitPrice || 0);
   const hasAnySurcharge = useMemo(
@@ -21,7 +22,9 @@ function PosCinchoPickModal({ isOpen, variant, cartQtyBySize, onPickSize, onClos
 
   const colorName = String(variant.colorName || "").trim() || "Sin color";
   const swatch = getColorSwatch(colorName);
-  const imageUrl = resolveImageUrl(variant.productImageUrl);
+  const imageUrl = resolvePosProductImageUrl(variant, {
+    entreCueros: isEntrecuerosPosMode({ posMode }),
+  });
 
   return (
     <Modal

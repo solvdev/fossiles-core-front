@@ -46,7 +46,6 @@ function CustomerAccountRutasPrintModal({
   const [error, setError] = useState("");
   const [rawRows, setRawRows] = useState([]);
   const [portfolio, setPortfolio] = useState(null);
-  const [onlyOpen, setOnlyOpen] = useState(false);
   const [includeMovements, setIncludeMovements] = useState(false);
   const [movementsFrom, setMovementsFrom] = useState("");
   const [movementsTo, setMovementsTo] = useState("");
@@ -64,7 +63,6 @@ function CustomerAccountRutasPrintModal({
     setError("");
     setRawRows([]);
     setPortfolio(null);
-    setOnlyOpen(false);
     setIncludeMovements(false);
     setMovementsFrom("");
     setMovementsTo("");
@@ -82,7 +80,6 @@ function CustomerAccountRutasPrintModal({
         const report = await getCustomerAccountPortfolioReport({
           search: search.trim(),
           orderKind,
-          onlyOpen,
           regionCode: scope === "ROUTE" && regionCode ? regionCode : undefined,
           routeNumber: scope === "ROUTE" && routeNumber ? Number(routeNumber) : undefined,
         });
@@ -102,7 +99,7 @@ function CustomerAccountRutasPrintModal({
     return () => {
       cancelled = true;
     };
-  }, [isOpen, orderKind, search, scope, regionCode, routeNumber, onlyOpen]);
+  }, [isOpen, orderKind, search, scope, regionCode, routeNumber]);
 
   const normalizedRows = useMemo(() => normalizeRutasCxcRows(rawRows), [rawRows]);
 
@@ -154,7 +151,6 @@ function CustomerAccountRutasPrintModal({
         const withMovements = await getCustomerAccountPortfolioReport({
           search: search.trim(),
           orderKind,
-          onlyOpen,
           regionCode: scope === "ROUTE" && regionCode ? regionCode : undefined,
           routeNumber: scope === "ROUTE" && routeNumber ? Number(routeNumber) : undefined,
           includeMovements: true,
@@ -195,7 +191,8 @@ function CustomerAccountRutasPrintModal({
         <Alert color="info" className="py-2">
           Empresa del reporte: <strong>{companyName}</strong>. Elige un reporte{" "}
           <strong>global</strong> (separado por rutas) o una <strong>ruta específica</strong>. Una fila por
-          documento: <strong>Saldo = Cargos − Abonos − Créditos</strong>.
+          documento: <strong>Saldo = Cargos − Abonos − Créditos</strong>. Solo salen los documentos con saldo
+          pendiente: lo que ya está pagado (saldo cero) no forma parte de la cartera.
         </Alert>
 
         <div className="d-flex flex-wrap mb-3" style={{ gap: 8 }}>
@@ -216,15 +213,6 @@ function CustomerAccountRutasPrintModal({
         </div>
 
         <div className="mb-3">
-          <FormGroup check className="mb-1">
-            <Label check>
-              <Input type="checkbox" checked={onlyOpen} onChange={(e) => setOnlyOpen(e.target.checked)} />{" "}
-              Solo documentos con saldo pendiente
-              <span className="form-check-sign">
-                <span className="check" />
-              </span>
-            </Label>
-          </FormGroup>
           <FormGroup check className="mb-1">
             <Label check>
               <Input
@@ -335,7 +323,7 @@ function CustomerAccountRutasPrintModal({
           <Alert color="secondary" className="mb-0">
             {scope === "ROUTE" && !routeNumber
               ? "Selecciona región y ruta para ver el preview."
-              : "No hay documentos cargados para esta selección."}
+              : "No hay documentos con saldo pendiente para esta selección."}
           </Alert>
         ) : (
           <div style={{ maxHeight: 360, overflow: "auto", border: "1px solid #dee2e6", borderRadius: 6 }}>

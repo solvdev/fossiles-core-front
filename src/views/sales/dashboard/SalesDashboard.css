@@ -1,0 +1,381 @@
+/* Dashboard de ventas por fuente. Se apoya en el sistema .kfin de Finanzas kioscos (KioskFinance.css, que se
+   importa tal cual) y solo agrega lo que ese archivo no trae. Todo va bajo .sdash para no afectar otras vistas.
+   Colores de fuente aprobados en la maqueta: Kioskos #51cbce, Online #f0a63a, Vendedor LF #4f5fc7;
+   producto / empaque / envío en pizarra #3b4a5a / #6f7b88 / #a3acb6. */
+
+.kfin.sdash {
+  --sdash-accent: #252422;
+  --sdash-link: #1b6f73;
+  --sdash-amber: #c77d0a;
+}
+
+/* ---------- Cabecera: filtros en línea ---------- */
+.sdash .sdash-filters { padding: 0; align-items: flex-end; }
+.sdash .sdash-filters .kfin-field { min-width: 140px; }
+.sdash .sdash-filters .form-control { height: 40px; }
+.sdash .sdash-filters .kfin-btn--lg { min-height: 40px; }
+.sdash .sdash-tabfilters { padding-top: 4px; }
+
+/* Dos grupos ([Mes · Año · Desde · Hasta] y [atajos · Actualizar]): si no caben en una línea el segundo baja completo
+   en vez de dejar un botón suelto. */
+.sdash .sdash-fgroup, .sdash .sdash-dates { display: flex; flex-wrap: wrap; gap: 12px 14px; align-items: flex-end; }
+
+/* Selector de mes y año: ◀ [Mes] [Año] ▶. Los selects igualan la altura de Desde/Hasta (40 px; `.kfin-field
+   select.form-control` trae 38 px y gana por especificidad, de ahí el selector largo). Los botones miden 44 px de
+   toque pero con margen negativo para no hacer más alta la fila; alineados abajo quedan centrados con los selects. */
+.sdash .sdash-monthyear { display: flex; align-items: flex-end; gap: 4px; }
+.sdash .sdash-filters .kfin-field.sdash-month { flex: 0 0 auto; width: 152px; min-width: 0; }
+.sdash .sdash-filters .kfin-field.sdash-year { flex: 0 0 auto; width: 96px; min-width: 0; }
+.sdash .sdash-filters .kfin-field select.form-control { height: 40px; text-overflow: ellipsis; }
+.sdash .sdash-filters .kfin-btn.sdash-month-step { flex: 0 0 auto; justify-content: center; min-width: 44px; min-height: 44px; margin: -2px 0; padding: 0; }
+.sdash .sdash-month-step svg { display: block; }
+.sdash .sdash-filters select.form-control:focus-visible { outline: 2px solid var(--kfin-cur-ink); outline-offset: 2px; }
+
+/* ---------- Pestañas con punto de color ---------- */
+.sdash .kfin-tabs .nav-link { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; font-weight: 600; }
+.kfin.sdash .kfin-tabs .nav-link.active { border-bottom: 3px solid var(--sdash-tab-accent, #252422) !important; }
+.sdash .sdash-dot { width: 10px; height: 10px; border-radius: 3px; display: inline-block; flex: 0 0 auto; }
+.sdash .sdash-panel { padding-top: 16px; }
+
+/* ---------- KPIs ---------- */
+.sdash .sdash-kpis .kfin-kpi { border-top-color: var(--sdash-accent, #252422); }
+.sdash .sdash-kpis .kfin-kpi-value { font-size: 1.5rem; font-variant-numeric: tabular-nums; }
+.sdash .sdash-note { font-size: 0.78rem; color: var(--kfin-ink-2); margin-left: 6px; }
+.sdash .sdash-note:first-child { margin-left: 0; }
+.sdash .sdash-kpis .kfin-kpi-delta { min-height: 24px; }
+
+/* ---------- Filas de tarjetas ---------- */
+.sdash .sdash-row { display: flex; flex-wrap: wrap; gap: 16px; margin-bottom: 16px; }
+.sdash .sdash-row > .kfin-card, .sdash .sdash-row > .sdash-src { margin-bottom: 0; }
+.sdash .sdash-c2 { flex: 2 1 520px; min-width: 0; }
+.sdash .sdash-c1 { flex: 1 1 300px; min-width: 0; }
+.sdash .sdash-c3 { flex: 1 1 250px; min-width: 0; }
+.sdash .sdash-c2 > .kfin-card, .sdash .sdash-c1 > .kfin-card { margin-bottom: 0; height: 100%; }
+.sdash .sdash-yoy { margin-bottom: 16px; }
+.sdash .sdash-yoy .row { margin-top: 0 !important; }
+
+.sdash .sdash-link {
+  display: inline-flex; align-items: center; min-height: 44px; padding: 0; border: 0; background: none;
+  font: inherit; font-size: 0.85rem; font-weight: 700; color: var(--sdash-link); text-decoration: none; cursor: pointer;
+}
+.sdash .sdash-link:hover { text-decoration: underline; color: var(--sdash-link); }
+.sdash .sdash-link:focus-visible { outline: 2px solid var(--kfin-cur-ink); outline-offset: 2px; border-radius: 3px; }
+.sdash .sdash-subhead { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin: 18px 0 0; font-size: 0.85rem; font-weight: 700; }
+
+/* Insignia y notas */
+.sdash .sdash-badge { display: inline-block; font-size: 0.7rem; font-weight: 700; padding: 3px 9px; border-radius: 999px; background: #e8eef4; color: #2f4558; }
+.sdash .sdash-badge--amber { background: #fff1cf; color: #6b4600; }
+.sdash .sdash-badges { display: flex; flex-wrap: wrap; gap: 4px 6px; }
+.sdash .sdash-def { background: #eef0fb; border: 1px solid #d4d9f3; color: #2f3a8a; font-size: 0.8rem; padding: 10px 12px; border-radius: 8px; margin-bottom: 14px; }
+
+/* Notas bajo los KPIs de Kioskos: cuánto es histórico (solo si hay) y de dónde sale cada número */
+.sdash .sdash-kpinotes { margin: -4px 0 16px; }
+.sdash .sdash-kpinotes .sdash-def { margin-bottom: 8px; }
+.sdash .sdash-caption { margin: 0; font-size: 0.78rem; color: var(--kfin-ink-2); }
+
+/* ---------- Tarjetas por fuente (Consolidado) ---------- */
+.sdash .sdash-src { flex: 1 1 300px; min-width: 0; background: var(--kfin-surface); border: 1px solid var(--kfin-line); border-top: 5px solid; border-radius: 10px; padding: 16px 18px 6px; }
+.sdash .sdash-src-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
+.sdash .sdash-src-head h5 { margin: 0; font-size: 0.95rem; font-weight: 700; }
+.sdash .sdash-src-value { font-size: 1.65rem; font-weight: 700; margin: 8px 0; font-variant-numeric: tabular-nums; }
+.sdash .sdash-bar { height: 8px; border-radius: 999px; background: #eceae4; overflow: hidden; margin: 8px 0 4px; }
+.sdash .sdash-bar span { display: block; height: 100%; }
+.sdash .sdash-src .sdash-note { margin-left: 0; }
+.sdash .sdash-kv { margin: 10px 0 0; }
+.sdash .sdash-kv > div { display: flex; justify-content: space-between; gap: 12px; font-size: 0.82rem; padding: 7px 0; border-top: 1px solid #f0eee9; }
+.sdash .sdash-kv dt { font-weight: 400; color: var(--kfin-ink-2); }
+.sdash .sdash-kv dd { margin: 0; font-weight: 700; font-variant-numeric: tabular-nums; text-align: right; }
+
+/* ---------- Composición del dinero ---------- */
+.sdash .sdash-stack { display: flex; height: 32px; border-radius: 8px; overflow: hidden; margin: 10px 0 12px; background: #eceae4; }
+.sdash .sdash-stack > div { display: flex; align-items: center; justify-content: center; font-size: 0.75rem; font-weight: 700; min-width: 0; overflow: hidden; }
+/* 'Histórico (sin desglose)': gris claro con rayado diagonal y borde, para que no dependa solo del color */
+.sdash .sdash-stack > .sdash-hatch { background-image: repeating-linear-gradient(135deg, rgba(59, 74, 90, 0.42) 0 2px, transparent 2px 7px); box-shadow: inset 1px 0 0 #8f99a3; }
+.sdash .sdash-dot.sdash-hatch { background-image: repeating-linear-gradient(135deg, rgba(59, 74, 90, 0.6) 0 1.5px, transparent 1.5px 4px); box-shadow: inset 0 0 0 1px #8f99a3; }
+.sdash .sdash-legend { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px 20px; font-size: 0.82rem; }
+.sdash .sdash-legend li { display: flex; align-items: flex-start; gap: 8px; }
+.sdash .sdash-legend .sdash-dot { margin-top: 4px; }
+.sdash .sdash-legend--col { flex-direction: column; gap: 8px; }
+
+/* ---------- Listas con barra (ranking, desgloses) ---------- */
+.sdash .sdash-pr-list { list-style: none; margin: 0; padding: 0; }
+.sdash .sdash-pr { display: flex; align-items: center; gap: 10px; padding: 9px 0; border-top: 1px solid #f0eee9; font-size: 0.82rem; }
+.sdash .sdash-pr:first-child { border-top: 0; }
+.sdash .sdash-pr-name { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+.sdash .sdash-pr-sub { color: var(--kfin-ink-2); font-size: 0.75rem; }
+.sdash .sdash-pr-sub--block { display: block; }
+.sdash .sdash-pr-bar { display: block; height: 6px; border-radius: 999px; margin-top: 6px; }
+.sdash .sdash-pr-val { font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.sdash .sdash-mini { display: block; height: 6px; border-radius: 999px; margin-top: 6px; }
+
+/* ---------- Estados (pastillas) ---------- */
+.sdash .sdash-status { display: inline-block; font-size: 0.7rem; font-weight: 700; padding: 3px 9px; border-radius: 999px; background: #eceae4; color: #3b3935; white-space: nowrap; }
+.sdash .sdash-status--ok { background: #e3f5ec; color: #17683f; }
+.sdash .sdash-status--warn { background: #fff1cf; color: #7a5600; }
+.sdash .sdash-status--bad { background: #fde9e4; color: #a1361a; }
+
+/* ---------- Tablas ---------- */
+.sdash .sdash-scroll { cursor: auto; max-height: 420px; }
+.sdash .sdash-detail-scroll { max-height: 380px; }
+.sdash .sdash-wide { min-width: 760px; }
+.sdash .sdash-wide--hist { min-width: 880px; }
+.sdash .sdash-recent { min-width: 560px; }
+.sdash .kfin-table .kfin-strongnum { font-weight: 700; }
+.sdash .kfin-table tbody th[scope="row"] .sdash-dot { margin-right: 6px; vertical-align: baseline; }
+
+/* ---------- Mapa de calor (rampa ámbar de la maqueta; mismos umbrales que Finanzas) ----------
+   Los colores salen de variables: Online usa las ámbar de aquí y Kioskos las reemplaza dentro de .sdash-heat--kiosk
+   (sección 'Mapa de calor de kioscos', más abajo), sin tocar las clases. */
+.kfin.sdash {
+  --sdash-h0-bg: #f4f1ea; --sdash-h0-fg: #252422;
+  --sdash-h1-bg: #fbe7bd; --sdash-h1-fg: #252422;
+  --sdash-h2-bg: #f7cd7e; --sdash-h2-fg: #252422;
+  --sdash-h3-bg: #ee9f35; --sdash-h3-fg: #252422;
+  --sdash-h4-bg: #b45f08; --sdash-h4-fg: #ffffff;
+  --sdash-h5-bg: #7a3d02; --sdash-h5-fg: #ffffff;
+  --sdash-wbar-strong: #c77d0a; --sdash-wbar-soft: #f0a63a;
+  --sdash-heatbadge-bg: #fff1cf; --sdash-heatbadge-fg: #6b4600;
+  --sdash-insight-bg: #fff7e0; --sdash-insight-line: #f2dc9b; --sdash-insight-fg: #4a3a0c;
+}
+.sdash .sdash-h0 { background: var(--sdash-h0-bg); color: var(--sdash-h0-fg); }
+.sdash .sdash-h1 { background: var(--sdash-h1-bg); color: var(--sdash-h1-fg); }
+.sdash .sdash-h2 { background: var(--sdash-h2-bg); color: var(--sdash-h2-fg); }
+.sdash .sdash-h3 { background: var(--sdash-h3-bg); color: var(--sdash-h3-fg); }
+.sdash .sdash-h4 { background: var(--sdash-h4-bg); color: var(--sdash-h4-fg); }
+.sdash .sdash-h5 { background: var(--sdash-h5-bg); color: var(--sdash-h5-fg); }
+.sdash .sdash-hzero { background: #ffffff; color: #66615b; font-style: italic; box-shadow: inset 0 -2px 0 var(--kfin-mid-bg); }
+.sdash .kfin-heat-swatch.sdash-hzero { box-shadow: inset 0 -3px 0 var(--kfin-mid-bg); }
+.sdash .kfin-table td.sdash-hc { font-weight: 700; }
+/* En tablas, .kfin-table pinta cada celda (y al pasar el cursor; y el pie con su propio fondo): se sube la especificidad
+   para conservar el sombreado, también en la fila de totales (tfoot) de las matrices de kioscos */
+.sdash .kfin-table tbody tr td.sdash-h0, .sdash .kfin-table tfoot tr td.sdash-h0 { background: var(--sdash-h0-bg); color: var(--sdash-h0-fg); }
+.sdash .kfin-table tbody tr td.sdash-h1, .sdash .kfin-table tfoot tr td.sdash-h1 { background: var(--sdash-h1-bg); color: var(--sdash-h1-fg); }
+.sdash .kfin-table tbody tr td.sdash-h2, .sdash .kfin-table tfoot tr td.sdash-h2 { background: var(--sdash-h2-bg); color: var(--sdash-h2-fg); }
+.sdash .kfin-table tbody tr td.sdash-h3, .sdash .kfin-table tfoot tr td.sdash-h3 { background: var(--sdash-h3-bg); color: var(--sdash-h3-fg); }
+.sdash .kfin-table tbody tr td.sdash-h4, .sdash .kfin-table tfoot tr td.sdash-h4 { background: var(--sdash-h4-bg); color: var(--sdash-h4-fg); }
+.sdash .kfin-table tbody tr td.sdash-h5, .sdash .kfin-table tfoot tr td.sdash-h5 { background: var(--sdash-h5-bg); color: var(--sdash-h5-fg); }
+.sdash .kfin-table tbody tr td.sdash-hzero, .sdash .kfin-table tfoot tr td.sdash-hzero { background: #ffffff; color: #66615b; }
+
+/* Barras del promedio por día de la semana y avisos del mapa de calor (ámbar en Online, verde azulado en Kioskos) */
+.sdash .sdash-wbar--strong { background: var(--sdash-wbar-strong); }
+.sdash .sdash-wbar--soft { background: var(--sdash-wbar-soft); }
+.sdash .sdash-badge--heat { background: var(--sdash-heatbadge-bg); color: var(--sdash-heatbadge-fg); }
+
+.sdash .sdash-cal-month + .sdash-cal-month { margin-top: 18px; }
+.sdash .sdash-cal-title { margin: 14px 0 0; font-size: 0.9rem; font-weight: 700; }
+.sdash .sdash-cal { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; margin-top: 12px; }
+.sdash .sdash-cwd { font-size: 0.7rem; font-weight: 700; color: var(--kfin-ink-2); text-transform: uppercase; text-align: center; padding-bottom: 2px; }
+.sdash .sdash-cd { border-radius: 8px; padding: 8px; min-height: 64px; display: flex; flex-direction: column; justify-content: space-between; font-variant-numeric: tabular-nums; }
+.sdash .sdash-cd--empty { background: transparent; }
+.sdash .sdash-cd .sdash-dnum { font-size: 0.7rem; font-weight: 700; opacity: 0.85; }
+.sdash .sdash-cd .sdash-dv { font-size: 0.8rem; font-weight: 700; }
+.sdash .sdash-cd.sdash-hzero { border: 1px dashed var(--kfin-line-strong); }
+.sdash .sdash-cd--best { outline: 2px solid #252422; outline-offset: 1px; }
+
+.sdash .sdash-insight { background: var(--sdash-insight-bg); border: 1px solid var(--sdash-insight-line); border-radius: 8px; padding: 10px 12px; font-size: 0.82rem; margin-top: 14px; color: var(--sdash-insight-fg); }
+
+@media (max-width: 575px) {
+  .sdash .sdash-filters { width: 100%; }
+  .sdash .sdash-filters .sdash-fgroup { flex: 1 1 100%; }
+  .sdash .sdash-filters .kfin-field { flex: 1 1 130px; }
+  .sdash .sdash-filters .sdash-dates { flex: 1 1 100%; }
+  /* Mes y Año en una fila y ◀ ▶ debajo, a media fila cada uno: en una sola fila 'Septiembre' / 'Personalizado' no caben
+     junto a dos botones de 44 px. El orden del DOM sigue siendo ◀ Mes Año ▶. */
+  .sdash .sdash-filters .sdash-monthyear { flex: 1 1 100%; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 8px; max-width: 420px; }
+  .sdash .sdash-filters .kfin-field.sdash-month { grid-area: 1 / 1; width: auto; }
+  .sdash .sdash-filters .kfin-field.sdash-year { grid-area: 1 / 2; width: auto; }
+  .sdash .sdash-filters .sdash-monthyear .kfin-btn.sdash-month-step { width: 100%; margin: 0; }
+  .sdash .sdash-filters .sdash-monthyear .kfin-btn.sdash-month-step:first-child { grid-area: 2 / 1; }
+  .sdash .sdash-filters .sdash-monthyear .kfin-btn.sdash-month-step:last-child { grid-area: 2 / 2; }
+  .sdash .sdash-filters .kfin-btnseg { flex: 1 1 100%; }
+  .sdash .sdash-filters .kfin-btnseg .kfin-btn { flex: 1 1 auto; justify-content: center; padding: 8px 6px; }
+  .sdash .sdash-cal { gap: 4px; }
+  .sdash .sdash-cd { padding: 6px 4px; min-height: 52px; }
+  .sdash .sdash-cd .sdash-dv { font-size: 0.65rem; }
+  .sdash .sdash-cd .sdash-dnum { font-size: 0.62rem; }
+  .sdash .sdash-c2, .sdash .sdash-c1, .sdash .sdash-c3, .sdash .sdash-src { flex-basis: 100%; }
+  .sdash .sdash-src-value { font-size: 1.4rem; }
+  .sdash .card-body { padding-left: 10px; padding-right: 10px; }
+}
+
+@media print {
+  .sdash .sdash-scroll { max-height: none; }
+}
+
+/* ---------- Publicidad vs ventas (pestaña Online) ---------- */
+.kfin.sdash { --sdash-win-ink: #17683f; --sdash-win-bg: #e3f5ec; --sdash-loss-ink: #a1361a; --sdash-loss-bg: #fde9e4; }
+
+.sdash .sdash-ad { margin: 8px 0 16px; padding-top: 20px; border-top: 1px solid var(--kfin-line); }
+.sdash .sdash-ad-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-start; gap: 10px 16px; margin-bottom: 12px; }
+.sdash .sdash-ad-title { margin: 0; font-size: 1.15rem; font-weight: 700; }
+.sdash .sdash-ad-sub { margin: 2px 0 0; font-size: 0.82rem; color: var(--kfin-ink-2); }
+.sdash .sdash-ad .kfin-btn { min-height: 40px; }
+.sdash .sdash-ad-vs { font-size: 0.9rem; font-weight: 600; color: var(--kfin-muted); }
+
+/* Mensajes de resultado (guardado, error, aviso) */
+.sdash .sdash-ad-msg { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 10px 12px; border: 1px solid; border-radius: 8px; font-size: 0.85rem; margin-bottom: 14px; }
+.sdash .sdash-ad-msg--success { background: var(--sdash-win-bg); border-color: #b9e3cc; color: var(--sdash-win-ink); }
+.sdash .sdash-ad-msg--danger { background: var(--sdash-loss-bg); border-color: #f4c3b6; color: var(--sdash-loss-ink); }
+.sdash .sdash-ad-msg--info { background: #eef0fb; border-color: #d4d9f3; color: #2f3a8a; }
+.sdash .sdash-ad-msg-close { flex: 0 0 auto; border: 0; background: none; color: inherit; font-size: 1.4rem; line-height: 1; min-width: 44px; min-height: 44px; margin: -12px -12px -12px 0; cursor: pointer; }
+.sdash .sdash-ad-msg-close:focus-visible { outline: 2px solid var(--kfin-cur-ink); outline-offset: -4px; border-radius: 6px; }
+.sdash .sdash-ad-warning { background: #fff7e0; border: 1px solid #f2dc9b; color: #4a3a0c; border-radius: 8px; padding: 9px 12px; font-size: 0.85rem; font-weight: 600; margin-bottom: 16px; }
+
+/* Captura rápida */
+.sdash .sdash-ad-quick.kfin-card { display: flex; flex-wrap: wrap; gap: 12px 14px; align-items: flex-start; }
+.sdash .sdash-ad-quick .kfin-field { flex: 0 1 180px; min-width: 150px; }
+.sdash .sdash-ad-quick .form-control { height: 40px; }
+.sdash .sdash-ad-quick .kfin-btn { margin-top: 22px; }
+.sdash .sdash-ad-quick-note { flex: 1 1 260px; align-self: center; font-size: 0.8rem; color: var(--kfin-ink-2); }
+
+/* Barra de guardado y vista previa */
+.sdash .sdash-ad-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-bottom: 10px; }
+.sdash .sdash-ad-pending { font-size: 0.82rem; font-weight: 600; color: var(--kfin-muted); }
+.sdash .sdash-ad-pending.is-pending { color: #7a5600; }
+.sdash .sdash-ad-hint { font-size: 0.78rem; color: var(--kfin-ink-2); margin-bottom: 8px; }
+.sdash .sdash-ad-bar .sdash-ad-hint { margin-bottom: 0; }
+.sdash .sdash-ad-hint--bad { color: var(--sdash-loss-ink); font-weight: 600; }
+.sdash .sdash-ad-preview { background: #eef0fb; border: 1px solid #d4d9f3; color: #2f3a8a; border-radius: 8px; padding: 8px 12px; font-size: 0.8rem; margin-bottom: 10px; }
+
+/* Resultado: verde ganancia / rojo pérdida (siempre con flecha y texto) */
+.sdash .sdash-ad-res--good, .sdash .sdash-ad-result--good { color: var(--sdash-win-ink); }
+.sdash .sdash-ad-res--bad, .sdash .sdash-ad-result--bad { color: var(--sdash-loss-ink); }
+.sdash .sdash-ad-res--neutral, .sdash .sdash-ad-result--neutral { color: var(--kfin-neutral-ink); }
+.sdash .sdash-ad-res { font-weight: 700; }
+.sdash .sdash-status--none { background: transparent; border: 1px dashed var(--kfin-line-strong); color: var(--kfin-ink-2); }
+.sdash .sdash-ad-unsaved { display: inline-block; margin-left: 6px; padding: 2px 7px; border-radius: 999px; background: #fff1cf; color: #7a5600; font-size: 0.68rem; font-weight: 700; white-space: nowrap; }
+
+/* Tabla 'Detalle diario de publicidad' */
+.sdash .sdash-ad-scroll { max-height: min(620px, 78vh); }
+.sdash .sdash-ad-table { min-width: 940px; }
+.sdash .sdash-ad-table .sdash-ad-date { min-width: 96px; white-space: nowrap; }
+.sdash .sdash-ad-cell { min-width: 150px; vertical-align: top; }
+.sdash .sdash-ad-notes { min-width: 210px; }
+.sdash .sdash-ad-money { display: inline-flex; align-items: center; gap: 4px; width: 100%; font-weight: 600; color: var(--kfin-ink-2); }
+.sdash .sdash-ad-static { display: block; }
+.sdash .sdash-ad-input { width: 100%; min-width: 0; min-height: 36px; padding: 4px 8px; border: 1px solid var(--kfin-line-strong); border-radius: 6px; background: #fff; color: var(--kfin-ink); font: inherit; font-size: 0.85rem; text-align: right; font-variant-numeric: tabular-nums; }
+.sdash .sdash-ad-input--text { text-align: left; }
+.sdash .sdash-ad-input:focus { border-color: var(--kfin-cur-ink); }
+.sdash .sdash-ad-input:focus-visible { outline: 2px solid var(--kfin-cur-ink); outline-offset: 1px; }
+.sdash .sdash-ad-input:disabled { background: #f6f5f2; color: var(--kfin-muted); cursor: not-allowed; }
+.sdash .sdash-ad-input[aria-invalid="true"] { border-color: var(--sdash-loss-ink); background: #fff8f6; }
+.sdash .sdash-ad-error { margin-top: 3px; font-size: 0.72rem; font-weight: 600; line-height: 1.2; color: var(--sdash-loss-ink); }
+.sdash .kfin-table tbody tr.sdash-ad-row--dirty td, .sdash .kfin-table tbody tr.sdash-ad-row--dirty th { background-color: #fffaf0; }
+.sdash .sdash-ad-row--dirty th.sdash-ad-date { box-shadow: inset 3px 0 0 var(--sdash-amber), 1px 0 0 var(--kfin-line); }
+.sdash .sdash-ad-row--invalid th.sdash-ad-date { box-shadow: inset 3px 0 0 var(--sdash-loss-ink), 1px 0 0 var(--kfin-line); }
+.sdash .sdash-ad-row--future td, .sdash .sdash-ad-row--future th { color: var(--kfin-muted); }
+.sdash .kfin-table tbody tr td.sdash-ad-res--good { background-color: var(--sdash-win-bg); }
+.sdash .kfin-table tbody tr td.sdash-ad-res--bad { background-color: var(--sdash-loss-bg); }
+
+@media (max-width: 575px) {
+  .sdash .sdash-ad .kfin-btn, .sdash .sdash-ad-input, .sdash .sdash-ad-quick .form-control { min-height: 44px; }
+  .sdash .sdash-ad-head .kfin-card-actions { width: 100%; }
+  .sdash .sdash-ad-head .kfin-card-actions .kfin-btn, .sdash .sdash-ad-bar .kfin-btn { flex: 1 1 100%; justify-content: center; }
+  .sdash .sdash-ad-quick .kfin-field { flex: 1 1 100%; }
+  .sdash .sdash-ad-quick .kfin-btn { width: 100%; justify-content: center; margin-top: 0; }
+  .sdash .sdash-ad-table { min-width: 860px; }
+}
+
+@media print {
+  .sdash .sdash-ad-scroll { max-height: none; }
+}
+
+/* ---------- Mapa de calor de kioscos (pestaña Kioskos) ---------- */
+/* Misma escala de 6 tonos que Online pero en verde azulado (el color de Kioskos, #51cbce): claro -> oscuro, texto oscuro
+   en los 4 primeros y blanco en los 2 últimos (contraste >= 4.5:1 en todos). Solo aplica dentro de .sdash-heat--kiosk. */
+.sdash .sdash-heat--kiosk {
+  --sdash-h0-bg: #e6f5f5; --sdash-h0-fg: #252422;
+  --sdash-h1-bg: #c8e9ea; --sdash-h1-fg: #252422;
+  --sdash-h2-bg: #94d9dc; --sdash-h2-fg: #252422;
+  --sdash-h3-bg: #51cbce; --sdash-h3-fg: #252422;
+  --sdash-h4-bg: #1b7c81; --sdash-h4-fg: #ffffff;
+  --sdash-h5-bg: #0d4a4e; --sdash-h5-fg: #ffffff;
+  --sdash-wbar-strong: #1b8f94; --sdash-wbar-soft: #51cbce;
+  --sdash-heatbadge-bg: #d9f1f2; --sdash-heatbadge-fg: #0f4e52;
+  --sdash-insight-bg: #eaf7f7; --sdash-insight-line: #b9e3e5; --sdash-insight-fg: #14474a;
+}
+
+.kfin.sdash { --sdash-mx-name-w: 176px; --sdash-mx-cat-w: 108px; --sdash-mx-total-w: 108px; }
+
+.sdash .sdash-kheat { margin: 8px 0 16px; padding-top: 20px; border-top: 1px solid var(--kfin-line); }
+.sdash .sdash-kheat-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-start; gap: 10px 16px; margin-bottom: 12px; }
+.sdash .sdash-kheat-title { margin: 0; font-size: 1.15rem; font-weight: 700; }
+.sdash .sdash-kheat-sub { margin: 2px 0 0; font-size: 0.82rem; color: var(--kfin-ink-2); }
+.sdash .sdash-kheat .sdash-heat { margin-top: 0; }
+
+/* Clasificación del kiosco (Cat. A / B / C / Sin clasificar): siempre con texto; el color solo refuerza */
+.sdash .sdash-cat { display: inline-block; vertical-align: middle; font-size: 0.68rem; font-weight: 700; line-height: 1.3; padding: 1px 8px; border-radius: 999px; border: 1px solid transparent; white-space: nowrap; letter-spacing: 0; text-transform: none; }
+.sdash .sdash-cat--a { background: #3b4a5a; color: #ffffff; }
+.sdash .sdash-cat--b { background: #d9e0e7; color: #2b3744; }
+.sdash .sdash-cat--c { background: #f1f3f5; color: #3b4a5a; border-color: #c9d0d8; }
+.sdash .sdash-cat--none { background: #ffffff; color: #4d4a45; border: 1px dashed #b9b6ae; font-weight: 600; }
+.sdash .sdash-rank-name + .sdash-cat { margin-left: 2px; }
+
+/* Insights: una frase por línea; el borde izquierdo, el fondo y la etiqueta (A favor / Atención) marcan el tono */
+.sdash .sdash-ins-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.sdash .sdash-ins { --sdash-tone-line: #6f7b88; --sdash-tone-bg: #f2f4f6; --sdash-tone-ink: #3b4a5a; display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; padding: 9px 12px 9px 14px; border-radius: 8px; border-left: 4px solid var(--sdash-tone-line); background: var(--sdash-tone-bg); font-size: 0.86rem; line-height: 1.4; color: var(--kfin-ink); }
+.sdash .sdash-ins--good { --sdash-tone-line: #2e8b57; --sdash-tone-bg: #eaf6f0; --sdash-tone-ink: #17683f; }
+.sdash .sdash-ins--warn { --sdash-tone-line: #c77d0a; --sdash-tone-bg: #fff6e0; --sdash-tone-ink: #7a5600; }
+.sdash .sdash-ins-tag { flex: 0 0 auto; font-size: 0.66rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--sdash-tone-ink); }
+.sdash .sdash-ins-text { flex: 1 1 240px; min-width: 0; overflow-wrap: anywhere; }
+
+/* Filtro por clasificación */
+.sdash .sdash-kheat-filter { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 0 0 12px; }
+.sdash .sdash-kheat-filter .kfin-label { margin: 0; }
+.sdash .sdash-kheat-filter .kfin-btnseg { max-width: 100%; }
+.sdash .sdash-kheat-filter .kfin-btn { min-height: 36px; min-width: 40px; justify-content: center; }
+.sdash .sdash-kheat-filter .kfin-btn:disabled { opacity: 0.45; }
+.sdash .sdash-kheat-filter .kfin-hint { margin: 0; max-width: none; }
+
+/* Resumen 'Por clasificación' */
+.sdash .sdash-cat-table { min-width: 760px; }
+.sdash .sdash-cat-table tbody th[scope="row"] { min-width: 150px; }
+.sdash .sdash-cat-table .kfin-delta { font-size: 0.74rem; }
+.sdash .sdash-sub { color: var(--kfin-ink-2); }
+/* Con la tabla desplazada (móvil) la clasificación de cada fila queda a la vista */
+.sdash .sdash-cat-table thead th:first-child, .sdash .sdash-cat-table tbody th[scope="row"], .sdash .sdash-cat-table tfoot th[scope="row"] { position: sticky; left: 0; z-index: 2; box-shadow: 1px 0 0 var(--kfin-line); }
+.sdash .sdash-cat-table thead th:first-child, .sdash .sdash-cat-table tfoot th[scope="row"] { z-index: 5; }
+
+/* Matrices kiosco x día y kiosco x día de la semana. Columnas fijas: Kiosko, Cat. y Total (a mano para tener tres; las de
+   Finanzas solo traen dos). En móvil solo queda fija la de Kiosko y el resto se desplaza dentro de la caja. */
+.sdash .sdash-mx-scroll { max-height: min(640px, 80vh); }
+.sdash .sdash-mx { width: auto; min-width: 100%; font-size: 0.76rem; }
+.sdash .sdash-mx th, .sdash .sdash-mx td { padding: 4px 8px; }
+.sdash .sdash-mx thead th { text-align: right; line-height: 1.2; }
+.sdash .sdash-mx thead th.sdash-mx-c1, .sdash .sdash-mx thead th.sdash-mx-c2 { text-align: left; }
+.sdash .sdash-mx .sdash-mx-day { min-width: 58px; }
+.sdash .sdash-mx .sdash-mx-wd { display: block; font-size: 0.66rem; font-weight: 400; text-transform: none; letter-spacing: 0; color: var(--kfin-ink-2); }
+.sdash .sdash-mx td.sdash-mx-cell { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.sdash .sdash-mx td.sdash-mx-na { color: var(--kfin-ink-2); }
+.sdash .sdash-mx td.sdash-mx-best { font-weight: 700; box-shadow: inset 0 0 0 2px #252422; }
+.sdash .sdash-mx tbody th[scope="row"], .sdash .sdash-mx tfoot th[scope="row"] { text-align: left; white-space: normal; overflow-wrap: anywhere; line-height: 1.2; }
+.sdash .sdash-mx .sdash-mx-c1, .sdash .sdash-mx .sdash-mx-c2, .sdash .sdash-mx .sdash-mx-c3 { position: sticky; z-index: 2; }
+.sdash .sdash-mx .sdash-mx-c1 { left: 0; width: var(--sdash-mx-name-w); min-width: var(--sdash-mx-name-w); max-width: var(--sdash-mx-name-w); }
+.sdash .sdash-mx .sdash-mx-c2 { left: var(--sdash-mx-name-w); width: var(--sdash-mx-cat-w); min-width: var(--sdash-mx-cat-w); max-width: var(--sdash-mx-cat-w); }
+.sdash .sdash-mx .sdash-mx-c3 { left: calc(var(--sdash-mx-name-w) + var(--sdash-mx-cat-w)); min-width: var(--sdash-mx-total-w); text-align: right; font-weight: 700; box-shadow: 1px 0 0 var(--kfin-line-strong); background: #faf9f7; }
+.sdash .sdash-mx thead .sdash-mx-c1, .sdash .sdash-mx thead .sdash-mx-c2, .sdash .sdash-mx thead .sdash-mx-c3,
+.sdash .sdash-mx tfoot .sdash-mx-c1, .sdash .sdash-mx tfoot .sdash-mx-c2, .sdash .sdash-mx tfoot .sdash-mx-c3 { z-index: 5; }
+.sdash .sdash-mx tfoot .sdash-mx-c3 { background: #faf9f7; }
+
+@media (max-width: 575px) {
+  .kfin.sdash { --sdash-mx-name-w: 118px; --sdash-mx-cat-w: 96px; }
+  .sdash .sdash-mx .sdash-mx-c2, .sdash .sdash-mx .sdash-mx-c3 { left: auto; box-shadow: none; }
+  .sdash .sdash-mx tbody .sdash-mx-c2, .sdash .sdash-mx tbody .sdash-mx-c3 { position: static; }
+  /* En la cabecera y el pie siguen fijas arriba/abajo, pero al desplazarse no deben tapar la columna Kiosko */
+  .sdash .sdash-mx thead .sdash-mx-c2, .sdash .sdash-mx thead .sdash-mx-c3,
+  .sdash .sdash-mx tfoot .sdash-mx-c2, .sdash .sdash-mx tfoot .sdash-mx-c3 { z-index: 3; }
+  .sdash .sdash-kheat-title { font-size: 1.05rem; }
+  .sdash .sdash-ins { padding: 8px 10px 8px 12px; }
+  .sdash .sdash-kheat-filter .kfin-btnseg { flex: 1 1 100%; }
+  .sdash .sdash-kheat-filter .kfin-btnseg .kfin-btn { flex: 1 1 auto; padding: 8px 6px; min-height: 44px; }
+}
+
+/* Pantallas muy angostas (≤ 380 px): los cinco botones del filtro no caben en una línea y bajan como fichas sueltas */
+@media (max-width: 380px) {
+  .kfin.sdash .sdash-kheat-filter .kfin-btnseg { flex-wrap: wrap; gap: 6px; }
+  .kfin.sdash .sdash-kheat-filter .kfin-btnseg .kfin-btn { margin-left: 0; border-radius: 6px; }
+}
+
+@media print {
+  .sdash .sdash-mx-scroll { max-height: none; }
+}

@@ -16,7 +16,11 @@ import {
   isEntrecuerosPosMode,
   describeEntrecuerosPriceState,
 } from "./posUtils";
-import { cartUnlocksEntrecuerosWholesale, entrecuerosVolumeKey } from "utils/entrecuerosPriceLists";
+import {
+  entrecuerosCartQuantities,
+  entrecuerosVolumeKey,
+  lineReceivesEntrecuerosCourtesy,
+} from "utils/entrecuerosPriceLists";
 
 const QUICK_CASH = [50, 100, 200, 500];
 
@@ -83,18 +87,16 @@ function PosCheckoutModal({
   const paymentMethods = entrecueros ? ENTRECUEROS_PAYMENT_METHODS : PAYMENT_METHODS;
   const checkoutTiers = useMemo(() => {
     if (!entrecueros) return [];
-    const qtyByKey = {};
-    (cart || []).forEach((line) => {
-      const key = entrecuerosVolumeKey(line);
-      qtyByKey[key] = (qtyByKey[key] || 0) + Number(line.quantity || 0);
-    });
-    const wholesaleUnlocked = cartUnlocksEntrecuerosWholesale(cart);
+    const { qtyByKey, courtesyActive } = entrecuerosCartQuantities(cart);
     const seen = new Set();
     return (cart || []).reduce((rows, line) => {
       const key = entrecuerosVolumeKey(line);
       if (seen.has(key)) return rows;
       seen.add(key);
-      const state = describeEntrecuerosPriceState(line, qtyByKey[key] || 0, wholesaleUnlocked);
+      const groupedQty = qtyByKey[key];
+      const groupQty = groupedQty != null ? groupedQty : Number(line.quantity || 0);
+      const courtesy = lineReceivesEntrecuerosCourtesy(line, groupedQty || 0, courtesyActive);
+      const state = describeEntrecuerosPriceState(line, groupQty, courtesy);
       rows.push({
         productId: line.productId,
         productName: line.productName,

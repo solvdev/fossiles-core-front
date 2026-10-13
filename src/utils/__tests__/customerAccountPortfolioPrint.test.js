@@ -35,13 +35,28 @@ describe("normalizeRutasCxcRows (cartera por documento)", () => {
     expect(row.cargos - row.abonos - row.creditos).toBe(row.saldos);
   });
 
-  it("mantiene documentos pagados (saldo 0) y una sola fila por documento", () => {
+  it("no lista documentos pagados (saldo 0): una cartera solo muestra lo que se debe", () => {
     const rows = normalizeRutasCxcRows([
       docRow({ chargeEntryId: 1, paymentsApplied: 900, creditsApplied: 100, balanceDue: 0 }),
       docRow({ chargeEntryId: 2, invoiceNumber: "ENVP-2" }),
     ]);
-    expect(rows).toHaveLength(2);
-    expect(rows.find((r) => r.chargeEntryId === 1).saldos).toBe(0);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].chargeEntryId).toBe(2);
+    expect(rows[0].saldos).toBe(400);
+  });
+
+  it("descarta también el formato legado cuando el saldo es cero", () => {
+    const rows = normalizeRutasCxcRows([
+      { hasCharge: true, chargedAmount: 100, appliedCredits: 100, balanceDue: 0, invoiceNumber: "PAGADO" },
+      { hasCharge: true, chargedAmount: 100, appliedCredits: 40, balanceDue: 60, invoiceNumber: "ABIERTO" },
+    ]);
+    expect(rows.map((r) => r.invoiceNumber)).toEqual(["ABIERTO"]);
+  });
+
+  it("una cartera con todos los documentos pagados queda vacía", () => {
+    const rows = normalizeRutasCxcRows([docRow({ paymentsApplied: 900, creditsApplied: 100, balanceDue: 0 })]);
+    expect(rows).toEqual([]);
+    expect(sumRutasCxcTotals(rows)).toEqual({ cargos: 0, abonos: 0, creditos: 0, saldos: 0 });
   });
 
   it("conserva filas de ajuste (abono a cargo anulado) con saldo negativo", () => {
@@ -59,6 +74,43 @@ describe("normalizeRutasCxcRows (cartera por documento)", () => {
     ]);
     expect(rows).toHaveLength(2);
     expect(rows.find((r) => r.rowType === "ORPHAN_CREDIT").saldos).toBe(-300);
+  });
+
+  it("ordena por número de envío de menor a mayor y deja al final lo que no tiene número", () => {
+    const rows = normalizeRutasCxcRows([
+      docRow({ chargeEntryId: 1, invoiceNumber: "ENVP-00102" }),
+      docRow({ chargeEntryId: 2, invoiceNumber: "ENVP-00024" }),
+      docRow({ chargeEntryId: 3, invoiceNumber: "ENVP-00104" }),
+      docRow({ chargeEntryId: 4, invoiceNumber: "ENVP-00006" }),
+      docRow({
+        chargeEntryId: null,
+        rowType: "ORPHAN_CREDIT",
+        invoiceNumber: undefined,
+        documentNumber: "ABONOS A CARGO ANULADO",
+        chargedAmount: 0,
+        paymentsApplied: 0,
+        creditsApplied: 0,
+        balanceDue: 50,
+      }),
+    ]);
+    expect(rows.map((r) => r.documentNumber)).toEqual([
+      "ENVP-00006",
+      "ENVP-00024",
+      "ENVP-00102",
+      "ENVP-00104",
+      "ABONOS A CARGO ANULADO",
+    ]);
+  });
+
+  it("dentro de cada ruta imprime los envíos de menor a mayor", () => {
+    const groups = groupRutasCxcRowsByRoute([
+      docRow({ chargeEntryId: 1, invoiceNumber: "ENVP-00050", routeLocationCode: "R01001" }),
+      docRow({ chargeEntryId: 2, invoiceNumber: "ENVP-00012", routeLocationCode: "R01003" }),
+      docRow({ chargeEntryId: 3, invoiceNumber: "ENVP-00030", routeLocationCode: "R01002" }),
+      docRow({ chargeEntryId: 4, invoiceNumber: "ENVP-00007", routeLocationCode: "R02001", customerId: 9 }),
+    ]);
+    expect(groups[0].rows.map((r) => r.documentNumber)).toEqual(["ENVP-00012", "ENVP-00030", "ENVP-00050"]);
+    expect(groups[1].rows.map((r) => r.documentNumber)).toEqual(["ENVP-00007"]);
   });
 
   it("sigue entendiendo el formato legado (appliedCredits combinado, sin saldo negativo)", () => {

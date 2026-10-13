@@ -31,6 +31,10 @@ export const resolveLivePhysicalTotal = (row, counts, physicalSizes, physicalSiz
     const fossTotal = sumFossPhysicalByLocation(physicalSizesByLocation);
     if (fossTotal > 0) return fossTotal;
   }
+  // Fila por talla no FOSS: `counts` ya refleja lo contado por vitrina (V1–V7, E); manda su suma.
+  if (row?.sizeLabel && isCinchoProductRow(row)) {
+    return COUNT_LOCATION_KEYS.reduce((sum, key) => sum + Number((counts || {})[key] || 0), 0);
+  }
   if (isCinchoProductRow(row) && physicalSizes) {
     const sizeTotal = sumSizeMap(physicalSizes);
     if (sizeTotal > 0) return sizeTotal;
@@ -322,7 +326,7 @@ const expandCinchoRowBySizes = (row) => {
 const buildSingleSizeByLocation = (byLocation, size) => {
   if (!byLocation) return null;
   const result = {};
-  ["E", "BO"].forEach((loc) => {
+  COUNT_LOCATION_KEYS.forEach((loc) => {
     const qty = Number(byLocation?.[loc]?.[size] || 0);
     if (qty > 0) result[loc] = { [size]: qty };
   });

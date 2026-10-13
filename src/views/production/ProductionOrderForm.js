@@ -32,7 +32,13 @@ import CustomersForm from "views/customers/CustomersForm";
 import OpcGenerateShipmentModal from "components/production/OpcGenerateShipmentModal";
 import ProductionOrderPartialReleasesPanel from "components/production/ProductionOrderPartialReleasesPanel";
 import { isCinchoOrderType } from "utils/cinchoProductionHelper";
-import { isLuisFelipeSeller, isLuisFelipeVendorFlow } from "utils/luisFelipeVendorHelper";
+import {
+  isLuisFelipeOpcOrder,
+  isLuisFelipeSeller,
+  isLuisFelipeVendorFlow,
+  normalizeSellerName,
+  orderAllowsKioskDestination,
+} from "utils/luisFelipeVendorHelper";
 import { orderAllowsPartialReleases } from "utils/partialReleaseHelper";
 import { resolveDefaultOpvUnitPrice } from "utils/prepareShipmentsOrderHelper";
 import OpvShipmentPriceReviewModal from "components/production/OpvShipmentPriceReviewModal";
@@ -53,11 +59,6 @@ const STATUS_LABELS = {
 const SELLER_OPTIONS = ["LUIS FELIPE", "MADELYN"];
 const isClienteKioskoOrder = (orderType) => orderType === "CLIENTE_KIOSKO";
 const isNormalOrder = (orderType) => String(orderType || "").toUpperCase() === "NORMAL";
-const usesFreeTextCustomer = (orderType, forKiosk) => {
-  if (isClienteKioskoOrder(orderType)) return true;
-  if ((isNormalOrder(orderType) || isCinchoOrderType(orderType)) && Boolean(forKiosk)) return true;
-  return false;
-};
 const isOnlineSaleOrKioskOrder = (orderType) =>
   orderType === "VENTA_EN_LINEA" || isClienteKioskoOrder(orderType);
 const isOpkCode = (code) => /^OPK-?\d+/i.test(String(code || "").trim());
@@ -143,10 +144,12 @@ function ProductionOrderForm({ orderId, isOpen, toggle, onSuccess }) {
   const [showCustomerCreate, setShowCustomerCreate] = useState(false);
 
   const isOpcOrder = isCinchoOrderType(formData.orderType);
-  const allowsKioskFlag = isNormalOrder(formData.orderType) || isOpcOrder;
+  // Las OPC de Luis Felipe no van a kiosco: su destino es un cliente del catálogo.
+  const isLfOpcOrder = isLuisFelipeOpcOrder(formData.orderType, formData.sellerName);
+  const allowsKioskFlag = orderAllowsKioskDestination(formData.orderType, formData.sellerName);
   const isKioskNormalOrder = isNormalOrder(formData.orderType) && Boolean(formData.forKiosk);
   const isKioskDestinationOrder = allowsKioskFlag && Boolean(formData.forKiosk);
-  const isFreeTextCustomer = usesFreeTextCustomer(formData.orderType, formData.forKiosk);
+  const isFreeTextCustomer = isClienteKioskoOrder(formData.orderType) || isKioskDestinationOrder;
   const showDestinationPicker = isKioskDestinationOrder;
   const showCatalogCustomer =
     !showDestinationPicker && !isClienteKioskoOrder(formData.orderType);
@@ -209,6 +212,26 @@ function ProductionOrderForm({ orderId, isOpen, toggle, onSuccess }) {
       ...catalogFields,
     }));
   };
+
+  // OPC de Luis Felipe guardadas con destino escrito a mano: si el nombre coincide con un único cliente del
+  // catálogo, se preselecciona para que solo haya que confirmar.
+  useEffect(() => {
+    const typedName = normalizeSellerName(formData.customerName);
+    if (!isLfOpcOrder || formData.customerId || !typedName || !availableCustomers.length) return;
+    const matches = availableCustomers.filter((c) => normalizeSellerName(c.name) === typedName);
+    if (matches.length !== 1) return;
+    const customer = matches[0];
+    setFormData((prev) =>
+      prev.customerId
+        ? prev
+        : {
+            ...prev,
+            customerId: String(customer.id),
+            customerName: customer.name || prev.customerName,
+            ...customerFieldsFromCatalog(customer),
+          }
+    );
+  }, [isLfOpcOrder, formData.customerId, formData.customerName, availableCustomers]);
 
   useEffect(() => {
     if (isOpen) {
@@ -324,7 +347,8 @@ function ProductionOrderForm({ orderId, isOpen, toggle, onSuccess }) {
         sellerName: isLuisFelipeSeller(order.sellerName) ? "LUIS FELIPE" : (order.sellerName || ""),
         forKiosk:
           (isNormalOrder(order.orderType) && isOpkCode(order.code))
-          || (isCinchoOrderType(order.orderType) && !order.customerId),
+          || (isCinchoOrderType(order.orderType) && !order.customerId
+            && !isLuisFelipeSeller(order.sellerName)),
         startDate: order.startDate
           ? new Date(order.startDate).toISOString().split("T")[0]
           : "",
@@ -411,6 +435,9 @@ function ProductionOrderForm({ orderId, isOpen, toggle, onSuccess }) {
     if (!formData.orderType) newErrors.orderType = "El tipo de orden es requerido";
     if (isKioskDestinationOrder && !String(formData.customerName || "").trim()) {
       newErrors.customerName = "Indique el kiosco o destino de la orden";
+    }
+    if (isLfOpcOrder && !formData.customerId) {
+      newErrors.customerId = "Seleccione el cliente del catálogo: las OPC de Luis Felipe no van a kiosco";
     }
     if (formData.orderType !== "DISTRIBUTION" && formData.items.length === 0) {
       newErrors.items = "Debe agregar al menos un item";
@@ -734,8 +761,9 @@ function ProductionOrderForm({ orderId, isOpen, toggle, onSuccess }) {
   };
 
   const handleOrderTypeChange = (newType) => {
-    const nextForKiosk =
-      isNormalOrder(newType) || isCinchoOrderType(newType) ? formData.forKiosk : false;
+    const nextForKiosk = orderAllowsKioskDestination(newType, formData.sellerName)
+      ? formData.forKiosk
+      : false;
     const nextVendor =
       !nextForKiosk && isLuisFelipeVendorFlow(newType, formData.sellerName);
     setFormData({
@@ -955,14 +983,30 @@ function ProductionOrderForm({ orderId, isOpen, toggle, onSuccess }) {
                   value={formData.sellerName}
                   onChange={(e) => {
                     const nextSeller = e.target.value;
-                    setFormData((prev) => ({
-                      ...prev,
-                      sellerName: nextSeller,
-                      packingItems:
-                        !prev.forKiosk && isLuisFelipeVendorFlow(prev.orderType, nextSeller)
-                          ? prev.packingItems
-                          : [],
-                    }));
+                    setFormData((prev) => {
+                      // OPC de Luis Felipe: deja de ser orden de kiosco y se limpia el destino de kiosco/texto libre.
+                      const leavesKiosk =
+                        Boolean(prev.forKiosk) && isLuisFelipeOpcOrder(prev.orderType, nextSeller);
+                      const nextForKiosk = leavesKiosk ? false : prev.forKiosk;
+                      return {
+                        ...prev,
+                        sellerName: nextSeller,
+                        forKiosk: nextForKiosk,
+                        ...(leavesKiosk
+                          ? {
+                              customerId: "",
+                              customerName: "",
+                              customerAddress: "",
+                              customerPhone: "",
+                              customerTaxId: "",
+                            }
+                          : {}),
+                        packingItems:
+                          !nextForKiosk && isLuisFelipeVendorFlow(prev.orderType, nextSeller)
+                            ? prev.packingItems
+                            : [],
+                      };
+                    });
                   }}
                   disabled={loading}
                 >
@@ -1055,7 +1099,7 @@ function ProductionOrderForm({ orderId, isOpen, toggle, onSuccess }) {
             <Row>
               <Col md="8">
                 <FormGroup>
-                  <Label>Cliente</Label>
+                  <Label>{isLfOpcOrder ? "Cliente *" : "Cliente"}</Label>
                   <FilterableSelect
                     options={customerOptions}
                     value={String(formData.customerId || "")}
@@ -1066,12 +1110,22 @@ function ProductionOrderForm({ orderId, isOpen, toggle, onSuccess }) {
                       applySelectedCustomer(selected);
                     }}
                     placeholder="Buscar por nombre, NIT o teléfono…"
-                    emptyLabel="Sin cliente"
+                    emptyLabel={isLfOpcOrder ? "Seleccione cliente" : "Sin cliente"}
                     disabled={loading}
                   />
-                    <small className="text-muted">
-                      Busque en el catálogo. Si no existe, créelo: el NIT de facturación puede repetirse.
+                  {errors.customerId && <div className="text-danger small">{errors.customerId}</div>}
+                  {isLfOpcOrder && !formData.customerId && String(formData.customerName || "").trim() && (
+                    <small className="text-warning d-block">
+                      Destino anterior escrito a mano: &quot;{formData.customerName}&quot;. Seleccione el cliente del
+                      catálogo.
                     </small>
+                  )}
+                  <small className="text-muted">
+                    {isLfOpcOrder
+                      ? "OPC de Luis Felipe: el destino es un cliente del catálogo (no va a kiosco). "
+                      : ""}
+                    Busque en el catálogo. Si no existe, créelo: el NIT de facturación puede repetirse.
+                  </small>
                 </FormGroup>
               </Col>
               <Col md="4" className="d-flex align-items-end">

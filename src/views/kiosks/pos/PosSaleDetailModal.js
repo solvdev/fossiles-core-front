@@ -152,7 +152,7 @@ function PosSaleDetailModal({
       return;
     }
     if (!depositBank) {
-      showError("Selecciona el banco donde depositaste (G&T Continental o Industrial).");
+      showError("Selecciona el banco donde depositaste (G&T Continental, Industrial o BANRURAL).");
       return;
     }
     if (netDepositAmount <= 0) {
@@ -650,7 +650,9 @@ function PosSaleDetailModal({
                     {sale.depositBankName
                       || (sale.depositBank === "INDUSTRIAL"
                         ? "Banco Industrial"
-                        : "Banco G&T Continental")}
+                        : sale.depositBank === "BANRURAL"
+                          ? "BANRURAL"
+                          : "Banco G&T Continental")}
                   </div>
                   {sale.depositRecordedAt && (
                     <div className="small text-muted">
@@ -682,6 +684,16 @@ function PosSaleDetailModal({
                       disabled={savingDeposit}
                     >
                       Banco Industrial
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      color={depositBank === "BANRURAL" ? "primary" : "secondary"}
+                      outline={depositBank !== "BANRURAL"}
+                      onClick={() => setDepositBank("BANRURAL")}
+                      disabled={savingDeposit}
+                    >
+                      BANRURAL
                     </Button>
                   </div>
                   <Label className="kiosk-pos-label">Número de boleta *</Label>

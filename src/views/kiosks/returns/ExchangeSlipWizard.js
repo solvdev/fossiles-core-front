@@ -12,7 +12,7 @@ import {
 } from "reactstrap";
 import { ColorSelector, ProductSelector } from "components/catalog/FilterableCatalogSelectors";
 import { FilterableSelect } from "components/distribution/FilterableSelect";
-import { getKioskPosContext } from "services/kioskPosService";
+import { getKioskPosContext, getKioskSaleById, updateKioskSaleInvoiceContact } from "services/kioskPosService";
 import { getProducts } from "services/productService";
 import { getColors } from "services/colorService";
 import {
@@ -20,14 +20,25 @@ import {
   lookupKioskSale,
   previewKioskExchange,
 } from "services/kioskExchangeService";
+import { issueTaxInvoiceFromKioskSale } from "services/taxInvoiceService";
 import {
   buildKioskExchangeSlipPrintHtml,
   openExchangeSlipPrintWindow,
 } from "utils/kioskExchangeSlipPrint";
-import { applyExchangePackagingCredit, sumGivenLineAmounts } from "utils/kioskExchangeSettlement";
+import {
+  applyExchangePackagingCredit,
+  EXCHANGE_DIFFERENCE_NONE,
+  EXCHANGE_DIFFERENCE_WITH,
+  resolveExchangePricingMode,
+  shouldAskExchangeDiscount,
+  sumGivenLineAmounts,
+} from "utils/kioskExchangeSettlement";
+import { showError, showSuccess } from "utils/notificationHelper";
 import {
   formatCurrency,
   formatQty,
+  getSaleInternalNumber,
+  isFelBackdateWindowError,
   posVariantChipLabel,
   posVariantHasStock,
   posVariantNeedsSizePick,
@@ -43,6 +54,8 @@ import "../KioskSales.css";
 
 const MIRAFLORES_PRICE_EDIT_CODE = "A15";
 const DISCOUNT_PRESETS = ["10", "15", "20"];
+const DIFFERENCE_NONE = EXCHANGE_DIFFERENCE_NONE;
+const DIFFERENCE_WITH = EXCHANGE_DIFFERENCE_WITH;
 
 const WIZARD_STEPS = [
   { id: 1, label: "Ingreso" },
@@ -57,6 +70,22 @@ const impliedDiscountPercent = (catalogSalePrice, paidUnitPrice) => {
   if (!(catalog > 0) || !(paid >= 0) || paid >= catalog - 0.009) return null;
   return Math.round((1 - paid / catalog) * 1000) / 10;
 };
+
+const hasOwn = (obj, key) => Object.prototype.hasOwnProperty.call(obj, key);
+
+/** Clave de la línea devuelta en los precios editables: id de la línea de factura o "free" (cambio libre). */
+const returnedLineKey = (line) => (line?.saleItemId != null ? String(line.saleItemId) : "free");
+
+/** Líneas que ingresan según el preview (el API siempre manda `returnedItems`; `returned` es el respaldo). */
+const previewReturnedLines = (preview) => {
+  if (preview?.returnedItems?.length) return preview.returnedItems;
+  return preview?.returned ? [preview.returned] : [];
+};
+
+const buildReturnedPriceMap = (preview) =>
+  Object.fromEntries(
+    previewReturnedLines(preview).map((line) => [returnedLineKey(line), String(line?.unitPrice ?? "")])
+  );
 
 /** Solo variantes con stock y sin empaques SUM; una fila por producto+color+herraje. */
 const dedupeSellableInventory = (rows) => {
@@ -78,10 +107,12 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
     String(kioskCode || "").trim().toUpperCase() === MIRAFLORES_PRICE_EDIT_CODE
     || String(kioskName || "").trim().toUpperCase().includes("MIRAFLORES");
   const [step, setStep] = useState(1);
+  const [differenceMode, setDifferenceMode] = useState(DIFFERENCE_NONE);
   const [exchangeMode, setExchangeMode] = useState("SALE");
   const [saleQuery, setSaleQuery] = useState("");
   const [sale, setSale] = useState(null);
-  const [selectedItemId, setSelectedItemId] = useState("");
+  /** Líneas de la factura que devuelve el cliente: { [saleItemId]: cantidad (texto editable) }. */
+  const [returnedSelection, setReturnedSelection] = useState({});
   const [products, setProducts] = useState([]);
   const [colors, setColors] = useState([]);
   const [returnedProductId, setReturnedProductId] = useState("");
@@ -98,7 +129,8 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
   const [givenLines, setGivenLines] = useState([]);
   const [returnedQty, setReturnedQty] = useState("1");
   const [preview, setPreview] = useState(null);
-  const [editReturnedUnitPrice, setEditReturnedUnitPrice] = useState("");
+  /** Precios unitarios editables (solo A15) del ingreso, por línea: { [saleItemId | "free"]: precio }. */
+  const [editReturnedUnitPrices, setEditReturnedUnitPrices] = useState({});
   const [editGivenUnitPrices, setEditGivenUnitPrices] = useState({});
   const [reason, setReason] = useState("");
   const [observations, setObservations] = useState("");
@@ -113,10 +145,11 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
   useEffect(() => {
     if (!isOpen) return;
     setStep(1);
+    setDifferenceMode(DIFFERENCE_NONE);
     setExchangeMode("SALE");
     setSaleQuery("");
     setSale(null);
-    setSelectedItemId("");
+    setReturnedSelection({});
     setProducts([]);
     setColors([]);
     setReturnedProductId("");
@@ -133,7 +166,7 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
     setGivenLines([]);
     setReturnedQty("1");
     setPreview(null);
-    setEditReturnedUnitPrice("");
+    setEditReturnedUnitPrices({});
     setEditGivenUnitPrices({});
     setReason("");
     setObservations("");
@@ -178,15 +211,44 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
     return () => clearTimeout(timer);
   }, [isOpen, kioskLocationId, productSearch, step]);
 
-  const selectedItem = useMemo(
-    () => (sale?.items || []).find((item) => String(item.id) === String(selectedItemId)),
-    [sale, selectedItemId]
-  );
-
   const exchangeableSaleItems = useMemo(
     () => (sale?.items || []).filter((item) => !isPackagingProductCode(item.productCode)),
     [sale]
   );
+
+  /** Líneas marcadas (en el orden de la factura) con su cantidad numérica. */
+  const selectedReturnLines = useMemo(
+    () =>
+      exchangeableSaleItems
+        .filter((item) => hasOwn(returnedSelection, String(item.id)))
+        .map((item) => ({
+          item,
+          quantity: Number(returnedSelection[String(item.id)]),
+        })),
+    [exchangeableSaleItems, returnedSelection]
+  );
+
+  const selectedReturnIdsKey = selectedReturnLines.map(({ item }) => item.id).join(",");
+
+  const totalReturnedUnits = useMemo(
+    () =>
+      exchangeMode === "FREE"
+        ? Number(returnedQty || 0)
+        : selectedReturnLines.reduce((sum, line) => sum + (line.quantity > 0 ? line.quantity : 0), 0),
+    [exchangeMode, returnedQty, selectedReturnLines]
+  );
+
+  const totalGivenUnits = useMemo(
+    () => givenLines.reduce((sum, line) => sum + Number(line.quantity || 0), 0),
+    [givenLines]
+  );
+
+  /** Cantidad sugerida al agregar un producto a entregar: igual a la devuelta cuando es una sola línea. */
+  const defaultGivenQty = useMemo(() => {
+    if (exchangeMode === "SALE" && selectedReturnLines.length > 1) return "1";
+    const qty = exchangeMode === "FREE" ? Number(returnedQty) : selectedReturnLines[0]?.quantity;
+    return String(qty > 0 ? qty : 1);
+  }, [exchangeMode, returnedQty, selectedReturnLines]);
 
   const packagingSaleItems = useMemo(
     () => (sale?.items || []).filter((item) => isPackagingProductCode(item.productCode)),
@@ -268,11 +330,35 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
     }
   };
 
+  // El descuento de una factura es uno solo: se sugiere el % implícito de todas las líneas marcadas
+  // (precio pagado vs. catálogo). Solo se recalcula al cambiar la selección, no al editar cantidades.
   useEffect(() => {
-    if (!selectedItem) return;
-    const product = (products || []).find((p) => Number(p.id) === Number(selectedItem.productId));
-    applyDiscountFromCatalog(product?.salePrice, selectedItem.unitPrice);
-  }, [selectedItem, products]);
+    if (exchangeMode !== "SALE" || !selectedReturnLines.length) return;
+    if (differenceMode !== DIFFERENCE_WITH) {
+      setReturnedSoldWithDiscount(false);
+      setReturnedDiscountPreset("");
+      setReturnedDiscountOther("");
+      return;
+    }
+    let catalogTotal = 0;
+    let paidTotal = 0;
+    selectedReturnLines.forEach(({ item, quantity }) => {
+      const product = (products || []).find((p) => Number(p.id) === Number(item.productId));
+      const catalog = Number(product?.salePrice || 0);
+      if (!(catalog > 0)) return;
+      const qty = quantity > 0 ? quantity : 1;
+      catalogTotal += catalog * qty;
+      paidTotal += Number(item.unitPrice || 0) * qty;
+    });
+    applyDiscountFromCatalog(catalogTotal, paidTotal);
+  }, [selectedReturnIdsKey, products, differenceMode, exchangeMode]);
+
+  const showDiscountFields = useMemo(
+    () => shouldAskExchangeDiscount({ differenceMode, exchangeMode }),
+    [differenceMode, exchangeMode]
+  );
+
+  const pricingMode = resolveExchangePricingMode(differenceMode);
 
   const resetError = () => setError("");
 
@@ -286,12 +372,11 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
       setLoading(true);
       const result = await lookupKioskSale(saleQuery.trim(), kioskLocationId, { allKiosks: true });
       setSale(result);
-      const firstId = result?.items?.length === 1 ? String(result.items[0].id) : "";
-      setSelectedItemId(firstId);
-      if (firstId && result.items[0]) {
-        setReturnedQty(String(result.items[0].quantity || 1));
-        setDraftGivenQty(String(result.items[0].quantity || 1));
-      }
+      // Si la factura solo tiene un producto cambiable, ya viene marcado.
+      const exchangeable = (result?.items || []).filter((item) => !isPackagingProductCode(item.productCode));
+      setReturnedSelection(
+        exchangeable.length === 1 ? { [String(exchangeable[0].id)]: String(exchangeable[0].quantity || 1) } : {}
+      );
       setStep(2);
     } catch (err) {
       setError(err.message || "No se encontró la venta.");
@@ -306,15 +391,46 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
     setSelectedSize("");
   };
 
-  const selectReturnedItem = (item) => {
+  /** Marca / desmarca una línea de la factura; al marcarla devuelve todo lo vendido (ajustable). */
+  const toggleReturnedItem = (item) => {
     if (isPackagingProductCode(item?.productCode)) {
       setError("Los empaques SUM no entran en el cambio. Selecciona el producto.");
       return;
     }
     resetError();
-    setSelectedItemId(String(item.id));
-    setReturnedQty(String(item.quantity || 1));
-    setDraftGivenQty(String(item.quantity || 1));
+    const key = String(item.id);
+    setReturnedSelection((prev) => {
+      if (hasOwn(prev, key)) {
+        const next = { ...prev };
+        delete next[key];
+        return next;
+      }
+      return { ...prev, [key]: String(item.quantity || 1) };
+    });
+  };
+
+  const setReturnedItemQty = (item, value) => {
+    resetError();
+    setReturnedSelection((prev) => ({ ...prev, [String(item.id)]: value }));
+  };
+
+  const stepReturnedItemQty = (item, delta) => {
+    const max = Number(item.quantity || 1);
+    const current = Number(returnedSelection[String(item.id)]) || 0;
+    const next = Math.min(max, Math.max(1, current + delta));
+    setReturnedItemQty(item, String(next));
+  };
+
+  const selectAllReturnedItems = () => {
+    resetError();
+    setReturnedSelection(
+      Object.fromEntries(exchangeableSaleItems.map((item) => [String(item.id), String(item.quantity || 1)]))
+    );
+  };
+
+  const clearReturnedItems = () => {
+    resetError();
+    setReturnedSelection({});
   };
 
   const addGivenLine = () => {
@@ -327,7 +443,7 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
       setError("Selecciona la talla del producto a entregar.");
       return;
     }
-    const qty = Number(draftGivenQty || returnedQty || 1);
+    const qty = Number(draftGivenQty || defaultGivenQty);
     if (!(qty > 0)) {
       setError("La cantidad entregada debe ser mayor a cero.");
       return;
@@ -357,19 +473,43 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
     ]);
     setSelectedVariantKey("");
     setSelectedSize("");
-    setDraftGivenQty(String(returnedQty || 1));
+    setDraftGivenQty(defaultGivenQty);
   };
 
   const removeGivenLine = (lineKey) => {
     setGivenLines((prev) => prev.filter((line) => line.lineKey !== lineKey));
   };
 
-  const buildDiscountPayload = () => ({
-    returnedSoldWithDiscount: Boolean(returnedSoldWithDiscount),
-    returnedDiscountPercent: returnedSoldWithDiscount ? resolvedDiscountPercent : 0,
-  });
+  const buildDiscountPayload = () => {
+    // Con factura + sin diferencia: crédito = precio pagado de la línea (no recalcular catálogo).
+    if (differenceMode === DIFFERENCE_NONE && exchangeMode === "SALE") {
+      return {};
+    }
+    if (!showDiscountFields) {
+      return {};
+    }
+    return {
+      returnedSoldWithDiscount: Boolean(returnedSoldWithDiscount),
+      returnedDiscountPercent: returnedSoldWithDiscount ? resolvedDiscountPercent : 0,
+    };
+  };
 
-  const buildPreviewPayload = (priceOverrides = {}) => {
+  /** Líneas devueltas de la factura para el API (cantidad + precio editable solo en A15). */
+  const buildReturnedItemsPayload = (useEditedPrices) =>
+    exchangeMode === "SALE"
+      ? selectedReturnLines.map(({ item, quantity }) => {
+          const payload = { originalSaleItemId: item.id, quantity };
+          const editedUnit = Number(editReturnedUnitPrices[String(item.id)]);
+          if (useEditedPrices && canEditPrices && editedUnit > 0) payload.unitPrice = editedUnit;
+          return payload;
+        })
+      : [];
+
+  /** `useEditedReturnedPrices`: solo al aplicar precios / confirmar; un preview nuevo parte de los precios calculados. */
+  const buildPreviewPayload = ({ useEditedReturnedPrices = false } = {}) => {
+    const returnedItems = buildReturnedItemsPayload(useEditedReturnedPrices);
+    const primaryReturned = returnedItems[0];
+    const freeReturnedUnit = useEditedReturnedPrices ? Number(editReturnedUnitPrices.free) : 0;
     const items = givenLines.map((line) => {
       const item = {
         productId: line.productId,
@@ -388,7 +528,8 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
     return {
       kioskLocationId,
       originalSaleId: sale?.id || null,
-      originalSaleItemId: selectedItem?.id || null,
+      originalSaleItemId: primaryReturned?.originalSaleItemId || null,
+      returnedItems,
       returnedProductId: selectedReturnedProduct?.id || null,
       returnedColorId: returnedColorId ? Number(returnedColorId) : null,
       returnedSize: returnedSize.trim() || null,
@@ -397,10 +538,13 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
       givenColorId: primary.colorId,
       givenSize: primary.size || null,
       givenHardwareCondition: primary.hardwareCondition || null,
-      returnedQuantity: Number(returnedQty || preview?.returned?.quantity || 1),
-      givenQuantity: Number(primary.quantity || returnedQty || 1),
+      returnedQuantity: Number(primaryReturned?.quantity || returnedQty || preview?.returned?.quantity || 1),
+      givenQuantity: Number(primary.quantity || defaultGivenQty),
+      pricingMode,
+      ...(canEditPrices && exchangeMode === "FREE" && freeReturnedUnit > 0
+        ? { returnedUnitPrice: freeReturnedUnit }
+        : {}),
       ...buildDiscountPayload(),
-      ...priceOverrides,
     };
   };
 
@@ -413,7 +557,11 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
 
   const renderReturnedDiscountFields = () => (
     <div className="kiosk-exchange-panel">
-      <p className="kiosk-exchange-panel-title">¿Se vendió con descuento?</p>
+      <p className="kiosk-exchange-panel-title">
+        {differenceMode === DIFFERENCE_NONE
+          ? "¿La venta original tuvo descuento?"
+          : "¿Se vendió con descuento?"}
+      </p>
       <div className="kiosk-exchange-chips">
         <button
           type="button"
@@ -475,10 +623,17 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
         </div>
       )}
       <p className="kiosk-exchange-help mb-0">
-        Crédito del ingreso: precio de venta de catálogo
-        {returnedSoldWithDiscount && resolvedDiscountPercent > 0
-          ? ` con ${resolvedDiscountPercent}% de descuento.`
-          : " sin descuento."}
+        {differenceMode === DIFFERENCE_NONE
+          ? `Precio compartido (entrada y salida): catálogo${
+              returnedSoldWithDiscount && resolvedDiscountPercent > 0
+                ? ` con ${resolvedDiscountPercent}% de descuento.`
+                : " sin descuento."
+            }`
+          : `Crédito del ingreso: precio de venta de catálogo${
+              returnedSoldWithDiscount && resolvedDiscountPercent > 0
+                ? ` con ${resolvedDiscountPercent}% de descuento.`
+                : " sin descuento."
+            }`}
       </p>
     </div>
   );
@@ -490,28 +645,41 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
         setError("Selecciona el producto que ingresa al kiosko.");
         return;
       }
-      if (returnedSoldWithDiscount && !(resolvedDiscountPercent > 0)) {
+      if (showDiscountFields && returnedSoldWithDiscount && !(resolvedDiscountPercent > 0)) {
         setError("Indica el porcentaje de descuento.");
         return;
       }
+      setDraftGivenQty(defaultGivenQty);
       setStep(3);
       return;
     }
-    if (!selectedItemId) {
-      setError("Selecciona la línea devuelta.");
+    if (!selectedReturnLines.length) {
+      setError("Marca al menos un producto que devuelve el cliente.");
       return;
     }
-    if (returnedSoldWithDiscount && !(resolvedDiscountPercent > 0)) {
+    const invalidLine = selectedReturnLines.find(
+      ({ item, quantity }) => !(quantity > 0) || quantity > Number(item.quantity || 0)
+    );
+    if (invalidLine) {
+      setError(
+        `Revisa la cantidad de ${invalidLine.item.productName}: debe ser mayor a cero y no superar lo vendido (${formatQty(
+          invalidLine.item.quantity
+        )}).`
+      );
+      return;
+    }
+    if (showDiscountFields && returnedSoldWithDiscount && !(resolvedDiscountPercent > 0)) {
       setError("Indica el porcentaje de descuento.");
       return;
     }
+    setDraftGivenQty(defaultGivenQty);
     setStep(3);
   };
 
   const handlePreview = async () => {
     resetError();
-    if (exchangeMode === "SALE" && !selectedItem) {
-      setError("Selecciona la línea devuelta en el paso anterior.");
+    if (exchangeMode === "SALE" && !selectedReturnLines.length) {
+      setError("Marca al menos un producto que devuelve el cliente en el paso anterior.");
       return;
     }
     if (exchangeMode === "FREE" && !selectedReturnedProduct) {
@@ -526,7 +694,7 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
       setLoading(true);
       const result = await previewKioskExchange(buildPreviewPayload());
       setPreview(result);
-      setEditReturnedUnitPrice(String(result?.returned?.unitPrice ?? ""));
+      setEditReturnedUnitPrices(buildReturnedPriceMap(result));
       const priceMap = {};
       const lines = result?.givenItems?.length ? result.givenItems : result?.given ? [result.given] : [];
       lines.forEach((line, index) => {
@@ -545,18 +713,18 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
   const handleApplyEditedPrices = async () => {
     resetError();
     if (!preview) return;
-    const returnedUnit = Number(editReturnedUnitPrice);
-    if (!(returnedUnit > 0)) {
-      setError("El precio unitario del producto que ingresa debe ser mayor a cero.");
+    const hasInvalidPrice = previewReturnedLines(preview).some(
+      (line) => !(Number(editReturnedUnitPrices[returnedLineKey(line)]) > 0)
+    );
+    if (hasInvalidPrice) {
+      setError("El precio unitario de cada producto que ingresa debe ser mayor a cero.");
       return;
     }
     try {
       setLoading(true);
-      const result = await previewKioskExchange(buildPreviewPayload({
-        returnedUnitPrice: returnedUnit,
-      }));
+      const result = await previewKioskExchange(buildPreviewPayload({ useEditedReturnedPrices: true }));
       setPreview(result);
-      setEditReturnedUnitPrice(String(result?.returned?.unitPrice ?? returnedUnit));
+      setEditReturnedUnitPrices(buildReturnedPriceMap(result));
     } catch (err) {
       setError(err.message || "No se pudieron aplicar los precios.");
     } finally {
@@ -571,13 +739,19 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
       : preview.given
         ? [preview.given]
         : [];
+    const returnedItems = previewReturnedLines(preview);
     if (!canEditPrices) {
-      return { ...preview, givenItems };
+      return { ...preview, givenItems, returnedItems };
     }
-    const returnedUnit = Number(editReturnedUnitPrice);
-    if (!(returnedUnit > 0)) return { ...preview, givenItems };
-    const returnedQuantity = Number(preview.returned?.quantity || 0);
-    const productReturned = Number((returnedUnit * returnedQuantity).toFixed(2));
+    const editedReturnedItems = returnedItems.map((line) => {
+      const unit = Number(editReturnedUnitPrices[returnedLineKey(line)]);
+      const lineTotal = Number((unit * Number(line.quantity || 0)).toFixed(2));
+      return { ...line, unitPrice: unit, lineTotal };
+    });
+    if (editedReturnedItems.some((line) => !(line.unitPrice > 0))) {
+      return { ...preview, givenItems, returnedItems };
+    }
+    const productReturned = sumGivenLineAmounts(editedReturnedItems);
     const editedGivenItems = givenItems.map((line, index) => {
       const key = givenLines[index]?.lineKey;
       const unit = Number(editGivenUnitPrices[key] || line.unitPrice || 0);
@@ -586,15 +760,9 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
       return { ...line, unitPrice: unit, lineTotal };
     });
     const productGiven = sumGivenLineAmounts(editedGivenItems);
-    const packagingCredit = Number(
-      preview.packagingCreditAmount != null
-        ? preview.packagingCreditAmount
-        : preview.packagingReturnedAmount || 0
-    );
     const settlement = applyExchangePackagingCredit({
       productReturnedAmount: productReturned,
       productGivenAmount: productGiven,
-      packagingCredit,
     });
     return {
       ...preview,
@@ -603,15 +771,12 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
       differenceAmount: settlement.differenceAmount,
       packagingReturnedAmount: settlement.packagingReturnedAmount,
       packagingGivenAmount: 0,
-      returned: {
-        ...preview.returned,
-        unitPrice: returnedUnit,
-        lineTotal: productReturned,
-      },
+      returned: editedReturnedItems[0] || preview.returned,
+      returnedItems: editedReturnedItems,
       given: editedGivenItems[0] || preview.given,
       givenItems: editedGivenItems,
     };
-  }, [preview, canEditPrices, editReturnedUnitPrice, editGivenUnitPrices, givenLines]);
+  }, [preview, canEditPrices, editReturnedUnitPrices, editGivenUnitPrices, givenLines]);
 
   const differenceAmount = Number(displayPreview?.differenceAmount || 0);
   const hasPriceDifference = differenceAmount > 0.009;
@@ -630,10 +795,12 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
       })
     );
     const primary = items[0] || {};
+    const returnedItems = buildReturnedItemsPayload(true);
     const payload = {
       kioskLocationId,
       originalSaleId: sale?.id || null,
-      originalSaleItemId: selectedItem?.id || null,
+      originalSaleItemId: returnedItems[0]?.originalSaleItemId || null,
+      returnedItems,
       returnedProductId: selectedReturnedProduct?.id || null,
       returnedColorId: returnedColorId ? Number(returnedColorId) : null,
       returnedSize: returnedSize.trim() || null,
@@ -647,11 +814,12 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
       physicalSlipNumber: physicalSlipNumber.trim(),
       reason: payment.reason || reason,
       observations: payment.observations || observations,
+      pricingMode,
       ...payment,
     };
     Object.assign(payload, buildDiscountPayload());
-    if (canEditPrices) {
-      const returnedUnit = Number(editReturnedUnitPrice);
+    if (canEditPrices && exchangeMode === "FREE") {
+      const returnedUnit = Number(editReturnedUnitPrices.free);
       if (returnedUnit > 0) payload.returnedUnitPrice = returnedUnit;
     }
     return payload;
@@ -689,9 +857,49 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
       const result = await completeKioskExchange(buildCompleteRequest(payment));
       setCheckoutOpen(false);
       openExchangeSlipPrintWindow(buildKioskExchangeSlipPrintHtml(result.slip, displayPreview));
-      if (result?.sale && saleNeedsFelCertification(result.sale)) {
+
+      let sale = result?.sale || null;
+      const needsFel = sale && saleNeedsFelCertification(sale);
+      if (needsFel && Number(displayPreview?.differenceAmount || 0) > 0.009) {
+        try {
+          await updateKioskSaleInvoiceContact(sale.id, kioskLocationId, {
+            email: payment?.email || null,
+            phone: payment?.phone || null,
+          });
+          await issueTaxInvoiceFromKioskSale(sale.id);
+          let refreshed = await getKioskSaleById(sale.id, kioskLocationId);
+          if (!getSaleInternalNumber(refreshed)) {
+            await new Promise((resolve) => setTimeout(resolve, 400));
+            refreshed = await getKioskSaleById(sale.id, kioskLocationId);
+          }
+          sale = refreshed || sale;
+          showSuccess("Cambio registrado y factura electrónica certificada.");
+          finishExchange({ ...result, sale });
+          return;
+        } catch (felErr) {
+          const backdateBlocked = isFelBackdateWindowError(felErr.message);
+          if (!backdateBlocked && saleNeedsFelCertification(sale)) {
+            setPendingCompleteResult({ ...result, sale });
+            setPendingFelSale(sale);
+            showError(
+              felErr.message
+                || "El cambio quedó registrado pero no se pudo certificar. Completa la factura en el aviso."
+            );
+            return;
+          }
+          showError(
+            backdateBlocked
+              ? "El cambio quedó registrado. SAT no permite certificar documentos de hace más de 5 días."
+              : (felErr.message || "El cambio quedó registrado pero no se pudo certificar la factura.")
+          );
+          finishExchange({ ...result, sale });
+          return;
+        }
+      }
+
+      if (needsFel) {
         setPendingCompleteResult(result);
-        setPendingFelSale(result.sale);
+        setPendingFelSale(sale);
         return;
       }
       finishExchange(result);
@@ -770,7 +978,34 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
           {step === 1 && (
             <>
               <div className="kiosk-exchange-section">
-                <span className="kiosk-exchange-label">Tipo de cambio</span>
+                <span className="kiosk-exchange-label">¿Hay diferencia de precio?</span>
+                <div className="kiosk-exchange-mode-row">
+                  <button
+                    type="button"
+                    className={`kiosk-exchange-mode-btn${differenceMode === DIFFERENCE_NONE ? " is-active" : ""}`}
+                    onClick={() => {
+                      setDifferenceMode(DIFFERENCE_NONE);
+                      setReturnedSoldWithDiscount(false);
+                      setReturnedDiscountPreset("");
+                      setReturnedDiscountOther("");
+                    }}
+                  >
+                    <strong>Sin diferencia</strong>
+                    <span>Mismo precio · cambio de estilo/talla</span>
+                  </button>
+                  <button
+                    type="button"
+                    className={`kiosk-exchange-mode-btn${differenceMode === DIFFERENCE_WITH ? " is-active" : ""}`}
+                    onClick={() => setDifferenceMode(DIFFERENCE_WITH)}
+                  >
+                    <strong>Con diferencia</strong>
+                    <span>Cliente paga o queda saldo a favor</span>
+                  </button>
+                </div>
+              </div>
+
+              <div className="kiosk-exchange-section">
+                <span className="kiosk-exchange-label">Origen de la venta</span>
                 <div className="kiosk-exchange-mode-row">
                   <button
                     type="button"
@@ -790,6 +1025,18 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
                   </button>
                 </div>
               </div>
+
+              {differenceMode === DIFFERENCE_NONE && (
+                <div className="kiosk-exchange-hint">
+                  <span className="kiosk-exchange-hint-icon" aria-hidden>i</span>
+                  <span>
+                    Entrada y salida al <strong>mismo precio unitario</strong>
+                    {exchangeMode === "SALE"
+                      ? " (el pagado en la factura, con su descuento si lo tuvo)."
+                      : ". Indica si la venta original tuvo descuento para fijar ese precio."}
+                  </span>
+                </div>
+              )}
 
               {exchangeMode === "SALE" ? (
                 <>
@@ -825,8 +1072,9 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
                   <div className="kiosk-exchange-hint">
                     <span className="kiosk-exchange-hint-icon" aria-hidden>i</span>
                     <span>
-                      El ingreso se valora a precio de catálogo (con o sin descuento). El producto nuevo se cobra
-                      a precio normal cuando hay diferencia.
+                      {differenceMode === DIFFERENCE_NONE
+                        ? "El ingreso define el precio compartido (catálogo ± descuento). El producto nuevo sale al mismo precio."
+                        : "El ingreso se valora a precio de catálogo (con o sin descuento). El producto nuevo se cobra a precio normal cuando hay diferencia."}
                     </span>
                   </div>
                   <div className="kiosk-exchange-panel">
@@ -878,7 +1126,7 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
                       </div>
                     </div>
                   </div>
-                  {renderReturnedDiscountFields()}
+                  {showDiscountFields && renderReturnedDiscountFields()}
                 </>
               )}
             </>
@@ -900,62 +1148,112 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
               <div className="kiosk-exchange-hint">
                 <span className="kiosk-exchange-hint-icon" aria-hidden>i</span>
                 <span>
-                  Selecciona el producto a cambiar. Los empaques SUM se muestran solo de referencia (precio de factura,
-                  sin descuento) y no mueven stock.
+                  Marca <strong>todos los productos</strong> que el cliente devuelve; puedes elegir varios de la misma
+                  factura. Los empaques SUM se muestran solo de referencia (precio de factura, sin descuento) y no
+                  mueven stock.
                 </span>
               </div>
-              <div className="kiosk-exchange-table-wrap">
-                <Table responsive size="sm">
-                  <thead>
-                    <tr>
-                      <th />
-                      <th>Código</th>
-                      <th>Artículo</th>
-                      <th>Cant.</th>
-                      <th>Precio</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {(sale.items || []).map((item) => {
-                      const isPackaging = isPackagingProductCode(item.productCode);
-                      const isSelected = !isPackaging && String(selectedItemId) === String(item.id);
-                      const lineTotal =
-                        Number(item.lineTotal) > 0
-                          ? Number(item.lineTotal)
-                          : Number(item.unitPrice || 0) * Number(item.quantity || 0);
-                      return (
-                        <tr
-                          key={item.id}
-                          className={isSelected ? "table-active" : isPackaging ? "text-muted" : ""}
-                          onClick={() => {
-                            if (!isPackaging) selectReturnedItem(item);
-                          }}
-                          style={isPackaging ? { cursor: "default" } : undefined}
-                        >
-                          <td onClick={(e) => e.stopPropagation()}>
-                            {isPackaging ? (
-                              <span className="kiosk-exchange-help">SUM</span>
-                            ) : (
-                              <Input
-                                type="radio"
-                                name="return-line"
-                                checked={isSelected}
-                                onChange={() => selectReturnedItem(item)}
-                              />
-                            )}
-                          </td>
-                          <td>{item.productCode}</td>
-                          <td>
-                            {item.productName}
-                            {isPackaging ? " · empaque (sin cambio de stock)" : ""}
-                          </td>
-                          <td>{formatQty(item.quantity)}</td>
-                          <td>{formatCurrency(isPackaging ? lineTotal : item.unitPrice)}</td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </Table>
+              {exchangeableSaleItems.length > 1 && (
+                <div className="kiosk-exchange-toolbar">
+                  <span className="kiosk-exchange-label mb-0">
+                    ¿Qué devuelve el cliente?
+                  </span>
+                  <div className="kiosk-exchange-toolbar-actions">
+                    <button type="button" className="kiosk-exchange-linkbtn" onClick={selectAllReturnedItems}>
+                      Marcar todos
+                    </button>
+                    <button
+                      type="button"
+                      className="kiosk-exchange-linkbtn"
+                      onClick={clearReturnedItems}
+                      disabled={!selectedReturnLines.length}
+                    >
+                      Quitar selección
+                    </button>
+                  </div>
+                </div>
+              )}
+              <div className="kiosk-exchange-lines">
+                {(sale.items || []).map((item) => {
+                  const isPackaging = isPackagingProductCode(item.productCode);
+                  const sold = Number(item.quantity || 0);
+                  if (isPackaging) {
+                    const packagingTotal =
+                      Number(item.lineTotal) > 0 ? Number(item.lineTotal) : Number(item.unitPrice || 0) * sold;
+                    return (
+                      <div key={item.id} className="kiosk-exchange-line is-reference">
+                        <span className="kiosk-exchange-check is-disabled" aria-hidden>
+                          —
+                        </span>
+                        <div className="kiosk-exchange-line-main">
+                          <span className="kiosk-exchange-line-title">{item.productName}</span>
+                          <span className="kiosk-exchange-line-meta">
+                            {item.productCode} · Empaque SUM (sin cambio de stock) · {formatCurrency(packagingTotal)}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  }
+                  const selectedQty = hasOwn(returnedSelection, String(item.id))
+                    ? returnedSelection[String(item.id)]
+                    : null;
+                  const isSelected = selectedQty !== null;
+                  return (
+                    <div key={item.id} className={`kiosk-exchange-line${isSelected ? " is-selected" : ""}`}>
+                      <label className="kiosk-exchange-line-pick">
+                        <input
+                          type="checkbox"
+                          className="kiosk-exchange-line-input"
+                          checked={isSelected}
+                          onChange={() => toggleReturnedItem(item)}
+                        />
+                        <span className="kiosk-exchange-check" aria-hidden>
+                          {isSelected ? "✓" : ""}
+                        </span>
+                        <span className="kiosk-exchange-line-main">
+                          <span className="kiosk-exchange-line-title">{item.productName}</span>
+                          <span className="kiosk-exchange-line-meta">
+                            {item.productCode} · Vendido: {formatQty(sold)} · {formatCurrency(item.unitPrice)} c/u
+                          </span>
+                        </span>
+                      </label>
+                      {isSelected && sold > 1 && (
+                        <div className="kiosk-exchange-qty-wrap">
+                          <span className="kiosk-exchange-qty-label">Devuelve</span>
+                          <div className="kiosk-exchange-qty">
+                            <button
+                              type="button"
+                              aria-label={`Menos ${item.productName}`}
+                              onClick={() => stepReturnedItemQty(item, -1)}
+                              disabled={Number(selectedQty) <= 1}
+                            >
+                              −
+                            </button>
+                            <input
+                              type="number"
+                              min="1"
+                              max={sold}
+                              step="1"
+                              inputMode="numeric"
+                              aria-label={`Cantidad devuelta de ${item.productName}`}
+                              value={selectedQty}
+                              onChange={(e) => setReturnedItemQty(item, e.target.value)}
+                            />
+                            <button
+                              type="button"
+                              aria-label={`Más ${item.productName}`}
+                              onClick={() => stepReturnedItemQty(item, 1)}
+                              disabled={Number(selectedQty) >= sold}
+                            >
+                              +
+                            </button>
+                          </div>
+                          <span className="kiosk-exchange-qty-of">de {formatQty(sold)}</span>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
               {packagingSaleTotal > 0 ? (
                 <p className="kiosk-exchange-help">
@@ -967,22 +1265,16 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
                   Esta venta no tiene productos cambiables (solo empaques SUM u otras líneas excluidas).
                 </Alert>
               )}
-              <div className="kiosk-exchange-panel mb-3">
-                <div className="kiosk-exchange-field" style={{ maxWidth: 180 }}>
-                  <span className="kiosk-exchange-label">Cantidad devuelta</span>
-                  <Input
-                    type="number"
-                    min="1"
-                    step="1"
-                    value={returnedQty}
-                    onChange={(e) => {
-                      setReturnedQty(e.target.value);
-                      setDraftGivenQty(e.target.value);
-                    }}
-                  />
+              {exchangeableSaleItems.length > 0 && (
+                <div className={`kiosk-exchange-selected${selectedReturnLines.length ? "" : " is-empty"}`}>
+                  {selectedReturnLines.length
+                    ? `Devuelve ${selectedReturnLines.length} ${
+                        selectedReturnLines.length === 1 ? "producto" : "productos"
+                      } · ${formatQty(totalReturnedUnits)} ${totalReturnedUnits === 1 ? "unidad" : "unidades"}`
+                    : "Aún no marcaste ningún producto."}
                 </div>
-              </div>
-              {renderReturnedDiscountFields()}
+              )}
+              {showDiscountFields && renderReturnedDiscountFields()}
             </>
           )}
 
@@ -991,9 +1283,21 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
               <div className="kiosk-exchange-hint">
                 <span className="kiosk-exchange-hint-icon" aria-hidden>i</span>
                 <span>
-                  Puedes entregar uno o varios productos. Si el valor entregado es mayor se cobra; si es igual, sin cobro; si es menor queda saldo a favor (sin reembolso).
+                  {differenceMode === DIFFERENCE_NONE
+                    ? "Entrega el producto de reemplazo al mismo precio unitario del que ingresa (estilo/talla)."
+                    : "Puedes entregar uno o varios productos. Si el valor entregado es mayor se cobra; si es igual, sin cobro; si es menor queda saldo a favor (sin reembolso)."}
                 </span>
               </div>
+              {exchangeMode === "SALE" && selectedReturnLines.length > 1 && (
+                <div className="kiosk-exchange-sale-meta">
+                  <span className="kiosk-exchange-label mb-0 mr-1">Ingresan:</span>
+                  {selectedReturnLines.map(({ item, quantity }) => (
+                    <span key={item.id} className="kiosk-exchange-pill">
+                      {formatQty(quantity)} × {item.productCode}
+                    </span>
+                  ))}
+                </div>
+              )}
               <div className="kiosk-exchange-panel">
                 <div className="kiosk-exchange-field">
                   <span className="kiosk-exchange-label">Agregar producto a entregar</span>
@@ -1069,6 +1373,19 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
                       ))}
                     </tbody>
                   </Table>
+                  {totalReturnedUnits > 0 && (
+                    <p
+                      className={`kiosk-exchange-balance${
+                        differenceMode === DIFFERENCE_NONE && totalGivenUnits !== totalReturnedUnits ? " is-warn" : ""
+                      }`}
+                    >
+                      Ingresan <strong>{formatQty(totalReturnedUnits)}</strong> · Entregas{" "}
+                      <strong>{formatQty(totalGivenUnits)}</strong>
+                      {differenceMode === DIFFERENCE_NONE && totalGivenUnits !== totalReturnedUnits
+                        ? " — sin diferencia de precio las unidades deberían ser iguales."
+                        : ""}
+                    </p>
+                  )}
                 </div>
               )}
             </>
@@ -1078,22 +1395,39 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
             <>
               <div className="kiosk-exchange-summary">
                 <div className="kiosk-exchange-summary-card">
-                  <h6>Ingreso</h6>
-                  <p>{displayPreview.returned.productCode} · {displayPreview.returned.productName}</p>
-                  <p>Cant. {formatQty(displayPreview.returned.quantity)}</p>
-                  {canEditPrices ? (
-                    <FormGroup className="mb-2 mt-2">
-                      <span className="kiosk-exchange-label">Precio unitario</span>
-                      <Input
-                        type="number"
-                        min="0.01"
-                        step="0.01"
-                        value={editReturnedUnitPrice}
-                        onChange={(e) => setEditReturnedUnitPrice(e.target.value)}
-                      />
-                    </FormGroup>
-                  ) : null}
-                  <strong>{formatCurrency(displayPreview.returnedAmount)}</strong>
+                  <h6>Ingreso ({displayPreview.returnedItems.length})</h6>
+                  {displayPreview.returnedItems.map((line) => {
+                    const key = returnedLineKey(line);
+                    return (
+                      <div key={key} className="mb-2">
+                        <p className="mb-0">
+                          {line.productCode} · {line.productName}
+                          {line.size ? ` · T.${line.size}` : ""}
+                        </p>
+                        <p className="mb-1">Cant. {formatQty(line.quantity)}</p>
+                        {canEditPrices ? (
+                          <FormGroup className="mb-1">
+                            <span className="kiosk-exchange-label">Precio unitario</span>
+                            <Input
+                              type="number"
+                              min="0.01"
+                              step="0.01"
+                              value={editReturnedUnitPrices[key] ?? String(line.unitPrice ?? "")}
+                              onChange={(e) =>
+                                setEditReturnedUnitPrices((prev) => ({ ...prev, [key]: e.target.value }))
+                              }
+                            />
+                          </FormGroup>
+                        ) : null}
+                        {displayPreview.returnedItems.length > 1 ? (
+                          <strong>{formatCurrency(line.lineTotal)}</strong>
+                        ) : null}
+                      </div>
+                    );
+                  })}
+                  <p className="mt-2 mb-0">
+                    Total ingreso: <strong>{formatCurrency(displayPreview.returnedAmount)}</strong>
+                  </p>
                   {Number(displayPreview.packagingReturnedAmount || 0) > 0 ? (
                     <p className="kiosk-exchange-help mb-0 mt-1">
                       Incluye empaque de factura {formatCurrency(displayPreview.packagingReturnedAmount)} porque hay
@@ -1101,8 +1435,7 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
                     </p>
                   ) : Number(displayPreview.packagingCreditAmount || 0) > 0 ? (
                     <p className="kiosk-exchange-help mb-0 mt-1">
-                      Empaque de factura {formatCurrency(displayPreview.packagingCreditAmount)} no entra: los
-                      productos tienen el mismo precio.
+                      Empaque de factura {formatCurrency(displayPreview.packagingCreditAmount)} no entra en cambios.
                     </p>
                   ) : null}
                 </div>
@@ -1144,9 +1477,19 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
                   <div className="kiosk-exchange-diff-value">
                     {formatCurrency(displayPreview.differenceAmount)}
                   </div>
+                  {differenceMode === DIFFERENCE_NONE && !hasPriceDifference && !hasNegativeDifference && (
+                    <p className="small text-muted mt-2 mb-0">
+                      Mismo precio · sin cobro. Supervisora autoriza el movimiento de inventario.
+                    </p>
+                  )}
                   {hasNegativeDifference && (
                     <p className="text-warning small mt-2 mb-0">
                       Saldo a favor del cliente: {formatCurrency(Math.abs(differenceAmount))}. No se reembolsa dinero; queda registrado en la boleta.
+                    </p>
+                  )}
+                  {differenceMode === DIFFERENCE_NONE && hasPriceDifference && (
+                    <p className="text-danger small mt-2 mb-0">
+                      Marcaste sin diferencia pero hay cobro. Revisa cantidades o cambia a &quot;Con diferencia&quot;.
                     </p>
                   )}
                   {canEditPrices ? (
@@ -1235,7 +1578,7 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
               Ver resumen
             </Button>
           )}
-          {step === 4 && displayPreview && hasPriceDifference && !hasNegativeDifference && (
+          {step === 4 && displayPreview && hasPriceDifference && !hasNegativeDifference && differenceMode === DIFFERENCE_WITH && (
             <Button color="success" onClick={handleOpenCheckout}>
               Cobrar y confirmar
             </Button>
@@ -1243,6 +1586,11 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
           {step === 4 && displayPreview && !hasPriceDifference && (
             <Button color="success" onClick={() => void handleSubmitAuthorizationRequest()} disabled={saving}>
               {saving ? "Enviando..." : "Enviar solicitud de cambio"}
+            </Button>
+          )}
+          {step === 4 && displayPreview && differenceMode === DIFFERENCE_NONE && hasPriceDifference && (
+            <Button color="warning" outline disabled>
+              Corrige cantidades o elige &quot;Con diferencia&quot;
             </Button>
           )}
         </ModalFooter>

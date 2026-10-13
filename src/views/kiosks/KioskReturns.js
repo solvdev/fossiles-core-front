@@ -70,6 +70,13 @@ const statusLabel = (status) => {
   return status || "—";
 };
 
+/** "Cartera X" o, si la boleta mueve varios productos, "Cartera X +2 más" (el detalle completo va en la impresión). */
+const summarizeSlipProducts = (items, fallbackName) => {
+  const lines = Array.isArray(items) ? items.filter(Boolean) : [];
+  if (lines.length <= 1) return lines[0]?.productName || fallbackName;
+  return `${lines[0].productName || fallbackName} +${lines.length - 1} más`;
+};
+
 const formatKioskLabel = (row) => {
   const code = row?.kioskCode || "";
   const name = row?.kioskName || row?.locationName || "";
@@ -87,6 +94,7 @@ const slipMatchesSearch = (row, query) => {
     row.originalSaleNumber,
     row.returnedProductName,
     row.returnedProductCode,
+    ...(row.returnedItems || []).flatMap((line) => [line.productName, line.productCode]),
     row.givenProductName,
     row.givenProductCode,
     row.reason,
@@ -603,8 +611,8 @@ function KioskReturns() {
                             <td>{row.slipNumber}</td>
                             <td>{formatKioskLabel(row)}</td>
                             <td>{row.originalSaleNumber}</td>
-                            <td>{row.returnedProductName}</td>
-                            <td>{row.givenProductName}</td>
+                            <td>{summarizeSlipProducts(row.returnedItems, row.returnedProductName)}</td>
+                            <td>{summarizeSlipProducts(row.givenItems, row.givenProductName)}</td>
                             <td>{formatCurrency(row.differenceAmount)}</td>
                             <td><Badge color={statusBadge(row.status)}>{statusLabel(row.status)}</Badge></td>
                             <td className="text-right">
@@ -778,8 +786,8 @@ function KioskReturns() {
                               <td>{row.slipNumber}</td>
                               <td>{formatKioskLabel(row)}</td>
                               <td>{row.createdByName || "—"}</td>
-                              <td>{row.returnedProductName}</td>
-                              <td>{row.givenProductName}</td>
+                              <td>{summarizeSlipProducts(row.returnedItems, row.returnedProductName)}</td>
+                              <td>{summarizeSlipProducts(row.givenItems, row.givenProductName)}</td>
                               <td>{row.reason}</td>
                               <td className="text-right">
                                 {canApproveExchanges && (

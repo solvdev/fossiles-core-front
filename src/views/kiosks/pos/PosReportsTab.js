@@ -1011,7 +1011,9 @@ function PosReportsTab({
                           ? ` · ${sale.depositBankName}`
                           : sale.depositBank === "INDUSTRIAL"
                             ? " · Banco Industrial"
-                            : sale.depositBank
+                            : sale.depositBank === "BANRURAL"
+                              ? " · BANRURAL"
+                              : sale.depositBank
                               ? " · Banco G&T Continental"
                               : ""
                       }`

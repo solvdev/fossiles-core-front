@@ -13,7 +13,8 @@ const COUNT_LOCATION_KEYS = ["V1", "V2", "V3", "V4", "V5", "V6", "V7", "E", "BO"
 /** Código + Producto (nombre · código · color · talla en una sola columna). */
 const PRODUCT_COL_COUNT = 2;
 const DIFF_ALERT_THRESHOLD = 3;
-/** Filas vacías entre categorías para que Ctrl+↓ no salte a todo el archivo. */
+/** Filas vacías entre categorías para que Ctrl+↓ no salte a todo el archivo.
+ * El autofiltro se define con rango explícito hasta el final para no cortarse aquí. */
 const BLANK_ROWS_BETWEEN_CATEGORIES = 2;
 
 const COLORS = {
@@ -752,6 +753,18 @@ function applyConteoSheetStyles(ws, report, showKardex, includeVitrines = true, 
       activePane: "bottomRight",
     },
   ];
+
+  // Rango explícito: las filas en blanco entre categorías no deben truncar el filtro.
+  const lastDataRow = Math.max(kardexHeaderRow, meta.length - 1);
+  const lastDataCol = Math.max(0, colCount - 1);
+  if (lastDataRow > kardexHeaderRow) {
+    ws["!autofilter"] = {
+      ref: XLSX.utils.encode_range({
+        s: { r: kardexHeaderRow, c: 0 },
+        e: { r: lastDataRow, c: lastDataCol },
+      }),
+    };
+  }
 }
 
 export function exportConteoToExcel(report, options = {}) {

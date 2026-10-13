@@ -196,8 +196,11 @@ const WarehouseReceiptTab = ({ orders, onRefresh, onOrderSummaryUpdate }) => {
           const progress = getOrderQtyProgress(order);
           const pendingQty = getPendingReceiptQty(order);
           const customerHint = getOrderCustomerHint(order);
-          const productHint = getOrderProductHint(order);
+          const productHint = getOrderProductHint(order, 3, { pendingOnly: true });
           const typeLabel = getOrderTypeLabel(order);
+          const pendingPct = progress.total > 0
+            ? Math.round((pendingQty / progress.total) * 100)
+            : 0;
 
           return (
             <Card
@@ -234,14 +237,16 @@ const WarehouseReceiptTab = ({ orders, onRefresh, onOrderSummaryUpdate }) => {
                     ) : null}
                   </Col>
                   <Col md="4" className="mb-2 mb-md-0">
-                    <div className="small text-muted mb-1">Productos</div>
+                    <div className="small text-muted mb-1">Pendiente por recibir</div>
                     <div style={{ fontWeight: 600 }}>{productHint}</div>
                     <div className="small text-muted mt-1">
-                      Recibido {progress.produced}/{progress.total}
+                      {pendingQty > 0
+                        ? `Faltan ${pendingQty} de ${progress.total}`
+                        : "Nada pendiente"}
                     </div>
                     <Progress
-                      value={progress.pct}
-                      color={progress.pct >= 100 ? "success" : "warning"}
+                      value={pendingQty > 0 ? Math.max(pendingPct, 4) : 0}
+                      color={pendingQty > 0 ? "warning" : "success"}
                       className="mt-1"
                       style={{ height: 8 }}
                     />

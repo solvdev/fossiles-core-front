@@ -5,9 +5,15 @@
 import { getAuthHeader } from './authService';
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8080/api';
 
-export const getProductionOrders = async () => {
+/**
+ * @param {{ cached?: boolean }} [options] `cached: true` usa la caché del Centro de Producción
+ *   en el servidor (hasta 2 min, se suelta al escribir órdenes o planificar). Solo para pantallas
+ *   que usan el listado como referencia; las que operan sobre las órdenes lo piden fresco.
+ */
+export const getProductionOrders = async ({ cached = false } = {}) => {
   try {
-    const response = await fetch(`${API_URL}/production-orders`, {
+    const query = cached ? '?cached=true' : '';
+    const response = await fetch(`${API_URL}/production-orders${query}`, {
       method: 'GET',
       headers: {
         'Content-Type': 'application/json',
@@ -558,6 +564,22 @@ export const getProductionLeatherEstimate = async (orderId) => {
   if (!response.ok) {
     const err = await response.json().catch(() => ({ message: 'Error al estimar cuero de producción' }));
     throw new Error(err.message || 'Error al estimar cuero de producción');
+  }
+  return response.json();
+};
+
+/** Materiales requeridos por OP según BOM × cantidad (para saber cuánto pedir). */
+export const getProductionMaterialsEstimate = async (orderId) => {
+  if (!orderId || orderId === 'undefined' || orderId === 'null') {
+    throw new Error('ID de orden de producción inválido');
+  }
+  const response = await fetch(
+    `${API_URL}/production-orders/${orderId}/materials-estimate`,
+    { headers: { 'Content-Type': 'application/json', ...getAuthHeader() } }
+  );
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ message: 'Error al estimar materiales de producción' }));
+    throw new Error(err.message || 'Error al estimar materiales de producción');
   }
   return response.json();
 };
