@@ -18,14 +18,16 @@ import {
   Col,
   Badge,
 } from "reactstrap";
-import { getMaterialReceipts, createMaterialReceipt, updateMaterialReceipt } from "services/materialReceiptService";
+import { getMaterialReceipts, createMaterialReceipt, updateMaterialReceipt, cancelMaterialReceipt } from "services/materialReceiptService";
 import { getPurchaseOrders, getPurchaseOrderById } from "services/purchaseOrderService";
 import { getMaterialRequestById } from "services/materialRequestService";
 import { getSuppliers } from "services/supplierService";
 import { getMaterials } from "services/materialService";
 import { showSuccess, showError } from "utils/notificationHelper";
 import { formatDateGt, formatDateTimeGt, formatNowGt } from "utils/dateTimeHelper";
+import { groupPurchaseMaterials } from "utils/materialReceiptItems";
 import * as XLSX from "xlsx";
+import { escapeHtml } from "utils/productionOrderPrintHtml";
 
 function MaterialReceipts() {
   const [receipts, setReceipts] = useState([]);
@@ -48,6 +50,24 @@ function MaterialReceipts() {
   const [selectedReceipt, setSelectedReceipt] = useState(null);
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [relatedRequests, setRelatedRequests] = useState([]);
+  const [receiptToCancel, setReceiptToCancel] = useState(null);
+  const [cancellationReason, setCancellationReason] = useState("");
+
+  const handleCancelReceipt = async () => {
+    if (!receiptToCancel || !cancellationReason.trim()) return;
+    try {
+      setLoading(true);
+      await cancelMaterialReceipt(receiptToCancel.id, cancellationReason.trim());
+      setReceiptToCancel(null);
+      setCancellationReason("");
+      showSuccess("Recepción anulada; inventario y contabilidad actualizados.");
+      await Promise.all([loadReceipts(), loadPurchaseOrders()]);
+    } catch (err) {
+      showError(err.message || "Error al anular la recepción");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
     loadReceipts();
@@ -102,7 +122,8 @@ function MaterialReceipts() {
   const handleOrderSelect = async (orderId) => {
     if (orderId) {
       try {
-        const order = await getPurchaseOrderById(orderId);
+        const loadedOrder = await getPurchaseOrderById(orderId);
+        const order = { ...loadedOrder, items: groupPurchaseMaterials(loadedOrder.items) };
         
         // Validación: Solo se pueden recibir órdenes en estado CREADA o PARCIALMENTE_RECIBIDA
         if (order.status === "RECIBIDA") {
@@ -156,8 +177,8 @@ function MaterialReceipts() {
             
             return {
               materialId: item.materialId,
-              quantityReceived: item.quantityReceived || item.quantity,
-              unitPriceReceived: item.unitPriceReceived || item.unitPrice,
+              quantityReceived: item.quantityReceived ?? item.quantity,
+              unitPriceReceived: item.unitPriceReceived ?? item.unitPrice,
               supplierId: supplierId, // Incluir supplierId del item, material o encontrado por nombre
               receiptDate: formData.receiptDate, // Fecha por defecto, editable por item
               isReceived: false, // Por defecto no está marcado como recibido
@@ -214,7 +235,8 @@ function MaterialReceipts() {
       setEditingReceiptId(receipt.id);
       
       // Cargar la orden de compra asociada
-      const order = await getPurchaseOrderById(receipt.purchaseOrderId);
+      const loadedOrder = await getPurchaseOrderById(receipt.purchaseOrderId);
+      const order = { ...loadedOrder, items: groupPurchaseMaterials(loadedOrder.items) };
       setSelectedOrder(order);
       
       // Preparar items: combinar items ya recibidos con items de la orden que faltan
@@ -285,6 +307,8 @@ function MaterialReceipts() {
   };
 
   const generateReceiptPrintContent = (receipt) => {
+    // Una recepción anulada se imprime como tal; sus cantidades ya no están en inventario.
+    const cancelled = receipt.status === "CANCELLED";
     const receiptDate = receipt.receiptDate
       ? new Date(receipt.receiptDate).toLocaleDateString('es-GT', { 
           year: 'numeric', 
@@ -306,7 +330,7 @@ function MaterialReceipts() {
       itemsHtml += `
         <tr>
           <td style="border: 1px solid #ddd; padding: 8px;">${idx + 1}</td>
-          <td style="border: 1px solid #ddd; padding: 8px;"><strong>${item.materialSku || "N/A"}</strong><br/><small>${item.materialName || "N/A"}</small></td>
+          <td style="border: 1px solid #ddd; padding: 8px;"><strong>${escapeHtml(item.materialSku || "N/A")}</strong><br/><small>${escapeHtml(item.materialName || "N/A")}</small></td>
           <td style="border: 1px solid #ddd; padding: 8px; text-align: center;">${item.quantityOrdered?.toFixed(3) || "0.000"}</td>
           <td style="border: 1px solid #ddd; padding: 8px; text-align: center;">${item.quantityReceived?.toFixed(3) || "0.000"}</td>
           <td style="border: 1px solid #ddd; padding: 8px; text-align: right;">Q ${item.unitPriceOrdered?.toFixed(2) || "0.00"}</td>
@@ -386,21 +410,22 @@ function MaterialReceipts() {
           <div class="header">
             <h1>Recepción de Materiales</h1>
             <p style="margin: 5px 0;">Recepción #${receipt.id}</p>
+            ${cancelled ? `<p style="margin: 5px 0; color: #c00; font-weight: bold;">RECEPCIÓN ANULADA${receipt.cancellationReason ? ` — ${escapeHtml(receipt.cancellationReason)}` : ""}</p>` : ""}
           </div>
           
           <div class="info-section">
             <div class="info-row">
-              <span><strong>Orden de Compra:</strong> ${receipt.purchaseOrderCode || "N/A"}</span>
+              <span><strong>Orden de Compra:</strong> ${escapeHtml(receipt.purchaseOrderCode || "N/A")}</span>
               <span><strong>Fecha Recepción:</strong> ${receiptDate}</span>
             </div>
             <div class="info-row">
-              <span><strong>Proveedor:</strong> ${receipt.supplierName || "N/A"}</span>
+              <span><strong>Proveedor:</strong> ${escapeHtml(receipt.supplierName || "N/A")}</span>
               <span><strong>Fecha Orden:</strong> ${orderDate}</span>
             </div>
             <div class="info-row">
-              <span><strong>Estado:</strong> ${receipt.orderStatus || "N/A"}</span>
+              <span><strong>Estado:</strong> ${cancelled ? "ANULADA" : escapeHtml(receipt.orderStatus || "N/A")}</span>
             </div>
-            ${receipt.observations ? `<div class="info-row"><span><strong>Observaciones:</strong> ${receipt.observations}</span></div>` : ""}
+            ${receipt.observations ? `<div class="info-row"><span><strong>Observaciones:</strong> ${escapeHtml(receipt.observations)}</span></div>` : ""}
           </div>
 
           <table>
@@ -453,6 +478,9 @@ function MaterialReceipts() {
       }));
 
       const total = receipt.items.reduce((sum, item) => sum + (item.subtotal || 0), 0);
+      if (receipt.status === "CANCELLED") {
+        excelData.unshift({ "#": "", "SKU": "", "Material": `RECEPCIÓN ANULADA${receipt.cancellationReason ? `: ${receipt.cancellationReason}` : ""}` });
+      }
       excelData.push({
         "#": "",
         "SKU": "",
@@ -521,7 +549,7 @@ function MaterialReceipts() {
       return;
     }
 
-    if (selectedOrder.status === "RECIBIDA") {
+    if (!isEditing && selectedOrder.status === "RECIBIDA") {
       showError("Esta orden ya ha sido recibida completamente. No se puede registrar otra recepción.");
       return;
     }
@@ -531,7 +559,7 @@ function MaterialReceipts() {
       return;
     }
 
-    if (selectedOrder.status !== "CREADA" && selectedOrder.status !== "PARCIALMENTE_RECIBIDA") {
+    if (!isEditing && selectedOrder.status !== "CREADA" && selectedOrder.status !== "PARCIALMENTE_RECIBIDA") {
       showError(`No se puede recibir una orden en estado ${selectedOrder.status}. Solo se pueden recibir órdenes en estado CREADA o PARCIALMENTE_RECIBIDA.`);
       return;
     }
@@ -540,10 +568,10 @@ function MaterialReceipts() {
       setLoading(true);
       setError("");
 
-      // Truncar observations si excede el límite de 5000 caracteres
+      // El límite coincide con la validación de recepción.
       const observations = formData.observations 
-        ? (formData.observations.length > 5000 
-            ? formData.observations.substring(0, 5000) 
+        ? (formData.observations.length > 1000
+            ? formData.observations.substring(0, 1000)
             : formData.observations)
         : null;
 
@@ -552,7 +580,7 @@ function MaterialReceipts() {
         receiptDate: formData.receiptDate, // Fecha general (fallback)
         observations: observations,
         items: formData.items
-          .filter((item) => item.isReceived === true) // Solo enviar items marcados como recibidos
+          .filter((item) => isEditing || item.isReceived === true)
           .map((item) => {
             // Asegurar que supplierId se obtenga del item, con fallback al orderItem si no está presente
             const orderItem = selectedOrder.items.find(oi => oi.materialId === item.materialId);
@@ -560,7 +588,7 @@ function MaterialReceipts() {
             
             return {
               materialId: item.materialId,
-              quantityReceived: item.quantityReceived,
+              quantityReceived: item.isReceived === true ? item.quantityReceived : 0,
               unitPriceReceived: item.unitPriceReceived,
               supplierId: supplierIdToUse, // Incluir supplierId del item o del orderItem
               receiptDate: item.receiptDate || formData.receiptDate, // Fecha específica del item o fecha general
@@ -603,6 +631,21 @@ function MaterialReceipts() {
 
   return (
     <div className="content">
+      <Modal isOpen={Boolean(receiptToCancel)} toggle={() => !loading && setReceiptToCancel(null)}>
+        <ModalHeader>Anular recepción #{receiptToCancel?.id}</ModalHeader>
+        <ModalBody>
+          <p>Se revertirá el material disponible y se registrarán los ajustes contables. El material consumido requiere conciliación.</p>
+          <Label for="receipt-cancellation-reason">Motivo</Label>
+          <Input id="receipt-cancellation-reason" type="textarea" maxLength={1000}
+            value={cancellationReason} onChange={(event) => setCancellationReason(event.target.value)} disabled={loading} />
+        </ModalBody>
+        <ModalFooter>
+          <Button disabled={loading} onClick={() => setReceiptToCancel(null)}>Cerrar</Button>
+          <Button color="danger" disabled={loading || !cancellationReason.trim()} onClick={handleCancelReceipt}>
+            {loading ? "Anulando..." : "Anular recepción"}
+          </Button>
+        </ModalFooter>
+      </Modal>
       <Card>
         <CardHeader>
           <CardTitle tag="h4">Recepción de Materiales</CardTitle>
@@ -633,8 +676,7 @@ function MaterialReceipts() {
               </thead>
               <tbody>
                 {receipts.map((receipt) => {
-                  // Determinar si se puede editar: cualquier estado que no sea RECIBIDA
-                  const canEdit = receipt.orderStatus && receipt.orderStatus !== "RECIBIDA";
+                  const canEdit = receipt.status !== "CANCELLED" && receipt.orderStatus !== "CANCELADA";
                   
                   return (
                     <tr key={receipt.id}>
@@ -679,14 +721,16 @@ function MaterialReceipts() {
                       <td>
                         <Badge
                           color={
-                            receipt.orderStatus === "RECIBIDA"
+                            receipt.status === "CANCELLED"
+                              ? "danger"
+                              : receipt.orderStatus === "RECIBIDA"
                               ? "success"
                               : receipt.orderStatus === "PARCIALMENTE_RECIBIDA"
                               ? "warning"
                               : "info"
                           }
                         >
-                          {receipt.orderStatus || "N/A"}
+                          {receipt.status === "CANCELLED" ? "RECEPCIÓN ANULADA" : receipt.orderStatus || "N/A"}
                         </Badge>
                       </td>
                       <td>
@@ -706,6 +750,12 @@ function MaterialReceipts() {
                             className="mr-1"
                           >
                             <i className="nc-icon nc-settings" /> Editar
+                          </Button>
+                        )}
+                        {canEdit && (
+                          <Button color="danger" size="sm" disabled={loading}
+                            onClick={() => { setReceiptToCancel(receipt); setCancellationReason(""); }}>
+                            Anular
                           </Button>
                         )}
                       </td>
@@ -762,8 +812,8 @@ function MaterialReceipts() {
                 disabled={loading || isEditing}
               >
                 <option value="">Seleccione una orden de compra</option>
-                {purchaseOrders
-                  .filter((order) => order.status === "CREADA" || order.status === "PARCIALMENTE_RECIBIDA")
+                {[...purchaseOrders, ...(isEditing && selectedOrder && !purchaseOrders.some(order => order.id === selectedOrder.id) ? [selectedOrder] : [])]
+                  .filter((order) => isEditing || order.status === "CREADA" || order.status === "PARCIALMENTE_RECIBIDA")
                   .map((order) => (
                     <option key={order.id} value={order.id}>
                       {order.code} - {order.supplierName} - Q {order.total?.toFixed(2)} - {order.status}
@@ -1135,7 +1185,7 @@ function MaterialReceipts() {
                                       type="number"
                                       step="0.001"
                                       min="0"
-                                      value={receivedItem?.quantityReceived || orderItem.quantity}
+                                      value={receivedItem?.quantityReceived ?? orderItem.quantity}
                                       onChange={(e) => handleItemChange(orderItem.materialId, "quantityReceived", e.target.value)}
                                       invalid={isPartial}
                                       disabled={!isReceived}
@@ -1155,7 +1205,7 @@ function MaterialReceipts() {
                                       type="number"
                                       step="0.01"
                                       min="0"
-                                      value={receivedItem?.unitPriceReceived || orderItem.unitPrice}
+                                      value={receivedItem?.unitPriceReceived ?? orderItem.unitPrice}
                                       onChange={(e) => handleItemChange(orderItem.materialId, "unitPriceReceived", e.target.value)}
                                       disabled={!isReceived}
                                       style={{ width: "100px" }}

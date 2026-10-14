@@ -105,6 +105,7 @@ function AccountingEntriesReport() {
                   <option value="">Todos</option>
                   <option value="PURCHASE_ORDER">Orden de Compra</option>
                   <option value="MATERIAL_RECEIPT">Recepción</option>
+                  <option value="MATERIAL_RECEIPT_ADJUSTMENT">Ajuste de recepción</option>
                   <option value="PURCHASE_ORDER_CANCELLATION">Cancelación</option>
                 </Input>
               </FormGroup>
