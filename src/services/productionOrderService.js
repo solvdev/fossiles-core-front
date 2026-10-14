@@ -433,27 +433,6 @@ export const closeWarehouseReceipt = async (productionOrderId) => {
   }
 };
 
-export const receiveWarehouseProducts = async (productionOrderId, data) => {
-  try {
-    const response = await fetch(`${API_URL}/production-orders/${productionOrderId}/warehouse-receipt`, {
-      method: 'PUT',
-      headers: {
-        'Content-Type': 'application/json',
-        ...getAuthHeader()
-      },
-      body: JSON.stringify(data)
-    });
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({ message: 'Error al registrar recepción en bodega PT' }));
-      throw new Error(errorData.message || 'Error al registrar recepción en bodega PT');
-    }
-    return await response.json();
-  } catch (error) {
-    console.error('Receive warehouse products error:', error);
-    throw error;
-  }
-};
-
 // ==================== MATERIAL CONSUMPTION ====================
 
 export const consumeMaterials = async (productionOrderId) => {

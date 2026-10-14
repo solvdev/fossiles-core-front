@@ -51,6 +51,7 @@ function SimpleReturnWizard({ isOpen, onClose, kioskLocationId, physicalCountId,
   const [selectedSize, setSelectedSize] = useState("");
   const [lineQty, setLineQty] = useState("1");
   const [depositLines, setDepositLines] = useState([]);
+  const [depositApto, setDepositApto] = useState("true");
   const [linkedCountId, setLinkedCountId] = useState("");
   const [draftCounts, setDraftCounts] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -64,6 +65,7 @@ function SimpleReturnWizard({ isOpen, onClose, kioskLocationId, physicalCountId,
     setSelectedItemId("");
     setReturnedQty("1");
     setApto("true");
+    setDepositApto("true");
     setReason("");
     setObservations("");
     setPhysicalSlipNumber("");
@@ -310,6 +312,7 @@ function SimpleReturnWizard({ isOpen, onClose, kioskLocationId, physicalCountId,
           sizeKey: line.size || null,
           physicalSlipNumber: slipNo,
           reason: reasonText,
+          apto: depositApto === "true",
           physicalCountId: resolvedPhysicalCountId,
         });
       }
@@ -531,6 +534,13 @@ function SimpleReturnWizard({ isOpen, onClose, kioskLocationId, physicalCountId,
             <FormGroup>
               <Label>Número de boleta física (respaldo)</Label>
               <Input value={physicalSlipNumber} onChange={(e) => setPhysicalSlipNumber(e.target.value)} placeholder="Ej: BD-0042" />
+            </FormGroup>
+            <FormGroup>
+              <Label>Condición del producto</Label>
+              <Input type="select" value={depositApto} onChange={(e) => setDepositApto(e.target.value)}>
+                <option value="true">Apto para reventa (entra a Devoluciones)</option>
+                <option value="false">Dañado (entra a Devoluciones no aptas)</option>
+              </Input>
             </FormGroup>
             <FormGroup>
               <Label>Motivo</Label>

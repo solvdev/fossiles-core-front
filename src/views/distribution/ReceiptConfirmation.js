@@ -136,6 +136,7 @@ function ReceiptConfirmation() {
                 showLocation
                 embedded
                 actionLabel="Recibir"
+                allowReturnToWarehouse
                 selectedShipmentId={selectedShipmentId}
                 onSelectShipment={handleSelectShipment}
                 onConfirmed={handleConfirmed}

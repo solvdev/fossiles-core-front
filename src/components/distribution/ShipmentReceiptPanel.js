@@ -12,7 +12,11 @@ import {
   Spinner,
   Table,
 } from "reactstrap";
-import { confirmReceipt, repairDeliveredShipmentReceiptInventory } from "services/productDistributionService";
+import {
+  confirmReceipt,
+  repairDeliveredShipmentReceiptInventory,
+  resolvePendingReceipt,
+} from "services/productDistributionService";
 import { showError, showSuccess, showWarning } from "utils/notificationHelper";
 import { formatShipmentReceiptRepairMessage } from "utils/shipmentReceiptRepairHelper";
 import { formatDateTimeGt } from "utils/dateTimeHelper";
@@ -82,6 +86,17 @@ export const shipmentReceivedTotal = (shipment, receivedByDetail = {}) => {
     0
   );
 };
+
+/** Unidades enviadas que el kiosko aún no recibe (quedan en la ubicación En tránsito). */
+export const shipmentLinePending = (product) => {
+  if (product?.quantityReceived == null) return 0;
+  return Math.max(Number(product.quantity || 0) - Number(product.quantityReceived || 0), 0);
+};
+
+export const shipmentPendingTotal = (shipment) =>
+  String(shipment?.status || "").toUpperCase() === "DELIVERED"
+    ? (shipment?.products || []).reduce((sum, p) => sum + shipmentLinePending(p), 0)
+    : 0;
 
 const uniqueProductPreviews = (products, limit = 4) => {
   const seen = new Set();
@@ -254,6 +269,11 @@ export function ShipmentReceiptList({
                     <Badge color={String(shipment.status || "").toUpperCase() === "DELIVERED" ? "success" : "warning"}>
                       {String(shipment.status || "").toUpperCase() === "DELIVERED" ? "Entregado" : "En camino"}
                     </Badge>
+                    {shipmentPendingTotal(shipment) > 0 && (
+                      <Badge color="danger" className="ml-1">
+                        Pendiente en tránsito: {formatQty(shipmentPendingTotal(shipment))}
+                      </Badge>
+                    )}
                     <span className="text-muted small ml-2">
                       {shipment.sentAt ? formatDateTimeGt(shipment.sentAt) : "Sin fecha de envío"}
                     </span>
@@ -341,11 +361,122 @@ export function ShipmentReceiptList({
   );
 }
 
+function PendingTransitSection({ shipment, allowReturnToWarehouse, onResolved }) {
+  const pendingLines = useMemo(
+    () => (shipment?.products || []).filter((p) => shipmentLinePending(p) > 0),
+    [shipment]
+  );
+  const [qtyByDetail, setQtyByDetail] = useState({});
+  const [busyId, setBusyId] = useState(null);
+
+  useEffect(() => {
+    const next = {};
+    pendingLines.forEach((p) => {
+      next[p.id] = shipmentLinePending(p);
+    });
+    setQtyByDetail(next);
+  }, [pendingLines]);
+
+  if (pendingLines.length === 0) return null;
+
+  const resolveLine = async (product, action) => {
+    const qty = Math.floor(Number(qtyByDetail[product.id] || 0));
+    const max = shipmentLinePending(product);
+    if (qty <= 0 || qty > max) {
+      showError(`Indique una cantidad entre 1 y ${formatQty(max)}.`);
+      return;
+    }
+    const label = action === "RECEIVE"
+      ? `¿Recibir ${qty} unidad(es) pendientes de ${product.productCode} en el kiosko?`
+      : `¿Regresar ${qty} unidad(es) pendientes de ${product.productCode} a Bodega PT?`;
+    if (!window.confirm(label)) return;
+    try {
+      setBusyId(product.id);
+      await resolvePendingReceipt(shipment.id, [{ detailId: product.id, quantity: qty, action }]);
+      showSuccess(action === "RECEIVE" ? "Pendiente recibido en el kiosko." : "Pendiente regresado a Bodega PT.");
+      if (onResolved) await onResolved();
+    } catch (err) {
+      showError(err.message || "No se pudo resolver el pendiente.");
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  return (
+    <div className="mt-3 pt-3 border-top">
+      <Alert color="warning" className="py-2 mb-2">
+        Estas unidades salieron de bodega pero no se recibieron: siguen <strong>en tránsito</strong> hasta que
+        el kiosko las reciba{allowReturnToWarehouse ? " o se regresen a Bodega PT" : ""}.
+      </Alert>
+      <Table responsive size="sm" className="mb-0">
+        <thead>
+          <tr>
+            <th>Producto</th>
+            <th className="text-right">Pendiente</th>
+            <th style={{ width: 90 }}>Cantidad</th>
+            <th />
+          </tr>
+        </thead>
+        <tbody>
+          {pendingLines.map((product) => {
+            const sizeText = String(product.size || product.sizeLabel || "").trim();
+            return (
+              <tr key={`pending-${product.id}`}>
+                <td>
+                  <strong>{product.productCode || "-"}</strong>
+                  {sizeText ? ` · T${sizeText}` : ""}
+                  {product.colorName ? <div className="small text-muted">{product.colorName}</div> : null}
+                </td>
+                <td className="text-right">{formatQty(shipmentLinePending(product))}</td>
+                <td>
+                  <Input
+                    type="number"
+                    min="1"
+                    max={shipmentLinePending(product)}
+                    step="1"
+                    bsSize="sm"
+                    value={qtyByDetail[product.id] ?? ""}
+                    onChange={(e) => setQtyByDetail((prev) => ({ ...prev, [product.id]: e.target.value }))}
+                  />
+                </td>
+                <td className="text-right text-nowrap">
+                  <Button
+                    color="success"
+                    size="sm"
+                    disabled={busyId != null}
+                    onClick={() => resolveLine(product, "RECEIVE")}
+                  >
+                    {busyId === product.id ? <Spinner size="sm" /> : "Recibir"}
+                  </Button>
+                  {allowReturnToWarehouse && (
+                    <Button
+                      color="secondary"
+                      size="sm"
+                      outline
+                      className="ml-1"
+                      disabled={busyId != null}
+                      onClick={() => resolveLine(product, "RETURN_TO_WAREHOUSE")}
+                    >
+                      Regresar a PT
+                    </Button>
+                  )}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </Table>
+    </div>
+  );
+}
+
 export function ShipmentReceiptDetail({
   shipment,
   onConfirmed,
   onRepaired,
   readOnly = false,
+  allowReturnToWarehouse = false,
+  onPendingResolved,
   successMessage = "Recepción confirmada. Inventario de kiosko actualizado.",
 }) {
   const [receivedByDetail, setReceivedByDetail] = useState({});
@@ -656,8 +787,16 @@ export function ShipmentReceiptDetail({
         </>
       )}
 
+      {isDelivered && (
+        <PendingTransitSection
+          shipment={shipment}
+          allowReturnToWarehouse={allowReturnToWarehouse}
+          onResolved={onPendingResolved || onRepaired}
+        />
+      )}
+
       {isDelivered && shipment.locationId && (
-        <div className={readOnly ? "mt-0" : "mt-3 pt-3 border-top"}>
+        <div className={readOnly ? "mt-3" : "mt-3 pt-3 border-top"}>
           <Alert color="light" className="border py-2 mb-2">
             Envío entregado. Si el stock kiosco no refleja este documento (productos, tallas o empaques SUM-),
             sincronice con el botón de abajo. No descarga archivos.
@@ -688,6 +827,7 @@ export default function ShipmentReceiptPanel({
   refreshDisabled = false,
   embedded = false,
   actionLabel = "Revisar y confirmar",
+  allowReturnToWarehouse = false,
 }) {
   const [search, setSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("");
@@ -761,6 +901,7 @@ export default function ShipmentReceiptPanel({
                 <ShipmentReceiptDetail
                   shipment={selectedShipment}
                   readOnly={String(selectedShipment.status || "").toUpperCase() === "DELIVERED"}
+                  allowReturnToWarehouse={allowReturnToWarehouse}
                   onConfirmed={async () => {
                     if (onSelectShipment) {
                       onSelectShipment(null);

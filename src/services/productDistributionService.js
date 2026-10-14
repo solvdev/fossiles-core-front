@@ -485,6 +485,23 @@ export const confirmReceipt = async (shipmentId, data = {}) => {
   return response.json();
 };
 
+/**
+ * Resuelve unidades que quedaron en tránsito tras la recepción.
+ * items: [{ detailId, quantity, action: 'RECEIVE' | 'RETURN_TO_WAREHOUSE', lineNotes }]
+ */
+export const resolvePendingReceipt = async (shipmentId, items) => {
+  const response = await fetch(`${API_URL}/product-distributions/shipments/${shipmentId}/pending-receipt`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
+    body: JSON.stringify({ items })
+  });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ message: 'Error al resolver pendientes' }));
+    throw new Error(err.message || 'Error al resolver pendientes');
+  }
+  return response.json();
+};
+
 export const repairDeliveredShipmentReceiptInventory = async (shipmentId, { force = false, mode = "add" } = {}) => {
   const params = new URLSearchParams();
   if (mode === "reset") {
