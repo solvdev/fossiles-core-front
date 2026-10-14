@@ -689,6 +689,7 @@ function KioskInventory() {
           referenceId: form.referenceId ? Number(form.referenceId) : null,
           physicalSlipNumber: String(form.physicalSlipNumber || "").trim(),
           reason: String(form.reason || "").trim() || null,
+          apto: Boolean(form.apto),
         };
       case "DEVOLUCION_A_CLIENTE":
         return {
@@ -742,6 +743,7 @@ function KioskInventory() {
           referenceId: form.referenceId ? Number(form.referenceId) : null,
           physicalSlipNumber: String(form.physicalSlipNumber || "").trim(),
           reason: String(form.reason || "").trim() || null,
+          apto: Boolean(form.apto),
           sizeKey: String(form.sizeKey || "").trim() || null,
         };
       case "DEVOLUCION_CLIENTE":
@@ -1694,6 +1696,20 @@ function KioskInventory() {
                             onChange={(e) => onFormChange("physicalSlipNumber", e.target.value)}
                             placeholder="Ej: BB-0042"
                           />
+                        </FormGroup>
+                      ) : null}
+
+                      {form.operation === "DEVOLUCION_DEPOSITO" ? (
+                        <FormGroup>
+                          <Label>Condición del producto</Label>
+                          <Input
+                            type="select"
+                            value={form.apto ? "true" : "false"}
+                            onChange={(e) => onFormChange("apto", e.target.value === "true")}
+                          >
+                            <option value="true">Apto para reventa (entra a Devoluciones)</option>
+                            <option value="false">Dañado (entra a Devoluciones no aptas)</option>
+                          </Input>
                         </FormGroup>
                       ) : null}
 

@@ -54,6 +54,7 @@ function EmbeddedInventoryTransferModal({
     toLocationId: "",
     productId: "",
     colorId: "",
+    sizeKey: "",
     materialId: "",
     quantity: "",
     reason: "",
@@ -68,6 +69,7 @@ function EmbeddedInventoryTransferModal({
       toLocationId: "",
       productId: initialProductId ? String(initialProductId) : "",
       colorId: initialColorId ? String(initialColorId) : "",
+      sizeKey: "",
       materialId: initialMaterialId ? String(initialMaterialId) : "",
       quantity: "",
       reason: "",
@@ -142,6 +144,7 @@ function EmbeddedInventoryTransferModal({
           locationDestinationId: parseInt(formData.toLocationId, 10),
           productId: parseInt(formData.productId, 10),
           colorId: formData.colorId ? parseInt(formData.colorId, 10) : null,
+          sizeKey: (formData.sizeKey || "").trim() || null,
           quantity: parseFloat(formData.quantity),
           physicalSlipNumber: formData.physicalSlipNumber.trim(),
         });
@@ -156,6 +159,7 @@ function EmbeddedInventoryTransferModal({
             ? {
                 productId: parseInt(formData.productId, 10),
                 colorId: formData.colorId ? parseInt(formData.colorId, 10) : null,
+                sizeKey: (formData.sizeKey || "").trim() || null,
               }
             : { materialId: parseInt(formData.materialId, 10) }),
         };
@@ -297,6 +301,20 @@ function EmbeddedInventoryTransferModal({
                     </option>
                   ))}
                 </Input>
+              </FormGroup>
+            </Col>
+          )}
+          {mode === "product" && (
+            <Col md="6">
+              <FormGroup>
+                <Label>Talla (obligatoria en cinchos)</Label>
+                <Input
+                  type="text"
+                  value={formData.sizeKey}
+                  onChange={(e) => setFormData({ ...formData, sizeKey: e.target.value })}
+                  disabled={!formData.productId}
+                  placeholder="Ej: 32"
+                />
               </FormGroup>
             </Col>
           )}

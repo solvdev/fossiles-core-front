@@ -4,6 +4,7 @@ export const KIOSCO_MOVEMENT_TYPE_LABELS = {
   DEVOLUCION_DEPOSITO: "Dev. bodega",
   DEVOLUCION_CLIENTE: "Dev. de cliente",
   DEVOLUCION_A_CLIENTE: "Dev. a cliente",
+  SALIDA: "Salida",
   TRASLADO_SALIDA: "Traslado salida",
   TRASLADO_ENTRADA: "Traslado entrada",
   MERMA: "Merma",

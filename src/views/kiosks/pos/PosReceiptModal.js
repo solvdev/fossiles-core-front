@@ -28,6 +28,12 @@ function PosReceiptModal({ isOpen, shipment, onClose, onConfirmed }) {
               await onConfirmed();
             }
           }}
+          onPendingResolved={async () => {
+            if (onConfirmed) {
+              await onConfirmed();
+            }
+            onClose();
+          }}
           successMessage="Distribución recibida. Ya puedes vender estos productos."
         />
       </ModalBody>
