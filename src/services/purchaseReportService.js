@@ -172,3 +172,19 @@ export const getProductAverageCostsReport = async () => {
   }
 };
 
+
+/** Valor del stock de materiales: La Bandola de Oro y Otros (sin cuero). */
+export const getMaterialValueBySupplier = async () => {
+  const response = await fetch(`${API_URL}/purchase-reports/material-value-by-supplier`, {
+    method: 'GET',
+    headers: {
+      'Content-Type': 'application/json',
+      ...getAuthHeader()
+    }
+  });
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({ message: 'Error al obtener reporte' }));
+    throw new Error(errorData.message || 'Error al obtener reporte');
+  }
+  return response.json();
+};
