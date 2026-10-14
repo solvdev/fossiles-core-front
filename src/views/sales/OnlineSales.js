@@ -1826,6 +1826,9 @@ function OnlineSales() {
     const condition = String(dto?.itemCondition ?? "").trim();
     if (reason) parts.push(reason);
     if (condition) parts.push(`Condición: ${condition}`);
+    if (dto?.exchangeShipmentNumber) {
+      parts.push(`Relacionado con el envío de cambio ${dto.exchangeShipmentNumber}`);
+    }
     return parts.join(" | ");
   };
 
@@ -3303,6 +3306,7 @@ function OnlineSales() {
                             <th style={{ width: 110 }}>Tipo</th>
                             <th style={{ width: 110 }}>Pedido</th>
                             <th style={{ width: 140 }}>Envío relacionado</th>
+                            <th style={{ width: 150 }}>Envío del cambio</th>
                             <th style={{ width: 120 }}>Condición</th>
                             <th>Motivo</th>
                             <th style={{ width: 180 }}>Acciones</th>
@@ -3319,6 +3323,11 @@ function OnlineSales() {
                               </td>
                               <td>#{e.onlineSaleId || "—"}</td>
                               <td>{e.relatedShipmentNumber || "—"}</td>
+                              <td>
+                                {e.exchangeShipmentNumber
+                                  ? <strong style={{ color: "#0A4C60" }}>{e.exchangeShipmentNumber}</strong>
+                                  : "—"}
+                              </td>
                               <td>
                                 <Badge color={String(e.itemCondition || "").toUpperCase() === "DAÑADO" ? "danger" : "secondary"}>
                                   {e.itemCondition || "—"}
