@@ -707,6 +707,7 @@ function ProductionOrderForm({ orderId, isOpen, toggle, onSuccess }) {
         })),
         status: formData.status,
         items: formData.items.map((item) => ({
+          id: item.id || null,
           productId: item.productId,
           colorId: item.colorId,
           brandName: formData.orderType === "MARCAS" ? item.brandName || null : null,
