@@ -29,7 +29,7 @@ function MaterialValueBySupplierReport() {
 
   const table = (ext) => ({
     title: "Valor de materiales por proveedor",
-    subtitle: `Existencias al ${fmtGeneratedAt(report.generatedAt)} · a costo unitario · sin cuero`,
+    subtitle: `Existencias al ${fmtGeneratedAt(report.generatedAt)} · a costo unitario`,
     headers: ["Proveedor", "Valor en materiales"],
     rows: [...(report.groups || []).map((g) => [g.name, Number(g.value) || 0]), ["Total", Number(report.totalValue) || 0]],
     sheetName: "Valor materiales",
