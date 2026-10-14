@@ -263,3 +263,9 @@ export const getKioskCompleteness = async ({ year } = {}) => {
   });
   return parseJson(response, "No se pudo cargar la completitud de datos.");
 };
+
+/** Valor del inventario actual por kiosco (precio de venta y costo estimado, con detalle por producto). */
+export const getKioskStockValue = async ({ siteIds } = {}) => {
+  const response = await fetch(`${BASE}/stock-value${toQuery({ siteIds })}`, { headers: jsonHeaders() });
+  return parseJson(response, "No se pudo calcular el valor del inventario.");
+};
