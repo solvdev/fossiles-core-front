@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import { Button } from "reactstrap";
 import { formatDateGt } from "utils/dateTimeHelper";
 import { contar } from "utils/textHelper";
-import FamilyBadge from "../organizer/FamilyBadge";
+import FamilyBadge from "../dayboard/FamilyBadge";
 
 const fmt = (n) => (Math.round((n || 0) * 10) / 10).toFixed(1);
 const orderHours = (o) => (o.items
