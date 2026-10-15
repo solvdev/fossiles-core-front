@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   confirmDayPlan,
-  getOrganizerOrders,
+  getDayPlanOrderItems,
+  getDayPlanOrders,
   getTasksByDate,
   previewDayPlan,
 } from "services/taskService";
@@ -37,6 +38,36 @@ import {
 const DRAFT_KEY = "dayplanner.draft.v1";
 /** El servidor devuelve a lo más 200 OPs por consulta (TaskOrganizerService). */
 const ORDERS_PAGE_SIZE = 200;
+/** Cuántas OPs piden sus ítems a la vez. */
+const ITEMS_CONCURRENCY = 3;
+
+/** Ítem del endpoint ligero → forma que usan los helpers del planificador. */
+const toPlannerItem = (i) => ({
+  productionOrderItemId: i.productionOrderItemId,
+  productId: i.productId,
+  productCode: i.productCode,
+  productName: i.productName,
+  colorId: i.colorId,
+  colorName: i.colorName,
+  totalQuantity: i.totalQuantity,
+  assignedQuantity: i.assignedQuantity,
+  remainingQuantity: i.remainingQuantity,
+  prdTimePerUnit: i.prdTimePerUnit,
+  unitsPerTask: i.unitsPerTask,
+  observations: i.observations,
+});
+
+/** Trae todos los ítems con restante de UNA OP (por páginas, sin cargar las demás OPs). */
+async function fetchOrderItems(orderId) {
+  const out = [];
+  for (let page = 0; page < 50; page += 1) {
+    // eslint-disable-next-line no-await-in-loop
+    const res = await getDayPlanOrderItems(orderId, { page, size: 200 });
+    out.push(...(res?.content || []).map(toPlannerItem).filter((i) => (i.remainingQuantity || 0) > 0));
+    if (!res || res.last) break;
+  }
+  return out;
+}
 
 const readDraft = () => {
   try {
@@ -84,7 +115,15 @@ export default function useDayPlanner() {
   const [reached, setReached] = useState(draft?.tasks?.length ? 2 : 1);
 
   // --- Paso 1 ---
-  const [orders, setOrders] = useState([]);
+  const [orders, setOrdersState] = useState([]);
+  const ordersRef = useRef([]);
+  const setOrders = useCallback((next) => {
+    ordersRef.current = typeof next === "function" ? next(ordersRef.current) : next;
+    setOrdersState(ordersRef.current);
+  }, []);
+  /** OPs cuyos productos se están pidiendo al servidor. */
+  const [itemsLoading, setItemsLoading] = useState(0);
+  const itemsInFlight = useRef(new Map());
   const [totalElements, setTotalElements] = useState(0);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
@@ -139,21 +178,64 @@ export default function useDayPlanner() {
   }, [date, result]);
 
   // ---------------------------------------------------------------- OPs
-  const loadOrders = useCallback(async () => {
+  /**
+   * Pide los productos de las OPs indicadas (una petición por OP, pocas a la vez) y los deja en
+   * `orders`. Devuelve la lista de OPs ya con esos productos. Lo ya cargado no se vuelve a pedir.
+   */
+  const ensureItems = useCallback(async (orderIds) => {
+    const missing = Array.from(new Set(orderIds || []))
+      .filter((id) => ordersRef.current.some((o) => o.id === id && o.items === null));
+    const queue = [...missing];
+    const worker = async () => {
+      while (queue.length > 0) {
+        const id = queue.shift();
+        let pending = itemsInFlight.current.get(id);
+        if (!pending) {
+          setItemsLoading((n) => n + 1);
+          pending = fetchOrderItems(id).finally(() => {
+            itemsInFlight.current.delete(id);
+            setItemsLoading((n) => Math.max(0, n - 1));
+          });
+          itemsInFlight.current.set(id, pending);
+        }
+        try {
+          // eslint-disable-next-line no-await-in-loop
+          const items = await pending;
+          setOrders((prev) => prev.map((o) => (o.id === id ? { ...o, items } : o)));
+        } catch (err) {
+          showError(err.message);
+        }
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(ITEMS_CONCURRENCY, queue.length) }, worker));
+    return ordersRef.current;
+  }, [setOrders]);
+
+  /**
+   * Lee el resumen de las OPs (sin productos). `withItemsFor` trae además los productos de esas
+   * OPs, para quien necesita compararlos con lo que ya armó (borrador, cantidades tomadas).
+   */
+  const loadOrders = useCallback(async (opts) => {
+    const withItemsFor = Array.isArray(opts?.withItemsFor) ? opts.withItemsFor : [];
     setLoading(true);
     setLoadError(false);
     try {
-      const data = await getOrganizerOrders({ type: "ALL", size: ORDERS_PAGE_SIZE });
-      // Solo lo que todavía tiene algo por repartir; el resto del detalle no se usa aquí.
-      const list = (Array.isArray(data?.content) ? data.content : [])
-        .map((o) => ({ ...o, items: (o.items || []).filter((i) => (i.remainingQuantity || 0) > 0) }))
-        .filter((o) => o.items.length > 0);
+      const data = await getDayPlanOrders({ type: "ALL", size: ORDERS_PAGE_SIZE });
+      // El resumen ya viene solo con OPs que tienen algo por repartir.
+      let list = (Array.isArray(data?.content) ? data.content : []).map((o) => ({ ...o, items: null }));
       setOrders(list);
       setTotalElements(Number(data?.totalElements) || list.length);
       setSelectedIds((prev) => (prev === null
         ? list.filter((o) => o.onlineSale).map((o) => o.id)
         : prev.filter((id) => list.some((o) => o.id === id))));
       // Un borrador restaurado puede haberse quedado atrás: alguien más pudo tomar unidades.
+      const draftOrderIds = !restoredCheck.current
+        ? Array.from(new Set(tasksRef.current.map((t) => t.orderId)))
+        : [];
+      const need = Array.from(new Set([...withItemsFor, ...draftOrderIds]));
+      if (need.length > 0) {
+        list = await ensureItems(need);
+      }
       if (!restoredCheck.current) {
         restoredCheck.current = true;
         if (tasksRef.current.length > 0) {
@@ -172,11 +254,15 @@ export default function useDayPlanner() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [ensureItems, setOrders]);
 
   useEffect(() => { loadOrders(); }, [loadOrders]);
 
   const ids = useMemo(() => selectedIds || [], [selectedIds]);
+  // Lo que se marca trae sus productos (las OPL vienen premarcadas, así que sus productos van primero).
+  useEffect(() => {
+    if (ids.length > 0 && orders.length > 0) ensureItems(ids);
+  }, [ids, orders.length, ensureItems]);
   const oplOrders = useMemo(() => orders.filter((o) => o.onlineSale), [orders]);
   const otherOrdersAll = useMemo(() => orders.filter((o) => !o.onlineSale), [orders]);
   const families = useMemo(
@@ -273,22 +359,24 @@ export default function useDayPlanner() {
   /** Horas base que caben todavía en el día (Infinity si no se conoce la capacidad). */
   const budgetHours = capacity && capacity.hardHours ? capacity.remainingIdeal : undefined;
 
-  const buildTasks = useCallback(() => {
+  const buildTasks = useCallback(async () => {
+    // Los productos de las OPs marcadas tienen que estar cargados antes de repartirlos.
+    const loadedOrders = await ensureItems(ids);
     const key = [[...ids].sort((a, b) => a - b).join(","), JSON.stringify(picks)].join("|");
     if (tasks.length === 0 || key !== selKey) {
       const hadTasks = tasks.length > 0;
-      setTasks(suggestGrouping(orders, ids, [], { budgetHours, picks }));
+      setTasks(suggestGrouping(loadedOrders, ids, [], { budgetHours, picks }));
       setSelKey(key);
       if (hadTasks) showInfo("Se volvieron a armar las tareas porque cambió la selección.");
     } else {
-      setTasks((prev) => sortTasksBySelection(prev, orders, ids));
+      setTasks((prev) => sortTasksBySelection(prev, loadedOrders, ids));
     }
     invalidatePreview();
     setDates({});
     setNotice(null);
     setStep(2);
     setReached((r) => Math.max(r, 2));
-  }, [ids, picks, budgetHours, tasks.length, selKey, orders, invalidatePreview]);
+  }, [ids, picks, budgetHours, tasks.length, selKey, ensureItems, invalidatePreview]);
 
   const rebuildTasks = useCallback(() => {
     setTasks(suggestGrouping(orders, ids, [], { budgetHours, picks }));
@@ -472,7 +560,7 @@ export default function useDayPlanner() {
           message: "La carga de las mesas cambió mientras revisaba. Recalculé la propuesta: revísela y confirme otra vez.",
         });
       } else if (err.status === 409 && code === "QTY_UNAVAILABLE") {
-        const list = await loadOrders();
+        const list = await loadOrders({ withItemsFor: Array.from(new Set(tasksRef.current.map((t) => t.orderId))) });
         if (list) setTasks((prev) => clampTasksToRemaining(prev, list).tasks);
         invalidatePreview();
         setNotice("Alguien más ya tomó unidades de algunos productos. Actualicé las cantidades: revise las tareas.");
@@ -576,7 +664,7 @@ export default function useDayPlanner() {
     step, reached, goTo,
     // paso 1
     orders, oplOrders, otherOrders, families, hasMoreOrders: totalElements > ORDERS_PAGE_SIZE,
-    loading, loadError, loadOrders,
+    loading, loadError, loadOrders, ensureItems, itemsLoading,
     selectedIds: ids, selectedOrders, toggleOrder, markSection,
     search, setSearch, familyFilter, setFamilyFilter,
     picks, setPick, clearPicks,

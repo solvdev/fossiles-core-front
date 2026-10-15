@@ -5,17 +5,20 @@ import { contar } from "utils/textHelper";
 import FamilyBadge from "../organizer/FamilyBadge";
 
 const fmt = (n) => (Math.round((n || 0) * 10) / 10).toFixed(1);
-const orderHours = (o) => (o.items || []).reduce(
-  (s, i) => s + (i.remainingQuantity || 0) * (i.prdTimePerUnit || 0.1), 0);
+const orderHours = (o) => (o.items
+  ? o.items.reduce((s, i) => s + (i.remainingQuantity || 0) * (i.prdTimePerUnit || 0.1), 0)
+  : (o.remainingHours || 0));
 
 const ITEMS_PAGE = 15;
 const ORDERS_PAGE = 40;
 
-function OrderRow({ order, selected, number, onToggle, picks, setPick }) {
+function OrderRow({ order, selected, number, onToggle, picks, setPick, ensureItems }) {
   const [open, setOpen] = useState(false);
   const [shown, setShown] = useState(ITEMS_PAGE);
   const items = order.items || [];
-  const n = items.length;
+  const itemsReady = order.items !== null && order.items !== undefined;
+  // Sin los productos cargados, el resumen dice cuántos hay con restante.
+  const n = itemsReady ? items.length : (order.remainingItemCount || order.itemCount || 0);
   const pickedCount = items.filter((i) => picks[i.productionOrderItemId] !== undefined).length;
   const setAll = (mode) => items.forEach((i) => setPick(
     i.productionOrderItemId, mode === "all" ? i.remainingQuantity : mode === "none" ? 0 : null));
@@ -45,10 +48,21 @@ function OrderRow({ order, selected, number, onToggle, picks, setPick }) {
           <div className="dp-ometa" style={{ color: "#7a5a00" }}>Obs.: {order.observations}</div>
         )}
       </div>
-      <button type="button" className="dp-link" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
+      <button
+        type="button"
+        className="dp-link"
+        aria-expanded={open}
+        onClick={() => {
+          if (!open && !itemsReady && ensureItems) ensureItems([order.id]);
+          setOpen((v) => !v);
+        }}
+      >
         Elegir qué va hoy {open ? "▾" : "▸"}
       </button>
-      {open && (
+      {open && !itemsReady && (
+        <div className="dp-detail"><span className="dp-small">Cargando productos…</span></div>
+      )}
+      {open && itemsReady && (
         <div className="dp-detail">
           <div className="dp-pick-tools">
             <span className="dp-small">Deje «auto» para que entre lo que cabe en el día, o escriba las unidades de hoy.</span>
@@ -105,6 +119,7 @@ export default function StepSelectOrders({ planner }) {
   const {
     loading, loadError, loadOrders, oplOrders, otherOrders, selectedIds, toggleOrder, markSection,
     search, setSearch, families, familyFilter, setFamilyFilter, hasMoreOrders, orders, picks, setPick,
+    ensureItems,
   } = planner;
   const [filterOpen, setFilterOpen] = useState(false);
   const [shownOrders, setShownOrders] = useState(ORDERS_PAGE);
@@ -156,7 +171,7 @@ export default function StepSelectOrders({ planner }) {
             </Button>
           </div>
           {oplOrders.map((o) => (
-            <OrderRow key={o.id} order={o} selected={selectedIds.includes(o.id)} number={0} onToggle={toggleOrder} picks={picks} setPick={setPick} />
+            <OrderRow key={o.id} order={o} selected={selectedIds.includes(o.id)} number={0} onToggle={toggleOrder} picks={picks} setPick={setPick} ensureItems={ensureItems} />
           ))}
         </div>
       )}
@@ -203,6 +218,7 @@ export default function StepSelectOrders({ planner }) {
             onToggle={toggleOrder}
             picks={picks}
             setPick={setPick}
+            ensureItems={ensureItems}
           />
         ))}
         {shownOrders < otherOrders.length && (

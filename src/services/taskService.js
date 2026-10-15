@@ -673,3 +673,21 @@ export const getDayPlanOrderItems = async (orderId, { page = 0, size = 50 } = {}
   }
   return response.json();
 };
+
+/**
+ * Resumen de las OPs con restante (sin ítems): código, cliente, entrega, horas totales y
+ * restantes, y cuántos ítems tiene. Los ítems se piden aparte, de una OP a la vez.
+ */
+export const getDayPlanOrders = async ({ type = 'ALL', search = '', page = 0, size = 200 } = {}) => {
+  const params = new URLSearchParams();
+  if (type) params.set('type', type);
+  if (search) params.set('search', search);
+  params.set('page', String(page));
+  params.set('size', String(size));
+  const response = await fetch(`${API_URL}/tasks/organizer/day-plan/orders?${params.toString()}`, { headers: headers() });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ message: 'No se pudieron cargar las órdenes' }));
+    throw new Error(err.message || 'No se pudieron cargar las órdenes');
+  }
+  return response.json();
+};

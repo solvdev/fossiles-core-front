@@ -44,22 +44,24 @@ export default function DayPlanner() {
   const {
     date, setDate, weekend, goToMonday, step, reached, goTo, tasks, selectedIds, selectedOrders,
     loading, loadError, orders, buildTasks, goReview, confirm, confirming, previewLoading, preview,
-    previewError, downloadSheet, capacity, planLoad,
+    previewError, downloadSheet, capacity, planLoad, itemsLoading,
   } = planner;
 
   const today = getTodayYmdGuatemala();
   const tomorrow = nextWorkdayYmd(shiftYmdGuatemala(today, 1));
   const blockers = planBlockers(tasks);
   if (planLoad.level === "over") blockers.push(dayCapacityTexts(capacity, planLoad).title);
-  const selectedHours = selectedOrders.reduce((s, o) => s + (o.items || []).reduce(
-    (a, i) => a + (i.remainingQuantity || 0) * (i.prdTimePerUnit || 0.1), 0), 0);
+  // Con el resumen ligero basta `remainingHours`; si ya se cargaron los productos se suman.
+  const selectedHours = selectedOrders.reduce((s, o) => s + (o.items
+    ? o.items.reduce((a, i) => a + (i.remainingQuantity || 0) * (i.prdTimePerUnit || 0.1), 0)
+    : (o.remainingHours || 0)), 0);
   const baseTasksHours = tasks.reduce((s, t) => s + (t.onlineSale ? 0 : t.lines.reduce(
     (a, l) => a + l.quantity * (l.prdTimePerUnit || 0.1), 0)), 0);
 
   let bar;
   if (step === 1) {
     const n = selectedIds.length;
-    const disabled = n === 0 || weekend || loading || loadError;
+    const disabled = n === 0 || weekend || loading || loadError || itemsLoading > 0;
     bar = (
       <>
         <div className="dp-hint">
@@ -67,7 +69,7 @@ export default function DayPlanner() {
             : orders.length ? "Marque al menos una OP" : "No hay OPs pendientes"}
         </div>
         <Button color="primary" className="dp-big" disabled={disabled} onClick={buildTasks}>
-          Armar tareas{n ? ` (${n} ${concordar(n, "OP", "OPs")})` : ""}
+          {itemsLoading > 0 ? "Cargando productos…" : `Armar tareas${n ? ` (${n} ${concordar(n, "OP", "OPs")})` : ""}`}
         </Button>
       </>
     );
