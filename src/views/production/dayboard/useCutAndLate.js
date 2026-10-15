@@ -6,7 +6,7 @@ import { showError } from "utils/notificationHelper";
  * Datos del Tablero del día que no vienen en la lista de tareas: lo que espera corte
  * y lo atrasado (pendientes de días anteriores y tareas empezadas que no se terminaron).
  */
-export default function useCutAndLate() {
+export default function useCutAndLate({ autoLoad = true } = {}) {
   const [dieCutPending, setDieCutPending] = useState([]);
   const [loadingDieCut, setLoadingDieCut] = useState(false);
   const [backlog, setBacklog] = useState([]);
@@ -35,7 +35,7 @@ export default function useCutAndLate() {
     [loadDieCutPending, loadBacklog, loadUnfinished]
   );
 
-  useEffect(() => { loadAll(); }, [loadAll]);
+  useEffect(() => { if (autoLoad) loadAll(); }, [autoLoad, loadAll]);
 
   return {
     dieCutPending, loadingDieCut, loadDieCutPending,

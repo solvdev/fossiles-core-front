@@ -113,3 +113,17 @@ Errores 409 (el front los distingue por `code`): cuerpo `{ "code": "PLAN_CHANGED
 - Atraso por **tarea**: trabajado (sin pausas, noches ni almuerzo) > esperado (suma de todas las líneas, OPL incluidas) + 30 min fijos → `delayed`, `commissionEligible=false` para toda la tarea. Las tareas 100 % OPL nunca se atrasan.
 - `PUT /tasks/{id}/pause {reason}`, `PUT /tasks/{id}/resume`, cancelar con `PUT /tasks/{id}/status {status:"CANCELLED", reason}` (motivo obligatorio; libera mesa y unidades), `POST /tasks/{id}/forgive-delay {reason}` (solo ADMIN), `POST /tasks/{id}/items [{productionOrderItemId, quantity}]`, `GET /tasks/{id}/history`.
 - Campos nuevos en la tarea: `pausedAt, expectedMinutes, delayMinutes, delayed, commissionEligible, delayForgivenBy/At/Reason`.
+
+## Rendimiento del Tablero: `GET /api/tasks/board?date=YYYY-MM-DD`
+Hoy el tablero pedía `GET /tasks` (todas las tareas) y `GET /production-orders` (más de 30 s con 1.266 órdenes).
+Contrato nuevo, ya consumido por el front con respaldo (si responde 404/405/501 usa el listado completo):
+```
+{ "date": "2026-10-15",
+  "tasks": [ TaskResponse con items ],            // activas (no CANCELLED/COMPLETED): scheduledDate == date,
+                                                  // más las activas sin mesa con scheduledDate nula o <= date.
+                                                  // Sin tareas/líneas de cinchos (el servidor las excluye).
+  "counts": { "dieCutPending": n, "backlog": n, "unfinished": n } }   // solo COUNT, para las pestañas
+```
+Una consulta indexada (scheduled_date / desk / status) + items en lote, sin N+1 y sin recorrer órdenes. Objetivo < 500 ms.
+Los listados de Por cortar, Atrasadas y Sin terminar se piden solo al abrir su pestaña; las órdenes de producción solo
+al usar Hoja PDF/Excel, Descargar OPs o Cinchos del día.

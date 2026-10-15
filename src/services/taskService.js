@@ -46,6 +46,21 @@ export const getTasksByDesk = async (desk) => {
   return response.json();
 };
 
+/**
+ * Tablero del día en una sola consulta liviana: las tareas activas de la fecha, las que siguen
+ * sin mesa y los conteos de «Por cortar» y «Atrasadas». Si el servidor todavía no lo tiene
+ * (404/405) el error trae `status` para que la pantalla caiga al listado completo.
+ */
+export const getBoardTasks = async (date) => {
+  const response = await fetch(`${API_URL}/tasks/board?date=${encodeURIComponent(date)}`, { headers: headers() });
+  if (!response.ok) {
+    const err = new Error('No se pudo cargar el tablero');
+    err.status = response.status;
+    throw err;
+  }
+  return response.json();
+};
+
 export const getTasksByDate = async (date) => {
   const response = await fetch(`${API_URL}/tasks/date/${date}`, { headers: headers() });
   if (!response.ok) {

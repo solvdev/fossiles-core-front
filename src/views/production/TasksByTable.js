@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from "react";
+import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import {
   Card,
@@ -29,6 +29,7 @@ import {
 import DatePickerField from "components/common/DatePickerField";
 import {
   getTasks,
+  getBoardTasks,
   updateTaskStatus,
   pauseTask,
   resumeTask,
@@ -359,7 +360,18 @@ function TasksByTable() {
   const [activeTab, setActiveTab] = useState("board"); // "board" | "late"
   const [moveMode, setMoveMode] = useState(false);
   const [showSummary, setShowSummary] = useState(false);
-  const late = useCutAndLate();
+  // Los listados de Por cortar y Atrasadas se piden al abrir su pestaña; el tablero trae solo los conteos.
+  const late = useCutAndLate({ autoLoad: false });
+  /** Conteos que manda el servidor con el tablero (null si todavía usa el listado completo). */
+  const [boardCounts, setBoardCounts] = useState(null);
+  /** true = el servidor tiene /tasks/board; false = se usa el listado completo; null = aún no se sabe. */
+  const boardModeRef = useRef(null);
+  const dayRef = useRef(getTodayYmdGuatemala());
+  /** Las órdenes de producción tardan decenas de segundos: solo se piden cuando alguien las necesita. */
+  const [ordersReady, setOrdersReady] = useState(false);
+  const ordersPromiseRef = useRef(null);
+  const [showCinchos, setShowCinchos] = useState(false);
+  const [pendingSheet, setPendingSheet] = useState(null);
   // Mover líneas entre mesas y fechas solo lo hacen administración y producción.
   const { hasAnyRole } = useAuth();
   const canRedistribute = hasAnyRole(["ADMIN", "ADMINISTRADOR", "PRODUCCION"]);
@@ -452,6 +464,20 @@ function TasksByTable() {
     try {
       marcar(true);
       setError("");
+      if (boardModeRef.current !== false) {
+        try {
+          const data = await getBoardTasks(dayRef.current || getTodayYmdGuatemala());
+          setTasks(data?.tasks || []);
+          setBoardCounts(data?.counts || null);
+          boardModeRef.current = true;
+          return;
+        } catch (err) {
+          // Sin endpoint nuevo (404/405/501) se sigue con el listado completo de siempre.
+          if (![404, 405, 501].includes(err.status)) throw err;
+          boardModeRef.current = false;
+          setBoardCounts(null);
+        }
+      }
       const data = await getTasks();
       setTasks(data || []);
     } catch (err) {
@@ -522,19 +548,37 @@ function TasksByTable() {
       console.error("Error loading production orders:", err);
     } finally {
       setLoadingOrders(false);
+      setOrdersReady(true);
     }
+  };
+
+  /** Pide las órdenes una sola vez, y solo cuando algo las necesita (cinchos, hoja, descarga de OPs). */
+  const ensureOrders = () => {
+    if (!ordersPromiseRef.current) ordersPromiseRef.current = loadProductionOrders();
+    return ordersPromiseRef.current;
   };
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      await Promise.all([loadTasks(), loadProductionOrders()]);
+      await loadTasks();
       if (cancelled) return;
+      // Servidor sin /tasks/board: se carga todo como antes.
+      if (boardModeRef.current === false) {
+        ensureOrders();
+        late.loadAll();
+      }
     })();
     return () => {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    const first = dayRef.current === filterDate;
+    dayRef.current = filterDate;
+    if (!first && boardModeRef.current !== false) loadTasks({ background: true });
+  }, [filterDate, loadTasks]);
 
   // Ventas en línea y cuero son tres consultas que casi nadie abre: solo se piden al desplegar el panel.
   useEffect(() => {
@@ -807,11 +851,6 @@ function TasksByTable() {
   const ordersForDownload = useMemo(
     () => mergeOrdersForDownload(productionOrders, productionOrdersForCinchos),
     [productionOrders, productionOrdersForCinchos]
-  );
-
-  const uniqueDates = useMemo(
-    () => [...new Set(tableCenterTasks.map((t) => t.scheduledDate).filter(Boolean))].sort(),
-    [tableCenterTasks]
   );
 
   /**
@@ -1156,6 +1195,15 @@ function TasksByTable() {
     );
   }, [tasksSheetPrintModel, printWorkDateYmd]);
 
+  // La hoja necesita las órdenes: si aún no están, se piden y la hoja sale al llegar.
+  const requestSheet = (kind) => { setPendingSheet(kind); ensureOrders(); };
+  useEffect(() => {
+    if (!pendingSheet || !ordersReady) return;
+    if (pendingSheet === "pdf") handlePrintTasksSheet();
+    else handleExcelTasksSheet();
+    setPendingSheet(null);
+  }, [pendingSheet, ordersReady, handlePrintTasksSheet, handleExcelTasksSheet]);
+
   const supervisorMapForUi = useMemo(
     () => supervisorMapForDate(filterDate || getTodayYmdGuatemala()),
     [supervisorMapForDate, filterDate]
@@ -1456,7 +1504,8 @@ function TasksByTable() {
   // ==================== TABLERO DEL DÍA ====================
 
   const boardDay = filterDate || getTodayYmdGuatemala();
-  const lateCount = late.backlog.length + late.unfinished.length;
+  const lateCount = boardCounts ? (boardCounts.backlog || 0) + (boardCounts.unfinished || 0) : late.backlog.length + late.unfinished.length;
+  const cutCount = boardCounts ? (boardCounts.dieCutPending || 0) : late.dieCutPending.length;
   const dayCap = dayCapacity({ numDesks, plannedHours: stats.dayHours });
   const dayLoad = capacityStatus(0, dayCap);
   const sinMesaListas = unassignedUpToDay.filter((t) => t.dieCutReady);
@@ -1643,15 +1692,15 @@ function TasksByTable() {
         </div>
         <div className="d-flex flex-wrap align-items-center" style={{ gap: 8 }} role="toolbar" aria-label="Acciones del tablero">
           <Button color="primary" onClick={() => navigate("/admin/day-planner")}>Armar el día</Button>
-          <Button outline color="secondary" onClick={handlePrintTasksSheet} title="Hoja de mesas del día para imprimir">Hoja PDF</Button>
-          <Button outline color="secondary" onClick={handleExcelTasksSheet} title="Hoja de mesas del día en Excel">Hoja Excel</Button>
+          <Button outline color="secondary" disabled={!!pendingSheet} onClick={() => requestSheet("pdf")} title="Hoja de mesas del día para imprimir">{pendingSheet === "pdf" ? "Preparando…" : "Hoja PDF"}</Button>
+          <Button outline color="secondary" disabled={!!pendingSheet} onClick={() => requestSheet("excel")} title="Hoja de mesas del día en Excel">{pendingSheet === "excel" ? "Preparando…" : "Hoja Excel"}</Button>
           <UncontrolledDropdown>
             <DropdownToggle caret outline color="secondary">Más</DropdownToggle>
             <DropdownMenu right>
               <DropdownItem onClick={() => { loadTasks({ background: true }); late.loadAll(); }}>Actualizar</DropdownItem>
               <DropdownItem onClick={() => navigate("/admin/leather-inventory?openDelivery=1")}>Entrega de cuero</DropdownItem>
               <DropdownItem onClick={() => navigate("/admin/materials-tasks")}>Materiales</DropdownItem>
-              <DropdownItem onClick={() => setShowDownloadOpsModal(true)}>Descargar OPs</DropdownItem>
+              <DropdownItem onClick={() => { ensureOrders(); setShowDownloadOpsModal(true); }}>Descargar OPs</DropdownItem>
               <DropdownItem onClick={openDeskSupervisorsModal}>Encargados de mesa</DropdownItem>
               <DropdownItem divider />
               <DropdownItem onClick={() => setShowQuickGuide(true)}>Guía rápida</DropdownItem>
@@ -1696,7 +1745,7 @@ function TasksByTable() {
         <NavItem>
           <NavLink role="button" className={activeTab === "cut" ? "active" : ""} onClick={() => { setActiveTab("cut"); late.loadDieCutPending(); }}>
             Por cortar
-            {late.dieCutPending.length > 0 && <Badge color="warning" className="ml-1">{late.dieCutPending.length}</Badge>}
+            {cutCount > 0 && <Badge color="warning" className="ml-1">{cutCount}</Badge>}
           </NavLink>
         </NavItem>
         <NavItem>
@@ -1823,7 +1872,16 @@ function TasksByTable() {
                   <div className="tbs-grid">
                     {deskNumbers.map((desk) => renderDeskColumn(boardDay, desk, dayDeskMap[desk] || []))}
                   </div>
-                  {(cinchoRows.length > 0 || cinchoStatusLoadingByDate[boardDay]) && (
+                  <div className="mt-3 pt-2" style={{ borderTop: "1px solid #e0e0e0" }}>
+                    <button type="button" className="btn btn-link p-0" aria-expanded={showCinchos}
+                      onClick={() => { setShowCinchos((v) => !v); ensureOrders(); }}>
+                      Cinchos del día {showCinchos ? "▾" : "▸"}
+                    </button>
+                    {showCinchos && !ordersReady && <div className="py-3"><Spinner size="sm" /> <small className="text-muted">Cargando órdenes…</small></div>}
+                    {showCinchos && ordersReady && cinchoRows.length === 0 && !cinchoStatusLoadingByDate[boardDay] && (
+                      <p className="text-muted small mb-0 py-2">Sin cinchos para este día.</p>
+                    )}
+                  {showCinchos && (cinchoRows.length > 0 || cinchoStatusLoadingByDate[boardDay]) && (
                     <div className="mt-4 pt-3" style={{ borderTop: "2px solid #adb5bd" }}>
                       <CinchosDayBoard
                         rows={cinchoRows}
@@ -1837,6 +1895,7 @@ function TasksByTable() {
                       />
                     </div>
                   )}
+                  </div>
                 </CardBody>
               </Card>
 

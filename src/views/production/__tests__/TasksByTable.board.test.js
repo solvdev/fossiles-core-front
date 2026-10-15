@@ -35,6 +35,8 @@ beforeEach(() => {
   getDeskCountForDate.mockResolvedValue({ numDesks: 3 });
   getDeskSupervisorsForDate.mockResolvedValue({ assignments: [] });
   getCinchoDayStatuses.mockResolvedValue({});
+  // Por defecto el servidor no tiene /tasks/board: se usa el listado completo.
+  taskService.getBoardTasks.mockRejectedValue(Object.assign(new Error("no existe"), { status: 404 }));
   taskService.getTasks.mockResolvedValue([
     task(1, { desk: 1 }),
     task(2, { desk: 2, status: "IN_PROGRESS", startedAt: "2026-10-14T08:00:00" }),
@@ -79,5 +81,31 @@ describe("Tablero", () => {
     fireEvent.click(screen.getByText("Atrasadas", { selector: "a, a *" }));
     expect(await screen.findByText(/Empezadas y sin terminar/)).toBeTruthy();
     expect(screen.getByText(/Pendientes sin hacer/)).toBeTruthy();
+  });
+});
+
+describe("Tablero liviano (/tasks/board)", () => {
+  test("no pide todas las tareas ni las órdenes al abrir y pinta los conteos del servidor", async () => {
+    taskService.getBoardTasks.mockResolvedValue({
+      tasks: [task(1, { desk: 1 }), task(3, { desk: null })],
+      counts: { dieCutPending: 75, backlog: 400, unfinished: 83 },
+    });
+    mount();
+    await screen.findByRole("heading", { name: "Tablero" });
+    await waitFor(() => expect(document.querySelectorAll(".tbs-task")).toHaveLength(2));
+    expect(screen.getByText("483 atrasadas")).toBeTruthy();
+    expect(screen.getByText("75")).toBeTruthy(); // insignia de «Por cortar»
+    expect(taskService.getTasks).not.toHaveBeenCalled();
+    expect(getProductionOrders).not.toHaveBeenCalled();
+    expect(taskService.getBacklogTasks).not.toHaveBeenCalled();
+    expect(taskService.getBlockedLeatherLines).not.toHaveBeenCalled();
+  });
+
+  test("los listados se piden al abrir su pestaña", async () => {
+    taskService.getBoardTasks.mockResolvedValue({ tasks: [], counts: { dieCutPending: 1, backlog: 1, unfinished: 0 } });
+    mount();
+    await screen.findByRole("heading", { name: "Tablero" });
+    fireEvent.click(screen.getByText("Por cortar", { selector: "a, a *" }));
+    await waitFor(() => expect(taskService.getDieCutPending).toHaveBeenCalled());
   });
 });
