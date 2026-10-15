@@ -53,7 +53,6 @@ import ProductionOrdersList from "views/production/ProductionOrdersList.js";
 import DailyProductionPlan from "views/production/DailyProductionPlan.js";
 import TasksByTable from "views/production/TasksByTable.js";
 import TaskOrganizer from "views/production/TaskOrganizer.js";
-import DayPlanner from "views/production/dayplanner/DayPlanner.js";
 import ProductionPhaseTrays from "views/production/ProductionPhaseTrays.js";
 import ProductionTraceability from "views/production/ProductionTraceability.js";
 import MaterialsTasksView from "views/production/MaterialsTasksView.js";
@@ -669,17 +668,6 @@ const routes = [
         showInSidebar: false,
         permissions: {
           view: "PRODUCCION.ORDENES_PRODUCCION.VER",
-        },
-      },
-      {
-        path: "/day-planner",
-        name: "Armar el día",
-        mini: "AD",
-        component: <DayPlanner />,
-        layout: "/admin",
-        module: "PRODUCCION",
-        permissions: {
-          view: "PRODUCCION.TAREAS_ESTACION.VER",
         },
       },
       {

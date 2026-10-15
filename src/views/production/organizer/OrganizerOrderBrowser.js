@@ -5,7 +5,36 @@ import {
 } from "reactstrap";
 import { formatDateGt, getTodayYmdGuatemala } from "utils/dateTimeHelper";
 import { formatProductionDuration } from "utils/productionTimeHelper";
-import FamilyBadge from "./FamilyBadge";
+
+
+/** Colores por familia de OP (texto siempre legible sobre el fondo). */
+const FAMILY_STYLES = {
+  OPL: { bg: "#1b5e20", fg: "#fff" },
+  OPV: { bg: "#0d47a1", fg: "#fff" },
+  OPK: { bg: "#37474f", fg: "#fff" },
+  OPI: { bg: "#6a1b9a", fg: "#fff" },
+  OPCK: { bg: "#00695c", fg: "#fff" },
+  OPD: { bg: "#e65100", fg: "#fff" },
+};
+
+function FamilyBadge({ family }) {
+  const cfg = FAMILY_STYLES[(family || "").toUpperCase()] || { bg: "#757575", fg: "#fff" };
+  return (
+    <span
+      style={{
+        background: cfg.bg,
+        color: cfg.fg,
+        borderRadius: 6,
+        padding: "2px 8px",
+        fontWeight: 700,
+        fontSize: 12,
+        marginRight: 8,
+      }}
+    >
+      {family || "?"}
+    </span>
+  );
+}
 
 function formatSizes(sizes) {
   if (!sizes || Object.keys(sizes).length === 0) return null;
