@@ -485,3 +485,38 @@ export const initializeMissingProductInventory = async (category = null, locatio
   }
 };
 
+
+// ========== KARDEX HISTÓRICO (archivado por limpiezas, solo consulta) ==========
+
+/**
+ * Busca movimientos del kardex archivado. filters: { locationId, productId, movementType,
+ * archiveReference, from, to (YYYY-MM-DD), reference, page, size }
+ */
+export const searchProductKardexHistorico = async (filters = {}) => {
+  const qs = new URLSearchParams();
+  Object.entries(filters).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && String(value).trim() !== '') {
+      qs.set(key, String(value).trim());
+    }
+  });
+  const response = await fetch(`${API_URL}/product-inventory/kardex-historico?${qs.toString()}`, {
+    headers: { 'Content-Type': 'application/json', ...getAuthHeader() }
+  });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ message: 'Error al consultar el kardex histórico' }));
+    throw new Error(err.message || 'Error al consultar el kardex histórico');
+  }
+  return response.json();
+};
+
+/** Limpiezas archivadas y tipos de movimiento disponibles para filtrar. */
+export const getProductKardexHistoricoFilters = async () => {
+  const response = await fetch(`${API_URL}/product-inventory/kardex-historico/filters`, {
+    headers: { 'Content-Type': 'application/json', ...getAuthHeader() }
+  });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ message: 'Error al cargar filtros del kardex histórico' }));
+    throw new Error(err.message || 'Error al cargar filtros del kardex histórico');
+  }
+  return response.json();
+};
