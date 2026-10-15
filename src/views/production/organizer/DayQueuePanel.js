@@ -104,7 +104,7 @@ export default function DayQueuePanel({ marcadas, onQuitar, onLimpiar, onDistrib
       <CardHeader style={{ backgroundColor: "#eaf4ff", padding: "8px 16px" }}>
         <strong style={{ fontSize: 14 }}>Cola del día ({marcadas.length})</strong>
         <small className="text-muted d-block">
-          Se guarda al marcar. «Planificar» en el Centro arma primero estas órdenes, en este orden. La mesa la elige el sistema.
+          Se guarda al marcar. «Armar el día» usa este orden como prioridad de las OPs. La mesa la elige el sistema.
         </small>
       </CardHeader>
       <CardBody className="py-2">

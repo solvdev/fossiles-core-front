@@ -37,7 +37,6 @@ import {
   autoAssignTaskDesk,
   getDaySaleCandidates,
   addDaySaleItemsToTask,
-  runAutoPlan,
   getBlockedLeatherLines,
   getDaySalesSummary,
   getOplDispatchSummary,
@@ -381,7 +380,6 @@ function TasksByTable() {
   const [selectedLeatherItems, setSelectedLeatherItems] = useState([]);
   const [leatherSelectionCount, setLeatherSelectionCount] = useState("");
   const [savingLeatherItems, setSavingLeatherItems] = useState(false);
-  const [autoPlanning, setAutoPlanning] = useState(false);
   const [blockedLeather, setBlockedLeather] = useState([]);
   const [daySalesSummary, setDaySalesSummary] = useState(null);
   const [oplDispatchSummary, setOplDispatchSummary] = useState(null);
@@ -521,35 +519,6 @@ function TasksByTable() {
     };
   }, []);
 
-  const handleRunAutoPlan = async ({ regenerate = true } = {}) => {
-    const planDate = filterDate || getTodayYmdGuatemala();
-    setAutoPlanning(true);
-    setError(null);
-    try {
-      const result = await runAutoPlan(undefined, { regenerate, date: planDate });
-      const centro = result?.centroTasksCreated || 0;
-      const cincho = result?.cinchoTasksCreated || 0;
-      const cleared = result?.clearedAutoPlanTasks || 0;
-      const blocked = (result?.blockedNoLeather || []).length;
-      const sinCupo = (result?.deferredNoCapacity || []).length;
-      const conservadas = result?.keptWithProgress || 0;
-      const dayLabel = formatDateGt(result?.planDate || planDate);
-      showSuccess(
-        `Plan del ${dayLabel}: ${centro} tareas de centro · ${cincho} de cinchos`
-          + (cleared ? ` · ${cleared} rehechas` : "")
-          + (conservadas ? ` · ${conservadas} con avance se conservaron` : "")
-          + (sinCupo ? ` · ${sinCupo} línea(s) sin cupo quedan para otro día` : "")
-          + (blocked ? ` · ${blocked} sin cuero` : "")
-      );
-      await Promise.all([loadTasks({ background: true }), loadDayPlanPanels()]);
-    } catch (err) {
-      console.error("Auto-plan manual:", err);
-      setError(err.message || "No se pudo generar el plan");
-      showError(err.message || "No se pudo generar el plan");
-    } finally {
-      setAutoPlanning(false);
-    }
-  };
   useEffect(() => {
     loadDayPlanPanels();
   }, [loadDayPlanPanels]);
@@ -1473,19 +1442,7 @@ function TasksByTable() {
    * está listo: el número salía siempre en rojo y no decía qué hacer.
    */
   const statsDay = filterDate || getTodayYmdGuatemala();
-  // El plan nunca arma días pasados: con una fecha vieja elegida, el backend planifica hoy.
   const todayYmd = getTodayYmdGuatemala();
-  const planDay = useMemo(() => {
-    let ymd = filterDate && filterDate > todayYmd ? filterDate : todayYmd;
-    // Sábado o domingo: el backend planifica el siguiente día hábil; la etiqueta dice lo mismo.
-    while (isWeekendYmd(ymd)) {
-      const [y, m, d] = ymd.split("-").map(Number);
-      const next = new Date(y, m - 1, d + 1);
-      ymd = `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, "0")}-${String(next.getDate()).padStart(2, "0")}`;
-    }
-    return ymd;
-  }, [filterDate, todayYmd]);
-  const planDayLabel = planDay === todayYmd ? "hoy" : `el ${formatDateGt(planDay)}`;
   // Las tarjetas usan el mismo corte que el resumen de arriba, para que los números cuadren.
   const unassignedUpToDay = unassignedTasks.filter((t) => !t.scheduledDate || t.scheduledDate <= statsDay);
   const unassignedLater = unassignedTasks.filter((t) => t.scheduledDate && t.scheduledDate > statsDay);
@@ -2107,7 +2064,7 @@ function TasksByTable() {
                     size="sm"
                     className="mb-0"
                     onClick={() => loadTasks({ background: true })}
-                    disabled={loading || refreshing || autoPlanning}
+                    disabled={loading || refreshing}
                     title={refreshing ? "Actualizando el listado…" : "Volver a leer las tareas"}
                   >
                     {refreshing ? (
@@ -2117,35 +2074,12 @@ function TasksByTable() {
                     )}
                     {refreshing ? "Actualizando…" : "Actualizar"}
                   </Button>
-                  <Button
-                    color="warning"
-                    size="sm"
-                    className="mb-0"
-                    onClick={() => handleRunAutoPlan({ regenerate: true })}
-                    disabled={loading || refreshing || autoPlanning}
-                    title={`Arma las tareas solo para ${planDayLabel}, por prioridad y hasta llenar el cupo de las mesas. `
-                      + "Rehace las tareas automáticas que aún no tienen avance; las que ya tienen cuero, corte, "
-                      + "materiales o mesa se respetan. Lo que no cabe queda para el siguiente día."}
-                  >
-                    {autoPlanning ? (
-                      <Spinner size="sm" className="mr-1" />
-                    ) : (
-                      <i className="nc-icon nc-settings-gear-65 mr-1" />
-                    )}
-                    {autoPlanning ? "Planificando…" : `Planificar ${planDayLabel}`}
-                  </Button>
                 </div>
               </div>
             </CardHeader>
             <CardBody>
               {error && <Alert color="danger">{error}</Alert>}
               {deskConfigWarning && <Alert color="warning" className="mb-2">{deskConfigWarning}</Alert>}
-              {autoPlanning && (
-                <Alert color="info" className="mb-2 py-2 d-flex align-items-center" style={{ gap: 8 }}>
-                  <Spinner size="sm" color="info" style={{ width: 14, height: 14, borderWidth: 2 }} />
-                  Planificando {planDayLabel}: rehaciendo tareas sin avance y llenando el cupo del día…
-                </Alert>
-              )}
               {viewMode === "operation" && (
                 <>
                   <Card className="mb-3" style={{ border: "1px solid #c5e1a5", background: "#f8fff4" }}>
@@ -2315,16 +2249,13 @@ function TasksByTable() {
                   <span style={{ fontSize: 13, flex: 1, minWidth: 260 }}>
                     <strong>Cómo fluye una tarea:</strong>
                     <span className="text-muted">
-                      {" "}1) marque qué va primero en la{" "}
-                      <a href="#colaDelDia" onClick={(e) => { e.preventDefault(); navigate("/admin/task-organizer"); }}>
-                        Cola del día
-                      </a>{" "}y pulse <strong>Planificar</strong> (botón amarillo): arma las tareas del día por esa prioridad ·
+                      {" "}1) en <strong>Armar el día</strong> elija las OPs y confirme: crea las tareas del día ·
                       {" "}2) se entrega cuero y se marca el corte en{" "}
                       <a href="#porTroquelar" onClick={(e) => { e.preventDefault(); navigate("/admin/task-organizer?tab=diecut"); }}>
                         Por troquelar
                       </a>{" "}·
                       {" "}3) al cortar, el sistema le asigna mesa solo ·
-                      {" "}4) en la mesa: Iniciar y Completar. Lo que no cabe o no tiene cuero espera al siguiente día.
+                      {" "}4) en la mesa: Iniciar, Pausar o Completar (Pausar y Cancelar piden motivo). Nada se crea solo.
                     </span>
                   </span>
                 </CardBody>
@@ -3901,14 +3832,13 @@ function TasksByTable() {
             Diseñado para usuarios nuevos: siga estos 4 pasos para trabajar sin errores.
           </Alert>
           <ol className="mb-2" style={{ paddingLeft: "18px" }}>
-            <li className="mb-1"><strong>Prioridad</strong>: en Organizador › Cola del día marque qué órdenes van primero. Se guarda al marcar.</li>
-            <li className="mb-1"><strong>Planificar el día</strong> con el botón amarillo: arma las tareas solo para ese día, primero la cola y luego el resto, hasta llenar el cupo de las mesas. No corre solo.</li>
+            <li className="mb-1"><strong>Armar el día</strong>: elija las OPs (el orden en que las marca es su prioridad), arme las tareas y confirme. Es la única forma de crear tareas del día; nada se crea solo.</li>
             <li className="mb-1"><strong>Cuero y troquel</strong>: entregar cuero y marcar el corte en Organizador › Por troquelar (materiales en Vista Materiales).</li>
             <li className="mb-1"><strong>La mesa la pone el sistema</strong> al quedar la tarea toda cortada: la mesa con menos carga y cupo libre.</li>
             <li className="mb-1"><strong>En la mesa</strong>: Iniciar y Completar desde Cronograma. Redistribuir solo para mover una línea a mano.</li>
           </ol>
           <Alert color="light" style={{ border: "1px solid #e2e8f0" }}>
-            Consejo: lo que no tiene cuero o no cupo hoy no se pierde; entra al planificar el siguiente día.
+            Consejo: lo que no tiene cuero o no cupo hoy no se pierde; queda para otro día en Armar el día.
           </Alert>
         </ModalBody>
       </Modal>
