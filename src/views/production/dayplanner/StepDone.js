@@ -16,6 +16,9 @@ export default function StepDone({ planner }) {
   if (!result) return null;
 
   const created = result.created || [];
+  // Una OPL combinada comparte tarea con su anfitriona: se cuenta una sola tarea creada.
+  const createdTasks = created.filter((c) => !c.mergedInto);
+  const leftovers = result.leftovers || [];
   const byClient = Object.fromEntries(tasks.map((t) => [t.clientId, t]));
   const otherDays = Array.from(new Set(created.map((c) => c.scheduledDate).filter((d) => d && d !== date))).sort();
   const hoursOf = (clientId) => {
@@ -27,15 +30,16 @@ export default function StepDone({ planner }) {
     <div>
       <div className="dp-okbox">
         <div className="dp-ck" aria-hidden="true">✓</div>
-        <h4 style={{ margin: 0 }}>{contar(created.length, "tarea creada", "tareas creadas")}</h4>
+        <h4 style={{ margin: 0 }}>{contar(createdTasks.length, "tarea creada", "tareas creadas")}</h4>
         <p className="dp-small" style={{ fontSize: 15 }}>
-          Día asignado · {concordar(created.length, "baja", "bajan")} a mesa al marcar el corte.
+          Día asignado · {concordar(createdTasks.length, "baja", "bajan")} a mesa al marcar el corte.
         </p>
       </div>
       {(result.notPlaced || []).length > 0 && (
         <div className="dp-note warn">
           <div className="dp-x">
-            {contar(result.notPlaced.length, "tarea no tuvo", "tareas no tuvieron")} mesa libre en la semana y {concordar(result.notPlaced.length, "queda", "quedan")} sin mesa.
+            {contar(result.notPlaced.length, "tarea no cupo", "tareas no cupieron")} en los días disponibles y {concordar(result.notPlaced.length, "no se creó", "no se crearon")}:
+            {" "}{concordar(leftovers.length, "queda", "quedan")} {contar(leftovers.length, "producto", "productos")} para otro día.
           </div>
         </div>
       )}
@@ -57,6 +61,16 @@ export default function StepDone({ planner }) {
       <ul className="dp-list">
         {created.map((c) => {
           const t = byClient[c.clientId];
+          if (c.mergedInto) {
+            return (
+              <li key={c.clientId || c.taskId}>
+                <strong>{c.code}</strong>
+                <span>{t ? t.orderCode : ""}</span>
+                <span>{fmt(hoursOf(c.clientId))} h</span>
+                <span>OPL combinada: va primero en esta tarea</span>
+              </li>
+            );
+          }
           return (
             <li key={c.clientId || c.taskId}>
               <strong>{c.code}</strong>

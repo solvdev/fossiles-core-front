@@ -103,10 +103,23 @@ export default function StepReview({ planner }) {
         const s = limitStatus(t);
         const shown = s.level === "opl" ? s.totalHours : s.baseHours;
         const day = dates[t.clientId] || p.proposedDate || firstDay;
+        // OPL que viaja como primera línea de otra tarea: su día y mesa son los de esa tarea.
+        const hostIndex = p.mergedInto ? tasks.findIndex((x) => x.clientId === p.mergedInto) : -1;
+        const includedCount = (p.includes || []).length;
         return (
           <div className="dp-prow" key={t.clientId}>
             <div className="dp-tt">
               <strong>Tarea {i + 1} · {t.orderCode}</strong>
+              {hostIndex >= 0 && (
+                <div className="dp-small" style={{ color: "#1d7fa3" }}>
+                  Va como primera línea de la tarea {hostIndex + 1}: cabe en el tiempo libre de esa mesa.
+                </div>
+              )}
+              {includedCount > 0 && (
+                <div className="dp-small" style={{ color: "#1d7fa3" }}>
+                  Lleva {includedCount === 1 ? "1 OPL combinada" : `${includedCount} OPL combinadas`} al inicio.
+                </div>
+              )}
               <span><FamilyBadge family={t.family} />{s.level === "opl" && <span className="dp-chip opl">PRIORIDAD</span>}</span>
               {(p.messages || []).map((m) => (
                 <div key={m} className="dp-small" style={{ color: p.status === "BLOCKED" ? "#a3300f" : "#7a5a00" }}>{m}</div>
@@ -121,13 +134,16 @@ export default function StepReview({ planner }) {
                 className="dp-select"
                 aria-label={`Día de la tarea ${i + 1}`}
                 value={day}
+                disabled={hostIndex >= 0}
                 onChange={(e) => changeTaskDate(t.clientId, e.target.value)}
               >
                 {Array.from(new Set([...days, day])).sort().map((d) => <option key={d} value={d}>{dayShort(d)}</option>)}
               </select>
             </div>
             <div>
-              {p.indicativeDesk ? <strong>Mesa {p.indicativeDesk}</strong> : <span className="dp-small">Sin mesa libre</span>}
+              {hostIndex >= 0
+                ? <strong>En tarea {hostIndex + 1}</strong>
+                : p.indicativeDesk ? <strong>Mesa {p.indicativeDesk}</strong> : <span className="dp-small">Sin mesa libre</span>}
               <div className="dp-small">orientativa</div>
               {p.overcapAnchor && <div className="dp-small" style={{ color: "#7a5a00" }}>Puede pasar del cupo hoy</div>}
             </div>

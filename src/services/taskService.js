@@ -55,15 +55,57 @@ export const getTasksByDate = async (date) => {
   return response.json();
 };
 
-export const updateTaskStatus = async (id, status) => {
+export const updateTaskStatus = async (id, status, reason) => {
   const response = await fetch(`${API_URL}/tasks/${id}/status`, {
     method: 'PUT',
     headers: headers(),
-    body: JSON.stringify({ status })
+    body: JSON.stringify(reason ? { status, reason } : { status })
   });
   if (!response.ok) {
     const err = await response.json().catch(() => ({ message: 'Error al actualizar estado' }));
     throw new Error(err.message || 'Error al actualizar estado');
+  }
+  return response.json();
+};
+
+const putOrPostTask = async (path, method, body, fallback) => {
+  const response = await fetch(`${API_URL}/tasks/${path}`, {
+    method,
+    headers: headers(),
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ message: fallback }));
+    throw new Error(err.message || fallback);
+  }
+  return response.json();
+};
+
+/** Pausa una tarea en proceso. El motivo es obligatorio; el reloj se detiene. */
+export const pauseTask = (id, reason) =>
+  putOrPostTask(`${id}/pause`, 'PUT', { reason }, 'No se pudo pausar la tarea');
+
+/** Reanuda una tarea pausada. */
+export const resumeTask = (id, reason) =>
+  putOrPostTask(`${id}/resume`, 'PUT', { reason }, 'No se pudo reanudar la tarea');
+
+/** Cancela una tarea con motivo: sus unidades vuelven a «no asignado». */
+export const cancelTask = (id, reason) => updateTaskStatus(id, 'CANCELLED', reason);
+
+/** El jefe perdona el atraso de una tarea (vuelve a ser comisionable). Motivo obligatorio. */
+export const forgiveTaskDelay = (id, reason) =>
+  putOrPostTask(`${id}/forgive-delay`, 'POST', { reason }, 'No se pudo perdonar el atraso');
+
+/** Agrega productos [{ productionOrderItemId, quantity }] a una tarea abierta. */
+export const addTaskItems = (id, items) =>
+  putOrPostTask(`${id}/items`, 'POST', items, 'No se pudieron agregar los productos');
+
+/** Historial de la tarea: qué le pasó, cuándo, quién y por qué. */
+export const getTaskHistory = async (id) => {
+  const response = await fetch(`${API_URL}/tasks/${id}/history`, { headers: headers() });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ message: 'No se pudo cargar el historial' }));
+    throw new Error(err.message || 'No se pudo cargar el historial');
   }
   return response.json();
 };

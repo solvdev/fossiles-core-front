@@ -96,3 +96,20 @@ Errores 409 (el front los distingue por `code`): cuerpo `{ "code": "PLAN_CHANGED
 4. Parcial por producto: `quantity` de cada ítem puede ser menor que `remainingQuantity`.
 5. Listado de OPs ligero (resumen: código, cliente, entrega, horas totales/restantes, #productos)
    y un endpoint para traer los productos de UNA OP al abrirla, paginado.
+
+## Ajuste v3 (implementado en el back: rama feature/armar-el-dia de fossiles-core-back)
+
+**Migración SQL (correr ANTES del binario):** `scripts/migration-task-delay-commission.sql` del back
+(columnas nuevas en `task` y tabla `task_event`; las tareas existentes quedan comisionables).
+
+**Reparto**
+- `preview.capacity` / `capacities[]`: `date, activeDesks, idealHoursPerDesk, hardHoursPerDesk, plannedHours, totalHours, remainingHours, requestedHours, excessHours` (mesas activas de la fecha × 5 h; OPL no cuentan).
+- `confirm` → 409 `CAPACITY_EXCEEDED` (con `capacity[]`) si el plan + lo planificado pasa de mesas × 5 h. 422 `PLAN_BLOCKED` si hay tareas inválidas.
+- Lo que no cabe en el horizonte **no se crea**: `notPlaced[]` + `leftovers[]` (por ítem con cantidad).
+- OPL: si caben en el tiempo libre de una mesa (9 h − horas base de esa mesa/día) se combinan como **primera línea** de esa tarea (`tasks[].mergedInto` en la OPL, `includes[]` en la anfitriona; en `confirm.created[]` la OPL trae `mergedInto` y el mismo `taskId`). Si no caben, van como tarea aparte.
+- `GET /api/tasks/organizer/day-plan/orders` (resumen sin ítems) y `/orders/{id}/items` (ítems de una OP, paginados).
+
+**Flujo de la tarea**
+- Atraso por **tarea**: trabajado (sin pausas, noches ni almuerzo) > esperado (suma de todas las líneas, OPL incluidas) + 30 min fijos → `delayed`, `commissionEligible=false` para toda la tarea. Las tareas 100 % OPL nunca se atrasan.
+- `PUT /tasks/{id}/pause {reason}`, `PUT /tasks/{id}/resume`, cancelar con `PUT /tasks/{id}/status {status:"CANCELLED", reason}` (motivo obligatorio; libera mesa y unidades), `POST /tasks/{id}/forgive-delay {reason}` (solo ADMIN), `POST /tasks/{id}/items [{productionOrderItemId, quantity}]`, `GET /tasks/{id}/history`.
+- Campos nuevos en la tarea: `pausedAt, expectedMinutes, delayMinutes, delayed, commissionEligible, delayForgivenBy/At/Reason`.
