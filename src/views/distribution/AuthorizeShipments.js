@@ -28,6 +28,10 @@ import classnames from "classnames";
 import CreateStandaloneInternalShipmentModal from "components/distribution/CreateStandaloneInternalShipmentModal";
 import InternalShipmentRequestDetailModal from "components/distribution/InternalShipmentRequestDetailModal";
 import PrintSlipBookletModal from "components/distribution/PrintSlipBookletModal";
+import {
+  RequestActionButtons,
+  StockIndicator,
+} from "components/distribution/InternalRequestStock";
 import { useAuth } from "contexts/AuthContext";
 import {
   approveInternalShipmentRequest,
@@ -41,10 +45,10 @@ import {
 import { printInternalEnviShipment } from "utils/enviInternalPrintHelper";
 import { formatDateTimeGt } from "utils/dateTimeHelper";
 import {
-  canApproveInternalShipment,
   canGenerateOpiForApprovedEnvi,
   canGenerateOpiForExistingEnvi,
   formatInternalRequestTypeLabel,
+  formatQty,
   needsOpiProductionAuthorization,
   resolveInternalEnviCollaborator,
   resolveInternalEnviTypeLabel,
@@ -63,6 +67,18 @@ const STATUS_COLORS = {
   APROBADA: "success",
   RECHAZADA: "danger",
   CANCELADA: "secondary",
+};
+
+const STOCK_FILTERS = [
+  { key: "DISPONIBLE", label: "Con stock", color: "#1f7a46", bg: "#e6f6ec" },
+  { key: "SIN_STOCK", label: "Sin stock", color: "#b42323", bg: "#fdeaea" },
+  { key: "EN_PRODUCCION", label: "En producción", color: "#9a6200", bg: "#fff4dc" },
+];
+
+const STOCK_ROW_ACCENT = {
+  DISPONIBLE: "#2e9e5b",
+  SIN_STOCK: "#d64545",
+  EN_PRODUCCION: "#e0a100",
 };
 
 function AuthorizeShipments() {
@@ -86,6 +102,7 @@ function AuthorizeShipments() {
   const [rejectTargetId, setRejectTargetId] = useState(null);
   const [rejectReason, setRejectReason] = useState("");
   const [detailRequestId, setDetailRequestId] = useState(null);
+  const [stockFilter, setStockFilter] = useState("");
 
   const loadExistingEnvi = useCallback(async () => {
     if (!isAccountingView) return;
@@ -134,29 +151,33 @@ function AuthorizeShipments() {
     return map;
   }, [requests]);
 
+  const stockCounts = useMemo(() => {
+    const counts = { DISPONIBLE: 0, SIN_STOCK: 0, EN_PRODUCCION: 0 };
+    requests.forEach((req) => {
+      if (req.status === "PENDIENTE" && counts[req.stockStatus] != null) {
+        counts[req.stockStatus] += 1;
+      }
+    });
+    return counts;
+  }, [requests]);
+
+  const visibleRequests = useMemo(
+    () => (stockFilter ? requests.filter((req) => req.stockStatus === stockFilter) : requests),
+    [requests, stockFilter]
+  );
+
   const approveRequest = async (request) => {
     if (!canApprove || !request?.id) return;
     try {
       setActionId(request.id);
       setError("");
       const updated = await approveInternalShipmentRequest(request.id);
-      const opiPending = Boolean(updated?.productionOrderId)
-        && String(updated?.status || "").toUpperCase() === "PENDIENTE";
-      if (opiPending) {
-        const opiRef = updated.productionOrderCode || "una OPI";
-        showSuccess(
-          `Sin stock suficiente. Se generó ${opiRef} por el faltante. `
-            + "Autorice su producción y reciba el producto en Bodega PT antes de autorizar el envío."
-        );
-      } else {
-        showSuccess(`Solicitud aprobada. ENVI: ${updated?.shipmentNumber || "—"}`);
-      }
+      showSuccess(`Envío autorizado. ENVI: ${updated?.shipmentNumber || "—"}`);
       await Promise.all([loadRequests(), loadExistingEnvi()]);
       setDetailRequestId(null);
     } catch (err) {
-      showError(err.message || "No se pudo aprobar la solicitud.");
-      // Si el backend acaba de generar una OPI por faltante de stock, refrescamos
-      // la lista para que se muestre de inmediato el botón "Autorizar prod.".
+      showError(err.message || "No se pudo autorizar el envío.");
+      // El stock pudo cambiar entre que se cargó la lista y el clic: refrescamos indicadores.
       await loadRequests();
       throw err;
     } finally {
@@ -169,27 +190,40 @@ function AuthorizeShipments() {
     try {
       setActionId(request.id);
       setError("");
+      const hadOpi = Boolean(request.productionOrderId);
       const updated = await authorizeOpiProduction(request.id);
       const opiCode = updated?.productionOrderCode || request.productionOrderCode || "OPI";
-      showSuccess(`Producción autorizada para ${opiCode}.`);
+      showSuccess(
+        hadOpi
+          ? `Producción autorizada para ${opiCode}.`
+          : `Producción autorizada. Se generó ${opiCode} por el faltante.`
+      );
       await loadRequests();
       setDetailRequestId(null);
     } catch (err) {
       showError(err.message || "No se pudo autorizar la producción OPI.");
+      await loadRequests();
       throw err;
     } finally {
       setActionId(null);
     }
   };
 
+  /** Devuelve true si la producción quedó autorizada (false si se canceló o falló). */
   const handleAuthorizeProduction = async (request) => {
-    if (!canApprove || !request?.id) return;
-    const opiCode = request.productionOrderCode || "OPI";
-    const ok = window.confirm(
-      `¿Autorizar la producción de ${opiCode} para la solicitud #${request.id}?`
-    );
-    if (!ok) return;
-    await authorizeProduction(request);
+    if (!canApprove || !request?.id) return false;
+    const message = request.productionOrderCode
+      ? `¿Autorizar la producción de ${request.productionOrderCode} para la solicitud #${request.id}?`
+      : `Sin stock suficiente para la solicitud #${request.id} de ${request.recipientName} `
+        + `(faltan ${formatQty(request.stockShortageTotal)} unidades). `
+        + "¿Autorizar la producción del faltante? Se generará una OPI.";
+    if (!window.confirm(message)) return false;
+    try {
+      await authorizeProduction(request);
+      return true;
+    } catch {
+      return false; // El error ya se notificó en authorizeProduction.
+    }
   };
 
   const generateOpi = async (request) => {
@@ -253,14 +287,20 @@ function AuthorizeShipments() {
     }
   };
 
+  /** Devuelve true si el envío quedó autorizado (false si se canceló o falló). */
   const handleApprove = async (request) => {
-    if (!canApprove || !request?.id) return;
+    if (!canApprove || !request?.id) return false;
     const ok = window.confirm(
-      `¿Autorizar la solicitud #${request.id} de ${request.recipientName}? `
-        + "Si hay stock se genera el ENVI; si falta, se crea una OPI por el faltante."
+      `¿Autorizar el envío de la solicitud #${request.id} de ${request.recipientName}? `
+        + "Se generará el número ENVI y se despachará el producto."
     );
-    if (!ok) return;
-    await approveRequest(request);
+    if (!ok) return false;
+    try {
+      await approveRequest(request);
+      return true;
+    } catch {
+      return false; // El error ya se notificó en approveRequest.
+    }
   };
 
   const openRejectModal = (requestId) => {
@@ -311,7 +351,7 @@ function AuthorizeShipments() {
               </CardTitle>
               <p className="text-muted mb-0 small mt-1">
                 {isAccountingView
-                  ? "Distribución crea solicitudes; Contabilidad autoriza o deniega. Al aprobar se genera el número ENVI."
+                  ? "Distribución crea solicitudes. Con stock se autoriza el envío (ENVI); sin stock se autoriza la producción del faltante y se espera su ingreso a Bodega PT."
                   : "Consulte el estado de sus solicitudes pendientes de autorización por Contabilidad."}
               </p>
             </Col>
@@ -407,9 +447,42 @@ function AuthorizeShipments() {
                 </Col>
               </Row>
 
+              {canApprove && STOCK_FILTERS.some((f) => stockCounts[f.key] > 0) && (
+                <div className="d-flex flex-wrap align-items-center mb-3" style={{ gap: 8 }}>
+                  <span className="small text-muted mr-1">Pendientes por stock:</span>
+                  {STOCK_FILTERS.map((f) => {
+                    const active = stockFilter === f.key;
+                    return (
+                      <button
+                        key={f.key}
+                        type="button"
+                        onClick={() => setStockFilter(active ? "" : f.key)}
+                        style={{
+                          border: `1px solid ${active ? f.color : "#dcdfe4"}`,
+                          background: active ? f.bg : "#fff",
+                          color: f.color,
+                          borderRadius: 999,
+                          padding: "3px 12px",
+                          fontSize: 12,
+                          fontWeight: 600,
+                          cursor: "pointer",
+                        }}
+                      >
+                        {f.label} · {stockCounts[f.key]}
+                      </button>
+                    );
+                  })}
+                  {stockFilter && (
+                    <Button color="link" size="sm" className="p-0" onClick={() => setStockFilter("")}>
+                      Quitar filtro
+                    </Button>
+                  )}
+                </div>
+              )}
+
               {loadingRequests ? (
                 <div className="text-center p-4"><Spinner color="primary" /></div>
-              ) : requests.length === 0 ? (
+              ) : visibleRequests.length === 0 ? (
                 <div className="text-center text-muted p-4">
                   {isAccountingView
                     ? "No hay solicitudes con estos filtros."
@@ -426,17 +499,21 @@ function AuthorizeShipments() {
                       <th>Tipo</th>
                       <th>Líneas</th>
                       <th>Estado</th>
-                      <th>OPI</th>
-                      <th>Prod. OPI</th>
+                      <th>Stock / Producción</th>
                       {isAccountingView && <th>ENVI</th>}
                       <th className="text-right">Acciones</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {requests.map((req) => (
+                    {visibleRequests.map((req) => (
                       <tr
                         key={req.id}
-                        style={{ cursor: "pointer" }}
+                        style={{
+                          cursor: "pointer",
+                          boxShadow: req.status === "PENDIENTE" && STOCK_ROW_ACCENT[req.stockStatus]
+                            ? `inset 3px 0 0 ${STOCK_ROW_ACCENT[req.stockStatus]}`
+                            : undefined,
+                        }}
                         onClick={() => setDetailRequestId(req.id)}
                       >
                         <td>{req.id}</td>
@@ -457,18 +534,7 @@ function AuthorizeShipments() {
                             </div>
                           )}
                         </td>
-                        <td>{req.productionOrderCode || "—"}</td>
-                        <td>
-                          {req.productionOrderCode ? (
-                            needsOpiProductionAuthorization(req) ? (
-                              <Badge color="warning">Borrador</Badge>
-                            ) : (
-                              <Badge color="success">Autorizada</Badge>
-                            )
-                          ) : (
-                            "—"
-                          )}
-                        </td>
+                        <td><StockIndicator request={req} /></td>
                         {isAccountingView && <td>{req.shipmentNumber || "—"}</td>}
                         <td className="text-right text-nowrap" onClick={(e) => e.stopPropagation()}>
                           <Button
@@ -480,40 +546,13 @@ function AuthorizeShipments() {
                             Ver detalle
                           </Button>
                           {req.status === "PENDIENTE" && canApprove && (
-                            <>
-                              {needsOpiProductionAuthorization(req) && (
-                                <Button
-                                  color="primary"
-                                  size="sm"
-                                  className="btn-round mr-1"
-                                  disabled={actionId === req.id}
-                                  onClick={() => handleAuthorizeProduction(req)}
-                                >
-                                  {actionId === req.id ? <Spinner size="sm" /> : "Autorizar prod."}
-                                </Button>
-                              )}
-                              {canApproveInternalShipment(req) && (
-                                <Button
-                                  color="success"
-                                  size="sm"
-                                  className="btn-round mr-1"
-                                  disabled={actionId === req.id}
-                                  onClick={() => handleApprove(req)}
-                                >
-                                  {actionId === req.id ? <Spinner size="sm" /> : "Autorizar envío"}
-                                </Button>
-                              )}
-                              <Button
-                                color="danger"
-                                size="sm"
-                                outline
-                                className="btn-round mr-1"
-                                disabled={actionId === req.id}
-                                onClick={() => openRejectModal(req.id)}
-                              >
-                                Denegar
-                              </Button>
-                            </>
+                            <RequestActionButtons
+                              request={req}
+                              busy={actionId === req.id}
+                              onAuthorizeShipment={handleApprove}
+                              onAuthorizeProduction={handleAuthorizeProduction}
+                              onReject={openRejectModal}
+                            />
                           )}
                           {isAccountingView && req.status === "APROBADA" && req.productShipmentId && (
                             <>
@@ -678,8 +717,8 @@ function AuthorizeShipments() {
         requestId={detailRequestId}
         onClose={() => setDetailRequestId(null)}
         canApprove={canApprove}
-        onApprove={approveRequest}
-        onAuthorizeProduction={authorizeProduction}
+        onApprove={handleApprove}
+        onAuthorizeProduction={handleAuthorizeProduction}
         onReject={(id) => {
           setDetailRequestId(null);
           openRejectModal(id);
