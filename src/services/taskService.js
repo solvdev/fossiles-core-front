@@ -525,6 +525,50 @@ export const planTasksWindow = async (startDate, horizonDays, schedulingPrioriti
   return response.json();
 };
 
+/**
+ * Error de la API que conserva el estado y el cuerpo: al confirmar, el 409 trae el motivo
+ * (`PLAN_CHANGED`, `QTY_UNAVAILABLE`, `LOCK_TIMEOUT`) y, si cambió la carga, una vista previa nueva.
+ */
+const apiError = async (response, fallback) => {
+  const body = await response.json().catch(() => null);
+  const err = new Error((body && body.message) || fallback);
+  err.status = response.status;
+  err.body = body;
+  return err;
+};
+
+/**
+ * «Armar el día»: vista previa. No guarda nada: valida las tareas borrador, mide cada una
+ * contra el límite y propone día y mesa orientativa para las que están por crearse.
+ *
+ * @param {Object} payload ver `buildDayPlanPayload` en utils/dayPlanHelper.js
+ * @param {{signal?: AbortSignal}} [opts]
+ */
+export const previewDayPlan = async (payload, { signal } = {}) => {
+  const response = await fetch(`${API_URL}/tasks/organizer/day-plan/preview`, {
+    method: 'POST',
+    headers: headers(),
+    body: JSON.stringify(payload),
+    signal,
+  });
+  if (!response.ok) throw await apiError(response, 'No se pudo calcular la propuesta del día');
+  return response.json();
+};
+
+/**
+ * «Armar el día»: confirma. Crea todas las tareas o ninguna. Lleva la huella de la vista
+ * previa: si la carga cambió mientras tanto, el servidor responde 409 `PLAN_CHANGED`.
+ */
+export const confirmDayPlan = async (payload) => {
+  const response = await fetch(`${API_URL}/tasks/organizer/day-plan/confirm`, {
+    method: 'POST',
+    headers: headers(),
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) throw await apiError(response, 'No se pudieron crear las tareas');
+  return response.json();
+};
+
 export const runAutoPlan = async (productionOrderId, { regenerate = false, date } = {}) => {
   const params = new URLSearchParams();
   if (productionOrderId != null) params.append('productionOrderId', String(productionOrderId));
