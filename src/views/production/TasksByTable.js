@@ -114,6 +114,9 @@ const STATION_STYLESHEET = `
      Columnas CSS en vez de rejilla: con la rejilla, todas las mesas de una fila
      adoptan la altura de la más cargada y dejan huecos enormes. Aquí las tarjetas
      fluyen y rellenan el espacio, sin filas y sin coste de reflow. */
+  .tbs-grid { display: grid; gap: 16px; align-items: stretch; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); }
+  .tbs-grid .tbs-board-item { margin-bottom: 0; }
+  .tbs-grid .tbs-board-item > .tbs-desk { height: 100%; }
   .tbs-board { column-gap: 16px; column-count: 1; }
   .tbs-board-item { break-inside: avoid; page-break-inside: avoid; margin-bottom: 16px; }
   @media (min-width: 768px)  { .tbs-board { column-count: 2; } }
@@ -337,7 +340,7 @@ function TasksByTable() {
   const [deskConfigWarning, setDeskConfigWarning] = useState("");
   const [activeTab, setActiveTab] = useState("board"); // "board" | "late"
   const [moveMode, setMoveMode] = useState(false);
-  const [showCut, setShowCut] = useState(true);
+  const [showCut, setShowCut] = useState(false);
   const [showSummary, setShowSummary] = useState(false);
   const late = useCutAndLate();
   // Mover líneas entre mesas y fechas solo lo hacen administración y producción.
@@ -1954,7 +1957,7 @@ function TasksByTable() {
                     <small className="text-muted ml-2">Cortadas, esperan cupo. Entran a la primera mesa que se libere.</small>
                   </CardHeader>
                   <CardBody className="p-2">
-                    <div className="tbs-board">
+                    <div className="tbs-grid">
                       {sinMesaListas.map((task) => (
                         <div key={task.id} className="tbs-board-item">
                           <div className="tbs-desk"><div className="tbs-desk-body">
@@ -1964,23 +1967,6 @@ function TasksByTable() {
                               Asignar mesa
                             </Button>
                           </div></div>
-                        </div>
-                      ))}
-                    </div>
-                  </CardBody>
-                </Card>
-              )}
-
-              {awaitingWarehouseTasks.length > 0 && (
-                <Card className="mb-3" style={{ border: "1px solid #bcd0f7" }}>
-                  <CardHeader className="py-2">
-                    <strong>Pendiente de bodega PT <Badge color="primary" className="ml-1">{awaitingWarehouseTasks.length}</Badge></strong>
-                  </CardHeader>
-                  <CardBody className="p-2">
-                    <div className="tbs-board">
-                      {awaitingWarehouseTasks.map((task) => (
-                        <div key={task.id} className="tbs-board-item">
-                          <div className="tbs-desk"><div className="tbs-desk-body">{renderTaskCards([task])}</div></div>
                         </div>
                       ))}
                     </div>
@@ -2006,7 +1992,7 @@ function TasksByTable() {
                   </div>
                 </CardHeader>
                 <CardBody className="p-2">
-                  <div className="tbs-board">
+                  <div className="tbs-grid">
                     {deskNumbers.map((desk) => renderDeskColumn(boardDay, desk, dayDeskMap[desk] || []))}
                   </div>
                   {(cinchoRows.length > 0 || cinchoStatusLoadingByDate[boardDay]) && (
@@ -2025,6 +2011,23 @@ function TasksByTable() {
                   )}
                 </CardBody>
               </Card>
+
+              {awaitingWarehouseTasks.length > 0 && (
+                <Card className="mb-3" style={{ border: "1px solid #bcd0f7" }}>
+                  <CardHeader className="py-2">
+                    <strong>Pendiente de bodega PT <Badge color="primary" className="ml-1">{awaitingWarehouseTasks.length}</Badge></strong>
+                  </CardHeader>
+                  <CardBody className="p-2">
+                    <div className="tbs-grid">
+                      {awaitingWarehouseTasks.map((task) => (
+                        <div key={task.id} className="tbs-board-item">
+                          <div className="tbs-desk"><div className="tbs-desk-body">{renderTaskCards([task])}</div></div>
+                        </div>
+                      ))}
+                    </div>
+                  </CardBody>
+                </Card>
+              )}
 
               {/* Resumen del día: ventas en línea a despachar y lo que no tiene cuero */}
               <Card className="mb-3">
