@@ -47,6 +47,7 @@ export const routePermissions = {
   // PRODUCCIÓN
   '/admin/production-orders': 'PRODUCTION_ORDER_READ',
   '/admin/daily-production-plan': 'DAILY_PRODUCTION_PLAN_VIEW',
+  '/admin/day-planner': 'PRODUCCION.TAREAS_ESTACION.VER',
   '/admin/tasks-by-station': 'PRODUCCION.TAREAS_ESTACION.VER',
   '/admin/task-organizer': 'PRODUCCION.TAREAS_ESTACION.VER',
 
