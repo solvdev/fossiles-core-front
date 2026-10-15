@@ -14,7 +14,7 @@ import {
   previewFulfillment, getSaleItemsPreview, resolveMixedSale,
   importOnlineSales, returnOnlineSale, voidOnlineSale, cancelOnlineSaleDispatch, registerOnlineSaleShipment,
   getReturnInventory, getReturnEvents, getReturnForPrint,
-  createOnlineSaleExchange,
+  createOnlineSaleExchange, searchOnlineSaleShipments,
   PAYMENT_METHODS, SALESPERSONS, SOCIAL_NETWORKS, SHIPPING_CARRIERS, SALE_STATUSES
 } from "../../services/onlineSaleService";
 import { getWarehouseView } from "../../services/productionOrderService";
@@ -59,6 +59,42 @@ const emptyItem = () => ({ productId: null, colorId: null, size: "", quantity: 1
 const getStatusBadge = (status) => {
   const found = SALE_STATUSES.find(s => s.value === status);
   return found ? <Badge color={found.color}>{found.label}</Badge> : <Badge>{status}</Badge>;
+};
+
+// Estados no válidos como destino de un CAMBIO (el envío ya no existe operativamente)
+const EXCHANGE_TARGET_BLOCKED_STATUSES = ["ANULADA", "CANCELADO", "DEVOLUCION"];
+
+// Colores propios con buen contraste (los badges del tema salen casi blancos sobre fondo claro)
+const EXCHANGE_STATUS_STYLES = {
+  PENDIENTE: { bg: "#FFF1CC", fg: "#6B4A00" },
+  EN_PRODUCCION: { bg: "#D8EEF6", fg: "#0A4C60" },
+  PRODUCIDO: { bg: "#DCEBEC", fg: "#27494A" },
+  ENVIADO: { bg: "#E3E6EA", fg: "#2B3138" },
+  ENTREGADO: { bg: "#D6F0E0", fg: "#14612F" },
+  CANCELADO: { bg: "#FBDDD3", fg: "#8E2A0C" },
+  ANULADA: { bg: "#FBDDD3", fg: "#8E2A0C" },
+  DEVOLUCION: { bg: "#DADADA", fg: "#1F1F1F" },
+};
+
+const getExchangeStatusChip = (status) => {
+  const found = SALE_STATUSES.find((s) => s.value === status);
+  const style = EXCHANGE_STATUS_STYLES[status] || { bg: "#E3E6EA", fg: "#2B3138" };
+  return (
+    <span
+      style={{
+        display: "inline-block",
+        padding: "2px 8px",
+        borderRadius: 10,
+        fontSize: 11,
+        fontWeight: 700,
+        whiteSpace: "nowrap",
+        background: style.bg,
+        color: style.fg,
+      }}
+    >
+      {found ? found.label : (status || "—")}
+    </span>
+  );
 };
 
 const getFelInvoiceBadge = (sale) => {
@@ -602,6 +638,13 @@ function OnlineSales() {
   });
   const [creatingExchange, setCreatingExchange] = useState(false);
   const [exchangeCreatedSale, setExchangeCreatedSale] = useState(null);
+  // Destino del cambio: envío nuevo o agregar a un envío existente
+  const [exchangeTargetMode, setExchangeTargetMode] = useState("NEW"); // NEW | EXISTING
+  const [exchangeShipmentQuery, setExchangeShipmentQuery] = useState("");
+  const [exchangeShipmentResults, setExchangeShipmentResults] = useState([]);
+  const [exchangeShipmentLoading, setExchangeShipmentLoading] = useState(false);
+  const [exchangeTargetSale, setExchangeTargetSale] = useState(null);
+  const [exchangeAddedToExisting, setExchangeAddedToExisting] = useState(false);
 
   // Inventario de devoluciones (historial)
   const [returnsStartDate, setReturnsStartDate] = useState(() => dateDaysAgo(30));
@@ -1595,8 +1638,34 @@ function OnlineSales() {
       observations: "CAMBIO por producto dañado / parcial",
     });
     setExchangeCreatedSale(null);
+    setExchangeTargetMode("NEW");
+    setExchangeShipmentQuery("");
+    setExchangeShipmentResults([]);
+    setExchangeTargetSale(null);
+    setExchangeAddedToExisting(false);
     setShowExchangeModal(true);
   };
+
+  // Búsqueda (con retardo) de envíos existentes para agregar el cambio
+  useEffect(() => {
+    if (!showExchangeModal || exchangeTargetMode !== "EXISTING") return undefined;
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      try {
+        setExchangeShipmentLoading(true);
+        const rows = await searchOnlineSaleShipments(exchangeShipmentQuery);
+        if (!cancelled) setExchangeShipmentResults(Array.isArray(rows) ? rows : []);
+      } catch (e) {
+        if (!cancelled) setError(e?.message || "No se pudieron buscar los envíos.");
+      } finally {
+        if (!cancelled) setExchangeShipmentLoading(false);
+      }
+    }, 300);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [showExchangeModal, exchangeTargetMode, exchangeShipmentQuery]);
 
   const handleCreateExchange = async () => {
     if (!exchangeOriginalSale) return;
@@ -1605,9 +1674,15 @@ function OnlineSales() {
       setError("Seleccione al menos un item con cantidad para el CAMBIO.");
       return;
     }
+    const addToExisting = exchangeTargetMode === "EXISTING";
+    if (addToExisting && !exchangeTargetSale) {
+      setError("Seleccione el envío existente al que se agregará el cambio.");
+      return;
+    }
     try {
       setCreatingExchange(true);
       const created = await createOnlineSaleExchange(exchangeOriginalSale.id, {
+        targetOnlineSaleId: addToExisting ? exchangeTargetSale.id : null,
         shippingCarrier: exchangeForm.shippingCarrier,
         guideNumber: exchangeForm.guideNumber || "",
         observations: exchangeForm.observations || "",
@@ -1623,7 +1698,12 @@ function OnlineSales() {
         }),
       });
       setExchangeCreatedSale(created);
-      showNotification(`CAMBIO creado · ${created.shipmentNumber || created.id}. Unidades en Devoluciones.`);
+      setExchangeAddedToExisting(addToExisting);
+      showNotification(
+        addToExisting
+          ? `CAMBIO agregado al envío ${created.shipmentNumber || created.id}. Unidades en Devoluciones.`
+          : `CAMBIO creado · ${created.shipmentNumber || created.id}. Unidades en Devoluciones.`
+      );
       if (lookupSearched) searchSalesForAction();
       if (activeTab === "devoluciones") loadReturns();
     } catch (e) {
@@ -1746,6 +1826,9 @@ function OnlineSales() {
     const condition = String(dto?.itemCondition ?? "").trim();
     if (reason) parts.push(reason);
     if (condition) parts.push(`Condición: ${condition}`);
+    if (dto?.exchangeShipmentNumber) {
+      parts.push(`Relacionado con el envío de cambio ${dto.exchangeShipmentNumber}`);
+    }
     return parts.join(" | ");
   };
 
@@ -3223,6 +3306,7 @@ function OnlineSales() {
                             <th style={{ width: 110 }}>Tipo</th>
                             <th style={{ width: 110 }}>Pedido</th>
                             <th style={{ width: 140 }}>Envío relacionado</th>
+                            <th style={{ width: 150 }}>Envío del cambio</th>
                             <th style={{ width: 120 }}>Condición</th>
                             <th>Motivo</th>
                             <th style={{ width: 180 }}>Acciones</th>
@@ -3239,6 +3323,11 @@ function OnlineSales() {
                               </td>
                               <td>#{e.onlineSaleId || "—"}</td>
                               <td>{e.relatedShipmentNumber || "—"}</td>
+                              <td>
+                                {e.exchangeShipmentNumber
+                                  ? <strong style={{ color: "#0A4C60" }}>{e.exchangeShipmentNumber}</strong>
+                                  : "—"}
+                              </td>
                               <td>
                                 <Badge color={String(e.itemCondition || "").toUpperCase() === "DAÑADO" ? "danger" : "secondary"}>
                                   {e.itemCondition || "—"}
@@ -4608,7 +4697,7 @@ function OnlineSales() {
       {/* ═══ MODAL CAMBIO ═══ */}
       <Modal isOpen={showExchangeModal} toggle={() => setShowExchangeModal(false)} size="lg">
         <ModalHeader toggle={() => setShowExchangeModal(false)}>
-          🔁 Registrar CAMBIO (nuevo envío Q0)
+          🔁 Registrar CAMBIO (Q0)
         </ModalHeader>
         <ModalBody>
           {exchangeOriginalSale && (
@@ -4617,9 +4706,152 @@ function OnlineSales() {
               <div><strong>Cliente:</strong> {exchangeOriginalSale.customerName || "—"}</div>
               <div><strong>Envío relacionado:</strong> {exchangeOriginalSale.shipmentNumber || "—"}</div>
               <div className="mt-2 text-muted" style={{ fontSize: 12 }}>
-                El cambio se crea como un nuevo envío con monto <strong>Q0</strong> y con un <strong>ENVL nuevo</strong>.
+                {exchangeTargetMode === "EXISTING"
+                  ? <>Los productos se agregan al envío elegido a <strong>Q0</strong>, sin crear un ENVL nuevo.</>
+                  : <>El cambio se crea como un nuevo envío con monto <strong>Q0</strong> y con un <strong>ENVL nuevo</strong>.</>}
               </div>
             </Alert>
+          )}
+
+          <FormGroup tag="fieldset" className="mb-3" disabled={Boolean(exchangeCreatedSale)}>
+            <Label className="d-block">Envío del cambio</Label>
+            <FormGroup check inline>
+              <Label check>
+                <Input
+                  type="radio"
+                  name="exchangeTargetMode"
+                  checked={exchangeTargetMode === "NEW"}
+                  onChange={() => { setExchangeTargetMode("NEW"); setExchangeTargetSale(null); }}
+                />{" "}
+                Envío nuevo
+              </Label>
+            </FormGroup>
+            <FormGroup check inline>
+              <Label check>
+                <Input
+                  type="radio"
+                  name="exchangeTargetMode"
+                  checked={exchangeTargetMode === "EXISTING"}
+                  onChange={() => setExchangeTargetMode("EXISTING")}
+                />{" "}
+                Agregar a un envío existente
+              </Label>
+            </FormGroup>
+          </FormGroup>
+
+          {exchangeTargetMode === "EXISTING" && !exchangeCreatedSale && (
+            <div className="mb-3">
+              {exchangeTargetSale ? (
+                <div
+                  style={{
+                    background: "#E8F4F8",
+                    border: "1px solid #9FD3E3",
+                    borderRadius: 6,
+                    color: "#1F2D3D",
+                    padding: "10px 14px",
+                  }}
+                >
+                  <div style={{ fontSize: 12, fontWeight: 700, color: "#0A4C60", textTransform: "uppercase" }}>
+                    Envío seleccionado
+                  </div>
+                  <div style={{ fontSize: 15, fontWeight: 700 }}>
+                    {exchangeTargetSale.shipmentNumber}{" "}
+                    {getExchangeStatusChip(exchangeTargetSale.status)}
+                  </div>
+                  <div>
+                    Pedido #{exchangeTargetSale.saleNumber || exchangeTargetSale.id}
+                    {" · "}{exchangeTargetSale.customerName || "—"}
+                    {" · "}{exchangeTargetSale.saleDate || "—"}
+                  </div>
+                  {["ENVIADO", "ENTREGADO"].includes(exchangeTargetSale.status) && (
+                    <div style={{ marginTop: 4, fontSize: 12, color: "#6B4A00" }}>
+                      Este envío ya salió: el cambio solo se registra en él (no se vuelve a despachar
+                      ni se descuenta inventario de Bodega PT).
+                    </div>
+                  )}
+                  <Button color="link" size="sm" className="p-0 mt-1" onClick={() => setExchangeTargetSale(null)}>
+                    Cambiar envío
+                  </Button>
+                </div>
+              ) : (
+                <>
+                  <Input
+                    value={exchangeShipmentQuery}
+                    onChange={(e) => setExchangeShipmentQuery(e.target.value)}
+                    placeholder="Buscar por ENVL, cliente o No. de pedido..."
+                    autoFocus
+                  />
+                  <div
+                    style={{
+                      maxHeight: 240,
+                      overflowY: "auto",
+                      border: "1px solid #D5D9DE",
+                      borderRadius: 6,
+                      background: "#fff",
+                      color: "#1F2D3D",
+                    }}
+                    className="mt-2"
+                  >
+                    {exchangeShipmentLoading ? (
+                      <div style={{ padding: 12, color: "#4A5568" }}><Spinner size="sm" /> Buscando...</div>
+                    ) : exchangeShipmentResults.length === 0 ? (
+                      <div style={{ padding: 12, color: "#4A5568" }}>No se encontraron envíos.</div>
+                    ) : (
+                      <table style={{ width: "100%", fontSize: 13, borderCollapse: "collapse" }}>
+                        <thead>
+                          <tr style={{ background: "#F1F4F7", position: "sticky", top: 0 }}>
+                            {["ENVL", "Pedido", "Cliente", "Fecha", "Estado"].map((h) => (
+                              <th
+                                key={h}
+                                style={{
+                                  padding: "6px 10px",
+                                  color: "#2B3138",
+                                  fontSize: 11,
+                                  textTransform: "uppercase",
+                                  letterSpacing: 0.3,
+                                  borderBottom: "1px solid #D5D9DE",
+                                  textAlign: "left",
+                                }}
+                              >
+                                {h}
+                              </th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {exchangeShipmentResults.map((s) => {
+                            const blocked = EXCHANGE_TARGET_BLOCKED_STATUSES.includes(s.status);
+                            return (
+                              <tr
+                                key={s.id}
+                                className="exchange-shipment-row"
+                                style={{
+                                  cursor: blocked ? "not-allowed" : "pointer",
+                                  color: blocked ? "#7B8794" : "#1F2D3D",
+                                  borderBottom: "1px solid #EBEEF1",
+                                }}
+                                title={blocked
+                                  ? `No se puede elegir: el envío está ${s.status}`
+                                  : "Clic para seleccionar este envío"}
+                                onClick={() => { if (!blocked) setExchangeTargetSale(s); }}
+                                onMouseEnter={(e) => { if (!blocked) e.currentTarget.style.background = "#E8F4F8"; }}
+                                onMouseLeave={(e) => { e.currentTarget.style.background = ""; }}
+                              >
+                                <td style={{ padding: "6px 10px", fontWeight: 700 }}>{s.shipmentNumber}</td>
+                                <td style={{ padding: "6px 10px" }}>#{s.saleNumber || s.id}</td>
+                                <td style={{ padding: "6px 10px" }}>{s.customerName || "—"}</td>
+                                <td style={{ padding: "6px 10px", whiteSpace: "nowrap" }}>{s.saleDate || "—"}</td>
+                                <td style={{ padding: "6px 10px" }}>{getExchangeStatusChip(s.status)}</td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
           )}
 
           <Row className="mb-3">
@@ -4699,25 +4931,33 @@ function OnlineSales() {
 
           {exchangeCreatedSale && (
             <Alert color="success" className="mt-3">
-              CAMBIO creado. ENVL: <strong>{exchangeCreatedSale.shipmentNumber || "—"}</strong>
+              {exchangeAddedToExisting ? "CAMBIO agregado al envío existente. " : "CAMBIO creado. "}
+              ENVL: <strong>{exchangeCreatedSale.shipmentNumber || "—"}</strong>
               <div className="mt-1">
-                Esas unidades entraron a bodega Devoluciones. El envío nuevo queda en Q0.
+                {exchangeAddedToExisting
+                  ? "Esas unidades entraron a bodega Devoluciones. Los productos del cambio se agregaron al envío a Q0."
+                  : "Esas unidades entraron a bodega Devoluciones. El envío nuevo queda en Q0."}
               </div>
-              <div className="mt-2">
-                <Button color="info" size="sm" onClick={() => void downloadExchangePdf(exchangeCreatedSale)}>
-                  Descargar PDF
-                </Button>{" "}
-                <Button color="default" size="sm" onClick={() => printExchangeDocument(exchangeCreatedSale)}>
-                  Imprimir
-                </Button>
-              </div>
+              {!exchangeAddedToExisting && (
+                <div className="mt-2">
+                  <Button color="info" size="sm" onClick={() => void downloadExchangePdf(exchangeCreatedSale)}>
+                    Descargar PDF
+                  </Button>{" "}
+                  <Button color="default" size="sm" onClick={() => printExchangeDocument(exchangeCreatedSale)}>
+                    Imprimir
+                  </Button>
+                </div>
+              )}
             </Alert>
           )}
         </ModalBody>
         <ModalFooter>
           <Button color="secondary" onClick={() => setShowExchangeModal(false)}>Cerrar</Button>
-          <Button color="primary" onClick={handleCreateExchange} disabled={creatingExchange}>
-            {creatingExchange ? <><Spinner size="sm" /> Creando...</> : "Crear CAMBIO"}
+          <Button color="primary" onClick={handleCreateExchange}
+            disabled={creatingExchange || Boolean(exchangeCreatedSale) || (exchangeTargetMode === "EXISTING" && !exchangeTargetSale)}>
+            {creatingExchange
+              ? <><Spinner size="sm" /> Guardando...</>
+              : (exchangeTargetMode === "EXISTING" ? "Agregar al envío" : "Crear CAMBIO")}
           </Button>
         </ModalFooter>
       </Modal>

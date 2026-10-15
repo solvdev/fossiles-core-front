@@ -87,6 +87,7 @@ const TYPE_BADGE = {
   VENTA: "primary",
   DEVOLUCION_CLIENTE: "info",
   DEVOLUCION_A_CLIENTE: "warning",
+  SALIDA: "warning",
   DEVOLUCION_DEPOSITO: "info",
   TRASLADO_SALIDA: "warning",
   MERMA: "danger",

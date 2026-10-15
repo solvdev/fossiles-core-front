@@ -31,6 +31,10 @@ export const resolveLivePhysicalTotal = (row, counts, physicalSizes, physicalSiz
     const fossTotal = sumFossPhysicalByLocation(physicalSizesByLocation);
     if (fossTotal > 0) return fossTotal;
   }
+  // Fila por talla no FOSS: `counts` ya refleja lo contado por vitrina (V1–V7, E); manda su suma.
+  if (row?.sizeLabel && isCinchoProductRow(row)) {
+    return COUNT_LOCATION_KEYS.reduce((sum, key) => sum + Number((counts || {})[key] || 0), 0);
+  }
   if (isCinchoProductRow(row) && physicalSizes) {
     const sizeTotal = sumSizeMap(physicalSizes);
     if (sizeTotal > 0) return sizeTotal;
@@ -322,7 +326,7 @@ const expandCinchoRowBySizes = (row) => {
 const buildSingleSizeByLocation = (byLocation, size) => {
   if (!byLocation) return null;
   const result = {};
-  ["E", "BO"].forEach((loc) => {
+  COUNT_LOCATION_KEYS.forEach((loc) => {
     const qty = Number(byLocation?.[loc]?.[size] || 0);
     if (qty > 0) result[loc] = { [size]: qty };
   });
@@ -338,6 +342,13 @@ const resolveSourceCategory = (row, parentCategory) => ({
     || "Sin categoría",
 });
 
+/**
+ * Cinchos JR (Entre Cueros): el stock se parte por Niño / Dama en la dimensión de la fila.
+ * Dama va en su propia categoría para no sumarse al Niño; sin dimensión queda como Niño.
+ */
+const resolveKidsCinchoAudience = (row) =>
+  normalizeCinchoAudience(row?.hardwareCondition) === "DAMA" ? "DAMA" : "KIDS";
+
 const resolveDisplayCategoryKey = (row) => {
   if (row.packaging || isPackagingProductCode(row.productCode)) {
     return PACKAGING_KEY;
@@ -345,7 +356,7 @@ const resolveDisplayCategoryKey = (row) => {
   if (isCinchoProductRow(row)) {
     const categoryId = row.sourceCategoryId ?? "NONE";
     if (row.cinchoForKids) {
-      return `BELT:${categoryId}:KIDS:KIDS`;
+      return `BELT:${categoryId}:KIDS:${resolveKidsCinchoAudience(row)}`;
     }
     const classification = normalizeCinchoType(row.cinchoType) || "UNCLASSIFIED";
     const audience = normalizeAudienceCategory(row.audienceCategory);
@@ -373,7 +384,7 @@ const resolveDisplayCategoryName = (key, row) => {
     };
     const baseName = String(row.sourceCategoryName || "Cinchos").split(" — ")[0];
     if (classification === "KIDS") {
-      return `${baseName} — Niño`;
+      return audience === "DAMA" ? `${baseName} — Dama` : `${baseName} — Niño`;
     }
     return `${baseName} — ${getProductAudienceLabel(audience)} — ${labels[classification] || "Sin clasificar"}`;
   }
@@ -395,7 +406,7 @@ const resolveDisplayCategoryId = (key, row) => {
 
 /**
  * Reagrupa el reporte de conteo físico: empaques aparte, billeteras por público
- * y cinchos por Dama/Caballero/Unisex y Casual/Reversible; Niño queda aparte.
+ * y cinchos por Dama/Caballero/Unisex y Casual/Reversible; Niño y Dama (JR) quedan aparte.
  * Conserva las filas por talla y color.
  * Si el backend ya envió filas con sizeLabel, no se re-expanden (evita perder Ent. por talla
  * y filas con Fin=0 que sí tuvieron movimiento/envío).

@@ -3,6 +3,7 @@ import { Nav, NavItem, NavLink, TabContent, TabPane } from "reactstrap";
 import OrdersByStatusReport from "./purchases/OrdersByStatusReport";
 import PurchasesBySupplierReport from "./purchases/PurchasesBySupplierReport";
 import CurrentInventoryReport from "./purchases/CurrentInventoryReport";
+import MaterialValueBySupplierReport from "./purchases/MaterialValueBySupplierReport";
 import CriticalMaterialsReport from "./purchases/CriticalMaterialsReport";
 import AccountingEntriesReport from "./purchases/AccountingEntriesReport";
 import ExecutiveDashboard from "./purchases/ExecutiveDashboard";
@@ -58,6 +59,14 @@ function PurchaseReports() {
                 </NavItem>
                 <NavItem>
                   <NavLink
+                    className={activeTab === "7" ? "active" : ""}
+                    onClick={() => toggle("7")}
+                  >
+                    Valor de Materiales
+                  </NavLink>
+                </NavItem>
+                <NavItem>
+                  <NavLink
                     className={activeTab === "5" ? "active" : ""}
                     onClick={() => toggle("5")}
                   >
@@ -85,6 +94,9 @@ function PurchaseReports() {
                 </TabPane>
                 <TabPane tabId="4">
                   <CurrentInventoryReport />
+                </TabPane>
+                <TabPane tabId="7">
+                  {activeTab === "7" && <MaterialValueBySupplierReport />}
                 </TabPane>
                 <TabPane tabId="5">
                   <CriticalMaterialsReport />

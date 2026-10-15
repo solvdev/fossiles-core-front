@@ -58,19 +58,24 @@ describe("buildAccountEntryPayload", () => {
     }
   );
 
-  test("el alta de cargo usa el monto cotizado y no manda el parcial", () => {
+  test("el alta de cargo usa el monto cotizado y manda el envío despachado", () => {
     const payload = buildAccountEntryPayload({
       entryType: "CHARGE",
       conceptCode: "1",
-      form: screenForm({ appliedToEntryId: "", amount: "1500.00" }),
+      form: screenForm({
+        appliedToEntryId: "",
+        amount: "1500.00",
+        productShipmentId: "21",
+        partialReleaseId: "9",
+      }),
       charge: selectedCharge,
     });
 
     expect(payload.amount).toBe(1500);
     expect(payload.productionOrderId).toBe(77);
     expect(payload.vendorShipmentNumber).toBe("ENVP-PANTALLA");
-    expect(payload).not.toHaveProperty("partialReleaseId");
-    expect(payload).not.toHaveProperty("productShipmentId");
+    expect(payload.productShipmentId).toBe(21);
+    expect(payload.partialReleaseId).toBe(9);
     expect(payload).not.toHaveProperty("orderKind");
     expect(payload).not.toHaveProperty("appliedToEntryId");
   });

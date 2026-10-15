@@ -65,6 +65,7 @@ import ProductMovementsAccounting from "views/inventory/ProductMovementsAccounti
 import ProductLedgerLab from "views/inventory/ProductLedgerLab.js";
 import MaterialInventoryKardex from "views/inventory/MaterialInventoryKardex.js";
 import InventoryKardex from "views/inventory/InventoryKardex.js";
+import ProductKardexHistorico from "views/inventory/ProductKardexHistorico.js";
 import InventoryTransfers from "views/inventory/InventoryTransfers.js";
 import InventoryAdjustments from "views/inventory/InventoryAdjustments.js";
 import CriticalInventory from "views/inventory/CriticalInventory.js";
@@ -798,6 +799,17 @@ const routes = [
         layout: "/admin",
         module: "INVENTARIOS",
         showInSidebar: false,
+        permissions: {
+          view: "INVENTARIOS.KARDEX_PRODUCTOS.VER",
+        },
+      },
+      {
+        path: "/inventory-kardex-historico",
+        name: "Kardex histórico PT",
+        mini: "KH",
+        component: <ProductKardexHistorico />,
+        layout: "/admin",
+        module: "INVENTARIOS",
         permissions: {
           view: "INVENTARIOS.KARDEX_PRODUCTOS.VER",
         },

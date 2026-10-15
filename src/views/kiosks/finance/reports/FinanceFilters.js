@@ -69,7 +69,8 @@ export default function FinanceFilters({
   const comparisonText = isSummary ? describeComparison({ ...filters, today }) : "";
   const customError = isCustom ? validateCustomRange({ ...filters, today }) : null;
 
-  const isForecast = tab === "proyeccion";
+  // Proyección y Valor del inventario no dependen de año ni mes: sólo kioscos / supervisora
+  const isForecast = tab === "proyeccion" || tab === "inventario";
 
   return (
     <div className="kfin-filters kfin-noprint" role="search" aria-label="Filtros del reporte">
