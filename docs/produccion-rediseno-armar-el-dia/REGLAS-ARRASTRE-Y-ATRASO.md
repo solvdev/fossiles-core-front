@@ -28,9 +28,28 @@
 - Arrastre: al cierre del día, la tarea abierta conserva su `startedAt` y el tiempo trabajado; el
   día siguiente el planificador descuenta `restante = estimado − trabajado` de la capacidad.
 
-## Preguntas abiertas para producción
-1. ¿Se marca cada producto como terminado, o solo se completa la tarea entera?
-2. ¿Hay tolerancia (p. ej. 10 %) antes de marcar atraso, o es exacto?
-3. ¿El atraso se mide solo en horas de jornada? (propuesto: sí, la noche y el almuerzo no cuentan)
-4. ¿Un producto atrasado pierde la comisión completa o solo del excedente?
-5. ¿Quién aprueba excepciones (falta de material, falla de máquina)?
+## Respuestas de producción
+1. **Cada producto se marca terminado por separado.** Un producto que pasa al día siguiente sigue
+   siendo válido para comisión si no excede su tiempo. A esas tareas arrastradas normalmente se les
+   combinan líneas de **OPL** para que la persona asignada no se quede sin trabajo ese día.
+2. **Tolerancia: 30 minutos.** Un producto que pasa más de media hora de su tiempo establecido
+   pierde la comisión; hasta 30 min de exceso no se marca atraso.
+3. **Se pierde la comisión de «toda la tarea»** (ver la pregunta abierta de abajo).
+4. **Las excepciones las aprueba el jefe de producción** (falta de material, falla de máquina, etc.).
+
+## Regla resultante (borrador)
+- Por producto: `esperado = cantidad × tiempo por unidad` (horas de jornada). Atrasado si
+  `real > esperado + 30 min`. El real corre desde que arranca ese producto hasta que se marca terminado.
+- Un producto agregado al día siguiente a una tarea arrastrada arranca su reloj al agregarse y no
+  hereda el atraso de los anteriores.
+- Las líneas OPL combinadas no consumen cupo de mesa (regla existente de `daySaleExtra`).
+- **Excepción**: el jefe de producción puede perdonar un atraso con motivo escrito. Queda
+  registrado quién, cuándo y por qué; solo con el permiso del jefe. Al perdonar, vuelve a ser elegible.
+
+## Pregunta abierta
+«Toda la tarea» puede significar dos cosas distintas:
+- **A)** Si un producto se atrasa, **todos los productos de esa tarea** pierden la comisión.
+- **B)** Se pierde la comisión **completa de ese producto** (no solo del exceso), pero los demás conservan la suya.
+
+La regla 5 (los productos agregados al día siguiente no heredan el atraso) solo cuadra con **B**.
+Con **A** habría que decidir si esos productos agregados también pierden la comisión.
