@@ -56,6 +56,7 @@ import { showSuccess, showError } from "utils/notificationHelper";
 import TaskTicketPrint from "./TaskTicketPrint";
 import TaskReasonModal from "components/production/TaskReasonModal";
 import TaskHistoryModal from "components/production/TaskHistoryModal";
+import TaskAddItemsModal from "components/production/TaskAddItemsModal";
 import DownloadOpsModal, { mergeOrdersForDownload } from "components/production/DownloadOpsModal";
 import { taskSkipsMaterials } from "utils/materialRequirementHelper";
 import { formatDateGt, formatDateTimeGt, getTodayYmdGuatemala, isWeekendYmd } from "utils/dateTimeHelper";
@@ -327,6 +328,7 @@ function TasksByTable() {
   const [reasonDialog, setReasonDialog] = useState(null); // { task, kind: "pause" | "cancel" | "forgive" }
   const [reasonBusy, setReasonBusy] = useState(false);
   const [historyTask, setHistoryTask] = useState(null);
+  const [addItemsTask, setAddItemsTask] = useState(null);
   /** Carga de órdenes de producción: alimenta las mesas de cinchos y el filtro por OP. */
   const [loadingOrders, setLoadingOrders] = useState(false);
   const [error, setError] = useState("");
@@ -1788,6 +1790,10 @@ function TasksByTable() {
             onClick={() => setReasonDialog({ task, kind: "cancel" })} title="Cancelar tarea (pide motivo)">
             Cancelar
           </Button>
+          <Button color="secondary" outline size={buttonSize} style={commonStyle} disabled={!!enCurso}
+            onClick={() => setAddItemsTask(task)} title="Agregar productos a esta tarea">
+            Agregar
+          </Button>
           {historyButton}
         </div>
       );
@@ -1819,6 +1825,10 @@ function TasksByTable() {
           <Button color="danger" outline size={buttonSize} style={commonStyle} disabled={!!enCurso}
             onClick={() => setReasonDialog({ task, kind: "cancel" })} title="Cancelar tarea (pide motivo)">
             Cancelar
+          </Button>
+          <Button color="secondary" outline size={buttonSize} style={commonStyle} disabled={!!enCurso}
+            onClick={() => setAddItemsTask(task)} title="Agregar productos a esta tarea">
+            Agregar
           </Button>
           {historyButton}
         </div>
@@ -3317,6 +3327,15 @@ function TasksByTable() {
         onCancel={() => setReasonDialog(null)}
       />
       <TaskHistoryModal task={historyTask} onClose={() => setHistoryTask(null)} />
+      <TaskAddItemsModal
+        task={addItemsTask}
+        onClose={() => setAddItemsTask(null)}
+        onAdded={(updated) => {
+          replaceTask(updated);
+          setAddItemsTask(null);
+          showSuccess("Productos agregados a la tarea");
+        }}
+      />
       <DownloadOpsModal
         isOpen={showDownloadOpsModal}
         toggle={() => setShowDownloadOpsModal(false)}

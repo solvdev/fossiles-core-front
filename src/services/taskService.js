@@ -660,3 +660,16 @@ export const getOplDispatchSummary = async (dispatchDate) => {
   return response.json();
 };
 
+
+/** Ítems de UNA OP con su restante, paginados (para agregarlos a una tarea abierta). */
+export const getDayPlanOrderItems = async (orderId, { page = 0, size = 50 } = {}) => {
+  const response = await fetch(
+    `${API_URL}/tasks/organizer/day-plan/orders/${orderId}/items?page=${page}&size=${size}`,
+    { headers: headers() }
+  );
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ message: 'No se pudieron cargar los productos de la orden' }));
+    throw new Error(err.message || 'No se pudieron cargar los productos de la orden');
+  }
+  return response.json();
+};
