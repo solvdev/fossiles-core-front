@@ -783,7 +783,7 @@ function ProductionOrdersList() {
                 </Col>
                 <Col md="6" className="text-right">
                   <Button color="secondary" onClick={() => goToProductionCenter()} className="btn-round mr-2">
-                    <i className="nc-icon nc-layout-11" /> Centro de Producción
+                    <i className="nc-icon nc-layout-11" /> Tablero
                   </Button>
                   {canCreate && (
                     <Button color="primary" onClick={handleNew} className="btn-round">

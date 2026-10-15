@@ -50,10 +50,10 @@ beforeEach(() => {
 
 const mount = () => render(<MemoryRouter><TasksByTable /></MemoryRouter>);
 
-describe("Tablero del día", () => {
+describe("Tablero", () => {
   test("muestra el tablero con la capacidad, las mesas y las tarjetas", async () => {
     mount();
-    expect(await screen.findByText("Tablero del día")).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "Tablero" })).toBeTruthy();
     expect(screen.getByText("Armar el día")).toBeTruthy();
     // capacidad: 3 mesas × 4 h
     await waitFor(() => expect(screen.getByRole("status").textContent).toMatch(/3 mesas activas/));
@@ -66,7 +66,7 @@ describe("Tablero del día", () => {
 
   test("ya no existen las vistas viejas", async () => {
     mount();
-    await screen.findByText("Tablero del día");
+    await screen.findByRole("heading", { name: "Tablero" });
     ["Operación del día", "Cronograma", "Redistribuir", "Planificar", "Lista detallada"].forEach((t) => {
       expect(screen.queryByText(new RegExp(t))).toBeNull();
     });
@@ -74,7 +74,7 @@ describe("Tablero del día", () => {
 
   test("la pestaña Atrasadas reúne lo atrasado", async () => {
     mount();
-    await screen.findByText("Tablero del día");
+    await screen.findByRole("heading", { name: "Tablero" });
     await waitFor(() => expect(screen.getAllByText("1").length).toBeGreaterThan(0));
     fireEvent.click(screen.getByText("Atrasadas", { selector: "a, a *" }));
     expect(await screen.findByText(/Empezadas y sin terminar/)).toBeTruthy();

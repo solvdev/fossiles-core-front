@@ -685,7 +685,7 @@ const routes = [
       },
       {
         path: "/tasks-by-station",
-        name: "Centro de Producción",
+        name: "Tablero",
         mini: "CP",
         component: <TasksByTable />,
         layout: "/admin",

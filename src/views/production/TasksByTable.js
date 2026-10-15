@@ -528,7 +528,7 @@ function TasksByTable() {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      await Promise.all([loadTasks(), loadProductionOrders(), loadDayPlanPanels()]);
+      await Promise.all([loadTasks(), loadProductionOrders()]);
       if (cancelled) return;
     })();
     return () => {
@@ -536,9 +536,10 @@ function TasksByTable() {
     };
   }, []);
 
+  // Ventas en línea y cuero son tres consultas que casi nadie abre: solo se piden al desplegar el panel.
   useEffect(() => {
-    loadDayPlanPanels();
-  }, [loadDayPlanPanels]);
+    if (showSummary) loadDayPlanPanels();
+  }, [showSummary, loadDayPlanPanels]);
 
   useEffect(() => {
     loadDesksCount();
@@ -876,14 +877,6 @@ function TasksByTable() {
       if (aOpl !== bOpl) return aOpl - bOpl;
       return (a.id || 0) - (b.id || 0);
     }),
-    [tableCenterTasks, matchesSearchTerm]
-  );
-
-  const awaitingWarehouseTasks = useMemo(
-    () => tableCenterTasks.filter(
-      (t) => t.status === "AWAITING_WAREHOUSE"
-        && matchesSearchTerm(t)
-    ),
     [tableCenterTasks, matchesSearchTerm]
   );
 
@@ -1245,7 +1238,6 @@ function TasksByTable() {
       unassigned: waitingCut + readyNoDesk,
       pending: ofDay.filter((t) => t.status === "PENDING").length,
       inProgress: ofDay.filter((t) => t.status === "IN_PROGRESS").length,
-      awaitingWarehouse: active.filter((t) => t.status === "AWAITING_WAREHOUSE").length,
       dayHours: ofDay.reduce((sum, t) => sum + getTaskBaseHours(t), 0),
     };
   }, [tableCenterTasks, statsDay]);
@@ -1524,8 +1516,6 @@ function TasksByTable() {
           {enCurso === "COMPLETED" ? <Spinner size="sm" /> : "Completar"}
         </Button>
       );
-    } else if (task.status === "AWAITING_WAREHOUSE") {
-      primary = <Badge color="primary">Pendiente bodega PT</Badge>;
     } else {
       primary = getStatusBadge(task.status);
     }
@@ -1644,7 +1634,7 @@ function TasksByTable() {
       {/* ========== CABECERA ========== */}
       <div className="d-flex flex-wrap align-items-center justify-content-between mb-3" style={{ gap: 10 }}>
         <div>
-          <h4 className="mb-0">Tablero del día</h4>
+          <h4 className="mb-0">Tablero</h4>
           <small className="text-muted">
             {formatDateGt(boardDay)} · lo que se produce, mesa por mesa
             {refreshing ? " · actualizando…" : ""}
@@ -1849,23 +1839,6 @@ function TasksByTable() {
                   )}
                 </CardBody>
               </Card>
-
-              {awaitingWarehouseTasks.length > 0 && (
-                <Card className="mb-3" style={{ border: "1px solid #bcd0f7" }}>
-                  <CardHeader className="py-2">
-                    <strong>Pendiente de bodega PT <Badge color="primary" className="ml-1">{awaitingWarehouseTasks.length}</Badge></strong>
-                  </CardHeader>
-                  <CardBody className="p-2">
-                    <div className="tbs-grid">
-                      {awaitingWarehouseTasks.map((task) => (
-                        <div key={task.id} className="tbs-board-item">
-                          <div className="tbs-desk"><div className="tbs-desk-body">{renderTaskCards([task])}</div></div>
-                        </div>
-                      ))}
-                    </div>
-                  </CardBody>
-                </Card>
-              )}
 
               {/* Resumen del día: ventas en línea a despachar y lo que no tiene cuero */}
               <Card className="mb-3">
