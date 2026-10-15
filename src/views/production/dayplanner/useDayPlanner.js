@@ -8,6 +8,7 @@ import {
 import { getProductionOrders } from "services/productionOrderService";
 import { getDeskSupervisorsForDate } from "services/deskSupervisorService";
 import { getDeskCountForDate } from "services/deskCountService";
+import { getTaskBaseHours } from "utils/taskHoursHelper";
 import { buildTableCenterTasks } from "utils/cinchoProductionHelper";
 import { getOrganizerDayDeskTasks } from "utils/organizerDayTasks";
 import { buildProductionTasksSheetPrintModel } from "utils/productionTasksSheetPrintData";
@@ -20,7 +21,9 @@ import { showError, showInfo, showSuccess } from "utils/notificationHelper";
 import { contar } from "utils/textHelper";
 import {
   buildDayPlanPayload,
+  capacityStatus,
   clampTasksToRemaining,
+  dayCapacity,
   leftoverQuantity,
   lineFromItem,
   orderPrioritiesFromSelection,
@@ -28,6 +31,7 @@ import {
   sortTasksBySelection,
   splitOverflow,
   suggestGrouping,
+  taskBaseHours,
 } from "utils/dayPlanHelper";
 
 const DRAFT_KEY = "dayplanner.draft.v1";
@@ -88,6 +92,10 @@ export default function useDayPlanner() {
   const [selectedIds, setSelectedIds] = useState(draft?.selectedIds ?? null);
   const [search, setSearch] = useState("");
   const [familyFilter, setFamilyFilter] = useState("ALL");
+  /** Unidades de cada producto que van hoy: { productionOrderItemId: n }. Sin dato = automático. */
+  const [picks, setPicks] = useState(draft?.picks || {});
+  /** Mesas activas de la fecha y horas ya planificadas ese día (null = aún no se sabe). */
+  const [dayLoad, setDayLoad] = useState(null);
 
   // --- Paso 2 ---
   const [tasks, setTasks] = useState(draft?.tasks || []);
@@ -112,6 +120,23 @@ export default function useDayPlanner() {
   const sheetCache = useRef({});
 
   const weekend = isWeekendYmd(date);
+
+  // ------------------------------------------------------- Capacidad del día
+  useEffect(() => {
+    let cancelled = false;
+    setDayLoad(null);
+    Promise.all([
+      getDeskCountForDate(date),
+      getTasksByDate(date).catch(() => []),
+    ]).then(([count, dayTasks]) => {
+      if (cancelled) return;
+      const plannedHours = (Array.isArray(dayTasks) ? dayTasks : [])
+        .filter((t) => t.status !== "CANCELLED")
+        .reduce((sum, t) => sum + getTaskBaseHours(t), 0);
+      setDayLoad({ numDesks: Number(count?.numDesks) || 0, plannedHours });
+    }).catch(() => { if (!cancelled) setDayLoad(null); });
+    return () => { cancelled = true; };
+  }, [date, result]);
 
   // ---------------------------------------------------------------- OPs
   const loadOrders = useCallback(async () => {
@@ -207,6 +232,19 @@ export default function useDayPlanner() {
 
   const goToMonday = useCallback(() => setDate(nextWorkdayYmd(date)), [date, setDate]);
 
+  const capacity = useMemo(() => (dayLoad ? dayCapacity(dayLoad) : null), [dayLoad]);
+
+  /** Fija cuántas unidades de un producto van hoy (null = automático, 0 = nada hoy). */
+  const setPick = useCallback((itemId, qty) => {
+    setPicks((prev) => {
+      const next = { ...prev };
+      if (qty === null || qty === undefined || Number.isNaN(qty)) delete next[itemId];
+      else next[itemId] = Math.max(0, Math.floor(qty));
+      return next;
+    });
+  }, []);
+  const clearPicks = useCallback(() => setPicks({}), []);
+
   // ------------------------------------------------------------- Tareas
   const itemById = useCallback((itemId) => {
     for (const o of orders) {
@@ -232,11 +270,14 @@ export default function useDayPlanner() {
     invalidatePreview();
   }, [invalidatePreview]);
 
+  /** Horas base que caben todavía en el día (Infinity si no se conoce la capacidad). */
+  const budgetHours = capacity && capacity.hardHours ? capacity.remainingIdeal : undefined;
+
   const buildTasks = useCallback(() => {
-    const key = [...ids].sort((a, b) => a - b).join(",");
+    const key = [[...ids].sort((a, b) => a - b).join(","), JSON.stringify(picks)].join("|");
     if (tasks.length === 0 || key !== selKey) {
       const hadTasks = tasks.length > 0;
-      setTasks(suggestGrouping(orders, ids));
+      setTasks(suggestGrouping(orders, ids, [], { budgetHours, picks }));
       setSelKey(key);
       if (hadTasks) showInfo("Se volvieron a armar las tareas porque cambió la selección.");
     } else {
@@ -247,13 +288,13 @@ export default function useDayPlanner() {
     setNotice(null);
     setStep(2);
     setReached((r) => Math.max(r, 2));
-  }, [ids, tasks.length, selKey, orders, invalidatePreview]);
+  }, [ids, picks, budgetHours, tasks.length, selKey, orders, invalidatePreview]);
 
   const rebuildTasks = useCallback(() => {
-    setTasks(suggestGrouping(orders, ids));
-    setSelKey([...ids].sort((a, b) => a - b).join(","));
+    setTasks(suggestGrouping(orders, ids, [], { budgetHours, picks }));
+    setSelKey([[...ids].sort((a, b) => a - b).join(","), JSON.stringify(picks)].join("|"));
     invalidatePreview();
-  }, [orders, ids, invalidatePreview]);
+  }, [orders, ids, picks, budgetHours, invalidatePreview]);
 
   const changeQty = useCallback((clientId, itemId, delta) => {
     const item = itemById(itemId);
@@ -355,9 +396,18 @@ export default function useDayPlanner() {
   const buildFromLeftovers = useCallback(() => {
     editTasks((prev) => {
       const orderIds = Array.from(new Set(leftovers.map((l) => l.order.id)));
-      return sortTasksBySelection([...prev, ...suggestGrouping(orders, orderIds, prev)], orders, ids);
+      // Solo lo que todavía cabe en el día; lo demás sigue esperando en «Para otro día».
+      const used = prev.reduce((sum, t) => sum + taskBaseHours(t), 0);
+      const room = budgetHours === undefined ? undefined : Math.max(0, budgetHours - used);
+      return sortTasksBySelection([...prev, ...suggestGrouping(orders, orderIds, prev, { budgetHours: room, picks })], orders, ids);
     });
-  }, [editTasks, leftovers, orders, ids]);
+  }, [editTasks, leftovers, orders, ids, budgetHours, picks]);
+
+  /** Qué tan lleno queda el día con las tareas armadas. */
+  const planLoad = useMemo(
+    () => capacityStatus(tasks.reduce((sum, t) => sum + taskBaseHours(t), 0), capacity),
+    [tasks, capacity]
+  );
 
   // ------------------------------------------------------------ Revisar
   const runPreview = useCallback(async (datesOverride) => {
@@ -427,6 +477,11 @@ export default function useDayPlanner() {
         invalidatePreview();
         setNotice("Alguien más ya tomó unidades de algunos productos. Actualicé las cantidades: revise las tareas.");
         setStep(2);
+      } else if (err.status === 409 && code === "CAPACITY_EXCEEDED") {
+        setConfirmError({
+          code,
+          message: err.message || "El plan pasa de la capacidad de las mesas de ese día. Quite productos o déjelos para otro día.",
+        });
       } else if (err.status === 409 && code === "LOCK_TIMEOUT") {
         setConfirmError({ code, message: "El sistema está ocupado con otro reparto. No se creó ninguna tarea; intente otra vez." });
       } else {
@@ -511,8 +566,8 @@ export default function useDayPlanner() {
   useEffect(() => {
     if (step === 4) return;
     if (tasks.length === 0 && selectedIds === null) return;
-    writeDraft({ date, selectedIds, tasks, selKey });
-  }, [date, selectedIds, tasks, selKey, step]);
+    writeDraft({ date, selectedIds, tasks, selKey, picks });
+  }, [date, selectedIds, tasks, selKey, picks, step]);
 
   return {
     // fecha
@@ -524,6 +579,9 @@ export default function useDayPlanner() {
     loading, loadError, loadOrders,
     selectedIds: ids, selectedOrders, toggleOrder, markSection,
     search, setSearch, familyFilter, setFamilyFilter,
+    picks, setPick, clearPicks,
+    // capacidad del día
+    capacity, planLoad,
     // paso 2
     tasks, notice, setNotice, leftovers,
     buildTasks, rebuildTasks, changeQty, removeLine, moveLine, addItem, newTask, fixTask,

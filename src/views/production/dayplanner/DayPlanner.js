@@ -6,6 +6,7 @@ import { planBlockers } from "utils/dayPlanHelper";
 import { concordar, contar } from "utils/textHelper";
 import useDayPlanner, { nextWorkdayYmd } from "./useDayPlanner";
 import { DAY_PLANNER_CSS } from "./dayPlannerStyles";
+import DayCapacityBar, { dayCapacityTexts } from "./DayCapacityBar";
 import StepSelectOrders from "./StepSelectOrders";
 import StepBuildTasks from "./StepBuildTasks";
 import StepReview, { dayShort } from "./StepReview";
@@ -43,12 +44,13 @@ export default function DayPlanner() {
   const {
     date, setDate, weekend, goToMonday, step, reached, goTo, tasks, selectedIds, selectedOrders,
     loading, loadError, orders, buildTasks, goReview, confirm, confirming, previewLoading, preview,
-    previewError, downloadSheet,
+    previewError, downloadSheet, capacity, planLoad,
   } = planner;
 
   const today = getTodayYmdGuatemala();
   const tomorrow = nextWorkdayYmd(shiftYmdGuatemala(today, 1));
   const blockers = planBlockers(tasks);
+  if (planLoad.level === "over") blockers.push(dayCapacityTexts(capacity, planLoad).title);
   const selectedHours = selectedOrders.reduce((s, o) => s + (o.items || []).reduce(
     (a, i) => a + (i.remainingQuantity || 0) * (i.prdTimePerUnit || 0.1), 0), 0);
   const baseTasksHours = tasks.reduce((s, t) => s + (t.onlineSale ? 0 : t.lines.reduce(
@@ -75,7 +77,7 @@ export default function DayPlanner() {
         <Button onClick={() => goTo(1)}>← Elegir OPs</Button>
         <div className="dp-hint">
           {blockers.length
-            ? <><b style={{ color: "#a3300f" }}>{blockers[0]}.</b> Quite productos o use «Arreglar sola».</>
+            ? <><b style={{ color: "#a3300f" }}>{blockers[0]}.</b> Quite productos, use «Arreglar sola» o déjelos para otro día.</>
             : <><b>{tasks.length}</b> {concordar(tasks.length, "tarea", "tareas")} · {fmt(baseTasksHours)} h base · todo dentro del límite</>}
         </div>
         <Button color="primary" className="dp-big" disabled={blockers.length > 0 || tasks.length === 0} onClick={goReview}>
@@ -136,6 +138,8 @@ export default function DayPlanner() {
           <Button className="dp-sm" onClick={goToMonday}>Ir al lunes</Button>
         </div>
       )}
+
+      {!weekend && <DayCapacityBar capacity={capacity} planLoad={planLoad} />}
 
       <StepCard
         n={1} title="Elegir OPs" step={step} reached={reached} onChange={() => goTo(1)}

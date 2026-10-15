@@ -245,3 +245,18 @@ Reglas de `confirm`:
 [`prototipo.html`](./prototipo.html) — un solo archivo, sin dependencias, con datos de ejemplo. Recorra el camino rápido y use el panel «Probar estados» (al pie) para ver el vacío, el error, el límite excedido, el producto ya tomado por otra persona, el éxito parcial y el fin de semana. El contador de clics del panel sirve para comprobar el criterio 2.
 
 **Qué es y qué no es:** muestra el flujo, la barra del límite y los textos. No habla con el servidor; el reparto de mesas del paso 3 es una simulación sencilla. Los botones de la hoja **muestran la hoja en pantalla** (con «Copiar tabla»); en la aplicación serán el Excel y el PDF que ya existen. También está publicado como Artifact privado: https://claude.ai/artifact/5QBzf7m2LEQnrRA9wzzKyj (solo lo abre quien tenga acceso; se comparte desde el menú «Compartir» de la página).
+
+## Ajuste v2: el día se llena según las mesas (no según las horas pendientes)
+
+Problema encontrado al revisarlo con producción: en una OP grande el plan generaba cientos o
+miles de tareas, el scroll se volvía enorme y no se podía elegir qué parte de la OP se produce
+hoy. Las mesas activas son pocas y cambian de un día a otro.
+
+- **Capacidad del día** = mesas activas de la fecha × 4 h ideales (× 5 h tope) − lo ya planificado
+  ese día. Las OPL no cuentan. Barra fija arriba; si el plan pasa del tope, no se puede revisar.
+- **Paso 1:** cada OP se abre con «Elegir qué va hoy»: por producto, las unidades de hoy
+  («auto» = entra lo que cabe por tiempo de producción, 0 = nada hoy). Listas paginadas.
+- **Paso 2:** «Llenar el día» reparte por tiempo hasta agotar la capacidad (OPL primero, luego
+  el orden de marcado). Lo que no cabe queda en «Para otro día» y sigue pendiente en su OP.
+- **Back:** preview devuelve `capacity` y confirm valida (409 `CAPACITY_EXCEEDED`); las OPs
+  traen solo resumen y los productos se piden por OP. Ver ENCARGO-BACK.md.

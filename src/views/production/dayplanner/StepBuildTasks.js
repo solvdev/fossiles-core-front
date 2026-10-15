@@ -7,6 +7,7 @@ import TaskCapacityBar from "./TaskCapacityBar";
 
 const fmt = (n) => (Math.round((n || 0) * 10) / 10).toFixed(1);
 
+const TASKS_PAGE = 25;
 const CHIP_TEXT = { opl: "OPL · prioridad", ok: "Cabe", near: "Cerca del límite", over: "Se pasó" };
 
 function TaskCard({ task, index, tasks, planner, open, onToggle, addOpen, onToggleAdd }) {
@@ -105,10 +106,11 @@ function TaskCard({ task, index, tasks, planner, open, onToggle, addOpen, onTogg
  * jefe solo ajusta. Cada tarjeta muestra su carga frente al límite; sobre 5 h se bloquea.
  */
 export default function StepBuildTasks({ planner }) {
-  const { tasks, notice, setNotice, selectedOrders, newTask, leftovers, buildFromLeftovers, rebuildTasks } = planner;
+  const { tasks, notice, setNotice, selectedOrders, newTask, leftovers, buildFromLeftovers, rebuildTasks, capacity } = planner;
   const [openIds, setOpenIds] = useState({});
   const [addFor, setAddFor] = useState(null);
   const [newOpen, setNewOpen] = useState(false);
+  const [shownTasks, setShownTasks] = useState(TASKS_PAGE);
   const summary = summarizePlan(tasks);
   const blockers = planBlockers(tasks);
 
@@ -138,7 +140,7 @@ export default function StepBuildTasks({ planner }) {
           <h5>Aún no hay tareas</h5>
           <Button color="primary" onClick={rebuildTasks}>Armar tareas otra vez</Button>
         </div>
-      ) : tasks.map((t, i) => (
+      ) : tasks.slice(0, shownTasks).map((t, i) => (
         <TaskCard
           key={t.clientId}
           task={t}
@@ -152,8 +154,19 @@ export default function StepBuildTasks({ planner }) {
         />
       ))}
 
+      {shownTasks < tasks.length && (
+        <div className="dp-more">
+          <Button onClick={() => setShownTasks((v) => v + TASKS_PAGE)}>
+            Mostrar más tareas ({tasks.length - shownTasks})
+          </Button>
+        </div>
+      )}
+
       <div className="dp-tfoot">
         <Button onClick={() => setNewOpen((v) => !v)}>＋ Nueva tarea</Button>
+        {capacity && capacity.hardHours > 0 && (
+          <Button onClick={rebuildTasks} title="Vuelve a repartir según lo que cabe en el día">Llenar el día</Button>
+        )}
       </div>
       {newOpen && (
         <div className="dp-addlist">
@@ -165,15 +178,17 @@ export default function StepBuildTasks({ planner }) {
 
       {leftovers.length > 0 && (
         <div className="dp-tray">
-          <strong>Sin tarea ({leftovers.length})</strong>
+          <strong>Para otro día ({leftovers.length})</strong>
+          <p className="dp-small">No caben hoy en las mesas. Siguen pendientes en su OP y no se pierden.</p>
           <ul>
-            {leftovers.map((l) => (
+            {leftovers.slice(0, 20).map((l) => (
               <li key={l.item.productionOrderItemId}>
                 <span>{l.order.code}</span><span>{l.item.productName}</span><strong>{l.quantity} u</strong>
               </li>
             ))}
           </ul>
-          <Button className="dp-sm" onClick={buildFromLeftovers}>Armar con esto</Button>
+          {leftovers.length > 20 && <p className="dp-small">… y {leftovers.length - 20} productos más.</p>}
+          <Button className="dp-sm" onClick={buildFromLeftovers}>Llenar con esto</Button>
         </div>
       )}
     </div>

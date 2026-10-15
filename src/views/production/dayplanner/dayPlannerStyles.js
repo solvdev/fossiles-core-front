@@ -96,6 +96,17 @@ export const DAY_PLANNER_CSS = `
 .dp-qty output{min-width:36px;text-align:center;font-weight:800;font-size:18px}
 .dp-tfoot{display:flex;flex-wrap:wrap;gap:8px;padding:8px 0 4px;align-items:center}
 .dp-addlist{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0}
+.dp-daycap{position:sticky;top:0;z-index:5;background:#fff;border:1px solid var(--dp-line);border-radius:10px;padding:10px 14px;margin:10px 0}
+.dp-daycap[data-level=over]{border-color:#f3b49f;background:#fdece6}
+.dp-daycap[data-level=near]{border-color:#f3d37a;background:#fff7e0}
+.dp-daycap[data-level=none]{background:#f4f2ee}
+.dp-daycap .dp-track{margin:6px 0}
+.dp-detail .dp-pick-tools{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.dp-detail .dp-pick-tools .dp-sp{flex:1}
+.dp-more{display:flex;justify-content:center;padding:10px 0}
+.dp-pick{display:flex;align-items:center;gap:6px}
+.dp-pick input{width:84px;min-height:44px;text-align:right;border:1px solid #b9b4aa;border-radius:8px;padding:0 8px}
+.dp-pick input.is-set{border-color:var(--dp-ok);background:#f5fbf8}
 .dp-tray{margin-top:16px;border:2px dashed #c9c4bb;border-radius:10px;padding:10px 14px}
 .dp-tray ul{margin:12px 0;padding:0;list-style:none}
 .dp-tray li{display:flex;flex-wrap:wrap;gap:6px 12px;padding:8px 4px;border-bottom:1px solid var(--dp-line)}

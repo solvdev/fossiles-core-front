@@ -147,10 +147,52 @@ export function packOrderLines(order, wanted, opts = {}) {
 }
 
 /**
+ * Capacidad de un día: depende de las mesas activas de esa fecha (puede variar de un día a
+ * otro). Cada mesa aporta 4 h ideales y 5 h de tope; lo que ya está planificado se resta.
+ * Las OPL no cuentan.
+ */
+export function dayCapacity({ numDesks, plannedHours = 0 } = {}) {
+  const desks = Math.max(0, Math.floor(Number(numDesks) || 0));
+  const idealHours = round2(desks * MAX_HOURS_PER_DESK);
+  const hardHours = round2(desks * MAX_HOURS_PER_TASK_HARD_CAP);
+  const planned = round2(Math.max(0, Number(plannedHours) || 0));
+  return {
+    desks,
+    idealHours,
+    hardHours,
+    plannedHours: planned,
+    remainingIdeal: round2(Math.max(0, idealHours - planned)),
+    remainingHard: round2(Math.max(0, hardHours - planned)),
+  };
+}
+
+/**
+ * Qué tan lleno queda el día con `baseHours` más (las horas base de las tareas armadas).
+ *  - none: no se conoce la capacidad (sin mesas cargadas)
+ *  - ok:   cabe dentro de las horas ideales
+ *  - near: pasa de las ideales pero no del tope
+ *  - over: pasa del tope: no se confirma
+ */
+export function capacityStatus(baseHours, capacity) {
+  if (!capacity || !capacity.hardHours) return { level: "none", usedHours: round2(baseHours || 0), pct: 0 };
+  const usedHours = round2((capacity.plannedHours || 0) + (baseHours || 0));
+  let level = "ok";
+  if (usedHours > capacity.hardHours + EPS) level = "over";
+  else if (usedHours > capacity.idealHours + EPS) level = "near";
+  return { level, usedHours, pct: Math.min(usedHours / capacity.hardHours, 1) * 100 };
+}
+
+/**
  * Tareas sugeridas para las OPs marcadas.
  *
  * Orden: primero las OPL (en el orden en que vienen), luego las demás en el orden en que se
  * marcaron. Cada OP se agrupa por separado, porque una tarea no mezcla OPs base distintas.
+ *
+ * Con `opts.budgetHours` (horas base que caben en el día) el reparto se detiene al llenarse:
+ * lo que no cabe queda sin tarea, para otro día. Las OPL no gastan presupuesto. El criterio
+ * es el tiempo de producción: de cada producto entra la cantidad que cabe en lo que queda.
+ * Con `opts.picks` ({ itemId: unidades }) el jefe fija cuánto de un producto va hoy; esas
+ * cantidades se respetan completas (y se descuentan primero del presupuesto).
  *
  * @param orders      OPs del listado (con items[].remainingQuantity)
  * @param selectedIds ids de las OPs marcadas, en orden de marcado
@@ -163,11 +205,38 @@ export function suggestGrouping(orders, selectedIds, existing = [], opts = {}) {
     ...(orders || []).filter((o) => o.onlineSale && selectedIds.includes(o.id)),
     ...chosen.filter((o) => !o.onlineSale),
   ];
+  const picks = opts.picks || {};
+  const perUnitOf = (item) => item.prdTimePerUnit || DEFAULT_HOURS_PER_UNIT;
+  const hasPick = (item) => picks[item.productionOrderItemId] !== undefined && picks[item.productionOrderItemId] !== null;
+
+  const finite = Number.isFinite(opts.budgetHours);
+  let budget = finite ? opts.budgetHours : Infinity;
+  if (finite) {
+    oplFirst.filter((o) => !o.onlineSale).forEach((order) => (order.items || []).forEach((item) => {
+      if (!hasPick(item)) return;
+      const qty = Math.min(Math.max(0, Math.floor(picks[item.productionOrderItemId])), leftoverQuantity(item, existing));
+      budget -= qty * perUnitOf(item);
+    }));
+    budget = Math.max(0, budget);
+  }
+
   const result = [];
   oplFirst.forEach((order) => {
-    const wanted = (order.items || [])
-      .map((item) => ({ item, quantity: leftoverQuantity(item, [...existing, ...result]) }))
-      .filter((w) => w.quantity > 0);
+    const wanted = [];
+    (order.items || []).forEach((item) => {
+      const left = leftoverQuantity(item, [...existing, ...result]);
+      if (left <= 0) return;
+      let quantity;
+      if (hasPick(item)) {
+        quantity = Math.min(Math.max(0, Math.floor(picks[item.productionOrderItemId])), left);
+      } else if (order.onlineSale || !finite) {
+        quantity = left;
+      } else {
+        quantity = Math.min(left, Math.floor((budget + EPS) / perUnitOf(item)));
+        budget -= quantity * perUnitOf(item);
+      }
+      if (quantity > 0) wanted.push({ item, quantity });
+    });
     result.push(...packOrderLines(order, wanted, opts));
   });
   return result;

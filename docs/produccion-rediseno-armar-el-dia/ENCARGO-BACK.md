@@ -83,3 +83,16 @@ Errores 409 (el front los distingue por `code`): cuerpo `{ "code": "PLAN_CHANGED
 - Los dos endpoints responden con el contrato de arriba y las pruebas nuevas pasan (`./gradlew test --tests '*DayPlan*' --tests '*CreateTask*' --tests '*DeskSlotFinder*'`), sin romper las que ya pasaban.
 - Un recorrido a mano contra una base de pruebas: vista previa → confirmar → las tareas aparecen en `GET /api/tasks/date/{fecha}` con `desk = null`, `die_cut_ready = false` y la fecha elegida.
 - Resumen final con qué se probó, qué no, y cualquier decisión que se haya tomado distinta a este encargo.
+
+## Ajuste v2: capacidad por mesas activas (prioridad alta)
+
+1. La capacidad de una fecha = mesas activas de ESA fecha (`GET /production/desks-count?date=` ya
+   existe y el front lo usa) × 4 h ideales / × 5 h tope, menos las horas base ya planificadas.
+2. `preview` devuelve `capacity { date, activeDesks, idealHoursPerDesk, hardHoursPerDesk,
+   plannedHours, totalHours, remainingHours }`. El front ya calcula lo mismo para llenar el día,
+   pero el back manda: si difieren, gana el back.
+3. `confirm` responde **409 con `code: "CAPACITY_EXCEEDED"`** y el detalle (capacidad, planificado,
+   exceso) si las horas base del plan + lo planificado pasan de mesas × 5 h. El front ya maneja ese código.
+4. Parcial por producto: `quantity` de cada ítem puede ser menor que `remainingQuantity`.
+5. Listado de OPs ligero (resumen: código, cliente, entrega, horas totales/restantes, #productos)
+   y un endpoint para traer los productos de UNA OP al abrirla, paginado.

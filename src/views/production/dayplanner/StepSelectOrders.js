@@ -8,9 +8,17 @@ const fmt = (n) => (Math.round((n || 0) * 10) / 10).toFixed(1);
 const orderHours = (o) => (o.items || []).reduce(
   (s, i) => s + (i.remainingQuantity || 0) * (i.prdTimePerUnit || 0.1), 0);
 
-function OrderRow({ order, selected, number, onToggle }) {
+const ITEMS_PAGE = 15;
+const ORDERS_PAGE = 40;
+
+function OrderRow({ order, selected, number, onToggle, picks, setPick }) {
   const [open, setOpen] = useState(false);
-  const n = (order.items || []).length;
+  const [shown, setShown] = useState(ITEMS_PAGE);
+  const items = order.items || [];
+  const n = items.length;
+  const pickedCount = items.filter((i) => picks[i.productionOrderItemId] !== undefined).length;
+  const setAll = (mode) => items.forEach((i) => setPick(
+    i.productionOrderItemId, mode === "all" ? i.remainingQuantity : mode === "none" ? 0 : null));
   return (
     <div className={`dp-orow ${selected ? "is-sel" : ""} ${order.onlineSale ? "is-opl" : ""}`}>
       <label className="dp-chk">
@@ -31,24 +39,58 @@ function OrderRow({ order, selected, number, onToggle }) {
         <div className="dp-ometa">
           {contar(n, "producto")} · {fmt(orderHours(order))} h
           {order.deliveryDate ? ` · entrega ${formatDateGt(order.deliveryDate)}` : ""}
+          {pickedCount > 0 ? ` · ${pickedCount} con cantidad de hoy` : ""}
         </div>
         {order.observations && (
           <div className="dp-ometa" style={{ color: "#7a5a00" }}>Obs.: {order.observations}</div>
         )}
       </div>
       <button type="button" className="dp-link" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
-        Ver productos {open ? "▾" : "▸"}
+        Elegir qué va hoy {open ? "▾" : "▸"}
       </button>
       {open && (
         <div className="dp-detail">
-          {(order.items || []).map((i) => (
-            <div key={i.productionOrderItemId}>
-              <span>
-                {i.productCode} {i.productName}{i.colorName ? ` · ${i.colorName}` : ""}
-              </span>
-              <span>{i.remainingQuantity} u · {fmt(i.remainingQuantity * (i.prdTimePerUnit || 0.1))} h</span>
+          <div className="dp-pick-tools">
+            <span className="dp-small">Deje «auto» para que entre lo que cabe en el día, o escriba las unidades de hoy.</span>
+            <span className="dp-sp" />
+            <Button className="dp-sm" onClick={() => setAll("auto")}>Todo auto</Button>
+            <Button className="dp-sm" onClick={() => setAll("all")}>Todo hoy</Button>
+            <Button className="dp-sm" onClick={() => setAll("none")}>Nada hoy</Button>
+          </div>
+          {items.slice(0, shown).map((i) => {
+            const id = i.productionOrderItemId;
+            const value = picks[id];
+            const hrs = (value === undefined ? i.remainingQuantity : value) * (i.prdTimePerUnit || 0.1);
+            return (
+              <div key={id}>
+                <span>
+                  {i.productCode} {i.productName}{i.colorName ? ` · ${i.colorName}` : ""}
+                  <small className="dp-muted"> · {fmt(i.prdTimePerUnit || 0.1)} h/u · quedan {i.remainingQuantity} u</small>
+                </span>
+                <span className="dp-pick">
+                  <input
+                    type="number" min="0" max={i.remainingQuantity} inputMode="numeric"
+                    className={value !== undefined ? "is-set" : ""}
+                    placeholder="auto"
+                    aria-label={`Unidades de hoy de ${i.productName}`}
+                    value={value === undefined ? "" : value}
+                    onChange={(e) => {
+                      const raw = e.target.value;
+                      setPick(id, raw === "" ? null : Math.min(Number(raw), i.remainingQuantity));
+                    }}
+                  />
+                  <small className="dp-muted">{fmt(hrs)} h</small>
+                </span>
+              </div>
+            );
+          })}
+          {shown < items.length && (
+            <div className="dp-more">
+              <Button className="dp-sm" onClick={() => setShown((v) => v + ITEMS_PAGE)}>
+                Ver más productos ({items.length - shown})
+              </Button>
             </div>
-          ))}
+          )}
         </div>
       )}
     </div>
@@ -62,9 +104,10 @@ function OrderRow({ order, selected, number, onToggle }) {
 export default function StepSelectOrders({ planner }) {
   const {
     loading, loadError, loadOrders, oplOrders, otherOrders, selectedIds, toggleOrder, markSection,
-    search, setSearch, families, familyFilter, setFamilyFilter, hasMoreOrders, orders,
+    search, setSearch, families, familyFilter, setFamilyFilter, hasMoreOrders, orders, picks, setPick,
   } = planner;
   const [filterOpen, setFilterOpen] = useState(false);
+  const [shownOrders, setShownOrders] = useState(ORDERS_PAGE);
 
   if (loading) {
     return <div><div className="dp-skel" /><div className="dp-skel" /><div className="dp-skel" /></div>;
@@ -113,7 +156,7 @@ export default function StepSelectOrders({ planner }) {
             </Button>
           </div>
           {oplOrders.map((o) => (
-            <OrderRow key={o.id} order={o} selected={selectedIds.includes(o.id)} number={0} onToggle={toggleOrder} />
+            <OrderRow key={o.id} order={o} selected={selectedIds.includes(o.id)} number={0} onToggle={toggleOrder} picks={picks} setPick={setPick} />
           ))}
         </div>
       )}
@@ -151,15 +194,24 @@ export default function StepSelectOrders({ planner }) {
         )}
         {otherOrders.length === 0 ? (
           <p className="dp-small" style={{ padding: "12px 4px" }}>Ninguna OP coincide con la búsqueda.</p>
-        ) : otherOrders.map((o) => (
+        ) : otherOrders.slice(0, shownOrders).map((o) => (
           <OrderRow
             key={o.id}
             order={o}
             selected={selectedIds.includes(o.id)}
             number={numberOf(o)}
             onToggle={toggleOrder}
+            picks={picks}
+            setPick={setPick}
           />
         ))}
+        {shownOrders < otherOrders.length && (
+          <div className="dp-more">
+            <Button onClick={() => setShownOrders((v) => v + ORDERS_PAGE)}>
+              Mostrar más OPs ({otherOrders.length - shownOrders})
+            </Button>
+          </div>
+        )}
       </div>
     </div>
   );

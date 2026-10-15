@@ -1,6 +1,8 @@
 import {
   NEAR_LIMIT_HOURS,
   buildDayPlanPayload,
+  capacityStatus,
+  dayCapacity,
   clampTasksToRemaining,
   sortTasksBySelection,
   leftoverQuantity,
@@ -222,5 +224,63 @@ describe("orden y recorte", () => {
 describe("packOrderLines", () => {
   test("sin cantidades no crea tareas", () => {
     expect(packOrderLines(order(1, "OPV-1", []), [], { newId })).toEqual([]);
+  });
+});
+
+describe("capacidad del día", () => {
+  test("sale de las mesas activas de la fecha y resta lo ya planificado", () => {
+    const c = dayCapacity({ numDesks: 8, plannedHours: 6 });
+    expect(c).toMatchObject({ desks: 8, idealHours: 32, hardHours: 40, plannedHours: 6, remainingIdeal: 26, remainingHard: 34 });
+    expect(dayCapacity({ numDesks: 2, plannedHours: 50 }).remainingIdeal).toBe(0);
+    expect(dayCapacity({}).hardHours).toBe(0);
+  });
+
+  test("nivel del día: ok, near, over y none", () => {
+    const c = dayCapacity({ numDesks: 2, plannedHours: 1 });
+    expect(capacityStatus(7, c).level).toBe("ok");
+    expect(capacityStatus(8, c).level).toBe("near");
+    expect(capacityStatus(9.5, c).level).toBe("over");
+    expect(capacityStatus(3, null).level).toBe("none");
+  });
+
+  test("una OP enorme se corta a lo que cabe en las mesas, no a 5000 tareas", () => {
+    const big = order(1, "OPV-1", [item(1, 5000, 0.1)]);
+    const tasks = suggestGrouping([big], [1], [], { budgetHours: 32, newId });
+    expect(tasks.length).toBeLessThanOrEqual(8);
+    expect(tasks.reduce((s, t) => s + taskBaseHours(t), 0)).toBeLessThanOrEqual(32);
+    expect(tasks.reduce((s, t) => s + t.lines.reduce((a, l) => a + l.quantity, 0), 0)).toBe(320);
+  });
+
+  test("entran los productos que caben por tiempo, aunque otro más grande no entre", () => {
+    const o = order(1, "OPV-1", [item(1, 10, 1), item(2, 3, 0.2)]);
+    // Quedan 1.5 h: del primero entra 1 unidad (1 h); del segundo 2 (0.4 h).
+    const tasks = suggestGrouping([o], [1], [], { budgetHours: 1.5, newId });
+    const qty = (id) => tasks.flatMap((t) => t.lines).filter((l) => l.productionOrderItemId === id).reduce((s, l) => s + l.quantity, 0);
+    expect(qty(1)).toBe(1);
+    expect(qty(2)).toBe(2);
+  });
+
+  test("las OPL no gastan presupuesto y van primero", () => {
+    const opl = order(9, "OPL-1", [item(9, 100, 1)]);
+    const o = order(1, "OPV-1", [item(1, 100, 1)]);
+    const tasks = suggestGrouping([o, opl], [1, 9], [], { budgetHours: 4, newId });
+    expect(tasks[0].onlineSale).toBe(true);
+    expect(tasks.filter((t) => t.onlineSale).flatMap((t) => t.lines).reduce((a, l) => a + l.quantity, 0)).toBe(100);
+    expect(tasks.filter((t) => !t.onlineSale).reduce((s, t) => s + taskBaseHours(t), 0)).toBe(4);
+  });
+
+  test("lo que el jefe fija para hoy se respeta y se descuenta primero", () => {
+    const a = order(1, "OPV-1", [item(1, 100, 1)]);
+    const b = order(2, "OPV-2", [item(2, 100, 1)]);
+    const tasks = suggestGrouping([a, b], [1, 2], [], { budgetHours: 6, picks: { 2: 4 }, newId });
+    const qty = (oid) => tasks.filter((t) => t.orderId === oid).flatMap((t) => t.lines).reduce((s, l) => s + l.quantity, 0);
+    expect(qty(2)).toBe(4);
+    expect(qty(1)).toBe(2);
+  });
+
+  test("un producto en 0 se deja para otro día", () => {
+    const a = order(1, "OPV-1", [item(1, 10, 0.1), item(2, 10, 0.1)]);
+    const tasks = suggestGrouping([a], [1], [], { picks: { 1: 0 }, newId });
+    expect(tasks.flatMap((t) => t.lines).map((l) => l.productionOrderItemId)).toEqual([2]);
   });
 });
