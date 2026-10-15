@@ -10,6 +10,7 @@ import { getProductionOrders } from "services/productionOrderService";
 import { getDeskSupervisorsForDate } from "services/deskSupervisorService";
 import { getDeskCountForDate } from "services/deskCountService";
 import { getTaskBaseHours } from "utils/taskHoursHelper";
+import { mergeOrdersForDownload } from "components/production/DownloadOpsModal";
 import { buildTableCenterTasks } from "utils/cinchoProductionHelper";
 import { getOrganizerDayDeskTasks } from "utils/organizerDayTasks";
 import { buildProductionTasksSheetPrintModel } from "utils/productionTasksSheetPrintData";
@@ -624,6 +625,23 @@ export default function useDayPlanner() {
     return model;
   }, [loadSheetModel]);
 
+  /**
+   * Datos de «Descargar OPs» para un día: las OPs con tareas ese día (con o sin mesa) y el
+   * catálogo de órdenes para armar el lote. Es la hoja que se baja al terminar de armar el día.
+   */
+  const loadOpsDownload = useCallback(async (ymd) => {
+    const [tasksOfDay, productionOrders] = await Promise.all([
+      getTasksByDate(ymd),
+      getProductionOrders({ cached: true }),
+    ]);
+    const center = buildTableCenterTasks(Array.isArray(tasksOfDay) ? tasksOfDay : [], productionOrders);
+    return {
+      date: ymd,
+      orders: mergeOrdersForDownload(productionOrders, []),
+      dayDeskTasks: getOrganizerDayDeskTasks(center, ymd),
+    };
+  }, []);
+
   const downloadSheet = useCallback(async (ymd = date) => {
     try {
       const model = await sheetFor(ymd, { fresh: true });
@@ -679,6 +697,6 @@ export default function useDayPlanner() {
     // paso 4
     confirm, confirming, confirmError, result, startOver,
     // hoja
-    downloadSheet, printSheet,
+    downloadSheet, printSheet, loadOpsDownload,
   };
 }
