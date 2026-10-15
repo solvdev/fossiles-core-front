@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import { Button } from "reactstrap";
 import { leftoverQuantity, limitStatus, lineHours, planBlockers, summarizePlan } from "utils/dayPlanHelper";
 import { contar } from "utils/textHelper";
-import FamilyBadge from "../organizer/FamilyBadge";
+import FamilyBadge from "../dayboard/FamilyBadge";
 import TaskCapacityBar from "./TaskCapacityBar";
 
 const fmt = (n) => (Math.round((n || 0) * 10) / 10).toFixed(1);

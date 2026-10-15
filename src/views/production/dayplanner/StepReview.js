@@ -3,7 +3,7 @@ import { Button, Spinner } from "reactstrap";
 import { formatDateGt, isWeekendYmd, shiftYmdGuatemala } from "utils/dateTimeHelper";
 import { limitStatus } from "utils/dayPlanHelper";
 import { concordar, contar } from "utils/textHelper";
-import FamilyBadge from "../organizer/FamilyBadge";
+import FamilyBadge from "../dayboard/FamilyBadge";
 
 const fmt = (n) => (Math.round((n || 0) * 10) / 10).toFixed(1);
 const WEEKDAYS = ["dom", "lun", "mar", "mié", "jue", "vie", "sáb"];
