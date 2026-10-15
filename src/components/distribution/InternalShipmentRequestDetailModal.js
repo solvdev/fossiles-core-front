@@ -10,15 +10,67 @@ import {
   Spinner,
   Table,
 } from "reactstrap";
+import {
+  RequestActionButtons,
+  StockIndicator,
+  describeStock,
+} from "components/distribution/InternalRequestStock";
 import { getInternalShipmentRequestById } from "services/internalShipmentRequestService";
 import { formatDateTimeGt } from "utils/dateTimeHelper";
 import {
-  canApproveInternalShipment,
   computeInternalEnviUnitPrice,
   formatInternalRequestTypeLabel,
+  formatQty,
   needsOpiProductionAuthorization,
 } from "utils/standaloneInternalShipmentHelper";
-import { showError, showSuccess } from "utils/notificationHelper";
+import { showError } from "utils/notificationHelper";
+
+const BANNER_TONES = {
+  ok: { fg: "#1f7a46", bg: "#e6f6ec", border: "#b6e2c6" },
+  danger: { fg: "#b42323", bg: "#fdeaea", border: "#f4bcbc" },
+  warn: { fg: "#9a6200", bg: "#fff4dc", border: "#f2d9a0" },
+  info: { fg: "#2f5d9e", bg: "#e8f0fb", border: "#bcd1ef" },
+};
+
+const BANNER_TEXT = {
+  DISPONIBLE: {
+    title: "Hay stock para despachar",
+    body: "Todas las líneas alcanzan en Devoluciones / Bodega PT. Puede autorizar el envío y se generará el ENVI.",
+  },
+  SIN_STOCK: {
+    title: "Sin stock suficiente",
+    body: "Hay líneas que no alcanzan. Autorice la producción: se genera una OPI solo por el faltante y el envío se habilita cuando el producto entre a Bodega PT.",
+  },
+  EN_PRODUCCION: {
+    title: "Producción autorizada, esperando ingreso a Bodega PT",
+    body: "El envío se podrá autorizar cuando el producto terminado de la OPI ingrese a Bodega PT.",
+  },
+};
+
+function StockBanner({ request }) {
+  const info = describeStock(request);
+  const text = BANNER_TEXT[request.stockStatus];
+  const tone = BANNER_TONES[info?.tone] || BANNER_TONES.info;
+  return (
+    <div
+      className="mb-3 d-flex align-items-start justify-content-between flex-wrap"
+      style={{
+        gap: 12,
+        padding: "12px 14px",
+        borderRadius: 8,
+        background: tone.bg,
+        border: `1px solid ${tone.border}`,
+        borderLeft: `4px solid ${tone.fg}`,
+      }}
+    >
+      <div style={{ flex: "1 1 260px" }}>
+        <div style={{ color: tone.fg, fontWeight: 700, fontSize: 14 }}>{text.title}</div>
+        <div style={{ fontSize: 12.5, color: "#444", marginTop: 2 }}>{text.body}</div>
+      </div>
+      <StockIndicator request={request} />
+    </div>
+  );
+}
 
 function InternalShipmentRequestDetailModal({
   isOpen,
@@ -94,32 +146,20 @@ function InternalShipmentRequestDetailModal({
 
   const isOpiOnly = String(request?.requestType || "").toUpperCase() === "OPI";
   const showPricing = !isOpiOnly;
+  const showStock = Boolean(request?.stockStatus);
 
+  // La confirmación y los avisos los maneja la vista; aquí solo se refresca el detalle si no se pudo completar
+  // (el stock pudo cambiar o la OPI pudo generarse).
   const handleApprove = async () => {
     if (!request || !onApprove) return;
-    if (!window.confirm("¿Autorizar el envío interno (ENVI) de esta solicitud?")) return;
-    try {
-      await onApprove(request);
-      showSuccess("Envío autorizado.");
-      onClose();
-    } catch (err) {
-      showError(err.message || "No se pudo autorizar.");
-      // Puede que el backend haya generado la OPI por faltante de stock: refrescamos el detalle.
-      await reloadRequest();
-    }
+    const done = await onApprove(request);
+    if (!done) await reloadRequest();
   };
 
   const handleAuthorizeProduction = async () => {
     if (!request || !onAuthorizeProduction) return;
-    const opiCode = request.productionOrderCode || "OPI";
-    if (!window.confirm(`¿Autorizar la producción de ${opiCode}?`)) return;
-    try {
-      await onAuthorizeProduction(request);
-      showSuccess("Producción OPI autorizada.");
-      onClose();
-    } catch (err) {
-      showError(err.message || "No se pudo autorizar la producción.");
-    }
+    const done = await onAuthorizeProduction(request);
+    if (!done) await reloadRequest();
   };
 
   const handleReject = () => {
@@ -139,6 +179,9 @@ function InternalShipmentRequestDetailModal({
           <Alert color="light" className="border mb-0">No hay datos para mostrar.</Alert>
         ) : (
           <>
+            {request.stockStatus && BANNER_TEXT[request.stockStatus] && (
+              <StockBanner request={request} />
+            )}
             <div className="mb-3" style={{ fontSize: 13 }}>
               {request.slipNumber && (
                 <div><strong>Boleta física (BLS):</strong> <Badge color="primary">{request.slipNumber}</Badge></div>
@@ -186,18 +229,36 @@ function InternalShipmentRequestDetailModal({
                   <th>Color</th>
                   <th>Talla</th>
                   <th className="text-right">Cant.</th>
+                  {showStock && <th className="text-right">Disponible</th>}
+                  {showStock && <th className="text-right">Faltante</th>}
                   {showPricing && <th className="text-right">P. unit.</th>}
                   {showPricing && <th className="text-right">Subtotal</th>}
                 </tr>
               </thead>
               <tbody>
                 {linesWithPricing.map((line) => (
-                  <tr key={line.id || `${line.productId}-${line.colorId}-${line.size}`}>
+                  <tr
+                    key={line.id || `${line.productId}-${line.colorId}-${line.size}`}
+                    style={showStock && Number(line.shortageQuantity) > 0 ? { background: "#fff5f5" } : undefined}
+                  >
                     <td>{line.productCode || "—"}</td>
                     <td>{line.productName || "—"}</td>
                     <td>{line.colorName || "—"}</td>
                     <td>{line.size || "—"}</td>
                     <td className="text-right">{line.quantity ?? 0}</td>
+                    {showStock && (
+                      <td className="text-right">{formatQty(line.availableQuantity)}</td>
+                    )}
+                    {showStock && (
+                      <td
+                        className="text-right"
+                        style={Number(line.shortageQuantity) > 0
+                          ? { color: "#b42323", fontWeight: 700 }
+                          : { color: "#1f7a46" }}
+                      >
+                        {Number(line.shortageQuantity) > 0 ? formatQty(line.shortageQuantity) : "✓"}
+                      </td>
+                    )}
                     {showPricing && (
                       <td className="text-right">
                         {line.unitPrice != null ? `Q ${line.unitPrice.toFixed(2)}` : "—"}
@@ -214,7 +275,7 @@ function InternalShipmentRequestDetailModal({
               {showPricing && (
                 <tfoot>
                   <tr>
-                    <td colSpan={6} className="text-right font-weight-bold">Total</td>
+                    <td colSpan={showStock ? 8 : 6} className="text-right font-weight-bold">Total</td>
                     <td className="text-right font-weight-bold">Q {totalAmount.toFixed(2)}</td>
                   </tr>
                 </tfoot>
@@ -225,29 +286,14 @@ function InternalShipmentRequestDetailModal({
       </ModalBody>
       <ModalFooter>
         {request?.status === "PENDIENTE" && canApprove && (
-          <>
-            {needsOpiProductionAuthorization(request) && onAuthorizeProduction && (
-              <Button
-                color="primary"
-                onClick={() => void handleAuthorizeProduction()}
-                disabled={actionId === request?.id}
-              >
-                {actionId === request?.id ? <Spinner size="sm" /> : "Autorizar producción"}
-              </Button>
-            )}
-            {canApproveInternalShipment(request) && onApprove && (
-              <Button
-                color="success"
-                onClick={() => void handleApprove()}
-                disabled={actionId === request?.id}
-              >
-                {actionId === request?.id ? <Spinner size="sm" /> : "Autorizar envío"}
-              </Button>
-            )}
-            <Button color="danger" outline onClick={handleReject} disabled={actionId === request?.id}>
-              Denegar
-            </Button>
-          </>
+          <RequestActionButtons
+            request={request}
+            size="md"
+            busy={actionId === request?.id}
+            onAuthorizeShipment={() => void handleApprove()}
+            onAuthorizeProduction={() => void handleAuthorizeProduction()}
+            onReject={() => handleReject()}
+          />
         )}
         <Button color="secondary" onClick={onClose}>Cerrar</Button>
       </ModalFooter>
