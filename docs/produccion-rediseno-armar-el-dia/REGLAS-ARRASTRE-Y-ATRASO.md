@@ -1,9 +1,8 @@
 # Arrastre de tareas y atraso por producto (borrador, falta validar con el back)
 
 ## Reglas que dio producción
-1. **Jornada**: lunes a viernes, con almuerzo de 13:00 a 14:00. *Conflicto abierto*: producción
-   dice 08:00–17:00 (8 h efectivas); el código (`productionTimeHelper.js` y su espejo
-   `ProductionShift.java`) dice 07:00–17:00 (9 h). Hay que decidir cuál manda y dejar un solo valor.
+1. **Jornada**: lunes a viernes, 07:00–17:00, con almuerzo de 13:00 a 14:00 (9 h efectivas).
+   Confirmado por producción; coincide con `productionTimeHelper.js` y `ProductionShift.java`. No se cambia.
 2. **Arrastre**: una tarea que no termina en el día sigue al siguiente con el tiempo que le falta.
    Ejemplo: empieza 16:00 y dura 3 h → 1 h hoy, 2 h mañana. Mañana se le pueden agregar productos.
 3. **Capacidad**: el tiempo arrastrado resta de la capacidad del día siguiente.
@@ -30,9 +29,8 @@
   día siguiente el planificador descuenta `restante = estimado − trabajado` de la capacidad.
 
 ## Preguntas abiertas para producción
-1. ¿Jornada de 8 h (08–17) o de 9 h (07–17)?
-2. ¿Se marca cada producto como terminado, o solo se completa la tarea entera?
-3. ¿Hay tolerancia (p. ej. 10 %) antes de marcar atraso, o es exacto?
-4. ¿El atraso se mide solo en horas de jornada? (propuesto: sí, la noche y el almuerzo no cuentan)
-5. ¿Un producto atrasado pierde la comisión completa o solo del excedente?
-6. ¿Quién aprueba excepciones (falta de material, falla de máquina)?
+1. ¿Se marca cada producto como terminado, o solo se completa la tarea entera?
+2. ¿Hay tolerancia (p. ej. 10 %) antes de marcar atraso, o es exacto?
+3. ¿El atraso se mide solo en horas de jornada? (propuesto: sí, la noche y el almuerzo no cuentan)
+4. ¿Un producto atrasado pierde la comisión completa o solo del excedente?
+5. ¿Quién aprueba excepciones (falta de material, falla de máquina)?
