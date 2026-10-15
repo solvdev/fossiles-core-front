@@ -57,7 +57,7 @@ import TaskHistoryModal from "components/production/TaskHistoryModal";
 import TaskAddItemsModal from "components/production/TaskAddItemsModal";
 import DownloadOpsModal, { mergeOrdersForDownload } from "components/production/DownloadOpsModal";
 import { taskSkipsMaterials } from "utils/materialRequirementHelper";
-import { formatDateGt, formatDateTimeGt, getTodayYmdGuatemala } from "utils/dateTimeHelper";
+import { formatDateGt, formatDateTimeGt, getTodayYmdGuatemala, isWeekendYmd, shiftYmdGuatemala } from "utils/dateTimeHelper";
 import { openOplDispatchSummaryPrintWindow, downloadOplDispatchSummaryExcel } from "utils/oplDispatchSummaryExport";
 import { openProductionTasksSheetPrintWindow, downloadProductionTasksSheetExcel } from "utils/productionTasksSheetPrintHtml";
 import { buildProductionTasksSheetPrintModel } from "utils/productionTasksSheetPrintData";
@@ -114,6 +114,17 @@ const STATION_STYLESHEET = `
      Columnas CSS en vez de rejilla: con la rejilla, todas las mesas de una fila
      adoptan la altura de la más cargada y dejan huecos enormes. Aquí las tarjetas
      fluyen y rellenan el espacio, sin filas y sin coste de reflow. */
+  .tbs-pill { border-radius: 999px; padding: 2px 10px; font-weight: 600; background: #f1f3f5; color: #32363b; }
+  .tbs-pill--warn { background: #fff3cd; color: #7a5a00; }
+  .tbs-pill--bad { background: #fde2dc; color: #a3300f; }
+  .tbs-pill--info { background: #dff3f9; color: #0b5c75; }
+  .tbs-task--lean { padding: 10px 12px; }
+  .tbs-task--lean .tbs-task-sub { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: center; margin-top: 2px; font-size: 12px; color: var(--tbs-muted); }
+  .tbs-missing { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; }
+  .tbs-lean-foot { display: flex; align-items: center; gap: 6px; margin-top: 10px; }
+  .tbs-lean-foot .btn { margin: 0; }
+  .tbs-kebab { font-size: 20px; line-height: 1; padding: 0 8px; color: var(--tbs-muted) !important; }
+  .tbs-kebab:after { display: none !important; }
   .tbs-grid { display: grid; gap: 16px; align-items: stretch; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); }
   .tbs-grid .tbs-board-item { margin-bottom: 0; }
   .tbs-grid .tbs-board-item > .tbs-desk { height: 100%; }
@@ -316,6 +327,13 @@ const STATION_STYLESHEET = `
   }
 `;
 
+/** Día laboral anterior o siguiente: sábado y domingo no se produce. */
+const stepWorkday = (ymd, dir) => {
+  let d = shiftYmdGuatemala(ymd, dir);
+  for (let i = 0; i < 3 && isWeekendYmd(d); i += 1) d = shiftYmdGuatemala(d, dir);
+  return d;
+};
+
 function TasksByTable() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -340,7 +358,6 @@ function TasksByTable() {
   const [deskConfigWarning, setDeskConfigWarning] = useState("");
   const [activeTab, setActiveTab] = useState("board"); // "board" | "late"
   const [moveMode, setMoveMode] = useState(false);
-  const [showCut, setShowCut] = useState(false);
   const [showSummary, setShowSummary] = useState(false);
   const late = useCutAndLate();
   // Mover líneas entre mesas y fechas solo lo hacen administración y producción.
@@ -795,32 +812,6 @@ function TasksByTable() {
     () => [...new Set(tableCenterTasks.map((t) => t.scheduledDate).filter(Boolean))].sort(),
     [tableCenterTasks]
   );
-
-  /**
-   * Días con actividad y su carga, para el selector superior. Convive con el desplegable
-   * "Fecha" de la fila de filtros: los dos escriben el mismo estado `filterDate`, así que
-   * se mantienen sincronizados. El chip añade lo que el desplegable no da: ver de un vistazo
-   * cuanta carga tiene cada jornada sin tener que abrirlo.
-   */
-  const dayChips = useMemo(() => {
-    const hoy = getTodayYmdGuatemala();
-    const acc = new Map();
-    tableCenterTasks.forEach((t) => {
-      if (!t.scheduledDate) return;
-      const cur = acc.get(t.scheduledDate) || { tareas: 0, horas: 0, pendientes: 0 };
-      cur.tareas += 1;
-      if (t.status !== "CANCELLED") cur.horas += getTaskBaseHours(t);
-      if (t.status === "PENDING") cur.pendientes += 1;
-      acc.set(t.scheduledDate, cur);
-    });
-    const DOW = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
-    return uniqueDates.map((ymd) => {
-      const [y, m, d] = ymd.split("-").map(Number);
-      const fecha = new Date(y, m - 1, d);
-      const datos = acc.get(ymd) || { tareas: 0, horas: 0, pendientes: 0 };
-      return { ymd, dow: DOW[fecha.getDay()], dia: d, esHoy: ymd === hoy, ...datos };
-    });
-  }, [tableCenterTasks, uniqueDates]);
 
   /**
    * Carga progresiva por mesa: cuando el pie de una columna se acerca a la pantalla,
@@ -1455,140 +1446,6 @@ function TasksByTable() {
     );
   };
 
-  const renderStatusActions = (task, compact = false) => {
-    if (task.status === "AWAITING_WAREHOUSE") {
-      return (
-        <div className="d-flex align-items-center" style={{ gap: 4, flexWrap: "wrap" }}>
-          <Badge color="primary" style={{ fontSize: compact ? "10px" : "11px", whiteSpace: "normal" }}>
-            Pendiente bodega PT
-          </Badge>
-          {renderDelayBadges(task, compact)}
-          {canForgiveDelay && task.delayed && !task.delayForgivenAt && (
-            <Button color="primary" outline size="sm" style={{ fontSize: compact ? "10px" : "11px", padding: "1px 6px" }}
-              onClick={() => setReasonDialog({ task, kind: "forgive" })}>
-              Perdonar atraso
-            </Button>
-          )}
-        </div>
-      );
-    }
-    const historyButton = (
-      <Button color="link" size="sm" style={{ fontSize: compact ? "10px" : "11px", padding: "0 4px" }}
-        onClick={() => setHistoryTask(task)} title="Ver qué le pasó a la tarea">
-        Historial
-      </Button>
-    );
-    if (task.status === "COMPLETED" || task.status === "CANCELLED") {
-      return (
-        <div className="d-flex align-items-center" style={{ gap: 4, flexWrap: "wrap" }}>
-          {getStatusBadge(task.status)}
-          {renderDelayBadges(task, compact)}
-          {canForgiveDelay && task.delayed && !task.delayForgivenAt && (
-            <Button color="primary" outline size="sm" style={{ fontSize: compact ? "10px" : "11px", padding: "1px 6px" }}
-              onClick={() => setReasonDialog({ task, kind: "forgive" })}>
-              Perdonar atraso
-            </Button>
-          )}
-          {historyButton}
-        </div>
-      );
-    }
-    const buttonSize = "sm";
-    const commonStyle = compact
-      ? { fontSize: "10px", padding: "1px 4px", height: "22px" }
-      : { fontSize: "11px", padding: "2px 6px" };
-
-    // Estado al que se esta cambiando esta tarea, si hay una petición en vuelo.
-    const enCurso = statusChanging[task.id];
-
-    /**
-     * Botón de cambio de estado con acuse inmedíato: el que se pulsa muestra el spinner
-     * del sistema y sus compañeros se bloquean, para que no haya dudas de que el clic
-     * entro ni margen para pulsar dos veces.
-     */
-    const botonEstado = ({ estado, color, outline, etiqueta, enMarcha, title }) => (
-      <Button
-        color={color}
-        outline={outline}
-        size={buttonSize}
-        style={commonStyle}
-        disabled={!!enCurso}
-        onClick={() => handleStatusChange(task.id, estado)}
-        title={enCurso ? "Aplicando el cambio…" : title}
-      >
-        {enCurso === estado ? (
-          <>
-            <Spinner size="sm" style={{ width: 10, height: 10, borderWidth: 1.5 }} className="mr-1" />
-            {enMarcha}
-          </>
-        ) : (
-          etiqueta
-        )}
-      </Button>
-    );
-
-    if (task.status === "PENDING") {
-      return (
-        <div className="d-flex align-items-center" style={{ gap: 4, flexWrap: "wrap" }}>
-          {botonEstado({
-            estado: "IN_PROGRESS",
-            color: "info",
-            etiqueta: "Iniciar",
-            enMarcha: "Iniciando…",
-            title: "Iniciar tarea (puede iniciar sin esperar otros estados)",
-          })}
-          <Button color="danger" outline size={buttonSize} style={commonStyle} disabled={!!enCurso}
-            onClick={() => setReasonDialog({ task, kind: "cancel" })} title="Cancelar tarea (pide motivo)">
-            Cancelar
-          </Button>
-          <Button color="secondary" outline size={buttonSize} style={commonStyle} disabled={!!enCurso}
-            onClick={() => setAddItemsTask(task)} title="Agregar productos a esta tarea">
-            Agregar
-          </Button>
-          {historyButton}
-        </div>
-      );
-    }
-
-    if (task.status === "IN_PROGRESS") {
-      const paused = !!task.pausedAt;
-      return (
-        <div className="d-flex align-items-center" style={{ gap: 4, flexWrap: "wrap" }}>
-          {renderDelayBadges(task, compact)}
-          {botonEstado({
-            estado: "COMPLETED",
-            color: "success",
-            etiqueta: "Completar",
-            enMarcha: "Completando…",
-            title: "Completar tarea",
-          })}
-          {paused ? (
-            <Button color="info" outline size={buttonSize} style={commonStyle} disabled={!!enCurso}
-              onClick={() => handleResume(task)} title="Reanudar: el reloj vuelve a correr">
-              {enCurso === "RESUME" ? <Spinner size="sm" style={{ width: 10, height: 10, borderWidth: 1.5 }} /> : "Reanudar"}
-            </Button>
-          ) : (
-            <Button color="warning" outline size={buttonSize} style={commonStyle} disabled={!!enCurso}
-              onClick={() => setReasonDialog({ task, kind: "pause" })} title="Pausar (pide motivo): el reloj se detiene">
-              Pausar
-            </Button>
-          )}
-          <Button color="danger" outline size={buttonSize} style={commonStyle} disabled={!!enCurso}
-            onClick={() => setReasonDialog({ task, kind: "cancel" })} title="Cancelar tarea (pide motivo)">
-            Cancelar
-          </Button>
-          <Button color="secondary" outline size={buttonSize} style={commonStyle} disabled={!!enCurso}
-            onClick={() => setAddItemsTask(task)} title="Agregar productos a esta tarea">
-            Agregar
-          </Button>
-          {historyButton}
-        </div>
-      );
-    }
-
-    return getStatusBadge(task.status);
-  };
-
   const formatDate = (dateStr) => {
     if (!dateStr) return "-";
     const d = new Date(dateStr + "T00:00:00");
@@ -1624,105 +1481,111 @@ function TasksByTable() {
 
   // ==================== RENDER ====================
 
-  /** Tarjetas de tarea: las mismas en «Sin mesa» y en cada mesa. */
-  const renderTaskCards = (list) => (
-    <>
-      {list.map((task) => {
-                                                const items = getTaskItems(task);
-                                                const totalTaskHours = task.estimatedHours || 0;
-                                                const extraHours = getTaskExtraHours(task);
-                                                const baseTaskHours = Math.max(totalTaskHours - extraHours, 0);
-                                                const tiempo = extraHours > 0
-                                                  ? formatProductionDuration(baseTaskHours) + " + " + formatProductionDuration(extraHours)
-                                                  : formatProductionDuration(baseTaskHours);
-                                                const tono =
-                                                  task.status === "COMPLETED" ? { mod: "", line: "#6bd098" } :
-                                                  task.status === "IN_PROGRESS" ? { mod: "", line: "#51bcda" } :
-                                                  task.status === "CANCELLED" ? { mod: "tbs-task--cancelled", line: "#ef8157" } :
-                                                  !task.dieCutReady ? { mod: "", line: "#f5a3c7" } : { mod: "", line: "#fbc658" };
-                                                // Cualquier punto de la tarjeta abre el detalle salvo los controles
-                                                // reales; filtrar por el destino evita zonas muertas en los huecos.
-                                                const abrirDetalle = (e) => {
-                                                  if (e.target.closest("button, a, input, select, textarea, label, .btn")) return;
-                                                  setDetailTask(task);
-                                                };
-                                                return (
-                                                  <div
-                                                    key={task.id}
-                                                    className={"tbs-task " + tono.mod}
-                                                    style={{ "--tbs-state": tono.line }}
-                                                    role="button"
-                                                    tabIndex={0}
-                                                    title="Ver detalle de la tarea"
-                                                    onClick={abrirDetalle}
-                                                    onKeyDown={(e) => {
-                                                      if (e.key === "Enter" || e.key === " ") {
-                                                        e.preventDefault();
-                                                        setDetailTask(task);
-                                                      }
-                                                    }}
-                                                  >
-                                                    <div className="tbs-task-head">
-                                                      <div className="tbs-task-prod">
-                                                        {items.map((item, i) => (
-                                                          <span key={i}>
-                                                            {i > 0 && <span className="tbs-color">, </span>}
-                                                            {item.productCode}
-                                                            {item.colorName && (
-                                                              <span className="tbs-color"> {"\u00b7"} {item.colorName}</span>
-                                                            )}
-                                                          </span>
-                                                        ))}
-                                                      </div>
-                                                      <span className="tbs-qty">{task.quantity} uds</span>
-                                                    </div>
+  /**
+   * Tarjeta de tarea, lo mínimo para decidir: qué es, cuánto dura, qué le falta y la acción
+   * que toca. Lo demás (pausar, cancelar, agregar, historial, boleta) va en el menú «⋯».
+   */
+  const renderBoardCard = (task) => {
+    const items = getTaskItems(task);
+    const first = items[0];
+    const extraItems = items.length - 1;
+    const totalTaskHours = task.estimatedHours || 0;
+    const extraHours = getTaskExtraHours(task);
+    const baseTaskHours = Math.max(totalTaskHours - extraHours, 0);
+    const tiempo = extraHours > 0
+      ? formatProductionDuration(baseTaskHours) + " + " + formatProductionDuration(extraHours)
+      : formatProductionDuration(baseTaskHours);
+    const tono =
+      task.status === "COMPLETED" ? "#6bd098" :
+      task.status === "IN_PROGRESS" ? "#51bcda" :
+      task.status === "CANCELLED" ? "#ef8157" :
+      !task.dieCutReady ? "#f5a3c7" : "#fbc658";
+    const enCurso = statusChanging[task.id];
+    const open = task.status === "PENDING" || task.status === "IN_PROGRESS";
+    const paused = !!task.pausedAt;
+    const missing = ["LEATHER", "DIE_CUT", "MATERIALS"].filter((k) => !hasPhaseReached(task, k));
+    const abrirDetalle = (e) => {
+      if (e.target.closest("button, a, input, select, textarea, label, .btn, .dropdown-menu")) return;
+      setDetailTask(task);
+    };
 
-                                                    <div className="tbs-task-sub">
-                                                      <span className="tbs-op">{task.productionOrderCode}</span>
-                                                      {task.startTime && <span>Inicio {task.startTime}</span>}
-                                                    </div>
+    let primary = null;
+    if (task.status === "PENDING") {
+      primary = (
+        <Button color="info" size="sm" disabled={!!enCurso} onClick={() => handleStatusChange(task.id, "IN_PROGRESS")}>
+          {enCurso === "IN_PROGRESS" ? <Spinner size="sm" /> : "Iniciar"}
+        </Button>
+      );
+    } else if (task.status === "IN_PROGRESS" && paused) {
+      primary = <Button color="warning" size="sm" disabled={!!enCurso} onClick={() => handleResume(task)}>Reanudar</Button>;
+    } else if (task.status === "IN_PROGRESS") {
+      primary = (
+        <Button color="success" size="sm" disabled={!!enCurso} onClick={() => handleStatusChange(task.id, "COMPLETED")}>
+          {enCurso === "COMPLETED" ? <Spinner size="sm" /> : "Completar"}
+        </Button>
+      );
+    } else if (task.status === "AWAITING_WAREHOUSE") {
+      primary = <Badge color="primary">Pendiente bodega PT</Badge>;
+    } else {
+      primary = getStatusBadge(task.status);
+    }
 
-                                                    <div className="tbs-phases">
-                                                      {renderPhaseControl(task, "LEATHER", true)}
-                                                      {renderPhaseControl(task, "DIE_CUT", true)}
-                                                      {renderPhaseControl(task, "MATERIALS", true)}
-                                                    </div>
+    return (
+      <div
+        key={task.id}
+        className="tbs-task tbs-task--lean"
+        style={{ "--tbs-state": tono }}
+        role="button"
+        tabIndex={0}
+        title="Ver detalle de la tarea"
+        onClick={abrirDetalle}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setDetailTask(task); }
+        }}
+      >
+        <div className="tbs-task-head">
+          <div className="tbs-task-prod">
+            {first ? first.productCode : task.code}
+            {first?.colorName && <span className="tbs-color"> {"\u00b7"} {first.colorName}</span>}
+            {extraItems > 0 && <span className="tbs-color"> +{extraItems}</span>}
+          </div>
+          <span className="tbs-qty">{task.quantity} uds</span>
+        </div>
+        <div className="tbs-task-sub">
+          <span className="tbs-op">{task.productionOrderCode}</span>
+          <span>{tiempo}</span>
+          {renderDelayBadges(task, true)}
+        </div>
+        {task.status === "PENDING" && missing.length > 0 && (
+          <div className="tbs-missing">
+            {missing.map((k) => <React.Fragment key={k}>{renderPhaseControl(task, k, true)}</React.Fragment>)}
+          </div>
+        )}
+        <div className="tbs-lean-foot">
+          {primary}
+          <UncontrolledDropdown direction="up" className="ml-auto">
+            <DropdownToggle color="link" size="sm" className="tbs-kebab" aria-label="Más acciones" title="Más acciones">⋯</DropdownToggle>
+            <DropdownMenu right>
+              {open && <DropdownItem onClick={() => setAddItemsTask(task)}>Agregar productos</DropdownItem>}
+              {open && <DropdownItem onClick={() => openDaySaleModal(task)}>Venta del día</DropdownItem>}
+              {task.status === "IN_PROGRESS" && !paused && (
+                <DropdownItem onClick={() => setReasonDialog({ task, kind: "pause" })}>Pausar</DropdownItem>
+              )}
+              {canForgiveDelay && task.delayed && !task.delayForgivenAt && (
+                <DropdownItem onClick={() => setReasonDialog({ task, kind: "forgive" })}>Perdonar atraso</DropdownItem>
+              )}
+              {taskYaIniciada(task) && <DropdownItem onClick={() => openPrintForTask(task)}>Imprimir boleta</DropdownItem>}
+              <DropdownItem onClick={() => setHistoryTask(task)}>Historial</DropdownItem>
+              {open && <DropdownItem divider />}
+              {open && <DropdownItem className="text-danger" onClick={() => setReasonDialog({ task, kind: "cancel" })}>Cancelar tarea</DropdownItem>}
+            </DropdownMenu>
+          </UncontrolledDropdown>
+        </div>
+      </div>
+    );
+  };
 
-                                                    <div className="tbs-task-foot">
-                                                      <div className="tbs-foot-top">
-                                                        <span className="tbs-time" title="Tiempo base + extra de venta del día">
-                                                          {tiempo}
-                                                        </span>
-                                                        <div className="tbs-side">
-                                                          <button
-                                                            type="button"
-                                                            className="tbs-day-btn"
-                                                            title="Agregar productos de venta del día"
-                                                            onClick={() => openDaySaleModal(task)}
-                                                          >
-                                                            <i className="nc-icon nc-simple-add" /> Del día
-                                                          </button>
-                                                          {taskYaIniciada(task) && (
-                                                            <button
-                                                              type="button"
-                                                              className="tbs-icon-btn"
-                                                              title="Imprimir boleta"
-                                                              onClick={() => openPrintForTask(task)}
-                                                            >
-                                                              <i className="nc-icon nc-single-copy-04" />
-                                                            </button>
-                                                          )}
-                                                        </div>
-                                                      </div>
-                                                      <div className="tbs-actions">
-                                                        {renderStatusActions(task, true)}
-                                                      </div>
-                                                    </div>
-                                                  </div>
-                                                );
-                                              })}
-    </>
-  );
+  const renderTaskCards = (list) => <>{list.map(renderBoardCard)}</>;
 
   /** Una mesa del día: carga contra el cupo y sus tarjetas. */
   const renderDeskColumn = (date, desk, deskTasks) => {
@@ -1810,44 +1673,26 @@ function TasksByTable() {
       {/* ========== DÍA + CAPACIDAD + CONTADORES ========== */}
       <Card className="mb-3">
         <CardBody className="py-3">
-          <div className="d-flex flex-wrap align-items-center mb-2" style={{ gap: 10 }}>
-            <div className="tbs-days" style={{ flex: 1 }}>
-              {dayChips.map((d) => (
-                <button
-                  key={d.ymd}
-                  type="button"
-                  className={`tbs-day ${boardDay === d.ymd ? "tbs-day--on" : ""} ${d.esHoy ? "tbs-day--today" : ""}`}
-                  onClick={() => setFilterDate(d.ymd)}
-                  title={`${formatDate(d.ymd)} · ${d.tareas} tarea(s) · ${formatProductionDuration(d.horas)}`}
-                >
-                  <div className="tbs-day-dow">{d.esHoy ? "Hoy" : d.dow}</div>
-                  <div className="tbs-day-num">{d.dia}</div>
-                  <div className="tbs-day-count">{d.tareas} · {formatProductionDuration(d.horas)}</div>
-                </button>
-              ))}
-            </div>
-            <div style={{ width: 160 }}>
+          <div className="d-flex flex-wrap align-items-center mb-2" style={{ gap: 8 }}>
+            <Button outline color="secondary" size="sm" aria-label="Día anterior" onClick={() => setFilterDate(stepWorkday(boardDay, -1))}>‹</Button>
+            <strong style={{ minWidth: 190, textAlign: "center" }}>
+              {boardDay === getTodayYmdGuatemala() ? "Hoy · " : ""}{formatDate(boardDay)}
+            </strong>
+            <Button outline color="secondary" size="sm" aria-label="Día siguiente" onClick={() => setFilterDate(stepWorkday(boardDay, 1))}>›</Button>
+            {boardDay !== getTodayYmdGuatemala() && (
+              <Button color="link" size="sm" onClick={() => setFilterDate(getTodayYmdGuatemala())}>Ir a hoy</Button>
+            )}
+            <div style={{ width: 150, marginLeft: "auto" }}>
               <DatePickerField value={boardDay} onChange={(v) => v && setFilterDate(v)} soloHabiles bsSize="md" />
             </div>
           </div>
           <DayCapacityBar capacity={dayCap} planLoad={dayLoad} />
-          <div className="d-flex justify-content-around text-center flex-wrap mt-2">
-            <div className="px-3" title="Tareas sin mesa con producto por cortar. Se marcan en «Por cortar».">
-              <small className="text-muted d-block">Esperan corte</small>
-              <strong style={{ fontSize: 20, color: stats.waitingCut > 0 ? "#e67e22" : "#28a745" }}>{stats.waitingCut}</strong>
-            </div>
-            <div className="px-3" title="Cortadas pero sin mesa: no había cupo. Entran a la primera mesa que se libere.">
-              <small className="text-muted d-block">Listas sin mesa</small>
-              <strong style={{ fontSize: 20, color: stats.readyNoDesk > 0 ? "#e74c3c" : "#28a745" }}>{stats.readyNoDesk}</strong>
-            </div>
-            <div className="px-3">
-              <small className="text-muted d-block">En proceso</small>
-              <strong style={{ fontSize: 20, color: "#17a2b8" }}>{stats.inProgress}</strong>
-            </div>
-            <div className="px-3">
-              <small className="text-muted d-block">Atrasadas</small>
-              <strong style={{ fontSize: 20, color: lateCount > 0 ? "#e74c3c" : "#28a745" }}>{lateCount}</strong>
-            </div>
+          <div className="d-flex flex-wrap align-items-center mt-2" style={{ gap: 8, fontSize: 13 }}>
+            {stats.waitingCut > 0 && <span className="tbs-pill tbs-pill--warn" title="Tareas con producto por cortar. Se marcan en «Por cortar».">{stats.waitingCut} esperan corte</span>}
+            {stats.readyNoDesk > 0 && <span className="tbs-pill tbs-pill--bad" title="Cortadas pero sin mesa: no había cupo.">{stats.readyNoDesk} sin mesa</span>}
+            {stats.inProgress > 0 && <span className="tbs-pill tbs-pill--info">{stats.inProgress} en proceso</span>}
+            {lateCount > 0 && <span className="tbs-pill tbs-pill--bad">{lateCount} {lateCount === 1 ? "atrasada" : "atrasadas"}</span>}
+            {stats.waitingCut + stats.readyNoDesk + stats.inProgress + lateCount === 0 && <span className="text-muted">Todo en orden.</span>}
           </div>
         </CardBody>
       </Card>
@@ -1856,6 +1701,12 @@ function TasksByTable() {
         <NavItem>
           <NavLink role="button" className={activeTab === "board" ? "active" : ""} onClick={() => setActiveTab("board")}>
             Tablero
+          </NavLink>
+        </NavItem>
+        <NavItem>
+          <NavLink role="button" className={activeTab === "cut" ? "active" : ""} onClick={() => { setActiveTab("cut"); late.loadDieCutPending(); }}>
+            Por cortar
+            {late.dieCutPending.length > 0 && <Badge color="warning" className="ml-1">{late.dieCutPending.length}</Badge>}
           </NavLink>
         </NavItem>
         <NavItem>
@@ -1868,6 +1719,14 @@ function TasksByTable() {
 
       {error && <Alert color="danger">{error}</Alert>}
       {deskConfigWarning && <Alert color="warning" className="mb-2">{deskConfigWarning}</Alert>}
+
+      {activeTab === "cut" && (
+        <DieCutListPanel
+          tareas={late.dieCutPending}
+          loading={late.loadingDieCut}
+          onReload={() => { late.loadDieCutPending(); loadTasks({ background: true }); }}
+        />
+      )}
 
       {activeTab === "late" && (
         <Card>
@@ -1928,27 +1787,6 @@ function TasksByTable() {
             </Card>
           ) : (
             <>
-              {/* Por cortar: el corte dispara la asignación de mesa */}
-              <Card className="mb-3" style={{ border: "1px solid #f5a3c7" }}>
-                <CardHeader className="py-2 d-flex align-items-center justify-content-between" style={{ cursor: "pointer" }}
-                  onClick={() => setShowCut((v) => !v)} role="button" aria-expanded={showCut}>
-                  <strong>
-                    Por cortar
-                    <Badge color={late.dieCutPending.length > 0 ? "warning" : "secondary"} className="ml-2">{late.dieCutPending.length}</Badge>
-                  </strong>
-                  <small className="text-muted">{showCut ? "Ocultar ▾" : "Mostrar ▸"}</small>
-                </CardHeader>
-                {showCut && (
-                  <CardBody className="p-2">
-                    <DieCutListPanel
-                      tareas={late.dieCutPending}
-                      loading={late.loadingDieCut}
-                      onReload={() => { late.loadDieCutPending(); loadTasks({ background: true }); }}
-                    />
-                  </CardBody>
-                )}
-              </Card>
-
               {/* Sin mesa: cortadas que esperan cupo */}
               {sinMesaListas.length > 0 && (
                 <Card className="mb-3" style={{ border: "1px solid #ffe8a3" }}>

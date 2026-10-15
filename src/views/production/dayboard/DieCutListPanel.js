@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useState, useEffect } from "react";
 import {
   Card, CardHeader, CardBody, Button, Table, Badge, Input,
   InputGroup, InputGroupAddon, InputGroupText, Alert, Spinner,
@@ -52,12 +52,17 @@ const CABECERAS_CSV = [
  * el del producto: la entrega se registra por orden y marca la tarea sin bajar a sus
  * productos.
  */
+const PAGINA = 10;
+
 export default function DieCutListPanel({ tareas, loading, onReload }) {
   const [trabajando, setTrabajando] = useState(null);
   const [confirmacion, setConfirmacion] = useState(null);
   const [busqueda, setBusqueda] = useState("");
   // "todas" | "sinCuero" | "conCuero" | "aMedias" | "conFecha"
   const [filtro, setFiltro] = useState("todas");
+  // Con cientos de tareas por cortar, mostrar todas de golpe vuelve la pantalla ilegible.
+  const [visibles, setVisibles] = useState(PAGINA);
+  useEffect(() => { setVisibles(PAGINA); }, [busqueda, filtro]);
 
   /**
    * Las tareas que pasan el buscador y el filtro rápido.
@@ -359,7 +364,7 @@ export default function DieCutListPanel({ tareas, loading, onReload }) {
                   Quitar los filtros
                 </Button>
               </Alert>
-            ) : tareasFiltradas.map((t) => {
+            ) : tareasFiltradas.slice(0, visibles).map((t) => {
               const est = estadoTarea(t);
               return (
                 <div key={t.id} className="mb-4">
@@ -472,6 +477,13 @@ export default function DieCutListPanel({ tareas, loading, onReload }) {
                 </div>
               );
             })}
+            {tareasFiltradas.length > visibles && (
+              <div className="text-center">
+                <Button outline color="secondary" onClick={() => setVisibles((v) => v + PAGINA)}>
+                  Mostrar más ({tareasFiltradas.length - visibles})
+                </Button>
+              </div>
+            )}
           </>
         )}
       </CardBody>
