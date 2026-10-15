@@ -26,10 +26,6 @@ import Select from "react-select";
 import {
   getTasks,
   updateTaskStatus,
-  pauseTask,
-  resumeTask,
-  cancelTask,
-  forgiveTaskDelay,
   toggleDieCut,
   setLeatherDelivery,
   setTaskItemLeatherDelivery,
@@ -54,9 +50,6 @@ import {
 } from "utils/taskPlanningHelper";
 import { showSuccess, showError } from "utils/notificationHelper";
 import TaskTicketPrint from "./TaskTicketPrint";
-import TaskReasonModal from "components/production/TaskReasonModal";
-import TaskHistoryModal from "components/production/TaskHistoryModal";
-import TaskAddItemsModal from "components/production/TaskAddItemsModal";
 import DownloadOpsModal, { mergeOrdersForDownload } from "components/production/DownloadOpsModal";
 import { taskSkipsMaterials } from "utils/materialRequirementHelper";
 import { formatDateGt, formatDateTimeGt, getTodayYmdGuatemala, isWeekendYmd } from "utils/dateTimeHelper";
@@ -324,11 +317,6 @@ function TasksByTable() {
   const [refreshing, setRefreshing] = useState(false);
   /** { [taskId]: nuevoEstado } mientras el cambio esta en vuelo. */
   const [statusChanging, setStatusChanging] = useState({});
-  // Pausar, cancelar y perdonar un atraso piden motivo; el historial se abre desde la tarjeta.
-  const [reasonDialog, setReasonDialog] = useState(null); // { task, kind: "pause" | "cancel" | "forgive" }
-  const [reasonBusy, setReasonBusy] = useState(false);
-  const [historyTask, setHistoryTask] = useState(null);
-  const [addItemsTask, setAddItemsTask] = useState(null);
   /** Carga de órdenes de producción: alimenta las mesas de cinchos y el filtro por OP. */
   const [loadingOrders, setLoadingOrders] = useState(false);
   const [error, setError] = useState("");
@@ -337,8 +325,6 @@ function TasksByTable() {
   // Mover líneas entre mesas y fechas solo lo hacen administración y producción.
   const { hasAnyRole } = useAuth();
   const canRedistribute = hasAnyRole(["ADMIN", "ADMINISTRADOR", "PRODUCCION"]);
-  // Perdonar un atraso (devuelve la comisión) solo lo aprueba el jefe.
-  const canForgiveDelay = hasAnyRole(["ADMIN"]);
   const [filterDesk, setFilterDesk] = useState("");
   const [filterDate, setFilterDate] = useState("");
   const [filterStatus, setFilterStatus] = useState("all");
@@ -1623,124 +1609,16 @@ function TasksByTable() {
     );
   };
 
-  const replaceTask = (updated) => setTasks((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
-
-  const REASON_DIALOGS = {
-    pause: {
-      title: "Pausar tarea",
-      description: "El tiempo en pausa no cuenta para el atraso. Se reanuda con el botón «Reanudar».",
-      confirmLabel: "Pausar",
-      confirmColor: "warning",
-    },
-    cancel: {
-      title: "Cancelar tarea",
-      description: "Los productos de la tarea vuelven a «no asignado» y la OP regresa a pendiente si no le quedan otras tareas.",
-      confirmLabel: "Cancelar tarea",
-      confirmColor: "danger",
-    },
-    forgive: {
-      title: "Perdonar atraso",
-      description: "La tarea vuelve a ser comisionable. Queda registrado quién lo perdonó, cuándo y por qué.",
-      confirmLabel: "Perdonar atraso",
-      confirmColor: "primary",
-    },
-  };
-
-  const handleReasonConfirm = async (reason) => {
-    if (!reasonDialog) return;
-    const { task, kind } = reasonDialog;
-    setReasonBusy(true);
-    try {
-      let updated;
-      if (kind === "pause") updated = await pauseTask(task.id, reason);
-      else if (kind === "cancel") updated = await cancelTask(task.id, reason);
-      else updated = await forgiveTaskDelay(task.id, reason);
-      replaceTask(updated);
-      showSuccess(kind === "pause" ? "Tarea pausada" : kind === "cancel" ? "Tarea cancelada" : "Atraso perdonado");
-      setReasonDialog(null);
-      // Cancelar libera mesa y unidades: se relee el tablero sin bloquear la pantalla.
-      if (kind === "cancel") loadTasks({ background: true });
-    } catch (err) {
-      showError(err.message);
-    } finally {
-      setReasonBusy(false);
-    }
-  };
-
-  const handleResume = async (task) => {
-    if (statusChanging[task.id]) return;
-    setStatusChanging((prev) => ({ ...prev, [task.id]: "RESUME" }));
-    try {
-      replaceTask(await resumeTask(task.id));
-      showSuccess("Tarea reanudada");
-    } catch (err) {
-      showError(err.message);
-    } finally {
-      setStatusChanging((prev) => {
-        const siguiente = { ...prev };
-        delete siguiente[task.id];
-        return siguiente;
-      });
-    }
-  };
-
-  /** Atraso y comisión de la tarea, para que se vea de un vistazo. */
-  const renderDelayBadges = (task, compact = false) => {
-    const size = { fontSize: compact ? "10px" : "11px", whiteSpace: "normal" };
-    return (
-      <>
-        {task.pausedAt && task.status === "IN_PROGRESS" && (
-          <Badge color="warning" style={size} title="El reloj está detenido">En pausa</Badge>
-        )}
-        {task.delayed && !task.delayForgivenAt && (
-          <Badge color="danger" style={size} title={`Pasó ${task.delayMinutes || 0} min del tiempo esperado (más 30 de tolerancia)`}>
-            Atrasada · sin comisión
-          </Badge>
-        )}
-        {task.delayed && task.delayForgivenAt && (
-          <Badge color="success" style={size} title={task.delayForgivenReason || ""}>Atraso perdonado · comisionable</Badge>
-        )}
-      </>
-    );
-  };
-
   const renderStatusActions = (task, compact = false) => {
     if (task.status === "AWAITING_WAREHOUSE") {
       return (
-        <div className="d-flex align-items-center" style={{ gap: 4, flexWrap: "wrap" }}>
-          <Badge color="primary" style={{ fontSize: compact ? "10px" : "11px", whiteSpace: "normal" }}>
-            Pendiente bodega PT
-          </Badge>
-          {renderDelayBadges(task, compact)}
-          {canForgiveDelay && task.delayed && !task.delayForgivenAt && (
-            <Button color="primary" outline size="sm" style={{ fontSize: compact ? "10px" : "11px", padding: "1px 6px" }}
-              onClick={() => setReasonDialog({ task, kind: "forgive" })}>
-              Perdonar atraso
-            </Button>
-          )}
-        </div>
+        <Badge color="primary" style={{ fontSize: compact ? "10px" : "11px", whiteSpace: "normal" }}>
+          Pendiente bodega PT
+        </Badge>
       );
     }
-    const historyButton = (
-      <Button color="link" size="sm" style={{ fontSize: compact ? "10px" : "11px", padding: "0 4px" }}
-        onClick={() => setHistoryTask(task)} title="Ver qué le pasó a la tarea">
-        Historial
-      </Button>
-    );
     if (task.status === "COMPLETED" || task.status === "CANCELLED") {
-      return (
-        <div className="d-flex align-items-center" style={{ gap: 4, flexWrap: "wrap" }}>
-          {getStatusBadge(task.status)}
-          {renderDelayBadges(task, compact)}
-          {canForgiveDelay && task.delayed && !task.delayForgivenAt && (
-            <Button color="primary" outline size="sm" style={{ fontSize: compact ? "10px" : "11px", padding: "1px 6px" }}
-              onClick={() => setReasonDialog({ task, kind: "forgive" })}>
-              Perdonar atraso
-            </Button>
-          )}
-          {historyButton}
-        </div>
-      );
+      return getStatusBadge(task.status);
     }
     const buttonSize = "sm";
     const commonStyle = compact
@@ -1786,24 +1664,21 @@ function TasksByTable() {
             enMarcha: "Iniciando…",
             title: "Iniciar tarea (puede iniciar sin esperar otros estados)",
           })}
-          <Button color="danger" outline size={buttonSize} style={commonStyle} disabled={!!enCurso}
-            onClick={() => setReasonDialog({ task, kind: "cancel" })} title="Cancelar tarea (pide motivo)">
-            Cancelar
-          </Button>
-          <Button color="secondary" outline size={buttonSize} style={commonStyle} disabled={!!enCurso}
-            onClick={() => setAddItemsTask(task)} title="Agregar productos a esta tarea">
-            Agregar
-          </Button>
-          {historyButton}
+          {botonEstado({
+            estado: "CANCELLED",
+            color: "danger",
+            outline: true,
+            etiqueta: "Cancelar",
+            enMarcha: "Cancelando…",
+            title: "Cancelar tarea",
+          })}
         </div>
       );
     }
 
     if (task.status === "IN_PROGRESS") {
-      const paused = !!task.pausedAt;
       return (
         <div className="d-flex align-items-center" style={{ gap: 4, flexWrap: "wrap" }}>
-          {renderDelayBadges(task, compact)}
           {botonEstado({
             estado: "COMPLETED",
             color: "success",
@@ -1811,26 +1686,14 @@ function TasksByTable() {
             enMarcha: "Completando…",
             title: "Completar tarea",
           })}
-          {paused ? (
-            <Button color="info" outline size={buttonSize} style={commonStyle} disabled={!!enCurso}
-              onClick={() => handleResume(task)} title="Reanudar: el reloj vuelve a correr">
-              {enCurso === "RESUME" ? <Spinner size="sm" style={{ width: 10, height: 10, borderWidth: 1.5 }} /> : "Reanudar"}
-            </Button>
-          ) : (
-            <Button color="warning" outline size={buttonSize} style={commonStyle} disabled={!!enCurso}
-              onClick={() => setReasonDialog({ task, kind: "pause" })} title="Pausar (pide motivo): el reloj se detiene">
-              Pausar
-            </Button>
-          )}
-          <Button color="danger" outline size={buttonSize} style={commonStyle} disabled={!!enCurso}
-            onClick={() => setReasonDialog({ task, kind: "cancel" })} title="Cancelar tarea (pide motivo)">
-            Cancelar
-          </Button>
-          <Button color="secondary" outline size={buttonSize} style={commonStyle} disabled={!!enCurso}
-            onClick={() => setAddItemsTask(task)} title="Agregar productos a esta tarea">
-            Agregar
-          </Button>
-          {historyButton}
+          {botonEstado({
+            estado: "PENDING",
+            color: "warning",
+            outline: true,
+            etiqueta: "Pausar",
+            enMarcha: "Pausando…",
+            title: "Pausar y volver a pendiente",
+          })}
         </div>
       );
     }
@@ -2308,11 +2171,8 @@ function TasksByTable() {
                 </>
               )}
               <Card className="mb-3" style={{ border: "1px solid #e2e8f0", backgroundColor: "#f8fafc" }}>
-                <CardBody className="py-2 d-flex align-items-center justify-content-between flex-wrap">
-                  <Button color="primary" size="sm" className="mr-3 mb-1" onClick={() => navigate("/admin/day-planner")}>
-                    Armar el día
-                  </Button>
-                  <span style={{ fontSize: 13, flex: 1, minWidth: 260 }}>
+                <CardBody className="py-2">
+                  <span style={{ fontSize: 13 }}>
                     <strong>Cómo fluye una tarea:</strong>
                     <span className="text-muted">
                       {" "}1) marque qué va primero en la{" "}
@@ -3318,24 +3178,6 @@ function TasksByTable() {
         </Col>
       </Row>
 
-      <TaskReasonModal
-        isOpen={!!reasonDialog}
-        busy={reasonBusy}
-        {...(reasonDialog ? REASON_DIALOGS[reasonDialog.kind] : {})}
-        description={reasonDialog ? `${REASON_DIALOGS[reasonDialog.kind].description} (${reasonDialog.task.code})` : ""}
-        onConfirm={handleReasonConfirm}
-        onCancel={() => setReasonDialog(null)}
-      />
-      <TaskHistoryModal task={historyTask} onClose={() => setHistoryTask(null)} />
-      <TaskAddItemsModal
-        task={addItemsTask}
-        onClose={() => setAddItemsTask(null)}
-        onAdded={(updated) => {
-          replaceTask(updated);
-          setAddItemsTask(null);
-          showSuccess("Productos agregados a la tarea");
-        }}
-      />
       <DownloadOpsModal
         isOpen={showDownloadOpsModal}
         toggle={() => setShowDownloadOpsModal(false)}
