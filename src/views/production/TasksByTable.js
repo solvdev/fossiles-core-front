@@ -2171,8 +2171,11 @@ function TasksByTable() {
                 </>
               )}
               <Card className="mb-3" style={{ border: "1px solid #e2e8f0", backgroundColor: "#f8fafc" }}>
-                <CardBody className="py-2">
-                  <span style={{ fontSize: 13 }}>
+                <CardBody className="py-2 d-flex align-items-center justify-content-between flex-wrap">
+                  <Button color="primary" size="sm" className="mr-3 mb-1" onClick={() => navigate("/admin/day-planner")}>
+                    Armar el día
+                  </Button>
+                  <span style={{ fontSize: 13, flex: 1, minWidth: 260 }}>
                     <strong>Cómo fluye una tarea:</strong>
                     <span className="text-muted">
                       {" "}1) marque qué va primero en la{" "}
