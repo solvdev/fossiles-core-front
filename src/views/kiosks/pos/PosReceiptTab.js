@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { getShipmentsByStatus, getShipmentsInTransit } from "services/productDistributionService";
+import { getShipmentsPendingReceipt } from "services/productDistributionService";
 import { showError } from "utils/notificationHelper";
-import ShipmentReceiptPanel, { shipmentPendingTotal } from "components/distribution/ShipmentReceiptPanel";
+import ShipmentReceiptPanel from "components/distribution/ShipmentReceiptPanel";
 import PosReceiptModal from "./PosReceiptModal";
 
 function PosReceiptTab({ kioskLocationId, kioskName, onReceiptConfirmed, onPendingCountChange }) {
@@ -20,15 +20,8 @@ function PosReceiptTab({ kioskLocationId, kioskName, onReceiptConfirmed, onPendi
     }
     try {
       setLoading(true);
-      const [inTransit, delivered] = await Promise.all([
-        getShipmentsInTransit(locationId),
-        getShipmentsByStatus("DELIVERED").catch(() => []),
-      ]);
-      // Entregados con unidades aún en tránsito: el kiosko las recibe cuando lleguen.
-      const withPending = (delivered || []).filter(
-        (s) => Number(s.locationId) === locationId && shipmentPendingTotal(s) > 0
-      );
-      const rows = [...(inTransit || []), ...withPending];
+      // Una sola llamada: en tránsito + entregados con unidades aún por recibir (filtrado en el servidor).
+      const rows = (await getShipmentsPendingReceipt(locationId)) || [];
       setShipments(rows);
       if (onPendingCountChange) {
         onPendingCountChange(rows.length);
