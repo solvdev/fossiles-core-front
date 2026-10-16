@@ -10,10 +10,6 @@ import {
   Col,
   Input,
   Label,
-  Modal,
-  ModalBody,
-  ModalFooter,
-  ModalHeader,
   Nav,
   NavItem,
   NavLink,
@@ -34,6 +30,7 @@ import {
 } from "services/kioskExchangeService";
 import { getKioscoMovimientos } from "services/kioscoInventoryService";
 import { formatDateTimeGt } from "utils/dateTimeHelper";
+import { showError, showSuccess } from "utils/notificationHelper";
 import {
   formatKioscoMovementReference,
   formatKioscoMovementRoute,
@@ -49,6 +46,7 @@ import "./KioskSales.css";
 import PosAdminKioskPicker from "./pos/PosAdminKioskPicker";
 import ExchangeSlipWizard from "./returns/ExchangeSlipWizard";
 import SimpleReturnWizard from "./returns/SimpleReturnWizard";
+import KioskSlipDetailModal, { SlipStockPill } from "./returns/KioskSlipDetailModal";
 
 const statusBadge = (status) => {
   const normalized = String(status || "").toUpperCase();
@@ -69,6 +67,19 @@ const statusLabel = (status) => {
   if (normalized === "REJECTED") return "Rechazado";
   return status || "—";
 };
+
+const ROW_ACCENT = {
+  PENDING_AUTHORIZATION: "#e0a100",
+  PENDING_REINTEGRO: "#2f5d9e",
+  REJECTED: "#d64545",
+};
+
+const rowStyle = (row) => {
+  const accent = ROW_ACCENT[String(row?.status || "").toUpperCase()];
+  return { cursor: "pointer", boxShadow: accent ? `inset 3px 0 0 ${accent}` : undefined };
+};
+
+const formatSlipDate = (value) => (value ? formatDateTimeGt(value) : "—");
 
 /** "Cartera X" o, si la boleta mueve varios productos, "Cartera X +2 más" (el detalle completo va en la impresión). */
 const summarizeSlipProducts = (items, fallbackName) => {
@@ -139,11 +150,9 @@ function KioskReturns() {
   const [pendingAuthorizations, setPendingAuthorizations] = useState([]);
   const [pendingReintegros, setPendingReintegros] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [actionId, setActionId] = useState(null);
   const [error, setError] = useState("");
-  const [rejectModalOpen, setRejectModalOpen] = useState(false);
-  const [rejectTarget, setRejectTarget] = useState(null);
-  const [rejectReason, setRejectReason] = useState("");
+  const [detailSlip, setDetailSlip] = useState(null);
+  const [initialTabChosen, setInitialTabChosen] = useState(false);
   const [exchangeWizardOpen, setExchangeWizardOpen] = useState(false);
   const [returnWizardOpen, setReturnWizardOpen] = useState(false);
 
@@ -313,6 +322,14 @@ function KioskReturns() {
     }
   }, [canAuthorizeExchanges, canManageReturns, activeTab]);
 
+  useEffect(() => {
+    if (initialTabChosen || loading) return;
+    if (canAuthorizeExchanges && pendingAuthorizations.length > 0) {
+      setActiveTab("AUTHORIZATIONS");
+    }
+    if (posContext) setInitialTabChosen(true);
+  }, [initialTabChosen, loading, canAuthorizeExchanges, pendingAuthorizations, posContext]);
+
   const handleKioskChange = async (nextKioskId) => {
     const next = nextKioskId ? String(nextKioskId) : "";
     setSelectedKiosk(next);
@@ -368,65 +385,57 @@ function KioskReturns() {
   );
 
   const filteredPendingAuthorizations = useMemo(
-    () => pendingAuthorizations.filter((row) => slipMatchesSearch(row, searchQuery)),
+    () =>
+      pendingAuthorizations
+        .filter((row) => slipMatchesSearch(row, searchQuery))
+        .sort((a, b) => new Date(a.createdAt || 0) - new Date(b.createdAt || 0)),
     [pendingAuthorizations, searchQuery]
   );
 
+  /** Las acciones devuelven true si se completaron (el modal de detalle se cierra). */
   const handleReintegrate = async (slip) => {
     try {
-      setActionId(slip.id);
       await reintegrateKioskReturn(slip.id, selectedKiosk || slip.kioskLocationId);
+      showSuccess(`Devolución ${slip.slipNumber} reintegrada a bodega.`);
       await loadData();
+      return true;
     } catch (err) {
-      setError(err.message || "No se pudo reintegrar la devolución.");
-    } finally {
-      setActionId(null);
+      showError(err.message || "No se pudo reintegrar la devolución.");
+      return false;
     }
   };
 
   const handleAuthorize = async (slip) => {
     try {
-      setActionId(slip.id);
       await authorizeKioskExchange(slip.id, selectedKiosk || slip.kioskLocationId);
+      showSuccess(`Cambio ${slip.slipNumber} autorizado. El inventario del kiosko se actualizó.`);
       await loadData();
+      return true;
     } catch (err) {
-      setError(err.message || "No se pudo autorizar el cambio.");
-    } finally {
-      setActionId(null);
+      showError(err.message || "No se pudo autorizar el cambio.");
+      await loadData();
+      return false;
     }
   };
 
-  const openRejectModal = (slip) => {
-    setRejectTarget(slip);
-    setRejectReason("");
-    setRejectModalOpen(true);
-  };
-
-  const handleReject = async () => {
-    if (!rejectTarget) return;
-    if (!rejectReason.trim()) {
-      setError("Indica el motivo del rechazo.");
-      return;
-    }
+  const handleReject = async (slip, reason) => {
     try {
-      setActionId(rejectTarget.id);
-      await rejectKioskExchange(rejectTarget.id, selectedKiosk || rejectTarget.kioskLocationId, rejectReason.trim());
-      setRejectModalOpen(false);
-      setRejectTarget(null);
+      await rejectKioskExchange(slip.id, selectedKiosk || slip.kioskLocationId, reason);
+      showSuccess(`Cambio ${slip.slipNumber} rechazado.`);
       await loadData();
+      return true;
     } catch (err) {
-      setError(err.message || "No se pudo rechazar el cambio.");
-    } finally {
-      setActionId(null);
+      showError(err.message || "No se pudo rechazar el cambio.");
+      return false;
     }
   };
 
-  const handlePrintExchange = (slip) => {
-    openExchangeSlipPrintWindow(buildKioskExchangeSlipPrintHtml(slip));
-  };
-
-  const handlePrintReturn = (slip) => {
-    openExchangeSlipPrintWindow(buildKioskReturnSlipPrintHtml(slip));
+  const handlePrintSlip = (slip) => {
+    if (String(slip?.slipType || "EXCHANGE").toUpperCase() === "RETURN") {
+      openExchangeSlipPrintWindow(buildKioskReturnSlipPrintHtml(slip));
+    } else {
+      openExchangeSlipPrintWindow(buildKioskExchangeSlipPrintHtml(slip));
+    }
   };
 
   return (
@@ -491,8 +500,7 @@ function KioskReturns() {
                     </div>
                   )}
                 </Col>
-                {canViewAllKiosks && (
-                  <>
+                <>
                     <Col md="4">
                       <Label>Buscar</Label>
                       <Input
@@ -517,8 +525,7 @@ function KioskReturns() {
                         <option value="REJECTED">Rechazado</option>
                       </Input>
                     </Col>
-                  </>
-                )}
+                </>
               </Row>
               {canViewAllKiosks && !selectedKiosk && (
                 <p className="text-muted small mb-3">
@@ -566,7 +573,9 @@ function KioskReturns() {
                         style={{ cursor: "pointer" }}
                       >
                         Pendientes reintegro
-                        {filteredPendingReintegros.length > 0 ? ` (${filteredPendingReintegros.length})` : ""}
+                        {filteredPendingReintegros.length > 0 && (
+                          <Badge color="info" pill className="ml-2">{filteredPendingReintegros.length}</Badge>
+                        )}
                       </NavLink>
                     </NavItem>
                   </>
@@ -579,7 +588,9 @@ function KioskReturns() {
                       style={{ cursor: "pointer" }}
                     >
                       Autorizaciones pendientes
-                      {filteredPendingAuthorizations.length > 0 ? ` (${filteredPendingAuthorizations.length})` : ""}
+                      {filteredPendingAuthorizations.length > 0 && (
+                        <Badge color="warning" pill className="ml-2">{filteredPendingAuthorizations.length}</Badge>
+                      )}
                     </NavLink>
                   </NavItem>
                 )}
@@ -596,6 +607,7 @@ function KioskReturns() {
                       <thead className="text-primary">
                         <tr>
                           <th>No.</th>
+                          <th>Fecha</th>
                           <th>Kiosko</th>
                           <th>Venta orig.</th>
                           <th>Devuelto</th>
@@ -607,16 +619,20 @@ function KioskReturns() {
                       </thead>
                       <tbody>
                         {filteredExchanges.map((row) => (
-                          <tr key={row.id}>
+                          <tr key={row.id} style={rowStyle(row)} onClick={() => setDetailSlip(row)}>
                             <td>{row.slipNumber}</td>
+                            <td>{formatSlipDate(row.createdAt)}</td>
                             <td>{formatKioskLabel(row)}</td>
                             <td>{row.originalSaleNumber}</td>
                             <td>{summarizeSlipProducts(row.returnedItems, row.returnedProductName)}</td>
                             <td>{summarizeSlipProducts(row.givenItems, row.givenProductName)}</td>
                             <td>{formatCurrency(row.differenceAmount)}</td>
                             <td><Badge color={statusBadge(row.status)}>{statusLabel(row.status)}</Badge></td>
-                            <td className="text-right">
-                              <Button color="default" size="sm" onClick={() => handlePrintExchange(row)}>
+                            <td className="text-right text-nowrap" onClick={(e) => e.stopPropagation()}>
+                              <Button color="link" size="sm" className="p-0 mr-2" onClick={() => setDetailSlip(row)}>
+                                Ver detalle
+                              </Button>
+                              <Button color="default" size="sm" onClick={() => handlePrintSlip(row)}>
                                 Imprimir
                               </Button>
                             </td>
@@ -683,6 +699,7 @@ function KioskReturns() {
                       <thead className="text-primary">
                         <tr>
                           <th>No.</th>
+                          <th>Fecha</th>
                           <th>Kiosko</th>
                           <th>Venta</th>
                           <th>Producto</th>
@@ -695,8 +712,9 @@ function KioskReturns() {
                       </thead>
                       <tbody>
                         {filteredReturns.map((row) => (
-                          <tr key={row.id}>
+                          <tr key={row.id} style={rowStyle(row)} onClick={() => setDetailSlip(row)}>
                             <td>{row.slipNumber}</td>
+                            <td>{formatSlipDate(row.createdAt)}</td>
                             <td>{formatKioskLabel(row)}</td>
                             <td>{row.originalSaleNumber}</td>
                             <td>{row.returnedProductName}</td>
@@ -704,8 +722,11 @@ function KioskReturns() {
                             <td>{row.reason}</td>
                             <td>{row.apto ? "Sí" : "No"}</td>
                             <td><Badge color={statusBadge(row.status)}>{statusLabel(row.status)}</Badge></td>
-                            <td className="text-right">
-                              <Button color="default" size="sm" className="mr-1" onClick={() => handlePrintReturn(row)}>
+                            <td className="text-right text-nowrap" onClick={(e) => e.stopPropagation()}>
+                              <Button color="link" size="sm" className="p-0 mr-2" onClick={() => setDetailSlip(row)}>
+                                Ver detalle
+                              </Button>
+                              <Button color="default" size="sm" onClick={() => handlePrintSlip(row)}>
                                 Imprimir
                               </Button>
                             </td>
@@ -729,6 +750,7 @@ function KioskReturns() {
                       <thead className="text-primary">
                         <tr>
                           <th>No.</th>
+                          <th>Fecha</th>
                           <th>Kiosko</th>
                           <th>Producto</th>
                           <th>Cant.</th>
@@ -738,20 +760,16 @@ function KioskReturns() {
                       </thead>
                       <tbody>
                         {filteredPendingReintegros.map((row) => (
-                          <tr key={row.id}>
+                          <tr key={row.id} style={rowStyle(row)} onClick={() => setDetailSlip(row)}>
                             <td>{row.slipNumber}</td>
+                            <td>{formatSlipDate(row.createdAt)}</td>
                             <td>{formatKioskLabel(row)}</td>
                             <td>{row.returnedProductName}</td>
                             <td>{formatQty(row.returnedQuantity)}</td>
                             <td>{row.reason || "—"}</td>
-                            <td className="text-right">
-                              <Button
-                                color="success"
-                                size="sm"
-                                disabled={actionId === row.id}
-                                onClick={() => void handleReintegrate(row)}
-                              >
-                                {actionId === row.id ? "..." : "Reintegrar a bodega"}
+                            <td className="text-right text-nowrap" onClick={(e) => e.stopPropagation()}>
+                              <Button color="link" size="sm" className="p-0 mr-2" onClick={() => setDetailSlip(row)}>
+                                Revisar
                               </Button>
                             </td>
                           </tr>
@@ -768,50 +786,35 @@ function KioskReturns() {
                     ) : filteredPendingAuthorizations.length === 0 ? (
                       <p>No hay cambios pendientes de autorización.</p>
                     ) : (
-                      <Table responsive>
+                      <Table responsive hover>
                         <thead className="text-primary">
                           <tr>
                             <th>Boleta</th>
+                            <th>Solicitada</th>
                             <th>Kiosko</th>
                             <th>Solicitante</th>
-                            <th>Devuelto</th>
-                            <th>Nuevo</th>
+                            <th>Ingresa</th>
+                            <th>Sale</th>
                             <th>Motivo</th>
+                            <th>Stock</th>
                             <th className="text-right">Acciones</th>
                           </tr>
                         </thead>
                         <tbody>
                           {filteredPendingAuthorizations.map((row) => (
-                            <tr key={row.id}>
+                            <tr key={row.id} style={rowStyle(row)} onClick={() => setDetailSlip(row)}>
                               <td>{row.slipNumber}</td>
+                              <td>{formatSlipDate(row.createdAt)}</td>
                               <td>{formatKioskLabel(row)}</td>
                               <td>{row.createdByName || "—"}</td>
                               <td>{summarizeSlipProducts(row.returnedItems, row.returnedProductName)}</td>
                               <td>{summarizeSlipProducts(row.givenItems, row.givenProductName)}</td>
-                              <td>{row.reason}</td>
-                              <td className="text-right">
-                                {canApproveExchanges && (
-                                  <>
-                                    <Button
-                                      color="success"
-                                      size="sm"
-                                      className="mr-1"
-                                      disabled={actionId === row.id}
-                                      onClick={() => void handleAuthorize(row)}
-                                    >
-                                      {actionId === row.id ? "..." : "Autorizar"}
-                                    </Button>
-                                    <Button
-                                      color="danger"
-                                      size="sm"
-                                      outline
-                                      disabled={actionId === row.id}
-                                      onClick={() => openRejectModal(row)}
-                                    >
-                                      Rechazar
-                                    </Button>
-                                  </>
-                                )}
+                              <td style={{ maxWidth: 220 }}>{row.reason || "—"}</td>
+                              <td><SlipStockPill slip={row} /></td>
+                              <td className="text-right text-nowrap" onClick={(e) => e.stopPropagation()}>
+                                <Button color="primary" size="sm" className="btn-round" onClick={() => setDetailSlip(row)}>
+                                  Revisar
+                                </Button>
                               </td>
                             </tr>
                           ))}
@@ -841,26 +844,17 @@ function KioskReturns() {
         onCompleted={() => void loadData()}
       />
 
-      <Modal isOpen={rejectModalOpen} toggle={() => setRejectModalOpen(false)}>
-        <ModalHeader toggle={() => setRejectModalOpen(false)}>Rechazar solicitud de cambio</ModalHeader>
-        <ModalBody>
-          <Label>Motivo del rechazo</Label>
-          <Input
-            type="textarea"
-            value={rejectReason}
-            onChange={(e) => setRejectReason(e.target.value)}
-            placeholder="Indica por qué se rechaza el cambio"
-          />
-        </ModalBody>
-        <ModalFooter>
-          <Button color="secondary" outline onClick={() => setRejectModalOpen(false)}>
-            Cancelar
-          </Button>
-          <Button color="danger" onClick={() => void handleReject()} disabled={actionId != null}>
-            Rechazar cambio
-          </Button>
-        </ModalFooter>
-      </Modal>
+      <KioskSlipDetailModal
+        isOpen={detailSlip != null}
+        slip={detailSlip}
+        onClose={() => setDetailSlip(null)}
+        canAuthorize={canApproveExchanges}
+        canReintegrate={canManageReturns}
+        onAuthorize={handleAuthorize}
+        onReject={handleReject}
+        onReintegrate={handleReintegrate}
+        onPrint={handlePrintSlip}
+      />
     </div>
   );
 }
