@@ -619,7 +619,12 @@ const buildOpvOnlineSalePayload = (printDoc, productionOrder, deps) => {
     ...printDoc,
     _printProducts: stampedProducts,
   };
-  const items = buildOnlineSaleItemsFromShipmentDoc(printSource, deps);
+  // OPV/OPC de Luis Felipe: el empaque se imprime sin precio, sin depender del estado de la pantalla.
+  const freePacking = isLuisFelipeVendorFlow(productionOrder?.orderType, productionOrder?.sellerName);
+  const items = buildOnlineSaleItemsFromShipmentDoc(
+    printSource,
+    freePacking ? { ...deps, resolveMaterialUnitPrice: () => 0 } : deps
+  );
   const netAmount = items.reduce((s, it) => s + Number(it.subtotal || 0), 0);
   const order = productionOrder || {};
   const shippingCost = Number(
