@@ -361,7 +361,7 @@ const getShipmentPackingItems = (shipment, localState) => {
   return [];
 };
 
-const resolveMaterialUnitPrice = (item, material) => {
+const resolveCatalogMaterialUnitPrice = (item, material) => {
   const candidates = [
     item?.unitPrice,
     item?.purchasePrice,
@@ -619,7 +619,12 @@ const buildOpvOnlineSalePayload = (printDoc, productionOrder, deps) => {
     ...printDoc,
     _printProducts: stampedProducts,
   };
-  const items = buildOnlineSaleItemsFromShipmentDoc(printSource, deps);
+  // OPV/OPC de Luis Felipe: el empaque se imprime sin precio, sin depender del estado de la pantalla.
+  const freePacking = isLuisFelipeVendorFlow(productionOrder?.orderType, productionOrder?.sellerName);
+  const items = buildOnlineSaleItemsFromShipmentDoc(
+    printSource,
+    freePacking ? { ...deps, resolveMaterialUnitPrice: () => 0 } : deps
+  );
   const netAmount = items.reduce((s, it) => s + Number(it.subtotal || 0), 0);
   const order = productionOrder || {};
   const shippingCost = Number(
@@ -1713,6 +1718,24 @@ function PrepareShipments() {
     }
   };
 
+  const luisFelipePrintFlow = useMemo(() => {
+    if (isLuisFelipeVendorFlow(selectedProductionOrder?.orderType, selectedProductionOrder?.sellerName)) {
+      return true;
+    }
+    const fromOpc = (opcOrders || []).find((o) => String(o.id) === String(selectedOpcOrderId));
+    if (fromOpc && isLuisFelipeVendorFlow(fromOpc.orderType, fromOpc.sellerName)) {
+      return true;
+    }
+    const fromOpv = (opvOrders || []).find((o) => String(o.id) === String(selectedOpvOrderId));
+    return Boolean(fromOpv && isLuisFelipeVendorFlow(fromOpv.orderType, fromOpv.sellerName));
+  }, [selectedProductionOrder, selectedOpcOrderId, selectedOpvOrderId, opcOrders, opvOrders]);
+
+  // OPV/OPC de Luis Felipe: el empaque no se cobra (precio 0). Sin esto el envío caía al costo del material.
+  const resolveMaterialUnitPrice = useCallback(
+    (item, material) => (luisFelipePrintFlow ? 0 : resolveCatalogMaterialUnitPrice(item, material)),
+    [luisFelipePrintFlow]
+  );
+
   const getPackingKey = (shipmentId, materialId) => `${shipmentId}:${materialId}`;
 
   const resolveShipmentPackingItems = useCallback(
@@ -1736,7 +1759,7 @@ function PrepareShipments() {
           };
         })
         .filter(Boolean),
-    [packingMaterials, packingQtyByShipment]
+    [packingMaterials, packingQtyByShipment, resolveMaterialUnitPrice]
   );
 
   const openPackingModal = (shipment) => {
@@ -1824,18 +1847,6 @@ function PrepareShipments() {
 
   const standaloneInternalFlow = Boolean(selectedStandaloneInternalId);
   const standaloneKioskFlow = Boolean(selectedStandaloneKioskId);
-
-  const luisFelipePrintFlow = useMemo(() => {
-    if (isLuisFelipeVendorFlow(selectedProductionOrder?.orderType, selectedProductionOrder?.sellerName)) {
-      return true;
-    }
-    const fromOpc = (opcOrders || []).find((o) => String(o.id) === String(selectedOpcOrderId));
-    if (fromOpc && isLuisFelipeVendorFlow(fromOpc.orderType, fromOpc.sellerName)) {
-      return true;
-    }
-    const fromOpv = (opvOrders || []).find((o) => String(o.id) === String(selectedOpvOrderId));
-    return Boolean(fromOpv && isLuisFelipeVendorFlow(fromOpv.orderType, fromOpv.sellerName));
-  }, [selectedProductionOrder, selectedOpcOrderId, selectedOpvOrderId, opcOrders, opvOrders]);
 
   const opckFlow = Boolean(selectedOpckOrderId);
   const opkFlow = Boolean(selectedOpkOrderId);
