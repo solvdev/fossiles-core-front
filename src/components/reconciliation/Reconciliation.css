@@ -1,0 +1,60 @@
+/* Conciliación de ventas en línea. Usa los colores de Paper Dashboard (reactstrap) y no introduce otro sistema visual. */
+.recon-page .recon-tabs .nav-link { cursor: pointer; font-weight: 600; }
+.recon-page .recon-kpi { cursor: pointer; border: 1px solid #e3e3e3; border-radius: 6px; background: #fff; padding: 12px 14px; text-align: left; width: 100%; height: 100%; }
+.recon-page .recon-kpi:hover { border-color: #51cbce; }
+.recon-page .recon-kpi .label { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: #66615b; font-weight: 600; }
+.recon-page .recon-kpi .value { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.recon-page .recon-kpi .hint { font-size: 11px; color: #66615b; }
+.recon-page .recon-table { font-size: 12.5px; }
+.recon-page .recon-table th { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; white-space: nowrap; }
+.recon-page .recon-table td { white-space: nowrap; vertical-align: middle; }
+.recon-page .recon-table .num { text-align: right; font-variant-numeric: tabular-nums; }
+.recon-page .recon-table tr.recon-row { cursor: pointer; }
+.recon-page .recon-table tr.recon-row.is-open { box-shadow: inset 3px 0 0 #51cbce; background: #f4f3ef; }
+.recon-page .recon-table tr.recon-row.is-selected { background: #e8f6fb; }
+.recon-page .recon-sort { background: none; border: 0; padding: 0; font: inherit; text-transform: inherit; letter-spacing: inherit; cursor: pointer; font-weight: 700; }
+.recon-page .recon-bar { display: flex; height: 12px; border-radius: 3px; overflow: hidden; background: #ececec; }
+.recon-page .recon-bar i { display: block; height: 100%; }
+.recon-page .recon-bar .ok { background: #18a05c; }
+.recon-page .recon-bar .pending { background: #e0a419; }
+.recon-page .recon-bar .bad { background: #c2410c; }
+.recon-page .recon-bar .info { background: #1e7fa0; }
+.recon-page .recon-legend { font-size: 11px; color: #66615b; display: flex; gap: 12px; flex-wrap: wrap; }
+.recon-page .recon-legend b { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 4px; }
+.recon-page .recon-empty { text-align: center; padding: 32px 12px; color: #66615b; }
+.recon-page .recon-empty h5 { color: #403d39; }
+.recon-page .recon-chips .btn { margin: 0 6px 6px 0; }
+.recon-demo-banner { font-size: 12px; }
+
+/* Panel de detalle: no es un modal, deja ver la tabla a la izquierda en pantallas anchas. */
+.recon-drawer { position: fixed; top: 0; right: 0; bottom: 0; width: min(600px, 100%); background: #fff; z-index: 1040; border-left: 1px solid #e3e3e3;
+  box-shadow: -8px 0 24px rgba(0, 0, 0, .12); display: flex; flex-direction: column; }
+.recon-drawer .head { padding: 12px 16px; border-bottom: 1px solid #e3e3e3; display: flex; justify-content: space-between; gap: 8px; align-items: flex-start; }
+.recon-drawer .body { overflow: auto; padding: 12px 16px 32px; }
+.recon-drawer .sec { border: 1px solid #e3e3e3; border-radius: 6px; margin-bottom: 12px; }
+.recon-drawer .sec > h6 { margin: 0; padding: 8px 12px; background: #faf9f6; border-bottom: 1px solid #e3e3e3; border-radius: 6px 6px 0 0; font-weight: 700; display: flex; justify-content: space-between; }
+.recon-drawer .sec .in { padding: 10px 12px; }
+.recon-drawer .compare { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; text-align: center; margin-bottom: 8px; }
+.recon-drawer .compare > div { border: 1px solid #e3e3e3; border-radius: 4px; padding: 6px 4px; }
+.recon-drawer .compare .l { font-size: 10.5px; text-transform: uppercase; letter-spacing: .05em; color: #66615b; }
+.recon-drawer .compare .v { font-size: 16px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.recon-drawer dl.kv { display: grid; grid-template-columns: minmax(110px, 150px) minmax(0, 1fr); gap: 4px 10px; margin: 0; }
+.recon-drawer dl.kv dt { color: #66615b; font-weight: 400; font-size: 12px; }
+.recon-drawer dl.kv dd { margin: 0; overflow-wrap: anywhere; }
+.recon-drawer .src { display: block; font-size: 10.5px; color: #9a9a9a; font-family: ui-monospace, Consolas, monospace; }
+.recon-drawer .hist { list-style: none; padding: 0; margin: 0; }
+.recon-drawer .hist li { padding-left: 10px; border-left: 2px solid #e3e3e3; margin-bottom: 8px; }
+.recon-drawer .hist .t { font-size: 11px; color: #66615b; }
+.recon-drawer .vt td, .recon-drawer .vt th { white-space: normal; vertical-align: top; font-size: 12px; }
+@media (min-width: 1400px) { body.recon-drawer-open .recon-page { margin-right: 600px; } }
+@media (max-width: 767px) {
+  .recon-page .hide-sm { display: none; }
+}
+
+/* Vista simple de cuadre */
+.recon-page .recon-totals { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.recon-page .recon-totals > div { border: 1px solid #e3e3e3; border-radius: 6px; padding: 10px 12px; background: #fff; }
+.recon-page .recon-totals .l { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: #66615b; font-weight: 600; }
+.recon-page .recon-totals .v { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.recon-page .recon-close-bar { border-top: 1px solid #e3e3e3; padding-top: 12px; }
+@media (max-width: 575px) { .recon-page .recon-totals { grid-template-columns: 1fr; } }
