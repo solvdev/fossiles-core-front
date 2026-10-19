@@ -2,7 +2,9 @@ import React, { useEffect, useState } from "react";
 import {
   Button, FormGroup, Input, Label, Modal, ModalBody, ModalFooter, ModalHeader, Spinner,
 } from "reactstrap";
-import { showError } from "utils/notificationHelper";
+import { showError, showWarning } from "utils/notificationHelper";
+
+const CARRIERS_WITH_GUIDE = ["FORZA_DELIVERY", "GUATEX"];
 
 const DispatchModal = ({
   isOpen,
@@ -27,7 +29,9 @@ const DispatchModal = ({
   const handleDispatch = async () => {
     setDispatching(true);
     try {
-      await dispatchCustomerShipment(productionOrderId, sale.onlineSaleId, dispatchData);
+      const result = await dispatchCustomerShipment(productionOrderId, sale.onlineSaleId, dispatchData);
+      // El despacho sale igual; el servidor avisa si falta la guía de Forza o Guatex.
+      if (result?.warning) showWarning(result.warning);
       if (onSuccess) await onSuccess();
     } catch (err) {
       showError(err.message || "Error al despachar envío");
@@ -66,13 +70,18 @@ const DispatchModal = ({
           </Input>
         </FormGroup>
         <FormGroup>
-          <Label>Número de guía</Label>
+          <Label>Número de guía{CARRIERS_WITH_GUIDE.includes(dispatchData.shippingCarrier) ? " *" : ""}</Label>
           <Input
             type="text"
             value={dispatchData.guideNumber}
             onChange={(e) => setDispatchData((p) => ({ ...p, guideNumber: e.target.value }))}
             placeholder="Número de guía"
           />
+          {CARRIERS_WITH_GUIDE.includes(dispatchData.shippingCarrier) && !dispatchData.guideNumber.trim() && (
+            <small className="text-warning">
+              Escriba la guía que generó el transportista. Sin ella no se puede conciliar el cobro. El envío sale igual.
+            </small>
+          )}
         </FormGroup>
       </ModalBody>
       <ModalFooter>
