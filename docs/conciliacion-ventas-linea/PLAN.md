@@ -846,6 +846,7 @@ Rama `feature/conciliacion-fase0` desde `origin/main` en `fossiles-core-back` y 
 | 4D | Diferencias, ajuste de faltantes con motivo y autorización, fondos sin venta con candidatos | `ReconciliationDifferenceService`, pestaña Diferencias |
 | 4D | Comisión 2% sin envío, cálculo, cierre mensual, catálogo de vendedores | `ReconciliationCommissionService`, `ReconciliationSellerService` |
 | 4E | Lotes: crear, cerrar (libro + Excel + huella), anular con reversas, descarga repetible | `ReconciliationBatchService`, `ReconciliationExcelExporter`, `ReconciliationLedgerService` |
+| 4F | **Registrar pagos escribiendo** (sin archivo): una fila por pago con ENVL o guía, monto recibido y referencia; la fuente se deduce de la forma de pago de la venta. Dice al instante si cuadra o cuánto falta/sobra. También se puede registrar dentro del caso abierto. Un pago repetido (misma referencia) se rechaza | Back: `ReconciliationReceiptService.recordForCase/recordByIdentifier/inferSource/rejectRepeatedPayment`, `POST /api/reconciliation/receipts/quick` y `/cases/{id}/record-receipt`. Front: botón «Registrar pagos», `QuickPaymentsModal`, botón «Registrar pago recibido» en el detalle |
 | 4E | Permisos `VENTAS.CONCILIACION.*` | `ReconciliationAccessGuard`, `scripts/seed-reconciliation-permissions.sql` |
 
 API: `/api/reconciliation/*` (controlador `ReconciliationController`). Ruta del front: `/admin/online-reconciliation`.
@@ -868,9 +869,9 @@ Decisiones tomadas al construir, que conviene que el negocio conozca:
 | Flujo completo | Generar → importar → asociar → ajustar → lote → cerrar → Excel → anular → comisiones. Verifica saldo cero en el libro, cerrar dos veces sin duplicar, y que un caso cerrado no se modifica |
 | Esquema en Postgres 18 (copia local del dump) | Las 15 entidades validan con Hibernate `validate`; la validación falla si falta una columna (se comprobó). Los triggers rechazan `UPDATE`, `DELETE` y `TRUNCATE`; el rollback se niega si hay historial |
 | Rendimiento (1,700 ventas, H2 en memoria) | Generar casos 2.2 s, importar 1,700 filas 1.5 s, dashboard 0.3 s, bandeja 0.05 s, cerrar un lote de 850 casos 6.5 s |
-| Pruebas del frontend | 14 del helper y 6 de interfaz (dashboard, bandeja con diferencia con signo y texto, detalle sin perder la tabla, ajuste exige motivo, sin permisos todo deshabilitado, cierre de lote con confirmación e idempotencia) |
+| Pruebas del frontend | 14 del helper y 11 de interfaz (6 base + 5 de pagos escritos: guardar y cuadrar, diferencia marcada y no corregida, fila con error sin frenar las demás, sin permiso, registro dentro del caso) (dashboard, bandeja con diferencia con signo y texto, detalle sin perder la tabla, ajuste exige motivo, sin permisos todo deshabilitado, cierre de lote con confirmación e idempotencia) |
 
-Las pruebas del front se corrieron con una configuración de Jest aparte porque el Jest del proyecto no arranca en este equipo (Babel 7.18). No se levantó la app en un navegador.
+Las pruebas del front corren con el Jest del proyecto (`react-scripts test`); el mock de `AuthContext` usa una variable con prefijo `mock` como exige babel-jest. No se levantó la app en un navegador.
 
 ### 12.3 Orden de despliegue
 
@@ -889,5 +890,6 @@ Rollback: `rollback-reconciliation-base.sql` (se niega a borrar si ya hay movimi
 - **Ejecutar el flujo en `fosstest`** con datos reales antes de producción (12.3, paso 5).
 - **Historial de movimientos** de las ventas históricas: el libro nace en cero; el primer cargo de cada venta se registra al generar sus casos.
 - **Nombres de usuario** en el historial salen de `username`; si un usuario no existe, se muestra su número.
+- **Pagos escritos:** regla de oro intacta: cobrado = recibido exacto, sin tolerancia ni ajuste automático; una diferencia queda pendiente en Diferencias. Falta recorrerlo con datos reales en local y simplificar la pantalla (guía paso 1/2/3, menos columnas), porque el usuario la encontró confusa.
 - **Pantallas no vistas en un navegador.** Se verificaron con pruebas de render, no a ojo.
 - **No incluido:** integración automática con transportistas o bancos (no hay APIs ni credenciales), formato de intercambio con SAE (se decidió que la descarga queda solo en este sistema), asientos contables hacia otros sistemas.

@@ -11,15 +11,15 @@ jest.mock("services/reconciliationService", () => ({
   reconcileCase: jest.fn(), bulkReconcile: jest.fn(), applyReceipt: jest.fn(), voidApplication: jest.fn(), reopenCase: jest.fn(),
   excludeCase: jest.fn(), includeCase: jest.fn(), observeCase: jest.fn(), refreshAmount: jest.fn(), revalidateCase: jest.fn(),
   revalidatePeriod: jest.fn(), autoApplyReceipts: jest.fn(), generateCases: jest.fn(), importReceipts: jest.fn(), createReceipt: jest.fn(),
-  importGuides: jest.fn(), calculateCommissions: jest.fn(), closeCommissionMonth: jest.fn(), createSeller: jest.fn(),
+  importGuides: jest.fn(), recordQuickReceipt: jest.fn(), recordCaseReceipt: jest.fn(), calculateCommissions: jest.fn(), closeCommissionMonth: jest.fn(), createSeller: jest.fn(),
 }));
 
 jest.mock("services/customerAccountService", () => ({ createClientRequestId: () => "req-1" }));
 jest.mock("utils/notificationHelper", () => ({ showError: jest.fn(), showSuccess: jest.fn(), showWarning: jest.fn() }));
 jest.mock("utils/dateTimeHelper", () => ({ getTodayYmdGuatemala: () => "2026-10-14" }));
 
-let granted = true;
-jest.mock("contexts/AuthContext", () => ({ useAuth: () => ({ hasPermission: () => granted }) }));
+let mockGranted = true;
+jest.mock("contexts/AuthContext", () => ({ useAuth: () => ({ hasPermission: () => mockGranted }) }));
 jest.mock("components/reconciliation/Reconciliation.css", () => ({}), { virtual: true });
 
 const row = (over = {}) => ({
@@ -61,11 +61,19 @@ const mount = async () => {
 };
 const flush = () => act(async () => { await Promise.resolve(); });
 const click = async (el) => { await act(async () => { el.dispatchEvent(new MouseEvent("click", { bubbles: true })); }); await flush(); };
+const typeInto = async (el, value) => {
+  const proto = el.tagName === "SELECT" ? HTMLSelectElement.prototype : HTMLInputElement.prototype;
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(proto, "value").set.call(el, value);
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+    el.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+};
 const byText = (selector, text) => Array.from(document.querySelectorAll(selector)).find((e) => e.textContent.includes(text));
 
 beforeEach(() => {
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
-  granted = true;
+  mockGranted = true;
   Object.values(api).forEach((fn) => fn.mockReset && fn.mockReset());
   api.getDashboard.mockResolvedValue(dashboard);
   api.getSellers.mockResolvedValue([{ id: 1, name: "Anthony Ixcajo", active: true }]);
@@ -130,7 +138,7 @@ describe("Conciliación de ventas en línea (interfaz)", () => {
   });
 
   it("sin permisos las acciones quedan deshabilitadas", async () => {
-    granted = false;
+    mockGranted = false;
     await mount();
     await click(byText(".nav-link", "Bandeja"));
     await flush();
@@ -160,5 +168,77 @@ describe("Conciliación de ventas en línea (interfaz)", () => {
     await flush();
     expect(container.textContent).toContain("Todavía no hay casos en este filtro");
     expect(container.textContent).toContain("generando los casos del período");
+  });
+
+  describe("registrar pagos escritos", () => {
+    const openQuick = async () => {
+      await mount();
+      await click(byText("button", "Registrar pagos"));
+      await flush();
+    };
+
+    it("guarda cada fila con su ENVL, monto y referencia, y avisa si cuadra al centavo", async () => {
+      api.recordQuickReceipt.mockResolvedValue({ difference: 0, message: "Cuadra: Q105.00 = Q105.00" });
+      await openQuick();
+      await typeInto(document.querySelector('[aria-label="ENVL o guía, fila 1"]'), "ENVL-01601");
+      await typeInto(document.querySelector('[aria-label="Monto, fila 1"]'), "105");
+      await typeInto(document.querySelector('[aria-label="Referencia, fila 1"]'), "LIQ-1");
+      await click(byText(".modal button", "Guardar 1 pago"));
+      expect(api.recordQuickReceipt).toHaveBeenCalledTimes(1);
+      expect(api.recordQuickReceipt).toHaveBeenCalledWith({ identifier: "ENVL-01601", amount: 105, reference: "LIQ-1", receivedDate: null, sourceType: null });
+      expect(document.querySelector(".modal").textContent).toContain("todos cuadran al centavo");
+    });
+
+    it("marca con «!» el pago con diferencia y no lo corrige solo", async () => {
+      api.recordQuickReceipt.mockResolvedValue({ difference: -5, message: "Faltan Q5.00" });
+      await openQuick();
+      await typeInto(document.querySelector('[aria-label="ENVL o guía, fila 1"]'), "ENVL-01601");
+      await typeInto(document.querySelector('[aria-label="Monto, fila 1"]'), "100");
+      await click(byText(".modal button", "Guardar 1 pago"));
+      const text = document.querySelector(".modal").textContent;
+      expect(text).toContain("! Faltan Q5.00");
+      expect(text).toContain("1 con diferencia");
+      expect(api.recordQuickReceipt).toHaveBeenCalledTimes(1);
+    });
+
+    it("una fila con error no frena a las demás y no se reenvía la guardada", async () => {
+      api.recordQuickReceipt
+        .mockRejectedValueOnce(new Error("No existe una venta con ese ENVL"))
+        .mockResolvedValueOnce({ difference: 0, message: "Cuadra" });
+      await openQuick();
+      await typeInto(document.querySelector('[aria-label="ENVL o guía, fila 1"]'), "ENVL-9999");
+      await typeInto(document.querySelector('[aria-label="Monto, fila 1"]'), "10");
+      await typeInto(document.querySelector('[aria-label="ENVL o guía, fila 2"]'), "ENVL-01601");
+      await typeInto(document.querySelector('[aria-label="Monto, fila 2"]'), "105");
+      await click(byText(".modal button", "Guardar 2 pagos"));
+      expect(document.querySelector(".modal").textContent).toContain("✕ No existe una venta con ese ENVL");
+      expect(byText(".modal button", "Guardar 1 pago")).toBeDefined();
+      api.recordQuickReceipt.mockClear();
+      api.recordQuickReceipt.mockResolvedValue({ difference: 0, message: "Cuadra" });
+      await click(byText(".modal button", "Guardar 1 pago"));
+      expect(api.recordQuickReceipt).toHaveBeenCalledTimes(1);
+      expect(api.recordQuickReceipt.mock.calls[0][0].identifier).toBe("ENVL-9999");
+    });
+
+    it("sin permiso de importar el botón queda deshabilitado", async () => {
+      mockGranted = false;
+      await mount();
+      expect(byText("button", "Registrar pagos").disabled).toBe(true);
+    });
+
+    it("dentro del caso se registra el pago con el monto escrito", async () => {
+      api.recordCaseReceipt.mockResolvedValue({});
+      await mount();
+      await click(byText(".nav-link", "Bandeja"));
+      await flush();
+      await click(byText("tr", "ENVL-01601"));
+      await click(byText(".recon-drawer button", "Registrar pago recibido"));
+      await click(byText(".recon-drawer button", "Guardar pago"));
+      expect(api.recordCaseReceipt).not.toHaveBeenCalled();   // sin monto no se envía
+      await typeInto(document.querySelector("#pay-amount"), "5");
+      await typeInto(document.querySelector("#pay-ref"), "BOL-7");
+      await click(byText(".recon-drawer button", "Guardar pago"));
+      expect(api.recordCaseReceipt).toHaveBeenCalledWith(1, { amount: 5, reference: "BOL-7", receivedDate: null });
+    });
   });
 });
