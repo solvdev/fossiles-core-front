@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import { act } from "react-dom/test-utils";
 import ReconciliationPage from "views/reconciliation/ReconciliationPage";
 import * as api from "services/reconciliationService";
+import { rowResult } from "components/reconciliation/ReconSimpleView";
 
 jest.mock("services/reconciliationService", () => ({
   getDashboard: jest.fn(), getCases: jest.fn(), getCase: jest.fn(), getSellers: jest.fn(), getBatches: jest.fn(), getExports: jest.fn(),
@@ -74,6 +75,7 @@ const byText = (selector, text) => Array.from(document.querySelectorAll(selector
 beforeEach(() => {
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
   mockGranted = true;
+  window.localStorage.setItem("recon.view", "full");
   Object.values(api).forEach((fn) => fn.mockReset && fn.mockReset());
   api.getDashboard.mockResolvedValue(dashboard);
   api.getSellers.mockResolvedValue([{ id: 1, name: "Anthony Ixcajo", active: true }]);
@@ -83,6 +85,7 @@ beforeEach(() => {
   api.getCases.mockResolvedValue({ rows: [row(), row({ id: 2, shipmentNumber: "ENVL-01602", status: "CONCILIADO_AUTO", difference: 0, received: 480, expected: 480, problemType: null })], total: 2, page: 0, size: 50 });
   api.getCase.mockResolvedValue(detail);
   api.getMissingSellers.mockResolvedValue([]);
+  api.generateCases.mockResolvedValue({ created: 0, alreadyExisted: 2, excluded: 0, total: 2 });
 });
 
 afterEach(async () => {
@@ -239,6 +242,74 @@ describe("Conciliación de ventas en línea (interfaz)", () => {
       await typeInto(document.querySelector("#pay-ref"), "BOL-7");
       await click(byText(".recon-drawer button", "Guardar pago"));
       expect(api.recordCaseReceipt).toHaveBeenCalledWith(1, { amount: 5, reference: "BOL-7", receivedDate: null });
+    });
+  });
+
+  describe("vista simple de cuadre", () => {
+    const pendingRow = row({ id: 3, shipmentNumber: "ENVL-01603", hasReceipts: false, received: 0, difference: -105, pendingBalance: 105, status: "INFORMACION_INCOMPLETA" });
+    beforeEach(() => {
+      window.localStorage.removeItem("recon.view");
+      api.getCases.mockResolvedValue({ rows: [pendingRow, row()], total: 2, page: 0, size: 50 });
+    });
+
+    it("es la vista de entrada: trae las ventas del sistema y muestra cobrado, recibido y lo que falta", async () => {
+      await mount();
+      await flush();
+      expect(api.generateCases).toHaveBeenCalledWith("2026-10-01", "2026-10-14");
+      const text = container.textContent;
+      expect(text).toContain("Cobrado según el sistema");
+      expect(text).toContain("Q1,130.00");
+      expect(text).toContain("Falta registrar el pago");
+      expect(text).toContain("! Faltan Q5.00");
+      expect(byText(".nav-link", "Bandeja")).toBeUndefined();   // sin pestañas
+      await click(byText("button", "Vista completa"));
+      expect(byText(".nav-link", "Bandeja")).toBeDefined();
+    });
+
+    it("se escribe lo recibido en la fila y se guarda contra esa venta", async () => {
+      api.recordCaseReceipt.mockResolvedValue({});
+      await mount();
+      await flush();
+      await typeInto(document.querySelector('[aria-label="Monto recibido ENVL-01603"]'), "105");
+      await typeInto(document.querySelector('[aria-label="Referencia ENVL-01603"]'), "LIQ-9");
+      await click(byText("tr", "ENVL-01603").querySelector("button"));
+      expect(api.recordCaseReceipt).toHaveBeenCalledWith(3, { amount: 105, reference: "LIQ-9", receivedDate: null });
+      const { showSuccess } = require("utils/notificationHelper");
+      expect(showSuccess).toHaveBeenCalledWith(expect.stringContaining("cuadra al centavo"));
+    });
+
+    it("cerrar el cuadre pide confirmación, cierra y descarga el Excel", async () => {
+      api.createBatch.mockResolvedValue({ id: 9, code: "LC-1", cases: 2 });
+      api.closeBatch.mockResolvedValue({ alreadyClosed: false, batch: { code: "LC-1" }, exportedCases: 2, closedCases: 2, contentSha256: "x" });
+      api.downloadBatch.mockResolvedValue({ filename: "c.xlsx" });
+      await mount();
+      await flush();
+      await click(byText("button", "Cerrar cuadre y descargar Excel"));
+      expect(api.createBatch).not.toHaveBeenCalled();
+      await click(byText("button", "Sí, cerrar y descargar"));
+      await flush();
+      expect(api.createBatch).toHaveBeenCalledWith({ from: "2026-10-01", to: "2026-10-14", carrier: "", method: "" });
+      expect(api.closeBatch).toHaveBeenCalledWith(9, expect.stringContaining("cierre-9-"));
+      expect(api.downloadBatch).toHaveBeenCalledWith(9);
+      expect(container.textContent).toContain("Cuadre LC-1 cerrado con 2 ventas");
+    });
+
+    it("sin permisos no se puede escribir ni cerrar", async () => {
+      mockGranted = false;
+      await mount();
+      await flush();
+      expect(api.generateCases).not.toHaveBeenCalled();
+      expect(document.querySelector('[aria-label="Monto recibido ENVL-01603"]').disabled).toBe(true);
+      expect(byText("button", "Cerrar cuadre y descargar Excel").disabled).toBe(true);
+    });
+
+    it("el resultado de cada fila se dice en palabras, sin tolerancias", () => {
+      expect(rowResult(row({ status: "CONCILIADO_AUTO", difference: 0 })).text).toBe("✓ Cuadra");
+      expect(rowResult(row({ difference: -0.01 })).text).toBe("! Faltan Q0.01");
+      expect(rowResult(row({ difference: 2 })).text).toBe("! Sobran Q2.00");
+      expect(rowResult(row({ hasReceipts: false })).text).toBe("Falta registrar el pago");
+      expect(rowResult(row({ status: "PENDIENTE_REVISION", difference: 0 })).text).toContain("con avisos");
+      expect(rowResult(row({ batchCode: "LC-1", status: "CONCILIADO_AUTO" })).text).toContain("Cerrada");
     });
   });
 });

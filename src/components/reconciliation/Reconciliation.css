@@ -50,3 +50,11 @@
 @media (max-width: 767px) {
   .recon-page .hide-sm { display: none; }
 }
+
+/* Vista simple de cuadre */
+.recon-page .recon-totals { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.recon-page .recon-totals > div { border: 1px solid #e3e3e3; border-radius: 6px; padding: 10px 12px; background: #fff; }
+.recon-page .recon-totals .l { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: #66615b; font-weight: 600; }
+.recon-page .recon-totals .v { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.recon-page .recon-close-bar { border-top: 1px solid #e3e3e3; padding-top: 12px; }
+@media (max-width: 575px) { .recon-page .recon-totals { grid-template-columns: 1fr; } }

@@ -14,6 +14,7 @@ import ReconDashboardTab from "components/reconciliation/ReconDashboardTab";
 import ReconDifferencesTab from "components/reconciliation/ReconDifferencesTab";
 import ReconFilters from "components/reconciliation/ReconFilters";
 import ReconInboxTab from "components/reconciliation/ReconInboxTab";
+import ReconSimpleView from "components/reconciliation/ReconSimpleView";
 import {
   GenerateCasesModal, ImportGuidesModal, ImportReceiptsModal, ManualReceiptModal, QuickPaymentsModal,
 } from "components/reconciliation/ReconToolsModals";
@@ -27,6 +28,8 @@ const TABS = [
   { id: "commissions", label: "Comisiones" },
 ];
 
+const VIEW_KEY = "recon.view";
+
 const safeStorage = () => {
   try {
     return window.localStorage;
@@ -36,7 +39,8 @@ const safeStorage = () => {
 };
 
 /**
- * Conciliación de ventas en línea: dashboard, bandeja con detalle, gestión de diferencias, lotes y descargas, y comisiones.
+ * Conciliación de ventas en línea. Entra en la vista simple de cuadre (ventas del sistema → pagos recibidos → cerrar);
+ * la vista completa conserva dashboard, bandeja, diferencias, lotes y comisiones.
  * La regla principal: lo cobrado debe ser igual a lo recibido, al centavo, sin tolerancias.
  */
 const ReconciliationPage = () => {
@@ -60,6 +64,13 @@ const ReconciliationPage = () => {
   const [rowIds, setRowIds] = useState([]);
   const [problem, setProblem] = useState("");
   const [modal, setModal] = useState(null);
+  const [view, setView] = useState(() => {
+    try { return (safeStorage() && safeStorage().getItem(VIEW_KEY)) === "full" ? "full" : "simple"; } catch (e) { return "simple"; }
+  });
+  const switchView = (v) => {
+    setView(v);
+    try { const st = safeStorage(); if (st) st.setItem(VIEW_KEY, v); } catch (e) { /* solo es una preferencia */ }
+  };
 
   useEffect(() => { saveFilters(safeStorage(), filters); }, [filters]);
   useEffect(() => {
@@ -106,8 +117,15 @@ const ReconciliationPage = () => {
             <small className="text-muted">Lo cobrado debe ser igual a lo recibido, al centavo. Sin tolerancias.</small>
           </div>
           <div className="d-flex align-items-center" style={{ gap: 8 }}>
-            <Button color="primary" size="sm" disabled={!perms.import} onClick={() => setModal("quick")}>Registrar pagos</Button>
-            <UncontrolledDropdown>
+            <Button color="primary" size="sm" outline={view === "simple"} disabled={!perms.import} onClick={() => setModal("quick")}>
+              {view === "simple" ? "Registrar varios por ENVL" : "Registrar pagos"}
+            </Button>
+            {view === "simple" ? (
+              <Button color="secondary" size="sm" outline onClick={() => switchView("full")}>Vista completa</Button>
+            ) : (
+              <Button color="secondary" size="sm" outline onClick={() => switchView("simple")}>Vista simple</Button>
+            )}
+            {view === "full" && <UncontrolledDropdown>
               <DropdownToggle caret outline color="primary" size="sm">Más herramientas</DropdownToggle>
               <DropdownMenu right>
                 <DropdownItem header>Preparar</DropdownItem>
@@ -121,10 +139,14 @@ const ReconciliationPage = () => {
                 <DropdownItem divider />
                 <DropdownItem disabled={!perms.import} onClick={() => setModal("manual")}>Capturar un fondo suelto (sin venta conocida)</DropdownItem>
               </DropdownMenu>
-            </UncontrolledDropdown>
+            </UncontrolledDropdown>}
           </div>
         </CardHeader>
         <CardBody>
+          {view === "simple" && (
+            <ReconSimpleView filters={filters} onFilters={setFilters} version={version} perms={perms} onOpen={setOpenId} onChanged={reload} onRowsLoaded={setRowIds} />
+          )}
+          {view === "full" && <>
           <Nav tabs className="recon-tabs mb-3" role="tablist">
             {TABS.map((t) => (
               <NavItem key={t.id}>
@@ -145,6 +167,7 @@ const ReconciliationPage = () => {
           )}
           {tab === "batches" && <ReconBatchesTab filters={filters} version={version} perms={perms} onChanged={reload} onGoInbox={goInbox} />}
           {tab === "commissions" && <ReconCommissionsTab filters={filters} version={version} perms={perms} onGoInbox={goInbox} onChanged={reload} />}
+          </>}
         </CardBody>
       </Card>
 
