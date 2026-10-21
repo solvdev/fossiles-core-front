@@ -254,6 +254,33 @@ export const updateProductionOrderItemPrices = async (id, payload) => {
   }
 };
 
+/** Solo empaques SUM- y costo de envío de la orden; no recrea ítems (documento OPV sin envío en sistema). */
+export const updateProductionOrderPacking = async (id, packingItems, shippingCost) => {
+  if (!id || id === 'undefined' || id === 'null') {
+    throw new Error('ID de orden de producción inválido');
+  }
+  try {
+    const response = await fetch(`${API_URL}/production-orders/${id}/packing`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        ...getAuthHeader()
+      },
+      body: JSON.stringify({ packingItems: packingItems || [], shippingCost })
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({ message: 'Error al guardar empaques de la orden' }));
+      throw new Error(errorData.message || 'Error al guardar empaques de la orden');
+    }
+
+    return await response.json();
+  } catch (error) {
+    console.error('Update production order packing error:', error);
+    throw error;
+  }
+};
+
 /** Estado solo para OP CINCHOS_FOSSILES / CINCHOS_MARCAS (PENDING, IN_PROGRESS, COMPLETED, CANCELLED). */
 export const updateManagedCinchoOrderStatus = async (id, status) => {
   if (!id || id === 'undefined' || id === 'null') {

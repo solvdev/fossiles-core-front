@@ -45,6 +45,7 @@ import {
   getProductionOrderPartialReleases,
   searchPartialReleasesForPrepare,
   searchProductionOrdersForPrepare,
+  updateProductionOrderPacking,
   voidVendorShipmentDocument,
 } from "services/productionOrderService";
 import { showError, showSuccess, showWarning } from "utils/notificationHelper";
@@ -1791,12 +1792,31 @@ function PrepareShipments() {
       setSavingPacking(true);
       setError("");
       const payload = buildPackingItemsPayloadForShipment(shipment.id);
-      const updatedPacking = await updateShipmentPackingItems(shipment.id, payload);
       const shippingRaw = String(modalShippingCost ?? "").trim();
       const shippingValue = shippingRaw === "" ? null : Number(shippingRaw);
       if (shippingRaw !== "" && (!Number.isFinite(shippingValue) || shippingValue < 0)) {
         throw new Error("Indique un costo de envío válido (0 o mayor).");
       }
+      // Documento OPV/OPI armado desde la orden (id "opv-123"): no hay envío en sistema, se guarda en la OP.
+      if (isSyntheticShipmentId(shipment.id)) {
+        const orderId = syntheticShipmentOrderId(shipment.id);
+        const updatedOrder = await updateProductionOrderPacking(orderId, payload, shippingValue);
+        const merged = {
+          ...shipment,
+          packingItems: updatedOrder?.packingItems || payload,
+          shippingCost: updatedOrder?.shippingCost ?? shippingValue ?? 0,
+        };
+        setSelectedProductionOrder((prev) =>
+          prev && String(prev.id) === String(orderId)
+            ? { ...prev, packingItems: merged.packingItems, shippingCost: merged.shippingCost }
+            : prev
+        );
+        setShipments((prev) => prev.map((s) => (s.id === shipment.id ? { ...s, ...merged } : s)));
+        showSuccess("Empaques y costo de envío guardados en la orden");
+        setPackingModalShipment(null);
+        return;
+      }
+      const updatedPacking = await updateShipmentPackingItems(shipment.id, payload);
       const updatedShipping = await updateShipmentShippingCost(shipment.id, shippingValue);
       const merged = {
         ...shipment,
