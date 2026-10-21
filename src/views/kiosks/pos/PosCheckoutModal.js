@@ -459,7 +459,7 @@ function PosCheckoutModal({
               </Label>
             </div>
             <div className="text-muted small mt-1">
-              Ignora el 10% automático y promociones; cobra el subtotal de catálogo.
+              Ignora las promociones automáticas; cobra el subtotal de catálogo.
             </div>
           </div>
         )}
