@@ -1,0 +1,868 @@
+<!doctype html>
+<html lang="es-GT">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Armar el día</title>
+<style>
+:root{
+  --bg:#f4f3ef; --card:#fff; --ink:#2c2c2c; --muted:#66615b; --line:#e3e3e3;
+  --ok:#6bd098; --near:#fbc658; --over:#ef8157; --info:#51bcda;
+  --ok-ink:#1e6b45; --near-ink:#7a5a00; --over-ink:#a3300f; --info-ink:#0b5c75;
+  --primary:#1d7fa3; --go:#2e7d32; --opl:#1b5e20;
+  --radius:10px;
+}
+*{box-sizing:border-box}
+html{color-scheme:light}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.45 Muli,"Helvetica Neue",Helvetica,Arial,sans-serif;-webkit-text-size-adjust:100%}
+button,input,select{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:3px solid #1d7fa3;outline-offset:2px}
+.wrap{max-width:1000px;margin:0 auto;padding:0 16px}
+
+/* Encabezado */
+.top{background:#fff;border-bottom:1px solid var(--line);position:sticky;top:env(safe-area-inset-top,0px);z-index:20}
+.top .wrap{display:flex;flex-wrap:wrap;align-items:center;gap:12px;padding-top:10px;padding-bottom:10px}
+.top h1{font-size:22px;margin:0;line-height:1.2}
+.top .sub{color:var(--muted);font-size:14px}
+.top .grow{flex:1 1 220px}
+.datebar{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.seg{display:inline-flex;border:1px solid #c9c4bb;border-radius:8px;overflow:hidden;background:#fff}
+.seg button{border:0;background:#fff;padding:0 16px;min-height:48px}
+.seg button+button{border-left:1px solid #c9c4bb}
+.seg button[aria-pressed="true"]{background:var(--primary);color:#fff;font-weight:700}
+.datebar input[type=date]{min-height:48px;border:1px solid #c9c4bb;border-radius:8px;padding:0 10px;background:#fff}
+
+/* Botones */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:48px;padding:0 20px;border-radius:8px;border:1px solid #b9b4aa;background:#fff;font-weight:700}
+.btn:hover{background:#faf9f6}
+.btn.primary{background:var(--primary);border-color:var(--primary);color:#fff}
+.btn.go{background:var(--go);border-color:var(--go);color:#fff}
+.btn.primary:hover{background:#176885}.btn.go:hover{background:#256528}
+.btn[disabled]{opacity:.45;cursor:not-allowed}
+.btn.big{min-height:56px;font-size:18px;padding:0 26px}
+.btn.sm{min-height:44px;padding:0 14px;font-weight:600}
+.link{background:none;border:0;color:var(--primary);text-decoration:underline;min-height:44px;padding:0 6px;font-weight:600}
+.iconbtn{width:44px;height:44px;border-radius:8px;border:1px solid #b9b4aa;background:#fff;font-size:20px;line-height:1;font-weight:700}
+.iconbtn[disabled]{opacity:.35;cursor:not-allowed}
+
+/* Pasos */
+main{padding:16px 0 120px}
+.step{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);margin-bottom:12px;overflow:hidden}
+.step>.head{display:flex;align-items:center;gap:12px;padding:12px 16px;min-height:60px}
+.step .num{flex:none;width:36px;height:36px;border-radius:50%;background:#d9d5cc;color:#fff;display:grid;place-items:center;font-weight:800}
+.step.active .num{background:var(--primary)}
+.step.done .num{background:var(--ok-ink)}
+.step .ttl{font-size:18px;font-weight:800}
+.step .sum{color:var(--muted);flex:1}
+.step.locked{opacity:.55}
+.step>.body{padding:4px 16px 18px;border-top:1px solid var(--line)}
+
+/* Avisos */
+.note{border-radius:8px;padding:12px 14px;margin:12px 0;border:1px solid;display:flex;gap:10px;align-items:flex-start}
+.note.warn{background:#fff7e0;border-color:#f3d37a;color:#5f4700}
+.note.info{background:#e8f6fb;border-color:#a7dcee;color:var(--info-ink)}
+.note.bad{background:#fdece6;border-color:#f3b49f;color:var(--over-ink)}
+.note.good{background:#e6f6ee;border-color:#a8dcc0;color:var(--ok-ink)}
+.note .x{flex:1}
+.state{text-align:center;padding:36px 12px}
+.state .big{font-size:40px}
+.state h3{margin:6px 0}
+
+/* Filas de OP */
+.sec{margin-top:14px}
+.sec-h{display:flex;flex-wrap:wrap;align-items:center;gap:10px;padding:10px 12px;border-radius:8px;font-weight:800}
+.sec-h.opl{background:var(--opl);color:#fff}
+.sec-h.opl .tag{background:#fff;color:var(--opl);border-radius:999px;padding:2px 10px;font-size:13px;letter-spacing:.04em}
+.sec-h.others{background:#eceae4}
+.sec-h .sp{flex:1}
+.sec-h .btn{min-height:44px;color:var(--ink)}
+.orow{display:flex;flex-wrap:wrap;align-items:center;gap:10px 12px;padding:10px 8px;border-bottom:1px solid var(--line)}
+.orow.sel{background:#f5fbf8}
+.orow.opl{border-left:6px solid var(--opl);padding-left:8px}
+.chk{position:relative;flex:none;width:48px;height:48px;display:grid;place-items:center;cursor:pointer}
+.chk input{position:absolute;inset:0;width:100%;height:100%;opacity:0;margin:0;cursor:pointer}
+.chk .box{width:34px;height:34px;border:2px solid #8d877d;border-radius:8px;background:#fff;display:grid;place-items:center;font-weight:800;color:#fff}
+.chk input:checked+.box{background:var(--primary);border-color:var(--primary)}
+.chk input:focus-visible+.box{outline:3px solid #1d7fa3;outline-offset:2px}
+.omain{flex:1 1 220px;min-width:0}
+.otop{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px}
+.otop strong{font-size:17px}
+.cust{color:var(--muted)}
+.ometa{color:var(--muted);font-size:14px;margin-top:2px}
+.badge{display:inline-block;border-radius:6px;padding:2px 9px;font-weight:800;font-size:13px;color:#fff}
+.detail{flex:1 1 100%;margin:0 0 4px 60px;background:#faf9f6;border:1px solid var(--line);border-radius:8px;padding:8px 12px}
+.detail div{display:flex;justify-content:space-between;gap:10px;padding:4px 0;border-bottom:1px dashed var(--line)}
+.detail div:last-child{border:0}
+.tools{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin:10px 0}
+.tools input[type=search]{flex:1 1 220px;min-height:48px;border:1px solid #c9c4bb;border-radius:8px;padding:0 12px}
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chips button{min-height:44px;border-radius:999px;border:1px solid #b9b4aa;background:#fff;padding:0 16px}
+.chips button[aria-pressed="true"]{background:var(--primary);color:#fff;border-color:var(--primary)}
+
+/* Tareas */
+.tcard{border:1px solid var(--line);border-radius:var(--radius);margin-top:12px;background:#fff;overflow:hidden}
+.tcard.lv-over{border-color:var(--over);box-shadow:0 0 0 2px #fbd9cc}
+.tcard.opl{border-left:6px solid var(--opl)}
+.thead{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;padding:12px 14px}
+.thead .tn{font-weight:800;font-size:18px}
+.chip{display:inline-block;border-radius:999px;padding:3px 12px;font-size:14px;font-weight:700}
+.chip.ok{background:#dff5e9;color:var(--ok-ink)}.chip.near{background:#fff0c4;color:var(--near-ink)}
+.chip.over{background:#fbd9cc;color:var(--over-ink)}.chip.opl{background:#dcedc8;color:#33691e}
+.bar{padding:0 14px 12px}
+.bar .txt{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;font-weight:700;margin-bottom:4px}
+.track{position:relative;height:16px;background:#ebe8e1;border-radius:999px;overflow:visible}
+.fill{height:100%;border-radius:999px;transition:width .25s}
+.fill.ok{background:var(--ok)}.fill.near{background:var(--near)}.fill.over{background:var(--over)}
+.fill.opl{background:repeating-linear-gradient(135deg,#aed581 0 8px,#c5e1a5 8px 16px)}
+.tick{position:absolute;top:-4px;bottom:-4px;width:2px;background:#4d4a45}
+.scale{position:relative;height:18px;font-size:12px;color:var(--muted);margin-top:4px}
+.scale span{position:absolute;transform:translateX(-50%);white-space:nowrap}
+.scale span:first-child{transform:none}
+.scale span:last-child{transform:translateX(-100%)}
+.tbody{border-top:1px solid var(--line);padding:8px 14px 12px;background:#fcfbf9}
+.line{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;padding:8px 0;border-bottom:1px dashed var(--line)}
+.line .nm{flex:1 1 200px;min-width:0}
+.line .nm small{color:var(--muted);display:block}
+.step-q{display:inline-flex;align-items:center;gap:6px}
+.step-q output{min-width:36px;text-align:center;font-weight:800;font-size:18px}
+select{min-height:44px;border:1px solid #c9c4bb;border-radius:8px;padding:0 8px;background:#fff;max-width:100%}
+.tfoot{display:flex;flex-wrap:wrap;gap:8px;padding:8px 14px 12px;align-items:center}
+.addlist{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0}
+.tray{margin-top:16px;border:2px dashed #c9c4bb;border-radius:var(--radius);padding:10px 14px}
+
+/* Revisar */
+.prow{display:grid;grid-template-columns:minmax(150px,1.3fr) minmax(100px,1fr) 128px 168px;gap:8px 12px;align-items:center;padding:10px 6px;border-bottom:1px solid var(--line)}
+.prow.head{font-size:13px;color:var(--muted);font-weight:800;text-transform:uppercase;letter-spacing:.04em;border-bottom:2px solid var(--line)}
+.prow .tt strong{display:block}
+.mini{height:10px;background:#ebe8e1;border-radius:999px;overflow:hidden}
+.mini i{display:block;height:100%}
+.small{font-size:13px;color:var(--muted)}
+.deskgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin-top:8px}
+.desk{border:1px solid var(--line);border-radius:8px;padding:8px;background:#fff;font-size:14px}
+.desk .stack{display:flex;height:10px;background:#ebe8e1;border-radius:999px;overflow:hidden;margin-top:4px}
+.desk .stack i{display:block;height:100%}
+.legend{display:flex;gap:14px;flex-wrap:wrap;font-size:13px;color:var(--muted);margin:6px 0}
+.legend b{display:inline-block;width:12px;height:12px;border-radius:3px;vertical-align:-1px;margin-right:4px}
+
+/* Listo */
+.okbox{text-align:center;padding:22px 8px 8px}
+.okbox .ck{width:72px;height:72px;border-radius:50%;background:var(--ok-ink);color:#fff;display:grid;place-items:center;font-size:40px;margin:0 auto 8px}
+.actions{display:flex;flex-wrap:wrap;gap:12px;justify-content:center;margin:16px 0}
+.list{margin:12px 0;padding:0;list-style:none}
+.list li{display:flex;flex-wrap:wrap;gap:6px 12px;padding:10px 4px;border-bottom:1px solid var(--line)}
+
+/* Barra inferior */
+.bar-bottom{position:fixed;left:0;right:0;bottom:0;background:#fff;border-top:1px solid var(--line);z-index:30;box-shadow:0 -4px 14px rgba(0,0,0,.06)}
+.bar-bottom .wrap{display:flex;flex-wrap:wrap;align-items:center;gap:10px 14px;padding-top:10px;padding-bottom:calc(10px + env(safe-area-inset-bottom,0px))}
+.bar-bottom .hint{flex:1 1 220px;color:var(--muted);font-size:15px}
+.bar-bottom .hint b{color:var(--ink)}
+
+/* Demo */
+.demo{margin:8px 0 24px}
+.demo summary{min-height:48px;display:flex;align-items:center;cursor:pointer;font-weight:800;color:var(--muted)}
+.demo .grid{display:flex;flex-wrap:wrap;gap:8px;padding:8px 0}
+.demo .clicks{background:#fff;border:1px solid var(--line);border-radius:8px;padding:8px 12px;margin:8px 0}
+.toast{position:fixed;left:50%;bottom:96px;transform:translateX(-50%);background:#2c2c2c;color:#fff;padding:12px 18px;border-radius:8px;z-index:50;max-width:92vw;opacity:0;pointer-events:none;transition:opacity .2s}
+.toast.show{opacity:1}
+.skel{height:56px;border-radius:8px;margin:10px 0;background:linear-gradient(90deg,#eceae4,#f7f6f2,#eceae4);background-size:200% 100%;animation:sh 1.2s infinite}
+@keyframes sh{to{background-position:-200% 0}}
+@media (prefers-reduced-motion:reduce){.fill,.skel{transition:none;animation:none}}
+
+[hidden]{display:none!important}
+/* Vista de la hoja del día (en el sistema real se descarga como Excel o PDF) */
+.ov{position:fixed;inset:0;z-index:60;background:rgba(30,28,24,.55);display:flex;align-items:center;justify-content:center;padding:16px}
+.sheet{background:#fff;border-radius:var(--radius);max-width:960px;width:100%;max-height:100%;display:flex;flex-direction:column;box-shadow:0 12px 40px rgba(0,0,0,.3)}
+.sheet header{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;padding:14px 16px;border-bottom:1px solid var(--line)}
+.sheet header h2{margin:0;font-size:19px;flex:1 1 200px}
+.sheet .scroll{overflow:auto;padding:0 16px 8px}
+.sheet table{width:100%;border-collapse:collapse;font-size:15px;min-width:640px}
+.sheet th,.sheet td{border-bottom:1px solid var(--line);padding:8px 6px;text-align:left;white-space:nowrap}
+.sheet th{font-size:13px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted)}
+.sheet .opl-row td:first-child{border-left:6px solid var(--opl)}
+.sheet footer{padding:12px 16px;border-top:1px solid var(--line);color:var(--muted);font-size:14px}
+
+@media (max-width:700px){
+  .top{position:static}
+  .top h1{font-size:19px}
+  .step>.head{flex-wrap:wrap;gap:4px 12px}
+  .step .ttl{flex:1}
+  .step .sum{order:5;flex:1 1 100%;padding-left:48px;margin-top:-4px;font-size:15px}
+  .bar-bottom .wrap{gap:8px}
+  .bar-bottom .hint{flex:1 1 100%;order:-1;font-size:14px}
+  .bar-bottom .btn{flex:1 1 0;padding:0 10px}
+  main{padding-bottom:150px}
+  .prow{grid-template-columns:1fr 1fr}
+  .prow.head{display:none}
+  .prow .tt{grid-column:1 / -1}
+  .detail{margin-left:0}
+  .btn.big{width:100%}
+  .bar-bottom .btn.big{width:auto;font-size:17px}
+}
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="wrap">
+    <div class="grow">
+      <h1>Armar el día</h1>
+      <div class="sub">Prototipo · datos de ejemplo · nada se guarda</div>
+    </div>
+    <div class="datebar" role="group" aria-label="Día de trabajo">
+      <span class="small" style="font-weight:800">Día de trabajo</span>
+      <div class="seg" id="dateSeg"></div>
+      <input type="date" id="dateInput" aria-label="Elegir otra fecha">
+    </div>
+    <button class="btn" id="sheetBtn" data-action="sheetTop" title="Descarga la hoja con las tareas del día">⬇ Hoja del día</button>
+  </div>
+</header>
+
+<main class="wrap" id="app" aria-live="polite"></main>
+
+<div class="wrap">
+  <details class="demo" id="demo">
+    <summary>Probar estados (solo para la demostración)</summary>
+    <div class="clicks" id="clickBox"></div>
+    <div class="grid">
+      <button class="btn sm" data-demo="empty">Sin OPs pendientes</button>
+      <button class="btn sm" data-demo="loaderr">Error al cargar</button>
+      <button class="btn sm" data-demo="over">Tarea sobre 5 h</button>
+      <button class="btn sm" data-demo="conflict">Producto ya tomado por otra persona</button>
+      <button class="btn sm" data-demo="confirmerr">Error al confirmar</button>
+      <button class="btn sm" data-demo="partial">Éxito parcial</button>
+      <button class="btn sm" data-demo="weekend">Fin de semana</button>
+      <button class="btn sm" data-demo="reset">Reiniciar todo</button>
+    </div>
+  </details>
+</div>
+
+<footer class="bar-bottom" id="bar"><div class="wrap" id="barIn"></div></footer>
+<div class="toast" id="toast" role="status"></div>
+<div class="ov" id="sheetOv" hidden>
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="sheetTtl">
+    <header><h2 id="sheetTtl">Hoja del día</h2>
+      <button class="btn sm" id="sheetCopy" type="button">Copiar tabla</button>
+      <button class="btn sm primary" id="sheetClose" type="button">Cerrar</button></header>
+    <div class="scroll" id="sheetBody"></div>
+    <footer id="sheetNote"></footer>
+  </div>
+</div>
+
+<script>
+"use strict";
+/* ===== Reglas vigentes (espejo de ProductionPlanningConstants) ===== */
+const IDEAL = 4, MAX = 5, NEAR = 3.2, EPS = 1e-9, N_DESKS = 12;
+const FAM = {OPL:"#1b5e20", OPV:"#0d47a1", OPK:"#37474f", OPI:"#6a1b9a", OPCK:"#00695c", OPD:"#e65100"};
+const DOW = ["dom","lun","mar","mié","jue","vie","sáb"];
+
+/* ===== Fechas ===== */
+const pad = n => String(n).padStart(2,"0");
+const ymd = d => d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate());
+const parse = s => { const [y,m,d] = s.split("-").map(Number); return new Date(y,m-1,d); };
+const gt = s => { const d = parse(s); return pad(d.getDate())+"/"+pad(d.getMonth()+1)+"/"+d.getFullYear(); };
+const gtShort = s => { const d = parse(s); return DOW[d.getDay()]+" "+pad(d.getDate())+"/"+pad(d.getMonth()+1); };
+const isWeekend = s => { const w = parse(s).getDay(); return w === 0 || w === 6; };
+const addDays = (s,n) => { const d = parse(s); d.setDate(d.getDate()+n); return ymd(d); };
+const nextWorkday = s => { let x = s; while (isWeekend(x)) x = addDays(x,1); return x; };
+const TODAY = ymd(new Date());
+
+/* ===== Datos de ejemplo ===== */
+const BASE = [
+ {id:1,code:"OPL-0042",fam:"OPL",cust:"Venta en línea · María López",due:1,items:[{id:11,name:"Billetera Clásica Negra",h:0.5,rem:6},{id:12,name:"Llavero de cuero café",h:0.1,rem:10}]},
+ {id:2,code:"OPL-0043",fam:"OPL",cust:"Venta en línea · Carlos Méndez",due:1,items:[{id:21,name:"Cinturón Trenzado Café",h:0.4,rem:4}]},
+ {id:3,code:"OPL-0044",fam:"OPL",cust:"Venta en línea · Ana Girón",due:2,items:[{id:31,name:"Bolso Mini Miel",h:1.2,rem:2},{id:32,name:"Billetera Clásica Café",h:0.5,rem:3}]},
+ {id:4,code:"OPCK-0107",fam:"OPCK",cust:"Kiosco Villalobos",due:3,items:[{id:41,name:"Cinturón Liso Negro",h:0.4,rem:12},{id:42,name:"Llavero de cuero negro",h:0.1,rem:20}]},
+ {id:5,code:"OPV-0220",fam:"OPV",cust:"Marca Alfa",due:5,items:[{id:51,name:"Billetera Slim Negra",h:0.5,rem:16},{id:52,name:"Portatarjetas Café",h:0.3,rem:5}]},
+ {id:6,code:"OPV-0221",fam:"OPV",cust:"Marca Beta",due:6,items:[{id:61,name:"Bolso Tote Miel",h:1.1,rem:4}]},
+ {id:7,code:"OPK-0318",fam:"OPK",cust:"Kiosco Centro",due:5,items:[{id:71,name:"Cinturón Clásico Café",h:0.4,rem:8},{id:72,name:"Monedero Pequeño",h:0.25,rem:6}]}
+];
+/* Carga que ya tienen las 12 mesas (horas base) el día elegido y el siguiente */
+const PRE = [
+  [3.5,2.0,0.0,4.0,1.5,0.0,2.5,3.0,0.5,4.0,1.0,2.0],
+  [1.0,0.0,2.0,0.0,0.5,3.0,0.0,1.0,0.0,2.0,0.0,0.0]
+];
+/* Tareas que ya existían ese día (para que «Hoja del día» siempre tenga algo) */
+const EXISTING = [
+  {code:"TK-00498",op:"OPK-0310",fam:"OPK",cust:"Kiosco Zona 10",prod:"Cartera Larga Negra",qty:4,hours:3.6,desk:4},
+  {code:"TK-00499",op:"OPV-0214",fam:"OPV",cust:"Marca Gamma",prod:"Billetera Slim Café",qty:7,hours:3.5,desk:1}
+];
+
+let ORD = [], ORD_BY = {}, ITEM = {}, S, seq = 0, tcode = 500;
+function loadData(){
+  ORD = JSON.parse(JSON.stringify(BASE));
+  ORD.forEach(o => { o.due = addDays(TODAY, o.due); ORD_BY[o.id] = o; o.items.forEach(i => ITEM[i.id] = {item:i, order:o}); });
+}
+function newState(){
+  return {
+    step:1, reached:1, date:TODAY, selected:ORD.filter(isOPL).map(o=>o.id), selKey:"",
+    search:"", fam:"ALL", filterOpen:false, expanded:{}, open:{}, addFor:null, newTaskOpen:false,
+    tasks:[], plan:[], banner:null, err:null, loading:false, loadErr:false, empty:false,
+    result:null, flags:{conflict:false, confirmErr:false, partial:false}, clicks:0, showDesks:false, ready:false
+  };
+}
+
+/* ===== Utilidades de dominio ===== */
+function isOPL(o){ return o.fam === "OPL"; }
+const fmt = n => (Math.round(n*10)/10).toFixed(1);
+const esc = s => String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const plural = (n,a,b) => n === 1 ? a : b;
+function assigned(itemId){ return S.tasks.reduce((n,t)=> n + t.lines.filter(l=>l.itemId===itemId).reduce((a,l)=>a+l.qty,0), 0); }
+function left(it){ return Math.max(0, it.rem - assigned(it.id)); }
+function orderHours(o){ return o.items.reduce((s,i)=> s + i.rem*i.h, 0); }
+function lineHours(l){ return l.qty * ITEM[l.itemId].item.h; }
+function totH(t){ return t.lines.reduce((s,l)=> s + lineHours(l), 0); }
+function isOplTask(t){ return isOPL(ORD_BY[t.orderId]); }
+function baseH(t){ return isOplTask(t) ? 0 : totH(t); }
+function level(t){
+  if (isOplTask(t)) return "opl";
+  const b = baseH(t);
+  if (b > MAX + EPS) return "over";
+  if (b > NEAR + EPS) return "near";
+  return "ok";
+}
+function rank(o){ return isOPL(o) ? -1 : S.selected.indexOf(o.id); }
+function sortTasks(){
+  S.tasks.sort((a,b) => {
+    const ra = rank(ORD_BY[a.orderId]), rb = rank(ORD_BY[b.orderId]);
+    if (ra !== rb) return ra - rb;
+    if (ra === -1) return ORD_BY[a.orderId].code.localeCompare(ORD_BY[b.orderId].code);
+    return 0;
+  });
+}
+function newTask(o){ return {id:"t"+(++seq), orderId:o.id, lines:[]}; }
+/* Agrupa líneas de UNA OP en tareas de hasta 4 h (la misma idea que tendrá suggestGrouping) */
+function pack(o, lines){
+  const out = []; let cur = null, used = 0;
+  lines.forEach(({itemId,qty}) => {
+    const it = ITEM[itemId].item; let q = qty;
+    while (q > 0){
+      if (!cur){ cur = newTask(o); out.push(cur); used = 0; }
+      let fit = Math.floor((IDEAL - used + EPS) / it.h);
+      if (fit <= 0){ if (cur.lines.length){ cur = null; continue; } fit = 1; }
+      const take = Math.min(q, fit);
+      cur.lines.push({itemId, qty:take}); used += take*it.h; q -= take;
+    }
+  });
+  return out;
+}
+function suggest(orderIds){
+  const made = [];
+  orderIds.forEach(id => {
+    const o = ORD_BY[id];
+    const lines = o.items.map(it => ({itemId:it.id, qty:left(it)})).filter(l => l.qty > 0);
+    made.push(...pack(o, lines));
+  });
+  return made;
+}
+function buildTasks(){
+  S.tasks = [];
+  S.tasks = suggest(S.selected.slice());
+  sortTasks();
+  S.selKey = S.selected.join(",");
+  S.open = {};
+}
+function blockers(){
+  const out = [];
+  S.tasks.forEach((t,i) => {
+    if (!t.lines.length) out.push("La tarea "+(i+1)+" está vacía");
+    else if (level(t) === "over") out.push("La tarea "+(i+1)+" pasa de "+MAX+" h");
+  });
+  return out;
+}
+const workdays = () => { const out = []; let d = nextWorkday(S.date); while (out.length < 5){ out.push(d); d = nextWorkday(addDays(d,1)); } return out; };
+
+/* ===== Simulación del reparto (solo para el prototipo) ===== */
+function dayLoads(day, exceptId){
+  const idx = Math.max(0, workdays().indexOf(day));
+  const loads = PRE[Math.min(idx,1)].slice();
+  S.plan.forEach(p => { if (p.day === day && p.tid !== exceptId){ const t = S.tasks.find(x=>x.id===p.tid); if (t) loads[p.desk-1] += baseH(t); } });
+  return loads;
+}
+function pickDesk(loads, h){
+  const oversized = h > IDEAL + EPS; let best = -1;
+  for (let d = 0; d < N_DESKS; d++){
+    const fits = h === 0 ? true : (oversized ? loads[d] < EPS : loads[d] + h <= IDEAL + EPS);
+    if (fits && (best === -1 || loads[d] < loads[best] - EPS)) best = d;   // empate → mesa menor
+  }
+  return best === -1 ? -1 : best + 1;
+}
+function buildPlan(){
+  S.plan = [];
+  const days = workdays();
+  S.tasks.forEach(t => {
+    const h = baseH(t); let placed = null;
+    for (const day of days){
+      const d = pickDesk(dayLoads(day, t.id), h);
+      if (d !== -1){ placed = {tid:t.id, day, desk:d, auto:true, over:false}; break; }
+    }
+    if (!placed){
+      const day = days[days.length-1], loads = dayLoads(day, t.id);
+      placed = {tid:t.id, day, desk:loads.indexOf(Math.min(...loads))+1, auto:true, over:true};
+    }
+    S.plan.push(placed);
+  });
+}
+
+/* ===== Interfaz ===== */
+const $ = s => document.querySelector(s);
+const badge = o => `<span class="badge" style="background:${FAM[o.fam]||"#757575"}">${o.fam}</span>`;
+let toastT;
+function toast(msg){ const t = $("#toast"); t.textContent = msg; t.classList.add("show"); clearTimeout(toastT); toastT = setTimeout(()=>t.classList.remove("show"), 3200); }
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+function renderHeader(){
+  const tomorrow = nextWorkday(addDays(TODAY,1));
+  $("#dateSeg").innerHTML =
+    `<button data-action="setDate" data-d="${TODAY}" aria-pressed="${S.date===TODAY}">Hoy ${gtShort(TODAY)}</button>` +
+    `<button data-action="setDate" data-d="${tomorrow}" aria-pressed="${S.date===tomorrow}">Mañana ${gtShort(tomorrow)}</button>`;
+  $("#dateInput").value = S.date;
+}
+
+function weekendNote(){
+  if (!isWeekend(S.date)) return "";
+  return `<div class="note bad" role="alert"><div class="x"><strong>Sábado y domingo no se produce.</strong> Elija un día de lunes a viernes.</div>
+    <button class="btn sm" data-action="toMonday">Ir al lunes</button></div>`;
+}
+
+function card(n, title, summary, body){
+  const active = S.step === n, done = n < S.step && n <= S.reached, locked = !active && !done;
+  return `<section class="step ${active?"active":""} ${done?"done":""} ${locked?"locked":""}" aria-label="Paso ${n}: ${title}">
+    <div class="head"><span class="num" aria-hidden="true">${done?"✓":n}</span><span class="ttl">${title}</span>
+    <span class="sum">${active?"":(summary||"")}</span>
+    ${done?`<button class="link" data-action="goto" data-step="${n}">Cambiar</button>`:""}</div>
+    ${active?`<div class="body">${body}</div>`:""}</section>`;
+}
+
+function render(){
+  renderHeader();
+  const selOrders = S.selected.map(id => ORD_BY[id]);
+  const sum1 = selOrders.length+" "+plural(selOrders.length,"OP marcada","OPs marcadas");
+  const nTasks = S.tasks.length, hBase = S.tasks.reduce((s,t)=>s+baseH(t),0);
+  const sum2 = nTasks+" "+plural(nTasks,"tarea","tareas")+" · "+fmt(hBase)+" h base";
+  const sum3 = S.plan.length ? "Día y mesas propuestos" : "";
+  $("#app").innerHTML =
+    card(1,"Elegir OPs",sum1,step1()) +
+    card(2,"Armar tareas",sum2,step2()) +
+    card(3,"Revisar",sum3,step3()) +
+    card(4,"Listo y hoja del día","",step4());
+  renderBar();
+}
+
+/* ---- Paso 1 ---- */
+function visibleOrders(){ return S.empty ? [] : ORD.filter(o => o.items.some(i => i.rem > 0)); }
+function orderRow(o){
+  const sel = S.selected.includes(o.id), exp = !!S.expanded[o.id];
+  const withRem = o.items.filter(i => i.rem > 0);
+  const num = (!isOPL(o) && sel) ? S.selected.filter(id => !isOPL(ORD_BY[id])).indexOf(o.id)+1 : "";
+  return `<div class="orow ${sel?"sel":""} ${isOPL(o)?"opl":""}">
+    <label class="chk"><input type="checkbox" data-action="toggleOrder" data-id="${o.id}" ${sel?"checked":""} aria-label="Marcar ${o.code}">
+      <span class="box" aria-hidden="true">${sel ? (num || "✓") : ""}</span></label>
+    <div class="omain"><div class="otop">${badge(o)}<strong>${o.code}</strong><span class="cust">${esc(o.cust)}</span></div>
+      <div class="ometa">${withRem.length} ${plural(withRem.length,"producto","productos")} · ${fmt(orderHours(o))} h · entrega ${gt(o.due)}</div></div>
+    <button class="link" data-action="toggleExpand" data-id="${o.id}" aria-expanded="${exp}">Ver productos ${exp?"▾":"▸"}</button>
+    ${exp?`<div class="detail">${withRem.map(i=>`<div><span>${esc(i.name)}</span><span>${i.rem} u · ${fmt(i.rem*i.h)} h</span></div>`).join("")}</div>`:""}
+  </div>`;
+}
+function othersList(){
+  const q = S.search.trim().toLowerCase();
+  const rows = visibleOrders().filter(o => !isOPL(o))
+    .filter(o => S.fam === "ALL" || o.fam === S.fam)
+    .filter(o => !q || o.code.toLowerCase().includes(q) || o.cust.toLowerCase().includes(q));
+  return rows.length ? rows.map(orderRow).join("") : `<p class="small" style="padding:12px 4px">Ninguna OP coincide con la búsqueda.</p>`;
+}
+function step1(){
+  if (S.loading) return `<div class="skel"></div><div class="skel"></div><div class="skel"></div>`;
+  if (S.loadErr) return `<div class="state"><div class="big">⚠️</div><h3>No se pudo cargar</h3><p>Revise la conexión e intente otra vez.</p><button class="btn primary big" data-action="retryLoad">Reintentar</button></div>`;
+  const list = visibleOrders();
+  if (!list.length) return weekendNote() + `<div class="state"><div class="big">✔</div><h3>No hay OPs pendientes</h3><p>Todo ya está en tareas.</p><button class="btn big" data-action="retryLoad">Actualizar</button></div>`;
+  const opl = list.filter(isOPL), allOpl = opl.every(o => S.selected.includes(o.id));
+  const others = list.filter(o => !isOPL(o)), allOth = others.every(o => S.selected.includes(o.id));
+  const fams = ["ALL", ...Array.from(new Set(others.map(o=>o.fam)))];
+  return weekendNote() + `
+  ${opl.length?`<div class="sec"><div class="sec-h opl"><span class="tag">PRIORIDAD</span><span>OPL · ventas en línea</span><span class="sp"></span>
+      <button class="btn sm" data-action="markSection" data-sec="opl">${allOpl?"Quitar todas":"Marcar todas"}</button></div>
+      ${opl.map(orderRow).join("")}</div>`:""}
+  <div class="sec"><div class="sec-h others"><span>Otras OPs</span><span class="small">(el orden en que las marque es su prioridad)</span><span class="sp"></span>
+      <button class="btn sm" data-action="markSection" data-sec="others">${allOth?"Quitar todas":"Marcar todas"}</button></div>
+    <div class="tools"><input type="search" id="search" placeholder="Buscar OP o cliente" value="${esc(S.search)}" aria-label="Buscar OP o cliente">
+      <button class="link" data-action="toggleFilter" aria-expanded="${S.filterOpen}">Filtrar ${S.filterOpen?"▾":"▸"}</button></div>
+    ${S.filterOpen?`<div class="chips" style="margin-bottom:8px">${fams.map(f=>`<button data-action="setFam" data-f="${f}" aria-pressed="${S.fam===f}">${f==="ALL"?"Todas":f}</button>`).join("")}</div>`:""}
+    <div id="othersList">${othersList()}</div></div>`;
+}
+
+/* ---- Paso 2 ---- */
+function barHtml(t){
+  const lv = level(t), b = baseH(t), tot = totH(t);
+  let txt;
+  if (lv === "opl") txt = `<span>${fmt(tot)} h · OPL</span><span class="small">No cuenta contra el límite</span>`;
+  else if (lv === "ok") txt = `<span>${fmt(b)} h de ${IDEAL} h</span><span class="small">Cabe bien</span>`;
+  else if (lv === "near") txt = `<span>${fmt(b)} h ${b > IDEAL+EPS ? "· pasa de "+IDEAL+" h" : "de "+IDEAL+" h"}</span><span class="small">${b > IDEAL+EPS ? "Permitido hasta "+MAX+" h" : "Cerca del límite"}</span>`;
+  else txt = `<span>${fmt(b)} h · se pasó de ${MAX} h</span><span class="small">No se puede confirmar</span>`;
+  const pct = Math.min((lv==="opl"?tot:b)/MAX, 1)*100;
+  return `<div class="bar"><div class="txt">${txt}</div>
+    <div class="track" role="img" aria-label="${fmt(lv==="opl"?tot:b)} horas"><div class="fill ${lv}" style="width:${pct}%"></div><div class="tick" style="left:${IDEAL/MAX*100}%" title="Ideal ${IDEAL} h"></div></div>
+    <div class="scale"><span style="left:0">0</span><span style="left:${IDEAL/MAX*100}%">ideal ${IDEAL} h</span><span style="left:100%">máx. ${MAX} h</span></div></div>`;
+}
+function taskCard(t, i){
+  const o = ORD_BY[t.orderId], lv = level(t), open = !!S.open[t.id];
+  const chipTxt = lv==="opl" ? "OPL · prioridad" : lv==="ok" ? "Cabe" : lv==="near" ? "Cerca del límite" : "Se pasó";
+  const sameOrder = S.tasks.filter(x => x.orderId === t.orderId && x.id !== t.id);
+  const lines = t.lines.map(l => {
+    const it = ITEM[l.itemId].item, more = left(it);
+    return `<div class="line"><div class="nm"><strong>${esc(it.name)}</strong><small>${fmt(it.h)} h por unidad · ${fmt(lineHours(l))} h</small></div>
+      <div class="step-q"><button class="iconbtn" data-action="qty" data-t="${t.id}" data-i="${it.id}" data-dir="-1" aria-label="Quitar una unidad de ${esc(it.name)}">−</button>
+        <output aria-live="off">${l.qty}</output>
+        <button class="iconbtn" data-action="qty" data-t="${t.id}" data-i="${it.id}" data-dir="1" ${more<=0?"disabled title=\"No quedan más unidades\"":""} aria-label="Agregar una unidad de ${esc(it.name)}">+</button></div>
+      <select data-action="moveLine" data-t="${t.id}" data-i="${it.id}" aria-label="Mover ${esc(it.name)} a otra tarea">
+        <option value="">Mover a…</option>
+        ${sameOrder.map(x=>`<option value="${x.id}">Tarea ${S.tasks.indexOf(x)+1}</option>`).join("")}
+        <option value="new">Tarea nueva</option></select>
+      <button class="iconbtn" data-action="removeLine" data-t="${t.id}" data-i="${it.id}" aria-label="Quitar ${esc(it.name)} de la tarea" title="Quitar de la tarea">✕</button></div>`;
+  }).join("");
+  const addable = o.items.filter(it => left(it) > 0);
+  return `<div class="tcard ${lv==="opl"?"opl":""} lv-${lv}">
+    <div class="thead"><span class="tn">Tarea ${i+1}</span>${badge(o)}<strong>${o.code}</strong>
+      <span class="chip ${lv}">${chipTxt}</span><span class="sp" style="flex:1"></span>
+      <button class="link" data-action="toggleTask" data-t="${t.id}" aria-expanded="${open}">Ver ${t.lines.length} ${plural(t.lines.length,"producto","productos")} ${open?"▾":"▸"}</button></div>
+    ${barHtml(t)}
+    ${open?`<div class="tbody">${lines || `<p class="small">La tarea está vacía. Agregue un producto.</p>`}
+      <div class="tfoot">
+        <button class="btn sm" data-action="addOpen" data-t="${t.id}">＋ Producto</button>
+        ${lv==="over"?`<button class="btn sm go" data-action="fix" data-t="${t.id}">Arreglar sola</button>`:""}
+      </div>
+      ${S.addFor===t.id?`<div class="addlist">${addable.length?addable.map(it=>`<button class="btn sm" data-action="addItem" data-t="${t.id}" data-i="${it.id}">${esc(it.name)} · quedan ${left(it)}</button>`).join(""):`<span class="small">No quedan productos de esta OP por agregar.</span>`}</div>`:""}
+    </div>`:""}
+  </div>`;
+}
+function leftovers(){
+  const out = [];
+  S.selected.forEach(id => ORD_BY[id].items.forEach(it => { const l = left(it); if (l > 0) out.push({o:ORD_BY[id], it, l}); }));
+  return out;
+}
+function step2(){
+  const bl = blockers(), nBase = S.tasks.filter(t=>!isOplTask(t)).length;
+  const hBase = S.tasks.reduce((s,t)=>s+baseH(t),0), hOpl = S.tasks.filter(isOplTask).reduce((s,t)=>s+totH(t),0);
+  const lo = leftovers();
+  return `${S.banner?`<div class="note warn" role="alert"><div class="x">${S.banner}</div><button class="link" data-action="closeBanner">Entendido</button></div>`:""}
+    <div class="note ${bl.length?"bad":"good"}"><div class="x"><strong>${S.tasks.length} ${plural(S.tasks.length,"tarea","tareas")}</strong> · ${fmt(hBase)} h base · ${fmt(hOpl)} h OPL (no cuentan) ·
+      ${bl.length ? `<strong>${bl.length} con problemas</strong>` : "0 con problemas"}</div></div>
+    ${S.tasks.map(taskCard).join("") || `<div class="state"><h3>Aún no hay tareas</h3><button class="btn primary" data-action="rebuild">Armar tareas otra vez</button></div>`}
+    <div class="tfoot" style="padding-left:0"><button class="btn" data-action="newTaskOpen">＋ Nueva tarea</button></div>
+    ${S.newTaskOpen?`<div class="addlist">${S.selected.map(id=>`<button class="btn sm" data-action="newTask" data-o="${id}">${ORD_BY[id].code}</button>`).join("")}</div>`:""}
+    ${lo.length?`<div class="tray"><strong>Sin tarea (${lo.length})</strong>
+      <ul class="list">${lo.map(x=>`<li><span>${x.o.code}</span><span>${esc(x.it.name)}</span><strong>${x.l} u</strong></li>`).join("")}</ul>
+      <button class="btn sm" data-action="trayBuild">Armar con esto</button></div>`:""}`;
+}
+
+/* ---- Paso 3 ---- */
+function rowFor(t,p){ return S.plan.find(x=>x.tid===t.id); }
+function step3(){
+  if (!S.plan.length) return "";
+  const days = workdays(), first = days[0];
+  const moved = S.plan.filter(p => p.day !== first), overRows = S.plan.filter(p => p.over);
+  const dayOptions = d => days.map(x=>`<option value="${x}" ${x===d?"selected":""}>${gtShort(x)}</option>`).join("");
+  const rows = S.tasks.map((t,i) => {
+    const p = rowFor(t), o = ORD_BY[t.orderId], b = baseH(t), lv = level(t);
+    const loads = dayLoads(p.day, t.id);   // sin contar esta misma tarea
+    const after = loads[p.desk-1] + b;
+    const warn = (b > 0 && after > IDEAL + EPS) ? `<div class="small" style="color:var(--near-ink)">Mesa ${p.desk} quedaría en ${fmt(after)} h</div>` : "";
+    const pct = Math.min((lv==="opl"?totH(t):b)/MAX,1)*100, col = lv==="opl"?"#aed581":lv==="ok"?"var(--ok)":lv==="near"?"var(--near)":"var(--over)";
+    return `<div class="prow"><div class="tt"><strong>Tarea ${i+1} · ${o.code}</strong>${badge(o)} ${lv==="opl"?`<span class="chip opl">PRIORIDAD</span>`:""}</div>
+      <div><div class="mini"><i style="width:${pct}%;background:${col}"></i></div><span class="small">${fmt(lv==="opl"?totH(t):b)} h${lv==="opl"?" · OPL":""}</span></div>
+      <div><select data-action="planDay" data-t="${t.id}" aria-label="Día de la tarea ${i+1}">${dayOptions(p.day)}</select></div>
+      <div><select data-action="planDesk" data-t="${t.id}" aria-label="Mesa de la tarea ${i+1}">${Array.from({length:N_DESKS},(_,k)=>`<option value="${k+1}" ${k+1===p.desk?"selected":""}>Mesa ${k+1}${p.auto&&k+1===p.desk?" (auto)":""}</option>`).join("")}</select>${warn}</div></div>`;
+  }).join("");
+  const deskBlocks = days.filter(d => S.plan.some(p => p.day === d)).map(d => {
+    const pre = PRE[Math.min(Math.max(0, days.indexOf(d)),1)];
+    const added = Array(N_DESKS).fill(0);
+    S.plan.filter(p=>p.day===d).forEach(p => { const t = S.tasks.find(x=>x.id===p.tid); added[p.desk-1] += baseH(t); });
+    return `<div style="margin-top:8px"><strong>${gtShort(d)}</strong><div class="deskgrid">${pre.map((h,k)=>{
+      const w1 = Math.min(h/IDEAL,1)*100, w2 = Math.min(added[k]/IDEAL, 1-w1/100+0)*100;
+      const tot = h + added[k];
+      return `<div class="desk"><div style="display:flex;justify-content:space-between"><b>Mesa ${k+1}</b><span class="${tot>IDEAL+EPS?"":"small"}" ${tot>IDEAL+EPS?`style="color:var(--over-ink);font-weight:800"`:""}>${fmt(tot)} h</span></div>
+        <div class="stack"><i style="width:${w1}%;background:#b9b4aa"></i><i style="width:${Math.max(0,w2)}%;background:var(--primary)"></i></div></div>`;}).join("")}</div></div>`;
+  }).join("");
+  return `${S.err?`<div class="note bad" role="alert"><div class="x"><strong>No se pudo confirmar.</strong> ${S.err}</div><button class="btn sm" data-action="confirm">Reintentar</button></div>`:""}
+    <div class="note info"><div class="x"><strong>Las ${S.tasks.length} tareas esperan corte.</strong> La hoja del día es la que se entrega para cortar. Al marcar el corte, cada tarea baja a su mesa. La mesa de abajo es la propuesta del sistema y puede cambiarla.</div></div>
+    ${moved.length?`<div class="note warn"><div class="x"><strong>${moved.length} ${plural(moved.length,"tarea no cabe","tareas no caben")} el ${gt(first)}</strong> y ${plural(moved.length,"pasa","pasan")} a: ${Array.from(new Set(moved.map(p=>gtShort(p.day)))).join(", ")}.</div></div>`:""}
+    ${overRows.length?`<div class="note warn"><div class="x">${overRows.length} ${plural(overRows.length,"tarea quedó","tareas quedaron")} sobre el cupo: no hay mesa libre en la semana.</div></div>`:""}
+    <div class="prow head"><span>Tarea</span><span>Horas</span><span>Día</span><span>Mesa</span></div>
+    ${rows}
+    <div style="margin-top:10px"><button class="link" data-action="toggleDesks" aria-expanded="${S.showDesks}">Ver carga por mesa ${S.showDesks?"▾":"▸"}</button></div>
+    ${S.showDesks?`<div class="legend"><span><b style="background:#b9b4aa"></b>Ya tenía</span><span><b style="background:var(--primary)"></b>Lo nuevo</span></div>${deskBlocks}`:""}`;
+}
+
+/* ---- Paso 4 ---- */
+function step4(){
+  const r = S.result; if (!r) return "";
+  const li = c => `<li><strong>${c.code}</strong><span>${c.op}</span><span>${fmt(c.hours)} h</span><span>${gtShort(c.day)} · Mesa ${c.desk} <span class="small">(se activa al cortar)</span></span></li>`;
+  const failed = r.failed.map(f => `<li><strong>Tarea ${f.n}</strong><span>${f.op}</span><span style="color:var(--over-ink)">${f.reason}</span>
+    <button class="btn sm" data-action="retryOne" data-t="${f.tid}">Reintentar esa</button></li>`).join("");
+  return `<div class="okbox"><div class="ck" aria-hidden="true">${r.failed.length?"!":"✓"}</div>
+    <h2 style="margin:0">${r.failed.length ? r.created.length+" de "+(r.created.length+r.failed.length)+" tareas creadas" : r.created.length+" "+plural(r.created.length,"tarea creada","tareas creadas")}</h2>
+    <p class="small" style="font-size:15px">Día asignado · bajan a mesa al marcar el corte.</p></div>
+    ${r.failed.length?`<div class="note bad" role="alert"><div class="x"><strong>Falló una parte.</strong> En el sistema real la confirmación es todo o nada; esto solo aparece si se cae la conexión.</div></div><ul class="list">${failed}</ul>`:""}
+    <div class="actions">
+      <button class="btn primary big" data-action="sheetDownload">⬇ Descargar hoja del día (Excel)</button>
+      <button class="btn big" data-action="sheetPrint">🖨 Imprimir hoja (PDF)</button></div>
+    <div class="actions" style="margin-top:0"><button class="btn" data-action="board">Ver tablero de mesas</button>
+      <button class="btn" data-action="again">Armar otro grupo</button></div>
+    <ul class="list">${r.created.map(li).join("")}</ul>`;
+}
+
+/* ---- Barra inferior ---- */
+function renderBar(){
+  const bar = $("#barIn"); let h = "";
+  if (S.step === 1){
+    const vis = visibleOrders(), ids = S.selected.filter(id => vis.some(o => o.id === id));
+    const n = ids.length, hrs = ids.reduce((s,id)=>s+orderHours(ORD_BY[id]),0);
+    const dis = n === 0 || isWeekend(S.date) || S.loadErr || S.loading;
+    h = `<div class="hint">${n?`<b>${n}</b> ${plural(n,"OP marcada","OPs marcadas")} · ${fmt(hrs)} h`:(vis.length?"Marque al menos una OP":"No hay OPs pendientes")}</div>
+      <button class="btn primary big" data-action="build" ${dis?"disabled":""}>Armar tareas${n?` (${n} ${plural(n,"OP","OPs")})`:""}</button>`;
+  } else if (S.step === 2){
+    const bl = blockers();
+    h = `<button class="btn" data-action="goto" data-step="1">← Elegir OPs</button>
+      <div class="hint">${bl.length?`<b style="color:var(--over-ink)">${bl[0]}.</b> Quite productos o use «Arreglar sola».`:`<b>${S.tasks.length}</b> ${plural(S.tasks.length,"tarea","tareas")} · todo dentro del límite`}</div>
+      <button class="btn primary big" data-action="review" ${bl.length||!S.tasks.length?"disabled":""}>Revisar</button>`;
+  } else if (S.step === 3){
+    h = `<button class="btn" data-action="goto" data-step="2" ${S.loading?"disabled":""}>← Armar tareas</button>
+      <div class="hint">${S.loading?"Creando tareas…":`Se crean <b>${S.tasks.length}</b> ${plural(S.tasks.length,"tarea","tareas")} de una vez.`}</div>
+      <button class="btn go big" data-action="confirm" ${S.loading?"disabled":""}>${S.loading?"Confirmando…":"Confirmar y repartir"}</button>`;
+  } else {
+    h = `<div class="hint">Listo. Puede bajar la hoja o armar otro grupo.</div><button class="btn big" data-action="again">Armar otro grupo</button>`;
+  }
+  bar.innerHTML = h;
+}
+
+/* ===== Hoja del día ===== */
+function sheetRows(){
+  const rows = EXISTING.map(e => ({tarea:e.code, op:e.op, fam:e.fam, cliente:e.cust, producto:e.prod, cant:e.qty, horas:e.hours, dia:S.date, mesa:e.desk, prio:e.fam==="OPL"?"PRIORIDAD":""}));
+  if (S.result) S.result.created.forEach(c => c.task.lines.forEach(l => {
+    const it = ITEM[l.itemId].item, o = ORD_BY[c.task.orderId];
+    rows.push({tarea:c.code, op:o.code, fam:o.fam, cliente:o.cust, producto:it.name, cant:l.qty, horas:Math.round(lineHours(l)*100)/100, dia:c.day, mesa:c.desk+" (orientativa)", prio:isOPL(o)?"PRIORIDAD":""});
+  }));
+  rows.sort((a,b) => (a.prio?0:1) - (b.prio?0:1) || a.tarea.localeCompare(b.tarea));
+  return rows;
+}
+/* En el prototipo la hoja se muestra en pantalla; en el sistema real se descarga (Excel) o se imprime (PDF). */
+let sheetTxt = "";
+function openSheet(kind){
+  const rows = sheetRows(); if (!rows.length){ toast("Todavía no hay tareas para esta fecha."); return; }
+  $("#sheetTtl").textContent = "Hoja de mesas · " + gt(S.date);
+  $("#sheetBody").innerHTML = `<table><thead><tr><th>Tarea</th><th>OP</th><th>Cliente</th><th>Producto</th><th>Cant.</th><th>Horas</th><th>Mesa</th><th>Prioridad</th></tr></thead><tbody>${
+    rows.map(r=>`<tr class="${r.prio?"opl-row":""}"><td>${r.tarea}</td><td>${r.op}</td><td>${esc(r.cliente)}</td><td>${esc(r.producto)}</td><td>${r.cant}</td><td>${r.horas}</td><td>${r.mesa}</td><td>${r.prio}</td></tr>`).join("")}</tbody></table>`;
+  $("#sheetNote").textContent = kind === "pdf"
+    ? "Así saldría la hoja: en el sistema real se abre para imprimir o guardar como PDF. Primero van las OPL."
+    : "Así saldría la hoja: en el sistema real se descarga como Excel. Primero van las OPL, luego el resto; incluye tareas con o sin mesa.";
+  sheetTxt = ["Tarea","OP","Cliente","Producto","Cant.","Horas","Mesa","Prioridad"].join("\t") + "\n" +
+    rows.map(r => [r.tarea,r.op,r.cliente,r.producto,r.cant,r.horas,r.mesa,r.prio].join("\t")).join("\n");
+  $("#sheetOv").hidden = false; $("#sheetClose").focus();
+}
+function closeSheet(){ $("#sheetOv").hidden = true; }
+$("#sheetClose").addEventListener("click", closeSheet);
+$("#sheetOv").addEventListener("click", e => { if (e.target.id === "sheetOv") closeSheet(); });
+document.addEventListener("keydown", e => { if (e.key === "Escape" && !$("#sheetOv").hidden) closeSheet(); });
+$("#sheetCopy").addEventListener("click", async () => {
+  try { await navigator.clipboard.writeText(sheetTxt); toast("Tabla copiada. Puede pegarla en Excel."); }
+  catch (err){
+    const range = document.createRange(); range.selectNodeContents($("#sheetBody")); const s = getSelection(); s.removeAllRanges(); s.addRange(range);
+    toast("Tabla seleccionada. Copie con Ctrl+C.");
+  }
+});
+
+/* ===== Acciones ===== */
+const A = {
+  setDate(el){ S.date = el.dataset.d; resetDownstream(); render(); },
+  toMonday(){ S.date = nextWorkday(S.date); resetDownstream(); render(); },
+  goto(el){ const n = Number(el.dataset.step); if (n === 3 && !S.plan.length) return; S.step = n; S.err = null; render(); },
+  toggleOrder(el){
+    const id = Number(el.dataset.id), i = S.selected.indexOf(id);
+    if (i >= 0) S.selected.splice(i,1); else S.selected.push(id);
+    render();
+  },
+  toggleExpand(el){ const id = el.dataset.id; S.expanded[id] = !S.expanded[id]; render(); },
+  markSection(el){
+    const opl = el.dataset.sec === "opl";
+    const ids = visibleOrders().filter(o => isOPL(o) === opl).map(o => o.id);
+    const all = ids.every(id => S.selected.includes(id));
+    if (all) S.selected = S.selected.filter(id => !ids.includes(id));
+    else ids.forEach(id => { if (!S.selected.includes(id)) S.selected.push(id); });
+    render();
+  },
+  toggleFilter(){ S.filterOpen = !S.filterOpen; render(); },
+  setFam(el){ S.fam = el.dataset.f; render(); },
+  retryLoad(){ S.loadErr = false; S.empty = false; S.loading = true; render(); setTimeout(()=>{ S.loading = false; render(); }, 600); },
+  build(){
+    if (S.selKey !== S.selected.join(",") || !S.tasks.length){
+      const had = S.tasks.length > 0;
+      buildTasks();
+      if (had) toast("Se volvieron a armar las tareas porque cambió la selección.");
+    }
+    S.plan = []; S.step = 2; S.reached = Math.max(S.reached,2); S.banner = null; render(); window.scrollTo({top:0,behavior:"smooth"});
+  },
+  toggleTask(el){ S.open[el.dataset.t] = !S.open[el.dataset.t]; render(); },
+  qty(el){
+    const t = S.tasks.find(x=>x.id===el.dataset.t), id = Number(el.dataset.i), dir = Number(el.dataset.dir);
+    const l = t.lines.find(x=>x.itemId===id);
+    if (dir > 0){ if (left(ITEM[id].item) <= 0) return; l.qty += 1; }
+    else { l.qty -= 1; if (l.qty <= 0) t.lines.splice(t.lines.indexOf(l),1); }
+    cleanEmpty(t); render();
+  },
+  removeLine(el){
+    const t = S.tasks.find(x=>x.id===el.dataset.t), id = Number(el.dataset.i);
+    t.lines = t.lines.filter(l => l.itemId !== id); cleanEmpty(t); render();
+  },
+  moveLine(el){
+    if (!el.value) return;
+    const from = S.tasks.find(x=>x.id===el.dataset.t), id = Number(el.dataset.i), l = from.lines.find(x=>x.itemId===id);
+    let to;
+    if (el.value === "new"){ to = newTask(ORD_BY[from.orderId]); S.tasks.push(to); S.open[to.id] = true; }
+    else to = S.tasks.find(x=>x.id===el.value);
+    const ex = to.lines.find(x=>x.itemId===id);
+    if (ex) ex.qty += l.qty; else to.lines.push({itemId:id, qty:l.qty});
+    from.lines = from.lines.filter(x => x !== l); cleanEmpty(from); sortTasks(); render();
+  },
+  addOpen(el){ S.addFor = S.addFor === el.dataset.t ? null : el.dataset.t; render(); },
+  addItem(el){
+    const t = S.tasks.find(x=>x.id===el.dataset.t), id = Number(el.dataset.i), it = ITEM[id].item;
+    const qty = left(it); if (qty <= 0) return;
+    const ex = t.lines.find(x=>x.itemId===id);
+    if (ex) ex.qty += qty; else t.lines.push({itemId:id, qty});
+    S.addFor = null; render();
+  },
+  newTaskOpen(){ S.newTaskOpen = !S.newTaskOpen; render(); },
+  newTask(el){
+    const t = newTask(ORD_BY[Number(el.dataset.o)]); S.tasks.push(t); S.open[t.id] = true; S.addFor = t.id; S.newTaskOpen = false; sortTasks(); render();
+  },
+  fix(el){
+    const t = S.tasks.find(x=>x.id===el.dataset.t), o = ORD_BY[t.orderId], moved = [];
+    while (baseH(t) > IDEAL + EPS && t.lines.length){
+      const l = t.lines[t.lines.length-1], it = ITEM[l.itemId].item;
+      const excess = baseH(t) - IDEAL, units = Math.min(l.qty, Math.ceil((excess - EPS)/it.h));
+      l.qty -= units; moved.push({itemId:l.itemId, qty:units});
+      if (l.qty <= 0) t.lines.pop();
+    }
+    const made = pack(o, moved.reverse()); S.tasks.push(...made); sortTasks();
+    made.forEach(m => S.open[m.id] = true);
+    toast("Listo: el excedente pasó a "+(made.length===1?"una tarea nueva":made.length+" tareas nuevas")+".");
+    render();
+  },
+  trayBuild(){
+    const ids = Array.from(new Set(leftovers().map(x=>x.o.id)));
+    S.tasks.push(...suggest(ids)); sortTasks(); render();
+  },
+  rebuild(){ buildTasks(); render(); },
+  closeBanner(){ S.banner = null; render(); },
+  review(){
+    if (S.flags.conflict){
+      S.flags.conflict = false;
+      const t = S.tasks.find(x=>!isOplTask(x) && x.lines.length) || S.tasks[0], l = t.lines[0], it = ITEM[l.itemId].item;
+      const take = Math.min(2, l.qty); it.rem -= take; l.qty = Math.max(0, l.qty - take);
+      if (!l.qty) t.lines.shift(); cleanEmpty(t);
+      S.banner = "<strong>Alguien más ya tomó "+take+" "+plural(take,"unidad","unidades")+" de «"+esc(it.name)+"».</strong> Actualicé las cantidades. Revise y vuelva a pulsar «Revisar».";
+      render(); window.scrollTo({top:0,behavior:"smooth"}); return;
+    }
+    buildPlan(); S.step = 3; S.reached = Math.max(S.reached,3); S.err = null; render(); window.scrollTo({top:0,behavior:"smooth"});
+  },
+  planDay(el){
+    const p = S.plan.find(x=>x.tid===el.dataset.t), t = S.tasks.find(x=>x.id===p.tid);
+    p.day = el.value; const d = pickDesk(dayLoads(p.day, p.tid), baseH(t));
+    p.desk = d === -1 ? 1 : d; p.auto = true; p.over = d === -1; render();
+  },
+  planDesk(el){ const p = S.plan.find(x=>x.tid===el.dataset.t); p.desk = Number(el.value); p.auto = false; render(); },
+  toggleDesks(){ S.showDesks = !S.showDesks; render(); },
+  async confirm(){
+    S.loading = true; S.err = null; render();
+    await sleep(900);
+    if (S.flags.confirmErr){
+      S.flags.confirmErr = false; S.loading = false;
+      S.err = "Revise la conexión. No se creó ninguna tarea; puede reintentar sin riesgo de duplicados."; render(); return;
+    }
+    const created = [], failed = [];
+    S.tasks.forEach((t,i) => {
+      const p = S.plan.find(x=>x.tid===t.id);
+      if (S.flags.partial && i === 2){ failed.push({n:i+1, tid:t.id, op:ORD_BY[t.orderId].code, reason:"Se perdió la conexión al crearla."}); return; }
+      created.push(commit(t,p));
+    });
+    S.flags.partial = false; S.result = {created, failed};
+    S.loading = false; S.step = 4; S.reached = 4; render(); window.scrollTo({top:0,behavior:"smooth"});
+  },
+  retryOne(el){
+    const t = S.tasks.find(x=>x.id===el.dataset.t), p = S.plan.find(x=>x.tid===t.id);
+    S.result.created.push(commit(t,p));
+    S.result.failed = S.result.failed.filter(f => f.tid !== t.id); render();
+  },
+  sheetTop(){ openSheet("xlsx"); },
+  sheetDownload(){ openSheet("xlsx"); },
+  sheetPrint(){ openSheet("pdf"); },
+  board(){ toast("En la aplicación, esto abre el Tablero de mesas."); },
+  again(){
+    const date = S.date, clicks = S.clicks;
+    S = newState(); S.date = date; S.clicks = clicks;
+    S.selected = ORD.filter(o=>isOPL(o) && o.items.some(i=>i.rem>0)).map(o=>o.id);
+    render(); window.scrollTo({top:0,behavior:"smooth"});
+  }
+};
+function commit(t,p){
+  const code = "TK-"+String(++tcode).padStart(5,"0");
+  t.lines.forEach(l => { ITEM[l.itemId].item.rem -= l.qty; });
+  return {code, op:ORD_BY[t.orderId].code, hours:totH(t), day:p.day, desk:p.desk, task:JSON.parse(JSON.stringify(t))};
+}
+function cleanEmpty(t){ if (!t.lines.length && !S.open[t.id]) S.tasks = S.tasks.filter(x => x !== t); }
+function resetDownstream(){ S.plan = []; if (S.step === 3){ S.step = 2; } }
+
+/* ===== Eventos ===== */
+document.addEventListener("click", e => {
+  if (e.target.closest("#demo") || e.target.closest("#sheetOv")) return;
+  const el = e.target.closest("[data-action]");
+  if (e.target.closest("button, summary, input[type=checkbox]")) { S.clicks++; updateClicks(); }
+  if (!el || el.tagName === "SELECT" || el.type === "checkbox") return;
+  const fn = A[el.dataset.action]; if (fn) fn(el);
+});
+document.addEventListener("change", e => {
+  const el = e.target.closest("[data-action]");
+  if (!el) return;
+  if (el.type === "checkbox" || el.tagName === "SELECT"){
+    if (el.tagName === "SELECT") { S.clicks++; updateClicks(); }
+    const fn = A[el.dataset.action]; if (fn) fn(el);
+  }
+  if (el.id === "dateInput") return;
+});
+$("#dateInput").addEventListener("change", e => { if (!e.target.value) return; S.date = e.target.value; resetDownstream(); render(); });
+document.addEventListener("input", e => {
+  if (e.target.id === "search"){ S.search = e.target.value; $("#othersList").innerHTML = othersList(); }
+});
+function updateClicks(){ $("#clickBox").innerHTML = `Clics desde que abrió (o reinició): <strong>${S.clicks}</strong> — el camino rápido son 4 más 1 para la hoja.`; }
+
+/* ===== Demostración de estados ===== */
+document.querySelector("#demo").addEventListener("click", e => {
+  const b = e.target.closest("[data-demo]"); if (!b) return;
+  const k = b.dataset.demo;
+  if (k === "reset"){ loadData(); S = newState(); S.ready = true; render(); updateClicks(); toast("Se reinició la demostración."); return; }
+  if (k === "empty"){ S.step = 1; S.empty = true; S.loadErr = false; render(); }
+  if (k === "loaderr"){ S.step = 1; S.loadErr = true; render(); }
+  if (k === "weekend"){ let d = TODAY; while (parse(d).getDay() !== 6) d = addDays(d,1); S.date = d; S.step = 1; S.empty = false; S.loadErr = false; S.plan = []; render(); }
+  if (k === "over"){
+    S.empty = false; S.loadErr = false;
+    if (!S.selected.some(id => !isOPL(ORD_BY[id]))) S.selected.push(4);
+    buildTasks();
+    const t = S.tasks.find(x => !isOplTask(x)); const it = ITEM[t.lines[0].itemId].item;
+    t.lines[0].qty = Math.ceil(5.6 / it.h); S.open[t.id] = true;
+    S.plan = []; S.step = 2; S.reached = 2; render(); window.scrollTo({top:0,behavior:"smooth"});
+  }
+  if (k === "conflict"){ S.flags.conflict = true; toast("Listo: la próxima vez que pulse «Revisar» alguien más habrá tomado unidades."); }
+  if (k === "confirmerr"){ S.flags.confirmErr = true; toast("Listo: la próxima vez que pulse «Confirmar y repartir» fallará (la segunda vez funciona)."); }
+  if (k === "partial"){ S.flags.partial = true; toast("Listo: la próxima confirmación creará todas menos la tarea 3."); }
+});
+
+/* ===== Arranque ===== */
+loadData();
+S = newState();
+S.loading = true; render();
+setTimeout(() => { S.loading = false; S.ready = true; render(); }, 500);
+updateClicks();
+window.__proto = {get S(){return S;}, suggest, level, IDEAL, MAX};
+</script>
+</body>
+</html>

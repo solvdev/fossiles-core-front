@@ -1,4 +1,4 @@
-import React, { useMemo } from "react";
+import React, { useMemo, useState } from "react";
 import { Badge, Button, Card, CardBody, CustomInput, Spinner, Table } from "reactstrap";
 import {
   CINCHO_WORK_STATUS,
@@ -84,8 +84,101 @@ function CinchoWorkStatusActions({ workStatus, saving, onStatusChange }) {
   return null;
 }
 
+/**
+ * OP consolidada (OPC de Luis Felipe): las líneas de sus órdenes van juntas, bajo un bloque con
+ * acciones para todo el bloque; cada línea sigue guardando su estado en su propia OP.
+ *
+ * @param groupByOrderId { [orderId]: { id, code, ... } } consolidadas activas
+ * @returns {{ blocks: { group, orders: string[], rows }[], rest }}
+ */
+export function splitGroupRows(rows, groupByOrderId = {}) {
+  const byGroup = new Map();
+  const rest = [];
+  (rows || []).forEach((r) => {
+    const g = groupByOrderId[r.productionOrderId];
+    if (!g) { rest.push(r); return; }
+    if (!byGroup.has(g.id)) byGroup.set(g.id, { group: g, rows: [] });
+    byGroup.get(g.id).rows.push(r);
+  });
+  const blocks = Array.from(byGroup.values())
+    .map((b) => ({ ...b, orders: Array.from(new Set(b.rows.map((r) => r.orderCode))) }))
+    .sort((a, b) => String(a.group.code).localeCompare(String(b.group.code)));
+  return { blocks, rest };
+}
+
+function GroupRow({ group, rows, orders, workDateYmd, deliveredMap, workStatusMap, onToggleDelivered, onWorkStatusChange }) {
+  const [busy, setBusy] = useState(false);
+  const statuses = rows.map((r) => rowWorkStatus(r, workStatusMap || {}));
+  const allDone = statuses.every((s) => s === CINCHO_WORK_STATUS.COMPLETED);
+  const anyRunning = statuses.some((s) => s === CINCHO_WORK_STATUS.IN_PROGRESS);
+  const allDelivered = rows.every((r) => isRowDelivered(r, deliveredMap));
+  const units = rows.reduce((s, r) => s + (Number(r.totalQty) || 0), 0);
+  const commonStyle = { fontSize: "10px", padding: "1px 6px", height: "24px" };
+
+  // Una línea a la vez: así cada OP guarda su estado y un fallo no deja el resto a medias sin aviso.
+  const runAll = async (targets, fn) => {
+    setBusy(true);
+    try {
+      for (const r of targets) {
+        // eslint-disable-next-line no-await-in-loop
+        await fn(r);
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
+  const setStatus = (next) => runAll(
+    rows.filter((r) => rowWorkStatus(r, workStatusMap || {}) !== next
+      && rowWorkStatus(r, workStatusMap || {}) !== CINCHO_WORK_STATUS.COMPLETED),
+    (r) => onWorkStatusChange(r, next)
+  );
+
+  return (
+    <tr style={{ backgroundColor: "#f1ecfb" }}>
+      <td className="align-middle"><Badge color="secondary" style={{ background: "#6f42c1" }}>LF</Badge></td>
+      <td className="align-middle" colSpan={4}>
+        <strong>OP consolidada {group.code}</strong>
+        <span className="text-muted"> · {orders.join(", ")}</span>
+      </td>
+      <td className="align-middle text-right"><strong>{units}</strong></td>
+      <td />
+      <td className="align-middle">
+        <div className="d-flex align-items-center flex-wrap" style={{ gap: 4 }}>
+          {allDone ? <Badge color="success">Completado</Badge> : anyRunning ? (
+            <Button color="success" size="sm" style={commonStyle} disabled={busy}
+              onClick={() => setStatus(CINCHO_WORK_STATUS.COMPLETED)} title="Completar todas las líneas">
+              Completar todo
+            </Button>
+          ) : (
+            <Button color="info" size="sm" style={commonStyle} disabled={busy}
+              onClick={() => setStatus(CINCHO_WORK_STATUS.IN_PROGRESS)} title="Iniciar todas las líneas">
+              Iniciar todo
+            </Button>
+          )}
+          {busy && <Spinner size="sm" />}
+        </div>
+      </td>
+      <td className="align-middle">
+        <CustomInput
+          type="checkbox"
+          id={`cincho-grp-${group.id}-${workDateYmd}`}
+          label={allDelivered ? "Todo entregado" : "Entregar todo"}
+          checked={allDelivered}
+          disabled={busy}
+          onChange={(e) => {
+            const delivered = e.target.checked;
+            runAll(rows.filter((r) => isRowDelivered(r, deliveredMap) !== delivered), (r) => onToggleDelivered(r, delivered));
+          }}
+          className="mb-0"
+        />
+      </td>
+    </tr>
+  );
+}
+
 function CinchosDayBoard({
   rows,
+  groupByOrderId,
   workDateYmd,
   deliveredMap,
   workStatusMap,
@@ -95,6 +188,12 @@ function CinchosDayBoard({
   onWorkStatusChange,
 }) {
   const sortedRows = useMemo(() => sortCinchoRows(rows), [rows]);
+  const { blocks, rest } = useMemo(() => splitGroupRows(sortedRows, groupByOrderId), [sortedRows, groupByOrderId]);
+  // Filas en orden de pantalla: cada consolidada con su encabezado y sus líneas, luego las sueltas.
+  const items = useMemo(() => [
+    ...blocks.flatMap((b) => [{ header: b }, ...b.rows.map((row) => ({ row, inGroup: true }))]),
+    ...rest.map((row) => ({ row, inGroup: false })),
+  ], [blocks, rest]);
 
   if (loading) {
     return (
@@ -145,14 +244,32 @@ function CinchosDayBoard({
               </tr>
             </thead>
             <tbody>
-              {sortedRows.map((row) => {
+              {items.map(({ header, row, inGroup }) => {
+                if (header) {
+                  return (
+                    <GroupRow
+                      key={`grp-${header.group.id}`}
+                      group={header.group}
+                      rows={header.rows}
+                      orders={header.orders}
+                      workDateYmd={workDateYmd}
+                      deliveredMap={deliveredMap}
+                      workStatusMap={workStatusMap}
+                      onToggleDelivered={onToggleDelivered}
+                      onWorkStatusChange={onWorkStatusChange}
+                    />
+                  );
+                }
                 const delivered = isRowDelivered(row, deliveredMap);
                 const workStatus = rowWorkStatus(row, workStatusMap || {});
                 const saving = savingKey === row.key;
                 return (
                   <tr
                     key={row.key}
-                    style={{ backgroundColor: rowBackground(workStatus, delivered) }}
+                    style={{
+                      backgroundColor: rowBackground(workStatus, delivered) || (inGroup ? "#faf8fe" : undefined),
+                      boxShadow: inGroup ? "inset 3px 0 0 #c9b8ee" : undefined,
+                    }}
                   >
                     <td className="align-middle">
                       <Badge color={FAMILY_COLORS[row.family] || "secondary"} className="mr-0">
