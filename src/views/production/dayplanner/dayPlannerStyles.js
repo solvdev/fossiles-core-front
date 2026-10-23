@@ -97,6 +97,40 @@ export const DAY_PLANNER_CSS = `
 .dp-qty{display:inline-flex;align-items:center;gap:6px}
 .dp-qty output{min-width:36px;text-align:center;font-weight:800;font-size:18px}
 .dp-tfoot{display:flex;flex-wrap:wrap;gap:8px;padding:8px 0 4px;align-items:center}
+
+/* Paso 2 en tabla: tarea × producto, una columna por color */
+.dp-tt-wrap{overflow-x:auto;border:1px solid var(--dp-line);border-radius:10px;margin-top:12px;background:#fff}
+.dp-tt{border-collapse:collapse;width:100%;min-width:720px;font-size:15px}
+.dp-tt th,.dp-tt td{border-bottom:1px solid var(--dp-line);padding:8px 10px;vertical-align:middle;text-align:left}
+.dp-tt thead th{background:#f5f4f1;font-size:12px;text-transform:uppercase;letter-spacing:.03em;color:#555;white-space:nowrap}
+.dp-tt th.dp-tt-c,.dp-tt td.dp-tt-c{text-align:center;width:76px}
+.dp-tt th.dp-tt-c.prio{background:#ebe9e3}
+.dp-tt td.dp-tt-n{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
+.dp-tt td.dp-tt-task{width:220px;background:#fcfbf9;border-right:1px solid var(--dp-line);vertical-align:top}
+.dp-tt td.dp-tt-task.lv-over{box-shadow:inset 4px 0 0 var(--dp-over)}
+.dp-tt td.dp-tt-task.lv-opl{box-shadow:inset 4px 0 0 var(--dp-opl)}
+.dp-tt tr.dp-tt-first>td{border-top:2px solid #cfcbc3}
+.dp-tt .dp-tt-tn{font-weight:800;display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+.dp-tt .dp-tt-meta{color:var(--dp-muted);font-size:13px;margin-top:2px}
+.dp-tt .dp-tt-bar{height:6px;background:#ebe7e1;border-radius:3px;margin:6px 0;position:relative}
+.dp-tt .dp-tt-bar i{display:block;height:100%;border-radius:3px}
+.dp-tt .dp-tt-bar span{position:absolute;top:-3px;bottom:-3px;width:1px;background:#555;left:80%}
+.dp-tt .dp-tt-tact{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;margin-top:6px}
+.dp-tt .dp-tt-tact .dp-link{min-height:36px;padding:0;font-size:14px}
+.dp .dp-tt .dp-tt-tact .btn{min-height:36px;margin:0;font-size:12px}
+.dp-tt .dp-tt-prod b{font-weight:800}
+.dp-tt .dp-tt-prod small{display:block;color:var(--dp-muted)}
+.dp-tt input.dp-tt-q{width:58px;min-height:40px;text-align:center;font-weight:800;border:1px solid #d8d4cc;border-radius:8px;background:#fff;font-size:16px}
+.dp-tt input.dp-tt-q:focus{outline:2px solid var(--dp-primary)}
+.dp-tt td.dp-tt-c.zero{color:#c9cdd1}
+.dp-tt .dp-tt-act{display:flex;gap:6px;align-items:center;justify-content:flex-end}
+.dp-tt .dp-tt-act select.dp-select{min-height:40px;max-width:130px}
+.dp-tt .dp-tt-act .dp-icon{width:40px;height:40px}
+.dp-tt tfoot td{background:#f5f4f1;font-weight:800}
+.dp-tt tfoot tr.dp-tt-ask td{background:#fff;font-weight:600;font-size:13px;color:var(--dp-muted)}
+.dp-tt tfoot tr.dp-tt-ask td.ok{color:#1e6b45}
+.dp-tt tfoot tr.dp-tt-ask td.left{color:#a3300f}
+.dp-tt .dp-tt-oc{display:inline-block;background:#ebe3fa;color:#4a2f8a;border-radius:4px;padding:0 5px;font-size:12px;font-weight:700;margin-left:4px}
 .dp-addlist{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0}
 .dp-daycap{position:sticky;top:0;z-index:5;background:#fff;border:1px solid var(--dp-line);border-radius:10px;padding:10px 14px;margin:10px 0}
 .dp-daycap[data-level=over]{border-color:#f3b49f;background:#fdece6}
