@@ -3,6 +3,7 @@ import { Button } from "reactstrap";
 import { formatDateGt } from "utils/dateTimeHelper";
 import { contar } from "utils/textHelper";
 import FamilyBadge from "../dayboard/FamilyBadge";
+import { LF_FILTER } from "./useDayPlanner";
 
 const fmt = (n) => (Math.round((n || 0) * 10) / 10).toFixed(1);
 const orderHours = (o) => (o.items
@@ -37,6 +38,11 @@ function OrderRow({ order, selected, number, onToggle, picks, setPick, ensureIte
         <div className="dp-otop">
           <span><FamilyBadge family={order.family} /></span>
           <strong>{order.code}</strong>
+          {order.groupCode ? (
+            <span className="dp-chip lf" title="OP consolidada: sus órdenes se marcan y se reparten juntas">{order.groupCode}</span>
+          ) : order.luisFelipe && (
+            <span className="dp-chip lf" title="Se puede juntar con otras en una OP consolidada desde el Tablero">Luis Felipe</span>
+          )}
           {order.customerName && <span className="dp-muted">{order.customerName}</span>}
         </div>
         <div className="dp-ometa">
@@ -202,7 +208,7 @@ export default function StepSelectOrders({ planner }) {
           <div className="dp-chips">
             {families.map((f) => (
               <button key={f} type="button" aria-pressed={familyFilter === f} onClick={() => setFamilyFilter(f)}>
-                {f === "ALL" ? "Todas" : f}
+                {f === "ALL" ? "Todas" : f === LF_FILTER ? "Luis Felipe" : f}
               </button>
             ))}
           </div>

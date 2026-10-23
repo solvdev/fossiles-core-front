@@ -54,6 +54,8 @@ import {
 import { showSuccess, showError } from "utils/notificationHelper";
 import TaskTicketPrint from "./TaskTicketPrint";
 import TaskReasonModal from "components/production/TaskReasonModal";
+import ConsolidatedOrdersModal from "components/production/ConsolidatedOrdersModal";
+import { getProductionOrderGroups } from "services/productionOrderGroupService";
 import TaskHistoryModal from "components/production/TaskHistoryModal";
 import TaskAddItemsModal from "components/production/TaskAddItemsModal";
 import DownloadOpsModal, { mergeOrdersForDownload } from "components/production/DownloadOpsModal";
@@ -84,7 +86,7 @@ import DieCutListPanel from "./dayboard/DieCutListPanel";
 import LateTasksPanel from "./dayboard/LateTasksPanel";
 import useCutAndLate from "./dayboard/useCutAndLate";
 import DayCapacityBar from "./dayplanner/DayCapacityBar";
-import { capacityStatus, dayCapacity } from "utils/dayPlanHelper";
+import { capacityStatus, dayCapacity, parseConsolidated } from "utils/dayPlanHelper";
 import { useAuth } from "contexts/AuthContext";
 import useMoveTaskItem from "./hooks/useMoveTaskItem";
 import { MAX_HOURS_PER_DESK, getTaskBaseHours, getTaskExtraHours } from "utils/taskHoursHelper";
@@ -129,6 +131,11 @@ const STATION_STYLESHEET = `
   .tbs-grid { display: grid; gap: 16px; align-items: stretch; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); }
   .tbs-grid .tbs-board-item { margin-bottom: 0; }
   .tbs-grid .tbs-board-item > .tbs-desk { height: 100%; }
+  /* Mesas del día: una mesa por columna, de izquierda a derecha en orden; si no caben,
+     se desplaza en horizontal. Cada columna crece hacia abajo con sus tareas. */
+  .tbs-cols { display: flex; gap: 12px; align-items: flex-start; overflow-x: auto; padding-bottom: 8px; }
+  .tbs-cols > .tbs-board-item { flex: 1 0 250px; max-width: 340px; margin-bottom: 0; }
+  @media (max-width: 575px) { .tbs-cols > .tbs-board-item { flex-basis: 82vw; } }
   .tbs-board { column-gap: 16px; column-count: 1; }
   .tbs-board-item { break-inside: avoid; page-break-inside: avoid; margin-bottom: 16px; }
   @media (min-width: 768px)  { .tbs-board { column-count: 2; } }
@@ -371,6 +378,18 @@ function TasksByTable() {
   const [ordersReady, setOrdersReady] = useState(false);
   const ordersPromiseRef = useRef(null);
   const [showCinchos, setShowCinchos] = useState(false);
+  /** OP consolidadas activas: el modal para crearlas y, por OP, a cuál pertenece (para cinchos). */
+  const [showConsolidated, setShowConsolidated] = useState(false);
+  const [orderGroups, setOrderGroups] = useState([]);
+  const loadOrderGroups = useCallback(() => {
+    getProductionOrderGroups().then((g) => setOrderGroups(Array.isArray(g) ? g : [])).catch(() => setOrderGroups([]));
+  }, []);
+  useEffect(() => { loadOrderGroups(); }, [loadOrderGroups]);
+  const groupByOrderId = useMemo(() => {
+    const m = {};
+    orderGroups.forEach((g) => (g.orders || []).forEach((o) => { m[o.id] = g; }));
+    return m;
+  }, [orderGroups]);
   const [pendingSheet, setPendingSheet] = useState(null);
   // Mover líneas entre mesas y fechas solo lo hacen administración y producción.
   const { hasAnyRole } = useAuth();
@@ -836,7 +855,10 @@ function TasksByTable() {
     const itemsText = (task.items || [])
       .map((i) => `${i.productCode || ""} ${i.productName || ""} ${i.colorName || ""}`)
       .join(" ");
-    const searchable = `${task.code || ""} ${task.productionOrderCode || ""} ${task.productName || ""} ${task.productCode || ""} ${task.colorName || ""} ${itemsText}`.toLowerCase();
+    // Una tarea de OP consolidada se encuentra por la consolidada o por cualquiera de sus órdenes.
+    const cons = parseConsolidated(task.observations);
+    const lfText = cons ? `${cons.groupCode} ${cons.codes.join(" ")}` : "";
+    const searchable = `${task.code || ""} ${task.productionOrderCode || ""} ${lfText} ${task.productName || ""} ${task.productCode || ""} ${task.colorName || ""} ${itemsText}`.toLowerCase();
     return searchable.includes(term);
   }, [searchTerm]);
 
@@ -1545,6 +1567,7 @@ function TasksByTable() {
     const open = task.status === "PENDING" || task.status === "IN_PROGRESS";
     const paused = !!task.pausedAt;
     const missing = ["LEATHER", "DIE_CUT", "MATERIALS"].filter((k) => !hasPhaseReached(task, k));
+    const cons = parseConsolidated(task.observations);
     const abrirDetalle = (e) => {
       if (e.target.closest("button, a, input, select, textarea, label, .btn, .dropdown-menu")) return;
       setDetailTask(task);
@@ -1591,7 +1614,14 @@ function TasksByTable() {
           <span className="tbs-qty">{task.quantity} uds</span>
         </div>
         <div className="tbs-task-sub">
-          <span className="tbs-op">{task.productionOrderCode}</span>
+          {cons ? (
+            <span className="tbs-op" style={{ background: "#ebe3fa", color: "#4a2f8a" }}
+              title={`OP consolidada ${cons.groupCode}: ${cons.codes.join(", ")}`}>
+              {cons.groupCode} · {cons.codes.length} OP
+            </span>
+          ) : (
+            <span className="tbs-op">{task.productionOrderCode}</span>
+          )}
           <span>{tiempo}</span>
           {renderDelayBadges(task, true)}
         </div>
@@ -1692,6 +1722,10 @@ function TasksByTable() {
         </div>
         <div className="d-flex flex-wrap align-items-center" style={{ gap: 8 }} role="toolbar" aria-label="Acciones del tablero">
           <Button color="primary" onClick={() => navigate("/admin/day-planner")}>Armar el día</Button>
+          <Button outline color="secondary" onClick={() => setShowConsolidated(true)}
+            title="Juntar varias OPV u OPC pequeñas de Luis Felipe en una sola OP de producción">
+            OP consolidada
+          </Button>
           <Button outline color="secondary" disabled={!!pendingSheet} onClick={() => requestSheet("pdf")} title="Hoja de mesas del día para imprimir">{pendingSheet === "pdf" ? "Preparando…" : "Hoja PDF"}</Button>
           <Button outline color="secondary" disabled={!!pendingSheet} onClick={() => requestSheet("excel")} title="Hoja de mesas del día en Excel">{pendingSheet === "excel" ? "Preparando…" : "Hoja Excel"}</Button>
           <UncontrolledDropdown>
@@ -1869,7 +1903,7 @@ function TasksByTable() {
                   </div>
                 </CardHeader>
                 <CardBody className="p-2">
-                  <div className="tbs-grid">
+                  <div className="tbs-cols">
                     {deskNumbers.map((desk) => renderDeskColumn(boardDay, desk, dayDeskMap[desk] || []))}
                   </div>
                   <div className="mt-3 pt-2" style={{ borderTop: "1px solid #e0e0e0" }}>
@@ -1885,6 +1919,7 @@ function TasksByTable() {
                     <div className="mt-4 pt-3" style={{ borderTop: "2px solid #adb5bd" }}>
                       <CinchosDayBoard
                         rows={cinchoRows}
+                        groupByOrderId={groupByOrderId}
                         workDateYmd={boardDay}
                         deliveredMap={cinchoDeliveredByDate[boardDay] || {}}
                         workStatusMap={cinchoWorkStatusByDate[boardDay] || {}}
@@ -2090,6 +2125,11 @@ function TasksByTable() {
           setAddItemsTask(null);
           showSuccess("Productos agregados a la tarea");
         }}
+      />
+      <ConsolidatedOrdersModal
+        isOpen={showConsolidated}
+        onClose={() => setShowConsolidated(false)}
+        onChanged={loadOrderGroups}
       />
       <DownloadOpsModal
         isOpen={showDownloadOpsModal}

@@ -4,6 +4,7 @@ import { useNavigate } from "react-router-dom";
 import DownloadOpsModal from "components/production/DownloadOpsModal";
 import { showError } from "utils/notificationHelper";
 import { concordar, contar } from "utils/textHelper";
+import { isConsolidatedTask, taskOrderCodes } from "utils/dayPlanHelper";
 import { dayShort } from "./StepReview";
 
 const fmt = (n) => (Math.round((n || 0) * 10) / 10).toFixed(1);
@@ -102,7 +103,7 @@ export default function StepDone({ planner }) {
           return (
             <li key={c.clientId || c.taskId}>
               <strong>{c.code}</strong>
-              <span>{t ? t.orderCode : ""}</span>
+              <span>{t ? (isConsolidatedTask(t) ? `${t.groupCode}: ${taskOrderCodes(t).join(", ")}` : t.orderCode) : ""}</span>
               <span>{fmt(hoursOf(c.clientId))} h</span>
               <span>{dayShort(c.scheduledDate)}{c.indicativeDesk ? ` · Mesa ${c.indicativeDesk}` : ""} <span className="dp-small">(se activa al cortar)</span></span>
             </li>

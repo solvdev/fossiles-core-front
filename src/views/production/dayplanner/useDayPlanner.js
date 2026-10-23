@@ -26,9 +26,11 @@ import {
   capacityStatus,
   clampTasksToRemaining,
   dayCapacity,
+  isConsolidatedTask,
   leftoverQuantity,
   lineFromItem,
   orderPrioritiesFromSelection,
+  packGroupLines,
   packOrderLines,
   sortTasksBySelection,
   splitOverflow,
@@ -37,6 +39,8 @@ import {
 } from "utils/dayPlanHelper";
 
 const DRAFT_KEY = "dayplanner.draft.v1";
+/** Valor del filtro de familia que deja solo las OPV de Luis Felipe. */
+export const LF_FILTER = "LF";
 /** El servidor devuelve a lo más 200 OPs por consulta (TaskOrganizerService). */
 const ORDERS_PAGE_SIZE = 200;
 /** Cuántas OPs piden sus ítems a la vez. */
@@ -267,22 +271,34 @@ export default function useDayPlanner() {
   const oplOrders = useMemo(() => orders.filter((o) => o.onlineSale), [orders]);
   const otherOrdersAll = useMemo(() => orders.filter((o) => !o.onlineSale), [orders]);
   const families = useMemo(
-    () => ["ALL", ...Array.from(new Set(otherOrdersAll.map((o) => o.family).filter(Boolean)))],
+    () => [
+      "ALL",
+      ...Array.from(new Set(otherOrdersAll.map((o) => o.family).filter(Boolean))),
+      // Filtro aparte: las OPV de Luis Felipe, que se pueden juntar en una tarea.
+      ...(otherOrdersAll.some((o) => o.luisFelipe) ? [LF_FILTER] : []),
+    ],
     [otherOrdersAll]
   );
   const otherOrders = useMemo(() => {
     const q = search.trim().toLowerCase();
     return otherOrdersAll
-      .filter((o) => familyFilter === "ALL" || o.family === familyFilter)
+      .filter((o) => familyFilter === "ALL" || (familyFilter === LF_FILTER ? o.luisFelipe : o.family === familyFilter))
       .filter((o) => !q
         || String(o.code || "").toLowerCase().includes(q)
         || String(o.customerName || "").toLowerCase().includes(q));
   }, [otherOrdersAll, search, familyFilter]);
 
+  /** Marca o desmarca una OP; las de una OP consolidada se marcan y desmarcan todas juntas. */
   const toggleOrder = useCallback((id) => {
+    const order = ordersRef.current.find((o) => o.id === id);
+    const groupIds = order?.groupId
+      ? ordersRef.current.filter((o) => o.groupId === order.groupId).map((o) => o.id)
+      : [id];
     setSelectedIds((prev) => {
       const cur = prev || [];
-      return cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id];
+      return cur.includes(id)
+        ? cur.filter((x) => !groupIds.includes(x))
+        : [...cur, ...groupIds.filter((x) => !cur.includes(x))];
     });
   }, []);
 
@@ -418,7 +434,9 @@ export default function useDayPlanner() {
       if (target === "new") {
         const order = orders.find((o) => o.id === from.orderId);
         // Si la línea sola pasa de 4 h, se parte en varias tareas en vez de perder unidades.
-        next = [...next, ...packOrderLines(order, [{ item: { ...line }, quantity: line.quantity }])];
+        next = [...next, ...(from.groupId
+          ? packGroupLines([{ ...line, orderId: line.orderId || from.orderId, orderCode: line.orderCode || from.orderCode }], orders)
+          : packOrderLines(order, [{ item: { ...line }, quantity: line.quantity }]))];
       } else {
         next = next.map((t) => {
           if (t.clientId !== target) return t;
@@ -432,10 +450,15 @@ export default function useDayPlanner() {
     });
   }, [editTasks, orders, ids]);
 
-  /** Agrega a una tarea todo lo que queda de un producto de su OP. */
+  /** OP dueña de un ítem (para etiquetar las líneas de una consolidada). */
+  const orderOfItem = useCallback((itemId) => orders.find((o) => (o.items || [])
+    .some((i) => i.productionOrderItemId === itemId)) || null, [orders]);
+
+  /** Agrega a una tarea todo lo que queda de un producto de su OP (o de su OP consolidada). */
   const addItem = useCallback((clientId, itemId) => {
     const item = itemById(itemId);
     if (!item) return;
+    const owner = orderOfItem(itemId);
     editTasks((prev) => {
       const qty = leftoverQuantity(item, prev);
       if (qty <= 0) return prev;
@@ -443,10 +466,12 @@ export default function useDayPlanner() {
         if (t.clientId !== clientId) return t;
         const same = t.lines.find((l) => l.productionOrderItemId === itemId);
         if (same) return { ...t, lines: t.lines.map((l) => (l === same ? { ...l, quantity: l.quantity + qty } : l)) };
-        return { ...t, lines: [...t.lines, lineFromItem(item, qty)] };
+        // En una tarea de consolidada cada línea recuerda su OP.
+        const tagged = t.groupId && owner ? { ...item, orderId: owner.id, orderCode: owner.code } : item;
+        return { ...t, lines: [...t.lines, lineFromItem(tagged, qty)] };
       });
     }, { keepEmpty: true });
-  }, [editTasks, itemById]);
+  }, [editTasks, itemById, orderOfItem]);
 
   /** Tarea vacía para una OP marcada. Devuelve su clientId para abrirla. */
   const newTask = useCallback((orderId) => {
@@ -455,7 +480,9 @@ export default function useDayPlanner() {
     const clientId = `n${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`;
     const task = {
       clientId, orderId: order.id, orderCode: order.code, family: order.family || null,
-      onlineSale: !!order.onlineSale, customerName: order.customerName || null, lines: [],
+      onlineSale: !!order.onlineSale, luisFelipe: !!order.luisFelipe,
+      groupId: order.groupId || null, groupCode: order.groupCode || null,
+      customerName: order.customerName || null, lines: [],
     };
     editTasks((prev) => sortTasksBySelection([...prev, task], orders, ids), { keepEmpty: true });
     return clientId;
@@ -467,6 +494,14 @@ export default function useDayPlanner() {
       const task = prev.find((t) => t.clientId === clientId);
       const order = orders.find((o) => o.id === task?.orderId);
       if (!task || !order) return prev;
+      if (isConsolidatedTask(task)) {
+        // Se vuelve a repartir en tareas de hasta 4 h con las órdenes de la consolidada.
+        const parts = packGroupLines(task.lines.map((l) => ({
+          ...l, orderId: l.orderId || task.orderId, orderCode: l.orderCode || task.orderCode,
+        })), orders);
+        const at = prev.indexOf(task);
+        return [...prev.slice(0, at), ...parts, ...prev.slice(at + 1)];
+      }
       const { task: fixed, extra } = splitOverflow(task, order);
       return sortTasksBySelection(prev.map((t) => (t.clientId === clientId ? fixed : t)).concat(extra), orders, ids);
     });
