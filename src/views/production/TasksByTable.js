@@ -121,20 +121,13 @@ const STATION_STYLESHEET = `
   .tbs-pill--warn { background: #fff3cd; color: #7a5a00; }
   .tbs-pill--bad { background: #fde2dc; color: #a3300f; }
   .tbs-pill--info { background: #dff3f9; color: #0b5c75; }
-  .tbs-task--lean { padding: 10px 12px; }
-  .tbs-task--lean .tbs-task-sub { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: center; margin-top: 2px; font-size: 12px; color: var(--tbs-muted); }
-  .tbs-missing { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; }
-  .tbs-lean-foot { display: flex; align-items: center; gap: 6px; margin-top: 10px; }
-  .tbs-lean-foot .btn { margin: 0; }
-  .tbs-kebab { font-size: 20px; line-height: 1; padding: 0 8px; color: var(--tbs-muted) !important; }
-  .tbs-kebab:after { display: none !important; }
   .tbs-grid { display: grid; gap: 16px; align-items: stretch; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); }
   .tbs-grid .tbs-board-item { margin-bottom: 0; }
   .tbs-grid .tbs-board-item > .tbs-desk { height: 100%; }
   /* Mesas del día: una mesa por columna, de izquierda a derecha en orden; si no caben,
      se desplaza en horizontal. Cada columna crece hacia abajo con sus tareas. */
   .tbs-cols { display: flex; gap: 12px; align-items: flex-start; overflow-x: auto; padding-bottom: 8px; }
-  .tbs-cols > .tbs-board-item { flex: 1 0 250px; max-width: 340px; margin-bottom: 0; }
+  .tbs-cols > .tbs-board-item { flex: 1 0 300px; max-width: 380px; margin-bottom: 0; }
   @media (max-width: 575px) { .tbs-cols > .tbs-board-item { flex-basis: 82vw; } }
   .tbs-board { column-gap: 16px; column-count: 1; }
   .tbs-board-item { break-inside: avoid; page-break-inside: avoid; margin-bottom: 16px; }
@@ -1545,13 +1538,13 @@ function TasksByTable() {
   // ==================== RENDER ====================
 
   /**
-   * Tarjeta de tarea, lo mínimo para decidir: qué es, cuánto dura, qué le falta y la acción
-   * que toca. Lo demás (pausar, cancelar, agregar, historial, boleta) va en el menú «⋯».
+   * Tarjeta de tarea, igual que la del tablero de siempre: todos los productos, OP e inicio,
+   * las tres fases, el tiempo con «Del día» y la boleta, y los botones de estado a la vista.
+   * Pausar y cancelar piden motivo (queda en el historial). Sin menús desplegables: dentro
+   * de la columna de la mesa se recortaban.
    */
   const renderBoardCard = (task) => {
     const items = getTaskItems(task);
-    const first = items[0];
-    const extraItems = items.length - 1;
     const totalTaskHours = task.estimatedHours || 0;
     const extraHours = getTaskExtraHours(task);
     const baseTaskHours = Math.max(totalTaskHours - extraHours, 0);
@@ -1559,44 +1552,65 @@ function TasksByTable() {
       ? formatProductionDuration(baseTaskHours) + " + " + formatProductionDuration(extraHours)
       : formatProductionDuration(baseTaskHours);
     const tono =
-      task.status === "COMPLETED" ? "#6bd098" :
-      task.status === "IN_PROGRESS" ? "#51bcda" :
-      task.status === "CANCELLED" ? "#ef8157" :
-      !task.dieCutReady ? "#f5a3c7" : "#fbc658";
+      task.status === "COMPLETED" ? { mod: "", line: "#6bd098" } :
+      task.status === "IN_PROGRESS" ? { mod: "", line: task.pausedAt ? "#fbc658" : "#51bcda" } :
+      task.status === "CANCELLED" ? { mod: "tbs-task--cancelled", line: "#ef8157" } :
+      !task.dieCutReady ? { mod: "", line: "#f5a3c7" } : { mod: "", line: "#fbc658" };
     const enCurso = statusChanging[task.id];
     const open = task.status === "PENDING" || task.status === "IN_PROGRESS";
     const paused = !!task.pausedAt;
-    const missing = ["LEATHER", "DIE_CUT", "MATERIALS"].filter((k) => !hasPhaseReached(task, k));
     const cons = parseConsolidated(task.observations);
+    const commonStyle = { fontSize: "10px", padding: "1px 6px", height: "22px" };
+    // Cualquier punto de la tarjeta abre el detalle salvo los controles reales.
     const abrirDetalle = (e) => {
-      if (e.target.closest("button, a, input, select, textarea, label, .btn, .dropdown-menu")) return;
+      if (e.target.closest("button, a, input, select, textarea, label, .btn")) return;
       setDetailTask(task);
     };
+    const boton = ({ estado, color, outline, etiqueta, enMarcha, title, onClick }) => (
+      <Button
+        color={color} outline={outline} size="sm" style={commonStyle} disabled={!!enCurso}
+        title={enCurso ? "Aplicando el cambio…" : title}
+        onClick={onClick || (() => handleStatusChange(task.id, estado))}
+      >
+        {estado && enCurso === estado ? (
+          <><Spinner size="sm" style={{ width: 10, height: 10, borderWidth: 1.5 }} className="mr-1" />{enMarcha}</>
+        ) : etiqueta}
+      </Button>
+    );
 
-    let primary = null;
+    let acciones;
     if (task.status === "PENDING") {
-      primary = (
-        <Button color="info" size="sm" disabled={!!enCurso} onClick={() => handleStatusChange(task.id, "IN_PROGRESS")}>
-          {enCurso === "IN_PROGRESS" ? <Spinner size="sm" /> : "Iniciar"}
-        </Button>
+      acciones = (
+        <div>
+          {boton({ estado: "IN_PROGRESS", color: "info", etiqueta: "Iniciar", enMarcha: "Iniciando…", title: "Iniciar tarea" })}
+          {boton({ color: "danger", outline: true, etiqueta: "Cancelar", title: "Cancelar tarea (pide motivo)",
+            onClick: () => setReasonDialog({ task, kind: "cancel" }) })}
+        </div>
       );
     } else if (task.status === "IN_PROGRESS" && paused) {
-      primary = <Button color="warning" size="sm" disabled={!!enCurso} onClick={() => handleResume(task)}>Reanudar</Button>;
+      acciones = (
+        <div>
+          <Badge color="warning" style={{ fontSize: 10 }}>En pausa</Badge>
+          {boton({ color: "warning", etiqueta: "Reanudar", title: "Reanudar la tarea", onClick: () => handleResume(task) })}
+        </div>
+      );
     } else if (task.status === "IN_PROGRESS") {
-      primary = (
-        <Button color="success" size="sm" disabled={!!enCurso} onClick={() => handleStatusChange(task.id, "COMPLETED")}>
-          {enCurso === "COMPLETED" ? <Spinner size="sm" /> : "Completar"}
-        </Button>
+      acciones = (
+        <div>
+          {boton({ estado: "COMPLETED", color: "success", etiqueta: "Completar", enMarcha: "Completando…", title: "Completar tarea" })}
+          {boton({ color: "warning", outline: true, etiqueta: "Pausar", title: "Pausar (pide motivo; el reloj se detiene)",
+            onClick: () => setReasonDialog({ task, kind: "pause" }) })}
+        </div>
       );
     } else {
-      primary = getStatusBadge(task.status);
+      acciones = getStatusBadge(task.status);
     }
 
     return (
       <div
         key={task.id}
-        className="tbs-task tbs-task--lean"
-        style={{ "--tbs-state": tono }}
+        className={"tbs-task " + tono.mod}
+        style={{ "--tbs-state": tono.line }}
         role="button"
         tabIndex={0}
         title="Ver detalle de la tarea"
@@ -1607,12 +1621,17 @@ function TasksByTable() {
       >
         <div className="tbs-task-head">
           <div className="tbs-task-prod">
-            {first ? first.productCode : task.code}
-            {first?.colorName && <span className="tbs-color"> {"\u00b7"} {first.colorName}</span>}
-            {extraItems > 0 && <span className="tbs-color"> +{extraItems}</span>}
+            {items.map((item, i) => (
+              <span key={i}>
+                {i > 0 && <span className="tbs-color">, </span>}
+                {item.productCode}
+                {item.colorName && <span className="tbs-color"> {"·"} {item.colorName}</span>}
+              </span>
+            ))}
           </div>
           <span className="tbs-qty">{task.quantity} uds</span>
         </div>
+
         <div className="tbs-task-sub">
           {cons ? (
             <span className="tbs-op" style={{ background: "#ebe3fa", color: "#4a2f8a" }}
@@ -1622,33 +1641,51 @@ function TasksByTable() {
           ) : (
             <span className="tbs-op">{task.productionOrderCode}</span>
           )}
-          <span>{tiempo}</span>
+          {task.startTime && <span>Inicio {task.startTime}</span>}
           {renderDelayBadges(task, true)}
         </div>
-        {task.status === "PENDING" && missing.length > 0 && (
-          <div className="tbs-missing">
-            {missing.map((k) => <React.Fragment key={k}>{renderPhaseControl(task, k, true)}</React.Fragment>)}
+
+        <div className="tbs-phases">
+          {renderPhaseControl(task, "LEATHER", true)}
+          {renderPhaseControl(task, "DIE_CUT", true)}
+          {renderPhaseControl(task, "MATERIALS", true)}
+        </div>
+
+        <div className="tbs-task-foot">
+          <div className="tbs-foot-top">
+            <span className="tbs-time" title="Tiempo base + extra de venta del día">{tiempo}</span>
+            <div className="tbs-side">
+              {open && (
+                <button type="button" className="tbs-day-btn" title="Agregar productos de venta del día"
+                  onClick={() => openDaySaleModal(task)}>
+                  <i className="nc-icon nc-simple-add" /> Del día
+                </button>
+              )}
+              {open && (
+                <button type="button" className="tbs-icon-btn" title="Agregar productos de la OP"
+                  onClick={() => setAddItemsTask(task)}>
+                  <i className="nc-icon nc-bag-16" />
+                </button>
+              )}
+              {taskYaIniciada(task) && (
+                <button type="button" className="tbs-icon-btn" title="Imprimir boleta" onClick={() => openPrintForTask(task)}>
+                  <i className="nc-icon nc-single-copy-04" />
+                </button>
+              )}
+              <button type="button" className="tbs-icon-btn" title="Historial" onClick={() => setHistoryTask(task)}>
+                <i className="nc-icon nc-time-alarm" />
+              </button>
+            </div>
           </div>
-        )}
-        <div className="tbs-lean-foot">
-          {primary}
-          <UncontrolledDropdown direction="up" className="ml-auto">
-            <DropdownToggle color="link" size="sm" className="tbs-kebab" aria-label="Más acciones" title="Más acciones">⋯</DropdownToggle>
-            <DropdownMenu right>
-              {open && <DropdownItem onClick={() => setAddItemsTask(task)}>Agregar productos</DropdownItem>}
-              {open && <DropdownItem onClick={() => openDaySaleModal(task)}>Venta del día</DropdownItem>}
-              {task.status === "IN_PROGRESS" && !paused && (
-                <DropdownItem onClick={() => setReasonDialog({ task, kind: "pause" })}>Pausar</DropdownItem>
-              )}
-              {canForgiveDelay && task.delayed && !task.delayForgivenAt && (
-                <DropdownItem onClick={() => setReasonDialog({ task, kind: "forgive" })}>Perdonar atraso</DropdownItem>
-              )}
-              {taskYaIniciada(task) && <DropdownItem onClick={() => openPrintForTask(task)}>Imprimir boleta</DropdownItem>}
-              <DropdownItem onClick={() => setHistoryTask(task)}>Historial</DropdownItem>
-              {open && <DropdownItem divider />}
-              {open && <DropdownItem className="text-danger" onClick={() => setReasonDialog({ task, kind: "cancel" })}>Cancelar tarea</DropdownItem>}
-            </DropdownMenu>
-          </UncontrolledDropdown>
+          <div className="tbs-actions">
+            {acciones}
+            {canForgiveDelay && task.delayed && !task.delayForgivenAt && (
+              <Button color="link" size="sm" className="p-0" style={{ fontSize: 10 }}
+                onClick={() => setReasonDialog({ task, kind: "forgive" })}>
+                Perdonar atraso
+              </Button>
+            )}
+          </div>
         </div>
       </div>
     );

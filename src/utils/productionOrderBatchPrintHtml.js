@@ -756,13 +756,14 @@ export function openProductionOrdersBatchPrintWindow(orders, options = {}) {
       <!doctype html>
       <html>
         <head>
-          <title>OPs ${escapeHtml(codesLabel.slice(0, 80))}</title>
+          <title>${options.title ? escapeHtml(options.title) : `OPs ${escapeHtml(codesLabel.slice(0, 80))}`}</title>
           <style id="print-page-size"></style>
           <style>${getBatchPrintDocumentStyles()}</style>
         </head>
         <body>
           ${getPrintOrientationToolbarHtml(landscape)}
           <div class="print-meta no-print">${sorted.length} orden(es) · ${orientNote}${includeSummary ? " · con resumen" : " · sin resumen"} · ${escapeHtml(generatedAt)}</div>
+          ${options.title ? `<h2 style="margin:4px 0 8px;font-size:18px">${escapeHtml(options.title)}</h2>` : ""}
           ${bodyHtml}
         </body>
       </html>
@@ -934,7 +935,8 @@ function buildMergedBatchDetailExcelRows(orders) {
 }
 
 /** Excel: resumen + detalle unificado (sin hoja por OP). */
-export function downloadProductionOrdersBatchExcel(orders, tasks = []) {
+/** @param fileBase nombre del archivo sin fecha ni extensión (p. ej. la OP consolidada) */
+export function downloadProductionOrdersBatchExcel(orders, tasks = [], fileBase = "ordenes_produccion") {
   const sorted = sortProductionOrdersByCode(orders);
   if (!sorted.length) return false;
 
@@ -948,6 +950,6 @@ export function downloadProductionOrdersBatchExcel(orders, tasks = []) {
   XLSX.utils.book_append_sheet(wb, wsDetail, "Detalle_unificado");
 
   const stamp = new Date().toISOString().slice(0, 10);
-  XLSX.writeFile(wb, `ordenes_produccion_${stamp}.xlsx`);
+  XLSX.writeFile(wb, `${fileBase}_${stamp}.xlsx`);
   return true;
 }
