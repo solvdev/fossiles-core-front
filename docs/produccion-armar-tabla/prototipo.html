@@ -1,0 +1,231 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Armar tareas en tabla</title>
+<style>
+  :root {
+    --ink: #2f3337; --muted: #7b8086; --line: #e3e6e8; --soft: #f5f6f7; --bg: #f3f2ef;
+    --ok: #1e6b45; --okbg: #dff5e9; --near: #7a5a00; --nearbg: #fff0c4; --bad: #a3300f; --badbg: #fbd9cc;
+    --lf: #4a2f8a; --lfbg: #ebe3fa; --accent: #1d7fa3;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.4 Montserrat, "Segoe UI", Arial, sans-serif; }
+  .wrap { max-width: 1200px; margin: 0 auto; padding: 20px 16px 60px; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  .sub { color: var(--muted); margin-bottom: 16px; }
+  .proto { background: #fff8e1; border: 1px dashed #e0c36a; border-radius: 8px; padding: 10px 12px; margin-bottom: 16px; font-size: 13px; }
+  .proto b { color: #6a4f00; }
+  .seg { display: inline-flex; border: 1px solid #b9b4aa; border-radius: 999px; overflow: hidden; margin: 6px 6px 0 0; }
+  .seg button { border: 0; background: #fff; padding: 6px 14px; cursor: pointer; font: inherit; font-size: 13px; }
+  .seg button[aria-pressed="true"] { background: #514c45; color: #fff; }
+  .card { background: #fff; border: 1px solid var(--line); border-radius: 10px; }
+  .step-h { display: flex; align-items: center; gap: 10px; padding: 14px 16px; border-bottom: 1px solid var(--line); }
+  .num { width: 30px; height: 30px; border-radius: 50%; background: #1d6f93; color: #fff; display: grid; place-items: center; font-weight: 700; }
+  .step-h strong { font-size: 16px; }
+  .body { padding: 14px 16px; }
+  .note { border-radius: 8px; padding: 10px 12px; border: 1px solid #a8dcc0; background: #e6f6ee; color: var(--ok); margin-bottom: 12px; }
+  .scroll { overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; }
+  table { border-collapse: collapse; width: 100%; min-width: 760px; }
+  th, td { border-bottom: 1px solid var(--line); padding: 8px 10px; text-align: left; vertical-align: middle; }
+  thead th { background: var(--soft); font-size: 12px; text-transform: uppercase; letter-spacing: .03em; color: #555b61; position: sticky; top: 0; }
+  th.color, td.qty { text-align: center; width: 78px; }
+  th.color.prio { background: #ecebe6; }
+  td.qty { font-weight: 700; font-variant-numeric: tabular-nums; }
+  td.qty.zero { color: #c9cdd1; font-weight: 400; }
+  td.qty input { width: 52px; text-align: center; font: inherit; font-weight: 700; border: 1px solid transparent; border-radius: 6px; padding: 3px; background: transparent; }
+  td.qty input:hover { border-color: var(--line); background: #fff; }
+  td.qty input:focus { outline: 2px solid var(--accent); background: #fff; }
+  td.num-c { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  td.task { width: 210px; border-right: 1px solid var(--line); background: #fcfcfb; }
+  tr.first-of-task td { border-top: 2px solid #cfd3d6; }
+  .tname { font-weight: 800; }
+  .tmeta { color: var(--muted); font-size: 12px; margin-top: 2px; }
+  .chip { display: inline-block; border-radius: 999px; padding: 1px 9px; font-size: 11px; font-weight: 700; margin-top: 4px; }
+  .chip.ok { background: var(--okbg); color: var(--ok); } .chip.near { background: var(--nearbg); color: var(--near); } .chip.over { background: var(--badbg); color: var(--bad); }
+  .chip.lf { background: var(--lfbg); color: var(--lf); }
+  .bar { height: 5px; background: #ebe7e1; border-radius: 3px; margin-top: 6px; position: relative; }
+  .bar i { display: block; height: 100%; border-radius: 3px; }
+  .bar .ideal { position: absolute; top: -3px; bottom: -3px; width: 1px; background: #555; left: 80%; }
+  .prod b { font-weight: 800; }
+  .prod small { color: var(--muted); display: block; }
+  .opcode { display: inline-block; background: var(--lfbg); color: var(--lf); border-radius: 4px; padding: 0 5px; font-size: 11px; font-weight: 700; margin-left: 4px; }
+  tfoot td { background: var(--soft); font-weight: 800; }
+  tfoot tr.check td { font-weight: 600; color: var(--muted); background: #fff; font-size: 12px; }
+  tfoot tr.check td.ok { color: var(--ok); } tfoot tr.check td.left { color: var(--bad); }
+  .legend { margin-top: 10px; color: var(--muted); font-size: 12px; }
+  .actions { display: flex; gap: 8px; margin-top: 14px; flex-wrap: wrap; }
+  .btn { border: 0; border-radius: 6px; padding: 10px 16px; font: inherit; font-weight: 700; font-size: 12px; text-transform: uppercase; background: #66615b; color: #fff; cursor: pointer; }
+  .btn.ghost { background: #fff; color: #555; border: 1px solid #c8c4bc; }
+  @media (max-width: 640px) { td.task { width: 150px; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Armar el día · paso 2 en tabla</h1>
+  <div class="sub">Prototipo para validar la vista. Datos de ejemplo; nada se guarda.</div>
+
+  <div class="proto">
+    <b>Cómo se lee:</b> cada fila es <b>una tarea × un producto</b>. Las columnas de color van siempre
+    <b>Negro, Café, Tostado, Whisky</b> primero (solo si la orden los trae) y después los demás colores que tenga.
+    El pie suma por color y lo compara con lo que pide la orden, para ver que todo quedó repartido.
+    Las cantidades se pueden cambiar en la celda.
+    <div>
+      <span class="seg" role="group" aria-label="Ejemplo">
+        <button type="button" data-scn="one" aria-pressed="true">1 OP (OPV-64)</button>
+        <button type="button" data-scn="group" aria-pressed="false">OP consolidada LF-OPV-001</button>
+        <button type="button" data-scn="few" aria-pressed="false">OPK sin colores prioritarios</button>
+      </span>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="step-h"><span class="num">2</span><strong>Armar tareas</strong></div>
+    <div class="body">
+      <div class="note" id="summary"></div>
+      <div class="scroll"><table id="grid"></table></div>
+      <div class="legend">Ideal 4 h por tarea, máximo 5 h. Si una tarea se pasa, su chip se pone en rojo.</div>
+      <div class="actions">
+        <button class="btn" type="button">+ Nueva tarea</button>
+        <button class="btn ghost" type="button">Llenar el día</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  // ---- Orden de colores (mismo que las hojas) ----
+  const PRIO = [["negro", "negra"], ["cafe"], ["tostado"], ["whisky", "whiskey"]];
+  const norm = (s) => String(s || "").normalize("NFD").replace(/\p{M}/gu, "").trim().toLowerCase();
+  const rank = (c) => { const f = norm(c).split(/\s+/)[0]; const i = PRIO.findIndex((k) => k.includes(f)); return i < 0 ? PRIO.length : i; };
+  const cmpColor = (a, b) => rank(a) - rank(b) || a.localeCompare(b, "es", { sensitivity: "base" });
+
+  // ---- Ejemplos: líneas de OP (producto, color, unidades, horas por unidad) ----
+  const L = (op, code, name, color, qty, h) => ({ op, code, name, color, qty, h });
+  const SCN = {
+    one: { title: "OPV-64", lines: [
+      L("OPV-64", "B-27", "Billetera caballero", "Negro", 6, 0.25), L("OPV-64", "B-27", "Billetera caballero", "Café", 4, 0.25),
+      L("OPV-64", "B-27", "Billetera caballero", "Whisky", 2, 0.25), L("OPV-64", "B-22", "Billetera dama", "Negro", 5, 0.3),
+      L("OPV-64", "B-22", "Billetera dama", "Tostado", 3, 0.3), L("OPV-64", "B-22", "Billetera dama", "Rojo", 2, 0.3),
+      L("OPV-64", "BD-24", "Bolso dama", "Negro", 4, 0.45), L("OPV-64", "BD-24", "Bolso dama", "Coñac", 2, 0.45),
+    ] },
+    group: { title: "LF-OPV-001 (OPV-64 + OPV-65)", group: "LF-OPV-001", lines: [
+      L("OPV-64", "B-27", "Billetera caballero", "Negro", 6, 0.25), L("OPV-64", "B-27", "Billetera caballero", "Café", 4, 0.25),
+      L("OPV-65", "B-27", "Billetera caballero", "Negro", 3, 0.25), L("OPV-65", "B-27", "Billetera caballero", "Whisky", 2, 0.25),
+      L("OPV-64", "B-22", "Billetera dama", "Tostado", 3, 0.3), L("OPV-65", "B-22", "Billetera dama", "Negro", 4, 0.3),
+      L("OPV-65", "AC-9", "Cartera", "Negro", 3, 0.5), L("OPV-65", "AC-9", "Cartera", "Miel", 2, 0.5),
+    ] },
+    few: { title: "OPK-29", lines: [
+      L("OPK-29", "B-19", "Billetera", "Coñac", 6, 0.3), L("OPK-29", "B-19", "Billetera", "Azul", 4, 0.3),
+      L("OPK-29", "BD-2", "Bolso", "Rojo", 5, 0.4), L("OPK-29", "BD-2", "Bolso", "Coñac", 2, 0.4),
+    ] },
+  };
+
+  // ---- Reparto: llena tareas hasta 4 h siguiendo producto y el orden de colores ----
+  function pack(lines) {
+    const sorted = [...lines].sort((a, b) => a.code.localeCompare(b.code, "es", { numeric: true }) || cmpColor(a.color, b.color));
+    const tasks = [];
+    let cur = null;
+    sorted.forEach((l) => {
+      let left = l.qty;
+      while (left > 0) {
+        if (!cur) { cur = { lines: [], hours: 0 }; tasks.push(cur); }
+        let fit = Math.floor((4 - cur.hours + 1e-9) / l.h);
+        if (fit <= 0) { if (cur.lines.length) { cur = null; continue; } fit = 1; }
+        const take = Math.min(left, fit);
+        cur.lines.push({ ...l, qty: take });
+        cur.hours += take * l.h;
+        left -= take;
+      }
+    });
+    return tasks;
+  }
+
+  let state = null;
+  function load(key) {
+    const s = SCN[key];
+    state = { key, s, tasks: pack(s.lines) };
+    render();
+  }
+
+  const fmtH = (h) => { const m = Math.round(h * 60); return m >= 60 ? `${Math.floor(m / 60)} h${m % 60 ? " " + (m % 60) + " min" : ""}` : `${m} min`; };
+
+  function render() {
+    const { s, tasks } = state;
+    const colors = [...new Set(s.lines.map((l) => l.color))].sort(cmpColor);
+    const asked = {}; s.lines.forEach((l) => { asked[l.color] = (asked[l.color] || 0) + l.qty; });
+    const placed = {}; colors.forEach((c) => { placed[c] = 0; });
+    const isGroup = !!s.group;
+
+    let html = `<thead><tr><th>Tarea</th><th>Producto</th>${colors.map((c) =>
+      `<th class="color${rank(c) < 4 ? " prio" : ""}">${c}</th>`).join("")}<th class="num-c">Uds</th><th class="num-c">Tiempo</th></tr></thead><tbody>`;
+
+    tasks.forEach((t, ti) => {
+      // Filas de la tarea: una por producto (y por OP si es consolidada), con sus colores.
+      const rows = new Map();
+      t.lines.forEach((l) => {
+        const k = l.code + (isGroup ? "|" + l.op : "");
+        if (!rows.has(k)) rows.set(k, { code: l.code, name: l.name, op: l.op, byColor: {}, h: l.h });
+        const r = rows.get(k); r.byColor[l.color] = (r.byColor[l.color] || 0) + l.qty;
+      });
+      const hours = t.lines.reduce((a, l) => a + l.qty * l.h, 0);
+      const lvl = hours > 5 + 1e-9 ? "over" : hours > 3.2 + 1e-9 ? "near" : "ok";
+      const chip = { ok: "Cabe", near: "Cerca del límite", over: "Se pasó" }[lvl];
+      const barColor = { ok: "#6bd098", near: "#fbc658", over: "#ef8157" }[lvl];
+      const ops = [...new Set(t.lines.map((l) => l.op))];
+      [...rows.values()].forEach((r, ri) => {
+        const uds = Object.values(r.byColor).reduce((a, b) => a + b, 0);
+        html += `<tr class="${ri === 0 ? "first-of-task" : ""}">`;
+        if (ri === 0) {
+          html += `<td class="task" rowspan="${rows.size}">
+            <div class="tname">Tarea ${ti + 1}</div>
+            <div class="tmeta">${isGroup ? `<span class="chip lf">${s.group}</span> ` : ""}${ops.join(" + ")}</div>
+            <div class="tmeta">${fmtH(hours)} de 4 h</div>
+            <span class="chip ${lvl}">${chip}</span>
+            <div class="bar"><i style="width:${Math.min(hours / 5, 1) * 100}%;background:${barColor}"></i><span class="ideal"></span></div>
+          </td>`;
+        }
+        html += `<td class="prod"><b>${r.code}</b>${isGroup ? `<span class="opcode">${r.op}</span>` : ""}<small>${r.name}</small></td>`;
+        colors.forEach((c) => {
+          const q = r.byColor[c] || 0;
+          placed[c] += q;
+          html += q ? `<td class="qty"><input type="number" min="0" value="${q}" data-t="${ti}" data-code="${r.code}" data-op="${r.op}" data-c="${c}" aria-label="${r.code} ${c} en tarea ${ti + 1}"></td>`
+            : `<td class="qty zero">·</td>`;
+        });
+        html += `<td class="num-c"><b>${uds}</b></td><td class="num-c">${fmtH(uds * r.h)}</td></tr>`;
+      });
+    });
+
+    const totalAsked = Object.values(asked).reduce((a, b) => a + b, 0);
+    const totalPlaced = Object.values(placed).reduce((a, b) => a + b, 0);
+    html += `</tbody><tfoot><tr><td colspan="2">Total repartido</td>${colors.map((c) => `<td class="qty">${placed[c]}</td>`).join("")}<td class="num-c">${totalPlaced}</td><td></td></tr>
+      <tr class="check"><td colspan="2">Pide la orden</td>${colors.map((c) => {
+        const d = asked[c] - placed[c];
+        return `<td class="qty ${d === 0 ? "ok" : "left"}">${asked[c]}${d ? ` <br><small>faltan ${d}</small>` : " ✓"}</td>`;
+      }).join("")}<td class="num-c">${totalAsked}</td><td></td></tr></tfoot>`;
+    document.getElementById("grid").innerHTML = html;
+
+    const hoursAll = tasks.reduce((a, t) => a + t.lines.reduce((x, l) => x + l.qty * l.h, 0), 0);
+    document.getElementById("summary").innerHTML =
+      `<b>${tasks.length} tareas</b> · ${s.title} · ${fmtH(hoursAll)} base · ${totalPlaced} de ${totalAsked} unidades repartidas`;
+  }
+
+  // Cambiar una cantidad en la celda mueve unidades de esa tarea (el pie avisa si falta repartir).
+  document.addEventListener("change", (e) => {
+    const i = e.target.closest("input[data-t]");
+    if (!i) return;
+    const t = state.tasks[+i.dataset.t];
+    const want = Math.max(0, Math.floor(+i.value || 0));
+    const same = t.lines.filter((l) => l.code === i.dataset.code && l.op === i.dataset.op && l.color === i.dataset.c);
+    same.forEach((l, k) => { l.qty = k === 0 ? want : 0; });
+    render();
+  });
+  document.querySelectorAll("[data-scn]").forEach((b) => b.addEventListener("click", () => {
+    document.querySelectorAll("[data-scn]").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+    load(b.dataset.scn);
+  }));
+  load("one");
+</script>
+</body>
+</html>
