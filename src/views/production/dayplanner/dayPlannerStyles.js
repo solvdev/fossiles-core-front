@@ -115,6 +115,9 @@ export const DAY_PLANNER_CSS = `
 .dp-tt .dp-tt-bar{height:6px;background:#ebe7e1;border-radius:3px;margin:6px 0;position:relative}
 .dp-tt .dp-tt-bar i{display:block;height:100%;border-radius:3px}
 .dp-tt .dp-tt-bar span{position:absolute;top:-3px;bottom:-3px;width:1px;background:#555;left:80%}
+.dp-tt .dp-tt-tact{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;margin-top:6px}
+.dp-tt .dp-tt-tact .dp-link{min-height:36px;padding:0;font-size:14px}
+.dp .dp-tt .dp-tt-tact .btn{min-height:36px;margin:0;font-size:12px}
 .dp-tt .dp-tt-prod b{font-weight:800}
 .dp-tt .dp-tt-prod small{display:block;color:var(--dp-muted)}
 .dp-tt input.dp-tt-q{width:58px;min-height:40px;text-align:center;font-weight:800;border:1px solid #d8d4cc;border-radius:8px;background:#fff;font-size:16px}

@@ -54,10 +54,10 @@ function TaskCell({ group, rowSpan, planner, onAdd }) {
         {status.level !== "opl" && <span />}
       </div>
       <span className={`dp-chip ${status.level}`} style={{ fontSize: 12 }}>{CHIP_TEXT[status.level]}</span>
-      <div className="dp-tfoot" style={{ paddingBottom: 0 }}>
-        <Button className="dp-sm" onClick={onAdd}>＋ Producto</Button>
+      <div className="dp-tt-tact">
+        <button type="button" className="dp-link" onClick={onAdd}>＋ Producto</button>
         {status.level === "over" && (
-          <Button color="success" className="dp-sm" onClick={() => planner.fixTask(task.clientId)}>Arreglar sola</Button>
+          <Button color="success" size="sm" onClick={() => planner.fixTask(task.clientId)}>Arreglar sola</Button>
         )}
       </div>
     </td>
