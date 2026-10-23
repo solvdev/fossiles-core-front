@@ -55,15 +55,57 @@ export const getTasksByDate = async (date) => {
   return response.json();
 };
 
-export const updateTaskStatus = async (id, status) => {
+export const updateTaskStatus = async (id, status, reason) => {
   const response = await fetch(`${API_URL}/tasks/${id}/status`, {
     method: 'PUT',
     headers: headers(),
-    body: JSON.stringify({ status })
+    body: JSON.stringify(reason ? { status, reason } : { status })
   });
   if (!response.ok) {
     const err = await response.json().catch(() => ({ message: 'Error al actualizar estado' }));
     throw new Error(err.message || 'Error al actualizar estado');
+  }
+  return response.json();
+};
+
+const putOrPostTask = async (path, method, body, fallback) => {
+  const response = await fetch(`${API_URL}/tasks/${path}`, {
+    method,
+    headers: headers(),
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ message: fallback }));
+    throw new Error(err.message || fallback);
+  }
+  return response.json();
+};
+
+/** Pausa una tarea en proceso. El motivo es obligatorio; el reloj se detiene. */
+export const pauseTask = (id, reason) =>
+  putOrPostTask(`${id}/pause`, 'PUT', { reason }, 'No se pudo pausar la tarea');
+
+/** Reanuda una tarea pausada. */
+export const resumeTask = (id, reason) =>
+  putOrPostTask(`${id}/resume`, 'PUT', { reason }, 'No se pudo reanudar la tarea');
+
+/** Cancela una tarea con motivo: sus unidades vuelven a «no asignado». */
+export const cancelTask = (id, reason) => updateTaskStatus(id, 'CANCELLED', reason);
+
+/** El jefe perdona el atraso de una tarea (vuelve a ser comisionable). Motivo obligatorio. */
+export const forgiveTaskDelay = (id, reason) =>
+  putOrPostTask(`${id}/forgive-delay`, 'POST', { reason }, 'No se pudo perdonar el atraso');
+
+/** Agrega productos [{ productionOrderItemId, quantity }] a una tarea abierta. */
+export const addTaskItems = (id, items) =>
+  putOrPostTask(`${id}/items`, 'POST', items, 'No se pudieron agregar los productos');
+
+/** Historial de la tarea: qué le pasó, cuándo, quién y por qué. */
+export const getTaskHistory = async (id) => {
+  const response = await fetch(`${API_URL}/tasks/${id}/history`, { headers: headers() });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ message: 'No se pudo cargar el historial' }));
+    throw new Error(err.message || 'No se pudo cargar el historial');
   }
   return response.json();
 };
@@ -525,6 +567,50 @@ export const planTasksWindow = async (startDate, horizonDays, schedulingPrioriti
   return response.json();
 };
 
+/**
+ * Error de la API que conserva el estado y el cuerpo: al confirmar, el 409 trae el motivo
+ * (`PLAN_CHANGED`, `QTY_UNAVAILABLE`, `LOCK_TIMEOUT`) y, si cambió la carga, una vista previa nueva.
+ */
+const apiError = async (response, fallback) => {
+  const body = await response.json().catch(() => null);
+  const err = new Error((body && body.message) || fallback);
+  err.status = response.status;
+  err.body = body;
+  return err;
+};
+
+/**
+ * «Armar el día»: vista previa. No guarda nada: valida las tareas borrador, mide cada una
+ * contra el límite y propone día y mesa orientativa para las que están por crearse.
+ *
+ * @param {Object} payload ver `buildDayPlanPayload` en utils/dayPlanHelper.js
+ * @param {{signal?: AbortSignal}} [opts]
+ */
+export const previewDayPlan = async (payload, { signal } = {}) => {
+  const response = await fetch(`${API_URL}/tasks/organizer/day-plan/preview`, {
+    method: 'POST',
+    headers: headers(),
+    body: JSON.stringify(payload),
+    signal,
+  });
+  if (!response.ok) throw await apiError(response, 'No se pudo calcular la propuesta del día');
+  return response.json();
+};
+
+/**
+ * «Armar el día»: confirma. Crea todas las tareas o ninguna. Lleva la huella de la vista
+ * previa: si la carga cambió mientras tanto, el servidor responde 409 `PLAN_CHANGED`.
+ */
+export const confirmDayPlan = async (payload) => {
+  const response = await fetch(`${API_URL}/tasks/organizer/day-plan/confirm`, {
+    method: 'POST',
+    headers: headers(),
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) throw await apiError(response, 'No se pudieron crear las tareas');
+  return response.json();
+};
+
 export const runAutoPlan = async (productionOrderId, { regenerate = false, date } = {}) => {
   const params = new URLSearchParams();
   if (productionOrderId != null) params.append('productionOrderId', String(productionOrderId));
@@ -574,3 +660,16 @@ export const getOplDispatchSummary = async (dispatchDate) => {
   return response.json();
 };
 
+
+/** Ítems de UNA OP con su restante, paginados (para agregarlos a una tarea abierta). */
+export const getDayPlanOrderItems = async (orderId, { page = 0, size = 50 } = {}) => {
+  const response = await fetch(
+    `${API_URL}/tasks/organizer/day-plan/orders/${orderId}/items?page=${page}&size=${size}`,
+    { headers: headers() }
+  );
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ message: 'No se pudieron cargar los productos de la orden' }));
+    throw new Error(err.message || 'No se pudieron cargar los productos de la orden');
+  }
+  return response.json();
+};
