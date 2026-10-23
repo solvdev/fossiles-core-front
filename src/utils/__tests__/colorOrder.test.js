@@ -12,6 +12,12 @@ describe("orden de colores en las hojas", () => {
       .toEqual(["Negro", "Negro mate", "Café", "Café medio acabado", "Rojo acabado flores"]);
   });
 
+  test("colores combinados con «/» van con su primer color (nombres reales de la base)", () => {
+    const colors = ["COÑAC", "TOSTADO/CAFE", "NEGRO/CAFE", "WHISKY", "NEGRO", "GENA", "CAFE", "AZUL / DUNA", "TOSTADO"];
+    expect([...colors].sort(compareColorNames))
+      .toEqual(["NEGRO", "NEGRO/CAFE", "CAFE", "TOSTADO", "TOSTADO/CAFE", "WHISKY", "AZUL / DUNA", "COÑAC", "GENA"]);
+  });
+
   test("sin tildes ni mayúsculas, y Whiskey cuenta como Whisky", () => {
     expect(colorRank("CAFÉ")).toBe(1);
     expect(colorRank("whiskey")).toBe(3);
