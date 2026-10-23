@@ -84,6 +84,9 @@ function emptyTask(order, newId) {
     orderCode: order.code,
     family: order.family || null,
     onlineSale: !!order.onlineSale,
+    luisFelipe: !!order.luisFelipe,
+    groupId: order.groupId || null,
+    groupCode: order.groupCode || null,
     customerName: order.customerName || null,
     lines: [],
   };
@@ -91,7 +94,7 @@ function emptyTask(order, newId) {
 
 /** Línea de tarea a partir de un ítem del listado de OPs. */
 export function lineFromItem(item, quantity) {
-  return {
+  const line = {
     productionOrderItemId: item.productionOrderItemId,
     productCode: item.productCode,
     productName: item.productName,
@@ -101,6 +104,100 @@ export function lineFromItem(item, quantity) {
     unitsPerTask: item.unitsPerTask || null,
     remainingQuantity: item.remainingQuantity,
   };
+  // En una tarea consolidada cada línea recuerda su OP.
+  if (item.orderId) {
+    line.orderId = item.orderId;
+    line.orderCode = item.orderCode;
+  }
+  return line;
+}
+
+// ==================== OP consolidada ====================
+//
+// Varias OPV (o varias OPC) pequeñas de Luis Felipe se juntan en una OP consolidada desde el
+// Tablero. Aquí sus tareas se arman juntas: productos de todas sus órdenes en las mismas
+// tareas, con el mismo límite de 4 h ideal y 5 h tope. La OP de la primera línea es la
+// cabecera y cada línea recuerda su OP. El servidor solo acepta mezclar órdenes de la misma
+// consolidada activa (consolidateVendorOrders).
+
+/** Prefijo que el servidor pone en las observaciones de una tarea consolidada. */
+export const CONSOLIDATED_PREFIX = "Consolidada ";
+
+/**
+ * Consolidada y OPs de una tarea ya guardada, leídas de sus observaciones
+ * («Consolidada LF-OPV-007: OPV-64, OPV-65 | notas»). null si no es consolidada.
+ */
+export function parseConsolidated(observations) {
+  const text = String(observations || "").trim();
+  const m = /^Consolidada\s+([^:]+):\s*([^|]*)/.exec(text);
+  if (!m) return null;
+  const codes = m[2].split(",").map((c) => c.trim()).filter(Boolean);
+  return codes.length > 1 ? { groupCode: m[1].trim(), codes } : null;
+}
+
+/** OPs distintas que trabaja una tarea, en el orden de sus líneas. */
+export function taskOrderCodes(task) {
+  const codes = [];
+  (task?.lines || []).forEach((l) => {
+    const code = l.orderCode || task.orderCode;
+    if (code && !codes.includes(code)) codes.push(code);
+  });
+  if (codes.length === 0 && task?.orderCode) codes.push(task.orderCode);
+  return codes;
+}
+
+/** Tarea de una OP consolidada que de verdad junta más de una de sus órdenes. */
+export function isConsolidatedTask(task) {
+  return !!task?.groupId && !task.onlineSale && taskOrderCodes(task).length > 1;
+}
+
+/** Cabecera = OP de la primera línea. */
+function withHeaderFromLines(task, ordersById) {
+  const first = task.lines[0];
+  const head = first?.orderId ? ordersById.get(first.orderId) : null;
+  return head ? { ...task, orderId: head.id, orderCode: head.code, customerName: head.customerName || null } : { ...task };
+}
+
+/**
+ * Reparte líneas de las órdenes de UNA consolidada en tareas de hasta `idealHours`, sin
+ * importar de qué orden es cada una. Cada línea debe traer su `orderId` y `orderCode`.
+ */
+export function packGroupLines(lines, orders, opts = {}) {
+  const ordersById = new Map((orders || []).map((o) => [o.id, o]));
+  const firstOrder = ordersById.get(lines[0]?.orderId) || { id: null, code: null };
+  const wanted = (lines || []).map((l) => ({ item: { ...l }, quantity: l.quantity }));
+  return packOrderLines(firstOrder, wanted, opts).map((t) => withHeaderFromLines(t, ordersById));
+}
+
+/**
+ * Junta las tareas de cada OP consolidada: las de sus órdenes pasan a repartirse juntas.
+ * Las tareas consolidadas quedan donde estaba la primera de su grupo; las demás no cambian.
+ */
+export function consolidateGroups(tasks, orders, opts = {}) {
+  const ordersById = new Map((orders || []).map((o) => [o.id, o]));
+  const byGroup = new Map();
+  (tasks || []).forEach((t) => {
+    if (!t.groupId || t.onlineSale || t.lines.length === 0) return;
+    if (!byGroup.has(t.groupId)) byGroup.set(t.groupId, []);
+    byGroup.get(t.groupId).push(t);
+  });
+  let out = tasks;
+  byGroup.forEach((groupTasks) => {
+    const orderIds = new Set(groupTasks.flatMap((t) => t.lines.map((l) => l.orderId || t.orderId)));
+    if (orderIds.size < 2) return;
+    const lines = [];
+    groupTasks.forEach((t) => t.lines.forEach((l) => {
+      const orderId = l.orderId || t.orderId;
+      const same = lines.find((x) => x.productionOrderItemId === l.productionOrderItemId);
+      if (same) same.quantity += l.quantity;
+      else lines.push({ ...l, orderId, orderCode: l.orderCode || ordersById.get(orderId)?.code || t.orderCode });
+    }));
+    const ids = new Set(groupTasks.map((t) => t.clientId));
+    const at = out.findIndex((t) => ids.has(t.clientId));
+    const rest = out.filter((t) => !ids.has(t.clientId));
+    out = [...rest.slice(0, at), ...packGroupLines(lines, orders, opts), ...rest.slice(at)];
+  });
+  return out;
 }
 
 /**
@@ -186,7 +283,8 @@ export function capacityStatus(baseHours, capacity) {
  * Tareas sugeridas para las OPs marcadas.
  *
  * Orden: primero las OPL (en el orden en que vienen), luego las demás en el orden en que se
- * marcaron. Cada OP se agrupa por separado, porque una tarea no mezcla OPs base distintas.
+ * marcaron. Cada OP se agrupa por separado, porque una tarea no mezcla OPs base distintas,
+ * salvo las órdenes de una misma OP consolidada, que se reparten juntas.
  *
  * Con `opts.budgetHours` (horas base que caben en el día) el reparto se detiene al llenarse:
  * lo que no cabe queda sin tarea, para otro día. Las OPL no gastan presupuesto. El criterio
@@ -239,7 +337,8 @@ export function suggestGrouping(orders, selectedIds, existing = [], opts = {}) {
     });
     result.push(...packOrderLines(order, wanted, opts));
   });
-  return result;
+  // Las órdenes de una misma OP consolidada se reparten juntas.
+  return consolidateGroups(result, orders, opts);
 }
 
 /**
@@ -366,6 +465,7 @@ export function buildDayPlanPayload(tasks, ctx) {
       productionOrderId: t.orderId,
       scheduledDate: (ctx.dates && ctx.dates[t.clientId]) || null,
       observations: t.observations || null,
+      consolidateVendorOrders: isConsolidatedTask(t),
       items: t.lines.map((l) => ({
         productionOrderItemId: l.productionOrderItemId,
         quantity: l.quantity,

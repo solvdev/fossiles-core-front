@@ -37,6 +37,7 @@ export const DAY_PLANNER_CSS = `
 .dp-note.info{background:#e8f6fb;border-color:#a7dcee;color:#0b5c75}
 .dp-note.bad{background:#fdece6;border-color:#f3b49f;color:#a3300f}
 .dp-note.good{background:#e6f6ee;border-color:#a8dcc0;color:#1e6b45}
+.dp-note.lf{background:#f1ecfb;border-color:#c9b8ee;color:#4a2f8a;align-items:center}
 .dp-state{text-align:center;padding:32px 12px}
 .dp-state .dp-big-icon{font-size:40px}
 
@@ -77,6 +78,7 @@ export const DAY_PLANNER_CSS = `
 .dp-chip{display:inline-block;border-radius:999px;padding:3px 12px;font-size:14px;font-weight:700}
 .dp-chip.ok{background:#dff5e9;color:#1e6b45}.dp-chip.near{background:#fff0c4;color:#7a5a00}
 .dp-chip.over{background:#fbd9cc;color:#a3300f}.dp-chip.opl{background:#dcedc8;color:#33691e}
+.dp-chip.lf{background:#ebe3fa;color:#4a2f8a}
 .dp-cap{padding:0 14px 12px}
 .dp-cap .dp-cap-txt{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;font-weight:700;margin-bottom:4px}
 .dp-track{position:relative;height:16px;background:#ebe8e1;border-radius:999px}

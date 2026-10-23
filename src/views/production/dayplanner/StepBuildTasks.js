@@ -1,8 +1,10 @@
 import React, { useState } from "react";
 import { Button } from "reactstrap";
-import { leftoverQuantity, limitStatus, lineHours, planBlockers, summarizePlan } from "utils/dayPlanHelper";
+import {
+  isConsolidatedTask, leftoverQuantity, limitStatus, lineHours, planBlockers, summarizePlan, taskOrderCodes,
+} from "utils/dayPlanHelper";
 import { contar } from "utils/textHelper";
-import FamilyBadge from "../organizer/FamilyBadge";
+import FamilyBadge from "../dayboard/FamilyBadge";
 import TaskCapacityBar from "./TaskCapacityBar";
 
 const fmt = (n) => (Math.round((n || 0) * 10) / 10).toFixed(1);
@@ -13,16 +15,24 @@ const CHIP_TEXT = { opl: "OPL · prioridad", ok: "Cabe", near: "Cerca del límit
 function TaskCard({ task, index, tasks, planner, open, onToggle, addOpen, onToggleAdd }) {
   const { orders, changeQty, removeLine, moveLine, addItem, fixTask, itemById } = planner;
   const status = limitStatus(task);
-  const order = orders.find((o) => o.id === task.orderId);
-  const siblings = tasks.filter((t) => t.orderId === task.orderId && t.clientId !== task.clientId);
-  const addable = (order?.items || []).filter((it) => leftoverQuantity(it, tasks) > 0);
+  const codes = taskOrderCodes(task);
+  const consolidated = isConsolidatedTask(task);
+  // Una tarea de OP consolidada toma productos de cualquiera de sus órdenes y mueve líneas
+  // a otras tareas de la misma consolidada.
+  const taskOrders = task.groupId
+    ? orders.filter((o) => o.groupId === task.groupId)
+    : orders.filter((o) => o.id === task.orderId);
+  const siblings = tasks.filter((t) => t.clientId !== task.clientId
+    && (task.groupId ? t.groupId === task.groupId : t.orderId === task.orderId));
+  const addable = taskOrders.flatMap((o) => o.items || []).filter((it) => leftoverQuantity(it, tasks) > 0);
 
   return (
     <div className={`dp-tcard lv-${status.level}`}>
       <div className="dp-thead">
         <span className="dp-tn">Tarea {index + 1}</span>
         <span><FamilyBadge family={task.family} /></span>
-        <strong>{task.orderCode}</strong>
+        <strong title={codes.join(", ")}>{consolidated ? codes.join(" + ") : task.orderCode}</strong>
+        {task.groupCode && <span className="dp-chip lf" title="OP consolidada">{task.groupCode}</span>}
         <span className={`dp-chip ${status.level}`}>{CHIP_TEXT[status.level]}</span>
         <span style={{ flex: 1 }} />
         <button type="button" className="dp-link" aria-expanded={open} onClick={onToggle}>
@@ -42,7 +52,10 @@ function TaskCard({ task, index, tasks, planner, open, onToggle, addOpen, onTogg
               <div className="dp-line" key={l.productionOrderItemId}>
                 <div className="dp-nm">
                   <strong>{l.productCode} {l.productName}{l.colorName ? ` · ${l.colorName}` : ""}</strong>
-                  <small>{fmt(l.prdTimePerUnit)} h por unidad · {fmt(lineHours(l.quantity, l.prdTimePerUnit))} h</small>
+                  <small>
+                    {consolidated && l.orderCode ? `${l.orderCode} · ` : ""}
+                    {fmt(l.prdTimePerUnit)} h por unidad · {fmt(lineHours(l.quantity, l.prdTimePerUnit))} h
+                  </small>
                 </div>
                 <div className="dp-qty">
                   <button
@@ -87,7 +100,7 @@ function TaskCard({ task, index, tasks, planner, open, onToggle, addOpen, onTogg
           {addOpen && (
             <div className="dp-addlist">
               {addable.length === 0 ? (
-                <span className="dp-small">No quedan productos de esta OP por agregar.</span>
+                <span className="dp-small">No quedan productos de {task.groupId ? "esta OP consolidada" : "esta OP"} por agregar.</span>
               ) : addable.map((it) => (
                 <Button key={it.productionOrderItemId} className="dp-sm" onClick={() => { addItem(task.clientId, it.productionOrderItemId); onToggleAdd(); }}>
                   {it.productName} · quedan {leftoverQuantity(it, tasks)}
@@ -106,7 +119,9 @@ function TaskCard({ task, index, tasks, planner, open, onToggle, addOpen, onTogg
  * jefe solo ajusta. Cada tarjeta muestra su carga frente al límite; sobre 5 h se bloquea.
  */
 export default function StepBuildTasks({ planner }) {
-  const { tasks, notice, setNotice, selectedOrders, newTask, leftovers, buildFromLeftovers, rebuildTasks, capacity } = planner;
+  const {
+    tasks, notice, setNotice, selectedOrders, newTask, leftovers, buildFromLeftovers, rebuildTasks, capacity,
+  } = planner;
   const [openIds, setOpenIds] = useState({});
   const [addFor, setAddFor] = useState(null);
   const [newOpen, setNewOpen] = useState(false);

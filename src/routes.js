@@ -8,6 +8,8 @@
 =========================================================
 */
 
+import { Navigate } from "react-router-dom";
+
 // Dashboards
 import ProductionDashboard from "views/production/ProductionDashboard.js";
 import SalesDashboard from "views/sales/SalesDashboard.js";
@@ -52,7 +54,6 @@ import ProductPrices from "views/products/ProductPrices.js";
 import ProductionOrdersList from "views/production/ProductionOrdersList.js";
 import DailyProductionPlan from "views/production/DailyProductionPlan.js";
 import TasksByTable from "views/production/TasksByTable.js";
-import TaskOrganizer from "views/production/TaskOrganizer.js";
 import DayPlanner from "views/production/dayplanner/DayPlanner.js";
 import ProductionPhaseTrays from "views/production/ProductionPhaseTrays.js";
 import ProductionTraceability from "views/production/ProductionTraceability.js";
@@ -685,7 +686,7 @@ const routes = [
       },
       {
         path: "/tasks-by-station",
-        name: "Centro de Producción",
+        name: "Tablero",
         mini: "CP",
         component: <TasksByTable />,
         layout: "/admin",
@@ -695,12 +696,15 @@ const routes = [
         },
       },
       {
+        // El Organizador de Tareas se retiró: Armar el día lo reemplaza. Se conserva la ruta
+        // para los marcadores y enlaces viejos.
         path: "/task-organizer",
         name: "Organizador de Tareas",
         mini: "OT",
-        component: <TaskOrganizer />,
+        component: <Navigate to="/admin/day-planner" replace />,
         layout: "/admin",
         module: "PRODUCCION",
+        showInSidebar: false,
         permissions: {
           view: "PRODUCCION.TAREAS_ESTACION.VER",
         },

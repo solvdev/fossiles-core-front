@@ -1,9 +1,9 @@
 import React, { useState } from "react";
 import { Button, Spinner } from "reactstrap";
 import { formatDateGt, isWeekendYmd, shiftYmdGuatemala } from "utils/dateTimeHelper";
-import { limitStatus } from "utils/dayPlanHelper";
+import { isConsolidatedTask, limitStatus, taskOrderCodes } from "utils/dayPlanHelper";
 import { concordar, contar } from "utils/textHelper";
-import FamilyBadge from "../organizer/FamilyBadge";
+import FamilyBadge from "../dayboard/FamilyBadge";
 
 const fmt = (n) => (Math.round((n || 0) * 10) / 10).toFixed(1);
 const WEEKDAYS = ["dom", "lun", "mar", "mié", "jue", "vie", "sáb"];
@@ -109,7 +109,8 @@ export default function StepReview({ planner }) {
         return (
           <div className="dp-prow" key={t.clientId}>
             <div className="dp-tt">
-              <strong>Tarea {i + 1} · {t.orderCode}</strong>
+              <strong>Tarea {i + 1} · {isConsolidatedTask(t) ? taskOrderCodes(t).join(" + ") : t.orderCode}</strong>
+              {t.groupCode && <span className="dp-chip lf" style={{ marginLeft: 8 }}>{t.groupCode}</span>}
               {hostIndex >= 0 && (
                 <div className="dp-small" style={{ color: "#1d7fa3" }}>
                   Va como primera línea de la tarea {hostIndex + 1}: cabe en el tiempo libre de esa mesa.
