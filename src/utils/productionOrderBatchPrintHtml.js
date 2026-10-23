@@ -1,6 +1,7 @@
 import * as XLSX from "xlsx-js-style";
 import { formatDateGt } from "utils/dateTimeHelper";
 import { isCinchoOrderType } from "utils/cinchoProductionHelper";
+import { compareColorNames } from "utils/colorOrder";
 import {
   escapeHtml,
   buildCinchoDetailTableHtml,
@@ -482,7 +483,7 @@ function buildUnifiedMatrixDetailTable(orders) {
   const { detailRows, showBrand } = mergeBatchMatrixGroups(orders);
   const colorColumns = new Set();
   detailRows.forEach((g) => Object.keys(g.colorQty).forEach((c) => colorColumns.add(c)));
-  const colors = Array.from(colorColumns).sort((a, b) => a.localeCompare(b, "es", { sensitivity: "base" }));
+  const colors = Array.from(colorColumns).sort(compareColorNames);
   if (!detailRows.length) {
     return `<p class="empty-detail">Sin líneas de producto en el lote.</p></section>`;
   }
@@ -677,7 +678,7 @@ function mergeBatchFlatLines(orders) {
         sensitivity: "base",
       });
       if (c0 !== 0) return c0;
-      const c1 = String(a.colorName).localeCompare(String(b.colorName), "es", { sensitivity: "base" });
+      const c1 = compareColorNames(a.colorName, b.colorName);
       if (c1 !== 0) return c1;
       return String(a.size).localeCompare(String(b.size), "es", { numeric: true, sensitivity: "base" });
     });
@@ -887,7 +888,7 @@ function buildMergedBatchDetailExcelRows(orders) {
     const { detailRows } = mergeBatchMatrixGroups(orders);
     const rows = [];
     detailRows.forEach((g) => {
-      Object.entries(g.colorQty).forEach(([color, qty]) => {
+      Object.entries(g.colorQty).sort(([a], [b]) => compareColorNames(a, b)).forEach(([color, qty]) => {
         if (Number(qty || 0) <= 0) return;
         rows.push([
           g.productCode,

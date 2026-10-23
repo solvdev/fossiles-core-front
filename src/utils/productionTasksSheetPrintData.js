@@ -1,5 +1,6 @@
 import { getTodayYmdGuatemala } from "./dateTimeHelper";
 import { buildDeskSupervisorLegendLine, mesasListWithSupervisors } from "./deskSupervisorDisplay";
+import { compareColorNames } from "./colorOrder";
 
 const STATUS_LABELS_PRINT = {
   PENDING: "Pendiente",
@@ -43,18 +44,11 @@ function headerLabelForColorNormKey(normKey, fallbackDisplay) {
 
 function sortColorNormKeys(normKeys, displayByNormKey) {
   const unique = [...new Set(normKeys)].filter(Boolean);
-  return unique.sort((a, b) => {
-    const pa = priorityMatch(a);
-    const pb = priorityMatch(b);
-    if (pa !== pb) {
-      if (pa === -1) return 1;
-      if (pb === -1) return -1;
-      return pa - pb;
-    }
-    const la = headerLabelForColorNormKey(a, displayByNormKey.get(a));
-    const lb = headerLabelForColorNormKey(b, displayByNormKey.get(b));
-    return la.localeCompare(lb, "es", { sensitivity: "base" });
-  });
+  // Negro, Café, Tostado y Whisky primero (y sus variantes junto a ellos); luego los demás.
+  return unique.sort((a, b) => compareColorNames(
+    headerLabelForColorNormKey(a, displayByNormKey.get(a)),
+    headerLabelForColorNormKey(b, displayByNormKey.get(b))
+  ));
 }
 
 /**

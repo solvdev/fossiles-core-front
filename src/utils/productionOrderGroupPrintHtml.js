@@ -1,5 +1,6 @@
 import { escapeHtml } from "./productionOrderPrintHtml";
 import { formatDateGt } from "./dateTimeHelper";
+import { compareColorNames } from "./colorOrder";
 
 /** «32:2 · 34:4», ordenadas por talla. */
 export function sizesText(sizes) {
@@ -16,7 +17,10 @@ export function byOrderText(byOrder) {
 /** HTML de la hoja de una OP consolidada: productos sumados y de qué OP sale cada parte. */
 export function productionOrderGroupSheetHtml(group) {
   const orders = group?.orders || [];
-  const lines = group?.lines || [];
+  // Por producto y, dentro de cada uno, Negro, Café, Tostado y Whisky primero.
+  const lines = [...(group?.lines || [])].sort((a, b) =>
+    String(a.productCode || "").localeCompare(String(b.productCode || ""), "es", { numeric: true, sensitivity: "base" })
+    || compareColorNames(a.colorName, b.colorName));
   const rows = lines.map((l) => `
     <tr>
       <td><b>${escapeHtml(l.productCode || "")}</b> ${escapeHtml(l.productName || "")}</td>
