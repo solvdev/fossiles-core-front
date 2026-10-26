@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { Button } from "reactstrap";
 import DatePickerField from "components/common/DatePickerField";
 import { getTodayYmdGuatemala, shiftYmdGuatemala } from "utils/dateTimeHelper";
@@ -11,6 +11,8 @@ import StepSelectOrders from "./StepSelectOrders";
 import StepBuildTasks from "./StepBuildTasks";
 import StepReview, { dayShort } from "./StepReview";
 import StepDone from "./StepDone";
+import DieCutListPanel from "../dayboard/DieCutListPanel";
+import useCutAndLate from "../dayboard/useCutAndLate";
 
 const fmt = (n) => (Math.round((n || 0) * 10) / 10).toFixed(1);
 
@@ -34,10 +36,14 @@ function StepCard({ n, title, step, reached, summary, onChange, children }) {
 /**
  * Armar el día: crear y asignar las tareas del día en una sola pantalla.
  *
- * Elegir OPs → Armar tareas → Revisar → Confirmar y descargar hoja. Un paso abierto a la vez,
+ * Elegir OPs → Armar tareas → Revisar → Troquelar y hoja. Un paso abierto a la vez,
  * un solo botón principal por paso. Reglas que se conservan del Organizador: OPL primero y sin
  * contar contra el límite, 4 h ideal y 5 h tope por tarea, solo lunes a viernes, y la mesa la
  * asigna el sistema (al marcar el corte).
+ *
+ * El corte vive aquí también: las tareas nacen sin mesa y solo bajan al marcar su troquel, así
+ * que el paso 4 lista las recién creadas para cortarlas, y «Por troquelar» (arriba) tiene todas
+ * las que esperan, para volver más tarde sin ir al Tablero.
  */
 export default function DayPlanner() {
   const planner = useDayPlanner();
@@ -46,6 +52,13 @@ export default function DayPlanner() {
     loading, loadError, orders, buildTasks, goReview, confirm, confirming, previewLoading, preview,
     previewError, downloadSheet, capacity, planLoad, itemsLoading,
   } = planner;
+
+  const [view, setView] = useState("plan");
+  const cut = useCutAndLate({ autoLoad: false });
+  const { loadDieCutPending } = cut;
+  // La cuenta de «Por troquelar» al entrar, y otra vez al crear tareas (nacen sin corte).
+  useEffect(() => { loadDieCutPending(); }, [loadDieCutPending, planner.result]);
+  const cutCount = cut.dieCutPending.length;
 
   const today = getTodayYmdGuatemala();
   const tomorrow = nextWorkdayYmd(shiftYmdGuatemala(today, 1));
@@ -106,7 +119,7 @@ export default function DayPlanner() {
   } else {
     bar = (
       <>
-        <div className="dp-hint">Listo. Puede bajar la hoja o armar otro grupo.</div>
+        <div className="dp-hint">Marque el corte de cada tarea: al quedar cortada baja a mesa sola.</div>
         <Button className="dp-big" onClick={planner.startOver}>Armar otro grupo</Button>
       </>
     );
@@ -133,6 +146,26 @@ export default function DayPlanner() {
         </div>
         <Button onClick={() => downloadSheet(date)} title="Descarga la hoja con las tareas del día">⬇ Hoja del día</Button>
       </div>
+
+      <div className="dp-seg dp-views" role="tablist" aria-label="Vista">
+        <button type="button" role="tab" aria-selected={view === "plan"} aria-pressed={view === "plan"} onClick={() => setView("plan")}>
+          Armar el día
+        </button>
+        <button type="button" role="tab" aria-selected={view === "cut"} aria-pressed={view === "cut"} onClick={() => setView("cut")}>
+          Por troquelar{cutCount ? <span className="dp-count">{cutCount}</span> : null}
+        </button>
+      </div>
+
+      {view === "cut" && (
+        <DieCutListPanel
+          tareas={cut.dieCutPending}
+          loading={cut.loadingDieCut}
+          onReload={loadDieCutPending}
+          subtitle="Todas las tareas que esperan troquel, de cualquier día. Al cortar todo lo de una tarea, el sistema le asigna mesa."
+        />
+      )}
+
+      {view === "plan" && (<>
 
       {weekend && (
         <div className="dp-note bad" role="alert">
@@ -161,13 +194,14 @@ export default function DayPlanner() {
       >
         <StepReview planner={planner} />
       </StepCard>
-      <StepCard n={4} title="Listo y hoja del día" step={step} reached={reached} summary="">
-        <StepDone planner={planner} />
+      <StepCard n={4} title="Troquelar y hoja del día" step={step} reached={reached} summary="">
+        <StepDone planner={planner} cut={cut} />
       </StepCard>
 
       <div className="dp-bottom" role="region" aria-label="Acciones del paso">
         <div className="dp-bottom-in">{bar}</div>
       </div>
+      </>)}
     </div>
   );
 }

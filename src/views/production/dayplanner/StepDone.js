@@ -6,14 +6,16 @@ import { showError } from "utils/notificationHelper";
 import { concordar, contar } from "utils/textHelper";
 import { isConsolidatedTask, taskOrderCodes } from "utils/dayPlanHelper";
 import { dayShort } from "./StepReview";
+import DieCutListPanel from "../dayboard/DieCutListPanel";
 
 const fmt = (n) => (Math.round((n || 0) * 10) / 10).toFixed(1);
 
 /**
- * Paso 4: listo. Resume lo creado y deja a un clic «Descargar OPs» (las OPs del día, para
- * entregarlas a quien corta) y la hoja de mesas (Excel o impresión).
+ * Paso 4: troquelar y hoja. Resume lo creado, deja a un clic «Descargar OPs» (las OPs del día,
+ * para entregarlas a quien corta) y debajo la lista por troquelar de solo estas tareas: al
+ * marcar su corte bajan a mesa, sin ir a buscar la pestaña del Tablero.
  */
-export default function StepDone({ planner }) {
+export default function StepDone({ planner, cut }) {
   const { result, tasks, date, downloadSheet, printSheet, loadOpsDownload, startOver } = planner;
   const navigate = useNavigate();
   const [opsData, setOpsData] = useState(null);
@@ -47,7 +49,7 @@ export default function StepDone({ planner }) {
         <div className="dp-ck" aria-hidden="true">✓</div>
         <h4 style={{ margin: 0 }}>{contar(createdTasks.length, "tarea creada", "tareas creadas")}</h4>
         <p className="dp-small" style={{ fontSize: 15 }}>
-          Día asignado · {concordar(createdTasks.length, "baja", "bajan")} a mesa al marcar el corte.
+          Día asignado · {concordar(createdTasks.length, "baja", "bajan")} a mesa al marcar el corte, aquí abajo.
         </p>
       </div>
       {(result.notPlaced || []).length > 0 && (
@@ -73,6 +75,18 @@ export default function StepDone({ planner }) {
               <Button className="dp-sm" onClick={() => downloadSheet(d)}>⬇ Hoja del {dayShort(d)}</Button>
             </React.Fragment>
           ))}
+        </div>
+      )}
+      {cut && (
+        <div className="dp-cutstep">
+          <DieCutListPanel
+            tareas={cut.dieCutPending}
+            loading={cut.loadingDieCut}
+            onReload={cut.loadDieCutPending}
+            onlyTaskIds={createdTasks.map((c) => c.taskId).filter(Boolean)}
+            title="Troquelar lo que se acaba de crear"
+            subtitle="1) Descargue las OPs para quien corta. 2) Cuando vuelva el corte, márquelo aquí («Cortar todo» por tarea): la tarea baja a mesa sola."
+          />
         </div>
       )}
       <div className="dp-actions" style={{ marginTop: 0 }}>

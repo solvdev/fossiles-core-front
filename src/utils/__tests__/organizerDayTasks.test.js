@@ -1,6 +1,7 @@
 import {
   getOrganizerDayDeskTasks,
   getOrganizerDayBoletaTasks,
+  isCarryOverTask,
   projectOrdersToOrganizerDay,
 } from "../organizerDayTasks";
 import { buildProductionTasksSheetPrintModel } from "../productionTasksSheetPrintData";
@@ -235,5 +236,32 @@ describe("buildProductionTasksSheetPrintModel", () => {
     const floresKey = model.colorColumns.find((c) => c.header === "Negro acabado flores").normKey;
     expect(model.rows[0].qtyByNormKey[negroKey]).toBe(1);
     expect(model.rows[0].qtyByNormKey[floresKey]).toBe(2);
+  });
+});
+
+describe("isCarryOverTask", () => {
+  const HOY = "2026-10-26";
+  const AYER = "2026-10-23";
+  const t = (over) => ({ id: 1, status: "IN_PROGRESS", desk: 3, scheduledDate: AYER, ...over });
+
+  it("la empezada ayer y aún en proceso se retoma hoy en su mesa", () => {
+    expect(isCarryOverTask(t(), HOY, HOY)).toBe(true);
+  });
+
+  it("no arrastra pendientes, cerradas, sin mesa ni las del mismo día", () => {
+    expect(isCarryOverTask(t({ status: "PENDING" }), HOY, HOY)).toBe(false);
+    expect(isCarryOverTask(t({ status: "COMPLETED" }), HOY, HOY)).toBe(false);
+    expect(isCarryOverTask(t({ desk: null }), HOY, HOY)).toBe(false);
+    expect(isCarryOverTask(t({ scheduledDate: HOY }), HOY, HOY)).toBe(false);
+  });
+
+  it("sábado y domingo no se arrastra nada; el lunes salen las del viernes", () => {
+    expect(isCarryOverTask(t(), "2026-10-24", "2026-10-24")).toBe(false);
+    expect(isCarryOverTask(t(), "2026-10-25", "2026-10-24")).toBe(false);
+    expect(isCarryOverTask(t(), HOY, "2026-10-24")).toBe(true);
+  });
+
+  it("un día pasado se ve como fue", () => {
+    expect(isCarryOverTask(t({ scheduledDate: "2026-10-20" }), AYER, HOY)).toBe(false);
   });
 });

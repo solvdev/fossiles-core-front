@@ -64,19 +64,17 @@ import { formatDateGt, formatDateTimeGt, getTodayYmdGuatemala, isWeekendYmd, shi
 import { openOplDispatchSummaryPrintWindow, downloadOplDispatchSummaryExcel } from "utils/oplDispatchSummaryExport";
 import { openProductionTasksSheetPrintWindow, downloadProductionTasksSheetExcel } from "utils/productionTasksSheetPrintHtml";
 import { buildProductionTasksSheetPrintModel } from "utils/productionTasksSheetPrintData";
-import { getOrganizerDayDeskTasks, getOrganizerDayBoletaTasks } from "utils/organizerDayTasks";
+import { getOrganizerDayDeskTasks, getOrganizerDayBoletaTasks, isCarryOverTask } from "utils/organizerDayTasks";
 import { getDeskSupervisorsForDate, replaceDeskSupervisorsForDate } from "services/deskSupervisorService";
 import { getDeskCountForDate, replaceDeskCountForDate } from "services/deskCountService";
 import { deskDisplayLabel } from "utils/deskSupervisorDisplay";
 import {
-  buildCinchoDayBoardRows,
-  deliveredStatusMapFromApi,
+  cinchoDayFromApi,
   filterPendingCinchoRows,
   orderWorkAnchorYmd,
-  workStatusMapFromApi,
 } from "utils/cinchoDayBoardHelper";
+import { getCinchoDay } from "services/cinchoProductionService";
 import {
-  getCinchoDayStatuses,
   setCinchoDayDelivered,
   setCinchoDayWorkStatus,
 } from "services/cinchoDayStatusService";
@@ -195,6 +193,10 @@ const STATION_STYLESHEET = `
   .tbs-op {
     font-weight: 700; color: #5b6167; background: #f4f6f7;
     border-radius: 4px; padding: 1px 6px; letter-spacing: .01em;
+  }
+  .tbs-carry {
+    margin-top: 4px; font-size: 10px; font-weight: 700; color: #7a4b00;
+    background: #fff3d6; border: 1px solid #f3d37a; border-radius: 4px; padding: 2px 6px;
   }
 
   /* Paper Dashboard pone margin: 10px 1px a .btn (_buttons.scss:9) y margin-bottom: 5px
@@ -410,6 +412,8 @@ function TasksByTable() {
   const [productionOrdersForFilter, setProductionOrdersForFilter] = useState([]);
   /** Órdenes activas OPL/OPCK/OPC (para cuadro cinchos del día). */
   const [productionOrdersForCinchos, setProductionOrdersForCinchos] = useState([]);
+  /** Filas de cinchos por día, de `GET /production/cinchos/day` (ya no del listado completo de órdenes). */
+  const [cinchoRowsByDate, setCinchoRowsByDate] = useState({});
   const [cinchoDeliveredByDate, setCinchoDeliveredByDate] = useState({});
   const [cinchoWorkStatusByDate, setCinchoWorkStatusByDate] = useState({});
   const [cinchoStatusLoadingByDate, setCinchoStatusLoadingByDate] = useState({});
@@ -905,7 +909,8 @@ function TasksByTable() {
   const filteredTasks = useMemo(() => {
     return tableCenterTasks.filter((task) => {
       if (filterDesk && task.desk !== parseInt(filterDesk)) return false;
-      if (filterDate && task.scheduledDate !== filterDate) return false;
+      if (filterDate && task.scheduledDate !== filterDate
+        && !isCarryOverTask(task, filterDate, getTodayYmdGuatemala())) return false;
       if (!matchesSearchTerm(task)) return false;
       return true;
     });
@@ -939,14 +944,15 @@ function TasksByTable() {
     filteredTasks
       .filter((t) => t.desk && t.scheduledDate)
       .forEach((task) => {
-        const date = task.scheduledDate;
+        // La que quedó a medias un día anterior va en el día que se ve, en su misma mesa.
+        const date = isCarryOverTask(task, filterDate, getTodayYmdGuatemala()) ? filterDate : task.scheduledDate;
         if (!map[date]) map[date] = {};
         const desk = task.desk;
         if (!map[date][desk]) map[date][desk] = [];
         map[date][desk].push(task);
       });
     return map;
-  }, [filteredTasks]);
+  }, [filteredTasks, filterDate]);
 
   const supervisorMapForDate = useCallback(
     (dateYmd) => (dateYmd ? deskSupervisorsByDate[dateYmd] : null) || {},
@@ -1017,28 +1023,6 @@ function TasksByTable() {
     [scheduleByDate]
   );
 
-  const cinchoRowsByDate = useMemo(() => {
-    const orders = productionOrdersForCinchos || [];
-    const map = {};
-    const addForDate = (dateYmd) => {
-      if (!dateYmd) return;
-      const rows = buildCinchoDayBoardRows(orders, dateYmd);
-      if (rows.length) map[dateYmd] = rows;
-    };
-    if (filterDate) {
-      addForDate(filterDate);
-      return map;
-    }
-    const dates = new Set(Object.keys(scheduleByDate || {}));
-    dates.add(getTodayYmdGuatemala());
-    orders.forEach((order) => {
-      const anchor = orderWorkAnchorYmd(order);
-      if (anchor) dates.add(anchor);
-    });
-    [...dates].forEach(addForDate);
-    return map;
-  }, [productionOrdersForCinchos, scheduleByDate, filterDate]);
-
   const pendingCinchoRowsByDate = useMemo(() => {
     const map = {};
     Object.entries(cinchoRowsByDate).forEach(([date, rows]) => {
@@ -1080,6 +1064,7 @@ function TasksByTable() {
     filterDate,
   ]);
 
+  /** Un pedido por día trae las filas de cinchos y su estado de ese día. */
   const refreshCinchoDayStatusesForDates = useCallback(async (dateStrList) => {
     const unique = [...new Set(dateStrList)].filter(Boolean);
     if (!unique.length) return;
@@ -1093,15 +1078,10 @@ function TasksByTable() {
     await Promise.all(
       unique.map(async (d) => {
         try {
-          const res = await getCinchoDayStatuses(d);
-          setCinchoDeliveredByDate((prev) => ({
-            ...prev,
-            [d]: deliveredStatusMapFromApi(res),
-          }));
-          setCinchoWorkStatusByDate((prev) => ({
-            ...prev,
-            [d]: workStatusMapFromApi(res),
-          }));
+          const { rows, deliveredMap, workStatusMap } = cinchoDayFromApi(await getCinchoDay(d));
+          setCinchoRowsByDate((prev) => ({ ...prev, [d]: rows }));
+          setCinchoDeliveredByDate((prev) => ({ ...prev, [d]: deliveredMap }));
+          setCinchoWorkStatusByDate((prev) => ({ ...prev, [d]: workStatusMap }));
         } catch {
           // ignore per-date errors
         } finally {
@@ -1168,14 +1148,12 @@ function TasksByTable() {
     if (scheduleDateKeysStr) {
       scheduleDateKeysStr.split(",").filter(Boolean).forEach((d) => dates.add(d));
     }
-    Object.keys(cinchoRowsByDate).forEach((d) => dates.add(d));
     const dateList = [...dates];
     refreshDeskSupervisorsForDates(dateList);
     refreshCinchoDayStatusesForDates(dateList);
   }, [
     filterDate,
     scheduleDateKeysStr,
-    cinchoRowsByDate,
     refreshDeskSupervisorsForDates,
     refreshCinchoDayStatusesForDates,
   ]);
@@ -1289,7 +1267,9 @@ function TasksByTable() {
   const unassignedUpToDay = unassignedTasks.filter((t) => !t.scheduledDate || t.scheduledDate <= statsDay);
   const stats = useMemo(() => {
     const active = tableCenterTasks.filter((t) => t.status !== "CANCELLED" && t.status !== "COMPLETED");
-    const ofDay = active.filter((t) => t.scheduledDate === statsDay);
+    // Las que quedaron a medias de un día anterior siguen ocupando su mesa en el día que se ve.
+    const ofDay = active.filter((t) => t.scheduledDate === statsDay
+      || isCarryOverTask(t, statsDay, getTodayYmdGuatemala()));
     const sinMesaHastaHoy = active.filter(
       (t) => t.status === "PENDING" && !t.desk && (!t.scheduledDate || t.scheduledDate <= statsDay)
     );
@@ -1632,6 +1612,12 @@ function TasksByTable() {
           <span className="tbs-qty">{task.quantity} uds</span>
         </div>
 
+        {isCarryOverTask(task, boardDay, getTodayYmdGuatemala()) && (
+          <div className="tbs-carry" title="Se empezó un día anterior y sigue en proceso: se termina en la misma mesa, la de su boleta">
+            ↻ {task.scheduledDate === stepWorkday(boardDay, -1) ? "Ayer" : formatDateGt(task.scheduledDate)}: Mesa {task.desk}
+            {" → "}{boardDay === getTodayYmdGuatemala() ? "Hoy" : formatDateGt(boardDay)}: Mesa {task.desk}
+          </div>
+        )}
         <div className="tbs-task-sub">
           {cons ? (
             <span className="tbs-op" style={{ background: "#ebe3fa", color: "#4a2f8a" }}
@@ -1694,7 +1680,10 @@ function TasksByTable() {
   const renderTaskCards = (list) => <>{list.map(renderBoardCard)}</>;
 
   /** Una mesa del día: carga contra el cupo y sus tarjetas. */
-  const renderDeskColumn = (date, desk, deskTasks) => {
+  const renderDeskColumn = (date, desk, tasksOfDesk) => {
+    // Lo que quedó a medias de un día anterior es lo primero que se retoma en la mesa.
+    const deArrastre = (t) => (isCarryOverTask(t, date, getTodayYmdGuatemala()) ? 0 : 1);
+    const deskTasks = [...tasksOfDesk].sort((a, b) => deArrastre(a) - deArrastre(b));
     const totalHours = deskTasks
       .filter((t) => t.status !== "CANCELLED")
       .reduce((sum, t) => sum + getTaskBaseHours(t), 0);
@@ -1945,11 +1934,10 @@ function TasksByTable() {
                   </div>
                   <div className="mt-3 pt-2" style={{ borderTop: "1px solid #e0e0e0" }}>
                     <button type="button" className="btn btn-link p-0" aria-expanded={showCinchos}
-                      onClick={() => { setShowCinchos((v) => !v); ensureOrders(); }}>
+                      onClick={() => setShowCinchos((v) => !v)}>
                       Cinchos del día {showCinchos ? "▾" : "▸"}
                     </button>
-                    {showCinchos && !ordersReady && <div className="py-3"><Spinner size="sm" /> <small className="text-muted">Cargando órdenes…</small></div>}
-                    {showCinchos && ordersReady && cinchoRows.length === 0 && !cinchoStatusLoadingByDate[boardDay] && (
+                    {showCinchos && cinchoRows.length === 0 && !cinchoStatusLoadingByDate[boardDay] && (
                       <p className="text-muted small mb-0 py-2">Sin cinchos para este día.</p>
                     )}
                   {showCinchos && (cinchoRows.length > 0 || cinchoStatusLoadingByDate[boardDay]) && (

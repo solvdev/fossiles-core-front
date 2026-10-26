@@ -5,6 +5,7 @@ import {
 } from "reactstrap";
 import {
   setTaskItemDieCut,
+  setTaskDieCutAll,
   setTaskItemDieCutPlannedDate,
   splitUncutDieCutItems,
   setTaskItemLeatherDelivery,
@@ -54,7 +55,17 @@ const CABECERAS_CSV = [
  */
 const PAGINA = 10;
 
-export default function DieCutListPanel({ tareas, loading, onReload }) {
+/**
+ * @param onlyTaskIds  si viene, solo esas tareas (Armar el día: las que se acaban de crear)
+ * @param title        encabezado; por omisión «Lista por troquelar»
+ * @param subtitle     texto bajo el encabezado
+ */
+export default function DieCutListPanel({ tareas: todas, loading, onReload, onlyTaskIds, title, subtitle }) {
+  const tareas = useMemo(() => {
+    if (!onlyTaskIds) return todas || [];
+    const ids = new Set(onlyTaskIds.map(Number));
+    return (todas || []).filter((t) => ids.has(Number(t.id)));
+  }, [todas, onlyTaskIds]);
   const [trabajando, setTrabajando] = useState(null);
   const [confirmacion, setConfirmacion] = useState(null);
   const [busqueda, setBusqueda] = useState("");
@@ -199,6 +210,38 @@ export default function DieCutListPanel({ tareas, loading, onReload }) {
         ),
     });
 
+  /**
+   * «Cortar todo»: lo que antes eran un clic y un diálogo por producto. Si a algún producto le
+   * falta el cuero, el mismo diálogo lo dice y lo entrega antes de cortar.
+   */
+  const pedirCortarTodo = (tarea) => {
+    const faltan = (tarea.items || []).filter((i) => !i.dieCutReady);
+    const sinCuero = faltan.filter((i) => !i.leatherDelivered && !tarea.leatherDelivered).length;
+    setConfirmacion({
+      tipo: "todo",
+      tone: "info",
+      title: "Cortar toda la tarea",
+      message: `${contar(faltan.length, "producto")} de ${tarea.code || "la tarea"} ${concordar(faltan.length, "queda cortado", "quedan cortados")}.`,
+      detail: refTarea(tarea),
+      warning: sinCuero > 0
+        ? `${contar(sinCuero, "producto")} sin cuero: se ${concordar(sinCuero, "entrega", "entregan")} también su cuero. Luego el sistema le asigna mesa.`
+        : "Con todo cortado, el sistema le asigna mesa.",
+      confirmText: sinCuero > 0 ? "Entregar cuero y cortar" : "Cortar todo",
+      accion: () =>
+        conBloqueo(
+          `all-${tarea.id}`,
+          () => setTaskDieCutAll(tarea.id, true),
+          (r) => {
+            const t = r?.task;
+            const base = `${t?.code || tarea.code || "Tarea"}: ${contar(r?.cutItems || 0, "producto cortado", "productos cortados")}`;
+            if (t?.desk) return `${base} · pasó a Mesa ${t.desk}`;
+            if (t?.dieCutReady) return `${base} · sin cupo de mesa hoy: entra a la primera que se libere`;
+            return base;
+          }
+        ),
+    });
+  };
+
   const fijarFecha = (tarea, item, fecha) =>
     conBloqueo(`fe-${item.id}`, () => setTaskItemDieCutPlannedDate(tarea.id, item.id, fecha));
 
@@ -267,9 +310,9 @@ export default function DieCutListPanel({ tareas, loading, onReload }) {
     <Card>
       <CardHeader className="d-flex flex-wrap align-items-center justify-content-between">
         <div>
-          <strong>Lista por troquelar</strong>
+          <strong>{title || "Lista por troquelar"}</strong>
           <small className="text-muted d-block">
-            Los productos que esperan troquel. Al cortar todo lo de una tarea, el sistema le asigna mesa.
+            {subtitle || "Los productos que esperan troquel. Al cortar todo lo de una tarea, el sistema le asigna mesa."}
           </small>
         </div>
         <div className="d-flex flex-wrap align-items-center" style={{ gap: 6 }}>
@@ -290,7 +333,9 @@ export default function DieCutListPanel({ tareas, loading, onReload }) {
           <div className="text-center py-4"><Spinner size="sm" /> Cargando…</div>
         ) : filas.length === 0 ? (
           <Alert color="success" className="mb-0">
-            Nada pendiente de troquel. Todas las tareas tienen su corte hecho.
+            {onlyTaskIds
+              ? "Estas tareas ya tienen su corte hecho y bajaron a mesa."
+              : "Nada pendiente de troquel. Todas las tareas tienen su corte hecho."}
           </Alert>
         ) : (
           <>
@@ -301,6 +346,8 @@ export default function DieCutListPanel({ tareas, loading, onReload }) {
               </Alert>
             )}
 
+            {/* En Armar el día, con solo las tareas recién creadas, los filtros sobran. */}
+            {!(onlyTaskIds && (tareas || []).length <= 5) && (
             <div className="fossiles-filtros mb-3">
               <div className="d-flex flex-wrap align-items-center" style={{ gap: 8 }}>
                 <InputGroup size="sm" style={{ maxWidth: 320 }}>
@@ -356,6 +403,7 @@ export default function DieCutListPanel({ tareas, loading, onReload }) {
                 </div>
               </div>
             </div>
+            )}
 
             {tareasFiltradas.length === 0 ? (
               <Alert color="info" className="mb-0">
@@ -376,11 +424,22 @@ export default function DieCutListPanel({ tareas, loading, onReload }) {
                     {t.deliveryDate && (
                       <small className="text-muted">Entrega {formatDateGt(t.deliveryDate)}</small>
                     )}
+                    {est.texto !== "Cortada" && (
+                      <Button
+                        color="success"
+                        size="sm"
+                        className="ml-auto"
+                        disabled={trabajando === `all-${t.id}`}
+                        onClick={() => pedirCortarTodo(t)}
+                        title="Marca el corte de todos los productos que faltan (y entrega el cuero que falte)"
+                      >
+                        {trabajando === `all-${t.id}` ? "Cortando…" : `Cortar todo (${(t.items || []).filter((i) => !i.dieCutReady).length})`}
+                      </Button>
+                    )}
                     {est.parcial && (
                       <Button
                         color="primary"
                         size="sm"
-                        className="ml-auto"
                         disabled={trabajando === `sp-${t.id}`}
                         onClick={() => pedirSeparar(t)}
                         title="Deja en esta tarea lo cortado y manda el resto a una tarea nueva que espera su troquel"

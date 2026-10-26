@@ -6,7 +6,7 @@ import * as taskService from "services/taskService";
 import { getProductionOrders } from "services/productionOrderService";
 import { getDeskCountForDate } from "services/deskCountService";
 import { getDeskSupervisorsForDate } from "services/deskSupervisorService";
-import { getCinchoDayStatuses } from "services/cinchoDayStatusService";
+import { getCinchoDay } from "services/cinchoProductionService";
 
 jest.mock("contexts/AuthContext", () => ({
   useAuth: () => ({ hasAnyRole: () => true }),
@@ -16,6 +16,7 @@ jest.mock("services/productionOrderService");
 jest.mock("services/deskCountService");
 jest.mock("services/deskSupervisorService");
 jest.mock("services/cinchoDayStatusService");
+jest.mock("services/cinchoProductionService");
 jest.mock("components/common/DatePickerField", () => () => <input aria-label="fecha" />);
 jest.mock("utils/dateTimeHelper", () => ({
   ...jest.requireActual("utils/dateTimeHelper"),
@@ -34,7 +35,7 @@ beforeEach(() => {
   getProductionOrders.mockResolvedValue([]);
   getDeskCountForDate.mockResolvedValue({ numDesks: 3 });
   getDeskSupervisorsForDate.mockResolvedValue({ assignments: [] });
-  getCinchoDayStatuses.mockResolvedValue({});
+  getCinchoDay.mockResolvedValue({ orders: [] });
   // Por defecto el servidor no tiene /tasks/board: se usa el listado completo.
   taskService.getBoardTasks.mockRejectedValue(Object.assign(new Error("no existe"), { status: 404 }));
   taskService.getTasks.mockResolvedValue([
@@ -99,6 +100,25 @@ describe("Tablero liviano (/tasks/board)", () => {
     expect(getProductionOrders).not.toHaveBeenCalled();
     expect(taskService.getBacklogTasks).not.toHaveBeenCalled();
     expect(taskService.getBlockedLeatherLines).not.toHaveBeenCalled();
+  });
+
+  test("los cinchos del día salen de su endpoint, sin bajar todas las órdenes", async () => {
+    taskService.getBoardTasks.mockResolvedValue({ tasks: [], counts: { dieCutPending: 0, backlog: 0, unfinished: 0 } });
+    getCinchoDay.mockResolvedValue({
+      date: "2026-10-14",
+      orders: [{
+        id: 7, code: "OPCF-7", family: "OPCF", orderType: "CINCHOS_FOSSILES", customerName: "Kiosco Centro",
+        mixedOrder: false, lines: [{ productionOrderItemId: 70, productCode: "CIN-1", productName: "Cincho",
+          colorName: "Negro", sizes: { 32: 2, 34: 1 }, totalQty: 3, workStatus: "PENDING", delivered: false }],
+      }],
+    });
+    mount();
+    await screen.findByRole("heading", { name: "Tablero" });
+    fireEvent.click(await screen.findByText(/Cinchos del día/));
+    expect(await screen.findByText("OPCF-7")).toBeTruthy();
+    expect(screen.getByText("Kiosco Centro")).toBeTruthy();
+    expect(getCinchoDay).toHaveBeenCalledWith("2026-10-14");
+    expect(getProductionOrders).not.toHaveBeenCalled();
   });
 
   test("los listados se piden al abrir su pestaña", async () => {

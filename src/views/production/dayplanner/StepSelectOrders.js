@@ -13,15 +13,33 @@ const orderHours = (o) => (o.items
 const ITEMS_PAGE = 15;
 const ORDERS_PAGE = 40;
 
+const norm = (t) => String(t || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+
+/** Cada palabra del filtro tiene que estar en el código, el nombre o el color («bil negro»). */
+export function filterItems(items, query, onlyPicked, picks) {
+  const words = norm(query).split(/\s+/).filter(Boolean);
+  return items.filter((i) => {
+    if (onlyPicked && picks[i.productionOrderItemId] === undefined) return false;
+    if (!words.length) return true;
+    const text = norm(`${i.productCode} ${i.productName} ${i.colorName}`);
+    return words.every((w) => text.includes(w));
+  });
+}
+
 function OrderRow({ order, selected, number, onToggle, picks, setPick, ensureItems }) {
   const [open, setOpen] = useState(false);
   const [shown, setShown] = useState(ITEMS_PAGE);
+  const [query, setQuery] = useState("");
+  const [onlyPicked, setOnlyPicked] = useState(false);
   const items = order.items || [];
   const itemsReady = order.items !== null && order.items !== undefined;
   // Sin los productos cargados, el resumen dice cuántos hay con restante.
   const n = itemsReady ? items.length : (order.remainingItemCount || order.itemCount || 0);
   const pickedCount = items.filter((i) => picks[i.productionOrderItemId] !== undefined).length;
-  const setAll = (mode) => items.forEach((i) => setPick(
+  const filtering = query.trim() !== "" || onlyPicked;
+  const visible = filtering ? filterItems(items, query, onlyPicked, picks) : items;
+  // Con filtro, los botones de «todo» actúan solo sobre lo que se ve.
+  const setAll = (mode) => visible.forEach((i) => setPick(
     i.productionOrderItemId, mode === "all" ? i.remainingQuantity : mode === "none" ? 0 : null));
   return (
     <div className={`dp-orow ${selected ? "is-sel" : ""} ${order.onlineSale ? "is-opl" : ""}`}>
@@ -73,11 +91,32 @@ function OrderRow({ order, selected, number, onToggle, picks, setPick, ensureIte
           <div className="dp-pick-tools">
             <span className="dp-small">Deje «auto» para que entre lo que cabe en el día, o escriba las unidades de hoy.</span>
             <span className="dp-sp" />
-            <Button className="dp-sm" onClick={() => setAll("auto")}>Todo auto</Button>
-            <Button className="dp-sm" onClick={() => setAll("all")}>Todo hoy</Button>
-            <Button className="dp-sm" onClick={() => setAll("none")}>Nada hoy</Button>
+            <Button className="dp-sm" onClick={() => setAll("auto")}>{filtering ? "Estos auto" : "Todo auto"}</Button>
+            <Button className="dp-sm" onClick={() => setAll("all")}>{filtering ? "Estos hoy" : "Todo hoy"}</Button>
+            <Button className="dp-sm" onClick={() => setAll("none")}>{filtering ? "Estos no" : "Nada hoy"}</Button>
           </div>
-          {items.slice(0, shown).map((i) => {
+          {items.length > ITEMS_PAGE && (
+            <div className="dp-item-filter">
+              <input
+                type="search"
+                placeholder="Filtrar productos: código, nombre o color"
+                aria-label={`Filtrar productos de ${order.code}`}
+                value={query}
+                onChange={(e) => { setQuery(e.target.value); setShown(ITEMS_PAGE); }}
+              />
+              <label className="dp-small">
+                <input type="checkbox" checked={onlyPicked} onChange={(e) => { setOnlyPicked(e.target.checked); setShown(ITEMS_PAGE); }} />
+                {" "}Solo con cantidad de hoy
+              </label>
+              <span className="dp-small dp-muted">
+                {filtering ? `${visible.length} de ${items.length}` : contar(items.length, "producto")}
+              </span>
+            </div>
+          )}
+          {filtering && visible.length === 0 && (
+            <div className="dp-small" style={{ padding: "8px 4px" }}>Ningún producto coincide con el filtro.</div>
+          )}
+          {visible.slice(0, shown).map((i) => {
             const id = i.productionOrderItemId;
             const value = picks[id];
             const hrs = (value === undefined ? i.remainingQuantity : value) * (i.prdTimePerUnit || 0.1);
@@ -104,10 +143,10 @@ function OrderRow({ order, selected, number, onToggle, picks, setPick, ensureIte
               </div>
             );
           })}
-          {shown < items.length && (
+          {shown < visible.length && (
             <div className="dp-more">
               <Button className="dp-sm" onClick={() => setShown((v) => v + ITEMS_PAGE)}>
-                Ver más productos ({items.length - shown})
+                Ver más productos ({visible.length - shown})
               </Button>
             </div>
           )}
