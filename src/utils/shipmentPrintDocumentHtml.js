@@ -1,4 +1,5 @@
 import { SHIPPING_CARRIERS } from "services/onlineSaleService";
+import { integerToWords } from "./amountInWords";
 
 export function getSimplePaymentLabel(paymentMethod) {
   const method = String(paymentMethod || "").toUpperCase();
@@ -80,62 +81,16 @@ function formatDateDisplay(isoDate) {
   return `${day}/${month}/${year}`;
 }
 
-const UNITS_WORDS = ["", "UNO", "DOS", "TRES", "CUATRO", "CINCO", "SEIS", "SIETE", "OCHO", "NUEVE"];
-const TENS_WORDS = ["", "DIEZ", "VEINTE", "TREINTA", "CUARENTA", "CINCUENTA", "SESENTA", "SETENTA", "OCHENTA", "NOVENTA"];
-const HUNDREDS_WORDS = ["", "CIENTO", "DOSCIENTOS", "TRESCIENTOS", "CUATROCIENTOS", "QUINIENTOS", "SEISCIENTOS", "SETECIENTOS", "OCHOCIENTOS", "NOVECIENTOS"];
-
-const toWordsBelowHundred = (n) => {
-  if (n < 10) return UNITS_WORDS[n];
-  if (n >= 10 && n < 16) {
-    const teens = ["DIEZ", "ONCE", "DOCE", "TRECE", "CATORCE", "QUINCE"];
-    return teens[n - 10];
-  }
-  if (n < 20) return `DIECI${UNITS_WORDS[n - 10].toLowerCase()}`.toUpperCase();
-  if (n === 20) return "VEINTE";
-  if (n < 30) return `VEINTI${UNITS_WORDS[n - 20].toLowerCase()}`.toUpperCase();
-  const ten = Math.floor(n / 10);
-  const unit = n % 10;
-  return unit ? `${TENS_WORDS[ten]} Y ${UNITS_WORDS[unit]}` : TENS_WORDS[ten];
-};
-
-const toWordsBelowThousand = (n) => {
-  if (n === 0) return "";
-  if (n === 100) return "CIEN";
-  const hundred = Math.floor(n / 100);
-  const rest = n % 100;
-  const hundredText = HUNDREDS_WORDS[hundred];
-  const restText = toWordsBelowHundred(rest);
-  if (hundredText && restText) return `${hundredText} ${restText}`;
-  return hundredText || restText;
-};
-
-function numberToWordsEs(rawNumber) {
-  const number = Math.floor(Math.max(0, Number(rawNumber) || 0));
-  if (number === 0) return "CERO";
-  if (number >= 1000000000) return String(number);
-
-  const millions = Math.floor(number / 1000000);
-  const thousands = Math.floor((number % 1000000) / 1000);
-  const hundreds = number % 1000;
-  const parts = [];
-
-  if (millions > 0) {
-    if (millions === 1) parts.push("UN MILLON");
-    else parts.push(`${toWordsBelowThousand(millions)} MILLONES`);
-  }
-  if (thousands > 0) {
-    if (thousands === 1) parts.push("MIL");
-    else parts.push(`${toWordsBelowThousand(thousands)} MIL`);
-  }
-  if (hundreds > 0) parts.push(toWordsBelowThousand(hundreds));
-  return parts.join(" ").replaceAll("  ", " ").trim();
-}
-
-function amountToWordsQ(amount) {
-  const numericAmount = Math.max(0, Number(amount) || 0);
-  const whole = Math.floor(numericAmount);
-  const cents = Math.round((numericAmount - whole) * 100);
-  return `${numberToWordsEs(whole)} QUETZALES CON ${String(cents).padStart(2, "0")}/100`;
+/**
+ * Formato del documento de envío: siempre "... QUETZALES CON NN/100", también en montos exactos
+ * (a diferencia de amountInWordsQ, que escribe "EXACTOS"). Trabaja en centavos enteros.
+ */
+export function amountToWordsQ(amount) {
+  const totalCents = Math.round(Math.max(0, Number(amount) || 0) * 100);
+  const whole = Math.floor(totalCents / 100);
+  const cents = totalCents % 100;
+  const words = integerToWords(whole).replace(/UNO$/, "UN");
+  return `${words} QUETZALES CON ${String(cents).padStart(2, "0")}/100`;
 }
 
 function isEnvlShipmentDocument(docNo, sale, businessTitle) {
