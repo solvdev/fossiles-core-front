@@ -111,6 +111,8 @@ import AccountingInvoices from "views/accounting/AccountingInvoices.js";
 import AccountingInvoiceForm from "views/accounting/AccountingInvoiceForm.js";
 import AccountingInvoiceDetail from "views/accounting/AccountingInvoiceDetail.js";
 import KioskMovementsAccounting from "views/accounting/KioskMovementsAccounting.js";
+import PayrollRuns from "views/payroll/PayrollRuns.js";
+import EmployeeCharges from "views/payroll/EmployeeCharges.js";
 
 // Reportes
 import ProductionReports from "views/reports/ProductionReports.js";
@@ -1314,6 +1316,31 @@ const routes = [
         permissions: {
           view: "CONTABILIDAD.ENVIOS.VER",
           edit: "CONTABILIDAD.ENVIOS.APROBAR",
+        },
+      },
+      {
+        path: "/payroll",
+        name: "Planilla",
+        mini: "PL",
+        component: <PayrollRuns />,
+        layout: "/admin",
+        module: "CONTABILIDAD",
+        permissions: {
+          view: "PLANILLA.CORRIDAS.VER",
+          create: "PLANILLA.CORRIDAS.CREAR",
+          approve: "PLANILLA.CORRIDAS.APROBAR",
+        },
+      },
+      {
+        path: "/payroll/charges",
+        name: "Cargos a colaboradores",
+        mini: "CC",
+        component: <EmployeeCharges />,
+        layout: "/admin",
+        module: "CONTABILIDAD",
+        permissions: {
+          view: "PLANILLA.CARGOS.VER",
+          edit: "PLANILLA.CARGOS.EDITAR",
         },
       },
     ],
