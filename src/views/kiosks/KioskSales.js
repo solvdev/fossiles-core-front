@@ -31,6 +31,15 @@ import {
   getPendingDepositSummary,
   updateKioskSaleInvoiceContact,
 } from "services/kioskPosService";
+import {
+  cancelExtraRequest,
+  createExtraRequest,
+  discardHeldCart,
+  holdKioskCart,
+  listExtraRequests,
+  listHeldCarts,
+  resumeHeldCart,
+} from "services/kioskPosExtraService";
 import { issueTaxInvoiceFromKioskSale } from "services/taxInvoiceService";
 import { countShipmentsInTransit } from "services/productDistributionService";
 import { getTodayYmdGuatemala } from "utils/dateTimeHelper";
@@ -46,6 +55,21 @@ import PosCatalogPanel from "./pos/PosCatalogPanel";
 import PosCinchoPickModal from "./pos/PosCinchoPickModal";
 import PosCartPanel from "./pos/PosCartPanel";
 import PosCheckoutModal from "./pos/PosCheckoutModal";
+import PosExtraRequestModal from "./pos/PosExtraRequestModal";
+import PosHeldCartsModal, { PosHoldCartModal } from "./pos/PosHeldCartsModal";
+import {
+  applyExtraStatuses,
+  cartHasExtra,
+  extraCheckoutBlockReason,
+  lineBaseKey,
+  lineExtraUnit,
+  mergeExtraBack,
+  parseHeldCart,
+  refreshAvailability,
+  serializeHeldCart,
+  siblingQty,
+  splitLineForExtra,
+} from "./pos/posExtraUtils";
 import PosInvoiceEmailModal from "./pos/PosInvoiceEmailModal";
 import PosSuccessScreen from "./pos/PosSuccessScreen";
 import PosReportsTab from "./pos/PosReportsTab";
@@ -140,8 +164,49 @@ function KioskSales() {
   const [pendingDepositSummary, setPendingDepositSummary] = useState(null);
   const [pendingReceiptCount, setPendingReceiptCount] = useState(0);
   const [deletingPromotionId, setDeletingPromotionId] = useState(null);
+  // Complemento extra y ventas en espera
+  const [heldCarts, setHeldCarts] = useState([]);
+  const [extraRequestsById, setExtraRequestsById] = useState({});
+  const [extraModalLine, setExtraModalLine] = useState(null);
+  const [extraSubmitting, setExtraSubmitting] = useState(false);
+  const [holdModalOpen, setHoldModalOpen] = useState(false);
+  const [holdSaving, setHoldSaving] = useState(false);
+  const [heldModalOpen, setHeldModalOpen] = useState(false);
+  const [heldBusyId, setHeldBusyId] = useState(null);
 
   const today = useMemo(() => getTodayYmdGuatemala(), []);
+
+  const loadHeldCarts = async (kioskLocationId) => {
+    const locationId = kioskLocationId || selectedKioskId || undefined;
+    if (!locationId) {
+      setHeldCarts([]);
+      return;
+    }
+    try {
+      const rows = await listHeldCarts(locationId);
+      setHeldCarts(Array.isArray(rows) ? rows : []);
+    } catch {
+      // Silencioso: se reintenta en el siguiente ciclo del POS.
+    }
+  };
+
+  const loadExtraRequests = async (kioskLocationId) => {
+    const locationId = kioskLocationId || selectedKioskId || undefined;
+    if (!locationId) {
+      setExtraRequestsById({});
+      return;
+    }
+    try {
+      const rows = await listExtraRequests(locationId);
+      const map = {};
+      (Array.isArray(rows) ? rows : []).forEach((row) => {
+        map[row.id] = row;
+      });
+      setExtraRequestsById(map);
+    } catch {
+      // Silencioso: se reintenta en el siguiente ciclo del POS.
+    }
+  };
 
   const loadPendingReceiptCount = async (kioskLocationId) => {
     if (!canConfirmReceipt) {
@@ -242,6 +307,8 @@ function KioskSales() {
         loadPendingDepositSummary(kioskLocationId || ctx?.kioskId),
         loadPendingReceiptCount(kioskLocationId || ctx?.kioskId),
         loadPendingFelSale(kioskLocationId || ctx?.kioskId),
+        loadHeldCarts(kioskLocationId || ctx?.kioskId),
+        loadExtraRequests(kioskLocationId || ctx?.kioskId),
       ]);
     } catch (err) {
       showError(err.message || "No se pudo cargar la pantalla POS.");
@@ -286,8 +353,33 @@ function KioskSales() {
     return () => clearTimeout(timer);
   }, [productSearch, selectedKioskId, activeTab]);
 
+  // El estado de cada complemento (pendiente/aprobado/rechazado) llega por consulta periódica.
+  const hasLiveExtras = cartHasExtra(cart) || heldCarts.length > 0;
+  useEffect(() => {
+    if (!hasLiveExtras || !selectedKioskId || activeTab !== "POS") return undefined;
+    const timer = setInterval(() => {
+      if (typeof document !== "undefined" && document.hidden) return;
+      void loadExtraRequests(selectedKioskId);
+      void loadHeldCarts(selectedKioskId);
+    }, 12000);
+    return () => clearInterval(timer);
+  }, [hasLiveExtras, selectedKioskId, activeTab]);
+
+  useEffect(() => {
+    setCart((prev) => applyExtraStatuses(prev, extraRequestsById));
+  }, [extraRequestsById]);
+
+  const cancelExtraRequestsOfLines = (lines) => {
+    (lines || [])
+      .filter((line) => line.extraRequest && line.extraRequest.status !== "USED")
+      .forEach((line) => {
+        cancelExtraRequest(line.extraRequest.id).catch(() => {});
+      });
+  };
+
   const handleKioskChange = async (nextKioskId) => {
     setSelectedKioskId(nextKioskId);
+    cancelExtraRequestsOfLines(cart);
     setCart([]);
     setAvailabilityKey("");
     setAvailabilityRows([]);
@@ -323,7 +415,11 @@ function KioskSales() {
     setCart((prev) => {
       const existing = prev.find((line) => line.key === key);
       const nextQty = existing ? Number(existing.quantity || 0) + 1 : 1;
-      if (nextQty > availableQty) {
+      // Las piezas con complemento (línea aparte) salen del mismo stock.
+      const complementQty = prev
+        .filter((line) => line.key !== key && lineBaseKey(line) === key)
+        .reduce((sum, line) => sum + Number(line.quantity || 0), 0);
+      if (nextQty + complementQty > availableQty) {
         const sizeHint = size ? ` talla ${size}` : "";
         showError(
           `Stock insuficiente para ${inventoryItem.productName}${sizeHint}. Disponible: ${formatQty(availableQty)}.`
@@ -386,9 +482,11 @@ function KioskSales() {
       const next = prev.map((line) => {
         if (line.key !== key) return line;
         if (patch.quantity != null) {
+          // Con complemento autorizado/solicitado la cantidad queda fija.
+          if (line.extraRequest) return line;
           const qty = parsePosQty(patch.quantity);
           if (qty < 1) return line;
-          if (qty > Number(line.availableQty || 0)) {
+          if (qty + siblingQty(prev, line) > Number(line.availableQty || 0)) {
             showError(`Cantidad máxima disponible: ${formatQty(line.availableQty)}.`);
             return line;
           }
@@ -432,11 +530,136 @@ function KioskSales() {
     });
   };
 
-  const removeCartLine = (key) =>
+  const removeCartLine = (key) => {
+    const removed = cart.find((line) => line.key === key);
+    if (removed?.extraRequest) {
+      cancelExtraRequestsOfLines([removed]);
+    }
     setCart((prev) => {
       const next = prev.filter((line) => line.key !== key);
       return isEntrecuerosPos ? applyEntrecuerosCartPrices(next) : next;
     });
+  };
+
+  /** Quita el complemento (cancela la solicitud) y devuelve las piezas a la línea normal. */
+  const removeExtraFromLine = (line) => {
+    if (!line?.extraRequest) return;
+    cancelExtraRequestsOfLines([line]);
+    setCart((prev) => {
+      const next = mergeExtraBack(prev, line.key);
+      return isEntrecuerosPos ? applyEntrecuerosCartPrices(next) : next;
+    });
+  };
+
+  const submitExtraRequest = async ({ pieces, description, extraAmount }) => {
+    const line = extraModalLine;
+    if (!line) return;
+    try {
+      setExtraSubmitting(true);
+      const request = await createExtraRequest({
+        kioskLocationId: selectedKioskId ? Number(selectedKioskId) : null,
+        productId: line.productId,
+        colorId: line.colorId || null,
+        size: line.size || null,
+        hardwareCondition: line.hardwareCondition || "NUEVO",
+        quantity: pieces,
+        description,
+        extraAmount,
+        catalogUnitPrice: Number(line.unitPrice || 0),
+      });
+      setCart((prev) => {
+        const next = splitLineForExtra(prev, line.key, pieces, request);
+        return isEntrecuerosPos ? applyEntrecuerosCartPrices(next) : next;
+      });
+      setExtraModalLine(null);
+      showSuccess(`Solicitud ${request.requestNumber || ""} enviada. Espera la autorización para cobrar.`.trim());
+      void loadExtraRequests(selectedKioskId);
+    } catch (err) {
+      showError(err.message || "No se pudo enviar la solicitud de complemento.");
+    } finally {
+      setExtraSubmitting(false);
+    }
+  };
+
+  const holdCurrentCart = async (label) => {
+    if (cart.length === 0) return;
+    try {
+      setHoldSaving(true);
+      await holdKioskCart({
+        kioskLocationId: selectedKioskId ? Number(selectedKioskId) : null,
+        label,
+        cartJson: serializeHeldCart({ cart, selectedPromotionId, notes, comments }),
+      });
+      setCart([]);
+      setSelectedPromotionId("");
+      setNotes("");
+      setComments("");
+      setHoldModalOpen(false);
+      showSuccess("Venta dejada en espera. Puedes atender a otro cliente.");
+      await loadHeldCarts(selectedKioskId);
+    } catch (err) {
+      showError(err.message || "No se pudo dejar la venta en espera.");
+    } finally {
+      setHoldSaving(false);
+    }
+  };
+
+  const resumeHeld = async (held) => {
+    if (cart.length > 0) {
+      showError("Primero cobra o deja en espera la venta actual.");
+      return;
+    }
+    try {
+      setHeldBusyId(held.id);
+      const resumed = await resumeHeldCart(held.id);
+      const parsed = parseHeldCart(resumed.cartJson);
+      // Stock vigente: pudo cambiar mientras la venta estuvo en espera.
+      const ctx = await getKioskPosContext(selectedKioskId || undefined, {});
+      const availableByKey = {};
+      filterVisibleKioskStockRows(ctx?.inventory).forEach((item) => {
+        availableByKey[lineKeyFor(item.productId, item.colorId, null, item.hardwareCondition)] =
+          Number(item.quantity || 0);
+        posVariantSizeEntries(item).forEach((entry) => {
+          availableByKey[lineKeyFor(item.productId, item.colorId, entry.size, item.hardwareCondition)] =
+            Number(entry.quantity || 0);
+        });
+      });
+      let lines = refreshAvailability(parsed.cart, availableByKey);
+      lines = applyExtraStatuses(lines, extraRequestsById);
+      const lacking = lines.filter(
+        (line) => Number(line.quantity || 0) + siblingQty(lines, line) > Number(line.availableQty || 0)
+      );
+      setCart(isEntrecuerosPos ? applyEntrecuerosCartPrices(lines) : lines);
+      setSelectedPromotionId(parsed.selectedPromotionId);
+      setNotes(parsed.notes);
+      setComments(parsed.comments);
+      setHeldModalOpen(false);
+      if (lacking.length > 0) {
+        showError(
+          `Ya no hay stock suficiente de: ${lacking.map((line) => line.productName).join(", ")}. Ajusta o quita esas líneas.`
+        );
+      }
+      void loadExtraRequests(selectedKioskId);
+    } catch (err) {
+      showError(err.message || "No se pudo retomar la venta en espera.");
+    } finally {
+      setHeldBusyId(null);
+      await loadHeldCarts(selectedKioskId);
+    }
+  };
+
+  const discardHeld = async (held) => {
+    try {
+      setHeldBusyId(held.id);
+      cancelExtraRequestsOfLines(parseHeldCart(held.cartJson).cart);
+      await discardHeldCart(held.id);
+      await loadHeldCarts(selectedKioskId);
+    } catch (err) {
+      showError(err.message || "No se pudo descartar la venta en espera.");
+    } finally {
+      setHeldBusyId(null);
+    }
+  };
 
 
   const cartQtyByColorKey = useMemo(() => {
@@ -459,7 +682,7 @@ function KioskSales() {
           === normalizePosHardwareCondition(cinchoPickVariant.hardwareCondition) &&
         line.size
       ) {
-        map[line.size] = Number(line.quantity || 0);
+        map[line.size] = (map[line.size] || 0) + Number(line.quantity || 0);
       }
     });
     return map;
@@ -476,19 +699,23 @@ function KioskSales() {
   );
 
   const cartTotals = useMemo(() => {
+    // El complemento (extra por pieza) suma al total pero no entra al descuento: las promociones
+    // trabajan sobre unitPrice (precio base) de cada línea.
     const subtotal = cart.reduce((acc, line) => {
       const qty = Number(line.quantity || 0);
       const price = Number(line.unitPrice || 0);
       acc.items += qty;
-      acc.total += qty * price;
+      acc.total += qty * (price + lineExtraUnit(line));
+      acc.extra += qty * lineExtraUnit(line);
       return acc;
-    }, { items: 0, total: 0 });
+    }, { items: 0, total: 0, extra: 0 });
 
     // Entrecueros: precio de tramo, sin descuento ni promociones.
     if (isEntrecuerosPos) {
       return {
         items: subtotal.items,
         total: subtotal.total,
+        extra: subtotal.extra,
         discount: 0,
         estimated: subtotal.total,
         autoApplied: false,
@@ -506,6 +733,7 @@ function KioskSales() {
     return {
       items: subtotal.items,
       total: subtotal.total,
+      extra: subtotal.extra,
       discount: resolved.discount,
       estimated: Math.max(0, subtotal.total - resolved.discount),
       autoApplied: resolved.autoApplied,
@@ -540,6 +768,11 @@ function KioskSales() {
   const submitSale = async (checkoutData) => {
     if (cart.length === 0) {
       showError("Agrega al menos un producto al carrito.");
+      return;
+    }
+    const extraBlock = extraCheckoutBlockReason(cart);
+    if (extraBlock) {
+      showError(extraBlock);
       return;
     }
     const locationId = selectedKioskId || context?.kioskId;
@@ -616,6 +849,10 @@ function KioskSales() {
             hardwareCondition: line.hardwareCondition || "NUEVO",
             quantity: Number(line.quantity || 0),
           };
+          // Complemento autorizado: el servidor valida la solicitud y calcula el precio (base + extra).
+          if (line.extraRequest) {
+            item.extraRequestId = line.extraRequest.id;
+          }
           // Precio final sin descuento: modo Final, o catálogo en 0 con monto capturado en caja.
           const catalogZero = !(Number(line.catalogUnitPrice) > 0);
           if (
@@ -858,6 +1095,7 @@ function KioskSales() {
   };
 
   const cancelSale = () => {
+    cancelExtraRequestsOfLines(cart);
     setCart([]);
     setSelectedPromotionId("");
   };
@@ -1079,6 +1317,36 @@ function KioskSales() {
                               disabled={!cashSessionOpen || saving}
                               canEditPrices={canEditPosPrices && !isEntrecuerosPos}
                               entrecueros={isEntrecuerosPos}
+                              onRequestExtra={setExtraModalLine}
+                              onRemoveExtra={removeExtraFromLine}
+                              checkoutBlockReason={extraCheckoutBlockReason(cart)}
+                              heldCount={heldCarts.length}
+                              onHoldCart={() => setHoldModalOpen(true)}
+                              onOpenHeld={() => setHeldModalOpen(true)}
+                            />
+                            <PosExtraRequestModal
+                              isOpen={extraModalLine != null}
+                              line={extraModalLine}
+                              onClose={() => setExtraModalLine(null)}
+                              onSubmit={submitExtraRequest}
+                              submitting={extraSubmitting}
+                            />
+                            <PosHoldCartModal
+                              isOpen={holdModalOpen}
+                              cart={cart}
+                              onClose={() => setHoldModalOpen(false)}
+                              onConfirm={holdCurrentCart}
+                              saving={holdSaving}
+                            />
+                            <PosHeldCartsModal
+                              isOpen={heldModalOpen}
+                              onClose={() => setHeldModalOpen(false)}
+                              heldCarts={heldCarts}
+                              requestsById={extraRequestsById}
+                              cartIsEmpty={cart.length === 0}
+                              busyId={heldBusyId}
+                              onResume={resumeHeld}
+                              onDiscard={discardHeld}
                             />
                           </div>
                         </div>

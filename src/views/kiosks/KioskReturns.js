@@ -28,6 +28,11 @@ import {
   rejectKioskExchange,
   reintegrateKioskReturn,
 } from "services/kioskExchangeService";
+import {
+  authorizeExtraRequest,
+  listPendingExtraRequests,
+  rejectExtraRequest,
+} from "services/kioskPosExtraService";
 import { getKioscoMovimientos } from "services/kioscoInventoryService";
 import { formatDateTimeGt } from "utils/dateTimeHelper";
 import { showError, showSuccess } from "utils/notificationHelper";
@@ -45,6 +50,7 @@ import { formatCurrency, formatQty } from "./pos/posUtils";
 import "./KioskSales.css";
 import PosAdminKioskPicker from "./pos/PosAdminKioskPicker";
 import ExchangeSlipWizard from "./returns/ExchangeSlipWizard";
+import ExtraRequestsAuthorizationPanel from "./returns/ExtraRequestsAuthorizationPanel";
 import SimpleReturnWizard from "./returns/SimpleReturnWizard";
 import KioskSlipDetailModal, { SlipStockPill } from "./returns/KioskSlipDetailModal";
 
@@ -148,6 +154,7 @@ function KioskReturns() {
   const [returns, setReturns] = useState([]);
   const [depositReturns, setDepositReturns] = useState([]);
   const [pendingAuthorizations, setPendingAuthorizations] = useState([]);
+  const [pendingExtras, setPendingExtras] = useState([]);
   const [pendingReintegros, setPendingReintegros] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -227,6 +234,7 @@ function KioskReturns() {
       setReturns([]);
       setDepositReturns([]);
       setPendingAuthorizations([]);
+      setPendingExtras([]);
       setPendingReintegros([]);
       return;
     }
@@ -234,9 +242,10 @@ function KioskReturns() {
       setLoading(true);
       setError("");
       const kioskLocationId = kioskId ? Number(kioskId) : undefined;
-      const [exchangeRows, authorizationRows, reintegroRows, depositRows] = await Promise.all([
+      const [exchangeRows, authorizationRows, extraRows, reintegroRows, depositRows] = await Promise.all([
         listKioskExchanges(kioskLocationId),
         authorizeExchanges ? listPendingAuthorizations(kioskLocationId) : Promise.resolve([]),
+        authorizeExchanges ? listPendingExtraRequests(kioskLocationId) : Promise.resolve([]),
         manageReturns ? listPendingReintegros(kioskLocationId) : Promise.resolve([]),
         manageReturns ? loadDepositReturns(kioskId, kioskList) : Promise.resolve([]),
       ]);
@@ -249,6 +258,7 @@ function KioskReturns() {
       );
       setDepositReturns(manageReturns && Array.isArray(depositRows) ? depositRows : []);
       setPendingAuthorizations(Array.isArray(authorizationRows) ? authorizationRows : []);
+      setPendingExtras(authorizeExchanges && Array.isArray(extraRows) ? extraRows : []);
       setPendingReintegros(manageReturns && Array.isArray(reintegroRows) ? reintegroRows : []);
     } catch (err) {
       setError(err.message || "Error al cargar devoluciones y boletas.");
@@ -324,11 +334,11 @@ function KioskReturns() {
 
   useEffect(() => {
     if (initialTabChosen || loading) return;
-    if (canAuthorizeExchanges && pendingAuthorizations.length > 0) {
+    if (canAuthorizeExchanges && (pendingAuthorizations.length > 0 || pendingExtras.length > 0)) {
       setActiveTab("AUTHORIZATIONS");
     }
     if (posContext) setInitialTabChosen(true);
-  }, [initialTabChosen, loading, canAuthorizeExchanges, pendingAuthorizations, posContext]);
+  }, [initialTabChosen, loading, canAuthorizeExchanges, pendingAuthorizations, pendingExtras, posContext]);
 
   const handleKioskChange = async (nextKioskId) => {
     const next = nextKioskId ? String(nextKioskId) : "";
@@ -426,6 +436,28 @@ function KioskReturns() {
       return true;
     } catch (err) {
       showError(err.message || "No se pudo rechazar el cambio.");
+      return false;
+    }
+  };
+
+  const handleAuthorizeExtra = async (row) => {
+    try {
+      await authorizeExtraRequest(row.id);
+      showSuccess(`Complemento ${row.requestNumber} autorizado. El cajero ya puede cobrar.`);
+    } catch (err) {
+      showError(err.message || "No se pudo autorizar el complemento.");
+    }
+    await loadData();
+  };
+
+  const handleRejectExtra = async (row, reason) => {
+    try {
+      await rejectExtraRequest(row.id, reason);
+      showSuccess(`Complemento ${row.requestNumber} rechazado.`);
+      await loadData();
+      return true;
+    } catch (err) {
+      showError(err.message || "No se pudo rechazar el complemento.");
       return false;
     }
   };
@@ -588,8 +620,10 @@ function KioskReturns() {
                       style={{ cursor: "pointer" }}
                     >
                       Autorizaciones pendientes
-                      {filteredPendingAuthorizations.length > 0 && (
-                        <Badge color="warning" pill className="ml-2">{filteredPendingAuthorizations.length}</Badge>
+                      {filteredPendingAuthorizations.length + pendingExtras.length > 0 && (
+                        <Badge color="warning" pill className="ml-2">
+                          {filteredPendingAuthorizations.length + pendingExtras.length}
+                        </Badge>
                       )}
                     </NavLink>
                   </NavItem>
@@ -781,10 +815,21 @@ function KioskReturns() {
 
                 {canAuthorizeExchanges && (
                   <TabPane tabId="AUTHORIZATIONS">
+                    {!loading && (
+                      <ExtraRequestsAuthorizationPanel
+                        rows={pendingExtras}
+                        onAuthorize={handleAuthorizeExtra}
+                        onReject={handleRejectExtra}
+                      />
+                    )}
                     {loading ? (
                       <p>Cargando...</p>
                     ) : filteredPendingAuthorizations.length === 0 ? (
-                      <p>No hay cambios pendientes de autorización.</p>
+                      <p>
+                        {pendingExtras.length > 0
+                          ? "No hay cambios pendientes de autorización."
+                          : "No hay cambios ni complementos pendientes de autorización."}
+                      </p>
                     ) : (
                       <Table responsive hover>
                         <thead className="text-primary">
