@@ -398,3 +398,14 @@ export const createOnlineSaleExchange = async (onlineSaleId, data) => {
   }
   return response.json();
 };
+
+/** Busca envíos existentes (ENVL) por número de envío, cliente o No. de pedido. */
+export const searchOnlineSaleShipments = async (q) => {
+  const qs = q && q.trim() ? `?q=${encodeURIComponent(q.trim())}` : '';
+  const response = await fetch(`${API_URL}/online-sales/shipments/search${qs}`, { headers: headers() });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ message: 'Error al buscar envíos' }));
+    throw new Error(err.message || 'Error al buscar envíos');
+  }
+  return response.json();
+};

@@ -19,6 +19,8 @@ import EditTaxInvoiceFelModal from "components/accounting/EditTaxInvoiceFelModal
 import { useAuth } from "contexts/AuthContext";
 import { canEditTaxInvoiceFel } from "utils/taxInvoiceEditHelper";
 import { showError, showSuccess } from "utils/notificationHelper";
+import { ProductBrandBadge } from "components/catalog/ProductBrandBadge";
+import { kioskDimensionDisplayLabel } from "utils/kioskStockDimensionHelper";
 import {
   formatCurrency,
   formatQty,
@@ -129,6 +131,11 @@ function PosSaleDetailModal({
   const disbursementsTotal = Number(sale?.disbursementsTotal ?? 0);
   const netDepositAmount = getSaleNetDepositAmount(sale);
   const saleDisbursements = Array.isArray(sale?.disbursements) ? sale.disbursements : [];
+  const saleItems = Array.isArray(sale?.items) ? sale.items : [];
+  // Marca / variante vendida (Entrecueros). En kioscos con herraje NUEVO/VIEJO no hay nada que mostrar.
+  const showBrandColumn = saleItems.some(
+    (item) => kioskDimensionDisplayLabel(item.hardwareCondition, { entreCueros: true }) !== "—"
+  );
   const canManageDisbursements =
     Boolean(cashSessionOpen) &&
     !isVoid &&
@@ -152,7 +159,7 @@ function PosSaleDetailModal({
       return;
     }
     if (!depositBank) {
-      showError("Selecciona el banco donde depositaste (G&T Continental o Industrial).");
+      showError("Selecciona el banco donde depositaste (G&T Continental, Industrial o BANRURAL).");
       return;
     }
     if (netDepositAmount <= 0) {
@@ -650,7 +657,9 @@ function PosSaleDetailModal({
                     {sale.depositBankName
                       || (sale.depositBank === "INDUSTRIAL"
                         ? "Banco Industrial"
-                        : "Banco G&T Continental")}
+                        : sale.depositBank === "BANRURAL"
+                          ? "BANRURAL"
+                          : "Banco G&T Continental")}
                   </div>
                   {sale.depositRecordedAt && (
                     <div className="small text-muted">
@@ -682,6 +691,16 @@ function PosSaleDetailModal({
                       disabled={savingDeposit}
                     >
                       Banco Industrial
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      color={depositBank === "BANRURAL" ? "primary" : "secondary"}
+                      outline={depositBank !== "BANRURAL"}
+                      onClick={() => setDepositBank("BANRURAL")}
+                      disabled={savingDeposit}
+                    >
+                      BANRURAL
                     </Button>
                   </div>
                   <Label className="kiosk-pos-label">Número de boleta *</Label>
@@ -797,6 +816,7 @@ function PosSaleDetailModal({
                 <tr>
                   <th>Código</th>
                   <th>Producto</th>
+                  {showBrandColumn && <th>Marca</th>}
                   <th>Color</th>
                   <th>Cant.</th>
                   <th>P. unit.</th>
@@ -804,19 +824,28 @@ function PosSaleDetailModal({
                 </tr>
               </thead>
               <tbody>
-                {(sale.items || []).map((item) => (
+                {saleItems.map((item) => (
                   <tr key={item.id || `${item.productId}-${item.colorId}`}>
                     <td>{item.productCode || "—"}</td>
                     <td>{item.productName || "—"}</td>
+                    {showBrandColumn && (
+                      <td>
+                        {kioskDimensionDisplayLabel(item.hardwareCondition, { entreCueros: true }) !== "—" ? (
+                          <ProductBrandBadge value={item.hardwareCondition} entreCueros className="ml-0" />
+                        ) : (
+                          "—"
+                        )}
+                      </td>
+                    )}
                     <td>{item.colorName || "—"}</td>
                     <td>{formatQty(item.quantity)}</td>
                     <td>{formatCurrency(item.unitPrice)}</td>
                     <td>{formatCurrency(item.lineTotal)}</td>
                   </tr>
                 ))}
-                {(!sale.items || sale.items.length === 0) && (
+                {saleItems.length === 0 && (
                   <tr>
-                    <td colSpan="6" className="text-center text-muted">
+                    <td colSpan={showBrandColumn ? 7 : 6} className="text-center text-muted">
                       Sin líneas de detalle.
                     </td>
                   </tr>

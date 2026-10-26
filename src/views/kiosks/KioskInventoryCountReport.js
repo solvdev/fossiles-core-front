@@ -104,6 +104,8 @@ import HardwareCountModal, {
 import "./KioskInventoryCountReport.css";
 
 const COUNT_LOCATION_KEYS = ["V1", "V2", "V3", "V4", "V5", "V6", "V7", "E", "BO"];
+/** Entre Cueros: ubicaciones donde se cuenta el cincho por talla (vitrinas y bodega). */
+const ENTRECUEROS_CINCHO_COUNT_LOCATIONS = COUNT_LOCATION_KEYS;
 const CINCHO_VITRINE_LOCATION = CINCHO_COUNT_LOCATION.VITRINE;
 const CINCHO_WAREHOUSE_LOCATION = CINCHO_COUNT_LOCATION.WAREHOUSE;
 const PRODUCT_INFO_COLS = 5;
@@ -505,6 +507,10 @@ function buildCountRowModel({
     : (resolveSizesSummary(row) || "—");
   const countLocationDisabled = (locKey) => {
     if (!isExpandedSizeRow || !isCincho) return false;
+    // Entre Cueros: el cincho por talla se cuenta en todas las ubicaciones (V1–V7, E, BO).
+    if (entreCueros) {
+      return false;
+    }
     if (isFoss) {
       return locKey !== CINCHO_VITRINE_LOCATION && locKey !== CINCHO_WAREHOUSE_LOCATION;
     }
@@ -1650,6 +1656,37 @@ function KioskInventoryCountReport({ locationId, internalMode = false }) {
           item.physicalSizesByLocation = editedSizeCountsByLocation[rKey];
         }
         return appendObservationFields(item, groupRows, sample);
+      }
+
+      if (entreCueros && isCinchoProductRow(sample)) {
+        const byLocation = {};
+        const physicalSizesByTotal = {};
+        const parentCountsByLocation = { ...(sample.counts || {}) };
+        ENTRECUEROS_CINCHO_COUNT_LOCATIONS.forEach((locKey) => {
+          parentCountsByLocation[locKey] = 0;
+        });
+        groupRows.forEach((row) => {
+          if (!row.sizeLabel) return;
+          const counts = { ...(row.counts || {}), ...(editedCounts[rowKey(row)] || {}) };
+          let sizeTotal = 0;
+          ENTRECUEROS_CINCHO_COUNT_LOCATIONS.forEach((locKey) => {
+            const qty = Number(counts[locKey] || 0);
+            if (!byLocation[locKey]) byLocation[locKey] = {};
+            byLocation[locKey][row.sizeLabel] = qty;
+            parentCountsByLocation[locKey] += qty;
+            sizeTotal += qty;
+          });
+          physicalSizesByTotal[row.sizeLabel] = sizeTotal;
+        });
+        const entreCuerosItem = {
+          productId: sample.productId,
+          colorId: sample.colorId || null,
+          hardwareCondition: sample.hardwareCondition || undefined,
+          counts: parentCountsByLocation,
+          physicalSizes: physicalSizesByTotal,
+          physicalSizesByLocation: byLocation,
+        };
+        return appendObservationFields(entreCuerosItem, groupRows, sample);
       }
 
       const foss = isFossCinchoProductRow(sample);

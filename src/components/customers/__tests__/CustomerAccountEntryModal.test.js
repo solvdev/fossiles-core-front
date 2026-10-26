@@ -5,7 +5,7 @@ import CustomerAccountEntryModal from "components/customers/CustomerAccountEntry
 import {
   createCustomerAccountEntry,
   getCustomerAccountStatement,
-  getOrderChargeQuote,
+  getShipmentChargeQuote,
 } from "services/customerAccountService";
 
 jest.mock("services/customerAccountService", () => {
@@ -14,7 +14,7 @@ jest.mock("services/customerAccountService", () => {
     ...actual,
     createCustomerAccountEntry: jest.fn(),
     getCustomerAccountStatement: jest.fn(),
-    getOrderChargeQuote: jest.fn(),
+    getShipmentChargeQuote: jest.fn(),
   };
 });
 
@@ -93,6 +93,8 @@ const renderModal = async (props = {}) => {
           orderCode: "OP-77",
           orderKind: "OPC",
           vendorShipmentNumber: "ENVP-PANTALLA",
+          productShipmentId: 21,
+          partialReleaseId: 9,
           estimatedTotal: 80,
         }}
         {...props}
@@ -111,7 +113,7 @@ beforeAll(() => {
 
 beforeEach(() => {
   getCustomerAccountStatement.mockResolvedValue({ lines: statementLines });
-  getOrderChargeQuote.mockResolvedValue({
+  getShipmentChargeQuote.mockResolvedValue({
     amount: 1500,
     productsTotal: 1500,
     shippingTotal: 115,
@@ -230,8 +232,8 @@ describe("CustomerAccountEntryModal", () => {
     expect(payload.entryType).toBe("CHARGE");
     expect(payload.amount).toBe(1500);
     expect(payload.productionOrderId).toBe(77);
-    expect(payload).not.toHaveProperty("partialReleaseId");
-    expect(payload).not.toHaveProperty("productShipmentId");
+    expect(payload.productShipmentId).toBe(21);
+    expect(payload.partialReleaseId).toBe(9);
   });
 
   test("el abono no pasa el saldo del cargo y muestra el rechazo del servidor", async () => {

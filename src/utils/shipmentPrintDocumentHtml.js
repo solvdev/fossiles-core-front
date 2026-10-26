@@ -60,12 +60,36 @@ export function extractExchangeObservation(observations) {
   return "";
 }
 
+const CAMBIO_Q0_REL = /CAMBIO_Q0((?:ENVIO_REL|VENTA_REL)=([^)]*))/gi;
+
+/** Envíos/ventas con los que está relacionado un cambio (tag CAMBIO_Q0(ENVIO_REL=...)). */
+export function extractExchangeRelations(observations) {
+  const raw = String(observations ?? "");
+  const found = [];
+  for (const m of raw.matchAll(CAMBIO_Q0_REL)) {
+    const v = String(m[1] || "").trim();
+    if (v && !found.includes(v)) found.push(v);
+  }
+  return found;
+}
+
 function resolveShipmentObservationText(docType, sale, opts = {}) {
   const explicit = String(opts.shipmentObservations ?? "").trim();
   if (explicit) return explicit;
   if (docType === "DEVOLUCION") return "";
-  if (docType === "CAMBIO") return extractExchangeObservation(sale?.observations);
-  return extractShipmentPreparationObservation(sale?.observations);
+  const relations = extractExchangeRelations(sale?.observations);
+  if (docType === "CAMBIO") {
+    const comment = extractExchangeObservation(sale?.observations);
+    // El envío de cambio nuevo hereda las observaciones de la original: la relación vigente es la última.
+    const rel = relations.length ? relations[relations.length - 1] : "";
+    const relText = rel ? `Relacionado con ${/^d+$/.test(rel) ? "venta #" : "envío "}${rel}` : "";
+    return [comment, relText].filter(Boolean).join(" | ");
+  }
+  const prep = extractShipmentPreparationObservation(sale?.observations);
+  const relText = relations.length
+    ? `Incluye cambio relacionado con envío ${relations.join(", ")}`
+    : "";
+  return [prep, relText].filter(Boolean).join(" | ");
 }
 
 function shipmentObservationLabel(docType) {

@@ -154,6 +154,7 @@ function ReceiptConfirmation() {
                 actionLabel="Recibir"
                 pageSize={10}
                 inlineDetail
+                allowReturnToWarehouse
                 selectedShipmentId={selectedShipmentId}
                 onSelectShipment={handleSelectShipment}
                 onConfirmed={handleConfirmed}

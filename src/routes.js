@@ -53,6 +53,7 @@ import ProductionOrdersList from "views/production/ProductionOrdersList.js";
 import DailyProductionPlan from "views/production/DailyProductionPlan.js";
 import TasksByTable from "views/production/TasksByTable.js";
 import TaskOrganizer from "views/production/TaskOrganizer.js";
+import DayPlanner from "views/production/dayplanner/DayPlanner.js";
 import ProductionPhaseTrays from "views/production/ProductionPhaseTrays.js";
 import ProductionTraceability from "views/production/ProductionTraceability.js";
 import MaterialsTasksView from "views/production/MaterialsTasksView.js";
@@ -65,6 +66,7 @@ import ProductMovementsAccounting from "views/inventory/ProductMovementsAccounti
 import ProductLedgerLab from "views/inventory/ProductLedgerLab.js";
 import MaterialInventoryKardex from "views/inventory/MaterialInventoryKardex.js";
 import InventoryKardex from "views/inventory/InventoryKardex.js";
+import ProductKardexHistorico from "views/inventory/ProductKardexHistorico.js";
 import InventoryTransfers from "views/inventory/InventoryTransfers.js";
 import InventoryAdjustments from "views/inventory/InventoryAdjustments.js";
 import CriticalInventory from "views/inventory/CriticalInventory.js";
@@ -672,6 +674,17 @@ const routes = [
         },
       },
       {
+        path: "/day-planner",
+        name: "Armar el día",
+        mini: "AD",
+        component: <DayPlanner />,
+        layout: "/admin",
+        module: "PRODUCCION",
+        permissions: {
+          view: "PRODUCCION.TAREAS_ESTACION.VER",
+        },
+      },
+      {
         path: "/tasks-by-station",
         name: "Centro de Producción",
         mini: "CP",
@@ -800,6 +813,17 @@ const routes = [
         layout: "/admin",
         module: "INVENTARIOS",
         showInSidebar: false,
+        permissions: {
+          view: "INVENTARIOS.KARDEX_PRODUCTOS.VER",
+        },
+      },
+      {
+        path: "/inventory-kardex-historico",
+        name: "Kardex histórico PT",
+        mini: "KH",
+        component: <ProductKardexHistorico />,
+        layout: "/admin",
+        module: "INVENTARIOS",
         permissions: {
           view: "INVENTARIOS.KARDEX_PRODUCTOS.VER",
         },

@@ -17,6 +17,7 @@ import {
   getLfSalesDocuments,
   getOrderChargeQuote,
   getReceivableDocuments,
+  getShipmentChargeQuote,
   searchReceivableDocuments,
   voidCustomerAccountEntry,
 } from "services/customerAccountService";
@@ -32,6 +33,7 @@ jest.mock("services/customerAccountService", () => {
     getCustomerAccountStatement: jest.fn(),
     getLfSalesDocuments: jest.fn(),
     getOrderChargeQuote: jest.fn(),
+    getShipmentChargeQuote: jest.fn(),
     getReceivableDocuments: jest.fn(),
     getCustomerAccountSummary: jest.fn(),
     searchReceivableDocuments: jest.fn(),
@@ -358,6 +360,7 @@ beforeEach(() => {
   getCustomerAccountSummary.mockResolvedValue([]);
   searchReceivableDocuments.mockResolvedValue([]);
   getOrderChargeQuote.mockResolvedValue(null);
+  getShipmentChargeQuote.mockResolvedValue(null);
   createCustomerAccountEntry.mockResolvedValue({ id: 1 });
   voidCustomerAccountEntry.mockResolvedValue({ id: 1 });
   createCustomer.mockResolvedValue({ id: 1 });
@@ -735,7 +738,7 @@ describe("abono movido desde otro cargo", () => {
   });
 });
 
-describe("Generar cargo y Crear cargo", () => {
+describe("Generar cargo del envío despachado", () => {
   const catalogRows = [
     {
       productionOrderId: 1,
@@ -755,7 +758,9 @@ describe("Generar cargo y Crear cargo", () => {
       customerName: "Cliente TEST",
       hasCharge: false,
       chargeStatus: "NONE",
-      documentLevel: "ORDER",
+      documentLevel: "SHIPMENT",
+      productShipmentId: 22,
+      shipmentStatus: "SENT",
       estimatedTotal: null,
       itemsSubtotal: null,
       packingSubtotal: null,
@@ -771,6 +776,8 @@ describe("Generar cargo y Crear cargo", () => {
       chargeStatus: "NONE",
       documentLevel: "SHIPMENT",
       partialReleaseId: 9,
+      productShipmentId: 33,
+      shipmentStatus: "CONFIRMED",
       estimatedTotal: null,
       itemsSubtotal: null,
       packingSubtotal: null,
@@ -798,7 +805,7 @@ describe("Generar cargo y Crear cargo", () => {
     },
   ];
 
-  test("en el catálogo OPV el botón sale solo si la orden no tiene cargo, nunca en el parcial", async () => {
+  test("en el catálogo OPV el botón sale solo en un envío despachado sin cargo, nunca en uno que no ha salido", async () => {
     getOpvShipments.mockResolvedValue(catalogRows);
     render(
       <MemoryRouter>
@@ -835,7 +842,8 @@ describe("Generar cargo y Crear cargo", () => {
         orderKind: "OPV",
         hasCharge: false,
         chargeStatus: "NONE",
-        documentLevel: "ORDER",
+        documentLevel: "SHIPMENT",
+        productShipmentId: 22,
         estimatedTotal: null,
       },
       {
@@ -914,7 +922,7 @@ describe("Generar cargo y Crear cargo", () => {
     expectNoRetiredChargeStatuses();
   });
 
-  test("en el estado de cuenta, Crear cargo no sale por parcial ni si la orden ya tiene cargo", async () => {
+  test("en el estado de cuenta, Generar cargo sale solo por un envío despachado sin cargo, nunca por la orden", async () => {
     await renderStatement(statementOf([]), [
       {
         productionOrderId: 2,
@@ -934,7 +942,10 @@ describe("Generar cargo y Crear cargo", () => {
             estimatedTotal: null,
             chargedAmount: 0,
             balanceDue: 0,
-            shipments: [],
+            shipments: [
+              { productShipmentId: 21, shipmentNumber: "ENV-21", status: "SENT", chargeStatus: "NONE", estimatedTotal: 80 },
+              { productShipmentId: 22, shipmentNumber: "ENV-22", status: "CONFIRMED", chargeStatus: "NONE", estimatedTotal: 90 },
+            ],
           },
         ],
       },
@@ -972,7 +983,8 @@ describe("Generar cargo y Crear cargo", () => {
 
     userEvent.click(screen.getByText("Documentos OPV / OPC"));
     expect(await screen.findByText("OP-SIN-CARGO")).toBeInTheDocument();
-    expect(screen.getAllByRole("button", { name: "Crear cargo" })).toHaveLength(1);
+    expect(screen.queryByRole("button", { name: "Crear cargo" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Generar cargo" })).not.toBeInTheDocument();
     expect(within(screen.getByRole("row", { name: /OP-SIN-CARGO/ })).getByText("Sin cargo")).toBeInTheDocument();
     expect(within(screen.getByRole("row", { name: /OP-CON-CARGO/ })).getByText("Cargado")).toBeInTheDocument();
     expect(within(screen.getByRole("row", { name: /OP-ABONO/ })).getByText("Parcial")).toBeInTheDocument();
@@ -980,8 +992,8 @@ describe("Generar cargo y Crear cargo", () => {
 
     userEvent.click(screen.getByRole("button", { name: /Parciales/ }));
     const partialRow = await waitFor(() => partialReleaseRow());
-    expect(screen.getAllByRole("button", { name: "Crear cargo" })).toHaveLength(1);
-    expect(within(partialRow).queryByRole("button", { name: "Crear cargo" })).not.toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "Generar cargo" })).toHaveLength(1);
+    expect(within(partialRow).getAllByRole("button", { name: "Generar cargo" })).toHaveLength(1);
     expect(within(partialRow).getByText("Sin envío")).toBeInTheDocument();
     expect(within(partialRow).getByText("Sin cargo")).toBeInTheDocument();
     expectNoRetiredChargeStatuses();
@@ -989,44 +1001,55 @@ describe("Generar cargo y Crear cargo", () => {
 });
 
 describe("cotización del cargo", () => {
-  test("el desglose es de solo lectura, el monto enviado es el de la cotización y el parcial sin envío dice Sin envío", async () => {
-    getOrderChargeQuote.mockResolvedValue({
+  const dispatchedDoc = {
+    productionOrderId: 2,
+    orderCode: "OP-SIN-CARGO",
+    orderKind: "OPV",
+    customerId: CUSTOMER_ID,
+    hasCharge: false,
+    chargeStatus: "NONE",
+    estimatedTotal: null,
+    vendorShipmentNumber: "ENVP-SIN",
+    partialReleases: [
+      {
+        partialReleaseId: 9,
+        label: "Parcial planificado",
+        chargeStatus: "NONE",
+        estimatedTotal: null,
+        shipments: [
+          {
+            productShipmentId: 21,
+            shipmentNumber: "ENV-2",
+            status: "SENT",
+            chargeStatus: "NONE",
+            estimatedTotal: 1858,
+          },
+        ],
+      },
+    ],
+  };
+
+  async function openShipmentCharge() {
+    userEvent.click(screen.getByText("Documentos OPV / OPC"));
+    userEvent.click(await screen.findByRole("button", { name: /Parciales/ }));
+    await waitFor(() => partialReleaseRow());
+    userEvent.click(screen.getByRole("button", { name: "Generar cargo" }));
+    return entryDialog();
+  }
+
+  test("el desglose es de solo lectura, el monto enviado es el de la cotización del envío y va con su envío", async () => {
+    getShipmentChargeQuote.mockResolvedValue({
       amount: QUOTE_AMOUNT,
       productsTotal: QUOTE_AMOUNT,
       shippingTotal: 75,
       orderTotal: 1858,
-      shippingLines: [{ productShipmentId: 2, shipmentNumber: "ENV-2", shippingCost: 75 }],
+      shippingLines: [{ productShipmentId: 21, shipmentNumber: "ENV-2", shippingCost: 75 }],
     });
-    await renderStatement(statementOf([]), [
-      {
-        productionOrderId: 2,
-        orderCode: "OP-SIN-CARGO",
-        orderKind: "OPV",
-        customerId: CUSTOMER_ID,
-        hasCharge: false,
-        chargeStatus: "NONE",
-        estimatedTotal: null,
-        vendorShipmentNumber: "ENVP-SIN",
-        partialReleases: [
-          {
-            partialReleaseId: 9,
-            label: "Parcial planificado",
-            chargeStatus: "NONE",
-            estimatedTotal: null,
-            shipments: [],
-          },
-        ],
-      },
-    ]);
+    await renderStatement(statementOf([]), [dispatchedDoc]);
 
-    userEvent.click(screen.getByText("Documentos OPV / OPC"));
-    userEvent.click(await screen.findByRole("button", { name: /Parciales/ }));
-    const partialRow = await waitFor(() => partialReleaseRow());
-    expect(within(partialRow).getByText("Sin envío")).toBeInTheDocument();
-
-    userEvent.click(screen.getByRole("button", { name: "Crear cargo" }));
-    const dialog = entryDialog();
+    const dialog = await openShipmentCharge();
     expect(await within(dialog).findByText("Productos")).toBeInTheDocument();
+    expect(getShipmentChargeQuote).toHaveBeenCalledWith("21");
     const quote = within(dialog).getByText("Cotización del cargo").parentElement;
     expect(quote.querySelector("input, textarea, select")).toBeNull();
     expect(quote).toHaveTextContent(formatAccountMoney(QUOTE_AMOUNT));
@@ -1047,34 +1070,21 @@ describe("cotización del cargo", () => {
     expect(payload.entryType).toBe("CHARGE");
     expect(payload.amount).toBe(QUOTE_AMOUNT);
     expect(payload.amount).not.toBe(1858);
-    expect(payload.partialReleaseId).toBeUndefined();
-    expect(payload.productShipmentId).toBeUndefined();
+    expect(payload.productShipmentId).toBe(21);
+    expect(payload.partialReleaseId).toBe(9);
   });
 
-  test("una cotización sin envíos muestra Sin envío y no un monto de flete", async () => {
-    getOrderChargeQuote.mockResolvedValue({
+  test("una cotización sin costo de envío muestra Sin envío y no un monto de flete", async () => {
+    getShipmentChargeQuote.mockResolvedValue({
       amount: QUOTE_AMOUNT,
       productsTotal: QUOTE_AMOUNT,
       shippingTotal: 0,
       orderTotal: QUOTE_AMOUNT,
       shippingLines: [],
     });
-    await renderStatement(statementOf([]), [
-      {
-        productionOrderId: 2,
-        orderCode: "OP-SIN-CARGO",
-        orderKind: "OPV",
-        customerId: CUSTOMER_ID,
-        hasCharge: false,
-        chargeStatus: "NONE",
-        estimatedTotal: null,
-        partialReleases: [],
-      },
-    ]);
+    await renderStatement(statementOf([]), [dispatchedDoc]);
 
-    userEvent.click(screen.getByText("Documentos OPV / OPC"));
-    userEvent.click(await screen.findByRole("button", { name: "Crear cargo" }));
-    const dialog = entryDialog();
+    const dialog = await openShipmentCharge();
     const quote = (await within(dialog).findByText("Cotización del cargo")).parentElement;
     expect(within(quote).getByText("Sin envío")).toBeInTheDocument();
     expect(quote.querySelector("input, textarea, select")).toBeNull();

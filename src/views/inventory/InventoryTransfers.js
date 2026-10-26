@@ -87,6 +87,7 @@ function InventoryTransfers() {
     toLocationId: "",
     productId: "",
     colorId: "",
+    sizeKey: "",
     materialId: "",
     quantity: "",
     reason: "",
@@ -207,6 +208,7 @@ function InventoryTransfers() {
           locationDestinationId: parseInt(formData.toLocationId),
           productId: parseInt(formData.productId),
           colorId: formData.colorId ? parseInt(formData.colorId) : null,
+          sizeKey: (formData.sizeKey || "").trim() || null,
           quantity: parseFloat(formData.quantity),
           physicalSlipNumber: formData.physicalSlipNumber.trim(),
         });
@@ -221,6 +223,7 @@ function InventoryTransfers() {
             ? {
                 productId: parseInt(formData.productId),
                 colorId: formData.colorId ? parseInt(formData.colorId) : null,
+                sizeKey: (formData.sizeKey || "").trim() || null,
               }
             : { materialId: parseInt(formData.materialId) }
           ),
@@ -284,6 +287,7 @@ function InventoryTransfers() {
           items: bulkItems.map((item) => ({
             productId: parseInt(item.productId),
             colorId: item.colorId ? parseInt(item.colorId) : null,
+            sizeKey: (item.sizeKey || "").trim() || null,
             quantity: parseFloat(item.quantity),
           })),
         });
@@ -298,6 +302,7 @@ function InventoryTransfers() {
               ? {
                   productId: parseInt(item.productId),
                   colorId: item.colorId ? parseInt(item.colorId) : null,
+                  sizeKey: (item.sizeKey || "").trim() || null,
                 }
               : { materialId: parseInt(item.materialId) }
             ),
@@ -323,6 +328,7 @@ function InventoryTransfers() {
       toLocationId: "",
       productId: "",
       colorId: "",
+      sizeKey: "",
       materialId: "",
       quantity: "",
       reason: "",
@@ -346,6 +352,7 @@ function InventoryTransfers() {
       {
         productId: transferMode === "product" ? "" : null,
         colorId: transferMode === "product" ? "" : null,
+        sizeKey: transferMode === "product" ? "" : null,
         materialId: transferMode === "material" ? "" : null,
         quantity: "",
       },
@@ -983,6 +990,20 @@ function InventoryTransfers() {
                 </FormGroup>
               </Col>
             )}
+            {transferMode === "product" && (
+              <Col md="6">
+                <FormGroup>
+                  <Label>Talla (obligatoria en cinchos)</Label>
+                  <Input
+                    type="text"
+                    value={formData.sizeKey}
+                    onChange={(e) => setFormData({ ...formData, sizeKey: e.target.value })}
+                    disabled={!formData.productId}
+                    placeholder="Ej: 32"
+                  />
+                </FormGroup>
+              </Col>
+            )}
             <Col md="6">
               <FormGroup>
                 <Label>Cantidad *</Label>
@@ -1157,6 +1178,7 @@ function InventoryTransfers() {
                       <tr>
                         <th>{transferMode === "product" ? "Producto" : "Material"}</th>
                         {transferMode === "product" && <th>Color</th>}
+                        {transferMode === "product" && <th>Talla</th>}
                       <th>Cantidad</th>
                         <th width="80">Acción</th>
                     </tr>
@@ -1211,6 +1233,17 @@ function InventoryTransfers() {
                                   </option>
                                 ))}
                               </Input>
+                            </td>
+                          )}
+                          {transferMode === "product" && (
+                            <td style={{ width: 90 }}>
+                              <Input
+                                type="text"
+                                value={item.sizeKey || ""}
+                                onChange={(e) => updateBulkItem(index, "sizeKey", e.target.value)}
+                                disabled={!item.productId}
+                                placeholder="Talla"
+                              />
                             </td>
                           )}
                           <td>
