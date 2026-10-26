@@ -714,6 +714,159 @@
   text-decoration: underline;
 }
 
+.kiosk-pos-cart-header-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 2px;
+}
+
+.kiosk-pos-held-btn {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 8px;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: #3b5bdb;
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+.kiosk-pos-held-btn:hover:not(:disabled) {
+  text-decoration: underline;
+}
+
+.kiosk-pos-held-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.kiosk-pos-extra-btn {
+  border: 1px dashed #b7791f;
+  border-radius: 999px;
+  background: #fffaf0;
+  color: #9c5a00;
+  padding: 4px 10px;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  line-height: 1.2;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.kiosk-pos-extra-btn:hover:not(:disabled) {
+  background: #feebc8;
+}
+
+.kiosk-pos-extra-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.kiosk-pos-extra-info {
+  margin: 6px 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid #e5e7eb;
+  background: #f9fafb;
+  font-size: 0.8125rem;
+}
+
+.kiosk-pos-extra-info.is-pending {
+  background: #fffbeb;
+  border-color: #f6d27a;
+}
+
+.kiosk-pos-extra-info.is-approved {
+  background: #f0fdf4;
+  border-color: #9ae6b4;
+}
+
+.kiosk-pos-extra-info.is-rejected {
+  background: #fef2f2;
+  border-color: #feb2b2;
+}
+
+.kiosk-pos-extra-info-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.kiosk-pos-extra-info-amount {
+  font-weight: 700;
+  color: #111827;
+}
+
+.kiosk-pos-extra-info-desc {
+  margin-top: 4px;
+  color: #374151;
+  word-break: break-word;
+}
+
+.kiosk-pos-extra-info-reason {
+  margin-top: 4px;
+  color: #b91c1c;
+  font-weight: 600;
+}
+
+.kiosk-pos-extra-block-note {
+  margin-bottom: 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: #fffbeb;
+  border: 1px solid #f6d27a;
+  color: #7b5200;
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+
+.kiosk-pos-extra-preview {
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: #f0fdf4;
+  border: 1px solid #9ae6b4;
+  font-size: 0.875rem;
+}
+
+.kiosk-pos-held-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid #eef0f3;
+}
+
+.kiosk-pos-held-row:last-child {
+  border-bottom: none;
+}
+
+.kiosk-pos-held-row-title {
+  font-weight: 700;
+  color: #111827;
+}
+
+.kiosk-pos-held-row-items {
+  margin-top: 2px;
+  font-size: 0.8125rem;
+  color: #52606d;
+  word-break: break-word;
+}
+
+.kiosk-pos-held-row-flags {
+  margin-top: 4px;
+}
+
+.kiosk-pos-held-row-actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
 .kiosk-pos-line-actions {
   display: grid;
   grid-template-columns: 70px 1fr auto;

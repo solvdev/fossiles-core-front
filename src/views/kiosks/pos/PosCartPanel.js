@@ -12,6 +12,24 @@ import {
   parsePosQty,
   describeEntrecuerosPriceState,
 } from "./posUtils";
+import {
+  EXTRA_APPROVED,
+  EXTRA_PENDING,
+  EXTRA_REJECTED,
+  lineTotalWithExtra,
+} from "./posExtraUtils";
+
+const EXTRA_STATUS_LABEL = {
+  [EXTRA_PENDING]: "Pendiente de autorización",
+  [EXTRA_APPROVED]: "Complemento autorizado",
+  [EXTRA_REJECTED]: "Complemento rechazado",
+};
+
+const EXTRA_STATUS_COLOR = {
+  [EXTRA_PENDING]: "warning",
+  [EXTRA_APPROVED]: "success",
+  [EXTRA_REJECTED]: "danger",
+};
 
 function PosCartPanel({
   cart,
@@ -25,6 +43,12 @@ function PosCartPanel({
   disabled,
   canEditPrices = false,
   entrecueros = false,
+  onRequestExtra,
+  onRemoveExtra,
+  checkoutBlockReason = null,
+  heldCount = 0,
+  onHoldCart,
+  onOpenHeld,
 }) {
   const qtyByProduct = useMemo(() => {
     const map = {};
@@ -43,11 +67,35 @@ function PosCartPanel({
       <CardBody>
         <div className="kiosk-pos-cart-header">
           <h5 className="kiosk-pos-cart-header-title">Venta actual</h5>
-          {cart.length > 0 && (
-            <button type="button" className="kiosk-pos-cancel-sale-btn" onClick={onCancelSale}>
-              <i className="nc-icon nc-simple-remove" /> Cancelar venta
-            </button>
-          )}
+          <div className="kiosk-pos-cart-header-actions">
+            {onOpenHeld && (
+              <button
+                type="button"
+                className="kiosk-pos-held-btn"
+                onClick={onOpenHeld}
+                title="Ventas dejadas en espera"
+              >
+                En espera
+                {heldCount > 0 && <Badge color="warning" pill className="ml-1">{heldCount}</Badge>}
+              </button>
+            )}
+            {cart.length > 0 && onHoldCart && (
+              <button
+                type="button"
+                className="kiosk-pos-held-btn"
+                onClick={onHoldCart}
+                disabled={disabled}
+                title="Guardar esta venta y atender a otro cliente"
+              >
+                Poner en espera
+              </button>
+            )}
+            {cart.length > 0 && (
+              <button type="button" className="kiosk-pos-cancel-sale-btn" onClick={onCancelSale}>
+                <i className="nc-icon nc-simple-remove" /> Cancelar venta
+              </button>
+            )}
+          </div>
         </div>
 
         {entrecueros ? (
@@ -107,6 +155,17 @@ function PosCartPanel({
                     </div>
                   </div>
                   <div className="kiosk-pos-line-top-actions">
+                    {onRequestExtra && !isPackaging && !line.extraRequest ? (
+                      <button
+                        type="button"
+                        className="kiosk-pos-extra-btn"
+                        onClick={() => onRequestExtra(line)}
+                        disabled={disabled}
+                        title="Cobrar un extra por un complemento (requiere autorización)"
+                      >
+                        + Complemento
+                      </button>
+                    ) : null}
                     {showPriceControls ? (
                       <button
                         type="button"
@@ -134,6 +193,37 @@ function PosCartPanel({
                   </div>
                 </div>
 
+                {line.extraRequest ? (
+                  <div className={`kiosk-pos-extra-info is-${String(line.extraRequest.status || "").toLowerCase()}`}>
+                    <div className="kiosk-pos-extra-info-head">
+                      <Badge color={EXTRA_STATUS_COLOR[line.extraRequest.status] || "secondary"}>
+                        {EXTRA_STATUS_LABEL[line.extraRequest.status] || line.extraRequest.status}
+                      </Badge>
+                      <span className="kiosk-pos-extra-info-amount">
+                        +{formatCurrency(line.extraUnitAmount)} c/u
+                      </span>
+                      {line.extraRequest.requestNumber && (
+                        <span className="text-muted small">{line.extraRequest.requestNumber}</span>
+                      )}
+                    </div>
+                    <div className="kiosk-pos-extra-info-desc">{line.extraRequest.description}</div>
+                    {line.extraRequest.status === EXTRA_REJECTED && line.extraRequest.rejectionReason ? (
+                      <div className="kiosk-pos-extra-info-reason">
+                        Motivo: {line.extraRequest.rejectionReason}
+                      </div>
+                    ) : null}
+                    {onRemoveExtra && (
+                      <button
+                        type="button"
+                        className="kiosk-pos-line-remove"
+                        onClick={() => onRemoveExtra(line)}
+                      >
+                        Quitar complemento
+                      </button>
+                    )}
+                  </div>
+                ) : null}
+
                 <div className={`kiosk-pos-line-actions ${showPriceControls ? "with-price" : ""}`}>
                   <Input
                     className="kiosk-pos-input-lg kiosk-pos-qty"
@@ -141,13 +231,14 @@ function PosCartPanel({
                     min="1"
                     step="1"
                     inputMode="numeric"
+                    disabled={Boolean(line.extraRequest)}
+                    title={line.extraRequest ? "La cantidad quedó fija con el complemento" : "Cantidad"}
                     value={parsePosQty(line.quantity) || ""}
                     onChange={(e) => {
                       const qty = parsePosQty(e.target.value);
                       if (qty < 1) return;
                       onUpdateLine(line.key, { quantity: qty });
                     }}
-                    title="Cantidad"
                   />
                   {showPriceControls ? (
                     <Input
@@ -163,7 +254,7 @@ function PosCartPanel({
                     />
                   ) : null}
                   <div className="kiosk-pos-line-total">
-                    {formatCurrency(line.quantity * line.unitPrice)}
+                    {formatCurrency(lineTotalWithExtra(line))}
                   </div>
                 </div>
                 {priceState && priceState.tiers.length > 0 && (
@@ -219,6 +310,12 @@ function PosCartPanel({
               <span>Subtotal</span>
               <span>{formatCurrency(cartTotals.total)}</span>
             </div>
+            {cartTotals.extra > 0 && (
+              <div className="kiosk-pos-totals-row text-muted small">
+                <span>Incluye complementos (sin descuento)</span>
+                <span>{formatCurrency(cartTotals.extra)}</span>
+              </div>
+            )}
             {cartTotals.discount > 0 && (
               <div className="kiosk-pos-totals-row">
                 <span>
@@ -237,12 +334,15 @@ function PosCartPanel({
             </div>
           </div>
 
+          {checkoutBlockReason ? (
+            <div className="kiosk-pos-extra-block-note">{checkoutBlockReason}</div>
+          ) : null}
           <Button
             color="success"
             block
             className="kiosk-pos-btn-main kiosk-pos-pay-btn"
             onClick={onCheckout}
-            disabled={disabled || cart.length === 0}
+            disabled={disabled || cart.length === 0 || Boolean(checkoutBlockReason)}
           >
             <i className="nc-icon nc-money-coins" />
             Cobrar {formatCurrency(estimatedTotal)}

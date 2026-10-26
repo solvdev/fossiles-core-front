@@ -827,7 +827,14 @@ function PosSaleDetailModal({
                 {saleItems.map((item) => (
                   <tr key={item.id || `${item.productId}-${item.colorId}`}>
                     <td>{item.productCode || "—"}</td>
-                    <td>{item.productName || "—"}</td>
+                    <td>
+                      {item.productName || "—"}
+                      {item.extraRequestId && item.extraDescription ? (
+                        <div className="text-muted small">
+                          + Complemento: {item.extraDescription} ({formatCurrency(item.extraAmount)} c/u)
+                        </div>
+                      ) : null}
+                    </td>
                     {showBrandColumn && (
                       <td>
                         {kioskDimensionDisplayLabel(item.hardwareCondition, { entreCueros: true }) !== "—" ? (
