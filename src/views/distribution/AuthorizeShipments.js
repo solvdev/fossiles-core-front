@@ -25,6 +25,8 @@ import {
   Table,
 } from "reactstrap";
 import classnames from "classnames";
+import ConfirmModal from "components/ConfirmModal/ConfirmModal";
+import TablePagination, { usePagination } from "components/TablePagination/TablePagination";
 import CreateStandaloneInternalShipmentModal from "components/distribution/CreateStandaloneInternalShipmentModal";
 import InternalShipmentRequestDetailModal from "components/distribution/InternalShipmentRequestDetailModal";
 import PrintSlipBookletModal from "components/distribution/PrintSlipBookletModal";
@@ -86,6 +88,8 @@ function AuthorizeShipments() {
   const [rejectTargetId, setRejectTargetId] = useState(null);
   const [rejectReason, setRejectReason] = useState("");
   const [detailRequestId, setDetailRequestId] = useState(null);
+  // Acción que espera confirmación en ConfirmModal: título, mensaje y la función que la ejecuta.
+  const [confirm, setConfirm] = useState(null);
 
   const loadExistingEnvi = useCallback(async () => {
     if (!isAccountingView) return;
@@ -123,6 +127,9 @@ function AuthorizeShipments() {
     loadExistingEnvi();
     loadRequests();
   }, [loadExistingEnvi, loadRequests]);
+
+  const requestsPagination = usePagination(requests, 20);
+  const enviPagination = usePagination(existingEnvi, 20);
 
   const requestByShipmentId = useMemo(() => {
     const map = new Map();
@@ -185,11 +192,13 @@ function AuthorizeShipments() {
   const handleAuthorizeProduction = async (request) => {
     if (!canApprove || !request?.id) return;
     const opiCode = request.productionOrderCode || "OPI";
-    const ok = window.confirm(
-      `¿Autorizar la producción de ${opiCode} para la solicitud #${request.id}?`
-    );
-    if (!ok) return;
-    await authorizeProduction(request);
+    setConfirm({
+      title: "Autorizar producción",
+      message: `Se autoriza la producción de ${opiCode} para la solicitud #${request.id}.`,
+      confirmText: "Autorizar producción",
+      tone: "info",
+      action: () => authorizeProduction(request),
+    });
   };
 
   const generateOpi = async (request) => {
@@ -215,11 +224,13 @@ function AuthorizeShipments() {
       return;
     }
     if (!request?.id) return;
-    const ok = window.confirm(
-      `¿Generar OPI para reponer lo despachado en la solicitud #${request.id}?`
-    );
-    if (!ok) return;
-    await generateOpi(request);
+    setConfirm({
+      title: "Generar OPI",
+      message: `Se genera una OPI para reponer lo despachado en la solicitud #${request.id}.`,
+      confirmText: "Generar OPI",
+      tone: "warning",
+      action: () => generateOpi(request),
+    });
   };
 
   const handleGenerateOpiFromShipment = async (shipment) => {
@@ -228,10 +239,16 @@ function AuthorizeShipments() {
       return;
     }
     if (!shipment?.id) return;
-    const ok = window.confirm(
-      `¿Generar OPI para reponer lo despachado en ${shipment.shipmentNumber || "este ENVI"}?`
-    );
-    if (!ok) return;
+    setConfirm({
+      title: "Generar OPI",
+      message: `Se genera una OPI para reponer lo despachado en ${shipment.shipmentNumber || "este ENVI"}.`,
+      confirmText: "Generar OPI",
+      tone: "warning",
+      action: () => generateOpiFromShipment(shipment),
+    });
+  };
+
+  const generateOpiFromShipment = async (shipment) => {
     const requestId = shipment.internalShipmentRequestId
       || requestByShipmentId.get(Number(shipment.id))?.id;
     if (requestId) {
@@ -255,12 +272,14 @@ function AuthorizeShipments() {
 
   const handleApprove = async (request) => {
     if (!canApprove || !request?.id) return;
-    const ok = window.confirm(
-      `¿Autorizar la solicitud #${request.id} de ${request.recipientName}? `
-        + "Si hay stock se genera el ENVI; si falta, se crea una OPI por el faltante."
-    );
-    if (!ok) return;
-    await approveRequest(request);
+    setConfirm({
+      title: "Autorizar envío",
+      message: `Solicitud #${request.id} de ${request.recipientName}.`,
+      detail: "Si hay stock se genera el ENVI; si falta, se crea una OPI por el faltante.",
+      confirmText: "Autorizar envío",
+      tone: "success",
+      action: () => approveRequest(request),
+    });
   };
 
   const openRejectModal = (requestId) => {
@@ -416,6 +435,7 @@ function AuthorizeShipments() {
                     : "No hay solicitudes pendientes de autorización."}
                 </div>
               ) : (
+                <>
                 <Table responsive hover>
                   <thead className="text-primary">
                     <tr>
@@ -433,7 +453,7 @@ function AuthorizeShipments() {
                     </tr>
                   </thead>
                   <tbody>
-                    {requests.map((req) => (
+                    {requestsPagination.pageItems.map((req) => (
                       <tr
                         key={req.id}
                         style={{ cursor: "pointer" }}
@@ -566,6 +586,8 @@ function AuthorizeShipments() {
                     ))}
                   </tbody>
                 </Table>
+                <TablePagination pagination={requestsPagination} />
+                </>
               )}
             </TabPane>
 
@@ -584,6 +606,7 @@ function AuthorizeShipments() {
               ) : existingEnvi.length === 0 ? (
                 <div className="text-center text-muted p-4">No hay envíos ENVI registrados.</div>
               ) : (
+                <>
                 <Table responsive hover>
                   <thead className="text-primary">
                     <tr>
@@ -596,7 +619,7 @@ function AuthorizeShipments() {
                     </tr>
                   </thead>
                   <tbody>
-                    {existingEnvi.map((shipment) => (
+                    {enviPagination.pageItems.map((shipment) => (
                         <tr key={shipment.id}>
                           <td>{shipment.shipmentNumber || shipment.id}</td>
                           <td>
@@ -649,6 +672,8 @@ function AuthorizeShipments() {
                     ))}
                   </tbody>
                 </Table>
+                <TablePagination pagination={enviPagination} />
+                </>
               )}
             </TabPane>
             )}
@@ -685,6 +710,17 @@ function AuthorizeShipments() {
           openRejectModal(id);
         }}
         actionId={actionId}
+      />
+
+      <ConfirmModal
+        isOpen={Boolean(confirm)}
+        toggle={() => setConfirm(null)}
+        title={confirm?.title}
+        message={confirm?.message}
+        detail={confirm?.detail}
+        tone={confirm?.tone}
+        confirmText={confirm?.confirmText}
+        onConfirm={() => confirm.action()}
       />
 
       <Modal isOpen={rejectOpen} toggle={() => setRejectOpen(false)}>
