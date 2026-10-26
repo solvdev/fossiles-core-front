@@ -261,6 +261,11 @@ describe("isCarryOverTask", () => {
     expect(isCarryOverTask(t(), HOY, "2026-10-24")).toBe(true);
   });
 
+  it("solo lo del día hábil anterior, no de más atrás", () => {
+    expect(isCarryOverTask(t({ scheduledDate: "2026-10-22" }), HOY, HOY)).toBe(false);
+    expect(isCarryOverTask(t({ scheduledDate: "2026-10-26" }), "2026-10-27", HOY)).toBe(true);
+  });
+
   it("un día pasado se ve como fue", () => {
     expect(isCarryOverTask(t({ scheduledDate: "2026-10-20" }), AYER, HOY)).toBe(false);
   });
