@@ -5,7 +5,7 @@
  * Boletas: siguen exigiendo mesa + PENDING/IN_PROGRESS.
  */
 
-import { isWeekendYmd } from "./dateTimeHelper";
+import { isWeekendYmd, shiftYmdGuatemala } from "./dateTimeHelper";
 
 const EXCLUDED_DAY_SHEET_STATUSES = new Set(["CANCELLED", "COMPLETED"]);
 const ACTIVE_BOLETA_STATUSES = new Set(["PENDING", "IN_PROGRESS"]);
@@ -49,16 +49,24 @@ export function getOrganizerDayDeskTasks(tasks, workDateYmd, options = {}) {
 }
 
 /**
- * Tarea que se empezó un día anterior y sigue en proceso con su mesa (a las 17:00 quedó a
- * medias). Se retoma en el tablero de hoy —y de los días siguientes— en la misma mesa, que es
- * la de su boleta. Un día pasado se ve como fue, sin arrastres. Sábado y domingo no se produce:
- * ese tablero queda vacío y el lunes salen las del viernes.
+ * Tarea que se empezó el día hábil anterior y sigue en proceso con su mesa (a las 17:00 quedó
+ * a medias). Se retoma en el tablero del día en la misma mesa, que es la de su boleta. Solo
+ * las de ese día: lo de más atrás confunde y sigue en «No terminadas». Un día pasado se ve
+ * como fue, sin arrastres. Sábado y domingo no se produce: ese tablero queda vacío y el lunes
+ * salen las del viernes.
  */
 export function isCarryOverTask(task, dayYmd, todayYmd) {
   const day = String(dayYmd || "").slice(0, 10);
   const scheduled = String(task?.scheduledDate || "").slice(0, 10);
   return Boolean(day && scheduled && !isWeekendYmd(day) && statusUpper(task) === "IN_PROGRESS" && hasAssignedDesk(task)
-    && scheduled < day && day >= String(todayYmd || "").slice(0, 10));
+    && scheduled === previousWorkdayYmd(day) && day >= String(todayYmd || "").slice(0, 10));
+}
+
+/** Día hábil anterior: el del lunes es el viernes. */
+export function previousWorkdayYmd(ymd) {
+  let d = shiftYmdGuatemala(String(ymd).slice(0, 10), -1);
+  for (let i = 0; i < 3 && isWeekendYmd(d); i += 1) d = shiftYmdGuatemala(d, -1);
+  return d;
 }
 
 /** Boletas del día: con mesa y activas (PENDING / IN_PROGRESS). */
