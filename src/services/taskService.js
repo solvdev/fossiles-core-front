@@ -252,6 +252,24 @@ export const setTaskItemDieCut = async (taskId, taskItemId, dieCutReady) => {
 };
 
 /**
+ * Marca el corte de todos los productos de la tarea que falten, de una vez. Con
+ * `deliverLeather` entrega antes el cuero de los que no lo tienen; sin él, esos se saltan.
+ * Devuelve { task, cutItems, leatherDeliveredItems, skippedWithoutLeather }.
+ */
+export const setTaskDieCutAll = async (taskId, deliverLeather) => {
+  const response = await fetch(`${API_URL}/tasks/${taskId}/die-cut/all`, {
+    method: 'PUT',
+    headers: headers(),
+    body: JSON.stringify({ deliverLeather: Boolean(deliverLeather) }),
+  });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ message: 'Error al marcar el corte de la tarea' }));
+    throw new Error(err.message || 'Error al marcar el corte de la tarea');
+  }
+  return response.json();
+};
+
+/**
  * Fija cuándo toca troquelar un producto. Solo acepta días hábiles.
  *
  * @param {string|null} plannedDate yyyy-MM-dd, o null para quitarla

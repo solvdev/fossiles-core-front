@@ -20,6 +20,12 @@ export const DAY_PLANNER_CSS = `
 .dp-seg button{border:0;background:#fff;padding:0 16px;min-height:48px;cursor:pointer}
 .dp-seg button+button{border-left:1px solid #c9c4bb}
 .dp-seg button[aria-pressed="true"]{background:var(--dp-primary);color:#fff;font-weight:700}
+.dp-views{margin:0 0 12px}
+.dp-views button{font-weight:700;padding:0 20px}
+.dp-count{display:inline-block;min-width:22px;margin-left:8px;padding:1px 7px;border-radius:999px;background:#ef8157;color:#fff;font-size:12px;line-height:18px;text-align:center}
+.dp-views button[aria-pressed="true"] .dp-count{background:#fff;color:var(--dp-primary)}
+.dp-cutstep{margin:14px 0}
+.dp-cutstep ol{margin:6px 0 10px 18px;padding:0}
 
 .dp-step{background:#fff;border:1px solid var(--dp-line);border-radius:10px;margin-bottom:12px;overflow:hidden}
 .dp-step>.dp-step-head{display:flex;flex-wrap:wrap;align-items:center;gap:4px 12px;padding:12px 16px;min-height:60px}
@@ -139,6 +145,9 @@ export const DAY_PLANNER_CSS = `
 .dp-daycap .dp-track{margin:6px 0}
 .dp-detail .dp-pick-tools{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
 .dp-detail .dp-pick-tools .dp-sp{flex:1}
+.dp-detail .dp-item-filter{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin:8px 0 4px;padding:0}
+.dp-detail .dp-item-filter input[type=search]{flex:1 1 240px;min-height:40px;border:1px solid #c9c4bb;border-radius:8px;padding:0 10px}
+.dp-detail .dp-item-filter label{display:flex;align-items:center;gap:4px;margin:0;cursor:pointer}
 .dp-more{display:flex;justify-content:center;padding:10px 0}
 .dp-pick{display:flex;align-items:center;gap:6px}
 .dp-pick input{width:84px;min-height:44px;text-align:right;border:1px solid #b9b4aa;border-radius:8px;padding:0 8px}
