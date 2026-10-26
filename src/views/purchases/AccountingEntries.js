@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import TablePagination, { usePagination } from "components/TablePagination/TablePagination";
 import {
   Button,
   Card,
@@ -21,6 +22,8 @@ import * as XLSX from "xlsx";
 
 function AccountingEntries() {
   const [entries, setEntries] = useState([]);
+  // La tabla se pagina; los totales del pie suman todos los asientos filtrados.
+  const pagination = usePagination(entries, 25);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [filters, setFilters] = useState({
@@ -92,6 +95,10 @@ function AccountingEntries() {
       MATERIAL_RECEIPT: { color: "success", text: "Recepción" },
       MATERIAL_RECEIPT_ADJUSTMENT: { color: "warning", text: "Ajuste de recepción" },
       PURCHASE_ORDER_CANCELLATION: { color: "danger", text: "Cancelación" },
+      PAYROLL: { color: "success", text: "Planilla" },
+      EMPLOYEE_CHARGE: { color: "info", text: "Compra de colaborador" },
+      EMPLOYEE_CHARGE_PAYMENT: { color: "success", text: "Pago de compra de colaborador" },
+      EMPLOYEE_CHARGE_CANCELLATION: { color: "danger", text: "Anulación de compra de colaborador" },
     };
     const typeInfo = typeMap[type] || { color: "secondary", text: type };
     return <Badge color={typeInfo.color}>{typeInfo.text}</Badge>;
@@ -262,6 +269,10 @@ function AccountingEntries() {
                       <option value="MATERIAL_RECEIPT">Recepción de Materiales</option>
                       <option value="MATERIAL_RECEIPT_ADJUSTMENT">Ajuste de recepción</option>
                       <option value="PURCHASE_ORDER_CANCELLATION">Cancelación de Orden</option>
+                      <option value="PAYROLL">Planilla</option>
+                      <option value="EMPLOYEE_CHARGE">Compra de colaborador</option>
+                      <option value="EMPLOYEE_CHARGE_PAYMENT">Pago de compra de colaborador</option>
+                      <option value="EMPLOYEE_CHARGE_CANCELLATION">Anulación de compra de colaborador</option>
                     </Input>
                   </FormGroup>
                 </Col>
@@ -346,6 +357,7 @@ function AccountingEntries() {
           ) : entries.length === 0 ? (
             <p>No hay asientos contables registrados.</p>
           ) : (
+            <>
             <Table responsive striped>
               <thead className="text-primary">
                 <tr>
@@ -363,7 +375,7 @@ function AccountingEntries() {
                 </tr>
               </thead>
               <tbody>
-                {entries.map((entry) => (
+                {pagination.pageItems.map((entry) => (
                   <tr key={entry.id}>
                     <td>{entry.id}</td>
                     <td>{getDocumentTypeBadge(entry.documentType)}</td>
@@ -392,7 +404,7 @@ function AccountingEntries() {
               <tfoot>
                 <tr className="font-weight-bold">
                   <td colSpan="7" className="text-right">
-                    <strong>TOTALES:</strong>
+                    <strong>TOTALES ({entries.length} asientos):</strong>
                   </td>
                   <td className="text-right">
                     <strong>{formatCurrency(getTotalDebits())}</strong>
@@ -404,6 +416,8 @@ function AccountingEntries() {
                 </tr>
               </tfoot>
             </Table>
+            <TablePagination pagination={pagination} />
+            </>
           )}
         </CardBody>
       </Card>
