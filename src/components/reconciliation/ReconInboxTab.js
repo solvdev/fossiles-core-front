@@ -11,6 +11,7 @@ const COLUMNS = [
   { key: "saleDate", label: "Fecha" },
   { key: "saleNumber", label: "Pedido", hide: true },
   { key: "shipmentNumber", label: "ENVL" },
+  { key: null, label: "Cliente" },
   { key: "guideNumber", label: "Guía", hide: true },
   { key: "carrier", label: "Transportista", hide: true },
   { key: "paymentMethod", label: "Método" },
@@ -158,6 +159,7 @@ const ReconInboxTab = ({ filters, onFilters, version, openId, onOpen, perms, onC
                   <td>{(r.saleDate || "").slice(5)}</td>
                   <td className="hide-sm">{r.saleNumber}</td>
                   <td><strong>{r.shipmentNumber}</strong></td>
+                  <td style={{ whiteSpace: "normal", minWidth: 120 }}>{r.customerName || <span className="text-muted">—</span>}</td>
                   <td className="hide-sm">{r.guideNumber || (r.carrier === "MOTORISTA" ? <span className="text-muted">n/a</span> : <span className="text-danger">— falta</span>)}</td>
                   <td className="hide-sm">{labelOf(CARRIER_LABELS, r.carrier)}</td>
                   <td>{labelOf(METHOD_LABELS, r.paymentMethod)}</td>

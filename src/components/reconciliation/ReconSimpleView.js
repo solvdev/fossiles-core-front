@@ -328,13 +328,13 @@ const ReconSimpleView = ({ filters, onFilters, version, perms, onOpen, onChanged
           <thead>
             <tr>
               <th style={{ width: 28 }}><Input type="checkbox" aria-label="Elegir todas las que se pueden liquidar" checked={allChecked} disabled={ready.length === 0 || !perms.close} onChange={toggleAll} /></th>
-              <th>Fecha</th><th>ENVL</th><th className="hide-sm">Guía</th><th className="num">Cobrado</th><th>Recibido</th><th>Resultado</th>
+              <th>Fecha</th><th>ENVL</th><th>Cliente</th><th className="hide-sm">Guía</th><th className="num">Cobrado</th><th>Recibido</th><th>Resultado</th>
             </tr>
           </thead>
           <tbody>
-            {loading && rows.length === 0 && <tr><td colSpan={7} className="text-center p-4"><Spinner size="sm" /> Cargando…</td></tr>}
+            {loading && rows.length === 0 && <tr><td colSpan={8} className="text-center p-4"><Spinner size="sm" /> Cargando…</td></tr>}
             {!loading && rows.length === 0 && !error && (
-              <tr><td colSpan={7}><div className="recon-empty">
+              <tr><td colSpan={8}><div className="recon-empty">
                 {show === "pending" && totalCases > 0
                   ? <><h5>✓ No queda nada por liquidar en este período</h5><p>Todo lo que cuadraba ya se liquidó.</p></>
                   : <><h5>No hay ventas aquí</h5><p>No hay ventas despachadas en este período o con esta búsqueda.</p></>}
@@ -354,6 +354,7 @@ const ReconSimpleView = ({ filters, onFilters, version, perms, onOpen, onChanged
                     <td>{(r.saleDate || "").slice(5)}</td>
                     <td><span className="mr-1">{open ? "▾" : "▸"}</span><strong>{r.shipmentNumber}</strong>
                       <div className="small text-muted">{labelOf(CARRIER_LABELS, r.carrier)} · {labelOf(METHOD_LABELS, r.paymentMethod)}</div></td>
+                    <td style={{ whiteSpace: "normal", minWidth: 120 }}>{r.customerName || <span className="text-muted">—</span>}</td>
                     <td className="hide-sm">{r.guideNumber || <span className="text-muted">—</span>}</td>
                     <td className="num">{formatQ(r.expected)}</td>
                     <td>
@@ -368,7 +369,7 @@ const ReconSimpleView = ({ filters, onFilters, version, perms, onOpen, onChanged
                     </td>
                   </tr>
                   {open && (
-                    <tr className="recon-detail-row"><td colSpan={7} className="p-0"><RowDetail state={details[r.id]} onFull={() => onOpen(r.id)} /></td></tr>
+                    <tr className="recon-detail-row"><td colSpan={8} className="p-0"><RowDetail state={details[r.id]} onFull={() => onOpen(r.id)} /></td></tr>
                   )}
                 </React.Fragment>
               );
