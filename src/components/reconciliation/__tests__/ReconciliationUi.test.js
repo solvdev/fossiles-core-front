@@ -7,7 +7,7 @@ import { rowResult } from "components/reconciliation/ReconSimpleView";
 
 jest.mock("services/reconciliationService", () => ({
   getDashboard: jest.fn(), getCases: jest.fn(), getCase: jest.fn(), getSellers: jest.fn(), getBatches: jest.fn(), getExports: jest.fn(),
-  getUnappliedReceipts: jest.fn(), getCommissions: jest.fn(), getMissingSellers: jest.fn(), closeBatch: jest.fn(), createBatch: jest.fn(), recordCaseReceiptsBulk: jest.fn(), settleCases: jest.fn(),
+  getUnappliedReceipts: jest.fn(), getCommissions: jest.fn(), getMissingSellers: jest.fn(), closeBatch: jest.fn(), createBatch: jest.fn(), recordCaseReceiptsBulk: jest.fn(), replaceCaseReceipt: jest.fn(), settleCases: jest.fn(),
   downloadBatch: jest.fn(), voidBatch: jest.fn(), proposeAdjustment: jest.fn(), authorizeAdjustment: jest.fn(), rejectAdjustment: jest.fn(),
   reconcileCase: jest.fn(), bulkReconcile: jest.fn(), applyReceipt: jest.fn(), voidApplication: jest.fn(), reopenCase: jest.fn(),
   excludeCase: jest.fn(), includeCase: jest.fn(), observeCase: jest.fn(), refreshAmount: jest.fn(), revalidateCase: jest.fn(),
@@ -307,7 +307,7 @@ describe("Conciliación de ventas en línea (interfaz)", () => {
       expect(byText("tr", "ENVL-01603").textContent).toContain("! Faltan Q5.00 · sin guardar");
       await typeInto(input, "105");
       expect(byText("tr", "ENVL-01603").textContent).toContain("✓ Cuadra · sin guardar");
-      await typeInto(document.querySelector('[aria-label="Referencia ENVL-01603"]'), "LIQ-9");
+      await typeInto(document.querySelector('[aria-label="No. Autorización/Referencia ENVL-01603"]'), "LIQ-9");
       expect(api.recordCaseReceiptsBulk).not.toHaveBeenCalled();   // nada se guarda solo
       await click(byText("button", "Guardar montos (1)"));
       expect(api.recordCaseReceiptsBulk).toHaveBeenCalledWith([{ caseId: 3, amount: 105, matchExpected: false, reference: "LIQ-9" }]);
@@ -322,7 +322,77 @@ describe("Conciliación de ventas en línea (interfaz)", () => {
       await click(byText("button", "Guardar montos (1)"));
       expect(api.recordCaseReceiptsBulk).toHaveBeenCalledWith([{ caseId: 3, amount: null, matchExpected: true, reference: null }]);
       const { showSuccess } = require("utils/notificationHelper");
-      expect(showSuccess).toHaveBeenCalledWith(expect.stringContaining("todos cuadran al centavo"));
+      expect(showSuccess).toHaveBeenCalledWith(expect.stringContaining("cuadra al centavo"));
+    });
+
+    it("cada fila se guarda sola con su botón o con Enter, sin tocar las demás", async () => {
+      api.recordCaseReceiptsBulk.mockResolvedValue({ saved: 1, failed: 0, rows: [{ caseId: 3, ok: true, difference: 0 }] });
+      await mount();
+      await flush();
+      expect(document.querySelector('[aria-label="Guardar ENVL-01603"]')).toBeNull();   // sin nada escrito no hay botón
+      await typeInto(document.querySelector('[aria-label="Monto recibido ENVL-01603"]'), "105");
+      await click(document.querySelector('[aria-label="Guardar ENVL-01603"]'));
+      expect(api.recordCaseReceiptsBulk).toHaveBeenCalledTimes(1);
+      expect(api.recordCaseReceiptsBulk).toHaveBeenCalledWith([{ caseId: 3, amount: 105, matchExpected: false, reference: null }]);
+      const { showSuccess } = require("utils/notificationHelper");
+      expect(showSuccess).toHaveBeenCalledWith(expect.stringContaining("1 monto guardado"));
+    });
+
+    it("Editar abre el pago guardado y al guardar lo reemplaza sin crear uno nuevo", async () => {
+      api.replaceCaseReceipt.mockResolvedValue({ caseId: 1, ok: true, difference: 0 });
+      await mount();
+      await flush();
+      await click(document.querySelector('[aria-label="Editar el pago de ENVL-01601"]'));
+      const amount = document.querySelector('[aria-label="Monto recibido ENVL-01601"]');
+      expect(amount.value).toBe("100");
+      expect(document.querySelector('[aria-label="No. Autorización/Referencia ENVL-01601"]').value).toBe("LIQ-FZ-312");
+      await typeInto(amount, "105");
+      expect(byText("tr", "ENVL-01601").textContent).toContain("✓ Cuadra · sin guardar");
+      await click(document.querySelector('[aria-label="Guardar ENVL-01601"]'));
+      expect(api.replaceCaseReceipt).toHaveBeenCalledWith(1, { amount: 105, matchExpected: false, reference: "LIQ-FZ-312" });
+      expect(api.recordCaseReceiptsBulk).not.toHaveBeenCalled();
+    });
+
+    it("Cancelar una edición deja el pago como estaba y un error de la corrección se queda en su fila", async () => {
+      api.replaceCaseReceipt.mockRejectedValue(new Error("Este pago viene de un archivo importado."));
+      await mount();
+      await flush();
+      await click(document.querySelector('[aria-label="Editar el pago de ENVL-01601"]'));
+      await click(byText("tr", "ENVL-01601").querySelector("button.btn-link"));   // Cancelar
+      expect(document.querySelector('[aria-label="Monto recibido ENVL-01601"]')).toBeNull();
+      await click(document.querySelector('[aria-label="Editar el pago de ENVL-01601"]'));
+      await typeInto(document.querySelector('[aria-label="Monto recibido ENVL-01601"]'), "110");
+      await click(document.querySelector('[aria-label="Guardar ENVL-01601"]'));
+      expect(byText("tr", "ENVL-01601").textContent).toContain("Este pago viene de un archivo importado.");
+      expect(document.querySelector('[aria-label="Monto recibido ENVL-01601"]').value).toBe("110");   // el borrador no se pierde
+    });
+
+    it("las columnas Fecha, ENVL, Cliente y Guía ordenan la lista y repetir el clic invierte el orden", async () => {
+      await mount();
+      await flush();
+      const lastSort = () => api.getCases.mock.calls.filter(([, o]) => o && o.size === 50).pop()[1];
+      expect(lastSort()).toMatchObject({ sort: "saleDate", dir: "asc" });
+      await click(byText("th button", "Cliente"));
+      expect(lastSort()).toMatchObject({ sort: "customerName", dir: "asc", page: 0 });
+      await click(byText("th button", "Cliente"));
+      expect(lastSort()).toMatchObject({ sort: "customerName", dir: "desc" });
+      await click(byText("th button", "Guía"));
+      expect(lastSort()).toMatchObject({ sort: "guideNumber", dir: "asc" });
+      await click(byText("th button", "ENVL"));
+      expect(lastSort()).toMatchObject({ sort: "shipmentNumber", dir: "asc" });
+      await click(byText("th button", "Fecha"));
+      expect(lastSort()).toMatchObject({ sort: "saleDate", dir: "asc" });
+    });
+
+    it("una devolución muestra su número de devolución junto al ENVL", async () => {
+      api.getCases.mockImplementation(async (filters, opts) => (opts && opts.size === 200
+        ? { rows: [], total: 0, page: 0, size: 200 }
+        : { rows: [row({ id: 9, shipmentNumber: "ENVL-01609", status: "EXCLUIDO", hasReceipts: false, received: 0, returnNumber: "88", customerName: "Ana Pérez" }), pendingRow], total: 2, page: 0, size: 50 }));
+      await mount();
+      await flush();
+      expect(byText("tr", "ENVL-01609").textContent).toContain("Devolución No. 88");
+      expect(byText("tr", "ENVL-01609").textContent).toContain("Ana Pérez");
+      expect(byText("tr", "ENVL-01603").textContent).not.toContain("Devolución");
     });
 
     it("un monto que falla se queda en su fila con el motivo y el borrador no se pierde", async () => {

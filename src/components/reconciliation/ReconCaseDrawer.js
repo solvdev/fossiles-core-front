@@ -192,7 +192,7 @@ const ReconCaseDrawer = ({ id, onClose, onChanged, onPrev, onNext, perms }) => {
               <div className="d-flex flex-wrap" style={{ gap: 8 }}>
                 <div><label htmlFor="pay-amount" className="small mb-0">Monto recibido (Q) *</label>
                   <Input id="pay-amount" bsSize="sm" type="number" step="0.01" min="0" value={pay.amount} autoFocus onChange={(e) => setPay({ ...pay, amount: e.target.value })} /></div>
-                <div><label htmlFor="pay-ref" className="small mb-0">Referencia</label>
+                <div><label htmlFor="pay-ref" className="small mb-0">No. Autorización/Referencia</label>
                   <Input id="pay-ref" bsSize="sm" value={pay.reference} onChange={(e) => setPay({ ...pay, reference: e.target.value })} /></div>
                 <div><label htmlFor="pay-date" className="small mb-0">Fecha (hoy si vacía)</label>
                   <Input id="pay-date" bsSize="sm" type="date" value={pay.date} onChange={(e) => setPay({ ...pay, date: e.target.value })} /></div>
@@ -250,7 +250,7 @@ const ReconCaseDrawer = ({ id, onClose, onChanged, onPrev, onNext, perms }) => {
           </dl>
           {applications.length === 0 ? <p className="text-muted small mt-2 mb-0">Sin fondos aplicados.</p> : (
             <Table size="sm" className="recon-table mt-2">
-              <thead><tr><th>Fondo</th><th>Referencia</th><th>Fecha</th><th className="num">Aplicado</th><th /></tr></thead>
+              <thead><tr><th>Fondo</th><th>No. Autorización/Referencia</th><th>Fecha</th><th className="num">Aplicado</th><th /></tr></thead>
               <tbody>
                 {applications.map((a) => (
                   <tr key={a.id} className={a.status === "VOID" ? "text-muted" : ""}>

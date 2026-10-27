@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Alert, Badge, Button, ButtonGroup, Input, Label, Spinner, Table } from "reactstrap";
 import {
-  downloadBatch, generateCases, getCase, getCases, getDashboard, recordCaseReceiptsBulk, settleCases,
+  downloadBatch, generateCases, getCase, getCases, getDashboard, recordCaseReceiptsBulk, replaceCaseReceipt, settleCases,
 } from "services/reconciliationService";
 import { createClientRequestId } from "services/customerAccountService";
 import { showError, showSuccess, showWarning } from "utils/notificationHelper";
@@ -35,19 +35,31 @@ export const rowResult = (r) => {
 const stop = (e) => e.stopPropagation();
 
 /** Monto y referencia de una venta sin pago. Lo escrito queda como borrador hasta «Guardar montos». */
-const PayCell = ({ row, draft, disabled, onChange }) => {
+const PayCell = ({ row, draft, disabled, onChange, onSave, canSave }) => {
   const amount = draft ? draft.amount : "";
+  const onKey = (e) => { if (e.key === "Enter" && canSave && !disabled) { e.preventDefault(); onSave(); } };
   return (
     <div className="d-flex align-items-center" style={{ gap: 6 }} onClick={stop}>
       <Input bsSize="sm" type="number" step="0.01" min="0" style={{ width: 105 }} placeholder="Recibido" aria-label={`Monto recibido ${row.shipmentNumber}`}
-        value={amount} disabled={disabled} onChange={(e) => onChange({ amount: e.target.value, matchExpected: false })} />
+        value={amount} disabled={disabled} onKeyDown={onKey} onChange={(e) => onChange({ amount: e.target.value, matchExpected: false })} />
       <Button size="sm" outline color="primary" disabled={disabled} title="Recibido = cobrado" aria-label={`Recibido igual a cobrado ${row.shipmentNumber}`}
         active={!!(draft && draft.matchExpected)} onClick={() => onChange({ amount: String(row.expected), matchExpected: true })}>=</Button>
-      <Input bsSize="sm" style={{ width: 120 }} placeholder="Referencia" aria-label={`Referencia ${row.shipmentNumber}`}
-        value={draft ? draft.reference || "" : ""} disabled={disabled} onChange={(e) => onChange({ reference: e.target.value })} />
+      <Input bsSize="sm" style={{ width: 190 }} placeholder="No. Autorización/Referencia" aria-label={`No. Autorización/Referencia ${row.shipmentNumber}`}
+        value={draft ? draft.reference || "" : ""} disabled={disabled} onKeyDown={onKey} onChange={(e) => onChange({ reference: e.target.value })} />
+      {canSave && <Button size="sm" color="primary" disabled={disabled} aria-label={`Guardar ${row.shipmentNumber}`} onClick={onSave}>Guardar</Button>}
     </div>
   );
 };
+
+/** Encabezado que ordena la lista al tocarlo. El orden lo hace el servidor, así vale para todas las páginas. */
+const SortTh = ({ label, field, sort, onSort, className }) => (
+  <th className={className} aria-sort={sort.key === field ? (sort.dir === "asc" ? "ascending" : "descending") : "none"}>
+    <button type="button" className="recon-sort" onClick={() => onSort(field)}>{label}{sort.key === field ? (sort.dir === "asc" ? " ▲" : " ▼") : ""}</button>
+  </th>
+);
+
+/** Si la venta es una devolución, su número de devolución es lo que se ve (el mismo del documento impreso). */
+const ReturnTag = ({ row }) => (row.returnNumber ? <Badge color="warning" className="ml-1" title="Número de devolución">Devolución No. {row.returnNumber}</Badge> : null);
 
 const Kv = ({ label, children }) => (
   <div className="kv"><span className="k">{label}</span><span className="v">{children}</span></div>
@@ -62,7 +74,7 @@ const RowDetail = ({ state, onFull }) => {
   return (
     <div className="recon-inline p-3">
       <div className="d-flex justify-content-between align-items-start mb-2" style={{ gap: 8 }}>
-        <strong>{row.shipmentNumber} · {sale ? sale.customerName : "—"}</strong>
+        <strong>{row.shipmentNumber} · {sale ? sale.customerName : "—"}</strong><ReturnTag row={row} />
         <Button size="sm" outline color="primary" onClick={onFull}>Ficha completa</Button>
       </div>
       <div className="recon-inline-grid">
@@ -131,6 +143,7 @@ const ReconSimpleView = ({ filters, onFilters, version, perms, onOpen, onChanged
   const [rows, setRows] = useState([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(0);
+  const [sort, setSort] = useState({ key: "saleDate", dir: "asc" });
   const [summary, setSummary] = useState(null);
   const [ready, setReady] = useState([]);
   const [deselected, setDeselected] = useState(() => new Set());
@@ -166,7 +179,7 @@ const ReconSimpleView = ({ filters, onFilters, version, perms, onOpen, onChanged
     const t = setTimeout(() => { if ((filters.q || "") !== text) { setPage(0); onFilters({ ...filters, q: text }); } }, 350);
     return () => clearTimeout(t);
   }, [text]);
-  useEffect(() => { setPage(0); }, [filters.from, filters.to, filters.carrier, show]);
+  useEffect(() => { setPage(0); }, [filters.from, filters.to, filters.carrier, show, sort]);
   useEffect(() => { setDeselected(new Set()); }, [filters.from, filters.to, filters.carrier]);
 
   useEffect(() => {
@@ -175,7 +188,7 @@ const ReconSimpleView = ({ filters, onFilters, version, perms, onOpen, onChanged
     setError("");
     const base = { ...period, q: filters.q };
     Promise.all([
-      getCases({ ...base, status: SHOW[show].status, batch: SHOW[show].batch }, { page, size: PAGE_SIZE, sort: "saleDate", dir: "asc" }),
+      getCases({ ...base, status: SHOW[show].status, batch: SHOW[show].batch }, { page, size: PAGE_SIZE, sort: sort.key, dir: sort.dir }),
       getDashboard(period),
       fetchSettleable(period),
     ])
@@ -190,7 +203,7 @@ const ReconSimpleView = ({ filters, onFilters, version, perms, onOpen, onChanged
       .catch((e) => alive && setError(e.message))
       .finally(() => alive && setLoading(false));
     return () => { alive = false; };
-  }, [filters.from, filters.to, filters.carrier, filters.q, show, page, version]);
+  }, [filters.from, filters.to, filters.carrier, filters.q, show, page, sort, version]);
 
   const setDraft = (id, patch) => setDrafts((d) => ({ ...d, [id]: { amount: "", matchExpected: false, reference: "", ...(d[id] || {}), ...patch } }));
   const clearDraft = (id) => setDrafts((d) => { const n = { ...d }; delete n[id]; return n; });
@@ -199,24 +212,40 @@ const ReconSimpleView = ({ filters, onFilters, version, perms, onOpen, onChanged
   const draftItems = useMemo(() => draftsToItems(drafts), [drafts]);
 
   // Momento 2: guardar todos los montos escritos de una vez. Lo que falla se queda en su fila con el motivo.
-  const saveDrafts = async () => {
+  // Guarda todos los borradores (onlyId vacío) o solo el de una fila. Los pagos nuevos van en bloque; los corregidos, uno por uno.
+  const saveDrafts = async (onlyId) => {
+    const picked = Object.entries(drafts).filter(([id]) => onlyId == null || String(onlyId) === id);
+    const fresh = draftsToItems(Object.fromEntries(picked.filter(([, d]) => !d.editing)));
+    const edits = draftsToItems(Object.fromEntries(picked.filter(([, d]) => d.editing)));
+    if (fresh.length + edits.length === 0) return;
     setSaving(true);
     try {
-      const res = await recordCaseReceiptsBulk(draftItems);
-      const errors = {};
+      const out = [];
+      if (fresh.length > 0) out.push(...(await recordCaseReceiptsBulk(fresh)).rows);
+      for (const item of edits) {
+        try {
+          out.push(await replaceCaseReceipt(item.caseId, { amount: item.amount, matchExpected: item.matchExpected, reference: item.reference }));
+        } catch (e) {
+          out.push({ caseId: item.caseId, ok: false, message: e.message });
+        }
+      }
       const next = { ...drafts };
-      res.rows.forEach((r) => {
+      const errors = { ...rowErrors };
+      [...fresh, ...edits].forEach((i) => { delete errors[i.caseId]; });
+      out.forEach((r) => {
         if (r.ok) delete next[r.caseId];
         else if (r.caseId != null) errors[r.caseId] = r.message;
       });
       setDrafts(next);
       setRowErrors(errors);
-      const exact = res.rows.filter((r) => r.ok && Number(r.difference) === 0).length;
-      const off = res.rows.filter((r) => r.ok && Number(r.difference) !== 0).length;
-      if (res.failed > 0 || off > 0) {
-        showWarning(`${res.saved} guardados (${exact} cuadran${off ? `, ${off} con diferencia: quedan pendientes` : ""}).${res.failed ? ` ${res.failed} con error, revíselos en su fila.` : ""}`);
+      const saved = out.filter((r) => r.ok).length;
+      const failed = out.length - saved;
+      const off = out.filter((r) => r.ok && Number(r.difference) !== 0).length;
+      const what = saved === 1 ? "1 monto guardado" : `${saved} montos guardados`;
+      if (failed > 0 || off > 0) {
+        showWarning(`${what}${off ? ` (${off} con diferencia: queda pendiente)` : ""}.${failed ? ` ${failed} con error, revíselo en su fila.` : ""}`);
       } else {
-        showSuccess(`${res.saved} montos guardados: todos cuadran al centavo.`);
+        showSuccess(`${what}: cuadra${saved === 1 ? "" : "n"} al centavo.`);
       }
       onChanged();
     } catch (e) {
@@ -225,6 +254,11 @@ const ReconSimpleView = ({ filters, onFilters, version, perms, onOpen, onChanged
       setSaving(false);
     }
   };
+
+  // Corregir un pago ya guardado: la fila vuelve a ser editable con lo que tiene, y al guardar se reemplaza.
+  const canEditPayment = (r) => r.hasReceipts && !r.batchCode && r.status !== "EXCLUIDO" && perms.import && perms.reconcile;
+  const startEdit = (r) => setDraft(r.id, { amount: String(r.received), matchExpected: false, reference: r.reference || "", editing: true });
+  const toggleSort = (field) => setSort((s) => (s.key === field ? { key: field, dir: s.dir === "asc" ? "desc" : "asc" } : { key: field, dir: "asc" }));
 
   const fillAllEqual = () => {
     setDrafts((d) => {
@@ -318,7 +352,7 @@ const ReconSimpleView = ({ filters, onFilters, version, perms, onOpen, onChanged
         </ButtonGroup>
         <div className="d-flex align-items-center" style={{ gap: 8 }}>
           {rows.some(editable) && <Button size="sm" outline color="primary" disabled={!perms.import || saving} onClick={fillAllEqual}>Todo lo de esta página llegó completo (=)</Button>}
-          {unsaved > 0 && <Button size="sm" color="primary" disabled={!perms.import || saving} onClick={saveDrafts}>{saving ? <Spinner size="sm" /> : `Guardar montos (${unsaved})`}</Button>}
+          {unsaved > 0 && <Button size="sm" color="primary" disabled={!perms.import || saving} onClick={() => saveDrafts()}>{saving ? <Spinner size="sm" /> : `Guardar montos (${unsaved})`}</Button>}
         </div>
       </div>
 
@@ -328,7 +362,7 @@ const ReconSimpleView = ({ filters, onFilters, version, perms, onOpen, onChanged
           <thead>
             <tr>
               <th style={{ width: 28 }}><Input type="checkbox" aria-label="Elegir todas las que se pueden liquidar" checked={allChecked} disabled={ready.length === 0 || !perms.close} onChange={toggleAll} /></th>
-              <th>Fecha</th><th>ENVL</th><th>Cliente</th><th className="hide-sm">Guía</th><th className="num">Cobrado</th><th>Recibido</th><th>Resultado</th>
+              <SortTh label="Fecha" field="saleDate" sort={sort} onSort={toggleSort} /><SortTh label="ENVL" field="shipmentNumber" sort={sort} onSort={toggleSort} /><SortTh label="Cliente" field="customerName" sort={sort} onSort={toggleSort} /><SortTh label="Guía" field="guideNumber" sort={sort} onSort={toggleSort} className="hide-sm" /><th className="num">Cobrado</th><th>Recibido</th><th>Resultado</th>
             </tr>
           </thead>
           <tbody>
@@ -342,7 +376,9 @@ const ReconSimpleView = ({ filters, onFilters, version, perms, onOpen, onChanged
             )}
             {rows.map((r) => {
               const draft = drafts[r.id];
-              const live = draft && editable(r) ? draftResult(r.expected, draft.amount) : null;
+              const editing = !!(draft && draft.editing);
+              const live = draft && (editable(r) || editing) ? draftResult(r.expected, draft.amount) : null;
+              const canSave = !!draft && draftsToItems({ [r.id]: draft }).length > 0;
               const res = live ? { tone: live.ok ? "success" : "danger", text: `${live.text} · sin guardar` } : rowResult(r);
               const open = expanded.has(r.id);
               return (
@@ -352,19 +388,21 @@ const ReconSimpleView = ({ filters, onFilters, version, perms, onOpen, onChanged
                       {canSettle(r) && <Input type="checkbox" aria-label={`Liquidar ${r.shipmentNumber}`} checked={isChecked(r)} disabled={!perms.close} onChange={() => toggleCheck(r.id)} />}
                     </td>
                     <td>{(r.saleDate || "").slice(5)}</td>
-                    <td><span className="mr-1">{open ? "▾" : "▸"}</span><strong>{r.shipmentNumber}</strong>
+                    <td><span className="mr-1">{open ? "▾" : "▸"}</span><strong>{r.shipmentNumber}</strong><ReturnTag row={r} />
                       <div className="small text-muted">{labelOf(CARRIER_LABELS, r.carrier)} · {labelOf(METHOD_LABELS, r.paymentMethod)}</div></td>
                     <td style={{ whiteSpace: "normal", minWidth: 120 }}>{r.customerName || <span className="text-muted">—</span>}</td>
                     <td className="hide-sm">{r.guideNumber || <span className="text-muted">—</span>}</td>
                     <td className="num">{formatQ(r.expected)}</td>
                     <td>
-                      {editable(r)
-                        ? <PayCell row={r} draft={draft} disabled={!perms.import || saving} onChange={(patch) => { setDraft(r.id, patch); setRowErrors((e) => { const n = { ...e }; delete n[r.id]; return n; }); }} />
+                      {editable(r) || editing
+                        ? <PayCell row={r} draft={draft} disabled={!perms.import || saving} canSave={canSave} onSave={() => saveDrafts(r.id)}
+                            onChange={(patch) => { setDraft(r.id, patch); setRowErrors((e) => { const n = { ...e }; delete n[r.id]; return n; }); }} />
                         : <>{formatQ(r.received)}{r.reference && <div className="small text-muted">{r.reference}</div>}</>}
                     </td>
                     <td className={`text-${res.tone}`} style={{ whiteSpace: "normal" }}>
                       {res.text}
-                      {draft && editable(r) && <Button size="sm" color="link" className="py-0" onClick={(e) => { stop(e); clearDraft(r.id); }}>Quitar</Button>}
+                      {draft && (editable(r) || editing) && <Button size="sm" color="link" className="py-0" onClick={(e) => { stop(e); clearDraft(r.id); }}>{editing ? "Cancelar" : "Quitar"}</Button>}
+                      {!draft && canEditPayment(r) && <Button size="sm" color="link" className="py-0" aria-label={`Editar el pago de ${r.shipmentNumber}`} onClick={(e) => { stop(e); startEdit(r); }}>Editar</Button>}
                       {rowErrors[r.id] && <div className="small text-danger">{rowErrors[r.id]}</div>}
                     </td>
                   </tr>
