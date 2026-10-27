@@ -24,6 +24,9 @@ const post = async (path, body, fallback, headers = {}) =>
     fallback
   );
 
+const put = async (path, body, fallback) =>
+  parse(await fetch(`${BASE}${path}`, { method: "PUT", headers: jsonHeaders(), body: JSON.stringify(body) }), fallback);
+
 const upload = async (path, formData, fallback) =>
   parse(await fetch(`${BASE}${path}`, { method: "POST", headers: getAuthHeader(), body: formData }), fallback);
 
@@ -67,6 +70,10 @@ export const recordQuickReceipt = (data) => post("/receipts/quick", data, "No se
 export const recordCaseReceipt = (caseId, data) => post(`/cases/${caseId}/record-receipt`, data, "No se pudo registrar el pago");
 /** Guarda varios pagos de una vez: [{ caseId, amount | null, matchExpected, reference }]. Cada pago se valida por separado. */
 export const recordCaseReceiptsBulk = (items) => post("/cases/receipts/bulk", { items }, "No se pudieron guardar los montos");
+/** Corrige el pago ya guardado de una venta que aún no está en un lote: { amount | null, matchExpected, reference }. */
+export const replaceCaseReceipt = (caseId, data) => put(`/cases/${caseId}/receipt`, data, "No se pudo corregir el pago");
+/** Envío real y porcentaje de comisión de una venta: { realShipping | null, commissionRate | null }. Solo registro, no cambia el cuadre. */
+export const updateShippingCommission = (caseId, data) => put(`/cases/${caseId}/shipping-commission`, data, "No se pudo guardar el envío real y la comisión");
 export const autoApplyReceipts = () => post("/receipts/auto-apply", undefined, "No se pudieron aplicar los fondos pendientes");
 export const getUnappliedReceipts = (limit = 100) => get(`/receipts/unapplied?limit=${limit}`, "No se pudieron cargar los fondos sin aplicar");
 export const voidReceipt = (id, reason) => post(`/receipts/${id}/void`, { reason }, "No se pudo anular el fondo");

@@ -82,6 +82,14 @@ const ReconciliationPage = () => {
     return () => document.body.classList.remove("recon-drawer-open");
   }, [openId]);
 
+  // Esc cierra la ficha completa abierta (con el foco donde esté).
+  useEffect(() => {
+    if (openId == null) return undefined;
+    const onKey = (e) => { if (e.key === "Escape") setOpenId(null); };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [openId]);
+
   const reload = useCallback(() => setVersion((v) => v + 1), []);
   const goInbox = (patch) => { setFilters((f) => ({ ...f, ...patch })); setTab("inbox"); };
   const goTab = (id, problemType) => { setTab(id); if (problemType !== undefined) setProblem(problemType); };
@@ -144,7 +152,7 @@ const ReconciliationPage = () => {
         </CardHeader>
         <CardBody>
           {view === "simple" && (
-            <ReconSimpleView filters={filters} onFilters={setFilters} version={version} perms={perms} onOpen={setOpenId} onChanged={reload} onRowsLoaded={setRowIds} />
+            <ReconSimpleView openId={openId} filters={filters} onFilters={setFilters} version={version} perms={perms} onOpen={setOpenId} onChanged={reload} onRowsLoaded={setRowIds} />
           )}
           {view === "full" && <>
           <Nav tabs className="recon-tabs mb-3" role="tablist">

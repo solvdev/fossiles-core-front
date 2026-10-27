@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Alert, Badge, Button, ButtonGroup, Input, Label, Spinner, Table } from "reactstrap";
 import {
-  downloadBatch, generateCases, getCase, getCases, getDashboard, recordCaseReceiptsBulk, settleCases,
+  downloadBatch, generateCases, getCase, getCases, getDashboard, excludeCase, includeCase, recordCaseReceiptsBulk, replaceCaseReceipt, settleCases, updateShippingCommission,
 } from "services/reconciliationService";
 import { createClientRequestId } from "services/customerAccountService";
 import { showError, showSuccess, showWarning } from "utils/notificationHelper";
@@ -13,14 +13,14 @@ const PAGE_SIZE = 50;
 const ELIGIBLE_PAGE = 200;
 const NOT_EXCLUDED = `${RECONCILED_STATUSES.join(",")},PENDIENTE_REVISION,CON_DIFERENCIAS,INFORMACION_INCOMPLETA,POSIBLE_DUPLICADO,REQUIERE_AUTORIZACION`;
 const SHOW = {
-  pending: { label: "Por liquidar", status: NOT_EXCLUDED, batch: "NONE" },
+  pending: { label: "Por liquidar", status: `${NOT_EXCLUDED},EXCLUIDO`, batch: "NONE" },
   differences: { label: "Con diferencia", status: "CON_DIFERENCIAS,REQUIERE_AUTORIZACION,POSIBLE_DUPLICADO", batch: "" },
   all: { label: "Todas", status: "", batch: "" },
 };
 
 /** Lo que el usuario necesita saber de una fila ya guardada, en palabras. */
 export const rowResult = (r) => {
-  if (r.status === "EXCLUIDO") return { tone: "muted", text: "Excluida" };
+  if (r.status === "EXCLUIDO") return { tone: "muted", text: "Anulada" };
   if (r.batchCode) return { tone: "success", text: `✓ Liquidada (${r.batchCode})` };
   if (RECONCILED_STATUSES.includes(r.status)) return { tone: "success", text: "✓ Cuadra" };
   if (!r.hasReceipts) return { tone: "muted", text: "Falta registrar el pago" };
@@ -35,19 +35,77 @@ export const rowResult = (r) => {
 const stop = (e) => e.stopPropagation();
 
 /** Monto y referencia de una venta sin pago. Lo escrito queda como borrador hasta «Guardar montos». */
-const PayCell = ({ row, draft, disabled, onChange }) => {
+const PayCell = ({ row, draft, disabled, onChange, onSave, canSave }) => {
   const amount = draft ? draft.amount : "";
+  const onKey = (e) => { if (e.key === "Enter" && canSave && !disabled) { e.preventDefault(); onSave(); } };
   return (
     <div className="d-flex align-items-center" style={{ gap: 6 }} onClick={stop}>
       <Input bsSize="sm" type="number" step="0.01" min="0" style={{ width: 105 }} placeholder="Recibido" aria-label={`Monto recibido ${row.shipmentNumber}`}
-        value={amount} disabled={disabled} onChange={(e) => onChange({ amount: e.target.value, matchExpected: false })} />
+        value={amount} disabled={disabled} onKeyDown={onKey} onChange={(e) => onChange({ amount: e.target.value, matchExpected: false })} />
       <Button size="sm" outline color="primary" disabled={disabled} title="Recibido = cobrado" aria-label={`Recibido igual a cobrado ${row.shipmentNumber}`}
         active={!!(draft && draft.matchExpected)} onClick={() => onChange({ amount: String(row.expected), matchExpected: true })}>=</Button>
-      <Input bsSize="sm" style={{ width: 120 }} placeholder="Referencia" aria-label={`Referencia ${row.shipmentNumber}`}
-        value={draft ? draft.reference || "" : ""} disabled={disabled} onChange={(e) => onChange({ reference: e.target.value })} />
+      <Input bsSize="sm" style={{ width: 190 }} placeholder="No. Autorización/Referencia" aria-label={`No. Autorización/Referencia ${row.shipmentNumber}`}
+        value={draft ? draft.reference || "" : ""} disabled={disabled} onKeyDown={onKey} onChange={(e) => onChange({ reference: e.target.value })} />
+      {canSave && <Button size="sm" color="primary" disabled={disabled} aria-label={`Guardar ${row.shipmentNumber}`} onClick={onSave}>Guardar</Button>}
     </div>
   );
 };
+
+const RATE_CHOICES = [0.03, 0.035, 0.04];
+const pct = (rate) => `${(Number(rate) * 100).toLocaleString("es-GT", { maximumFractionDigits: 1 })}%`;
+const sameRate = (a, b) => a != null && b != null && Math.round(Number(a) * 10000) === Math.round(Number(b) * 10000);
+
+/** Lo que de verdad costó el envío. Se compara con el envío cobrado al cliente; es solo un registro y no cambia el cuadre. */
+const RealShippingCell = ({ row, canEdit, onSave }) => {
+  const saved = row.realShipping == null ? "" : String(row.realShipping);
+  const [value, setValue] = useState(saved);
+  useEffect(() => { setValue(saved); }, [saved]);
+  const dirty = value !== saved;
+  const diff = row.realShipping == null || row.chargedShipping == null ? null : Math.round((Number(row.chargedShipping) - Number(row.realShipping)) * 100) / 100;
+  const submit = () => onSave(value === "" ? null : Number(value));
+  return (
+    <div onClick={stop} style={{ minWidth: 150 }}>
+      {canEdit ? (
+        <div className="d-flex align-items-center" style={{ gap: 6 }}>
+          <Input bsSize="sm" type="number" step="0.01" min="0" style={{ width: 90 }} placeholder="Real" aria-label={`Envío real ${row.shipmentNumber}`}
+            value={value} onChange={(e) => setValue(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && dirty) { e.preventDefault(); submit(); } }} />
+          {dirty && <Button size="sm" color="primary" aria-label={`Guardar envío real ${row.shipmentNumber}`} onClick={submit}>Guardar</Button>}
+        </div>
+      ) : <span>{row.realShipping == null ? "—" : formatQ(row.realShipping)}</span>}
+      <div className="small text-muted">
+        Cobrado {row.chargedShipping == null ? "—" : formatQ(row.chargedShipping)}
+        {diff !== null && <span className={diff < 0 ? "text-danger" : "text-success"}> · {diff === 0 ? "igual" : diff > 0 ? `+${formatQ(diff)} a favor` : `-${formatQ(-diff)} en contra`}</span>}
+      </div>
+    </div>
+  );
+};
+
+/** Comisión sobre el total con el envío cobrado. Forza y Guatex llevan 3.5% fijo; en las demás se elige 3, 3.5 o 4%. */
+const CommissionCell = ({ row, canEdit, onPick }) => (
+  <div onClick={stop} style={{ minWidth: 150 }}>
+    {row.carrierCommissionFixed ? (
+      <div><strong>{pct(row.carrierCommissionRate)}</strong> <span className="small text-muted">fijo</span></div>
+    ) : (
+      <ButtonGroup size="sm" aria-label={`Porcentaje de comisión ${row.shipmentNumber}`}>
+        {RATE_CHOICES.map((rate) => (
+          <Button key={rate} outline color="primary" disabled={!canEdit} active={sameRate(row.carrierCommissionRate, rate)}
+            aria-label={`Comisión ${pct(rate)} ${row.shipmentNumber}`} onClick={() => onPick(sameRate(row.carrierCommissionRate, rate) ? null : rate)}>{pct(rate)}</Button>
+        ))}
+      </ButtonGroup>
+    )}
+    <div className="small text-muted">{row.carrierCommission == null ? "Elija el porcentaje" : formatQ(row.carrierCommission)}</div>
+  </div>
+);
+
+/** Encabezado que ordena la lista al tocarlo. El orden lo hace el servidor, así vale para todas las páginas. */
+const SortTh = ({ label, field, sort, onSort, className }) => (
+  <th className={className} aria-sort={sort.key === field ? (sort.dir === "asc" ? "ascending" : "descending") : "none"}>
+    <button type="button" className="recon-sort" onClick={() => onSort(field)}>{label}{sort.key === field ? (sort.dir === "asc" ? " ▲" : " ▼") : ""}</button>
+  </th>
+);
+
+/** Si la venta es una devolución, su número de devolución es lo que se ve (el mismo del documento impreso). */
+const ReturnTag = ({ row }) => (row.returnNumber ? <Badge color="warning" className="ml-1" title="Número de devolución">Devolución No. {row.returnNumber}</Badge> : null);
 
 const Kv = ({ label, children }) => (
   <div className="kv"><span className="k">{label}</span><span className="v">{children}</span></div>
@@ -62,7 +120,7 @@ const RowDetail = ({ state, onFull }) => {
   return (
     <div className="recon-inline p-3">
       <div className="d-flex justify-content-between align-items-start mb-2" style={{ gap: 8 }}>
-        <strong>{row.shipmentNumber} · {sale ? sale.customerName : "—"}</strong>
+        <strong>{row.shipmentNumber} · {sale ? sale.customerName : "—"}</strong><ReturnTag row={row} />
         <Button size="sm" outline color="primary" onClick={onFull}>Ficha completa</Button>
       </div>
       <div className="recon-inline-grid">
@@ -71,6 +129,7 @@ const RowDetail = ({ state, onFull }) => {
           <Kv label="Vendedor">{row.seller || "—"}</Kv>
           <Kv label="Forma de pago">{labelOf(METHOD_LABELS, row.paymentMethod)}</Kv>
           <Kv label="Referencia en la venta">{(sale && sale.paymentAuthorization) || "—"}</Kv>
+          <Kv label="Dirección de envío">{(sale && sale.address) || "Sin dirección registrada"}</Kv>
           <Kv label="Despacho">{sale && sale.dispatchedAt ? String(sale.dispatchedAt).replace("T", " ").slice(0, 16) : "Sin fecha registrada"}</Kv>
           <Kv label="Factura FEL">{sale && sale.invoiceId ? "Asociada" : "No asociada"}</Kv>
         </div>
@@ -126,11 +185,12 @@ const fetchSettleable = async (period) => {
  * 2) escribir lo recibido (o «=» cuando llegó completo) y guardar todo junto, 3) liquidar las ventas elegidas y descargar el Excel.
  * Lo que no cuadra al centavo no se corrige solo: se abre la ficha para resolverlo con las herramientas de siempre.
  */
-const ReconSimpleView = ({ filters, onFilters, version, perms, onOpen, onChanged, onRowsLoaded }) => {
+const ReconSimpleView = ({ filters, onFilters, version, perms, openId, onOpen, onChanged, onRowsLoaded }) => {
   const [show, setShow] = useState("pending");
   const [rows, setRows] = useState([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(0);
+  const [sort, setSort] = useState({ key: "saleDate", dir: "asc" });
   const [summary, setSummary] = useState(null);
   const [ready, setReady] = useState([]);
   const [deselected, setDeselected] = useState(() => new Set());
@@ -143,6 +203,7 @@ const ReconSimpleView = ({ filters, onFilters, version, perms, onOpen, onChanged
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [text, setText] = useState(filters.q || "");
+  const [annul, setAnnul] = useState(null);   // { id, reason }: venta que se está anulando
   const [confirmKey, setConfirmKey] = useState(null);
   const [settling, setSettling] = useState(false);
   const [done, setDone] = useState(null);
@@ -166,7 +227,7 @@ const ReconSimpleView = ({ filters, onFilters, version, perms, onOpen, onChanged
     const t = setTimeout(() => { if ((filters.q || "") !== text) { setPage(0); onFilters({ ...filters, q: text }); } }, 350);
     return () => clearTimeout(t);
   }, [text]);
-  useEffect(() => { setPage(0); }, [filters.from, filters.to, filters.carrier, show]);
+  useEffect(() => { setPage(0); }, [filters.from, filters.to, filters.carrier, show, sort]);
   useEffect(() => { setDeselected(new Set()); }, [filters.from, filters.to, filters.carrier]);
 
   useEffect(() => {
@@ -175,7 +236,7 @@ const ReconSimpleView = ({ filters, onFilters, version, perms, onOpen, onChanged
     setError("");
     const base = { ...period, q: filters.q };
     Promise.all([
-      getCases({ ...base, status: SHOW[show].status, batch: SHOW[show].batch }, { page, size: PAGE_SIZE, sort: "saleDate", dir: "asc" }),
+      getCases({ ...base, status: SHOW[show].status, batch: SHOW[show].batch }, { page, size: PAGE_SIZE, sort: sort.key, dir: sort.dir }),
       getDashboard(period),
       fetchSettleable(period),
     ])
@@ -190,7 +251,7 @@ const ReconSimpleView = ({ filters, onFilters, version, perms, onOpen, onChanged
       .catch((e) => alive && setError(e.message))
       .finally(() => alive && setLoading(false));
     return () => { alive = false; };
-  }, [filters.from, filters.to, filters.carrier, filters.q, show, page, version]);
+  }, [filters.from, filters.to, filters.carrier, filters.q, show, page, sort, version]);
 
   const setDraft = (id, patch) => setDrafts((d) => ({ ...d, [id]: { amount: "", matchExpected: false, reference: "", ...(d[id] || {}), ...patch } }));
   const clearDraft = (id) => setDrafts((d) => { const n = { ...d }; delete n[id]; return n; });
@@ -199,24 +260,40 @@ const ReconSimpleView = ({ filters, onFilters, version, perms, onOpen, onChanged
   const draftItems = useMemo(() => draftsToItems(drafts), [drafts]);
 
   // Momento 2: guardar todos los montos escritos de una vez. Lo que falla se queda en su fila con el motivo.
-  const saveDrafts = async () => {
+  // Guarda todos los borradores (onlyId vacío) o solo el de una fila. Los pagos nuevos van en bloque; los corregidos, uno por uno.
+  const saveDrafts = async (onlyId) => {
+    const picked = Object.entries(drafts).filter(([id]) => onlyId == null || String(onlyId) === id);
+    const fresh = draftsToItems(Object.fromEntries(picked.filter(([, d]) => !d.editing)));
+    const edits = draftsToItems(Object.fromEntries(picked.filter(([, d]) => d.editing)));
+    if (fresh.length + edits.length === 0) return;
     setSaving(true);
     try {
-      const res = await recordCaseReceiptsBulk(draftItems);
-      const errors = {};
+      const out = [];
+      if (fresh.length > 0) out.push(...(await recordCaseReceiptsBulk(fresh)).rows);
+      for (const item of edits) {
+        try {
+          out.push(await replaceCaseReceipt(item.caseId, { amount: item.amount, matchExpected: item.matchExpected, reference: item.reference }));
+        } catch (e) {
+          out.push({ caseId: item.caseId, ok: false, message: e.message });
+        }
+      }
       const next = { ...drafts };
-      res.rows.forEach((r) => {
+      const errors = { ...rowErrors };
+      [...fresh, ...edits].forEach((i) => { delete errors[i.caseId]; });
+      out.forEach((r) => {
         if (r.ok) delete next[r.caseId];
         else if (r.caseId != null) errors[r.caseId] = r.message;
       });
       setDrafts(next);
       setRowErrors(errors);
-      const exact = res.rows.filter((r) => r.ok && Number(r.difference) === 0).length;
-      const off = res.rows.filter((r) => r.ok && Number(r.difference) !== 0).length;
-      if (res.failed > 0 || off > 0) {
-        showWarning(`${res.saved} guardados (${exact} cuadran${off ? `, ${off} con diferencia: quedan pendientes` : ""}).${res.failed ? ` ${res.failed} con error, revíselos en su fila.` : ""}`);
+      const saved = out.filter((r) => r.ok).length;
+      const failed = out.length - saved;
+      const off = out.filter((r) => r.ok && Number(r.difference) !== 0).length;
+      const what = saved === 1 ? "1 monto guardado" : `${saved} montos guardados`;
+      if (failed > 0 || off > 0) {
+        showWarning(`${what}${off ? ` (${off} con diferencia: queda pendiente)` : ""}.${failed ? ` ${failed} con error, revíselo en su fila.` : ""}`);
       } else {
-        showSuccess(`${res.saved} montos guardados: todos cuadran al centavo.`);
+        showSuccess(`${what}: cuadra${saved === 1 ? "" : "n"} al centavo.`);
       }
       onChanged();
     } catch (e) {
@@ -225,6 +302,61 @@ const ReconSimpleView = ({ filters, onFilters, version, perms, onOpen, onChanged
       setSaving(false);
     }
   };
+
+  // Esc: si la ficha completa está abierta la cierra la página; si no, se cierra el detalle de las filas abiertas.
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key !== "Escape" || openId != null) return;
+      setExpanded((s) => (s.size > 0 ? new Set() : s));
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [openId]);
+
+  // Envío real y porcentaje de comisión: se guardan al momento y la fila se actualiza sin recargar la lista.
+  const canEditExtras = (r) => !r.batchCode && r.status !== "EXCLUIDO" && perms.reconcile;
+  const saveExtras = async (r, patch) => {
+    try {
+      const saved = await updateShippingCommission(r.id, {
+        realShipping: r.realShipping == null ? null : r.realShipping,
+        commissionRate: r.carrierCommissionFixed || r.carrierCommissionRate == null ? null : r.carrierCommissionRate,
+        ...patch,
+      });
+      if (saved && saved.id != null) setRows((list) => list.map((x) => (x.id === saved.id ? saved : x)));
+      else onChanged();
+    } catch (e) {
+      showError(e.message);
+    }
+  };
+
+  // Anular: la venta ya no está anulada en el sistema pero físicamente sí. Sale de la conciliación con su motivo (se puede reincorporar).
+  const canAnnul = (r) => !r.batchCode && r.status !== "EXCLUIDO" && perms.reconcile;
+  const confirmAnnul = async (r) => {
+    try {
+      await excludeCase(r.id, (annul.reason || "").trim());
+      setAnnul(null);
+      setRowErrors((e) => { const n = { ...e }; delete n[r.id]; return n; });
+      clearDraft(r.id);
+      showSuccess(`${r.shipmentNumber} quedó anulada en la conciliación.`);
+      onChanged();
+    } catch (e) {
+      setRowErrors((errs) => ({ ...errs, [r.id]: e.message }));
+    }
+  };
+  const reinstate = async (r) => {
+    try {
+      await includeCase(r.id);
+      showSuccess(`${r.shipmentNumber} volvió a la conciliación.`);
+      onChanged();
+    } catch (e) {
+      setRowErrors((errs) => ({ ...errs, [r.id]: e.message }));
+    }
+  };
+
+  // Corregir un pago ya guardado: la fila vuelve a ser editable con lo que tiene, y al guardar se reemplaza.
+  const canEditPayment = (r) => r.hasReceipts && !r.batchCode && r.status !== "EXCLUIDO" && perms.import && perms.reconcile;
+  const startEdit = (r) => setDraft(r.id, { amount: String(r.received), matchExpected: false, reference: r.reference || "", editing: true });
+  const toggleSort = (field) => setSort((s) => (s.key === field ? { key: field, dir: s.dir === "asc" ? "desc" : "asc" } : { key: field, dir: "asc" }));
 
   const fillAllEqual = () => {
     setDrafts((d) => {
@@ -318,7 +450,7 @@ const ReconSimpleView = ({ filters, onFilters, version, perms, onOpen, onChanged
         </ButtonGroup>
         <div className="d-flex align-items-center" style={{ gap: 8 }}>
           {rows.some(editable) && <Button size="sm" outline color="primary" disabled={!perms.import || saving} onClick={fillAllEqual}>Todo lo de esta página llegó completo (=)</Button>}
-          {unsaved > 0 && <Button size="sm" color="primary" disabled={!perms.import || saving} onClick={saveDrafts}>{saving ? <Spinner size="sm" /> : `Guardar montos (${unsaved})`}</Button>}
+          {unsaved > 0 && <Button size="sm" color="primary" disabled={!perms.import || saving} onClick={() => saveDrafts()}>{saving ? <Spinner size="sm" /> : `Guardar montos (${unsaved})`}</Button>}
         </div>
       </div>
 
@@ -328,13 +460,13 @@ const ReconSimpleView = ({ filters, onFilters, version, perms, onOpen, onChanged
           <thead>
             <tr>
               <th style={{ width: 28 }}><Input type="checkbox" aria-label="Elegir todas las que se pueden liquidar" checked={allChecked} disabled={ready.length === 0 || !perms.close} onChange={toggleAll} /></th>
-              <th>Fecha</th><th>ENVL</th><th>Cliente</th><th className="hide-sm">Guía</th><th className="num">Cobrado</th><th>Recibido</th><th>Resultado</th>
+              <SortTh label="Fecha" field="saleDate" sort={sort} onSort={toggleSort} /><SortTh label="ENVL" field="shipmentNumber" sort={sort} onSort={toggleSort} /><SortTh label="Cliente" field="customerName" sort={sort} onSort={toggleSort} /><SortTh label="Guía" field="guideNumber" sort={sort} onSort={toggleSort} className="hide-sm" /><th className="num">Cobrado</th><th>Envío real</th><th>Comisión</th><th>Recibido</th><th>Resultado</th>
             </tr>
           </thead>
           <tbody>
-            {loading && rows.length === 0 && <tr><td colSpan={8} className="text-center p-4"><Spinner size="sm" /> Cargando…</td></tr>}
+            {loading && rows.length === 0 && <tr><td colSpan={10} className="text-center p-4"><Spinner size="sm" /> Cargando…</td></tr>}
             {!loading && rows.length === 0 && !error && (
-              <tr><td colSpan={8}><div className="recon-empty">
+              <tr><td colSpan={10}><div className="recon-empty">
                 {show === "pending" && totalCases > 0
                   ? <><h5>✓ No queda nada por liquidar en este período</h5><p>Todo lo que cuadraba ya se liquidó.</p></>
                   : <><h5>No hay ventas aquí</h5><p>No hay ventas despachadas en este período o con esta búsqueda.</p></>}
@@ -342,7 +474,9 @@ const ReconSimpleView = ({ filters, onFilters, version, perms, onOpen, onChanged
             )}
             {rows.map((r) => {
               const draft = drafts[r.id];
-              const live = draft && editable(r) ? draftResult(r.expected, draft.amount) : null;
+              const editing = !!(draft && draft.editing);
+              const live = draft && (editable(r) || editing) ? draftResult(r.expected, draft.amount) : null;
+              const canSave = !!draft && draftsToItems({ [r.id]: draft }).length > 0;
               const res = live ? { tone: live.ok ? "success" : "danger", text: `${live.text} · sin guardar` } : rowResult(r);
               const open = expanded.has(r.id);
               return (
@@ -352,24 +486,44 @@ const ReconSimpleView = ({ filters, onFilters, version, perms, onOpen, onChanged
                       {canSettle(r) && <Input type="checkbox" aria-label={`Liquidar ${r.shipmentNumber}`} checked={isChecked(r)} disabled={!perms.close} onChange={() => toggleCheck(r.id)} />}
                     </td>
                     <td>{(r.saleDate || "").slice(5)}</td>
-                    <td><span className="mr-1">{open ? "▾" : "▸"}</span><strong>{r.shipmentNumber}</strong>
+                    <td><span className="mr-1">{open ? "▾" : "▸"}</span><strong>{r.shipmentNumber}</strong><ReturnTag row={r} />
                       <div className="small text-muted">{labelOf(CARRIER_LABELS, r.carrier)} · {labelOf(METHOD_LABELS, r.paymentMethod)}</div></td>
                     <td style={{ whiteSpace: "normal", minWidth: 120 }}>{r.customerName || <span className="text-muted">—</span>}</td>
                     <td className="hide-sm">{r.guideNumber || <span className="text-muted">—</span>}</td>
                     <td className="num">{formatQ(r.expected)}</td>
+                    <td><RealShippingCell row={r} canEdit={canEditExtras(r)} onSave={(v) => saveExtras(r, { realShipping: v })} /></td>
+                    <td><CommissionCell row={r} canEdit={canEditExtras(r)} onPick={(v) => saveExtras(r, { commissionRate: v })} /></td>
                     <td>
-                      {editable(r)
-                        ? <PayCell row={r} draft={draft} disabled={!perms.import || saving} onChange={(patch) => { setDraft(r.id, patch); setRowErrors((e) => { const n = { ...e }; delete n[r.id]; return n; }); }} />
+                      {editable(r) || editing
+                        ? <PayCell row={r} draft={draft} disabled={!perms.import || saving} canSave={canSave} onSave={() => saveDrafts(r.id)}
+                            onChange={(patch) => { setDraft(r.id, patch); setRowErrors((e) => { const n = { ...e }; delete n[r.id]; return n; }); }} />
                         : <>{formatQ(r.received)}{r.reference && <div className="small text-muted">{r.reference}</div>}</>}
                     </td>
                     <td className={`text-${res.tone}`} style={{ whiteSpace: "normal" }}>
                       {res.text}
-                      {draft && editable(r) && <Button size="sm" color="link" className="py-0" onClick={(e) => { stop(e); clearDraft(r.id); }}>Quitar</Button>}
+                      {draft && (editable(r) || editing) && <Button size="sm" color="link" className="py-0" onClick={(e) => { stop(e); clearDraft(r.id); }}>{editing ? "Cancelar" : "Quitar"}</Button>}
+                      {!draft && canEditPayment(r) && <Button size="sm" color="link" className="py-0" aria-label={`Editar el pago de ${r.shipmentNumber}`} onClick={(e) => { stop(e); startEdit(r); }}>Editar</Button>}
+                      {r.status === "EXCLUIDO" && r.excludedReason && <div className="small text-muted">{r.excludedReason}</div>}
+                      {r.status === "EXCLUIDO" && !r.batchCode && perms.reconcile && (
+                        <Button size="sm" color="link" className="py-0" aria-label={`Reincorporar ${r.shipmentNumber}`} onClick={(e) => { stop(e); reinstate(r); }}>Reincorporar</Button>
+                      )}
+                      {canAnnul(r) && !(annul && annul.id === r.id) && (
+                        <Button size="sm" color="link" className="py-0 text-danger" aria-label={`Anular ${r.shipmentNumber}`} onClick={(e) => { stop(e); setAnnul({ id: r.id, reason: "" }); }}>Anular</Button>
+                      )}
+                      {annul && annul.id === r.id && (
+                        <div className="mt-1" onClick={stop}>
+                          <Input bsSize="sm" placeholder="Motivo de la anulación (mínimo 10 letras)" aria-label={`Motivo de la anulación ${r.shipmentNumber}`}
+                            value={annul.reason} onChange={(e) => setAnnul({ id: r.id, reason: e.target.value })} />
+                          <Button size="sm" color="danger" className="mt-1 mr-1" disabled={annul.reason.trim().length < 10}
+                            aria-label={`Confirmar anulación ${r.shipmentNumber}`} onClick={() => confirmAnnul(r)}>Anular venta</Button>
+                          <Button size="sm" outline className="mt-1" onClick={() => setAnnul(null)}>Cancelar</Button>
+                        </div>
+                      )}
                       {rowErrors[r.id] && <div className="small text-danger">{rowErrors[r.id]}</div>}
                     </td>
                   </tr>
                   {open && (
-                    <tr className="recon-detail-row"><td colSpan={8} className="p-0"><RowDetail state={details[r.id]} onFull={() => onOpen(r.id)} /></td></tr>
+                    <tr className="recon-detail-row"><td colSpan={10} className="p-0"><RowDetail state={details[r.id]} onFull={() => onOpen(r.id)} /></td></tr>
                   )}
                 </React.Fragment>
               );
