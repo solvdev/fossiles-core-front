@@ -484,6 +484,23 @@ describe("Conciliación de ventas en línea (interfaz)", () => {
       expect(byText("tr", "ENVL-01603").textContent).toContain("Anule primero esas aplicaciones");
     });
 
+    it("Ctrl+B y Ctrl+F llevan al buscador sin abrir el del navegador", async () => {
+      await mount();
+      await flush();
+      const search = document.querySelector("#rs-q");
+      for (const key of ["b", "f"]) {
+        search.blur();
+        let prevented = false;
+        await act(async () => {
+          const ev = new KeyboardEvent("keydown", { key, ctrlKey: true, bubbles: true, cancelable: true });
+          document.dispatchEvent(ev);
+          prevented = ev.defaultPrevented;
+        });
+        expect(document.activeElement).toBe(search);
+        expect(prevented).toBe(true);
+      }
+    });
+
     it("una devolución muestra su número de devolución junto al ENVL", async () => {
       api.getCases.mockImplementation(async (filters, opts) => (opts && opts.size === 200
         ? { rows: [], total: 0, page: 0, size: 200 }

@@ -208,6 +208,18 @@ const ReconSimpleView = ({ filters, onFilters, version, perms, openId, onOpen, o
   const [settling, setSettling] = useState(false);
   const [done, setDone] = useState(null);
   const synced = useRef("");
+  const searchRef = useRef(null);
+
+  // Ctrl+B o Ctrl+F: ir directo al buscador (en vez del buscador del navegador).
+  useEffect(() => {
+    const onKey = (e) => {
+      if (!(e.ctrlKey || e.metaKey) || e.altKey || !["b", "f"].includes((e.key || "").toLowerCase())) return;
+      e.preventDefault();
+      if (searchRef.current) { searchRef.current.focus(); searchRef.current.select(); }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, []);
 
   const period = { from: filters.from, to: filters.to, carrier: filters.carrier };
 
@@ -433,7 +445,7 @@ const ReconSimpleView = ({ filters, onFilters, version, perms, openId, onOpen, o
         </div>
         <div className="flex-fill" style={{ maxWidth: 280 }}>
           <Label for="rs-q" className="small mb-0">Buscar</Label>
-          <Input id="rs-q" type="search" bsSize="sm" placeholder="ENVL o guía" value={text} onChange={(e) => setText(e.target.value)} />
+          <Input innerRef={searchRef} id="rs-q" type="search" bsSize="sm" placeholder="ENVL o guía" value={text} onChange={(e) => setText(e.target.value)} />
         </div>
         {syncing && <small className="text-muted"><Spinner size="sm" /> Trayendo las ventas del sistema…</small>}
       </div>

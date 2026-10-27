@@ -89,6 +89,11 @@ const ReconInboxTab = ({ filters, onFilters, version, openId, onOpen, perms, onC
 
   useEffect(() => {
     const onKey = (e) => {
+      if ((e.ctrlKey || e.metaKey) && !e.altKey && ["b", "f"].includes((e.key || "").toLowerCase())) {   // Ctrl+B o Ctrl+F: ir al buscador
+        e.preventDefault();
+        if (searchRef.current) { searchRef.current.focus(); searchRef.current.select(); }
+        return;
+      }
       if (e.ctrlKey || e.metaKey || e.altKey) return;
       const tag = (e.target.tagName || "").toLowerCase();
       const action = shortcutAction(e.key, { typing: ["input", "textarea", "select"].includes(tag), hasOpen: openId != null });
