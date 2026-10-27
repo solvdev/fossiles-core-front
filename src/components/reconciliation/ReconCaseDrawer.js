@@ -239,6 +239,7 @@ const ReconCaseDrawer = ({ id, onClose, onChanged, onPrev, onNext, perms }) => {
           <dl className="kv">
             <Field label="Transportista" src="online_sale.shipping_carrier">{labelOf(CARRIER_LABELS, row.carrier)}</Field>
             <Field label="Guía" src="online_sale.guide_number">{row.guideNumber || (row.carrier === "MOTORISTA" ? "No aplica" : <span className="text-danger">Sin guía capturada</span>)}</Field>
+            <Field label="Dirección de envío" src="online_sale.address">{sale && sale.address ? sale.address : <span className="text-muted">Sin dirección registrada</span>}</Field>
             <Field label="Despacho" src="online_sale.dispatched_at">{sale && sale.dispatchedAt ? when(sale.dispatchedAt) : <span className="text-muted">Sin fecha de despacho registrada (venta anterior a esta columna)</span>}</Field>
           </dl>
         </Section>

@@ -7,7 +7,7 @@ import { rowResult } from "components/reconciliation/ReconSimpleView";
 
 jest.mock("services/reconciliationService", () => ({
   getDashboard: jest.fn(), getCases: jest.fn(), getCase: jest.fn(), getSellers: jest.fn(), getBatches: jest.fn(), getExports: jest.fn(),
-  getUnappliedReceipts: jest.fn(), getCommissions: jest.fn(), getMissingSellers: jest.fn(), closeBatch: jest.fn(), createBatch: jest.fn(), recordCaseReceiptsBulk: jest.fn(), replaceCaseReceipt: jest.fn(), settleCases: jest.fn(),
+  getUnappliedReceipts: jest.fn(), getCommissions: jest.fn(), getMissingSellers: jest.fn(), closeBatch: jest.fn(), createBatch: jest.fn(), recordCaseReceiptsBulk: jest.fn(), replaceCaseReceipt: jest.fn(), updateShippingCommission: jest.fn(), settleCases: jest.fn(),
   downloadBatch: jest.fn(), voidBatch: jest.fn(), proposeAdjustment: jest.fn(), authorizeAdjustment: jest.fn(), rejectAdjustment: jest.fn(),
   reconcileCase: jest.fn(), bulkReconcile: jest.fn(), applyReceipt: jest.fn(), voidApplication: jest.fn(), reopenCase: jest.fn(),
   excludeCase: jest.fn(), includeCase: jest.fn(), observeCase: jest.fn(), refreshAmount: jest.fn(), revalidateCase: jest.fn(),
@@ -382,6 +382,106 @@ describe("Conciliación de ventas en línea (interfaz)", () => {
       expect(lastSort()).toMatchObject({ sort: "shipmentNumber", dir: "asc" });
       await click(byText("th button", "Fecha"));
       expect(lastSort()).toMatchObject({ sort: "saleDate", dir: "asc" });
+    });
+
+    it("el detalle de la fila muestra la dirección de envío", async () => {
+      api.getCase.mockResolvedValue({ ...withSale, sale: { ...withSale.sale, address: "5a avenida 10-20 zona 1, Guatemala" } });
+      await mount();
+      await flush();
+      await click(byText("tr.recon-row", "ENVL-01603"));
+      expect(container.textContent).toContain("Dirección de envío");
+      expect(container.textContent).toContain("5a avenida 10-20 zona 1, Guatemala");
+    });
+
+    it("Esc cierra la ficha completa y, ya sin ella, el detalle de la fila", async () => {
+      await mount();
+      await flush();
+      await click(byText("tr.recon-row", "ENVL-01603"));
+      expect(document.querySelector(".recon-inline")).not.toBeNull();
+      await click(byText("button", "Ficha completa"));
+      expect(document.querySelector(".recon-drawer")).not.toBeNull();
+      const esc = async () => { await act(async () => { document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); }); await flush(); };
+      await esc();
+      expect(document.querySelector(".recon-drawer")).toBeNull();        // primero la ficha
+      expect(document.querySelector(".recon-inline")).not.toBeNull();    // el detalle de la fila sigue
+      await esc();
+      expect(document.querySelector(".recon-inline")).toBeNull();        // luego el detalle
+    });
+
+    it("el porcentaje de comisión se elige con botones y Forza y Guatex llevan 3.5% fijo", async () => {
+      const forza = row({ id: 3, shipmentNumber: "ENVL-01603", carrier: "FORZA_DELIVERY", hasReceipts: false, received: 0, difference: -105, pendingBalance: 105, status: "INFORMACION_INCOMPLETA",
+        chargedShipping: 30, realShipping: null, carrierCommissionFixed: true, carrierCommissionRate: 0.035, carrierCommission: 3.68 });
+      const moto = row({ id: 6, shipmentNumber: "ENVL-01606", carrier: "MOTORISTA", hasReceipts: false, received: 0, difference: -230, pendingBalance: 230, status: "INFORMACION_INCOMPLETA",
+        expected: 230, chargedShipping: 30, realShipping: null, carrierCommissionFixed: false, carrierCommissionRate: null, carrierCommission: null });
+      api.getCases.mockImplementation(async (filters, opts) => (opts && opts.size === 200 ? { rows: [], total: 0, page: 0, size: 200 } : { rows: [forza, moto], total: 2, page: 0, size: 50 }));
+      api.updateShippingCommission.mockResolvedValue({ ...moto, carrierCommissionRate: 0.04, carrierCommission: 9.2 });
+      await mount();
+      await flush();
+      expect(byText("tr", "ENVL-01603").textContent).toContain("3.5%");
+      expect(byText("tr", "ENVL-01603").textContent).toContain("fijo");
+      expect(document.querySelector('[aria-label="Comisión 4% ENVL-01603"]')).toBeNull();     // en Forza no se elige
+      expect(byText("tr", "ENVL-01606").textContent).toContain("Elija el porcentaje");
+      await click(document.querySelector('[aria-label="Comisión 4% ENVL-01606"]'));
+      expect(api.updateShippingCommission).toHaveBeenCalledWith(6, { realShipping: null, commissionRate: 0.04 });
+      expect(byText("tr", "ENVL-01606").textContent).toContain("Q9.20");
+    });
+
+    it("el envío real se escribe, se guarda y se compara con el envío cobrado", async () => {
+      const moto = row({ id: 6, shipmentNumber: "ENVL-01606", carrier: "MOTORISTA", hasReceipts: false, received: 0, difference: -230, pendingBalance: 230, status: "INFORMACION_INCOMPLETA",
+        expected: 230, chargedShipping: 30, realShipping: null, carrierCommissionFixed: false, carrierCommissionRate: 0.03, carrierCommission: 6.9 });
+      api.getCases.mockImplementation(async (filters, opts) => (opts && opts.size === 200 ? { rows: [], total: 0, page: 0, size: 200 } : { rows: [moto], total: 1, page: 0, size: 50 }));
+      api.updateShippingCommission.mockResolvedValue({ ...moto, realShipping: 25 });
+      await mount();
+      await flush();
+      expect(document.querySelector('[aria-label="Guardar envío real ENVL-01606"]')).toBeNull();
+      await typeInto(document.querySelector('[aria-label="Envío real ENVL-01606"]'), "25");
+      await click(document.querySelector('[aria-label="Guardar envío real ENVL-01606"]'));
+      expect(api.updateShippingCommission).toHaveBeenCalledWith(6, { realShipping: 25, commissionRate: 0.03 });
+      expect(byText("tr", "ENVL-01606").textContent).toContain("Cobrado Q30.00");
+      expect(byText("tr", "ENVL-01606").textContent).toContain("+Q5.00 a favor");
+    });
+
+    it("las ventas anuladas aparecen en la lista con su motivo y se pueden reincorporar", async () => {
+      const anulada = row({ id: 8, shipmentNumber: "ENVL-01608", status: "EXCLUIDO", hasReceipts: false, received: 0, excludedReason: "Venta en estado ANULADA" });
+      api.getCases.mockImplementation(async (filters, opts) => (opts && opts.size === 200 ? { rows: [], total: 0, page: 0, size: 200 } : { rows: [anulada], total: 1, page: 0, size: 50 }));
+      api.includeCase.mockResolvedValue({});
+      await mount();
+      await flush();
+      const listed = api.getCases.mock.calls.find(([, o]) => o && o.size === 50)[0];
+      expect(listed.status).toContain("EXCLUIDO");                       // la pestaña principal ya no la esconde
+      const tr = byText("tr", "ENVL-01608");
+      expect(tr.textContent).toContain("Anulada");
+      expect(tr.textContent).toContain("Venta en estado ANULADA");
+      expect(tr.querySelector('input[type="checkbox"]')).toBeNull();      // no se liquida
+      expect(document.querySelector('[aria-label="Anular ENVL-01608"]')).toBeNull();
+      await click(document.querySelector('[aria-label="Reincorporar ENVL-01608"]'));
+      expect(api.includeCase).toHaveBeenCalledWith(8);
+    });
+
+    it("Anular pide el motivo y saca la venta de la conciliación", async () => {
+      api.excludeCase.mockResolvedValue({});
+      await mount();
+      await flush();
+      await click(document.querySelector('[aria-label="Anular ENVL-01603"]'));
+      const confirmBtn = document.querySelector('[aria-label="Confirmar anulación ENVL-01603"]');
+      expect(confirmBtn.disabled).toBe(true);                             // sin motivo no se puede
+      await typeInto(document.querySelector('[aria-label="Motivo de la anulación ENVL-01603"]'), "corto");
+      expect(document.querySelector('[aria-label="Confirmar anulación ENVL-01603"]').disabled).toBe(true);
+      await typeInto(document.querySelector('[aria-label="Motivo de la anulación ENVL-01603"]'), "El paquete regresó sin entregar");
+      await click(document.querySelector('[aria-label="Confirmar anulación ENVL-01603"]'));
+      expect(api.excludeCase).toHaveBeenCalledWith(3, "El paquete regresó sin entregar");
+      const { showSuccess } = require("utils/notificationHelper");
+      expect(showSuccess).toHaveBeenCalledWith(expect.stringContaining("quedó anulada"));
+    });
+
+    it("si no se puede anular (tiene pagos), el motivo del servidor se queda en la fila", async () => {
+      api.excludeCase.mockRejectedValue(new Error("El caso tiene fondos aplicados. Anule primero esas aplicaciones."));
+      await mount();
+      await flush();
+      await click(document.querySelector('[aria-label="Anular ENVL-01603"]'));
+      await typeInto(document.querySelector('[aria-label="Motivo de la anulación ENVL-01603"]'), "El paquete regresó sin entregar");
+      await click(document.querySelector('[aria-label="Confirmar anulación ENVL-01603"]'));
+      expect(byText("tr", "ENVL-01603").textContent).toContain("Anule primero esas aplicaciones");
     });
 
     it("una devolución muestra su número de devolución junto al ENVL", async () => {

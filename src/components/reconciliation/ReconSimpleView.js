@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Alert, Badge, Button, ButtonGroup, Input, Label, Spinner, Table } from "reactstrap";
 import {
-  downloadBatch, generateCases, getCase, getCases, getDashboard, recordCaseReceiptsBulk, replaceCaseReceipt, settleCases,
+  downloadBatch, generateCases, getCase, getCases, getDashboard, excludeCase, includeCase, recordCaseReceiptsBulk, replaceCaseReceipt, settleCases, updateShippingCommission,
 } from "services/reconciliationService";
 import { createClientRequestId } from "services/customerAccountService";
 import { showError, showSuccess, showWarning } from "utils/notificationHelper";
@@ -13,14 +13,14 @@ const PAGE_SIZE = 50;
 const ELIGIBLE_PAGE = 200;
 const NOT_EXCLUDED = `${RECONCILED_STATUSES.join(",")},PENDIENTE_REVISION,CON_DIFERENCIAS,INFORMACION_INCOMPLETA,POSIBLE_DUPLICADO,REQUIERE_AUTORIZACION`;
 const SHOW = {
-  pending: { label: "Por liquidar", status: NOT_EXCLUDED, batch: "NONE" },
+  pending: { label: "Por liquidar", status: `${NOT_EXCLUDED},EXCLUIDO`, batch: "NONE" },
   differences: { label: "Con diferencia", status: "CON_DIFERENCIAS,REQUIERE_AUTORIZACION,POSIBLE_DUPLICADO", batch: "" },
   all: { label: "Todas", status: "", batch: "" },
 };
 
 /** Lo que el usuario necesita saber de una fila ya guardada, en palabras. */
 export const rowResult = (r) => {
-  if (r.status === "EXCLUIDO") return { tone: "muted", text: "Excluida" };
+  if (r.status === "EXCLUIDO") return { tone: "muted", text: "Anulada" };
   if (r.batchCode) return { tone: "success", text: `✓ Liquidada (${r.batchCode})` };
   if (RECONCILED_STATUSES.includes(r.status)) return { tone: "success", text: "✓ Cuadra" };
   if (!r.hasReceipts) return { tone: "muted", text: "Falta registrar el pago" };
@@ -50,6 +50,52 @@ const PayCell = ({ row, draft, disabled, onChange, onSave, canSave }) => {
     </div>
   );
 };
+
+const RATE_CHOICES = [0.03, 0.035, 0.04];
+const pct = (rate) => `${(Number(rate) * 100).toLocaleString("es-GT", { maximumFractionDigits: 1 })}%`;
+const sameRate = (a, b) => a != null && b != null && Math.round(Number(a) * 10000) === Math.round(Number(b) * 10000);
+
+/** Lo que de verdad costó el envío. Se compara con el envío cobrado al cliente; es solo un registro y no cambia el cuadre. */
+const RealShippingCell = ({ row, canEdit, onSave }) => {
+  const saved = row.realShipping == null ? "" : String(row.realShipping);
+  const [value, setValue] = useState(saved);
+  useEffect(() => { setValue(saved); }, [saved]);
+  const dirty = value !== saved;
+  const diff = row.realShipping == null || row.chargedShipping == null ? null : Math.round((Number(row.chargedShipping) - Number(row.realShipping)) * 100) / 100;
+  const submit = () => onSave(value === "" ? null : Number(value));
+  return (
+    <div onClick={stop} style={{ minWidth: 150 }}>
+      {canEdit ? (
+        <div className="d-flex align-items-center" style={{ gap: 6 }}>
+          <Input bsSize="sm" type="number" step="0.01" min="0" style={{ width: 90 }} placeholder="Real" aria-label={`Envío real ${row.shipmentNumber}`}
+            value={value} onChange={(e) => setValue(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && dirty) { e.preventDefault(); submit(); } }} />
+          {dirty && <Button size="sm" color="primary" aria-label={`Guardar envío real ${row.shipmentNumber}`} onClick={submit}>Guardar</Button>}
+        </div>
+      ) : <span>{row.realShipping == null ? "—" : formatQ(row.realShipping)}</span>}
+      <div className="small text-muted">
+        Cobrado {row.chargedShipping == null ? "—" : formatQ(row.chargedShipping)}
+        {diff !== null && <span className={diff < 0 ? "text-danger" : "text-success"}> · {diff === 0 ? "igual" : diff > 0 ? `+${formatQ(diff)} a favor` : `-${formatQ(-diff)} en contra`}</span>}
+      </div>
+    </div>
+  );
+};
+
+/** Comisión sobre el total con el envío cobrado. Forza y Guatex llevan 3.5% fijo; en las demás se elige 3, 3.5 o 4%. */
+const CommissionCell = ({ row, canEdit, onPick }) => (
+  <div onClick={stop} style={{ minWidth: 150 }}>
+    {row.carrierCommissionFixed ? (
+      <div><strong>{pct(row.carrierCommissionRate)}</strong> <span className="small text-muted">fijo</span></div>
+    ) : (
+      <ButtonGroup size="sm" aria-label={`Porcentaje de comisión ${row.shipmentNumber}`}>
+        {RATE_CHOICES.map((rate) => (
+          <Button key={rate} outline color="primary" disabled={!canEdit} active={sameRate(row.carrierCommissionRate, rate)}
+            aria-label={`Comisión ${pct(rate)} ${row.shipmentNumber}`} onClick={() => onPick(sameRate(row.carrierCommissionRate, rate) ? null : rate)}>{pct(rate)}</Button>
+        ))}
+      </ButtonGroup>
+    )}
+    <div className="small text-muted">{row.carrierCommission == null ? "Elija el porcentaje" : formatQ(row.carrierCommission)}</div>
+  </div>
+);
 
 /** Encabezado que ordena la lista al tocarlo. El orden lo hace el servidor, así vale para todas las páginas. */
 const SortTh = ({ label, field, sort, onSort, className }) => (
@@ -83,6 +129,7 @@ const RowDetail = ({ state, onFull }) => {
           <Kv label="Vendedor">{row.seller || "—"}</Kv>
           <Kv label="Forma de pago">{labelOf(METHOD_LABELS, row.paymentMethod)}</Kv>
           <Kv label="Referencia en la venta">{(sale && sale.paymentAuthorization) || "—"}</Kv>
+          <Kv label="Dirección de envío">{(sale && sale.address) || "Sin dirección registrada"}</Kv>
           <Kv label="Despacho">{sale && sale.dispatchedAt ? String(sale.dispatchedAt).replace("T", " ").slice(0, 16) : "Sin fecha registrada"}</Kv>
           <Kv label="Factura FEL">{sale && sale.invoiceId ? "Asociada" : "No asociada"}</Kv>
         </div>
@@ -138,7 +185,7 @@ const fetchSettleable = async (period) => {
  * 2) escribir lo recibido (o «=» cuando llegó completo) y guardar todo junto, 3) liquidar las ventas elegidas y descargar el Excel.
  * Lo que no cuadra al centavo no se corrige solo: se abre la ficha para resolverlo con las herramientas de siempre.
  */
-const ReconSimpleView = ({ filters, onFilters, version, perms, onOpen, onChanged, onRowsLoaded }) => {
+const ReconSimpleView = ({ filters, onFilters, version, perms, openId, onOpen, onChanged, onRowsLoaded }) => {
   const [show, setShow] = useState("pending");
   const [rows, setRows] = useState([]);
   const [total, setTotal] = useState(0);
@@ -156,6 +203,7 @@ const ReconSimpleView = ({ filters, onFilters, version, perms, onOpen, onChanged
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [text, setText] = useState(filters.q || "");
+  const [annul, setAnnul] = useState(null);   // { id, reason }: venta que se está anulando
   const [confirmKey, setConfirmKey] = useState(null);
   const [settling, setSettling] = useState(false);
   const [done, setDone] = useState(null);
@@ -252,6 +300,56 @@ const ReconSimpleView = ({ filters, onFilters, version, perms, onOpen, onChanged
       showError(e.message);
     } finally {
       setSaving(false);
+    }
+  };
+
+  // Esc: si la ficha completa está abierta la cierra la página; si no, se cierra el detalle de las filas abiertas.
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key !== "Escape" || openId != null) return;
+      setExpanded((s) => (s.size > 0 ? new Set() : s));
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [openId]);
+
+  // Envío real y porcentaje de comisión: se guardan al momento y la fila se actualiza sin recargar la lista.
+  const canEditExtras = (r) => !r.batchCode && r.status !== "EXCLUIDO" && perms.reconcile;
+  const saveExtras = async (r, patch) => {
+    try {
+      const saved = await updateShippingCommission(r.id, {
+        realShipping: r.realShipping == null ? null : r.realShipping,
+        commissionRate: r.carrierCommissionFixed || r.carrierCommissionRate == null ? null : r.carrierCommissionRate,
+        ...patch,
+      });
+      if (saved && saved.id != null) setRows((list) => list.map((x) => (x.id === saved.id ? saved : x)));
+      else onChanged();
+    } catch (e) {
+      showError(e.message);
+    }
+  };
+
+  // Anular: la venta ya no está anulada en el sistema pero físicamente sí. Sale de la conciliación con su motivo (se puede reincorporar).
+  const canAnnul = (r) => !r.batchCode && r.status !== "EXCLUIDO" && perms.reconcile;
+  const confirmAnnul = async (r) => {
+    try {
+      await excludeCase(r.id, (annul.reason || "").trim());
+      setAnnul(null);
+      setRowErrors((e) => { const n = { ...e }; delete n[r.id]; return n; });
+      clearDraft(r.id);
+      showSuccess(`${r.shipmentNumber} quedó anulada en la conciliación.`);
+      onChanged();
+    } catch (e) {
+      setRowErrors((errs) => ({ ...errs, [r.id]: e.message }));
+    }
+  };
+  const reinstate = async (r) => {
+    try {
+      await includeCase(r.id);
+      showSuccess(`${r.shipmentNumber} volvió a la conciliación.`);
+      onChanged();
+    } catch (e) {
+      setRowErrors((errs) => ({ ...errs, [r.id]: e.message }));
     }
   };
 
@@ -362,13 +460,13 @@ const ReconSimpleView = ({ filters, onFilters, version, perms, onOpen, onChanged
           <thead>
             <tr>
               <th style={{ width: 28 }}><Input type="checkbox" aria-label="Elegir todas las que se pueden liquidar" checked={allChecked} disabled={ready.length === 0 || !perms.close} onChange={toggleAll} /></th>
-              <SortTh label="Fecha" field="saleDate" sort={sort} onSort={toggleSort} /><SortTh label="ENVL" field="shipmentNumber" sort={sort} onSort={toggleSort} /><SortTh label="Cliente" field="customerName" sort={sort} onSort={toggleSort} /><SortTh label="Guía" field="guideNumber" sort={sort} onSort={toggleSort} className="hide-sm" /><th className="num">Cobrado</th><th>Recibido</th><th>Resultado</th>
+              <SortTh label="Fecha" field="saleDate" sort={sort} onSort={toggleSort} /><SortTh label="ENVL" field="shipmentNumber" sort={sort} onSort={toggleSort} /><SortTh label="Cliente" field="customerName" sort={sort} onSort={toggleSort} /><SortTh label="Guía" field="guideNumber" sort={sort} onSort={toggleSort} className="hide-sm" /><th className="num">Cobrado</th><th>Envío real</th><th>Comisión</th><th>Recibido</th><th>Resultado</th>
             </tr>
           </thead>
           <tbody>
-            {loading && rows.length === 0 && <tr><td colSpan={8} className="text-center p-4"><Spinner size="sm" /> Cargando…</td></tr>}
+            {loading && rows.length === 0 && <tr><td colSpan={10} className="text-center p-4"><Spinner size="sm" /> Cargando…</td></tr>}
             {!loading && rows.length === 0 && !error && (
-              <tr><td colSpan={8}><div className="recon-empty">
+              <tr><td colSpan={10}><div className="recon-empty">
                 {show === "pending" && totalCases > 0
                   ? <><h5>✓ No queda nada por liquidar en este período</h5><p>Todo lo que cuadraba ya se liquidó.</p></>
                   : <><h5>No hay ventas aquí</h5><p>No hay ventas despachadas en este período o con esta búsqueda.</p></>}
@@ -393,6 +491,8 @@ const ReconSimpleView = ({ filters, onFilters, version, perms, onOpen, onChanged
                     <td style={{ whiteSpace: "normal", minWidth: 120 }}>{r.customerName || <span className="text-muted">—</span>}</td>
                     <td className="hide-sm">{r.guideNumber || <span className="text-muted">—</span>}</td>
                     <td className="num">{formatQ(r.expected)}</td>
+                    <td><RealShippingCell row={r} canEdit={canEditExtras(r)} onSave={(v) => saveExtras(r, { realShipping: v })} /></td>
+                    <td><CommissionCell row={r} canEdit={canEditExtras(r)} onPick={(v) => saveExtras(r, { commissionRate: v })} /></td>
                     <td>
                       {editable(r) || editing
                         ? <PayCell row={r} draft={draft} disabled={!perms.import || saving} canSave={canSave} onSave={() => saveDrafts(r.id)}
@@ -403,11 +503,27 @@ const ReconSimpleView = ({ filters, onFilters, version, perms, onOpen, onChanged
                       {res.text}
                       {draft && (editable(r) || editing) && <Button size="sm" color="link" className="py-0" onClick={(e) => { stop(e); clearDraft(r.id); }}>{editing ? "Cancelar" : "Quitar"}</Button>}
                       {!draft && canEditPayment(r) && <Button size="sm" color="link" className="py-0" aria-label={`Editar el pago de ${r.shipmentNumber}`} onClick={(e) => { stop(e); startEdit(r); }}>Editar</Button>}
+                      {r.status === "EXCLUIDO" && r.excludedReason && <div className="small text-muted">{r.excludedReason}</div>}
+                      {r.status === "EXCLUIDO" && !r.batchCode && perms.reconcile && (
+                        <Button size="sm" color="link" className="py-0" aria-label={`Reincorporar ${r.shipmentNumber}`} onClick={(e) => { stop(e); reinstate(r); }}>Reincorporar</Button>
+                      )}
+                      {canAnnul(r) && !(annul && annul.id === r.id) && (
+                        <Button size="sm" color="link" className="py-0 text-danger" aria-label={`Anular ${r.shipmentNumber}`} onClick={(e) => { stop(e); setAnnul({ id: r.id, reason: "" }); }}>Anular</Button>
+                      )}
+                      {annul && annul.id === r.id && (
+                        <div className="mt-1" onClick={stop}>
+                          <Input bsSize="sm" placeholder="Motivo de la anulación (mínimo 10 letras)" aria-label={`Motivo de la anulación ${r.shipmentNumber}`}
+                            value={annul.reason} onChange={(e) => setAnnul({ id: r.id, reason: e.target.value })} />
+                          <Button size="sm" color="danger" className="mt-1 mr-1" disabled={annul.reason.trim().length < 10}
+                            aria-label={`Confirmar anulación ${r.shipmentNumber}`} onClick={() => confirmAnnul(r)}>Anular venta</Button>
+                          <Button size="sm" outline className="mt-1" onClick={() => setAnnul(null)}>Cancelar</Button>
+                        </div>
+                      )}
                       {rowErrors[r.id] && <div className="small text-danger">{rowErrors[r.id]}</div>}
                     </td>
                   </tr>
                   {open && (
-                    <tr className="recon-detail-row"><td colSpan={8} className="p-0"><RowDetail state={details[r.id]} onFull={() => onOpen(r.id)} /></td></tr>
+                    <tr className="recon-detail-row"><td colSpan={10} className="p-0"><RowDetail state={details[r.id]} onFull={() => onOpen(r.id)} /></td></tr>
                   )}
                 </React.Fragment>
               );

@@ -72,6 +72,8 @@ export const recordCaseReceipt = (caseId, data) => post(`/cases/${caseId}/record
 export const recordCaseReceiptsBulk = (items) => post("/cases/receipts/bulk", { items }, "No se pudieron guardar los montos");
 /** Corrige el pago ya guardado de una venta que aún no está en un lote: { amount | null, matchExpected, reference }. */
 export const replaceCaseReceipt = (caseId, data) => put(`/cases/${caseId}/receipt`, data, "No se pudo corregir el pago");
+/** Envío real y porcentaje de comisión de una venta: { realShipping | null, commissionRate | null }. Solo registro, no cambia el cuadre. */
+export const updateShippingCommission = (caseId, data) => put(`/cases/${caseId}/shipping-commission`, data, "No se pudo guardar el envío real y la comisión");
 export const autoApplyReceipts = () => post("/receipts/auto-apply", undefined, "No se pudieron aplicar los fondos pendientes");
 export const getUnappliedReceipts = (limit = 100) => get(`/receipts/unapplied?limit=${limit}`, "No se pudieron cargar los fondos sin aplicar");
 export const voidReceipt = (id, reason) => post(`/receipts/${id}/void`, { reason }, "No se pudo anular el fondo");
