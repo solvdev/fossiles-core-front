@@ -58,3 +58,17 @@
 .recon-page .recon-totals .v { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; }
 .recon-page .recon-close-bar { border-top: 1px solid #e3e3e3; padding-top: 12px; }
 @media (max-width: 575px) { .recon-page .recon-totals { grid-template-columns: 1fr; } }
+
+/* Liquidación: pasos, detalle dentro de la fila */
+.recon-page .recon-steps { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.recon-page .recon-steps .step { display: flex; align-items: center; gap: 10px; border: 1px solid #e3e3e3; border-radius: 6px; padding: 8px 12px; background: #faf9f6; }
+.recon-page .recon-steps .n { width: 26px; height: 26px; border-radius: 50%; background: #51cbce; color: #fff; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; flex: none; }
+.recon-page .recon-inline { background: #faf9f6; border-left: 3px solid #51cbce; white-space: normal; }
+.recon-page .recon-inline-grid { display: grid; grid-template-columns: minmax(220px, 1fr) minmax(0, 2fr); gap: 16px; }
+.recon-page .recon-inline .kv { display: flex; justify-content: space-between; gap: 8px; font-size: 12.5px; border-bottom: 1px dotted #e3e3e3; padding: 2px 0; }
+.recon-page .recon-inline .kv .k { color: #66615b; }
+.recon-page .recon-table tr.recon-detail-row:hover { background: transparent; }
+@media (max-width: 767px) {
+  .recon-page .recon-steps { grid-template-columns: 1fr; }
+  .recon-page .recon-inline-grid { grid-template-columns: 1fr; }
+}

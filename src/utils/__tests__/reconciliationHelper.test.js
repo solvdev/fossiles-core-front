@@ -1,5 +1,5 @@
 import {
-  bulkSummary, canBulkReconcile, defaultFilters, describeDifference, describeImport, formatQ, loadFilters, monthRange, saveFilters,
+  bulkSummary, canBulkReconcile, canSettle, defaultFilters, draftResult, draftsToItems, describeDifference, describeImport, formatQ, loadFilters, monthRange, saveFilters,
   shortcutAction, toQueryParams, toQueryString,
 } from "../reconciliationHelper";
 
@@ -104,6 +104,41 @@ describe("reconciliationHelper", () => {
     it("mapea las teclas de la bandeja", () => {
       const ctx = { typing: false, hasOpen: true };
       expect(["/", "j", "k", "Enter", "c", "x"].map((k) => shortcutAction(k, ctx))).toEqual(["search", "next", "prev", "open", "reconcile", null]);
+    });
+  });
+
+  describe("liquidación", () => {
+    const base = { status: "CONCILIADO_AUTO", difference: 0, pendingBalance: 0, batchId: null };
+
+    it("solo se liquida lo que cuadra al centavo y no está en un lote", () => {
+      expect(canSettle(base)).toBe(true);
+      expect(canSettle({ ...base, status: "PENDIENTE_REVISION" })).toBe(true);                 // cuadra, solo avisos
+      expect(canSettle({ ...base, status: "PENDIENTE_REVISION", difference: -0.01 })).toBe(false);
+      expect(canSettle({ ...base, status: "CON_DIFERENCIAS", difference: -5, pendingBalance: 5 })).toBe(false);
+      expect(canSettle({ ...base, status: "INFORMACION_INCOMPLETA" })).toBe(false);
+      expect(canSettle({ ...base, status: "EXCLUIDO" })).toBe(false);
+      expect(canSettle({ ...base, batchId: 9 })).toBe(false);
+      expect(canSettle(null)).toBe(false);
+    });
+
+    it("el resultado al escribir no tiene tolerancia", () => {
+      expect(draftResult(105, "105")).toEqual({ ok: true, text: "✓ Cuadra" });
+      expect(draftResult(105, "104.99").text).toBe("! Faltan Q0.01");
+      expect(draftResult(105, "110").text).toBe("! Sobran Q5.00");
+      expect(draftResult(105, "")).toBeNull();
+      expect(draftResult(0.3, "0.1") .ok).toBe(false);
+    });
+
+    it("los borradores se convierten en el cuerpo del guardado y lo vacío no se envía", () => {
+      expect(draftsToItems({
+        3: { amount: "100.5", matchExpected: false, reference: " R-1 " },
+        4: { amount: "480", matchExpected: true, reference: "" },
+        5: { amount: "", matchExpected: false, reference: "x" },
+        6: { amount: "0", matchExpected: false, reference: "" },
+      })).toEqual([
+        { caseId: 3, amount: 100.5, matchExpected: false, reference: "R-1" },
+        { caseId: 4, amount: null, matchExpected: true, reference: null },
+      ]);
     });
   });
 });

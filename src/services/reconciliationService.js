@@ -65,6 +65,8 @@ export const createReceipt = (data) => post("/receipts", data, "No se pudo guard
 export const recordQuickReceipt = (data) => post("/receipts/quick", data, "No se pudo registrar el pago");
 /** Pago escrito dentro del caso abierto. */
 export const recordCaseReceipt = (caseId, data) => post(`/cases/${caseId}/record-receipt`, data, "No se pudo registrar el pago");
+/** Guarda varios pagos de una vez: [{ caseId, amount | null, matchExpected, reference }]. Cada pago se valida por separado. */
+export const recordCaseReceiptsBulk = (items) => post("/cases/receipts/bulk", { items }, "No se pudieron guardar los montos");
 export const autoApplyReceipts = () => post("/receipts/auto-apply", undefined, "No se pudieron aplicar los fondos pendientes");
 export const getUnappliedReceipts = (limit = 100) => get(`/receipts/unapplied?limit=${limit}`, "No se pudieron cargar los fondos sin aplicar");
 export const voidReceipt = (id, reason) => post(`/receipts/${id}/void`, { reason }, "No se pudo anular el fondo");
@@ -81,6 +83,8 @@ export const rejectAdjustment = (id, reason) => post(`/adjustments/${id}/reject`
 export const getBatches = () => get("/batches", "No se pudieron cargar los lotes");
 export const createBatch = (data) => post("/batches", data, "No se pudo crear el lote");
 export const closeBatch = (id, idempotencyKey) => post(`/batches/${id}/close`, undefined, "No se pudo cerrar el lote", { "Idempotency-Key": idempotencyKey });
+/** Liquidar: lote + cierre para exactamente los casos elegidos (los avisos de los que cuadran se aceptan y quedan en el historial). */
+export const settleCases = (caseIds, idempotencyKey) => post("/batches/settle", { caseIds }, "No se pudo liquidar", { "Idempotency-Key": idempotencyKey });
 export const voidBatch = (id, reason) => post(`/batches/${id}/void`, { reason }, "No se pudo anular el lote");
 export const releaseCase = (batchId, caseId) => post(`/batches/${batchId}/release/${caseId}`, undefined, "No se pudo sacar el caso del lote");
 export const getExports = () => get("/exports", "No se pudo cargar el historial de descargas");

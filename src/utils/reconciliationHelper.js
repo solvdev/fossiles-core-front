@@ -106,7 +106,30 @@ export const differenceColor = (tone) => (tone === "zero" ? "text-success" : ton
 export const canBulkReconcile = (row) =>
   !!row && row.status === "PENDIENTE_REVISION" && Number(row.difference) === 0 && !row.batchId;
 
-export const bulkSummary = (rows, selectedIds) => {
+/**
+ * Una venta se puede liquidar cuando el monto cuadra al centavo: ya conciliada, o solo con avisos (los avisos se aceptan al
+ * liquidar y quedan en el historial). Con diferencia, falla crítica, sin pago o excluida no entra nunca.
+ */
+export const canSettle = (row) =>
+  !!row && !row.batchId && row.status !== "EXCLUIDO"
+  && (RECONCILED_STATUSES.includes(row.status) || (row.status === "PENDIENTE_REVISION" && Number(row.difference) === 0))
+  && Number(row.pendingBalance) === 0;
+
+/** Lo que se ve al escribir el monto, antes de guardar. Sin tolerancia: un centavo de diferencia ya no cuadra. */
+export const draftResult = (expected, amount) => {
+  if (amount === "" || amount === null || amount === undefined || !Number.isFinite(Number(amount))) return null;
+  const cents = Math.round(Number(amount) * 100) - Math.round(Number(expected) * 100);
+  if (cents === 0) return { ok: true, text: "✓ Cuadra" };
+  return { ok: false, text: `! ${cents < 0 ? "Faltan" : "Sobran"} ${formatQ(Math.abs(cents) / 100)}` };
+};
+
+/** Pagos pendientes de guardar → cuerpo del guardado en bloque. Lo vacío o en cero no se envía. */
+export const draftsToItems = (drafts) =>
+  Object.entries(drafts)
+    .filter(([, d]) => d.matchExpected || (d.amount !== "" && Number(d.amount) > 0))
+    .map(([id, d]) => ({ caseId: Number(id), amount: d.matchExpected ? null : Number(d.amount), matchExpected: !!d.matchExpected, reference: (d.reference || "").trim() || null }));
+
+export const bulkSummary =(rows, selectedIds) => {
   const selected = rows.filter((r) => selectedIds.has(r.id));
   const safe = selected.filter(canBulkReconcile);
   return { selected: selected.length, safe: safe.length, skipped: selected.length - safe.length };
