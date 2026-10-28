@@ -558,6 +558,18 @@ export const getProductionTimeEstimate = async (orderId) => {
   return response.json();
 };
 
+/** Cuero (ft²) de todas las OP activas: por color, por cuero y por orden (total, entregado, falta). */
+export const getLeatherDemand = async () => {
+  const response = await fetch(`${API_URL}/production-orders/leather-demand`, {
+    headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
+  });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ message: 'Error al calcular el cuero de las órdenes' }));
+    throw new Error(err.message || 'Error al calcular el cuero de las órdenes');
+  }
+  return response.json();
+};
+
 /** Cuero (ft²) requerido por OP según color de cada línea. */
 export const getProductionLeatherEstimate = async (orderId) => {
   if (!orderId || orderId === 'undefined' || orderId === 'null') {
