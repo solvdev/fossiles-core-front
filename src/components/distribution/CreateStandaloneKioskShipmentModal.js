@@ -155,6 +155,13 @@ function CreateStandaloneKioskShipmentModal({ isOpen, toggle, onCreated }) {
     if (product && isPackagingProductCode(product.code)) {
       return { ...line, stockHint: "Empaque kiosco — se carga al recibir el envío", stockLoading: false };
     }
+    if (
+      product &&
+      isEntreCuerosLocation(locationId) &&
+      isCinchoInventoryProductByCodeAndName(product.code, product.name)
+    ) {
+      return { ...line, stockHint: "Cincho a Entrecueros — no pasa por bodega", stockLoading: false };
+    }
     try {
       const preview = await previewDispatchStock({
         productId: pid,

@@ -172,6 +172,9 @@ function EditShipmentProductsModal({ isOpen, toggle, shipment, onSaved }) {
     if (!Number.isFinite(pid) || pid <= 0) {
       return { ...line, stockHint: "", stockLoading: false };
     }
+    if (entreCuerosDest && isLineCincho(line)) {
+      return { ...line, stockHint: "Cincho a Entrecueros — no pasa por bodega", stockLoading: false };
+    }
     try {
       const preview = await previewDispatchStock({
         productId: pid,
