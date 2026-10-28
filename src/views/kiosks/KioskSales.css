@@ -661,21 +661,26 @@
 
 .kiosk-pos-line-top {
   display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 8px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
 }
 
 .kiosk-pos-line-title {
   min-width: 0;
-  flex: 1;
+  width: 100%;
+}
+
+.kiosk-pos-item-name {
+  overflow-wrap: anywhere;
 }
 
 .kiosk-pos-line-top-actions {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   gap: 6px;
-  flex-shrink: 0;
 }
 
 .kiosk-pos-price-mode-chip {
