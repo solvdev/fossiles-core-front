@@ -1,8 +1,10 @@
 import {
   applyDraftLineIncluded,
+  applyDraftSizeIncluded,
   applyGroupSendQty,
   buildPartialReleaseLinesPayload,
   buildShipmentProductsFromPartialReleaseLines,
+  countDraftTotalUnits,
   draftLineVisibleInPartialEditor,
   draftSizeVisibleInPartialEditor,
   filterShipmentsByPartialReleaseId,
@@ -446,6 +448,275 @@ describe("partialReleaseHelper — editor agrupado Entre Cueros", () => {
     expect(remainingAfterGroupSend(updated)).toBe(0);
     expect(next.find((row) => row.productionOrderItemId === 21).quantity).toBe(0);
     expect(next.find((row) => row.productionOrderItemId === 22).quantity).toBe(4);
+  });
+});
+
+describe("partialReleaseHelper — pendingTotal/pendingSizes son la única fuente", () => {
+  const fullOrder = {
+    orderType: "MARCAS",
+    items: [
+      { productId: 10, productCode: "P-10", colorId: 3, colorName: "Negro", sizes: { "38": 4, "39": 6 }, quantity: 10 },
+      { productId: 10, productCode: "P-10", colorId: 4, colorName: "Café", sizes: { "38": 3, "39": 5 }, quantity: 8 },
+      { productId: 11, productCode: "P-11", quantity: 5 },
+    ],
+  };
+
+  const afterFirstPartial = [
+    {
+      productionOrderItemId: 1,
+      productId: 10,
+      productCode: "P-10",
+      productName: "Zapato",
+      colorId: 3,
+      colorName: "Negro",
+      orderedTotal: 10,
+      pendingTotal: 6,
+      orderedSizes: { "38": 4, "39": 6 },
+      pendingSizes: { "38": 2, "39": 4 },
+    },
+    {
+      productionOrderItemId: 2,
+      productId: 10,
+      productCode: "P-10",
+      productName: "Zapato",
+      colorId: 4,
+      colorName: "Café",
+      orderedTotal: 8,
+      pendingTotal: 8,
+      orderedSizes: { "38": 3, "39": 5 },
+      pendingSizes: { "38": 3, "39": 5 },
+    },
+    {
+      productionOrderItemId: 3,
+      productId: 11,
+      productCode: "P-11",
+      productName: "Bolso",
+      orderedTotal: 5,
+      pendingTotal: 3,
+    },
+  ];
+
+  const afterSecondPartial = [
+    {
+      ...afterFirstPartial[0],
+      pendingTotal: 3,
+      pendingSizes: { "38": 1, "39": 2 },
+    },
+    {
+      ...afterFirstPartial[1],
+      pendingTotal: 5,
+      pendingSizes: { "38": 2, "39": 3 },
+    },
+    {
+      ...afterFirstPartial[2],
+      pendingTotal: 0,
+    },
+  ];
+
+  const selectAll = (rows) =>
+    setDraftLinesIncluded(initDraftLinesFromAvailability(rows, "MARCAS"), true, "MARCAS");
+
+  it("tras un parcial de 4 sobre 10, Seleccionar todo precarga 6 por producto, color y talla", () => {
+    expect(pendingQtyForRow(afterFirstPartial[0])).toBe(6);
+    expect(pendingQtyForRow(afterFirstPartial[0], "38")).toBe(2);
+    expect(pendingQtyForRow(afterFirstPartial[0], "39")).toBe(4);
+    expect(pendingQtyForRow(afterFirstPartial[1], "38")).toBe(3);
+    expect(pendingQtyForRow(afterFirstPartial[2])).toBe(3);
+
+    const selected = selectAll(afterFirstPartial);
+    const negro = selected.find((row) => row.productionOrderItemId === 1);
+    const cafe = selected.find((row) => row.productionOrderItemId === 2);
+    const bolso = selected.find((row) => row.productionOrderItemId === 3);
+
+    expect(negro.sizes).toEqual({ "38": 2, "39": 4 });
+    expect(cafe.sizes).toEqual({ "38": 3, "39": 5 });
+    expect(bolso.quantity).toBe(3);
+    expect(countDraftTotalUnits(selected, "MARCAS")).toBe(6 + 8 + 3);
+
+    expect(negro.sizes["38"]).not.toBe(negro.orderedSizes["38"]);
+    expect(negro.sizes["39"]).not.toBe(negro.orderedSizes["39"]);
+    expect(bolso.quantity).not.toBe(bolso.orderedTotal);
+  });
+
+  it("un estado posterior con pendingTotal 3 precarga 3; el cliente no resta sobre el pedido", () => {
+    const selected = selectAll(afterSecondPartial);
+    const negro = selected.find((row) => row.productionOrderItemId === 1);
+    const cafe = selected.find((row) => row.productionOrderItemId === 2);
+    const bolso = selected.find((row) => row.productionOrderItemId === 3);
+
+    expect(pendingQtyForRow(afterSecondPartial[0])).toBe(3);
+    expect(negro.sizes).toEqual({ "38": 1, "39": 2 });
+    expect(cafe.sizes).toEqual({ "38": 2, "39": 3 });
+    expect(bolso.quantity).toBe(0);
+    expect(bolso.included).toBe(false);
+    expect(countDraftTotalUnits(selected, "MARCAS")).toBe(3 + 5);
+    expect(negro.sizes["38"] + negro.sizes["39"]).toBe(3);
+    expect(negro.sizes["38"] + negro.sizes["39"]).not.toBe(10);
+  });
+
+  it("líneas y tallas con pending 0 se ocultan y una OP totalmente enviada no deja líneas", () => {
+    const fullyShipped = [
+      {
+        productionOrderItemId: 1,
+        productId: 10,
+        productCode: "P-10",
+        colorId: 3,
+        colorName: "Negro",
+        orderedTotal: 10,
+        pendingTotal: 0,
+        orderedSizes: { "38": 4, "39": 6 },
+        pendingSizes: { "38": 0, "39": 0 },
+      },
+      {
+        productionOrderItemId: 2,
+        productId: 10,
+        productCode: "P-10",
+        colorId: 4,
+        colorName: "Café",
+        orderedTotal: 8,
+        pendingTotal: 0,
+        orderedSizes: { "38": 3, "39": 5 },
+        pendingSizes: { "38": 0, "39": 0 },
+      },
+      {
+        productionOrderItemId: 3,
+        productId: 11,
+        productCode: "P-11",
+        orderedTotal: 5,
+        pendingTotal: 0,
+      },
+    ];
+    const draft = initDraftLinesFromAvailability(fullyShipped, "MARCAS");
+    expect(draft.filter((row) => draftLineVisibleInPartialEditor(row))).toEqual([]);
+    expect(draftSizeVisibleInPartialEditor(draft[0], "38")).toBe(false);
+    expect(draftSizeVisibleInPartialEditor(draft[0], "39")).toBe(false);
+
+    const mixed = selectAll(afterSecondPartial);
+    expect(draftLineVisibleInPartialEditor(mixed.find((row) => row.productionOrderItemId === 3))).toBe(false);
+    expect(draftSizeVisibleInPartialEditor(mixed.find((row) => row.productionOrderItemId === 1), "38")).toBe(true);
+
+    const selected = setDraftLinesIncluded(draft, true, "MARCAS");
+    expect(selected.every((row) => row.included === false)).toBe(true);
+    expect(buildPartialReleaseLinesPayload(selected, "MARCAS")).toEqual([]);
+    expect(countDraftTotalUnits(selected, "MARCAS")).toBe(0);
+
+    const groups = groupDraftLinesByVariant(draft).filter(
+      (group) => Number(group.pendingTotal) > 0 || Number(group.sendQty) > 0
+    );
+    expect(groups).toEqual([]);
+  });
+
+  it("Seleccionar todo y el tope nunca superan el pendiente ni caen al pedido", () => {
+    const draft = initDraftLinesFromAvailability(afterFirstPartial, "MARCAS");
+    expect(maxDraftLineQuantity(draft[0], "38")).toBe(2);
+    expect(maxDraftLineQuantity(draft[0], "39")).toBe(4);
+    expect(maxDraftLineQuantity(draft[2])).toBe(3);
+    expect(maxDraftLineQuantity(draft[0], "38")).toBeLessThan(draft[0].orderedSizes["38"]);
+    expect(maxDraftLineQuantity(draft[2])).toBeLessThan(draft[2].orderedTotal);
+
+    const selected = selectAll(afterFirstPartial);
+    const negro = selected.find((row) => row.productionOrderItemId === 1);
+    const bolso = selected.find((row) => row.productionOrderItemId === 3);
+
+    expect(maxDraftLineQuantity(negro, "38")).toBe(2);
+    expect(maxDraftLineQuantity(negro, "39")).toBe(4);
+    expect(maxDraftLineQuantity(bolso)).toBe(3);
+
+    const filledSize = applyDraftSizeIncluded(
+      initDraftLinesFromAvailability(afterFirstPartial, "MARCAS")[0],
+      "38",
+      true
+    );
+    expect(filledSize.sizes["38"]).toBe(2);
+    expect(filledSize.sizes["39"]).toBe(0);
+
+    const oversend = applyDraftLineIncluded(negro, true, "MARCAS");
+    expect(oversend.sizes).toEqual({ "38": 2, "39": 4 });
+  });
+
+  it("si el backend no manda pending*, la cantidad sugerida es 0 (nunca ordered*)", () => {
+    const missingPending = {
+      productionOrderItemId: 9,
+      orderedTotal: 10,
+      orderedSizes: { "38": 4, "39": 6 },
+    };
+    expect(pendingQtyForRow(missingPending)).toBe(0);
+    expect(pendingQtyForRow(missingPending, "38")).toBe(0);
+    expect(maxDraftLineQuantity(missingPending, "38")).toBe(0);
+    expect(maxDraftLineQuantity(missingPending)).toBe(0);
+
+    const selected = applyDraftLineIncluded(
+      { ...missingPending, sizes: { "38": 0, "39": 0 } },
+      true,
+      "MARCAS"
+    );
+    expect(selected.sizes).toEqual({ "38": 0, "39": 0 });
+    expect(selected.included).toBe(false);
+    expect(selected.quantity ?? 0).not.toBe(10);
+  });
+
+  it("el editor agrupado limita cada talla a pendingSizes tras 2+ parciales", () => {
+    const draft = initDraftLinesFromAvailability(afterSecondPartial, "MARCAS");
+    const groups = groupDraftLinesByVariant(draft);
+    const negro38 = groups.find((g) => g.productId === 10 && g.colorId === 3 && g.size === "38");
+    const negro39 = groups.find((g) => g.productId === 10 && g.colorId === 3 && g.size === "39");
+    expect(negro38.orderedTotal).toBe(4);
+    expect(negro38.pendingTotal).toBe(1);
+    expect(negro39.pendingTotal).toBe(2);
+
+    const oversend38 = applyGroupSendQty(draft, negro38.key, 99);
+    const next38 = groupDraftLinesByVariant(oversend38).find((g) => g.key === negro38.key);
+    expect(next38.sendQty).toBe(1);
+    expect(next38.sendQty).toBeLessThan(next38.orderedTotal);
+  });
+
+  it("imprimir el segundo parcial no mezcla la OP ni el primer parcial, ni usa el documento sintético", () => {
+    expect(
+      shouldUseSyntheticFullOrderDocument({
+        realShipmentCount: 2,
+        partialReleaseCount: 2,
+        focusedPartialReleaseId: "",
+      })
+    ).toBe(false);
+    expect(
+      shouldUseSyntheticFullOrderDocument({
+        realShipmentCount: 1,
+        partialReleaseCount: 2,
+        focusedPartialReleaseId: "8",
+      })
+    ).toBe(false);
+
+    const releases = [
+      {
+        id: 7,
+        shipmentId: 99,
+        lines: [{ productId: 10, productCode: "P-10", sizes: { "38": 2, "39": 2 }, quantity: 4 }],
+      },
+      {
+        id: 8,
+        shipmentId: 100,
+        lines: [{ productId: 10, productCode: "P-10", sizes: { "38": 1 }, quantity: 1 }],
+      },
+    ];
+    const second = {
+      id: 100,
+      partialReleaseId: 8,
+      products: [{ productId: 10, productCode: "P-10", size: "38", quantity: 1, unitPrice: 88 }],
+    };
+    const printed = resolveShipmentLinesForPrint(second, fullOrder, { releases });
+    expect(printed).toHaveLength(1);
+    expect(printed[0]).toMatchObject({ productCode: "P-10", size: "38", quantity: 1, unitPrice: 88 });
+    expect(printed.some((p) => p.productCode === "P-11")).toBe(false);
+    expect(printed.reduce((sum, p) => sum + Number(p.quantity || 0), 0)).not.toBe(10 + 8 + 5);
+
+    const withoutSaved = resolveShipmentLinesForPrint(
+      { id: 100, partialReleaseId: 8, products: [] },
+      fullOrder,
+      { releases }
+    );
+    expect(withoutSaved).toHaveLength(1);
+    expect(withoutSaved[0]).toMatchObject({ productCode: "P-10", size: "38", quantity: 1 });
+    expect(withoutSaved.some((p) => Number(p.quantity) === 10)).toBe(false);
   });
 });
 
