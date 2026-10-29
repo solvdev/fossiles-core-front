@@ -649,6 +649,25 @@ export function mergeOrderWithShipmentForm(order, form) {
 
 export { isLuisFelipeVendorFlow };
 
+/**
+ * ENVP del documento de envío. Cada envío trae el suyo (`ENVP-nnnnn`);
+ * `production_order.vendor_shipment_number` solo conserva el del primero.
+ */
+export function resolveShipmentDocumentNumber(shipment, order) {
+  const pick = (...values) => {
+    for (const value of values) {
+      const text = String(value == null ? "" : value).trim();
+      if (text) return text;
+    }
+    return "";
+  };
+  return pick(
+    shipment?.shipmentNumber,
+    shipment?.vendorShipmentNumber,
+    order?.vendorShipmentNumber
+  );
+}
+
 export function buildPartialPanelOrder(productionOrder) {
   const o = productionOrder || {};
   return {

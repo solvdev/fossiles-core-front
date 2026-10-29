@@ -73,6 +73,7 @@ import {
   orderIsPendingForPrepare,
   orderItemsHaveBrand,
   resolveOpvUnitPriceForSize,
+  resolveShipmentDocumentNumber,
 } from "utils/prepareShipmentsOrderHelper";
 import {
   filterShipmentsByPartialReleaseId,
@@ -681,8 +682,7 @@ const buildOpvOnlineSalePayload = (printDoc, productionOrder, deps) => {
     phone2: order.customerPhone || "—",
     saleNumber: order.code || String(order.id || ""),
     shipmentNumber:
-      order.vendorShipmentNumber ||
-      printDoc.shipmentNumber ||
+      resolveShipmentDocumentNumber(printDoc, order) ||
       order.code ||
       String(order.id || ""),
     saleDate: dateStr,
