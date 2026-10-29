@@ -1,6 +1,19 @@
 import { getAuthHeader } from './authService';
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8080/api';
 
+export const cancelMaterialReceipt = async (receiptId, reason) => {
+  const response = await fetch(`${API_URL}/material-receipts/${receiptId}/cancel`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
+    body: JSON.stringify({ reason }),
+  });
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}));
+    throw new Error(data.message || 'Error al anular la recepción');
+  }
+  return response.json();
+};
+
 export const getMaterialReceipts = async () => {
   try {
     const response = await fetch(`${API_URL}/material-receipts`, {

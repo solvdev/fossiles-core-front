@@ -29,7 +29,7 @@ jest.mock("services/kioskPosService");
 jest.mock("services/taxInvoiceService");
 jest.mock("services/productDistributionService");
 jest.mock("contexts/AuthContext", () => ({
-  useAuth: () => ({ hasPermission: () => false }),
+  useAuth: () => ({ hasPermission: () => false, hasRole: () => false }),
 }));
 
 const inventory = [

@@ -32,8 +32,11 @@ function InternalShipmentRequestDetailModal({
 }) {
   const [loading, setLoading] = useState(false);
   const [request, setRequest] = useState(null);
+  // Acción que espera confirmación en el pie del modal: "approve" o "production".
+  const [pendingAction, setPendingAction] = useState(null);
 
   useEffect(() => {
+    setPendingAction(null);
     if (!isOpen || !requestId) {
       setRequest(null);
       return;
@@ -97,7 +100,6 @@ function InternalShipmentRequestDetailModal({
 
   const handleApprove = async () => {
     if (!request || !onApprove) return;
-    if (!window.confirm("¿Autorizar el envío interno (ENVI) de esta solicitud?")) return;
     try {
       await onApprove(request);
       showSuccess("Envío autorizado.");
@@ -111,8 +113,6 @@ function InternalShipmentRequestDetailModal({
 
   const handleAuthorizeProduction = async () => {
     if (!request || !onAuthorizeProduction) return;
-    const opiCode = request.productionOrderCode || "OPI";
-    if (!window.confirm(`¿Autorizar la producción de ${opiCode}?`)) return;
     try {
       await onAuthorizeProduction(request);
       showSuccess("Producción OPI autorizada.");
@@ -224,12 +224,37 @@ function InternalShipmentRequestDetailModal({
         )}
       </ModalBody>
       <ModalFooter>
+        {pendingAction ? (
+          <div className="d-flex align-items-center justify-content-between flex-wrap w-100 px-2" style={{ gap: 8 }}>
+            <strong>
+              {pendingAction === "approve"
+                ? "¿Autorizar el envío interno (ENVI) de esta solicitud?"
+                : `¿Autorizar la producción de ${request?.productionOrderCode || "la OPI"}?`}
+            </strong>
+            <div className="d-flex" style={{ gap: 8 }}>
+              <Button color="link" className="text-muted" onClick={() => setPendingAction(null)}>
+                Cancelar
+              </Button>
+              <Button
+                color={pendingAction === "approve" ? "success" : "primary"}
+                onClick={() => {
+                  const action = pendingAction;
+                  setPendingAction(null);
+                  void (action === "approve" ? handleApprove() : handleAuthorizeProduction());
+                }}
+              >
+                {pendingAction === "approve" ? "Sí, autorizar envío" : "Sí, autorizar producción"}
+              </Button>
+            </div>
+          </div>
+        ) : (
+        <>
         {request?.status === "PENDIENTE" && canApprove && (
           <>
             {needsOpiProductionAuthorization(request) && onAuthorizeProduction && (
               <Button
                 color="primary"
-                onClick={() => void handleAuthorizeProduction()}
+                onClick={() => setPendingAction("production")}
                 disabled={actionId === request?.id}
               >
                 {actionId === request?.id ? <Spinner size="sm" /> : "Autorizar producción"}
@@ -238,7 +263,7 @@ function InternalShipmentRequestDetailModal({
             {canApproveInternalShipment(request) && onApprove && (
               <Button
                 color="success"
-                onClick={() => void handleApprove()}
+                onClick={() => setPendingAction("approve")}
                 disabled={actionId === request?.id}
               >
                 {actionId === request?.id ? <Spinner size="sm" /> : "Autorizar envío"}
@@ -250,6 +275,8 @@ function InternalShipmentRequestDetailModal({
           </>
         )}
         <Button color="secondary" onClick={onClose}>Cerrar</Button>
+        </>
+        )}
       </ModalFooter>
     </Modal>
   );

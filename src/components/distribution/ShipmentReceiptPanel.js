@@ -17,6 +17,8 @@ import {
   repairDeliveredShipmentReceiptInventory,
   resolvePendingReceipt,
 } from "services/productDistributionService";
+import TablePagination, { usePagination } from "components/TablePagination/TablePagination";
+import { scrollToElement } from "utils/scrollToElement";
 import { showError, showSuccess, showWarning } from "utils/notificationHelper";
 import { formatShipmentReceiptRepairMessage } from "utils/shipmentReceiptRepairHelper";
 import { formatDateTimeGt } from "utils/dateTimeHelper";
@@ -229,6 +231,7 @@ export function ShipmentReceiptList({
   selectedShipmentId = null,
   onSelectShipment,
   actionLabel = "Revisar y confirmar",
+  renderDetail,
 }) {
   if (!shipments.length) {
     return (
@@ -251,8 +254,8 @@ export function ShipmentReceiptList({
         const packingQty = shipmentPackingTotalQty(shipment);
 
         return (
+          <React.Fragment key={shipment.id}>
           <Card
-            key={shipment.id}
             className={`shipment-receipt-card mb-3${isSelected ? " shipment-receipt-card-selected" : ""}`}
           >
             <CardBody>
@@ -355,8 +358,54 @@ export function ShipmentReceiptList({
               </div>
             </CardBody>
           </Card>
+          {isSelected && renderDetail ? renderDetail(shipment) : null}
+          </React.Fragment>
         );
       })}
+    </div>
+  );
+}
+
+/** Formulario de recepción del envío elegido. Con `scrollOnOpen` la vista baja hasta la tarjeta del envío, que queda encima. */
+function SelectedShipmentCard({
+  shipment,
+  showLocation,
+  onSelectShipment,
+  onConfirmed,
+  scrollOnOpen = false,
+  allowReturnToWarehouse = false,
+}) {
+  const ref = useRef(null);
+  useEffect(() => {
+    if (scrollOnOpen && ref.current) scrollToElement(ref.current.previousElementSibling || ref.current);
+  }, [scrollOnOpen, shipment.id]);
+
+  return (
+    <div ref={ref}>
+      <Card className={`mt-3 mb-3 shipment-receipt-detail-card${scrollOnOpen ? " fossiles-resalte" : ""}`}>
+        <CardHeader style={{ backgroundColor: "#eff6ff" }}>
+          <h6 className="mb-0">
+            Recepción · {shipment.shipmentNumber}
+            {showLocation && shipment.locationName ? ` (${shipment.locationName})` : ""}
+          </h6>
+        </CardHeader>
+        <CardBody>
+          <ShipmentReceiptDetail
+            shipment={shipment}
+            readOnly={String(shipment.status || "").toUpperCase() === "DELIVERED"}
+            allowReturnToWarehouse={allowReturnToWarehouse}
+            onConfirmed={async () => {
+              if (onSelectShipment) {
+                onSelectShipment(null);
+              }
+              if (onConfirmed) {
+                await onConfirmed();
+              }
+            }}
+            onRepaired={onConfirmed}
+          />
+        </CardBody>
+      </Card>
     </div>
   );
 }
@@ -827,6 +876,8 @@ export default function ShipmentReceiptPanel({
   refreshDisabled = false,
   embedded = false,
   actionLabel = "Revisar y confirmar",
+  pageSize,
+  inlineDetail = false,
   allowReturnToWarehouse = false,
 }) {
   const [search, setSearch] = useState("");
@@ -846,6 +897,27 @@ export default function ShipmentReceiptPanel({
       null
     );
   }, [filteredShipments, shipments, selectedShipmentId]);
+
+  // Con páginas, el envío elegido (por ejemplo, al llegar desde Envíos en tránsito) se muestra en la suya.
+  const pagination = usePagination(filteredShipments, pageSize || 100000);
+  const { showItem } = pagination;
+  useEffect(() => {
+    if (pageSize && selectedShipmentId != null) {
+      showItem((shipment) => shipment.id === selectedShipmentId);
+    }
+  }, [pageSize, selectedShipmentId, showItem]);
+  const listedShipments = pageSize ? pagination.pageItems : filteredShipments;
+
+  const renderSelected = (shipment) => (
+    <SelectedShipmentCard
+      shipment={shipment}
+      showLocation={showLocation}
+      onSelectShipment={onSelectShipment}
+      onConfirmed={onConfirmed}
+      scrollOnOpen={inlineDetail}
+      allowReturnToWarehouse={allowReturnToWarehouse}
+    />
+  );
 
   const resolvedHint =
     headerHint ||
@@ -880,41 +952,17 @@ export default function ShipmentReceiptPanel({
           </div>
 
           <ShipmentReceiptList
-            shipments={filteredShipments}
+            shipments={listedShipments}
             showLocation={showLocation}
             selectedShipmentId={selectedShipmentId}
             onSelectShipment={onSelectShipment}
             actionLabel={actionLabel}
+            renderDetail={inlineDetail ? renderSelected : undefined}
           />
 
-          {selectedShipment && (
-            <Card className="mt-3 shipment-receipt-detail-card">
-              <CardHeader style={{ backgroundColor: "#eff6ff" }}>
-                <h6 className="mb-0">
-                  Recepción · {selectedShipment.shipmentNumber}
-                  {showLocation && selectedShipment.locationName
-                    ? ` (${selectedShipment.locationName})`
-                    : ""}
-                </h6>
-              </CardHeader>
-              <CardBody>
-                <ShipmentReceiptDetail
-                  shipment={selectedShipment}
-                  readOnly={String(selectedShipment.status || "").toUpperCase() === "DELIVERED"}
-                  allowReturnToWarehouse={allowReturnToWarehouse}
-                  onConfirmed={async () => {
-                    if (onSelectShipment) {
-                      onSelectShipment(null);
-                    }
-                    if (onConfirmed) {
-                      await onConfirmed();
-                    }
-                  }}
-                  onRepaired={onConfirmed}
-                />
-              </CardBody>
-            </Card>
-          )}
+          {pageSize ? <TablePagination pagination={pagination} className="mt-2 mb-2" /> : null}
+
+          {selectedShipment && !inlineDetail && renderSelected(selectedShipment)}
 
           {!selectedShipment && (
             <p className="text-muted small mt-3 mb-0">

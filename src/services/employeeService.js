@@ -58,6 +58,14 @@ export const getEmployeeById = async (id) => {
   }
 };
 
+/** Con un error de validación devuelve el detalle por campo (`errors`) en lugar del mensaje general. */
+const errorMessage = (errorData, fallback) => {
+  const details = errorData && errorData.errors && typeof errorData.errors === 'object'
+    ? Object.values(errorData.errors).filter(Boolean)
+    : [];
+  return details.length > 0 ? details.join(' ') : (errorData && errorData.message) || fallback;
+};
+
 /**
  * Crea un nuevo empleado
  */
@@ -74,7 +82,7 @@ export const createEmployee = async (employeeData) => {
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({ message: 'Error al crear empleado' }));
-      throw new Error(errorData.message || 'Error al crear empleado');
+      throw new Error(errorMessage(errorData, 'Error al crear empleado'));
     }
 
     return await response.json();
@@ -103,7 +111,7 @@ export const updateEmployee = async (id, employeeData) => {
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({ message: 'Error al actualizar empleado' }));
-      throw new Error(errorData.message || 'Error al actualizar empleado');
+      throw new Error(errorMessage(errorData, 'Error al actualizar empleado'));
     }
 
     return await response.json();

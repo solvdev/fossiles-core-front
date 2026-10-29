@@ -13,6 +13,7 @@ import {
   Alert,
 } from "reactstrap";
 import classnames from "classnames";
+import { sanitizePrintFormatHtml } from "utils/printFormatHtml";
 
 const ELEMENT_TYPES = {
   TEXT: {
@@ -424,7 +425,7 @@ function PrintFormatBuilder({ value, onChange, availableVariables = [] }) {
                         </div>
                       )}
                       <div
-                        dangerouslySetInnerHTML={{ __html: html }}
+                        dangerouslySetInnerHTML={{ __html: sanitizePrintFormatHtml(html) }}
                         onClick={(e) => e.stopPropagation()}
                         onDragOver={(e) => e.stopPropagation()}
                         onDrop={(e) => e.stopPropagation()}
