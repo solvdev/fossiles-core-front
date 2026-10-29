@@ -54,17 +54,18 @@ function lookupSizeQty(map, sizeKey) {
   return match != null ? Number(map[match]) || 0 : null;
 }
 
-function memberPending(row, sizeKey) {
+/** Pendiente del backend (`pendingTotal` / `pendingSizes`). Nunca usa pedido (`ordered*`). */
+export function pendingQtyForRow(row, sizeKey) {
   if (sizeKey) {
-    const pending = lookupSizeQty(row.pendingSizes, sizeKey);
-    if (pending != null) return Math.max(0, pending);
-    const ordered = lookupSizeQty(row.orderedSizes, sizeKey);
-    if (ordered != null) return Math.max(0, ordered);
-    return 0;
+    const pending = lookupSizeQty(row?.pendingSizes, sizeKey);
+    return pending != null ? Math.max(0, pending) : 0;
   }
-  const pending = Number(row.pendingTotal);
-  if (Number.isFinite(pending) && pending >= 0) return pending;
-  return Math.max(0, Number(row.orderedTotal) || 0);
+  const pending = Number(row?.pendingTotal);
+  return Number.isFinite(pending) && pending >= 0 ? pending : 0;
+}
+
+function memberPending(row, sizeKey) {
+  return pendingQtyForRow(row, sizeKey);
 }
 
 function memberOrdered(row, sizeKey) {
@@ -307,15 +308,7 @@ export function partialReleaseLineHasQuantity(line, orderType) {
 }
 
 function suggestedQtyForRow(row, sizeKey) {
-  if (sizeKey != null) {
-    const pending =
-      row.pendingSizes?.[sizeKey] != null ? Number(row.pendingSizes[sizeKey]) : 0;
-    if (pending > 0) return pending;
-    return row.orderedSizes?.[sizeKey] != null ? Number(row.orderedSizes[sizeKey]) : 0;
-  }
-  const pending = Number(row.pendingTotal) || 0;
-  if (pending > 0) return pending;
-  return Number(row.orderedTotal) || 0;
+  return pendingQtyForRow(row, sizeKey);
 }
 
 export function setDraftLinesIncluded(draftLines, included, orderType) {
@@ -362,18 +355,27 @@ export function countDraftTotalUnits(draftLines, orderType) {
 }
 
 export function maxDraftLineQuantity(row, sizeKey) {
-  if (sizeKey != null) {
-    const ordered =
-      row.orderedSizes?.[sizeKey] != null ? Number(row.orderedSizes[sizeKey]) : null;
-    if (ordered != null && ordered > 0) return ordered;
-    const pending =
-      row.pendingSizes?.[sizeKey] != null ? Number(row.pendingSizes[sizeKey]) : null;
-    return pending != null && pending > 0 ? pending : undefined;
-  }
-  const ordered = row.orderedTotal != null ? Number(row.orderedTotal) : null;
-  if (ordered != null && ordered > 0) return ordered;
-  const pending = row.pendingTotal != null ? Number(row.pendingTotal) : null;
-  return pending != null && pending > 0 ? pending : undefined;
+  const pending = pendingQtyForRow(row, sizeKey);
+  const current = memberSend(row, sizeKey);
+  const cap = Math.max(0, pending, current);
+  return cap > 0 ? cap : 0;
+}
+
+/** Visible in the editor if it still has pending or a captured qty (existing draft). */
+export function draftLineVisibleInPartialEditor(row) {
+  if (!row) return false;
+  if (pendingQtyForRow(row) > 0 || memberSend(row) > 0) return true;
+  if (!lineUsesSizeBreakdown(row)) return false;
+  const sizeKeys = Object.keys({ ...(row.orderedSizes || {}), ...(row.pendingSizes || {}), ...(row.sizes || {}) });
+  return sizeKeys.some((size) => pendingQtyForRow(row, size) > 0 || memberSend(row, size) > 0);
+}
+
+export function draftSizeVisibleInPartialEditor(row, sizeKey) {
+  return pendingQtyForRow(row, sizeKey) > 0 || memberSend(row, sizeKey) > 0;
+}
+
+export function shipmentHasSavedProductLines(products) {
+  return (products || []).some((p) => Number(p?.quantity) > 0);
 }
 
 export function validateDraftLines(draftLines, orderType) {
@@ -449,9 +451,10 @@ export function shouldUseSyntheticFullOrderDocument({
   return true;
 }
 
-/** Líneas del parcial para listado/impresión; null si no aplica reemplazo. */
+/** Líneas del parcial para rellenar un envío sin productos guardados; null si no aplica. */
 export function resolvePartialReleaseShipmentProducts(shipment, linkedRelease, orderType) {
   if (!linkedRelease?.lines?.length || !shipment?.id) return null;
+  if (shipmentHasSavedProductLines(shipment.products)) return null;
   const products = buildShipmentProductsFromPartialReleaseLines(linkedRelease.lines, orderType);
   if (!products.length) return null;
   if (isPartialReleaseShipment(shipment, linkedRelease)) {
@@ -460,13 +463,27 @@ export function resolvePartialReleaseShipmentProducts(shipment, linkedRelease, o
   return null;
 }
 
+function isPartialShipmentDoc(shipment, linkedRelease) {
+  return Boolean(
+    shipment?.partialReleaseId ||
+      shipment?.partialReleaseLabel ||
+      isPartialReleaseShipment(shipment, linkedRelease)
+  );
+}
+
 /**
- * Productos a mostrar en impresión / exportación (parcial si aplica, no la OP completa).
+ * Productos a mostrar en impresión / exportación.
+ * 1) líneas guardadas del envío
+ * 2) líneas del parcial si el envío no tiene productos
+ * Nunca las líneas de la OP completa.
  */
 export function resolveShipmentLinesForPrint(shipment, order, partialList) {
   if (!shipment) return [];
   if (Array.isArray(shipment._printProducts) && shipment._printProducts.length > 0) {
     return shipment._printProducts;
+  }
+  if (shipmentHasSavedProductLines(shipment.products)) {
+    return shipment.products;
   }
   const releases = partialList?.releases || partialList || [];
   const linked = findLinkedPartialRelease(shipment, releases);
@@ -474,7 +491,10 @@ export function resolveShipmentLinesForPrint(shipment, order, partialList) {
   if (partialProducts?.length) {
     return partialProducts;
   }
-  return shipment.products || [];
+  if (isPartialShipmentDoc(shipment, linked)) {
+    return [];
+  }
+  return Array.isArray(shipment.products) ? shipment.products : [];
 }
 
 /** Productos de impresión / envío a partir de líneas guardadas del parcial (no la OP completa). */

@@ -211,11 +211,13 @@ export function expandShipmentProductsForOpvPriceLines(order, products, productC
     } else if (sizeRaw) {
       size = normalizeSizeKey(sizeRaw);
     }
-    const unitPrice = item
-      ? size
-        ? resolveOpvUnitPriceForSize(item, size, productCatalogById, preferSellerPrice)
-        : resolveDefaultOpvUnitPrice(item, productCatalogById, preferSellerPrice)
-      : Number(product.unitPrice) || 0;
+    const unitPrice = resolveShipmentProductUnitPrice(
+      product,
+      item,
+      size,
+      productCatalogById,
+      preferSellerPrice
+    );
     lines.push({
       itemKey: key,
       itemIndex: itemIndex >= 0 ? itemIndex : pIdx,
@@ -281,6 +283,29 @@ export function applyOpvPricesToOrderItems(order, priceByLineId) {
   });
 }
 
+/** Ausente (null/undefined/""). 0 es un valor guardado válido. */
+export function isMissingSavedNumber(value) {
+  return value == null || value === "";
+}
+
+export function savedNumberOrFallback(savedValue, fallbackValue) {
+  if (isMissingSavedNumber(savedValue)) return fallbackValue;
+  const parsed = Number(savedValue);
+  return Number.isFinite(parsed) ? parsed : fallbackValue;
+}
+
+function resolveShipmentProductUnitPrice(product, item, size, catalog, preferSellerPrice) {
+  if (!isMissingSavedNumber(product?.unitPrice)) {
+    const saved = Number(product.unitPrice);
+    if (Number.isFinite(saved)) return saved;
+  }
+  if (!item) return Number(product?.unitPrice) || 0;
+  if (String(size || product?.size || "").trim()) {
+    return resolveOpvUnitPriceForSize(item, size || product.size, catalog, preferSellerPrice);
+  }
+  return resolveDefaultOpvUnitPrice(item, catalog, preferSellerPrice);
+}
+
 export function applyOrderItemPricesToShipmentProducts(order, products) {
   const preferSellerPrice = isLuisFelipeVendorFlow(order?.orderType, order?.sellerName);
   const items = Array.isArray(order?.items) ? order.items : [];
@@ -300,21 +325,54 @@ export function applyOrderItemPricesToShipmentProducts(order, products) {
       brandName: p.brandName || item?.brandName || "",
     };
     if (!item) return next;
-    const hasSizedMap =
-      item.unitPrices &&
-      typeof item.unitPrices === "object" &&
-      Object.keys(item.unitPrices).length > 0;
-    if (hasSizedMap) {
-      next.unitPrices = Object.fromEntries(
-        Object.entries(item.unitPrices).map(([k, v]) => [normalizeSizeKey(k), Number(v) || 0])
-      );
+    if (!next.unitPrices) {
+      const hasSizedMap =
+        item.unitPrices &&
+        typeof item.unitPrices === "object" &&
+        Object.keys(item.unitPrices).length > 0;
+      if (hasSizedMap) {
+        next.unitPrices = Object.fromEntries(
+          Object.entries(item.unitPrices).map(([k, v]) => [normalizeSizeKey(k), Number(v) || 0])
+        );
+      }
     }
-    const sized = resolveOpvUnitPriceForSize(item, p.size, {}, preferSellerPrice);
-    if (Number.isFinite(sized) && sized >= 0) {
-      next.unitPrice = sized;
-    }
+    next.unitPrice = resolveShipmentProductUnitPrice(p, item, p.size, {}, preferSellerPrice);
     return next;
   });
+}
+
+/** GET detalle del envío gana sobre el listado; no rellena con la OP. */
+export function mergeShipmentDetailForReprint(listed, detail) {
+  if (!detail) return listed || {};
+  const base = { ...(listed || {}), ...detail };
+  if (Array.isArray(detail.products)) base.products = detail.products;
+  else if (Array.isArray(listed?.products)) base.products = listed.products;
+  if (Array.isArray(detail.packingItems)) base.packingItems = detail.packingItems;
+  else if (Array.isArray(listed?.packingItems)) base.packingItems = listed.packingItems;
+  if (detail.notes !== undefined) base.notes = detail.notes;
+  else if (listed && listed.notes !== undefined) base.notes = listed.notes;
+  if (!isMissingSavedNumber(detail.shippingCost)) base.shippingCost = detail.shippingCost;
+  else if (listed && !isMissingSavedNumber(listed.shippingCost)) {
+    base.shippingCost = listed.shippingCost;
+  }
+  return base;
+}
+
+/** PUT /products reemplaza todas las líneas: enviar size, hardwareCondition y unitPrice. */
+export function buildShipmentProductsReplacePayload(products) {
+  return (products || [])
+    .filter((p) => Number(p?.productId) > 0 && Number(p?.quantity) > 0)
+    .map((p) => ({
+      productId: Number(p.productId),
+      colorId: p.colorId == null || p.colorId === "" ? null : Number(p.colorId),
+      size: String(p.size || p.sizeLabel || "").trim(),
+      hardwareCondition:
+        p.hardwareCondition == null || p.hardwareCondition === ""
+          ? null
+          : String(p.hardwareCondition),
+      unitPrice: isMissingSavedNumber(p.unitPrice) ? 0 : Number(p.unitPrice) || 0,
+      quantity: Number(p.quantity) || 0,
+    }));
 }
 
 export function buildOpvItemPriceUpdatePayload(order, itemsWithPrices) {

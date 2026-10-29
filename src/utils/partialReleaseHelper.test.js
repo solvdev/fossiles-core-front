@@ -1,14 +1,20 @@
 import {
+  applyDraftLineIncluded,
   applyGroupSendQty,
   buildPartialReleaseLinesPayload,
   buildShipmentProductsFromPartialReleaseLines,
+  draftLineVisibleInPartialEditor,
+  draftSizeVisibleInPartialEditor,
   filterShipmentsByPartialReleaseId,
   groupDraftLinesByVariant,
   initDraftLinesFromAvailability,
   initDraftLinesFromRelease,
+  maxDraftLineQuantity,
   orderUsesVariantGroupedPartialEditor,
+  pendingQtyForRow,
   remainingAfterGroupSend,
   resolveShipmentLinesForPrint,
+  setDraftLinesIncluded,
   shouldUseSyntheticFullOrderDocument,
 } from "./partialReleaseHelper";
 
@@ -149,14 +155,46 @@ describe("partialReleaseHelper — envío parcial no toma toda la OP", () => {
     expect(printed[0].quantity).toBe(2);
   });
 
-  it("impresión usa las líneas del parcial, no todos los productos del envío", () => {
+  it("reimpresión usa las cantidades guardadas del envío, no las de la OP ni el parcial", () => {
     const shipment = {
       id: 99,
       partialReleaseId: 7,
       products: [
-        { productCode: "P-10", size: "38", quantity: 4 },
-        { productCode: "P-10", size: "39", quantity: 6 },
-        { productCode: "P-11", size: "", quantity: 5 },
+        { productCode: "P-10", size: "38", quantity: 2, unitPrice: 88 },
+      ],
+    };
+    const order = {
+      orderType: "MARCAS",
+      items: [
+        { productCode: "P-10", sizes: { "38": 4, "39": 6 }, quantity: 10 },
+        { productCode: "P-11", quantity: 5 },
+      ],
+    };
+    const releases = [
+      {
+        id: 7,
+        shipmentId: 99,
+        lines: [
+          { productCode: "P-10", sizes: { "38": 4, "39": 6 }, quantity: 10 },
+        ],
+      },
+    ];
+    const printed = resolveShipmentLinesForPrint(shipment, order, { releases });
+    expect(printed).toHaveLength(1);
+    expect(printed[0]).toMatchObject({ productCode: "P-10", size: "38", quantity: 2, unitPrice: 88 });
+  });
+
+  it("un parcial sin líneas guardadas usa el parcial, nunca las líneas de la OP completa", () => {
+    const shipment = {
+      id: 99,
+      partialReleaseId: 7,
+      products: [],
+    };
+    const order = {
+      orderType: "MARCAS",
+      items: [
+        { productId: 10, productCode: "P-10", sizes: { "38": 4, "39": 6 }, quantity: 10 },
+        { productId: 11, productCode: "P-11", quantity: 5 },
       ],
     };
     const releases = [
@@ -165,6 +203,7 @@ describe("partialReleaseHelper — envío parcial no toma toda la OP", () => {
         shipmentId: 99,
         lines: [
           {
+            productId: 10,
             productCode: "P-10",
             productName: "Zapato",
             sizes: { "38": 2 },
@@ -173,9 +212,23 @@ describe("partialReleaseHelper — envío parcial no toma toda la OP", () => {
         ],
       },
     ];
-    const printed = resolveShipmentLinesForPrint(shipment, { orderType: "MARCAS" }, { releases });
+    const printed = resolveShipmentLinesForPrint(shipment, order, { releases });
     expect(printed).toHaveLength(1);
     expect(printed[0]).toMatchObject({ productCode: "P-10", size: "38", quantity: 2 });
+    expect(printed.some((p) => p.productCode === "P-11")).toBe(false);
+  });
+
+  it("un parcial sin líneas ni productos no cae a la OP completa", () => {
+    const shipment = { id: 99, partialReleaseId: 7, products: [] };
+    const order = {
+      orderType: "MARCAS",
+      items: [
+        { productCode: "P-10", quantity: 10 },
+        { productCode: "P-11", quantity: 5 },
+      ],
+    };
+    const printed = resolveShipmentLinesForPrint(shipment, order, { releases: [] });
+    expect(printed).toEqual([]);
   });
 
   it("al enfocar un parcial no cae al documento completo de la OP", () => {
@@ -309,6 +362,57 @@ describe("partialReleaseHelper — editor agrupado Entre Cueros", () => {
       { productionOrderItemId: 22, quantity: 5 },
       { productionOrderItemId: 31, sizes: { "38": 2 } },
     ]);
+  });
+
+  it("tras 2+ parciales el editor precarga y limita solo lo pendiente del backend", () => {
+    const afterTwoPartials = [
+      {
+        productionOrderItemId: 1,
+        productId: 10,
+        productCode: "P-10",
+        productName: "Zapato",
+        orderedTotal: 10,
+        pendingTotal: 0,
+        orderedSizes: { "38": 4, "39": 6 },
+        pendingSizes: { "38": 0, "39": 0 },
+      },
+      {
+        productionOrderItemId: 2,
+        productId: 11,
+        productCode: "P-11",
+        productName: "Bolso",
+        orderedTotal: 5,
+        pendingTotal: 1,
+      },
+    ];
+    expect(pendingQtyForRow(afterTwoPartials[0], "38")).toBe(0);
+    expect(pendingQtyForRow(afterTwoPartials[0])).toBe(0);
+    expect(pendingQtyForRow(afterTwoPartials[1])).toBe(1);
+    expect(maxDraftLineQuantity(afterTwoPartials[0], "38")).toBe(0);
+    expect(maxDraftLineQuantity(afterTwoPartials[1])).toBe(1);
+
+    const draft = initDraftLinesFromAvailability(afterTwoPartials, "MARCAS");
+    const selected = setDraftLinesIncluded(draft, true, "MARCAS");
+    expect(selected[0].sizes).toEqual({ "38": 0, "39": 0 });
+    expect(selected[0].included).toBe(false);
+    expect(selected[1].quantity).toBe(1);
+    expect(draftLineVisibleInPartialEditor(selected[0])).toBe(false);
+    expect(draftSizeVisibleInPartialEditor(selected[0], "38")).toBe(false);
+    expect(draftLineVisibleInPartialEditor(selected[1])).toBe(true);
+
+    const payload = buildPartialReleaseLinesPayload(selected, "MARCAS");
+    expect(payload).toEqual([{ productionOrderItemId: 2, quantity: 1 }]);
+  });
+
+  it("Seleccionar todo no rellena con lo pedido cuando el pendiente es 0", () => {
+    const row = {
+      productionOrderItemId: 2,
+      orderedTotal: 5,
+      pendingTotal: 0,
+    };
+    const filled = applyDraftLineIncluded(row, true, "MARCAS");
+    expect(filled.quantity).toBe(0);
+    expect(filled.included).toBe(false);
   });
 
   it("el siguiente parcial trabaja sobre lo pendiente (no sobre el pedido original)", () => {

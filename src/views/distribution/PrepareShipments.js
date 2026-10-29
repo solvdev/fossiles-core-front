@@ -34,6 +34,7 @@ import {
   lookupShipmentsByNumber,
   repairDeliveredShipmentReceiptInventory,
   updateShipmentObservations,
+  updateShipmentProducts,
 } from "services/productDistributionService";
 import * as XLSX from "xlsx-js-style";
 import { getProducts } from "services/productService";
@@ -61,11 +62,14 @@ import {
   PRINT_PAPER_WIDTH_MM,
   applyOrderItemPricesToShipmentProducts,
   buildPartialPanelOrder,
+  buildShipmentProductsReplacePayload,
   classifyPrepareOrder,
   isDirectPrepareOrder,
   isEntreCuerosCustomerOpv,
+  isMissingSavedNumber,
   lookupOpvPrintPriceIndex,
   mapShipmentProductsForOpvPrint,
+  mergeShipmentDetailForReprint,
   orderIsPendingForPrepare,
   orderItemsHaveBrand,
   resolveOpvUnitPriceForSize,
@@ -76,6 +80,7 @@ import {
   orderAllowsPartialReleases,
   resolvePartialReleaseShipmentProducts,
   resolveShipmentLinesForPrint,
+  shipmentHasSavedProductLines,
   shouldUseSyntheticFullOrderDocument,
 } from "utils/partialReleaseHelper";
 import PrepareShipmentsCustomerBlock from "components/distribution/PrepareShipmentsCustomerBlock";
@@ -134,41 +139,50 @@ const BELT_SIZE_TAG = "__BELT_SIZE__:";
 const DOCUMENT_DATE_TAG = "DOCUMENT_DATE:";
 
 const buildPrepareShipmentProductsExtra = (order) => (shipment, linked) => {
+  const isPartial = Boolean(
+    shipment?.partialReleaseId ||
+      linked ||
+      isPartialReleaseShipmentDoc(shipment)
+  );
+  const shippingCost = shippingCostForPrepareShipment(shipment, order, linked);
+  const savedPacking = Array.isArray(shipment?.packingItems) ? shipment.packingItems : null;
+  const packingItems = savedPacking != null
+    ? savedPacking
+    : isPartial
+      ? []
+      : order?.packingItems;
+  const extra = { packingItems, shippingCost };
+  if (shipmentHasSavedProductLines(shipment?.products)) {
+    const priced = applyOrderItemPricesToShipmentProducts(
+      order,
+      classifyPrepareOrder(order) === "OPV"
+        ? mapShipmentProductsForOpvPrint(shipment)
+        : shipment.products
+    );
+    return { ...extra, products: priced };
+  }
   const partialProducts = resolvePartialReleaseShipmentProducts(
     shipment,
     linked,
     order?.orderType
   );
-  const isPartial = Boolean(
-    partialProducts ||
-      shipment?.partialReleaseId ||
-      (linked && isPartialReleaseShipmentDoc(shipment))
-  );
-  const shippingCost = shippingCostForPrepareShipment(shipment, order, linked);
   if (partialProducts) {
     const priced = applyOrderItemPricesToShipmentProducts(order, partialProducts);
-    return {
-      products: priced,
-      _printProducts: priced,
-      packingItems: Array.isArray(shipment?.packingItems) ? shipment.packingItems : [],
-      shippingCost,
-    };
+    return { ...extra, products: priced };
+  }
+  if (isPartial) {
+    return extra;
   }
   if (classifyPrepareOrder(order) === "OPV") {
     return {
+      ...extra,
       products: applyOrderItemPricesToShipmentProducts(
         order,
         mapShipmentProductsForOpvPrint(shipment)
       ),
-      packingItems: isPartial
-        ? Array.isArray(shipment?.packingItems)
-          ? shipment.packingItems
-          : []
-        : order.packingItems,
-      shippingCost,
     };
   }
-  return {};
+  return extra;
 };
 
 const isPartialReleaseShipmentDoc = (shipment) =>
@@ -208,6 +222,21 @@ const enrichShipmentsWithPartialMeta = (printable, partialList, mapExtra) =>
       ...(typeof mapExtra === "function" ? mapExtra(s, linked) : {}),
     };
   });
+
+const hydrateShipmentsFromApi = async (printable) => {
+  const rows = printable || [];
+  return Promise.all(
+    rows.map(async (shipment) => {
+      if (!shipment?.id || isSyntheticShipmentId(shipment.id)) return shipment;
+      try {
+        const detail = await getShipmentById(shipment.id);
+        return mergeShipmentDetailForReprint(shipment, detail);
+      } catch (_err) {
+        return shipment;
+      }
+    })
+  );
+};
 const PROCESSED_SHIPMENT_STATUSES = new Set(["SENT", "DELIVERED", "COMPLETED", "RECEIVED", "CANCELLED"]);
 /** Ocultar solo entregados/cancelados; SENT sigue visible para reimprimir. */
 const HIDDEN_FROM_PREPARE_LIST_STATUSES = new Set(["DELIVERED", "COMPLETED", "RECEIVED", "CANCELLED"]);
@@ -1189,7 +1218,8 @@ function PrepareShipments() {
       setPartialPendingCount(pendingConfirm.length);
 
       if (printable.length > 0) {
-        commitEnrichedShipments(printable, partialList, order);
+        const hydrated = await hydrateShipmentsFromApi(printable);
+        commitEnrichedShipments(hydrated, partialList, order);
       } else if (
         !shouldUseSyntheticFullOrderDocument({
           realShipmentCount: printable.length,
@@ -1249,7 +1279,8 @@ function PrepareShipments() {
       setPartialPendingCount(pendingConfirm.length);
 
       if (printable.length > 0) {
-        commitEnrichedShipments(printable, partialList, order);
+        const hydrated = await hydrateShipmentsFromApi(printable);
+        commitEnrichedShipments(hydrated, partialList, order);
       } else if (pendingConfirm.length > 0) {
         setShipments([]);
         setCopiesByShipment({});
@@ -1299,7 +1330,8 @@ function PrepareShipments() {
       setPartialPendingCount(pendingConfirm.length);
 
       if (printable.length > 0) {
-        commitEnrichedShipments(printable, partialList, order);
+        const hydrated = await hydrateShipmentsFromApi(printable);
+        commitEnrichedShipments(hydrated, partialList, order);
       } else if (pendingConfirm.length > 0) {
         setShipments([]);
         setCopiesByShipment({});
@@ -1349,7 +1381,8 @@ function PrepareShipments() {
       setPartialPendingCount(pendingConfirm.length);
 
       if (printable.length > 0) {
-        commitEnrichedShipments(printable, partialList, order);
+        const hydrated = await hydrateShipmentsFromApi(printable);
+        commitEnrichedShipments(hydrated, partialList, order);
       } else if (pendingConfirm.length > 0) {
         setShipments([]);
         setCopiesByShipment({});
@@ -1424,7 +1457,8 @@ function PrepareShipments() {
         }
         const printable = (realShipments || []).filter(isShipmentRowForPrepareList);
         if (printable.length > 0) {
-          commitEnrichedShipments(printable, null, order);
+          const hydrated = await hydrateShipmentsFromApi(printable);
+          commitEnrichedShipments(hydrated, null, order);
         } else if (String(order?.status || "").trim().toUpperCase() === "DRAFT") {
           setError("La orden INTERNA (OPI) está en borrador. Contabilidad debe autorizar la producción desde Autorizar envíos internos.");
           setShipments([]);
@@ -1763,24 +1797,46 @@ function PrepareShipments() {
     [packingMaterials, packingQtyByShipment, resolveMaterialUnitPrice]
   );
 
-  const openPackingModal = (shipment) => {
-    const items = getShipmentPackingItems(shipment, { packingQtyByShipment, packingMaterials });
-    if (items.length > 0) {
-      setPackingQtyByShipment((prev) => {
-        const next = { ...prev };
-        items.forEach((item) => {
-          next[getPackingKey(shipment.id, item.materialId)] = item.quantity;
-        });
-        return next;
-      });
+  const openSavedShipmentEditor = async (shipment, onReady) => {
+    if (!shipment?.id) return;
+    let doc = shipment;
+    if (!isSyntheticShipmentId(shipment.id)) {
+      try {
+        const detail = await getShipmentById(shipment.id);
+        doc = mergeShipmentDetailForReprint(shipment, detail);
+        setShipments((prev) =>
+          (prev || []).map((row) =>
+            String(row.id) === String(doc.id) ? mergeShipmentDetailForReprint(row, doc) : row
+          )
+        );
+      } catch (err) {
+        showError(err.message || "No se pudo cargar el envío guardado");
+        return;
+      }
     }
-    setPackingModalShipment(shipment);
-    const linked = findLinkedPartialRelease(shipment, orderPartialReleases?.releases);
-    const initial =
-      shipment?.shippingCost != null && shipment.shippingCost !== ""
-        ? String(shipment.shippingCost)
-        : String(shippingCostForPrepareShipment(shipment, selectedProductionOrder, linked) || "");
-    setModalShippingCost(initial);
+    onReady(doc);
+  };
+
+  const openPackingModal = (shipment) => {
+    void openSavedShipmentEditor(shipment, (doc) => {
+      const items = getShipmentPackingItems(doc, { packingQtyByShipment, packingMaterials });
+      if (items.length > 0) {
+        setPackingQtyByShipment((prev) => {
+          const next = { ...prev };
+          items.forEach((item) => {
+            next[getPackingKey(doc.id, item.materialId)] = item.quantity;
+          });
+          return next;
+        });
+      }
+      setPackingModalShipment(doc);
+      const linked = findLinkedPartialRelease(doc, orderPartialReleases?.releases);
+      const initial =
+        doc?.shippingCost != null && doc.shippingCost !== ""
+          ? String(doc.shippingCost)
+          : String(shippingCostForPrepareShipment(doc, selectedProductionOrder, linked) || "");
+      setModalShippingCost(initial);
+    });
   };
 
   const handleSavePackingModal = async () => {
@@ -1960,6 +2016,11 @@ function PrepareShipments() {
       );
       if (fromIndex != null) return fromIndex;
 
+      if (!isMissingSavedNumber(item?.unitPrice)) {
+        const saved = Number(item.unitPrice);
+        if (Number.isFinite(saved)) return saved;
+      }
+
       const unitPrices =
         item?.unitPrices && typeof item.unitPrices === "object" ? item.unitPrices : null;
       if (unitPrices && sizeKey) {
@@ -2023,9 +2084,37 @@ function PrepareShipments() {
     [resolveProductUnitPriceForOrder, selectedProductionOrder]
   );
 
+  const persistShipmentProductLines = async (docs) => {
+    const persisted = [];
+    for (const shipment of docs || []) {
+      if (!shipment?.id || isSyntheticShipmentId(shipment.id)) {
+        persisted.push(shipment);
+        continue;
+      }
+      const payload = buildShipmentProductsReplacePayload(
+        shipment._printProducts || shipment.products
+      );
+      if (!payload.length) {
+        persisted.push(shipment);
+        continue;
+      }
+      try {
+        const updated = await updateShipmentProducts(shipment.id, payload);
+        persisted.push(mergeShipmentDetailForReprint(shipment, updated));
+      } catch (err) {
+        showError(
+          err.message ||
+            `No se pudieron guardar los productos del envío ${shipment.shipmentNumber || shipment.id}`
+        );
+        persisted.push(shipment);
+      }
+    }
+    return persisted;
+  };
+
   const handleOpvPricesSaved = async (order, meta = {}) => {
     const shouldPrint = Boolean(meta?.print || opvPendingPrint);
-    const updatedShipments = (shipments || []).map((s) => {
+    const pricedShipments = (shipments || []).map((s) => {
       const rawLines = resolveShipmentLinesForPrint(
         { ...s, _printProducts: undefined },
         order,
@@ -2052,6 +2141,7 @@ function PrepareShipments() {
         ),
       };
     });
+    const updatedShipments = await persistShipmentProductLines(pricedShipments);
     setSelectedProductionOrder(order);
     setShipments(updatedShipments);
     setOpvPendingPrint(false);
@@ -2352,7 +2442,6 @@ function PrepareShipments() {
 
   const getShipmentPrintProducts = useCallback(
     (shipment, order = selectedProductionOrder) => {
-      // Siempre partir de productos crudos y reaplicar precios de la OP (evita _printProducts viejos).
       const lines = resolveShipmentLinesForPrint(
         { ...shipment, _printProducts: undefined },
         order,
@@ -2384,7 +2473,7 @@ function PrepareShipments() {
           : [];
         const printPacking = opiInternalFlow || standaloneInternalFlow
           ? []
-          : isPartialReleaseShipmentDoc(shipment)
+          : isPartialReleaseShipmentDoc(shipment) || !isSyntheticShipmentId(shipment.id)
             ? shipmentPacking
             : shipmentPacking.length > 0
               ? shipmentPacking
@@ -2552,12 +2641,15 @@ function PrepareShipments() {
         }
       })
     );
-    setShipments((prev) =>
-      (prev || []).map((row) => {
-        const refreshed = updatedRows.find((u) => u && Number(u.id) === Number(row.id));
-        return refreshed ? { ...row, notes: refreshed.notes } : row;
-      })
-    );
+    const withNotes = (shipments || []).map((row) => {
+      const refreshed = updatedRows.find((u) => u && Number(u.id) === Number(row.id));
+      return refreshed ? { ...row, notes: refreshed.notes } : row;
+    });
+    const selectedDocs = withNotes.filter((row) => selectedRows[row.id]);
+    const persistedSelected = await persistShipmentProductLines(selectedDocs);
+    const persistedById = new Map(persistedSelected.map((row) => [String(row.id), row]));
+    const merged = withNotes.map((row) => persistedById.get(String(row.id)) || row);
+    setShipments(merged);
   };
 
   const executePrintSelected = (observationsText = "") => {
@@ -3495,16 +3587,14 @@ function PrepareShipments() {
 
   const handleEditShipmentFromPartial = async (release) => {
     if (!release?.shipmentId) return;
-    let shipment = (shipments || []).find((s) => Number(s.id) === Number(release.shipmentId));
-    if (!shipment) {
-      try {
-        shipment = await getShipmentById(release.shipmentId);
-      } catch (err) {
-        showError(err.message || "No se pudo cargar el envío");
-        return;
-      }
+    const listed = (shipments || []).find((s) => Number(s.id) === Number(release.shipmentId));
+    try {
+      const detail = await getShipmentById(release.shipmentId);
+      const shipment = mergeShipmentDetailForReprint(listed, detail);
+      setEditProductsShipment(shipment);
+    } catch (err) {
+      showError(err.message || "No se pudo cargar el envío");
     }
-    setEditProductsShipment(shipment);
   };
 
   const handleSendShipmentFromPartial = async (release) => {
@@ -4482,7 +4572,7 @@ function PrepareShipments() {
                             color="warning"
                             size="sm"
                             outline
-                            onClick={() => setEditProductsShipment(shipment)}
+                            onClick={() => void openSavedShipmentEditor(shipment, setEditProductsShipment)}
                             className="mr-2"
                             disabled={
                               !isShipmentProductsEditable(shipment.status) ||
