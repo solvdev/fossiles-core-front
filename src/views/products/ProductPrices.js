@@ -39,6 +39,7 @@ function ProductPrices() {
   const [templateFile, setTemplateFile] = useState(null);
   const [templateReview, setTemplateReview] = useState(null);
   const [templateBusy, setTemplateBusy] = useState(false);
+  const [templateCategoryIds, setTemplateCategoryIds] = useState([]);
   const templateInputRef = useRef(null);
 
   useEffect(() => {
@@ -310,10 +311,23 @@ function ProductPrices() {
 
   const money = (value) => (value == null || value === "" ? "—" : `Q${Number(value).toFixed(2)}`);
 
-  const handleDownloadTemplate = async () => {
+  const allTemplateCategories =
+    categories.length > 0 && templateCategoryIds.length === categories.length;
+
+  const toggleTemplateCategory = (id) => {
+    setTemplateCategoryIds((current) =>
+      current.includes(id) ? current.filter((item) => item !== id) : [...current, id]
+    );
+  };
+
+  const handleDownloadTemplate = async (tipo) => {
+    if (templateCategoryIds.length === 0) {
+      showError("Elija al menos una categoría.");
+      return;
+    }
     try {
       setTemplateBusy(true);
-      await downloadPriceTemplate(filterCategory === "all" ? null : filterCategory);
+      await downloadPriceTemplate(templateCategoryIds, tipo);
     } catch (err) {
       showError(err.message || "No se pudo descargar la plantilla");
     } finally {
@@ -414,10 +428,41 @@ function ProductPrices() {
                 <Col md="12">
                   <Alert color="light" className="mb-0 border">
                     <strong>Plantilla de precios.</strong>{" "}
-                    <span className="text-muted small">Descargue el Excel, llene «Precio nuevo» y súbalo. Primero se revisa; solo se guarda si no hay errores. No cambia descuentos ni precios de vendedor o Entrecueros.</span>
+                    <span className="text-muted small">
+                      Marque las categorías y descargue la plantilla. Kioscos cambia el precio de venta.
+                      Entrecueros es otra plantilla: un precio por producto, porque sus variantes lo comparten.
+                      Llene solo las celdas amarillas. Primero se revisa; solo se guarda si no hay errores.
+                    </span>
+                    <div className="d-flex flex-wrap mt-2" style={{ gap: "4px 14px" }}>
+                      <Label check className="mb-0 small">
+                        <Input
+                          type="checkbox"
+                          checked={allTemplateCategories}
+                          disabled={templateBusy || categories.length === 0}
+                          onChange={() =>
+                            setTemplateCategoryIds(allTemplateCategories ? [] : categories.map((cat) => cat.id))
+                          }
+                        />{" "}
+                        Todas
+                      </Label>
+                      {categories.map((cat) => (
+                        <Label check key={cat.id} className="mb-0 small">
+                          <Input
+                            type="checkbox"
+                            checked={templateCategoryIds.includes(cat.id)}
+                            disabled={templateBusy}
+                            onChange={() => toggleTemplateCategory(cat.id)}
+                          />{" "}
+                          {cat.name}
+                        </Label>
+                      ))}
+                    </div>
                     <div className="d-flex flex-wrap align-items-center mt-2" style={{ gap: 8 }}>
-                      <Button color="info" size="sm" outline disabled={templateBusy} onClick={handleDownloadTemplate}>
-                        Descargar plantilla{filterCategory === "all" ? "" : " de esta categoría"}
+                      <Button color="info" size="sm" outline disabled={templateBusy || templateCategoryIds.length === 0} onClick={() => handleDownloadTemplate("kiosco")}>
+                        Plantilla kioscos
+                      </Button>
+                      <Button color="info" size="sm" outline disabled={templateBusy || templateCategoryIds.length === 0} onClick={() => handleDownloadTemplate("entrecueros")}>
+                        Plantilla Entrecueros
                       </Button>
                       <Input
                         innerRef={templateInputRef}
@@ -454,8 +499,12 @@ function ProductPrices() {
                             {(templateReview.changes || []).length === 0
                               ? "Nada por cambiar."
                               : `${templateReview.changes.length} precio${templateReview.changes.length === 1 ? "" : "s"} por actualizar.`}
-                            {(templateReview.changes || []).slice(0, 5).map((change) => (
-                              <div key={change.id}>{change.code} {change.name}: {money(change.currentPrice)} → {money(change.newPrice)}</div>
+                            {(templateReview.changes || []).slice(0, 8).map((change) => (
+                              <div key={`${change.id}-${change.price || "venta"}`}>
+                                {change.code} {change.name}
+                                {change.price && change.price !== "Venta" ? ` (precio ${change.price})` : ""}
+                                : {money(change.currentPrice)} → {money(change.newPrice)}
+                              </div>
                             ))}
                           </div>
                         )}
