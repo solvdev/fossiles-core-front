@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   Alert,
   Badge,
@@ -15,9 +15,10 @@ import {
   Table,
 } from "reactstrap";
 import { getProductCategories } from "services/productCategoryService";
-import { getProducts, updateProduct, bulkApplyDiscounts, bulkRemoveDiscounts, downloadPriceTemplate, importPriceTemplate } from "services/productService";
+import { getProducts, updateProduct, bulkApplyDiscounts, bulkRemoveDiscounts } from "services/productService";
 import { showError, showSuccess } from "utils/notificationHelper";
 import ConfirmModal from "components/ConfirmModal/ConfirmModal";
+import PriceTemplatePanel from "./PriceTemplatePanel";
 
 function ProductPrices() {
   const [categories, setCategories] = useState([]);
@@ -36,12 +37,6 @@ function ProductPrices() {
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [confirmAction, setConfirmAction] = useState(null);
   const [confirmMessage, setConfirmMessage] = useState("");
-  const [templateFile, setTemplateFile] = useState(null);
-  const [templateReview, setTemplateReview] = useState(null);
-  const [templateBusy, setTemplateBusy] = useState(false);
-  const [templateCategoryIds, setTemplateCategoryIds] = useState([]);
-  const templateInputRef = useRef(null);
-
   useEffect(() => {
     loadData();
   }, []);
@@ -309,78 +304,6 @@ function ProductPrices() {
   const filteredCategories =
     filterCategory === "all" ? Object.keys(productsByCategory) : [filterCategory];
 
-  const money = (value) => (value == null || value === "" ? "—" : `Q${Number(value).toFixed(2)}`);
-
-  const allTemplateCategories =
-    categories.length > 0 && templateCategoryIds.length === categories.length;
-
-  const toggleTemplateCategory = (id) => {
-    setTemplateCategoryIds((current) =>
-      current.includes(id) ? current.filter((item) => item !== id) : [...current, id]
-    );
-  };
-
-  const handleDownloadTemplate = async (tipo) => {
-    if (templateCategoryIds.length === 0) {
-      showError("Elija al menos una categoría.");
-      return;
-    }
-    try {
-      setTemplateBusy(true);
-      await downloadPriceTemplate(templateCategoryIds, tipo);
-    } catch (err) {
-      showError(err.message || "No se pudo descargar la plantilla");
-    } finally {
-      setTemplateBusy(false);
-    }
-  };
-
-  const handleTemplateFile = (file) => {
-    setTemplateFile(file || null);
-    setTemplateReview(null);
-  };
-
-  const handleReviewTemplate = async () => {
-    if (!templateFile) {
-      showError("Elija el archivo de la plantilla.");
-      return;
-    }
-    try {
-      setTemplateBusy(true);
-      const result = await importPriceTemplate(templateFile, { apply: false });
-      setTemplateReview(result);
-      if ((result.errors || []).length > 0) {
-        showError("La plantilla tiene filas con error. Corríjalas y vuelva a subirla.");
-      }
-    } catch (err) {
-      showError(err.message || "No se pudo revisar la plantilla");
-    } finally {
-      setTemplateBusy(false);
-    }
-  };
-
-  const handleApplyTemplate = async () => {
-    if (!templateFile) return;
-    try {
-      setTemplateBusy(true);
-      const result = await importPriceTemplate(templateFile, { apply: true });
-      setTemplateReview(result);
-      if ((result.errors || []).length > 0) {
-        showError("No se aplicó nada: el archivo tiene filas con error.");
-        return;
-      }
-      showSuccess(`Precios actualizados: ${(result.changes || []).length}.`);
-      setTemplateFile(null);
-      setTemplateReview(null);
-      if (templateInputRef.current) templateInputRef.current.value = "";
-      await loadData();
-    } catch (err) {
-      showError(err.message || "No se pudieron aplicar los precios");
-    } finally {
-      setTemplateBusy(false);
-    }
-  };
-
   return (
     <div className="content">
       <Row>
@@ -426,91 +349,7 @@ function ProductPrices() {
               </Row>
               <Row className="mt-2">
                 <Col md="12">
-                  <Alert color="light" className="mb-0 border">
-                    <strong>Plantilla de precios.</strong>{" "}
-                    <span className="text-muted small">
-                      Marque las categorías y descargue la plantilla. Kioscos cambia el precio de venta.
-                      Entrecueros es otra plantilla: un precio por producto, porque sus variantes lo comparten.
-                      Llene solo las celdas amarillas. Primero se revisa; solo se guarda si no hay errores.
-                    </span>
-                    <div className="d-flex flex-wrap mt-2" style={{ gap: "4px 14px" }}>
-                      <Label check className="mb-0 small">
-                        <Input
-                          type="checkbox"
-                          checked={allTemplateCategories}
-                          disabled={templateBusy || categories.length === 0}
-                          onChange={() =>
-                            setTemplateCategoryIds(allTemplateCategories ? [] : categories.map((cat) => cat.id))
-                          }
-                        />{" "}
-                        Todas
-                      </Label>
-                      {categories.map((cat) => (
-                        <Label check key={cat.id} className="mb-0 small">
-                          <Input
-                            type="checkbox"
-                            checked={templateCategoryIds.includes(cat.id)}
-                            disabled={templateBusy}
-                            onChange={() => toggleTemplateCategory(cat.id)}
-                          />{" "}
-                          {cat.name}
-                        </Label>
-                      ))}
-                    </div>
-                    <div className="d-flex flex-wrap align-items-center mt-2" style={{ gap: 8 }}>
-                      <Button color="info" size="sm" outline disabled={templateBusy || templateCategoryIds.length === 0} onClick={() => handleDownloadTemplate("kiosco")}>
-                        Plantilla kioscos
-                      </Button>
-                      <Button color="info" size="sm" outline disabled={templateBusy || templateCategoryIds.length === 0} onClick={() => handleDownloadTemplate("entrecueros")}>
-                        Plantilla Entrecueros
-                      </Button>
-                      <Input
-                        innerRef={templateInputRef}
-                        type="file"
-                        accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                        bsSize="sm"
-                        style={{ maxWidth: 280 }}
-                        disabled={templateBusy}
-                        onChange={(e) => handleTemplateFile(e.target.files && e.target.files[0])}
-                      />
-                      <Button color="primary" size="sm" outline disabled={templateBusy || !templateFile} onClick={handleReviewTemplate}>
-                        Revisar
-                      </Button>
-                      <Button
-                        color="success"
-                        size="sm"
-                        disabled={templateBusy || !templateReview || (templateReview.errors || []).length > 0 || (templateReview.changes || []).length === 0}
-                        onClick={handleApplyTemplate}
-                      >
-                        Aplicar precios
-                      </Button>
-                    </div>
-                    {templateReview && (
-                      <div className="mt-2 small">
-                        {(templateReview.errors || []).length > 0 ? (
-                          <div className="text-danger">
-                            {(templateReview.errors || []).slice(0, 8).map((err) => (
-                              <div key={`${err.sheet}-${err.row}-${err.id || err.code}`}>{err.sheet} fila {err.row}: {err.message}</div>
-                            ))}
-                            {(templateReview.errors || []).length > 8 && <div>…y {(templateReview.errors || []).length - 8} más</div>}
-                          </div>
-                        ) : (
-                          <div>
-                            {(templateReview.changes || []).length === 0
-                              ? "Nada por cambiar."
-                              : `${templateReview.changes.length} precio${templateReview.changes.length === 1 ? "" : "s"} por actualizar.`}
-                            {(templateReview.changes || []).slice(0, 8).map((change) => (
-                              <div key={`${change.id}-${change.price || "venta"}`}>
-                                {change.code} {change.name}
-                                {change.price && change.price !== "Venta" ? ` (precio ${change.price})` : ""}
-                                : {money(change.currentPrice)} → {money(change.newPrice)}
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </Alert>
+                  <PriceTemplatePanel categories={categories} onApplied={loadData} />
                 </Col>
               </Row>
               {filterCategory !== "all" ? (
@@ -594,7 +433,7 @@ function ProductPrices() {
               ) : (
                 <Row className="mt-3">
                   <Col md="12">
-                    <Alert color="secondary" className="mb-0">
+                    <Alert color="light" className="mb-0 border text-dark">
                       <i className="fa fa-info-circle" /> <strong>Para aplicar descuentos:</strong> Selecciona una categoría específica en el filtro de arriba. Los descuentos se aplican por categoría.
                     </Alert>
                   </Col>
