@@ -227,10 +227,12 @@ const saveBlob = (blob, filename) => {
   window.URL.revokeObjectURL(url);
 };
 
-/** Descarga la plantilla Excel de precios de venta. categoryId null = todas las categorías. */
-export const downloadPriceTemplate = async (categoryId = null) => {
-  const query = categoryId ? `?categoryId=${encodeURIComponent(categoryId)}` : "";
-  const response = await fetch(`${API_URL}/products/price-template${query}`, {
+/** Descarga la plantilla de las categorías elegidas. tipo: kiosco | entrecueros. */
+export const downloadPriceTemplate = async (categoryIds = [], tipo = "kiosco") => {
+  const params = new URLSearchParams();
+  (categoryIds || []).forEach((id) => params.append("categoryIds", id));
+  params.set("tipo", tipo);
+  const response = await fetch(`${API_URL}/products/price-template?${params.toString()}`, {
     headers: getAuthHeader(),
   });
   if (!response.ok) {
@@ -240,7 +242,10 @@ export const downloadPriceTemplate = async (categoryId = null) => {
   const blob = await response.blob();
   const disposition = response.headers.get("Content-Disposition") || "";
   const match = disposition.match(/filename="?([^";]+)"?/i);
-  saveBlob(blob, match?.[1] || "plantilla-precios-productos.xlsx");
+  const fallback = tipo === "entrecueros"
+    ? "plantilla-precios-entrecueros.xlsx"
+    : "plantilla-precios-kioscos.xlsx";
+  saveBlob(blob, match?.[1] || fallback);
 };
 
 /** Revisa (dryRun) o aplica la plantilla. Devuelve filas a cambiar y errores. */
