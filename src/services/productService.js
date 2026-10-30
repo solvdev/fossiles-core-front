@@ -215,3 +215,46 @@ export const bulkRemoveDiscounts = async (categoryId = null) => {
     throw error;
   }
 };
+
+const saveBlob = (blob, filename) => {
+  const url = window.URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.URL.revokeObjectURL(url);
+};
+
+/** Descarga la plantilla Excel de precios de venta. categoryId null = todas las categorías. */
+export const downloadPriceTemplate = async (categoryId = null) => {
+  const query = categoryId ? `?categoryId=${encodeURIComponent(categoryId)}` : "";
+  const response = await fetch(`${API_URL}/products/price-template${query}`, {
+    headers: getAuthHeader(),
+  });
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({ message: "No se pudo descargar la plantilla de precios" }));
+    throw new Error(errorData.message || "No se pudo descargar la plantilla de precios");
+  }
+  const blob = await response.blob();
+  const disposition = response.headers.get("Content-Disposition") || "";
+  const match = disposition.match(/filename="?([^";]+)"?/i);
+  saveBlob(blob, match?.[1] || "plantilla-precios-productos.xlsx");
+};
+
+/** Revisa (dryRun) o aplica la plantilla. Devuelve filas a cambiar y errores. */
+export const importPriceTemplate = async (file, { apply = false } = {}) => {
+  const form = new FormData();
+  form.append("file", file);
+  const response = await fetch(`${API_URL}/products/price-template/import?dryRun=${apply ? "false" : "true"}`, {
+    method: "POST",
+    headers: getAuthHeader(),
+    body: form,
+  });
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({ message: "No se pudo leer la plantilla de precios" }));
+    throw new Error(errorData.message || "No se pudo leer la plantilla de precios");
+  }
+  return response.json();
+};
