@@ -408,22 +408,29 @@ describe("Conciliación de ventas en línea (interfaz)", () => {
       expect(document.querySelector(".recon-inline")).toBeNull();        // luego el detalle
     });
 
-    it("el porcentaje de comisión se elige con botones y Forza y Guatex llevan 3.5% fijo", async () => {
+    it("el porcentaje de comisión se escribe y queda en la venta", async () => {
       const forza = row({ id: 3, shipmentNumber: "ENVL-01603", carrier: "FORZA_DELIVERY", hasReceipts: false, received: 0, difference: -105, pendingBalance: 105, status: "INFORMACION_INCOMPLETA",
         chargedShipping: 30, realShipping: null, carrierCommissionFixed: true, carrierCommissionRate: 0.035, carrierCommission: 3.68 });
       const moto = row({ id: 6, shipmentNumber: "ENVL-01606", carrier: "MOTORISTA", hasReceipts: false, received: 0, difference: -230, pendingBalance: 230, status: "INFORMACION_INCOMPLETA",
         expected: 230, chargedShipping: 30, realShipping: null, carrierCommissionFixed: false, carrierCommissionRate: null, carrierCommission: null });
       api.getCases.mockImplementation(async (filters, opts) => (opts && opts.size === 200 ? { rows: [], total: 0, page: 0, size: 200 } : { rows: [forza, moto], total: 2, page: 0, size: 50 }));
-      api.updateShippingCommission.mockResolvedValue({ ...moto, carrierCommissionRate: 0.04, carrierCommission: 9.2 });
+      api.updateShippingCommission.mockImplementation(async (id, body) => (
+        id === 3
+          ? { ...forza, carrierCommissionFixed: false, carrierCommissionRate: body.commissionRate, carrierCommission: 4.2 }
+          : { ...moto, carrierCommissionRate: body.commissionRate, carrierCommission: 5.75 }
+      ));
       await mount();
       await flush();
-      expect(byText("tr", "ENVL-01603").textContent).toContain("3.5%");
-      expect(byText("tr", "ENVL-01603").textContent).toContain("fijo");
-      expect(document.querySelector('[aria-label="Comisión 4% ENVL-01603"]')).toBeNull();     // en Forza no se elige
-      expect(byText("tr", "ENVL-01606").textContent).toContain("Elija el porcentaje");
-      await click(document.querySelector('[aria-label="Comisión 4% ENVL-01606"]'));
-      expect(api.updateShippingCommission).toHaveBeenCalledWith(6, { realShipping: null, commissionRate: 0.04 });
-      expect(byText("tr", "ENVL-01606").textContent).toContain("Q9.20");
+      expect(document.querySelector('[aria-label="Porcentaje de comisión ENVL-01603"]').value).toBe("3.5");
+      expect(document.querySelector('[aria-label="Comisión 4% ENVL-01606"]')).toBeNull();
+      expect(byText("tr", "ENVL-01606").textContent).toContain("Escriba el porcentaje");
+      await typeInto(document.querySelector('[aria-label="Porcentaje de comisión ENVL-01606"]'), "2.5");
+      await click(document.querySelector('[aria-label="Guardar comisión ENVL-01606"]'));
+      expect(api.updateShippingCommission).toHaveBeenCalledWith(6, { realShipping: null, commissionRate: 0.025 });
+      expect(byText("tr", "ENVL-01606").textContent).toContain("Q5.75");
+      await typeInto(document.querySelector('[aria-label="Porcentaje de comisión ENVL-01603"]'), "4");
+      await click(document.querySelector('[aria-label="Guardar comisión ENVL-01603"]'));
+      expect(api.updateShippingCommission).toHaveBeenCalledWith(3, { realShipping: null, commissionRate: 0.04 });
     });
 
     it("el envío real se escribe, se guarda y se compara con el envío cobrado", async () => {
