@@ -51,9 +51,24 @@ const PayCell = ({ row, draft, disabled, onChange, onSave, canSave }) => {
   );
 };
 
-const RATE_CHOICES = [0.03, 0.035, 0.04];
-const pct = (rate) => `${(Number(rate) * 100).toLocaleString("es-GT", { maximumFractionDigits: 1 })}%`;
-const sameRate = (a, b) => a != null && b != null && Math.round(Number(a) * 10000) === Math.round(Number(b) * 10000);
+const pct = (rate) => `${(Number(rate) * 100).toLocaleString("es-GT", { maximumFractionDigits: 2 })}%`;
+
+/** 0.035 -> "3.5". Vacío si no hay tasa. */
+const percentText = (rate) => {
+  if (rate == null || rate === "") return "";
+  const n = Math.round(Number(rate) * 10000) / 100;
+  return Number.isFinite(n) ? String(n) : "";
+};
+
+/** Lo escrito en el campo (3.5 o 3,5) a tasa decimal. null si está vacío; undefined si no es un porcentaje válido. */
+const parsePercent = (text) => {
+  const raw = String(text).trim().replace("%", "").replace(",", ".");
+  if (raw === "") return null;
+  if (!/^\d+(\.\d{1,2})?$/.test(raw)) return undefined;
+  const n = Number(raw);
+  if (!(n > 0) || n > 100) return undefined;
+  return Math.round(n * 100) / 10000;
+};
 
 /** Lo que de verdad costó el envío. Se compara con el envío cobrado al cliente; es solo un registro y no cambia el cuadre. */
 const RealShippingCell = ({ row, canEdit, onSave }) => {
@@ -80,22 +95,36 @@ const RealShippingCell = ({ row, canEdit, onSave }) => {
   );
 };
 
-/** Comisión sobre el total con el envío cobrado. Forza y Guatex llevan 3.5% fijo; en las demás se elige 3, 3.5 o 4%. */
-const CommissionCell = ({ row, canEdit, onPick }) => (
-  <div onClick={stop} style={{ minWidth: 150 }}>
-    {row.carrierCommissionFixed ? (
-      <div><strong>{pct(row.carrierCommissionRate)}</strong> <span className="small text-muted">fijo</span></div>
-    ) : (
-      <ButtonGroup size="sm" aria-label={`Porcentaje de comisión ${row.shipmentNumber}`}>
-        {RATE_CHOICES.map((rate) => (
-          <Button key={rate} outline color="primary" disabled={!canEdit} active={sameRate(row.carrierCommissionRate, rate)}
-            aria-label={`Comisión ${pct(rate)} ${row.shipmentNumber}`} onClick={() => onPick(sameRate(row.carrierCommissionRate, rate) ? null : rate)}>{pct(rate)}</Button>
-        ))}
-      </ButtonGroup>
-    )}
-    <div className="small text-muted">{row.carrierCommission == null ? "Elija el porcentaje" : formatQ(row.carrierCommission)}</div>
-  </div>
-);
+/** Comisión sobre el total con el envío cobrado. El porcentaje se escribe y queda fijo en esa venta. Forza y Guatex arrancan en 3.5% si nadie lo escribió. */
+const CommissionCell = ({ row, canEdit, onSave }) => {
+  const saved = percentText(row.carrierCommissionRate);
+  const [value, setValue] = useState(saved);
+  useEffect(() => { setValue(saved); }, [saved]);
+  const written = parsePercent(value);
+  const dirty = (written === undefined ? value : percentText(written)) !== saved;
+  const submit = () => {
+    if (written === undefined) {
+      showError("Escriba un porcentaje mayor a 0 y hasta 100, con a lo más 2 decimales.");
+      return;
+    }
+    onSave(written);
+  };
+  return (
+    <div onClick={stop} style={{ minWidth: 120 }}>
+      {canEdit ? (
+        <div className="d-flex align-items-center" style={{ gap: 6 }}>
+          <Input bsSize="sm" type="number" step="0.01" min="0.01" max="100" style={{ width: 78 }} placeholder="%"
+            aria-label={`Porcentaje de comisión ${row.shipmentNumber}`} value={value}
+            onChange={(e) => setValue(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter" && dirty) { e.preventDefault(); submit(); } }} />
+          <span className="small text-muted">%</span>
+          {dirty && <Button size="sm" color="primary" aria-label={`Guardar comisión ${row.shipmentNumber}`} onClick={submit}>Guardar</Button>}
+        </div>
+      ) : <span>{saved === "" ? "—" : pct(row.carrierCommissionRate)}</span>}
+      <div className="small text-muted">{row.carrierCommission == null ? "Escriba el porcentaje" : formatQ(row.carrierCommission)}</div>
+    </div>
+  );
+};
 
 /** Encabezado que ordena la lista al tocarlo. El orden lo hace el servidor, así vale para todas las páginas. */
 const SortTh = ({ label, field, sort, onSort, className }) => (
@@ -492,7 +521,7 @@ const ReconSimpleView = ({ filters, onFilters, version, perms, openId, onOpen, o
                     <td className="hide-sm">{r.guideNumber || <span className="text-muted">—</span>}</td>
                     <td className="num">{formatQ(r.expected)}</td>
                     <td><RealShippingCell row={r} canEdit={canEditExtras(r)} onSave={(v) => saveExtras(r, { realShipping: v })} /></td>
-                    <td><CommissionCell row={r} canEdit={canEditExtras(r)} onPick={(v) => saveExtras(r, { commissionRate: v })} /></td>
+                    <td><CommissionCell row={r} canEdit={canEditExtras(r)} onSave={(v) => saveExtras(r, { commissionRate: v })} /></td>
                     <td>
                       {editable(r) || editing
                         ? <PayCell row={r} draft={draft} disabled={!perms.import || saving} canSave={canSave} onSave={() => saveDrafts(r.id)}
