@@ -26,26 +26,54 @@ export function isPosPriceFinalChip(line) {
 }
 
 /**
- * Líneas editadas no entran al volumen de Entrecueros (ni al tramo ni a la cortesía).
+ * En Entrecueros el back trata cualquier unitPrice > 0 como override: lo saca del
+ * volumen y lo cobra final. Solo se envía si un usuario autorizado tecleó el monto.
  */
-export function cartLinesForEntrecuerosVolume(cart) {
-  return (cart || []).filter((line) => !isUnitPriceEdited(line));
+export function entrecuerosLineSendsUnitPrice(line, { canEditPrices = false } = {}) {
+  return Boolean(canEditPrices)
+    && isUnitPriceEdited(line)
+    && Number(line?.unitPrice) > 0
+    && !isPosPackagingItem(line);
+}
+
+/** Líneas que enviarán unitPrice. El resto sigue en el volumen de Entrecueros. */
+export function cartLinesForEntrecuerosVolume(cart, options) {
+  return (cart || []).filter((line) => !entrecuerosLineSendsUnitPrice(line, options));
 }
 
 /**
  * Campos de precio para POST /kiosk-pos/sales.
  * null = no enviar unitPrice ni priceFinal.
  *
- * - Chip Final: se envía el precio actual de la línea y priceFinal true, aunque
- *   el cajero no haya tecleado otro monto.
- * - unitPriceEdited en Con desc.: se envía el monto tecleado y priceFinal false.
- * - Catálogo en 0 con monto > 0: se envía unitPrice y priceFinal según el chip.
- * - Con desc. sin monto editado, y líneas sin Final: no se envía nada.
- * - Empaque: sin chip; si se envía el monto capturado, queda final.
+ * Estándar (no cambia):
+ * - Chip Final: precio actual y priceFinal true, aunque no se haya tecleado otro monto.
+ * - unitPriceEdited en Con desc.: monto tecleado y priceFinal false.
+ * - Catálogo en 0 con monto > 0: unitPrice y priceFinal según el chip.
+ * - Con desc. sin monto editado: no se envía nada.
+ * - Sin permiso de edición solo se conserva el catálogo en 0 (igual que main).
+ *
+ * Entrecueros: unitPrice solo si entrecuerosLineSendsUnitPrice. Esas mismas líneas
+ * quedan fuera del volumen.
  */
-export function posSaleItemPriceFields(line) {
+export function posSaleItemPriceFields(line, { entrecueros = false, canEditPrices = true } = {}) {
   const unitPrice = Number(line?.unitPrice);
   if (!(unitPrice > 0)) return null;
+
+  if (entrecueros) {
+    if (!entrecuerosLineSendsUnitPrice(line, { canEditPrices })) return null;
+    return {
+      unitPrice,
+      priceFinal: isPosPriceFinalChip(line),
+    };
+  }
+
+  if (!canEditPrices) {
+    if (!isCatalogZeroPosLine(line)) return null;
+    return {
+      unitPrice,
+      priceFinal: isPosPackagingItem(line) ? true : isPosPriceFinalChip(line),
+    };
+  }
 
   if (isPosPackagingItem(line)) {
     if (isCatalogZeroPosLine(line)) {
@@ -63,11 +91,11 @@ export function posSaleItemPriceFields(line) {
 }
 
 /** El back no aplicará descuento de POS/promo sobre esta línea. */
-export function posLineChargesFinalPrice(line) {
-  return Boolean(posSaleItemPriceFields(line)?.priceFinal);
+export function posLineChargesFinalPrice(line, options) {
+  return Boolean(posSaleItemPriceFields(line, options)?.priceFinal);
 }
 
-export function buildPosSaleItem(line) {
+export function buildPosSaleItem(line, options) {
   const item = {
     productId: line.productId,
     colorId: line.colorId || null,
@@ -78,7 +106,7 @@ export function buildPosSaleItem(line) {
   if (line.extraRequest) {
     item.extraRequestId = line.extraRequest.id;
   }
-  const price = posSaleItemPriceFields(line);
+  const price = posSaleItemPriceFields(line, options);
   if (price) {
     item.unitPrice = price.unitPrice;
     item.priceFinal = price.priceFinal;

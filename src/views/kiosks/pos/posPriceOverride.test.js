@@ -88,6 +88,25 @@ describe("buildPosSaleItem", () => {
     expect(item.priceFinal).toBeUndefined();
   });
 
+  test("without edit permission only a standard catalog-zero amount is sent", () => {
+    const catalogZero = buildPosSaleItem(line({
+      catalogUnitPrice: 0,
+      unitPrice: 15,
+      priceEdited: true,
+      unitPriceEdited: false,
+    }), { canEditPrices: false });
+    expect(catalogZero).toMatchObject({ unitPrice: 15, priceFinal: true });
+
+    const finalChip = buildPosSaleItem(line({
+      catalogUnitPrice: 100,
+      unitPrice: 100,
+      priceEdited: true,
+      unitPriceEdited: false,
+    }), { canEditPrices: false });
+    expect(finalChip.unitPrice).toBeUndefined();
+    expect(finalChip.priceFinal).toBeUndefined();
+  });
+
   test("catalog zero sends unitPrice and priceFinal true unless the chip is Con desc.", () => {
     const finalPrice = buildPosSaleItem(line({
       catalogUnitPrice: 0,
@@ -250,6 +269,68 @@ describe("PosCheckoutModal cash check", () => {
   });
 });
 
+const entrecuerosAuth = { entrecueros: true, canEditPrices: true };
+
+describe("Entrecueros unitPrice matches volume", () => {
+  test("Final chip without a typed amount sends nothing and stays in volume", () => {
+    const row = casual(5, {
+      unitPrice: 110,
+      catalogUnitPrice: 125,
+      priceEdited: true,
+      unitPriceEdited: false,
+    });
+    const item = buildPosSaleItem(row, entrecuerosAuth);
+    expect(item.unitPrice).toBeUndefined();
+    expect(item.priceFinal).toBeUndefined();
+    expect(cartLinesForEntrecuerosVolume([row], entrecuerosAuth)).toHaveLength(1);
+    expect(applyEntrecuerosCartPrices([row], entrecuerosAuth)[0].unitPrice).toBe(110);
+  });
+
+  test("catalog-zero line priced by the Entrecueros list sends nothing", () => {
+    const [priced] = applyEntrecuerosCartPrices([
+      casual(1, {
+        catalogUnitPrice: 0,
+        unitPrice: 0,
+        priceEdited: true,
+        unitPriceEdited: false,
+      }),
+    ], entrecuerosAuth);
+    expect(priced.unitPrice).toBe(125);
+    const item = buildPosSaleItem(priced, entrecuerosAuth);
+    expect(item.unitPrice).toBeUndefined();
+    expect(item.priceFinal).toBeUndefined();
+    expect(cartLinesForEntrecuerosVolume([priced], entrecuerosAuth)).toHaveLength(1);
+  });
+
+  test("typed amount by an authorized user sends unitPrice and is left out of volume", () => {
+    const edited = casual(1, {
+      productId: "CASUAL-B",
+      productCode: "C-B",
+      unitPrice: 40,
+      unitPriceEdited: true,
+      priceEdited: false,
+    });
+    const other = casual(5, { productId: "CASUAL-A", productCode: "C-A" });
+    const item = buildPosSaleItem(edited, entrecuerosAuth);
+    expect(item).toMatchObject({ unitPrice: 40, priceFinal: false });
+    const volume = cartLinesForEntrecuerosVolume([other, edited], entrecuerosAuth);
+    expect(volume.map((row) => row.productId)).toEqual(["CASUAL-A"]);
+    expect(applyEntrecuerosCartPrices([other, edited], entrecuerosAuth).map((row) => row.unitPrice))
+      .toEqual([110, 40]);
+  });
+
+  test("without edit permission a typed Entrecueros price is not sent and stays in volume", () => {
+    const edited = casual(6, { unitPrice: 50, unitPriceEdited: true });
+    const kiosk = { entrecueros: true, canEditPrices: false };
+    const item = buildPosSaleItem(edited, kiosk);
+    expect(item.unitPrice).toBeUndefined();
+    expect(item.priceFinal).toBeUndefined();
+    expect(cartLinesForEntrecuerosVolume([edited], kiosk)).toHaveLength(1);
+    const priced = applyEntrecuerosCartPrices([edited, billetera(1)], kiosk);
+    expect(priced.map((row) => row.unitPrice)).toEqual([95, 65]);
+  });
+});
+
 describe("applyEntrecuerosCartPrices edited lines", () => {
   test("keeps the edited price and does not move the other line's tier", () => {
     const edited = casual(1, {
@@ -259,7 +340,7 @@ describe("applyEntrecuerosCartPrices edited lines", () => {
       unitPriceEdited: true,
     });
     const other = casual(5, { productId: "CASUAL-A", productCode: "C-A" });
-    const priced = applyEntrecuerosCartPrices([other, edited]);
+    const priced = applyEntrecuerosCartPrices([other, edited], { canEditPrices: true });
 
     expect(priced[0].unitPrice).toBe(110);
     expect(priced[0].lineTotal).toBe(550);
@@ -272,14 +353,14 @@ describe("applyEntrecuerosCartPrices edited lines", () => {
       casual(1, { productId: "CASUAL-B", productCode: "C-B" }),
     ]);
     expect(counted.map((row) => row.unitPrice)).toEqual([95, 95]);
-    expect(cartLinesForEntrecuerosVolume([other, edited])).toHaveLength(1);
+    expect(cartLinesForEntrecuerosVolume([other, edited], { canEditPrices: true })).toHaveLength(1);
   });
 
   test("an edited line does not unlock the wholesale tier for another type", () => {
     const priced = applyEntrecuerosCartPrices([
       casual(6, { unitPrice: 50, unitPriceEdited: true }),
       billetera(1),
-    ]);
+    ], { canEditPrices: true });
     expect(priced[0].unitPrice).toBe(50);
     expect(priced[1].unitPrice).toBe(125);
   });

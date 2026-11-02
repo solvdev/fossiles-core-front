@@ -7,7 +7,7 @@ import {
 } from "utils/productAudienceHelper";
 import { hasInventorySizeBreakdown } from "utils/inventoryVariantHelper";
 import { isPackagingProductCode } from "utils/kioskPackagingHelper";
-import { posLineChargesFinalPrice, cartLinesForEntrecuerosVolume, isUnitPriceEdited } from "./posPriceOverride";
+import { posLineChargesFinalPrice, cartLinesForEntrecuerosVolume, entrecuerosLineSendsUnitPrice } from "./posPriceOverride";
 import {
   appendWalletMaterialToProductName,
   extractStockBrand,
@@ -1019,11 +1019,15 @@ const preservedCatalogUnitPrice = (line, unitPrice) => {
   return unitPrice;
 };
 
-export const applyEntrecuerosCartPrices = (cart) => {
-  // Líneas con precio editado no suman al volumen ni cambian el tramo del resto.
-  const { qtyByKey, courtesyActive } = entrecuerosCartQuantities(cartLinesForEntrecuerosVolume(cart));
+export const applyEntrecuerosCartPrices = (cart, { canEditPrices = false } = {}) => {
+  // Misma regla que el payload: solo el monto tecleado por alguien autorizado
+  // sale del volumen. El resto lo tasa la lista.
+  const volumeOptions = { canEditPrices };
+  const { qtyByKey, courtesyActive } = entrecuerosCartQuantities(
+    cartLinesForEntrecuerosVolume(cart, volumeOptions)
+  );
   return (cart || []).map((line) => {
-    if (isUnitPriceEdited(line)) {
+    if (entrecuerosLineSendsUnitPrice(line, volumeOptions)) {
       const unitPrice = Number(line.unitPrice);
       const safeUnit = Number.isFinite(unitPrice) ? unitPrice : 0;
       const quantity = Number(line.quantity || 0);

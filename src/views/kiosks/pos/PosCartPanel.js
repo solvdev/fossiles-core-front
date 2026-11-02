@@ -12,7 +12,7 @@ import {
   parsePosQty,
   describeEntrecuerosPriceState,
 } from "./posUtils";
-import { cartLinesForEntrecuerosVolume, isUnitPriceEdited } from "./posPriceOverride";
+import { cartLinesForEntrecuerosVolume, entrecuerosLineSendsUnitPrice } from "./posPriceOverride";
 import {
   EXTRA_APPROVED,
   EXTRA_PENDING,
@@ -59,8 +59,10 @@ function PosCartPanel({
     return map;
   }, [cart]);
   const entrecuerosVolume = useMemo(
-    () => (entrecueros ? entrecuerosCartQuantities(cartLinesForEntrecuerosVolume(cart)) : null),
-    [cart, entrecueros]
+    () => (entrecueros
+      ? entrecuerosCartQuantities(cartLinesForEntrecuerosVolume(cart, { canEditPrices }))
+      : null),
+    [cart, entrecueros, canEditPrices]
   );
   const wholesaleUnlocked = Boolean(entrecuerosVolume?.courtesyActive);
   return (
@@ -258,7 +260,7 @@ function PosCartPanel({
                     {formatCurrency(lineTotalWithExtra(line))}
                   </div>
                 </div>
-                {priceState && priceState.tiers.length > 0 && !isUnitPriceEdited(line) && (
+                {priceState && priceState.tiers.length > 0 && !entrecuerosLineSendsUnitPrice(line, { canEditPrices }) && (
                   <div className="kiosk-pos-tier-block">
                     <div className="kiosk-pos-tier-row">
                       {priceState.tiers.map((tier) => (

@@ -431,7 +431,9 @@ function KioskSales() {
         const next = prev.map((line) =>
           line.key === key ? { ...line, quantity: nextQty } : line
         );
-        return isEntrecuerosPos ? applyEntrecuerosCartPrices(next) : next;
+        return isEntrecuerosPos
+          ? applyEntrecuerosCartPrices(next, { canEditPrices: canEditPosPrices })
+          : next;
       }
       const basePrice = Number(inventoryItem.suggestedUnitPrice || 0);
       const catalogUnitPrice = size
@@ -474,7 +476,9 @@ function KioskSales() {
           cinchoType: inventoryItem.cinchoType,
         },
       ];
-      return isEntrecuerosPos ? applyEntrecuerosCartPrices(next) : next;
+      return isEntrecuerosPos
+        ? applyEntrecuerosCartPrices(next, { canEditPrices: canEditPosPrices })
+        : next;
     });
   };
 
@@ -532,7 +536,9 @@ function KioskSales() {
         }
         return { ...line, ...patch };
       });
-      return isEntrecuerosPos ? applyEntrecuerosCartPrices(next) : next;
+      return isEntrecuerosPos
+        ? applyEntrecuerosCartPrices(next, { canEditPrices: canEditPosPrices })
+        : next;
     });
   };
 
@@ -543,7 +549,9 @@ function KioskSales() {
     }
     setCart((prev) => {
       const next = prev.filter((line) => line.key !== key);
-      return isEntrecuerosPos ? applyEntrecuerosCartPrices(next) : next;
+      return isEntrecuerosPos
+        ? applyEntrecuerosCartPrices(next, { canEditPrices: canEditPosPrices })
+        : next;
     });
   };
 
@@ -553,7 +561,9 @@ function KioskSales() {
     cancelExtraRequestsOfLines([line]);
     setCart((prev) => {
       const next = mergeExtraBack(prev, line.key);
-      return isEntrecuerosPos ? applyEntrecuerosCartPrices(next) : next;
+      return isEntrecuerosPos
+        ? applyEntrecuerosCartPrices(next, { canEditPrices: canEditPosPrices })
+        : next;
     });
   };
 
@@ -575,7 +585,9 @@ function KioskSales() {
       });
       setCart((prev) => {
         const next = splitLineForExtra(prev, line.key, pieces, request);
-        return isEntrecuerosPos ? applyEntrecuerosCartPrices(next) : next;
+        return isEntrecuerosPos
+          ? applyEntrecuerosCartPrices(next, { canEditPrices: canEditPosPrices })
+          : next;
       });
       setExtraModalLine(null);
       showSuccess(`Solicitud ${request.requestNumber || ""} enviada. Espera la autorización para cobrar.`.trim());
@@ -635,7 +647,9 @@ function KioskSales() {
       const lacking = lines.filter(
         (line) => Number(line.quantity || 0) + siblingQty(lines, line) > Number(line.availableQty || 0)
       );
-      setCart(isEntrecuerosPos ? applyEntrecuerosCartPrices(lines) : lines);
+      setCart(isEntrecuerosPos
+        ? applyEntrecuerosCartPrices(lines, { canEditPrices: canEditPosPrices })
+        : lines);
       setSelectedPromotionId(parsed.selectedPromotionId);
       setNotes(parsed.notes);
       setComments(parsed.comments);
@@ -848,7 +862,10 @@ function KioskSales() {
           ? String(checkoutData.shippingSheetNumber || "").trim() || null
           : null,
         saleDate: today,
-        items: cart.map((line) => buildPosSaleItem(line)),
+        items: cart.map((line) => buildPosSaleItem(line, {
+          entrecueros: isEntrecuerosPos,
+          canEditPrices: canEditPosPrices,
+        })),
       });
 
       if (saleNeedsFelCertification(sale)) {
@@ -1421,6 +1438,7 @@ function KioskSales() {
                         lockFinalPrices={isEntrecuerosPos}
                         posMode={selectedKioskPosMode}
                         cart={cart}
+                        canEditPrices={canEditPosPrices}
                       />
                     </>
                   )}

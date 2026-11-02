@@ -21,7 +21,7 @@ import {
   entrecuerosVolumeKey,
   lineReceivesEntrecuerosCourtesy,
 } from "utils/entrecuerosPriceLists";
-import { cartLinesForEntrecuerosVolume, isUnitPriceEdited } from "./posPriceOverride";
+import { cartLinesForEntrecuerosVolume, entrecuerosLineSendsUnitPrice } from "./posPriceOverride";
 
 const QUICK_CASH = [50, 100, 200, 500];
 
@@ -57,6 +57,7 @@ function PosCheckoutModal({
   lockFinalPrices = false,
   posMode = "STANDARD",
   cart = [],
+  canEditPrices = false,
 }) {
   const [paymentMethod, setPaymentMethod] = useState("EFECTIVO");
   const [amountReceived, setAmountReceived] = useState("");
@@ -88,7 +89,7 @@ function PosCheckoutModal({
   const paymentMethods = entrecueros ? ENTRECUEROS_PAYMENT_METHODS : PAYMENT_METHODS;
   const checkoutTiers = useMemo(() => {
     if (!entrecueros) return [];
-    const volumeCart = cartLinesForEntrecuerosVolume(cart);
+    const volumeCart = cartLinesForEntrecuerosVolume(cart, { canEditPrices });
     const { qtyByKey, courtesyActive } = entrecuerosCartQuantities(volumeCart);
     const seen = new Set();
     const rows = volumeCart.reduce((acc, line) => {
@@ -110,7 +111,7 @@ function PosCheckoutModal({
       return acc;
     }, []);
     (cart || []).forEach((line) => {
-      if (!isUnitPriceEdited(line)) return;
+      if (!entrecuerosLineSendsUnitPrice(line, { canEditPrices })) return;
       rows.push({
         key: line.key || `${line.productId}-edited`,
         productId: line.productId,
@@ -123,7 +124,7 @@ function PosCheckoutModal({
       });
     });
     return rows;
-  }, [cart, entrecueros]);
+  }, [cart, entrecueros, canEditPrices]);
 
   useEffect(() => {
     if (!isOpen) return;
