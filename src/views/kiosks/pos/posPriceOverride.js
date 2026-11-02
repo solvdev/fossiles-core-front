@@ -36,9 +36,11 @@ export function cartLinesForEntrecuerosVolume(cart) {
  * Campos de precio para POST /kiosk-pos/sales.
  * null = no enviar unitPrice ni priceFinal.
  *
- * - unitPriceEdited: se envía el monto y priceFinal según el chip.
- * - Catálogo en 0 con monto > 0: se envía unitPrice (igual que hoy) y priceFinal
- *   true, salvo que el chip esté en Con desc.
+ * - Chip Final: se envía el precio actual de la línea y priceFinal true, aunque
+ *   el cajero no haya tecleado otro monto.
+ * - unitPriceEdited en Con desc.: se envía el monto tecleado y priceFinal false.
+ * - Catálogo en 0 con monto > 0: se envía unitPrice y priceFinal según el chip.
+ * - Con desc. sin monto editado, y líneas sin Final: no se envía nada.
  * - Empaque: sin chip; si se envía el monto capturado, queda final.
  */
 export function posSaleItemPriceFields(line) {
@@ -52,10 +54,11 @@ export function posSaleItemPriceFields(line) {
     return null;
   }
 
-  if (!isUnitPriceEdited(line) && !isCatalogZeroPosLine(line)) return null;
+  const finalChip = isPosPriceFinalChip(line);
+  if (!isUnitPriceEdited(line) && !isCatalogZeroPosLine(line) && !finalChip) return null;
   return {
     unitPrice,
-    priceFinal: isPosPriceFinalChip(line),
+    priceFinal: finalChip,
   };
 }
 

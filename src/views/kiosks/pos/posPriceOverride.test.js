@@ -1,4 +1,7 @@
-import { applyEntrecuerosCartPrices, resolveCartDiscount } from "./posUtils";
+import { fireEvent, render, screen } from "@testing-library/react";
+import "@testing-library/jest-dom";
+import PosCheckoutModal from "./PosCheckoutModal";
+import { applyEntrecuerosCartPrices, formatCurrency, resolveCartDiscount } from "./posUtils";
 import {
   buildPosSaleItem,
   canEditPosPrices,
@@ -63,11 +66,22 @@ describe("buildPosSaleItem", () => {
     expect(item).not.toHaveProperty("priceOverride");
   });
 
-  test("not edited omits unitPrice and priceFinal even if the chip is Final", () => {
+  test("Final chip without a typed amount sends the current price and priceFinal true", () => {
     const item = buildPosSaleItem(line({
       catalogUnitPrice: 100,
       unitPrice: 100,
       priceEdited: true,
+      unitPriceEdited: false,
+    }));
+    expect(item).toMatchObject({ unitPrice: 100, priceFinal: true });
+    expect(item).not.toHaveProperty("priceOverride");
+  });
+
+  test("Con desc. without an edited amount sends nothing", () => {
+    const item = buildPosSaleItem(line({
+      catalogUnitPrice: 100,
+      unitPrice: 100,
+      priceEdited: false,
       unitPriceEdited: false,
     }));
     expect(item.unitPrice).toBeUndefined();
@@ -130,9 +144,10 @@ describe("POS charge total", () => {
     expect(chargedTotal(cart)).toBe(242);
   });
 
-  test("a Final chip without an edited amount still takes the discount", () => {
-    const cart = [line({ unitPrice: 100, priceEdited: true, unitPriceEdited: false })];
-    expect(chargedTotal(cart)).toBe(90);
+  test("a Final chip without an edited amount takes no discount", () => {
+    const cart = [line({ unitPrice: 100, catalogUnitPrice: 100, priceEdited: true, unitPriceEdited: false })];
+    expect(chargedTotal(cart)).toBe(100);
+    expect(buildPosSaleItem(cart[0])).toMatchObject({ unitPrice: 100, priceFinal: true });
   });
 
   test("catalog zero Con desc. discounts the captured price", () => {
@@ -170,6 +185,70 @@ function billetera(quantity, extra = {}) {
     ...extra,
   };
 }
+
+function renderCheckout(cart) {
+  const subtotal = cart.reduce(
+    (sum, row) => sum + Number(row.quantity || 0) * Number(row.unitPrice || 0),
+    0
+  );
+  const { discount } = resolveCartDiscount(cart, {
+    selectedPromotion: percent10,
+    promotions: [],
+    subtotal,
+  });
+  const total = chargedTotal(cart);
+  render(
+    <PosCheckoutModal
+      isOpen
+      onClose={() => {}}
+      cart={cart}
+      cartItemCount={cart.reduce((sum, row) => sum + Number(row.quantity || 0), 0)}
+      estimatedSubtotal={subtotal}
+      estimatedDiscount={discount}
+      estimatedTotal={total}
+      promotions={[percent10]}
+      selectedPromotionId={percent10.id}
+      onPromotionChange={() => {}}
+      notes=""
+      onNotesChange={() => {}}
+      comments=""
+      onCommentsChange={() => {}}
+      saving={false}
+      onConfirm={() => {}}
+      lockFinalPrices={false}
+      posMode="STANDARD"
+    />
+  );
+  return { subtotal, discount, total };
+}
+
+describe("PosCheckoutModal cash check", () => {
+  test("Con desc. edited price with 10% discount charges chargedTotal", () => {
+    const cart = [line({
+      unitPrice: 80,
+      catalogUnitPrice: 100,
+      priceEdited: false,
+      unitPriceEdited: true,
+    })];
+    const { total, discount } = renderCheckout(cart);
+    expect(discount).toBe(8);
+    expect(total).toBe(72);
+    const confirm = screen.getByRole("button", { name: `Confirmar y facturar ${formatCurrency(total)}` });
+
+    expect(document.querySelector(".kiosk-pos-metric-value.primary")).toHaveTextContent(formatCurrency(total));
+    expect(screen.getByText(`Descuento aplicado: -${formatCurrency(discount)}`)).toBeInTheDocument();
+    expect(confirm).toBeDisabled();
+
+    const cash = document.querySelector(".kiosk-pos-cash-input");
+    fireEvent.change(cash, { target: { value: total.toFixed(2) } });
+    expect(confirm).toBeEnabled();
+    expect(screen.queryByText("El monto recibido no cubre el total")).not.toBeInTheDocument();
+
+    fireEvent.change(cash, { target: { value: (total - 0.01).toFixed(2) } });
+    expect(confirm).toBeDisabled();
+    expect(screen.getByText("El monto recibido no cubre el total")).toBeInTheDocument();
+  });
+});
 
 describe("applyEntrecuerosCartPrices edited lines", () => {
   test("keeps the edited price and does not move the other line's tier", () => {

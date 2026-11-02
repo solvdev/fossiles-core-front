@@ -113,8 +113,8 @@ function PosCartPanel({
         )}
         {canEditPrices ? (
           <div className="text-muted small mb-2">
-            Precio editable: cambia el monto y elige <strong>Con desc.</strong> o <strong>Final</strong>{" "}
-            (no aplica a empaques). Final cobra ese monto sin descuento; Con desc. aplica el descuento sobre ese monto.
+            Precio editable: <strong>Final</strong> cobra el monto sin descuento; <strong>Con desc.</strong>{" "}
+            aplica el descuento. Si cambias el monto, ese es el precio que se factura (no aplica a empaques).
           </div>
         ) : null}
 
