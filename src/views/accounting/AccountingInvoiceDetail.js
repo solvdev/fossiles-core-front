@@ -24,6 +24,14 @@ import { formatDateTimeGt } from "utils/dateTimeHelper";
 import { useAuth } from "contexts/AuthContext";
 import { canEditTaxInvoiceFel } from "utils/taxInvoiceEditHelper";
 import TaxInvoiceVoidModal from "components/accounting/TaxInvoiceVoidModal";
+import TaxInvoiceNoteModal from "components/accounting/TaxInvoiceNoteModal";
+
+const DOCUMENT_TYPE_LABELS = {
+  FACT: "Factura",
+  FCAM: "Factura cambiaria",
+  NCRE: "Nota de crédito",
+  NDEB: "Nota de débito",
+};
 
 const STATUS_COLORS = {
   CERTIFIED: "success",
@@ -53,6 +61,7 @@ function AccountingInvoiceDetail() {
   const [retrying, setRetrying] = useState(false);
   const [downloadingXml, setDownloadingXml] = useState(false);
   const [voidOpen, setVoidOpen] = useState(false);
+  const [noteOpen, setNoteOpen] = useState(false);
   const [error, setError] = useState("");
   const [openAttemptId, setOpenAttemptId] = useState(null);
 
@@ -107,6 +116,15 @@ function AccountingInvoiceDetail() {
   const canOpenVoid = canVoidFel
     && invoice?.status === "CERTIFIED"
     && invoice?.felUuid;
+  const isNote = ["NCRE", "NDEB"].includes(invoice?.documentType);
+  const documentLabel = DOCUMENT_TYPE_LABELS[invoice?.documentType] || "Factura";
+  const creditDebitNotes = invoice?.creditDebitNotes || [];
+  const canIssueNote = canVoidFel
+    && invoice?.creditDebitNotesEnabled
+    && !isNote
+    && invoice?.status === "CERTIFIED"
+    && invoice?.felUuid
+    && !invoice?.consumidorFinal;
 
   const handleDownloadFelReport = () => {
     try {
@@ -137,7 +155,7 @@ function AccountingInvoiceDetail() {
         <CardHeader>
           <Row className="align-items-center">
             <Col>
-              <CardTitle tag="h4">Factura {invoice.internalNumber || invoice.id}</CardTitle>
+              <CardTitle tag="h4">{documentLabel} {invoice.internalNumber || invoice.id}</CardTitle>
             </Col>
             <Col className="text-right">
               <Badge color={STATUS_COLORS[invoice.status] || "secondary"} className="mr-2">
@@ -151,6 +169,11 @@ function AccountingInvoiceDetail() {
               {canDownloadFelReport && (
                 <Button color="primary" size="sm" outline className="mr-2" onClick={handleDownloadFelReport}>
                   Descargar factura
+                </Button>
+              )}
+              {canIssueNote && (
+                <Button color="info" size="sm" className="mr-2" onClick={() => setNoteOpen(true)}>
+                  Emitir nota de crédito/débito
                 </Button>
               )}
               {canOpenVoid && (
@@ -180,7 +203,28 @@ function AccountingInvoiceDetail() {
 
           <Row className="mb-3">
             <Col md="6">
-              <p><strong>Origen:</strong> {invoice.sourceType}{invoice.sourceId ? ` #${invoice.sourceId}` : ""}</p>
+              {isNote ? (
+                <>
+                  <p>
+                    <strong>Factura origen:</strong>{" "}
+                    <Button
+                      color="link"
+                      className="p-0 align-baseline"
+                      onClick={() => navigate(`/admin/accounting/invoices/${invoice.originInvoiceId}`)}
+                    >
+                      {invoice.originInternalNumber || `#${invoice.originInvoiceId}`}
+                    </Button>
+                    {(invoice.originFelSerie || invoice.originFelNumero) && (
+                      <span className="text-muted"> · {invoice.originFelSerie || "—"} / {invoice.originFelNumero || "—"}</span>
+                    )}
+                  </p>
+                  {invoice.adjustmentReason && (
+                    <p><strong>Motivo del ajuste:</strong> {invoice.adjustmentReason}</p>
+                  )}
+                </>
+              ) : (
+                <p><strong>Origen:</strong> {invoice.sourceType}{invoice.sourceId ? ` #${invoice.sourceId}` : ""}</p>
+              )}
               <p><strong>Cliente:</strong> {invoice.customerName || "—"}</p>
               <p><strong>NIT:</strong> {invoice.customerTaxId || "—"}</p>
               <p><strong>Fecha emisión:</strong> {invoice.issuedAt ? formatDateTimeGt(invoice.issuedAt) : "—"}</p>
@@ -248,6 +292,82 @@ function AccountingInvoiceDetail() {
           </Table>
         </CardBody>
       </Card>
+
+      {!isNote && (creditDebitNotes.length > 0 || canIssueNote) && (
+        <Card className="mb-4">
+          <CardHeader>
+            <Row className="align-items-center">
+              <Col>
+                <CardTitle tag="h4" className="mb-0">
+                  Notas de crédito/débito ({creditDebitNotes.length})
+                </CardTitle>
+              </Col>
+              <Col className="text-right">
+                <span className="text-muted">
+                  Saldo de la factura: <strong>{formatCurrency(invoice.noteBalance ?? invoice.totalAmount)}</strong>
+                </span>
+              </Col>
+            </Row>
+          </CardHeader>
+          <CardBody>
+            {creditDebitNotes.length === 0 ? (
+              <p className="text-muted mb-0">Esta factura no tiene notas ligadas.</p>
+            ) : (
+              <Table responsive hover size="sm" className="mb-0">
+                <thead>
+                  <tr>
+                    <th>Número</th>
+                    <th>Tipo</th>
+                    <th>Fecha</th>
+                    <th>Motivo</th>
+                    <th>Total</th>
+                    <th>Estado</th>
+                    <th>Serie / Número</th>
+                    <th />
+                  </tr>
+                </thead>
+                <tbody>
+                  {creditDebitNotes.map((note) => (
+                    <tr key={note.id}>
+                      <td>{note.internalNumber || note.id}</td>
+                      <td>{DOCUMENT_TYPE_LABELS[note.documentType] || note.documentType}</td>
+                      <td>{note.issuedAt ? formatDateTimeGt(note.issuedAt) : "—"}</td>
+                      <td>{note.adjustmentReason || "—"}</td>
+                      <td>
+                        {note.documentType === "NCRE" ? "−" : "+"}
+                        {formatCurrency(note.totalAmount)}
+                      </td>
+                      <td>
+                        <Badge color={STATUS_COLORS[note.status] || "secondary"}>{note.status}</Badge>
+                        {note.felError && (
+                          <div className="small text-danger mt-1" title={note.felError}>
+                            {note.felError.length > 60 ? `${note.felError.slice(0, 60)}…` : note.felError}
+                          </div>
+                        )}
+                      </td>
+                      <td>{note.felSerie || "—"} / {note.felNumero || "—"}</td>
+                      <td className="text-right">
+                        <Button
+                          color="link"
+                          size="sm"
+                          className="p-0"
+                          onClick={() => navigate(`/admin/accounting/invoices/${note.id}`)}
+                        >
+                          Ver detalle
+                        </Button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </Table>
+            )}
+            <p className="text-muted small mt-2 mb-0">
+              Saldo = total de la factura + notas de débito − notas de crédito certificadas. Para anular la
+              factura primero anule sus notas vigentes (SAT).
+            </p>
+          </CardBody>
+        </Card>
+      )}
 
       <Card>
         <CardHeader>
@@ -338,6 +458,13 @@ function AccountingInvoiceDetail() {
       <TaxInvoiceVoidModal
         isOpen={voidOpen}
         onClose={() => setVoidOpen(false)}
+        invoice={invoice}
+        onSuccess={loadInvoice}
+      />
+
+      <TaxInvoiceNoteModal
+        isOpen={noteOpen}
+        onClose={() => setNoteOpen(false)}
         invoice={invoice}
         onSuccess={loadInvoice}
       />

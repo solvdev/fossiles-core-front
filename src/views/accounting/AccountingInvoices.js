@@ -39,6 +39,12 @@ const SOURCE_LABELS = {
   MANUAL: "Manual",
   KIOSK_SALE: "POS Kiosko",
   ONLINE_SALE: "Venta online",
+  FEL_NOTE: "Nota crédito/débito",
+};
+
+const NOTE_TYPE_LABELS = {
+  NCRE: "Nota de crédito",
+  NDEB: "Nota de débito",
 };
 
 const STATUS_LABELS = {
@@ -489,6 +495,7 @@ function AccountingInvoices() {
                   <option value="MANUAL">Manual</option>
                   <option value="KIOSK_SALE">POS Kiosko</option>
                   <option value="ONLINE_SALE">Venta online</option>
+                  <option value="FEL_NOTE">Notas crédito/débito</option>
                 </Input>
               </FormGroup>
             </Col>
@@ -633,7 +640,14 @@ function AccountingInvoices() {
                   const firmaBadge = resolveFirmaBadge(invoice.status);
                   return (
                     <tr key={invoice.id}>
-                      <td>{invoice.internalNumber || invoice.id}</td>
+                      <td>
+                        {invoice.internalNumber || invoice.id}
+                        {NOTE_TYPE_LABELS[invoice.documentType] && (
+                          <div>
+                            <Badge color="info">{NOTE_TYPE_LABELS[invoice.documentType]}</Badge>
+                          </div>
+                        )}
+                      </td>
                       <td>{invoice.issuedAt ? formatDateTimeGt(invoice.issuedAt) : "—"}</td>
                       <td>{SOURCE_LABELS[invoice.sourceType] || invoice.sourceType}</td>
                       <td>{invoice.customerName || "—"}</td>
