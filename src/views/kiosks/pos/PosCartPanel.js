@@ -112,7 +112,7 @@ function PosCartPanel({
         )}
         {canEditPrices ? (
           <div className="text-muted small mb-2">
-            Miraflores: toca la etiqueta <strong>Con desc.</strong> / <strong>Final</strong> en cada
+            Precio editable: toca la etiqueta <strong>Con desc.</strong> / <strong>Final</strong> en cada
             producto (no aplica a empaques). Final = cobra ese precio sin descuento.
           </div>
         ) : null}
