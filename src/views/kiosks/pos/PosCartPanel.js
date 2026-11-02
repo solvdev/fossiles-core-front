@@ -12,6 +12,7 @@ import {
   parsePosQty,
   describeEntrecuerosPriceState,
 } from "./posUtils";
+import { cartLinesForEntrecuerosVolume, isUnitPriceEdited } from "./posPriceOverride";
 import {
   EXTRA_APPROVED,
   EXTRA_PENDING,
@@ -58,7 +59,7 @@ function PosCartPanel({
     return map;
   }, [cart]);
   const entrecuerosVolume = useMemo(
-    () => (entrecueros ? entrecuerosCartQuantities(cart) : null),
+    () => (entrecueros ? entrecuerosCartQuantities(cartLinesForEntrecuerosVolume(cart)) : null),
     [cart, entrecueros]
   );
   const wholesaleUnlocked = Boolean(entrecuerosVolume?.courtesyActive);
@@ -112,8 +113,8 @@ function PosCartPanel({
         )}
         {canEditPrices ? (
           <div className="text-muted small mb-2">
-            Precio editable: toca la etiqueta <strong>Con desc.</strong> / <strong>Final</strong> en cada
-            producto (no aplica a empaques). Final = cobra ese precio sin descuento.
+            Precio editable: <strong>Final</strong> cobra el monto sin descuento; <strong>Con desc.</strong>{" "}
+            aplica el descuento. Si cambias el monto, ese es el precio que se factura (no aplica a empaques).
           </div>
         ) : null}
 
@@ -257,7 +258,7 @@ function PosCartPanel({
                     {formatCurrency(lineTotalWithExtra(line))}
                   </div>
                 </div>
-                {priceState && priceState.tiers.length > 0 && (
+                {priceState && priceState.tiers.length > 0 && !isUnitPriceEdited(line) && (
                   <div className="kiosk-pos-tier-block">
                     <div className="kiosk-pos-tier-row">
                       {priceState.tiers.map((tier) => (

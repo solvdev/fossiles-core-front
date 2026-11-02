@@ -103,6 +103,7 @@ import {
   applyEntrecuerosCartPrices,
   parsePosQty,
 } from "./pos/posUtils";
+import { buildPosSaleItem, canEditPosPrices as userCanEditPosPrices } from "./pos/posPriceOverride";
 import { getHardwareConditionLabel } from "utils/productCinchoHelper";
 import "./KioskSales.css";
 
@@ -436,6 +437,12 @@ function KioskSales() {
       const catalogUnitPrice = size
         ? resolveCinchoUnitPriceWithSize(basePrice, size)
         : basePrice;
+      const packagingLine =
+        Boolean(inventoryItem.isPackaging)
+        || isPackagingProductCode(inventoryItem.productCode)
+        || isPackagingProductCode(inventoryItem.code);
+      // Catálogo en 0 arranca en Final: se factura ese monto salvo que elijan Con desc.
+      const catalogZero = !(catalogUnitPrice > 0);
       const next = [
         ...prev,
         {
@@ -452,16 +459,14 @@ function KioskSales() {
           audienceCategory: inventoryItem.audienceCategory || "UNISEX",
           categoryId: inventoryItem.categoryId ?? null,
           categoryName: inventoryItem.categoryName || "",
-          isPackaging:
-            Boolean(inventoryItem.isPackaging)
-            || isPackagingProductCode(inventoryItem.productCode)
-            || isPackagingProductCode(inventoryItem.code),
+          isPackaging: packagingLine,
           packaging: inventoryItem.packaging,
           availableQty,
           quantity: 1,
           catalogUnitPrice,
           unitPrice: catalogUnitPrice,
-          priceEdited: false,
+          priceEdited: catalogZero && !packagingLine,
+          unitPriceEdited: false,
           entrecuerosPriceUnit: inventoryItem.entrecuerosPriceUnit,
           entrecuerosPriceQty3: inventoryItem.entrecuerosPriceQty3,
           entrecuerosPriceQty6: inventoryItem.entrecuerosPriceQty6,
@@ -512,10 +517,11 @@ function KioskSales() {
             );
             return line;
           }
-          // Cambiar el monto no decide el descuento: eso lo controla el botón Final / Con desc.
+          // El monto editado es explícito. El chip Final / Con desc. solo decide priceFinal.
           return {
             ...line,
             unitPrice: nextPrice,
+            unitPriceEdited: true,
           };
         }
         if (patch.priceEdited != null) {
@@ -723,7 +729,8 @@ function KioskSales() {
       };
     }
 
-    // Líneas priceEdited no entran al descuento (precio final); el resto sí.
+    // priceFinal (monto capturado en Final) no entra al descuento.
+    // Con desc. sí: el porcentaje se calcula sobre el unitPrice editado.
     const resolved = resolveCartDiscount(cart, {
       selectedPromotion,
       promotions,
@@ -841,28 +848,7 @@ function KioskSales() {
           ? String(checkoutData.shippingSheetNumber || "").trim() || null
           : null,
         saleDate: today,
-        items: cart.map((line) => {
-          const item = {
-            productId: line.productId,
-            colorId: line.colorId || null,
-            size: line.size || null,
-            hardwareCondition: line.hardwareCondition || "NUEVO",
-            quantity: Number(line.quantity || 0),
-          };
-          // Complemento autorizado: el servidor valida la solicitud y calcula el precio (base + extra).
-          if (line.extraRequest) {
-            item.extraRequestId = line.extraRequest.id;
-          }
-          // Precio final sin descuento: modo Final, o catálogo en 0 con monto capturado en caja.
-          const catalogZero = !(Number(line.catalogUnitPrice) > 0);
-          if (
-            Number(line.unitPrice) > 0
-            && (line.priceEdited || catalogZero)
-          ) {
-            item.unitPrice = Number(line.unitPrice);
-          }
-          return item;
-        }),
+        items: cart.map((line) => buildPosSaleItem(line)),
       });
 
       if (saleNeedsFelCertification(sale)) {
@@ -1132,13 +1118,15 @@ function KioskSales() {
     return context.kioskCode || "";
   }, [context, selectedKioskId]);
 
-  // Miraflores siempre; administración (ve todos los kioscos) en cualquier kiosco.
-  const canEditPosPrices = useMemo(() => {
-    if (context?.admin) return true;
-    const code = String(selectedKioskCode || "").trim().toUpperCase();
-    const name = String(selectedKioskName || "").trim().toUpperCase();
-    return code === "A15" || name.includes("MIRAFLORES");
-  }, [context, selectedKioskCode, selectedKioskName]);
+  // Admin y Miraflores, también en Entrecueros. El kiosko común no edita.
+  const canEditPosPrices = useMemo(
+    () => userCanEditPosPrices({
+      admin: Boolean(context?.admin),
+      kioskCode: selectedKioskCode,
+      kioskName: selectedKioskName,
+    }),
+    [context, selectedKioskCode, selectedKioskName]
+  );
 
   const selectedKioskOpeningCash = useMemo(() => {
     if (!context) return 300;
@@ -1317,7 +1305,7 @@ function KioskSales() {
                               onCancelSale={cancelSale}
                               onApplyPromotion={() => void openCheckout()}
                               disabled={!cashSessionOpen || saving}
-                              canEditPrices={canEditPosPrices && !isEntrecuerosPos}
+                              canEditPrices={canEditPosPrices}
                               entrecueros={isEntrecuerosPos}
                               onRequestExtra={setExtraModalLine}
                               onRemoveExtra={removeExtraFromLine}
