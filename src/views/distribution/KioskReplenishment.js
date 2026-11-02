@@ -201,7 +201,9 @@ function KioskReplenishment() {
                 <strong>A</strong>: se rellena hasta el máximo aunque tenga stock ·{" "}
                 <strong>B</strong>: se repone si está bajo el mínimo o si es de alta venta / artículo base ·{" "}
                 <strong>C</strong>: solo hasta el mínimo y no se marca por defecto. Con poco stock en bodega se
-                atiende primero A, luego B y C. Los kioscos sin categoría en Finanzas se clasifican por su venta.
+                atiende primero A, luego B y C. Solo se reponen productos que el kiosco vendió en el periodo; lo
+                demás se agrega a mano con «Revisar y agregar». Los kioscos sin categoría en Finanzas se clasifican
+                por su venta.
               </Alert>
 
               {loading && !data ? (
