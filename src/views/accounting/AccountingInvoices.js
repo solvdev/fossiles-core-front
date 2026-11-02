@@ -4,7 +4,6 @@ import {
   Alert,
   Badge,
   Button,
-  ButtonGroup,
   Card,
   CardBody,
   CardHeader,
@@ -13,6 +12,9 @@ import {
   FormGroup,
   Input,
   Label,
+  Nav,
+  NavItem,
+  NavLink,
   Row,
   Spinner,
   Table,
@@ -28,73 +30,67 @@ import {
   listTaxInvoices,
   retryTaxInvoice,
 } from "services/taxInvoiceService";
-import { formatDateTimeGt } from "utils/dateTimeHelper";
+import {
+  formatDateTimeGt,
+  getMonthStartYmdGuatemala,
+  getTodayYmdGuatemala,
+  shiftYmdGuatemala,
+} from "utils/dateTimeHelper";
 import { canEditTaxInvoiceFel } from "utils/taxInvoiceEditHelper";
+import {
+  TAX_INVOICE_DOCUMENT_TYPES,
+  TAX_INVOICE_SOURCE_LABELS,
+  formatQuetzales,
+  taxInvoiceStatus,
+} from "utils/taxInvoiceLabels";
 import { showError, showSuccess } from "utils/notificationHelper";
 import { KIOSK_POS_ADMIN_TOOLS } from "config/kioskPosAdminTools";
 import KioskSaleRestoreModal from "components/accounting/KioskSaleRestoreModal";
 import TaxInvoiceVoidModal from "components/accounting/TaxInvoiceVoidModal";
 
-const SOURCE_LABELS = {
-  MANUAL: "Manual",
-  KIOSK_SALE: "POS Kiosko",
-  ONLINE_SALE: "Venta online",
-};
+const PAGE_SIZE = 50;
 
-const STATUS_LABELS = {
-  CERTIFIED: "Certificada",
-  FAILED: "Error FEL",
-  DRAFT: "Borrador",
-  SKIPPED: "Omitida",
-  VOID: "Anulada",
-};
-
-const STATUS_COLORS = {
-  CERTIFIED: "success",
-  FAILED: "danger",
-  DRAFT: "secondary",
-  SKIPPED: "warning",
-  VOID: "dark",
-};
-
+/** Pestañas de estado: excluyentes, con conteo del resumen. */
 const CERTIFICATION_TABS = [
-  { id: "", label: "Todas" },
-  { id: "SIGNED", label: "Firmadas" },
-  { id: "UNSIGNED", label: "Sin firmar" },
-  { id: "ERROR", label: "Con error" },
-  { id: "VOID", label: "Anuladas" },
+  { id: "", label: "Todas", summaryKey: "total" },
+  { id: "SIGNED", label: "Certificadas", summaryKey: "certified", color: "success" },
+  { id: "UNSIGNED", label: "Sin firmar", summaryKey: "unsigned", color: "warning" },
+  { id: "ERROR", label: "Con error", summaryKey: "failed", color: "danger" },
+  { id: "VOID", label: "Anuladas", summaryKey: "voided", color: "dark" },
 ];
 
-/** Estados desde los que se puede reintentar certificación FEL. */
+/** Estados desde los que se puede firmar (certificar) FEL. */
 const CERTIFIABLE_STATUSES = new Set(["FAILED", "SKIPPED", "DRAFT"]);
 
-function resolveFirmaBadge(status) {
-  switch (String(status || "").toUpperCase()) {
-    case "CERTIFIED":
-      return { label: "Firmada", color: "success" };
-    case "FAILED":
-      return { label: "Error", color: "danger" };
-    case "DRAFT":
-    case "SKIPPED":
-      return { label: "Sin firmar", color: "warning" };
-    case "VOID":
-      return { label: "Anulada", color: "dark" };
-    default:
-      return { label: "—", color: "secondary" };
-  }
-}
+const previousMonthRange = () => {
+  const firstOfMonth = getMonthStartYmdGuatemala();
+  const lastOfPrevious = shiftYmdGuatemala(firstOfMonth, -1);
+  return { fromDate: `${lastOfPrevious.slice(0, 7)}-01`, toDate: lastOfPrevious };
+};
 
-function formatCurrency(value) {
-  const num = Number(value || 0);
-  return `Q ${num.toFixed(2)}`;
-}
+const DATE_PRESETS = [
+  { id: "month", label: "Este mes", range: () => ({ fromDate: getMonthStartYmdGuatemala(), toDate: "" }) },
+  { id: "previous", label: "Mes anterior", range: previousMonthRange },
+  { id: "all", label: "Todo", range: () => ({ fromDate: "", toDate: "" }) },
+];
+
+const defaultFilters = () => ({
+  search: "",
+  documentType: "",
+  sourceType: "",
+  fromDate: getMonthStartYmdGuatemala(),
+  toDate: "",
+  certificationFilter: "",
+  includeTests: false,
+});
+
+const formatCount = (value) => Number(value || 0).toLocaleString("en-US");
 
 function AccountingInvoices() {
   const navigate = useNavigate();
   const { hasRole, hasAnyRole, hasPermission } = useAuth();
-  const canCertify = hasPermission("CONTABILIDAD.FACTURAS.CERTIFICAR");
-  const canBackfillKioskSales = canEditTaxInvoiceFel({ hasRole, hasAnyRole, hasPermission });
-  const canVoidFel = canBackfillKioskSales;
+  const canManageFel = canEditTaxInvoiceFel({ hasRole, hasAnyRole, hasPermission });
+  const canBackfillKioskSales = canManageFel;
   const showTaxInvoiceBackfill = KIOSK_POS_ADMIN_TOOLS.taxInvoiceBackfill && canBackfillKioskSales;
   const showSaleRestore =
     KIOSK_POS_ADMIN_TOOLS.saleRestore
@@ -104,7 +100,6 @@ function AccountingInvoices() {
   const [invoices, setInvoices] = useState([]);
   const [summary, setSummary] = useState(null);
   const [loading, setLoading] = useState(false);
-  const [summaryLoading, setSummaryLoading] = useState(false);
   const [error, setError] = useState("");
   const [certifyingId, setCertifyingId] = useState(null);
   const [backfilling, setBackfilling] = useState(false);
@@ -113,35 +108,20 @@ function AccountingInvoices() {
   const [voidTargetInvoice, setVoidTargetInvoice] = useState(null);
   const [backfillKioskId, setBackfillKioskId] = useState("");
   const [kiosks, setKiosks] = useState([]);
-  const [filters, setFilters] = useState({
-    sourceType: "",
-    status: "",
-    internalNumber: "",
-    customerTaxId: "",
-    fromDate: "",
-    toDate: "",
-    certificationFilter: "",
-  });
-  const [knownInternalNumbers, setKnownInternalNumbers] = useState([]);
-
-  const loadSummary = async (nextFilters = filters) => {
-    try {
-      setSummaryLoading(true);
-      const data = await getTaxInvoiceSummary(nextFilters);
-      setSummary(data);
-    } catch (err) {
-      setSummary(null);
-    } finally {
-      setSummaryLoading(false);
-    }
-  };
+  const [filters, setFilters] = useState(defaultFilters);
+  const [page, setPage] = useState(0);
 
   const loadInvoices = async (nextFilters = filters) => {
     try {
       setLoading(true);
       setError("");
-      const data = await listTaxInvoices(nextFilters);
-      setInvoices(Array.isArray(data) ? data : []);
+      const [rows, counts] = await Promise.all([
+        listTaxInvoices(nextFilters),
+        getTaxInvoiceSummary(nextFilters).catch(() => null),
+      ]);
+      setInvoices(Array.isArray(rows) ? rows : []);
+      setSummary(counts);
+      setPage(0);
     } catch (err) {
       setError(err.message || "No se pudieron cargar las facturas.");
       setInvoices([]);
@@ -150,26 +130,11 @@ function AccountingInvoices() {
     }
   };
 
-  const reloadListAndSummary = async (nextFilters = filters) => {
-    await Promise.all([loadInvoices(nextFilters), loadSummary(nextFilters)]);
-  };
+  const reloadListAndSummary = (nextFilters = filters) => loadInvoices(nextFilters);
 
   useEffect(() => {
-    reloadListAndSummary();
+    loadInvoices();
   }, []);
-
-  useEffect(() => {
-    const numbers = (invoices || [])
-      .map((invoice) => invoice.internalNumber)
-      .filter(Boolean);
-    if (numbers.length === 0) return;
-    setKnownInternalNumbers((prev) => {
-      const merged = new Set([...prev, ...numbers]);
-      return [...merged].sort((a, b) =>
-        b.localeCompare(a, undefined, { numeric: true, sensitivity: "base" })
-      );
-    });
-  }, [invoices]);
 
   useEffect(() => {
     if (!showPosAdminTools) return;
@@ -183,34 +148,25 @@ function AccountingInvoices() {
   }, [showPosAdminTools]);
 
   const handleFilterChange = (field, value) => {
-    setFilters((prev) => {
-      const next = { ...prev, [field]: value };
-      if (field === "status" && value) {
-        next.certificationFilter = "";
-      }
-      return next;
-    });
+    setFilters((prev) => ({ ...prev, [field]: value }));
   };
 
-  const handleCertificationTab = (certificationFilter) => {
-    const nextFilters = {
-      ...filters,
-      certificationFilter,
-      status: "",
-    };
+  /** Cambios que aplican al instante (pestañas, selects, fechas rápidas, pruebas). */
+  const applyFilters = (patch) => {
+    const nextFilters = { ...filters, ...patch };
     setFilters(nextFilters);
-    reloadListAndSummary(nextFilters);
+    loadInvoices(nextFilters);
   };
 
-  const handleApplyFilters = () => {
-    reloadListAndSummary(filters);
+  const handleSearchSubmit = (event) => {
+    event.preventDefault();
+    loadInvoices(filters);
   };
 
-  const handleFilterKeyDown = (event) => {
-    if (event.key === "Enter") {
-      event.preventDefault();
-      handleApplyFilters();
-    }
+  const handleClearFilters = () => {
+    const nextFilters = defaultFilters();
+    setFilters(nextFilters);
+    loadInvoices(nextFilters);
   };
 
   const handleBackfillKioskSales = async (dryRun) => {
@@ -265,9 +221,9 @@ function AccountingInvoices() {
   };
 
   const handleCertify = async (invoice) => {
-    if (!invoice?.id || !canCertify) return;
+    if (!invoice?.id || !canManageFel) return;
     const confirmed = window.confirm(
-      `¿Certificar la factura ${invoice.internalNumber || invoice.id} ante el FEL?`
+      `¿Firmar (certificar) ${invoice.internalNumber || invoice.id} ante el SAT?`
     );
     if (!confirmed) return;
 
@@ -283,29 +239,8 @@ function AccountingInvoices() {
     }
   };
 
-  const filteredCountLabel = useMemo(() => {
-    const tab = CERTIFICATION_TABS.find((item) => item.id === filters.certificationFilter);
-    if (tab && tab.id) {
-      return tab.label.toLowerCase();
-    }
-    if (filters.status) {
-      return (STATUS_LABELS[filters.status] || filters.status).toLowerCase();
-    }
-    return "en el listado";
-  }, [filters.certificationFilter, filters.status]);
-
-  const internalNumberSuggestions = useMemo(() => {
-    const term = String(filters.internalNumber || "").trim().toUpperCase();
-    if (!term) {
-      return knownInternalNumbers.slice(0, 80);
-    }
-    return knownInternalNumbers
-      .filter((value) => String(value).toUpperCase().includes(term))
-      .slice(0, 80);
-  }, [knownInternalNumbers, filters.internalNumber]);
-
   const canCertifyInvoice = (invoice) =>
-    canCertify
+    canManageFel
     && invoice
     && (
       CERTIFIABLE_STATUSES.has(invoice.status)
@@ -313,65 +248,37 @@ function AccountingInvoices() {
     );
 
   const canVoidInvoice = (invoice) =>
-    canVoidFel
+    canManageFel
     && invoice
     && invoice.status === "CERTIFIED"
     && invoice.felUuid;
 
-  const summaryCards = [
-    { id: "", label: "Total", value: summary?.total || 0, className: "text-muted" },
-    { id: "SIGNED", label: "Firmadas", value: summary?.certified || 0, className: "text-success" },
-    { id: "UNSIGNED", label: "Sin firmar", value: summary?.unsigned || 0, className: "text-warning" },
-    { id: "ERROR", label: "Con error", value: summary?.failed || 0, className: "text-danger" },
-    { id: "VOID", label: "Anuladas", value: summary?.voided || 0, className: "text-dark" },
-  ];
+  const activePreset = useMemo(() => {
+    const match = DATE_PRESETS.find((preset) => {
+      const range = preset.range();
+      return range.fromDate === filters.fromDate && range.toDate === filters.toDate;
+    });
+    return match?.id || "";
+  }, [filters.fromDate, filters.toDate]);
+
+  const pageCount = Math.max(1, Math.ceil(invoices.length / PAGE_SIZE));
+  const pageRows = invoices.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
+  const certifiedTotal = useMemo(
+    () => invoices
+      .filter((invoice) => invoice.status === "CERTIFIED")
+      .reduce((sum, invoice) => {
+        const sign = invoice.documentType === "NCRE" ? -1 : 1;
+        return sum + sign * Number(invoice.totalAmount || 0);
+      }, 0),
+    [invoices]
+  );
+  const hasActiveFilters = Boolean(
+    filters.search || filters.documentType || filters.sourceType || filters.includeTests
+      || filters.toDate || filters.fromDate !== getMonthStartYmdGuatemala()
+  );
 
   return (
     <div className="content">
-      <Card className="mb-4">
-        <CardHeader>
-          <CardTitle tag="h4" className="mb-0">Resumen FEL</CardTitle>
-        </CardHeader>
-        <CardBody>
-          {summaryLoading ? (
-            <div className="text-center py-3"><Spinner size="sm" color="primary" /></div>
-          ) : summary ? (
-            <>
-              <Row>
-                {summaryCards.map((card) => {
-                  const active = filters.certificationFilter === card.id;
-                  return (
-                    <Col md="2" sm="4" xs="6" className="mb-3" key={`${card.label}-${card.id || "ALL"}`}>
-                      <button
-                        type="button"
-                        className={`btn btn-link text-left p-0 w-100 ${active ? "font-weight-bold" : ""}`}
-                        style={{ textDecoration: "none", color: "inherit" }}
-                        onClick={() => handleCertificationTab(card.id)}
-                        title={`Filtrar: ${card.label}`}
-                      >
-                        <div className={`${card.className} small`}>{card.label}</div>
-                        <div className={`h4 mb-0 ${card.className}`}>{card.value}</div>
-                      </button>
-                    </Col>
-                  );
-                })}
-              </Row>
-              <div className="small text-muted mb-0">
-                Categorías excluyentes: Firmadas = certificadas · Sin firmar = borrador/omitida ·
-                Con error = fallo FEL · Anuladas = VOID.
-                {(filters.fromDate || filters.toDate || filters.sourceType || filters.internalNumber || filters.customerTaxId) && (
-                  <> Resumen acotado a los filtros de origen / NIT / número / fechas activos.</>
-                )}
-              </div>
-            </>
-          ) : (
-            <Alert color="warning" className="mb-0">
-              No se pudo cargar el resumen. Verifica que el backend esté actualizado.
-            </Alert>
-          )}
-        </CardBody>
-      </Card>
-
       {showPosAdminTools && (
         <Card className="mb-4 border-warning">
           <CardHeader className="bg-light">
@@ -448,10 +355,13 @@ function AccountingInvoices() {
       <Card>
         <CardHeader>
           <Row className="align-items-center">
-            <Col md="6">
-              <CardTitle tag="h4">Facturas electrónicas (FEL)</CardTitle>
+            <Col md="7">
+              <CardTitle tag="h4" className="mb-1">Facturas electrónicas (FEL)</CardTitle>
+              <p className="text-muted small mb-0">
+                Facturas, facturas cambiarias y notas de crédito/débito emitidas ante el SAT.
+              </p>
             </Col>
-            <Col md="6" className="text-right">
+            <Col md="5" className="text-md-right mt-2 mt-md-0">
               <Button color="primary" className="btn-round" onClick={() => navigate("/admin/accounting/invoices/new")}>
                 <i className="nc-icon nc-simple-add" /> Nueva factura manual
               </Button>
@@ -459,110 +369,143 @@ function AccountingInvoices() {
           </Row>
         </CardHeader>
         <CardBody>
-          <div className="mb-3">
-            <Label className="mb-2">Vista rápida</Label>
-            <ButtonGroup>
-              {CERTIFICATION_TABS.map((tab) => (
-                <Button
-                  key={tab.id || "ALL"}
-                  color={filters.certificationFilter === tab.id ? "primary" : "secondary"}
-                  outline={filters.certificationFilter !== tab.id}
-                  size="sm"
-                  onClick={() => handleCertificationTab(tab.id)}
-                >
-                  {tab.label}
-                </Button>
-              ))}
-            </ButtonGroup>
-          </div>
+          <Nav tabs className="mb-3">
+            {CERTIFICATION_TABS.map((tab) => {
+              const active = filters.certificationFilter === tab.id;
+              const count = summary ? summary[tab.summaryKey] : null;
+              return (
+                <NavItem key={tab.id || "ALL"}>
+                  <NavLink
+                    href="#"
+                    className={active ? "active" : ""}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      if (!active) applyFilters({ certificationFilter: tab.id });
+                    }}
+                  >
+                    {tab.label}
+                    {count !== null && count !== undefined && (
+                      <Badge color={tab.color || "secondary"} pill className="ml-2">
+                        {formatCount(count)}
+                      </Badge>
+                    )}
+                  </NavLink>
+                </NavItem>
+              );
+            })}
+          </Nav>
 
-          <Row form className="mb-3">
-            <Col md="2">
-              <FormGroup>
-                <Label>Origen</Label>
-                <Input
-                  type="select"
-                  value={filters.sourceType}
-                  onChange={(e) => handleFilterChange("sourceType", e.target.value)}
-                >
-                  <option value="">Todos</option>
-                  <option value="MANUAL">Manual</option>
-                  <option value="KIOSK_SALE">POS Kiosko</option>
-                  <option value="ONLINE_SALE">Venta online</option>
-                </Input>
+          <form onSubmit={handleSearchSubmit}>
+            <Row form className="align-items-end">
+              <Col lg="4" md="12">
+                <FormGroup>
+                  <Label for="fel-search">Buscar</Label>
+                  <Input
+                    id="fel-search"
+                    type="search"
+                    value={filters.search}
+                    onChange={(e) => handleFilterChange("search", e.target.value)}
+                    placeholder="Número interno, NIT, cliente, serie o UUID"
+                  />
+                </FormGroup>
+              </Col>
+              <Col lg="2" md="6">
+                <FormGroup>
+                  <Label for="fel-document-type">Tipo</Label>
+                  <Input
+                    id="fel-document-type"
+                    type="select"
+                    value={filters.documentType}
+                    onChange={(e) => applyFilters({ documentType: e.target.value })}
+                  >
+                    <option value="">Todos</option>
+                    {Object.entries(TAX_INVOICE_DOCUMENT_TYPES).map(([value, type]) => (
+                      <option key={value} value={value}>{type.label}</option>
+                    ))}
+                  </Input>
+                </FormGroup>
+              </Col>
+              <Col lg="2" md="6">
+                <FormGroup>
+                  <Label for="fel-source">Origen</Label>
+                  <Input
+                    id="fel-source"
+                    type="select"
+                    value={filters.sourceType}
+                    onChange={(e) => applyFilters({ sourceType: e.target.value })}
+                  >
+                    <option value="">Todos</option>
+                    {Object.entries(TAX_INVOICE_SOURCE_LABELS).map(([value, label]) => (
+                      <option key={value} value={value}>{label}</option>
+                    ))}
+                  </Input>
+                </FormGroup>
+              </Col>
+              <Col lg="2" md="6">
+                <FormGroup>
+                  <Label for="fel-from">Desde</Label>
+                  <Input
+                    id="fel-from"
+                    type="date"
+                    value={filters.fromDate}
+                    max={filters.toDate || undefined}
+                    onChange={(e) => applyFilters({ fromDate: e.target.value })}
+                  />
+                </FormGroup>
+              </Col>
+              <Col lg="2" md="6">
+                <FormGroup>
+                  <Label for="fel-to">Hasta</Label>
+                  <Input
+                    id="fel-to"
+                    type="date"
+                    value={filters.toDate}
+                    min={filters.fromDate || undefined}
+                    max={getTodayYmdGuatemala()}
+                    onChange={(e) => applyFilters({ toDate: e.target.value })}
+                  />
+                </FormGroup>
+              </Col>
+            </Row>
+            <div className="d-flex flex-wrap align-items-center mb-3" style={{ gap: "0.5rem 1rem" }}>
+              <div className="d-flex flex-wrap" style={{ gap: "0.25rem" }}>
+                {DATE_PRESETS.map((preset) => (
+                  <Button
+                    key={preset.id}
+                    type="button"
+                    size="sm"
+                    color="primary"
+                    outline={activePreset !== preset.id}
+                    className="my-0"
+                    onClick={() => applyFilters(preset.range())}
+                  >
+                    {preset.label}
+                  </Button>
+                ))}
+              </div>
+              <FormGroup check className="mb-0">
+                <Label check>
+                  <Input
+                    type="checkbox"
+                    checked={filters.includeTests}
+                    onChange={(e) => applyFilters({ includeTests: e.target.checked })}
+                  />
+                  <span className="form-check-sign" />
+                  Incluir documentos de prueba
+                </Label>
               </FormGroup>
-            </Col>
-            <Col md="2">
-              <FormGroup>
-                <Label>Estado</Label>
-                <Input
-                  type="select"
-                  value={filters.status}
-                  onChange={(e) => handleFilterChange("status", e.target.value)}
-                >
-                  <option value="">Todos</option>
-                  <option value="CERTIFIED">Certificada</option>
-                  <option value="FAILED">Error FEL</option>
-                  <option value="DRAFT">Borrador</option>
-                  <option value="SKIPPED">Omitida</option>
-                  <option value="VOID">Anulada</option>
-                </Input>
-              </FormGroup>
-            </Col>
-            <Col md="2">
-              <FormGroup>
-                <Label>Núm. interno</Label>
-                <Input
-                  list="fel-internal-number-options"
-                  value={filters.internalNumber}
-                  onChange={(e) => handleFilterChange("internalNumber", e.target.value)}
-                  onKeyDown={handleFilterKeyDown}
-                  placeholder="A45-28"
-                />
-                <datalist id="fel-internal-number-options">
-                  {internalNumberSuggestions.map((value) => (
-                    <option key={value} value={value} />
-                  ))}
-                </datalist>
-              </FormGroup>
-            </Col>
-            <Col md="2">
-              <FormGroup>
-                <Label>NIT</Label>
-                <Input
-                  value={filters.customerTaxId}
-                  onChange={(e) => handleFilterChange("customerTaxId", e.target.value)}
-                  onKeyDown={handleFilterKeyDown}
-                  placeholder="Buscar NIT"
-                />
-              </FormGroup>
-            </Col>
-            <Col md="2">
-              <FormGroup>
-                <Label>Desde</Label>
-                <Input
-                  type="date"
-                  value={filters.fromDate}
-                  onChange={(e) => handleFilterChange("fromDate", e.target.value)}
-                />
-              </FormGroup>
-            </Col>
-            <Col md="2">
-              <FormGroup>
-                <Label>Hasta</Label>
-                <Input
-                  type="date"
-                  value={filters.toDate}
-                  onChange={(e) => handleFilterChange("toDate", e.target.value)}
-                />
-              </FormGroup>
-            </Col>
-            <Col md="2" className="d-flex align-items-end">
-              <Button color="info" onClick={handleApplyFilters} disabled={loading}>
-                {loading ? <Spinner size="sm" /> : "Filtrar"}
-              </Button>
-            </Col>
-          </Row>
+              <div className="ml-auto d-flex" style={{ gap: "0.5rem" }}>
+                {hasActiveFilters && (
+                  <Button type="button" color="secondary" outline size="sm" className="my-0" onClick={handleClearFilters}>
+                    Limpiar
+                  </Button>
+                )}
+                <Button type="submit" color="info" size="sm" className="my-0" disabled={loading}>
+                  {loading ? <Spinner size="sm" /> : "Buscar"}
+                </Button>
+              </div>
+            </div>
+          </form>
 
           {error && <Alert color="danger">{error}</Alert>}
 
@@ -602,107 +545,153 @@ function AccountingInvoices() {
             </Alert>
           )}
 
-          {!loading && (
-            <p className="text-muted small">
-              Mostrando {invoices.length} factura{invoices.length === 1 ? "" : "s"} {filteredCountLabel}.
+          {!loading && invoices.length > 0 && (
+            <p className="text-muted small mb-2">
+              {formatCount(invoices.length)} documento{invoices.length === 1 ? "" : "s"}
+              {" · "}Total certificado {formatQuetzales(certifiedTotal)}
+              <span className="d-none d-md-inline"> (notas de crédito restan)</span>
             </p>
           )}
 
           {loading ? (
             <div className="text-center p-4"><Spinner color="primary" /></div>
           ) : invoices.length === 0 ? (
-            <div className="text-center text-muted p-4">No hay facturas registradas con estos filtros.</div>
+            <div className="text-center text-muted p-5">
+              <p className="mb-2">No hay documentos con estos filtros.</p>
+              {hasActiveFilters && (
+                <Button color="link" size="sm" onClick={handleClearFilters}>Limpiar filtros</Button>
+              )}
+            </div>
           ) : (
-            <Table responsive hover>
-              <thead className="text-primary">
-                <tr>
-                  <th>Número</th>
-                  <th>Fecha</th>
-                  <th>Origen</th>
-                  <th>Cliente</th>
-                  <th>NIT</th>
-                  <th>Total</th>
-                  <th>Firma FEL</th>
-                  <th>Estado</th>
-                  <th>Serie / Número</th>
-                  <th className="text-right">Acciones</th>
-                </tr>
-              </thead>
-              <tbody>
-                {invoices.map((invoice) => {
-                  const firmaBadge = resolveFirmaBadge(invoice.status);
-                  return (
-                    <tr key={invoice.id}>
-                      <td>{invoice.internalNumber || invoice.id}</td>
-                      <td>{invoice.issuedAt ? formatDateTimeGt(invoice.issuedAt) : "—"}</td>
-                      <td>{SOURCE_LABELS[invoice.sourceType] || invoice.sourceType}</td>
-                      <td>{invoice.customerName || "—"}</td>
-                      <td>{invoice.customerTaxId || "—"}</td>
-                      <td>{formatCurrency(invoice.totalAmount)}</td>
-                      <td>
-                        <Badge color={firmaBadge.color}>
-                          {firmaBadge.label}
-                        </Badge>
-                        {invoice.felUuid && (
-                          <div className="small text-muted mt-1" title={invoice.felUuid}>
-                            UUID: {String(invoice.felUuid).slice(0, 8)}…
-                          </div>
-                        )}
-                      </td>
-                      <td>
-                        <Badge color={STATUS_COLORS[invoice.status] || "secondary"}>
-                          {STATUS_LABELS[invoice.status] || invoice.status || "—"}
-                        </Badge>
-                        {invoice.felError && (
-                          <div className="small text-danger mt-1" title={invoice.felError}>
-                            {invoice.felError.length > 60
-                              ? `${invoice.felError.slice(0, 60)}…`
-                              : invoice.felError}
-                          </div>
-                        )}
-                      </td>
-                      <td>
-                        {invoice.felSerie || invoice.felNumero
-                          ? `${invoice.felSerie || "—"} / ${invoice.felNumero || "—"}`
-                          : "—"}
-                      </td>
-                      <td className="text-right text-nowrap">
-                        {canCertifyInvoice(invoice) && (
+            <>
+              <Table responsive hover size="sm" className="mb-2">
+                <thead className="text-primary">
+                  <tr>
+                    <th>Número</th>
+                    <th>Fecha</th>
+                    <th>Cliente</th>
+                    <th>Origen</th>
+                    <th className="text-right">Total</th>
+                    <th>Estado</th>
+                    <th>Serie / Número FEL</th>
+                    <th className="text-right">Acciones</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {pageRows.map((invoice) => {
+                    const status = taxInvoiceStatus(invoice.status);
+                    const isNote = ["NCRE", "NDEB"].includes(invoice.documentType);
+                    return (
+                      <tr key={invoice.id}>
+                        <td className="text-nowrap">
+                          <div className="font-weight-bold">{invoice.internalNumber || `#${invoice.id}`}</div>
+                          {invoice.documentType && invoice.documentType !== "FACT" && (
+                            <Badge color={isNote ? "info" : "default"} className="mr-1">
+                              {TAX_INVOICE_DOCUMENT_TYPES[invoice.documentType]?.label || invoice.documentType}
+                            </Badge>
+                          )}
+                          {invoice.testDocument && <Badge color="warning">Prueba</Badge>}
+                        </td>
+                        <td className="text-nowrap">{invoice.issuedAt ? formatDateTimeGt(invoice.issuedAt) : "—"}</td>
+                        <td style={{ minWidth: 180 }}>
+                          <div>{invoice.customerName || "—"}</div>
+                          <div className="small text-muted">NIT {invoice.customerTaxId || "—"}</div>
+                        </td>
+                        <td>{TAX_INVOICE_SOURCE_LABELS[invoice.sourceType] || invoice.sourceType}</td>
+                        <td className="text-right text-nowrap">
+                          {invoice.documentType === "NCRE" ? "−" : ""}
+                          {formatQuetzales(invoice.totalAmount)}
+                        </td>
+                        <td style={{ maxWidth: 260 }}>
+                          <Badge color={status.color}>{status.label}</Badge>
+                          {status.detail && <span className="small text-muted ml-1">{status.detail}</span>}
+                          {invoice.felError && (
+                            <div className="small text-danger mt-1" title={invoice.felError}>
+                              {invoice.felError.length > 80
+                                ? `${invoice.felError.slice(0, 80)}…`
+                                : invoice.felError}
+                            </div>
+                          )}
+                        </td>
+                        <td className="text-nowrap">
+                          {invoice.felSerie || invoice.felNumero
+                            ? `${invoice.felSerie || "—"} / ${invoice.felNumero || "—"}`
+                            : "—"}
+                          {invoice.felUuid && (
+                            <div className="small text-muted" title={invoice.felUuid}>
+                              UUID {String(invoice.felUuid).slice(0, 8)}…
+                            </div>
+                          )}
+                        </td>
+                        <td className="text-right text-nowrap">
+                          {canCertifyInvoice(invoice) && (
+                            <Button
+                              color="warning"
+                              size="sm"
+                              className="btn-round mr-1 my-0"
+                              disabled={certifyingId === invoice.id}
+                              onClick={() => handleCertify(invoice)}
+                            >
+                              {certifyingId === invoice.id ? <Spinner size="sm" /> : "Firmar FEL"}
+                            </Button>
+                          )}
+                          {canVoidInvoice(invoice) && (
+                            <Button
+                              color="danger"
+                              size="sm"
+                              outline
+                              className="btn-round mr-1 my-0"
+                              onClick={() => setVoidTargetInvoice(invoice)}
+                            >
+                              Anular
+                            </Button>
+                          )}
                           <Button
-                            color="warning"
+                            color="info"
                             size="sm"
-                            className="btn-round mr-1"
-                            disabled={certifyingId === invoice.id}
-                            onClick={() => handleCertify(invoice)}
+                            className="btn-round my-0"
+                            onClick={() => navigate(`/admin/accounting/invoices/${invoice.id}`)}
                           >
-                            {certifyingId === invoice.id ? <Spinner size="sm" /> : "Firmar FEL"}
+                            Ver
                           </Button>
-                        )}
-                        {canVoidInvoice(invoice) && (
-                          <Button
-                            color="danger"
-                            size="sm"
-                            outline
-                            className="btn-round mr-1"
-                            onClick={() => setVoidTargetInvoice(invoice)}
-                          >
-                            Anular
-                          </Button>
-                        )}
-                        <Button
-                          color="info"
-                          size="sm"
-                          className="btn-round"
-                          onClick={() => navigate(`/admin/accounting/invoices/${invoice.id}`)}
-                        >
-                          Ver
-                        </Button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </Table>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </Table>
+              {pageCount > 1 && (
+                <div className="d-flex justify-content-between align-items-center">
+                  <span className="small text-muted">
+                    {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, invoices.length)} de{" "}
+                    {formatCount(invoices.length)}
+                  </span>
+                  <div className="d-flex align-items-center" style={{ gap: "0.5rem" }}>
+                    <Button
+                      size="sm"
+                      color="secondary"
+                      outline
+                      className="my-0"
+                      disabled={page === 0}
+                      onClick={() => setPage((current) => current - 1)}
+                    >
+                      Anterior
+                    </Button>
+                    <span className="small">Página {page + 1} de {pageCount}</span>
+                    <Button
+                      size="sm"
+                      color="secondary"
+                      outline
+                      className="my-0"
+                      disabled={page >= pageCount - 1}
+                      onClick={() => setPage((current) => current + 1)}
+                    >
+                      Siguiente
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </>
           )}
         </CardBody>
       </Card>

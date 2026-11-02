@@ -10,6 +10,7 @@ import {
 } from "reactstrap";
 import { voidTaxInvoice } from "services/taxInvoiceService";
 import { showError, showSuccess } from "utils/notificationHelper";
+import { taxInvoiceDocumentLabel } from "utils/taxInvoiceLabels";
 
 function TaxInvoiceVoidModal({ isOpen, onClose, invoice, onSuccess }) {
   const [voidReason, setVoidReason] = useState("");
@@ -30,7 +31,7 @@ function TaxInvoiceVoidModal({ isOpen, onClose, invoice, onSuccess }) {
     try {
       setVoiding(true);
       const updated = await voidTaxInvoice(invoice.id, voidReason.trim());
-      showSuccess("Factura anulada ante el SAT. Quedó en Anuladas.");
+      showSuccess(`${documentLabel} anulada ante el SAT. Quedó en Anuladas.`);
       if (onSuccess) onSuccess(updated);
       onClose();
     } catch (err) {
@@ -40,16 +41,17 @@ function TaxInvoiceVoidModal({ isOpen, onClose, invoice, onSuccess }) {
     }
   };
 
+  const documentLabel = taxInvoiceDocumentLabel(invoice?.documentType);
   const label = invoice?.internalNumber || invoice?.felSerie
     ? `${invoice.internalNumber || "—"} · ${invoice.felSerie || "—"}/${invoice.felNumero || "—"}`
     : invoice?.id;
 
   return (
     <Modal isOpen={isOpen} toggle={onClose} centered>
-      <ModalHeader toggle={onClose}>Anular factura FEL</ModalHeader>
+      <ModalHeader toggle={onClose}>Anular {documentLabel.toLowerCase()} FEL</ModalHeader>
       <ModalBody>
         <p className="mb-2">
-          Factura <strong>{label || "—"}</strong>
+          {documentLabel} <strong>{label || "—"}</strong>
         </p>
         {invoice?.felUuid && (
           <p className="text-muted small mb-2">
@@ -57,7 +59,7 @@ function TaxInvoiceVoidModal({ isOpen, onClose, invoice, onSuccess }) {
           </p>
         )}
         <p className="text-muted small mb-3">
-          Se enviará la anulación al certificador FEL (INFILE). La factura quedará en estado{" "}
+          Se enviará la anulación al certificador FEL (INFILE). El documento quedará en estado{" "}
           <strong>Anulada</strong> (con motivo y UUID de anulación). Si necesitas reemitirla, usa{" "}
           <strong>Firmar FEL</strong> desde el detalle.
         </p>
