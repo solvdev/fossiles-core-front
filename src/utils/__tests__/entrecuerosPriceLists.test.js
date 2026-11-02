@@ -121,36 +121,36 @@ describe("Entrecueros wholesale acceptance", () => {
     {
       name: "12 casual + 1 leather billetera",
       cart: [casual(12), billetera(1)],
-      prices: [75, 55],
-      total: 955,
+      prices: [85, 65],
+      total: 1085,
       courtesy: true,
     },
     {
       name: "6 leather billeteras + 6 casual cinchos stay on their own tiers",
       cart: [billetera(6), casual(6)],
-      prices: [55, 80],
-      total: 810,
+      prices: [65, 95],
+      total: 960,
       courtesy: true,
     },
     {
       name: "3 billeteras + 3 casual cinchos do not unlock courtesy",
       cart: [billetera(3), casual(3)],
-      prices: [65, 90],
-      total: 465,
+      prices: [75, 110],
+      total: 555,
       courtesy: false,
     },
     {
       name: "20 billeteras + 1 casual cincho",
       cart: [billetera(20), casual(1)],
-      prices: [55, 75],
-      total: 1175,
+      prices: [65, 85],
+      total: 1385,
       courtesy: true,
     },
     {
       name: "6 casual cinchos + 1 billetera keeps the cincho 6+ price",
       cart: [casual(6), billetera(1)],
-      prices: [80, 55],
-      total: 535,
+      prices: [95, 65],
+      total: 635,
       courtesy: true,
     },
   ];
@@ -163,32 +163,32 @@ describe("Entrecueros wholesale acceptance", () => {
 
 describe("Entrecueros own-quantity edges", () => {
   test.each([
-    [2, 100],
-    [3, 90],
-    [5, 90],
-    [6, 80],
-    [11, 80],
-    [12, 75],
+    [2, 125],
+    [3, 110],
+    [5, 110],
+    [6, 95],
+    [11, 95],
+    [12, 85],
   ])("casual qty %s -> %s", (quantity, price) => {
     expectPrices([casual(quantity)], [price], price * quantity);
   });
 
   test.each([
-    [2, 100],
-    [3, 65],
-    [5, 65],
-    [6, 55],
+    [2, 125],
+    [3, 75],
+    [5, 75],
+    [6, 65],
   ])("leather billetera qty %s -> %s", (quantity, price) => {
     expectPrices([billetera(quantity)], [price], price * quantity);
   });
 
-  test("6 casual stays at Q80 and does not jump to the 12+ price", () => {
+  test("6 casual stays at Q95 and does not jump to the 12+ price", () => {
     const [row] = applyEntrecuerosCartPrices([casual(6)]);
-    expect(row.unitPrice).toBe(80);
+    expect(row.unitPrice).toBe(95);
     const state = describeEntrecuerosPriceState(casual(6), 6, false);
-    expect(state.active).toMatchObject({ minQty: 6, unitPrice: 80 });
+    expect(state.active).toMatchObject({ minQty: 6, unitPrice: 95 });
     const courtesy = describeEntrecuerosPriceState(casual(1), 1, true);
-    expect(courtesy.active).toMatchObject({ minQty: 12, unitPrice: 75 });
+    expect(courtesy.active).toMatchObject({ minQty: 12, unitPrice: 85 });
   });
 });
 
@@ -200,18 +200,18 @@ describe("Entrecueros volume groups and courtesy", () => {
       billetera(1),
     ];
     expect(entrecuerosVolumeKey(cart[0])).toBe(entrecuerosVolumeKey(cart[1]));
-    expectPrices(cart, [80, 80, 55], 400 + 80 + 55);
+    expectPrices(cart, [95, 95, 65], 475 + 95 + 65);
     expect(cartUnlocksEntrecuerosWholesale(cart)).toBe(true);
   });
 
   test("6 packaging units unlock nothing and keep the catalog price", () => {
     const cart = [packaging(6, 5), billetera(1), casual(2)];
-    expectPrices(cart, [5, 100, 100], 30 + 100 + 200);
+    expectPrices(cart, [5, 125, 125], 30 + 125 + 250);
     expect(cartUnlocksEntrecuerosWholesale(cart)).toBe(false);
   });
 
   test("packaging does not receive courtesy", () => {
-    expectPrices([casual(6), packaging(2, 5)], [80, 5], 480 + 10);
+    expectPrices([casual(6), packaging(2, 5)], [95, 5], 570 + 10);
   });
 
   test("courtesy top for niño, dama, sintética, tarjetero, reversible, and B-1", () => {
@@ -224,10 +224,10 @@ describe("Entrecueros volume groups and courtesy", () => {
       reversible(2, { hardwareCondition: "DAMA" }),
       sintetica(2, { productCode: "B-1", productId: "B1" }),
     ];
-    expectPrices(cart, [80, 45, 60, 30, 6, 100, 40], 480 + 45 + 120 + 30 + 6 + 200 + 80);
+    expectPrices(cart, [95, 55, 70, 30, 10, 125, 40], 570 + 55 + 140 + 30 + 10 + 250 + 80);
   });
 
-  test("B-1 shares the sintética quantity and stays at Q40", () => {
+  test("B-1 shares the sintética quantity and prices its own groups", () => {
     const cart = [
       sintetica(4, { productCode: "B-1", productId: "B1" }),
       sintetica(2, { productCode: "B-20", productId: "SYN" }),
@@ -235,15 +235,37 @@ describe("Entrecueros volume groups and courtesy", () => {
     ];
     expect(entrecuerosVolumeKey(cart[0])).toBe(entrecuerosVolumeKey(cart[1]));
     expect(entrecuerosVolumeKey(cart[0])).toBe(ENTRECUEROS_PRICE_KIND.WALLET_SYNTHETIC);
-    expectPrices(cart, [40, 30, 55], 160 + 60 + 55);
+    expectPrices(cart, [42.5, 30, 65], 170 + 60 + 65);
   });
 
   test.each([
-    ["B1", 2, 40],
-    [" b-1 ", 3, 40],
+    ["B1", 1, 40, 40],
+    ["B1", 2, 40, 80],
+    ["B-1", 3, 43.33, 130],
+    ["B1", 4, 42.5, 170],
+    ["B-1", 6, 43.33, 260],
+    [" b-1 ", 3, 43.33, 130],
+  ])("B-1 code %j qty %s -> unit %s total %s", (productCode, quantity, unitPrice, lineTotal) => {
+    const cart = [sintetica(quantity, { productCode, productId: productCode })];
+    const result = priced(cart);
+    expect(result.lines[0].unitPrice).toBe(unitPrice);
+    expect(result.lines[0].lineTotal).toBe(lineTotal);
+    expect(result.total).toBe(lineTotal);
+  });
+
+  test.each([
+    ["B-5", 1, 40],
+    ["B-5", 3, 30],
+    ["B-5", 4, 40],
+    ["B5", 4, 40],
+    ["B-2", 1, 40],
+    ["B-2", 3, 30],
+    ["B-2", 4, 40],
+    ["B2", 4, 40],
     ["B-10", 3, 30],
     ["B-19", 3, 30],
     ["B-100", 3, 30],
+    ["B-20", 4, 30],
   ])("synthetic code %j qty %s -> %s", (productCode, quantity, price) => {
     expectPrices(
       [sintetica(quantity, { productCode, productId: productCode })],
@@ -259,13 +281,44 @@ describe("Entrecueros volume groups and courtesy", () => {
         sintetica(1, { productCode: "B-10", productId: "B10" }),
         sintetica(1, { productCode: "B-100", productId: "B100" }),
       ],
-      [80, 30, 30],
-      480 + 30 + 30
+      [95, 30, 30],
+      570 + 30 + 30
     );
   });
 
-  test("6 reversible unlocks courtesy for the other type and stays at Q100", () => {
-    expectPrices([reversible(6), billetera(1)], [100, 55], 600 + 55);
+  test("B-1 courtesy stays Q40 even at 3 units", () => {
+    expectPrices(
+      [casual(6), sintetica(3, { productCode: "B-1", productId: "B1" })],
+      [95, 40],
+      570 + 120
+    );
+  });
+
+  test("B-5 and B-2 courtesy is Q40, including at qty 3", () => {
+    expectPrices(
+      [
+        casual(6),
+        sintetica(3, { productCode: "B-5", productId: "B5" }),
+        sintetica(1, { productCode: "B-2", productId: "B2" }),
+      ],
+      [95, 40, 40],
+      570 + 120 + 40
+    );
+  });
+
+  test("B-5 at 3 keeps Q30 even when other synthetics make the group 4+", () => {
+    expectPrices(
+      [
+        sintetica(3, { productCode: "B-5", productId: "B5" }),
+        sintetica(2, { productCode: "B-20", productId: "SYN" }),
+      ],
+      [30, 30],
+      90 + 60
+    );
+  });
+
+  test("6 reversible unlocks courtesy for the other type and stays at Q125", () => {
+    expectPrices([reversible(6), billetera(1)], [125, 65], 750 + 65);
   });
 });
 
@@ -281,21 +334,21 @@ describe("Entrecueros configured casual and untyped products", () => {
   test("configured casual courtesy uses its 12+ tier", () => {
     expectPrices(
       [billetera(6), casual(1, tiers({ 1: 110, 3: 95, 6: 85, 12: 70 }))],
-      [55, 70],
-      400
+      [65, 70],
+      460
     );
   });
 
   test("partial casual tiers fall through, and courtesy uses the highest set tier", () => {
     const partial = tiers({ 1: 110, 6: 85 });
     expectPrices([casual(4, partial)], [110], 440);
-    expectPrices([billetera(6), casual(2, partial)], [55, 85], 500);
+    expectPrices([billetera(6), casual(2, partial)], [65, 85], 560);
   });
 
   test("untyped product is priced by its own quantity and can trigger courtesy", () => {
     const sku = untyped(6, { productId: "SKU-A", ...tiers({ 1: 50, 3: 45, 6: 40, 12: 35 }) });
     expect(entrecuerosVolumeKey(sku)).toBe("SKU-A|PRODUCT");
-    expectPrices([sku, billetera(1)], [40, 55], 240 + 55);
+    expectPrices([sku, billetera(1)], [40, 65], 240 + 65);
     expect(cartUnlocksEntrecuerosWholesale([sku, billetera(1)])).toBe(true);
   });
 
@@ -317,7 +370,7 @@ describe("Entrecueros configured casual and untyped products", () => {
       untyped(2, { productId: "SKU-D", ...tiers({ 1: 50 }) }),
       untyped(1, { productId: "SKU-N", catalogPrice: 120, catalogUnitPrice: 120 }),
     ];
-    expectPrices([casual(6), ...rows], [80, 35, 40, 45, 50, 120], 480 + 35 + 40 + 45 + 100 + 120);
+    expectPrices([casual(6), ...rows], [95, 35, 40, 45, 50, 120], 570 + 35 + 40 + 45 + 100 + 120);
   });
 
   test("repricing keeps the catalog fallback instead of the previous tier price", () => {
@@ -335,7 +388,7 @@ describe("Entrecueros configured casual and untyped products", () => {
   });
 
   test("a client unit price on the open cart is replaced by the list price", () => {
-    expectPrices([casual(12, { unitPrice: 100 }), billetera(1, { unitPrice: 100 })], [75, 55], 955);
+    expectPrices([casual(12, { unitPrice: 100 }), billetera(1, { unitPrice: 100 })], [85, 65], 1085);
   });
 
   test("rounds each line to Q0.01 and sums the rounded lines", () => {
@@ -343,7 +396,7 @@ describe("Entrecueros configured casual and untyped products", () => {
       casual(13, tiers({ 1: 99.99, 3: 89.95, 6: 79.97, 12: 74.99 })),
       billetera(1),
     ];
-    const result = expectPrices(cart, [74.99, 55], 974.87 + 55);
+    const result = expectPrices(cart, [74.99, 65], 974.87 + 65);
     expect(result.lines[0].lineTotal).toBe(974.87);
     expectPrices(
       [casual(3, tiers({ 1: 40, 3: 33.33 }))],

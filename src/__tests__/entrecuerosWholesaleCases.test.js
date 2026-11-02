@@ -19,7 +19,7 @@ import {
  * Cart lines carry the same fields KioskSales.addToCart copies before
  * applyEntrecuerosCartPrices. triggerType is not returned by that path.
  */
-const PINNED_SHA256 = "6e4a105cd91b6b395f4596dcdfee9853b3ada66e71bd7161dd7ca43a37397396";
+const PINNED_SHA256 = "13e3b76c74667cc00b4d88cd81366740b1e4c2911ad7c9c67af26ab90eb79326";
 const CASES_PATH = path.resolve(__dirname, "../../pricing/entrecueros-wholesale-cases.json");
 const HASH_PATH = path.resolve(__dirname, "../../pricing/entrecueros-wholesale-cases.json.sha256");
 
@@ -151,7 +151,7 @@ describe("Entrecueros wholesale case table", () => {
         ].join("\n")
       );
     }
-    expect(table.version).toBe("1.0.0-draft.3");
+    expect(table.version).toBe("1.1.0");
   });
 
   test.each(activePricing)("$id", (entry) => {
