@@ -1,8 +1,9 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Input, Label, Modal, ModalBody } from "reactstrap";
+import { Input, Label, Modal, ModalBody, ModalFooter, ModalHeader } from "reactstrap";
 import FilterableSelect from "components/distribution/FilterableSelect";
 import { lookupTaxpayerByNit } from "services/kioskPosService";
 import { formatPromotionOptionLabel } from "utils/productAudienceHelper";
+import { CONSUMIDOR_FINAL_LIMIT } from "utils/taxInvoiceLabels";
 import {
   formatCurrency,
   formatFelCustomerName,
@@ -83,6 +84,12 @@ function PosCheckoutModal({
   const [taxLookupError, setTaxLookupError] = useState("");
   const [requestInvoice, setRequestInvoice] = useState(false);
   const [shippingSheetNumber, setShippingSheetNumber] = useState("");
+  /** Modal SAT: CF no puede facturar Q2,500 o más; pide el NIT y cobra con él. */
+  const [cfLimitOpen, setCfLimitOpen] = useState(false);
+  const [cfLimitNit, setCfLimitNit] = useState("");
+  const [cfLimitName, setCfLimitName] = useState("");
+  const [cfLimitError, setCfLimitError] = useState("");
+  const [cfLimitLoading, setCfLimitLoading] = useState(false);
   const entrecueros = isEntrecuerosPosMode({ posMode });
   const paymentMethods = entrecueros ? ENTRECUEROS_PAYMENT_METHODS : PAYMENT_METHODS;
   const checkoutTiers = useMemo(() => {
@@ -134,6 +141,7 @@ function PosCheckoutModal({
     setTaxLookupError("");
     setRequestInvoice(false);
     setShippingSheetNumber("");
+    setCfLimitOpen(false);
   }, [isOpen, notes, lockFinalPrices]);
 
   const lookupTaxId = async () => {
@@ -314,6 +322,58 @@ function PosCheckoutModal({
     && !splitAmountsInvalid
     && !mixtoInvalid;
 
+  const willInvoice = !entrecueros || requestInvoice;
+  const cfOverLimit =
+    willInvoice
+    && (normalizeNit(customerTaxId || "CF") || "CF") === "CF"
+    && checkoutTotal >= CONSUMIDOR_FINAL_LIMIT;
+
+  const openCfLimitModal = () => {
+    setCfLimitNit("");
+    setCfLimitName("");
+    setCfLimitError("");
+    setCfLimitOpen(true);
+  };
+
+  const lookupCfLimitNit = async () => {
+    const nit = normalizeNit(cfLimitNit);
+    setCfLimitName("");
+    setCfLimitError("");
+    if (!nit || nit === "CF") {
+      setCfLimitError("Esta venta no puede ir a CF. Ingrese el NIT del cliente.");
+      return;
+    }
+    if (!isValidGuatemalaNit(nit)) {
+      setCfLimitError("El NIT ingresado no es válido en Guatemala.");
+      return;
+    }
+    try {
+      setCfLimitLoading(true);
+      const result = await lookupTaxpayerByNit(nit);
+      const name = formatFelCustomerName(result?.customerName || "");
+      setCfLimitNit(result?.taxId || nit);
+      setCfLimitName(name);
+      if (!name) {
+        setCfLimitError("La consulta no devolvió nombre para ese NIT. Verifique el número.");
+      }
+    } catch (err) {
+      setCfLimitError(err.message || "No se pudo consultar el NIT.");
+    } finally {
+      setCfLimitLoading(false);
+    }
+  };
+
+  const confirmWithCfLimitNit = () => {
+    const nit = normalizeNit(cfLimitNit);
+    const name = String(cfLimitName || "").trim();
+    if (!nit || nit === "CF" || !name) return;
+    setCustomerTaxId(nit);
+    setCustomerName(name);
+    setTaxLookupError("");
+    setCfLimitOpen(false);
+    handleConfirm({ customerTaxId: nit, customerName: name });
+  };
+
   const setExact = () => setAmountReceived(String(checkoutTotal.toFixed(2)));
 
   const addCash = (value) => {
@@ -321,8 +381,14 @@ function PosCheckoutModal({
     setAmountReceived(String((current + value).toFixed(2)));
   };
 
-  const handleConfirm = () => {
-    const normalizedTaxId = normalizeNit(customerTaxId || "CF") || "CF";
+  /** @param receptor NIT/nombre ya consultados en el modal de CF (el estado aún no se actualizó). */
+  const handleConfirm = (receptor = null) => {
+    if (!receptor && cfOverLimit) {
+      openCfLimitModal();
+      return;
+    }
+    const normalizedTaxId = receptor?.customerTaxId || normalizeNit(customerTaxId || "CF") || "CF";
+    const receptorName = receptor?.customerName || customerName;
     const normalizedEmail = normalizeFelReceptorEmail(invoiceEmail);
     if (normalizedEmail) {
       const parts = normalizedEmail.split(";");
@@ -370,7 +436,7 @@ function PosCheckoutModal({
       customerName:
         normalizedTaxId === "CF"
           ? "CONSUMIDOR FINAL"
-          : String(customerName || "").trim(),
+          : String(receptorName || "").trim(),
       invoiceEmail: normalizedEmail || null,
       invoicePhone: String(invoicePhone || "").trim() || null,
       requestInvoice: entrecueros ? Boolean(requestInvoice) : true,
@@ -517,6 +583,12 @@ function PosCheckoutModal({
           {nitInvalid && <div className="text-danger small mt-1">NIT inválido</div>}
           {invoiceIncomplete && !taxLookupError && (
             <div className="text-warning small mt-1">Consulte el NIT para obtener el nombre en factura</div>
+          )}
+          {cfOverLimit && (
+            <div className="alert alert-warning py-2 px-3 small mt-2 mb-0">
+              <strong>Esta venta necesita NIT.</strong> El SAT no permite facturar a Consumidor Final (CF)
+              ventas de {formatCurrency(CONSUMIDOR_FINAL_LIMIT)} o más.
+            </div>
           )}
           <Label className="kiosk-pos-label mt-2 small mb-1">
             Correo para factura <span className="text-muted">(opcional)</span>
@@ -1028,7 +1100,7 @@ function PosCheckoutModal({
         <button
           type="button"
           className="kiosk-pos-btn-confirm"
-          onClick={handleConfirm}
+          onClick={() => handleConfirm()}
           disabled={!canConfirm}
         >
           {saving
@@ -1068,6 +1140,83 @@ function PosCheckoutModal({
           </p>
         )}
       </div>
+
+      <Modal
+        isOpen={cfLimitOpen}
+        toggle={() => !cfLimitLoading && setCfLimitOpen(false)}
+        centered
+        backdrop="static"
+      >
+        <ModalHeader toggle={() => !cfLimitLoading && setCfLimitOpen(false)}>
+          Esta venta necesita NIT
+        </ModalHeader>
+        <ModalBody>
+          <div className="alert alert-warning py-2 px-3">
+            El SAT no permite facturar a <strong>Consumidor Final (CF)</strong> ventas de{" "}
+            <strong>{formatCurrency(CONSUMIDOR_FINAL_LIMIT)}</strong> o más. Esta venta es de{" "}
+            <strong>{formatCurrency(checkoutTotal)}</strong>.
+          </div>
+          <p className="mb-2">Pida el NIT al cliente para emitir la factura y completar la venta.</p>
+          <Label className="kiosk-pos-label small mb-1">NIT del cliente</Label>
+          <div className="d-flex" style={{ gap: 8 }}>
+            <Input
+              className="kiosk-pos-input-lg"
+              value={cfLimitNit}
+              onChange={(e) => {
+                setCfLimitNit(e.target.value);
+                setCfLimitName("");
+                setCfLimitError("");
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  if (cfLimitName) {
+                    confirmWithCfLimitNit();
+                  } else {
+                    lookupCfLimitNit();
+                  }
+                }
+              }}
+              placeholder="Ej. 1234567-8"
+              autoFocus
+              disabled={cfLimitLoading}
+            />
+            <button
+              type="button"
+              className="kiosk-pos-quick-btn kiosk-pos-quick-add"
+              onClick={lookupCfLimitNit}
+              disabled={cfLimitLoading || !String(cfLimitNit || "").trim()}
+            >
+              {cfLimitLoading ? "Consultando..." : "Consultar NIT"}
+            </button>
+          </div>
+          {cfLimitName && (
+            <div className="mt-2">
+              <div className="small text-muted">Nombre en factura</div>
+              <div className="font-weight-bold">{cfLimitName}</div>
+            </div>
+          )}
+          {cfLimitError && <div className="text-danger small mt-2">{cfLimitError}</div>}
+        </ModalBody>
+        <ModalFooter className="d-block">
+          <button
+            type="button"
+            className="kiosk-pos-btn-confirm"
+            onClick={confirmWithCfLimitNit}
+            disabled={!cfLimitName || cfLimitLoading || saving}
+          >
+            {saving ? "Procesando..." : `Facturar con este NIT y cobrar ${formatCurrency(checkoutTotal)}`}
+          </button>
+          <button
+            type="button"
+            className="kiosk-pos-btn-cancel"
+            onClick={() => setCfLimitOpen(false)}
+            disabled={cfLimitLoading}
+          >
+            Volver
+          </button>
+        </ModalFooter>
+      </Modal>
     </Modal>
   );
 }
