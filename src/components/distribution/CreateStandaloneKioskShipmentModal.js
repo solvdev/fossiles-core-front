@@ -46,7 +46,18 @@ const emptyLine = () => ({
   stockLoading: false,
 });
 
-function CreateStandaloneKioskShipmentModal({ isOpen, toggle, onCreated }) {
+/**
+ * initialLocationId / initialLines / initialNotes: abre el modal precargado (p. ej. desde Reposición de kioscos);
+ * el usuario puede ajustar cantidades o agregar más productos antes de generar el envío.
+ */
+function CreateStandaloneKioskShipmentModal({
+  isOpen,
+  toggle,
+  onCreated,
+  initialLocationId,
+  initialLines,
+  initialNotes,
+}) {
   const [locationId, setLocationId] = useState("");
   const [notes, setNotes] = useState("");
   const [documentDate, setDocumentDate] = useState(() => getDefaultShipmentDocumentDate());
@@ -97,6 +108,20 @@ function CreateStandaloneKioskShipmentModal({ isOpen, toggle, onCreated }) {
   useEffect(() => {
     if (!isOpen) return;
     resetForm();
+    if (initialLocationId) setLocationId(String(initialLocationId));
+    if (initialNotes) setNotes(initialNotes);
+    if (Array.isArray(initialLines) && initialLines.length > 0) {
+      setLines(
+        initialLines.map((line) => ({
+          ...emptyLine(),
+          productId: line.productId ? String(line.productId) : "",
+          colorId: line.colorId ? String(line.colorId) : "",
+          size: line.size || "",
+          hardwareCondition: line.hardwareCondition || "",
+          quantity: Number(line.quantity) || 1,
+        }))
+      );
+    }
     setLoadingCatalog(true);
     Promise.all([getProducts(), getColors(), getLocations(), loadPackingMaterials()])
       .then(([prods, cols, locs]) => {
@@ -110,7 +135,7 @@ function CreateStandaloneKioskShipmentModal({ isOpen, toggle, onCreated }) {
       })
       .catch((err) => showError(err.message || "No se pudo cargar catálogo"))
       .finally(() => setLoadingCatalog(false));
-  }, [isOpen, resetForm, loadPackingMaterials]);
+  }, [isOpen, resetForm, loadPackingMaterials, initialLocationId, initialLines, initialNotes]);
 
   const kioskOptions = useMemo(
     () =>

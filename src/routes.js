@@ -92,6 +92,7 @@ import MaterialConsumptionHistory from "views/purchases/MaterialConsumptionHisto
 
 // Distribución
 import PrepareShipments from "views/distribution/PrepareShipments.js";
+import KioskReplenishment from "views/distribution/KioskReplenishment.js";
 import AuthorizeShipments from "views/distribution/AuthorizeShipments.js";
 import ShipmentsInTransit from "views/distribution/ShipmentsInTransit.js";
 import ReceiptConfirmation from "views/distribution/ReceiptConfirmation.js";
@@ -1050,6 +1051,19 @@ const routes = [
         name: "Preparar Envíos",
         mini: "PE",
         component: <PrepareShipments />,
+        layout: "/admin",
+        module: "DISTRIBUCION",
+        permissions: {
+          view: "DISTRIBUCION.PREPARAR_ENVIOS.VER",
+          create: "DISTRIBUCION.PREPARAR_ENVIOS.CREAR",
+        },
+      },
+      {
+        // Crea envíos directos a kiosko: mismos permisos que Preparar Envíos.
+        path: "/kiosk-replenishment",
+        name: "Reposición de Kioscos",
+        mini: "RK",
+        component: <KioskReplenishment />,
         layout: "/admin",
         module: "DISTRIBUCION",
         permissions: {
