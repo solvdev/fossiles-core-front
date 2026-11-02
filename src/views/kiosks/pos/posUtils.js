@@ -24,8 +24,8 @@ import {
   entrecuerosVolumeKey,
   lineReceivesEntrecuerosCourtesy,
   listEntrecuerosPriceListTiers,
+  resolveEntrecuerosListLineTotal,
   resolveEntrecuerosListUnitPrice,
-  roundEntrecuerosMoney,
 } from "utils/entrecuerosPriceLists";
 import {
   PRODUCT_BRAND_OPTIONS,
@@ -998,9 +998,10 @@ export const describeEntrecuerosPriceState = (source, qty, courtesy = false) => 
   }
   const next = receivesCourtesy ? null : (tiers.find((tier) => tier.minQty > n) || null);
   const missing = next ? Math.max(next.minQty - n, 0) : 0;
+  const unitPrice = resolveEntrecuerosListUnitPrice(source, n, receivesCourtesy);
   return {
     qty: n,
-    active,
+    active: { ...active, unitPrice },
     next,
     missing,
     tiers,
@@ -1024,11 +1025,10 @@ export const applyEntrecuerosCartPrices = (cart) => {
     const groupQty = inGroup ? qtyByKey[key] : Number(line.quantity || 0);
     const courtesy = lineReceivesEntrecuerosCourtesy(line, inGroup ? groupQty : 0, courtesyActive);
     const unitPrice = resolveEntrecuerosUnitPrice(line, groupQty, courtesy);
-    const quantity = Number(line.quantity || 0);
     return {
       ...line,
       unitPrice,
-      lineTotal: roundEntrecuerosMoney(unitPrice * quantity),
+      lineTotal: resolveEntrecuerosListLineTotal(line, groupQty, courtesy),
       catalogUnitPrice: preservedCatalogUnitPrice(line, unitPrice),
     };
   });

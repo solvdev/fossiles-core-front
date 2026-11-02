@@ -16,11 +16,16 @@ export const ENTRECUEROS_PRICE_KIND = {
 export const ENTRECUEROS_WHOLESALE_UNLOCK_QTY = 6;
 
 const LIST_CASUAL_TIERS = [
-  { minQty: 1, label: "1", unitPrice: 100 },
-  { minQty: 3, label: "3+", unitPrice: 90 },
-  { minQty: 6, label: "6+", unitPrice: 80 },
-  { minQty: 12, label: "12+", unitPrice: 75 },
+  { minQty: 1, label: "1", unitPrice: 125 },
+  { minQty: 3, label: "3+", unitPrice: 110 },
+  { minQty: 6, label: "6+", unitPrice: 95 },
+  { minQty: 12, label: "12+", unitPrice: 85 },
 ];
+
+const SYNTHETIC_UNIT = 40;
+const SYNTHETIC_QTY3_UNIT = 30;
+const B1_GROUP_SIZE = 3;
+const B1_GROUP_TOTAL = 130;
 
 function stripDiacritics(value) {
   return String(value || "").normalize("NFD").replace(/\p{M}/gu, "");
@@ -92,9 +97,30 @@ export function isEntrecuerosPackagingLine(source) {
   return entrecuerosPriceKind(source) === ENTRECUEROS_PRICE_KIND.PACKAGING;
 }
 
+function exactProductCode(source) {
+  return String(source?.productCode || "").trim().toUpperCase();
+}
+
 function isExactB1Code(source) {
-  const code = String(source?.productCode || "").trim().toUpperCase();
+  const code = exactProductCode(source);
   return code === "B-1" || code === "B1";
+}
+
+function isExactB5OrB2Code(source) {
+  const code = exactProductCode(source);
+  return code === "B-5" || code === "B5" || code === "B-2" || code === "B2";
+}
+
+function lineQuantity(source, qty) {
+  const n = Number(source?.quantity);
+  if (Number.isFinite(n) && n > 0) return n;
+  return Number(qty || 0);
+}
+
+function syntheticB1LineTotal(qty) {
+  const n = Math.trunc(Number(qty) || 0);
+  if (n <= 0) return 0;
+  return Math.floor(n / B1_GROUP_SIZE) * B1_GROUP_TOTAL + (n % B1_GROUP_SIZE) * SYNTHETIC_UNIT;
 }
 
 export function roundEntrecuerosMoney(value) {
@@ -150,11 +176,18 @@ function listCasualTiers(source) {
 
 function listSyntheticWalletTiers(source) {
   if (isExactB1Code(source)) {
-    return [{ minQty: 1, label: "1", unitPrice: 40 }];
+    return [{ minQty: 1, label: "1", unitPrice: SYNTHETIC_UNIT }];
+  }
+  if (isExactB5OrB2Code(source)) {
+    return [
+      { minQty: 1, label: "1", unitPrice: SYNTHETIC_UNIT },
+      { minQty: 3, label: "3+", unitPrice: SYNTHETIC_QTY3_UNIT },
+      { minQty: 4, label: "4+", unitPrice: SYNTHETIC_UNIT },
+    ];
   }
   return [
-    { minQty: 1, label: "1", unitPrice: 40 },
-    { minQty: 3, label: "3+", unitPrice: 30 },
+    { minQty: 1, label: "1", unitPrice: SYNTHETIC_UNIT },
+    { minQty: 3, label: "3+", unitPrice: SYNTHETIC_QTY3_UNIT },
   ];
 }
 
@@ -164,28 +197,28 @@ export function listEntrecuerosPriceListTiers(source) {
       return [{ minQty: 1, label: "1", unitPrice: catalogUnit(source) }];
     case ENTRECUEROS_PRICE_KIND.NINO:
       return [
-        { minQty: 1, label: "1", unitPrice: 65 },
-        { minQty: 3, label: "3+", unitPrice: 45 },
+        { minQty: 1, label: "1", unitPrice: 75 },
+        { minQty: 3, label: "3+", unitPrice: 55 },
       ];
     case ENTRECUEROS_PRICE_KIND.DAMA:
       return [
-        { minQty: 1, label: "1", unitPrice: 65 },
-        { minQty: 3, label: "3+", unitPrice: 60 },
+        { minQty: 1, label: "1", unitPrice: 75 },
+        { minQty: 3, label: "3+", unitPrice: 70 },
       ];
     case ENTRECUEROS_PRICE_KIND.REVERSIBLE:
-      return [{ minQty: 1, label: "1", unitPrice: 100 }];
+      return [{ minQty: 1, label: "1", unitPrice: 125 }];
     case ENTRECUEROS_PRICE_KIND.WALLET_LEATHER:
       return [
-        { minQty: 1, label: "1", unitPrice: 100 },
-        { minQty: 3, label: "3+", unitPrice: 65 },
-        { minQty: 6, label: "6+", unitPrice: 55 },
+        { minQty: 1, label: "1", unitPrice: 125 },
+        { minQty: 3, label: "3+", unitPrice: 75 },
+        { minQty: 6, label: "6+", unitPrice: 65 },
       ];
     case ENTRECUEROS_PRICE_KIND.WALLET_SYNTHETIC:
       return listSyntheticWalletTiers(source);
     case ENTRECUEROS_PRICE_KIND.CARDHOLDER_SYNTHETIC:
       return [
-        { minQty: 1, label: "1", unitPrice: 10 },
-        { minQty: 3, label: "3+", unitPrice: 6 },
+        { minQty: 1, label: "1", unitPrice: 15 },
+        { minQty: 3, label: "3+", unitPrice: 10 },
       ];
     case ENTRECUEROS_PRICE_KIND.CASUAL:
       return listCasualTiers(source);
@@ -208,21 +241,37 @@ function topTierPrice(tiers) {
 
 /**
  * `courtesy` prices the line at its own highest configured tier (12, else 6, else 3, else 1, else catalog).
- * Packaging, reversible, and exact B-1 ignore it.
+ * Packaging ignores it. Reversible is flat so courtesy equals the list. Exact B-1 courtesy is Q40/unit;
+ * without courtesy, B-1 is Q130 per complete group of 3 and Q40 per leftover unit.
  */
 export function resolveEntrecuerosListUnitPrice(source, qty, courtesy = false) {
   const kind = entrecuerosPriceKind(source);
   if (kind === ENTRECUEROS_PRICE_KIND.PACKAGING) {
     return roundEntrecuerosMoney(catalogUnit(source));
   }
+  if (kind === ENTRECUEROS_PRICE_KIND.WALLET_SYNTHETIC && isExactB1Code(source)) {
+    if (courtesy) return roundEntrecuerosMoney(SYNTHETIC_UNIT);
+    const n = lineQuantity(source, qty);
+    if (n <= 0) return 0;
+    return roundEntrecuerosMoney(syntheticB1LineTotal(n) / n);
+  }
   const tiers = listEntrecuerosPriceListTiers(source);
   if (!tiers.length) return 0;
-  const fixedB1 = kind === ENTRECUEROS_PRICE_KIND.WALLET_SYNTHETIC && isExactB1Code(source);
-  const useTop = Boolean(courtesy)
-    && kind !== ENTRECUEROS_PRICE_KIND.REVERSIBLE
-    && !fixedB1;
-  const price = useTop ? topTierPrice(tiers) : priceForQuantity(tiers, Number(qty || 0));
+  const useTop = Boolean(courtesy) && kind !== ENTRECUEROS_PRICE_KIND.REVERSIBLE;
+  const priceQty = kind === ENTRECUEROS_PRICE_KIND.WALLET_SYNTHETIC && isExactB5OrB2Code(source)
+    ? lineQuantity(source, qty)
+    : Number(qty || 0);
+  const price = useTop ? topTierPrice(tiers) : priceForQuantity(tiers, priceQty);
   return roundEntrecuerosMoney(price);
+}
+
+export function resolveEntrecuerosListLineTotal(source, qty, courtesy = false) {
+  const quantity = lineQuantity(source, qty);
+  if (entrecuerosPriceKind(source) === ENTRECUEROS_PRICE_KIND.WALLET_SYNTHETIC && isExactB1Code(source)) {
+    if (courtesy) return roundEntrecuerosMoney(SYNTHETIC_UNIT * quantity);
+    return roundEntrecuerosMoney(syntheticB1LineTotal(quantity));
+  }
+  return roundEntrecuerosMoney(resolveEntrecuerosListUnitPrice(source, qty, courtesy) * quantity);
 }
 
 export function entrecuerosCartQuantities(cart) {
