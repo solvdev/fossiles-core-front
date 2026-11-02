@@ -1,6 +1,7 @@
 import { resolveShipmentLinesForPrint } from "./partialReleaseHelper";
 import {
   applyOrderItemPricesToShipmentProducts,
+  buildProductionOrderUpdatePayload,
   buildShipmentProductsReplacePayload,
   expandShipmentProductsForOpvPriceLines,
   mapShipmentProductsForOpvPrint,
@@ -322,3 +323,66 @@ describe("prepareShipmentsOrderHelper — GET /shipments/{id} hidrata ediciones 
     expect(reprint[0].quantity).toBe(2);
   });
 });
+
+describe("buildProductionOrderUpdatePayload — line ids", () => {
+  const form = {
+    customerName: "Cliente",
+    shippingCost: "12",
+    documentDate: "2026-11-02",
+  };
+
+  it("keeps ids for existing lines and sends null for new ones", () => {
+    const payload = buildProductionOrderUpdatePayload(
+      {
+        code: "OPV-1",
+        orderType: "MARCAS",
+        customerId: 9,
+        sellerName: "Luis Felipe",
+        observations: "Notas",
+        packingItems: [{ materialId: 9, quantity: 4, unitPrice: 3 }],
+        items: [
+          {
+            id: 42,
+            productId: 10,
+            colorId: 3,
+            brandName: "ACME",
+            quantity: 10,
+            sizes: { "38": 4, "39": 6 },
+            observations: "ok",
+            unitPrice: 50,
+            unitPrices: { "38": 50, "39": 55 },
+          },
+          {
+            productId: 11,
+            colorId: 4,
+            brandName: "ACME",
+            quantity: 2,
+            sizes: { "38": 2 },
+            observations: "",
+            unitPrice: 40,
+          },
+        ],
+      },
+      form
+    );
+
+    expect(payload.items).toHaveLength(2);
+    expect(payload.items[0]).toMatchObject({
+      id: 42,
+      productId: 10,
+      colorId: 3,
+      brandName: "ACME",
+      quantity: 10,
+      unitPrice: 50,
+      unitPrices: { "38": 50, "39": 55 },
+    });
+    expect(payload.items[1]).toMatchObject({
+      id: null,
+      productId: 11,
+      colorId: 4,
+      unitPrice: 40,
+    });
+    expect(payload.items[1].unitPrices).toBeUndefined();
+  });
+});
+

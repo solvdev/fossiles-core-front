@@ -41,6 +41,7 @@ import {
 } from "utils/luisFelipeVendorHelper";
 import { orderAllowsPartialReleases } from "utils/partialReleaseHelper";
 import { resolveDefaultOpvUnitPrice } from "utils/prepareShipmentsOrderHelper";
+import { buildProductionOrderFormItemsPayload } from "utils/productionOrderFormPayload";
 import OpvShipmentPriceReviewModal from "components/production/OpvShipmentPriceReviewModal";
 import { getLocations } from "services/locationService";
 import { PRODUCT_BRAND_OPTIONS as BRAND_OPTIONS } from "utils/productBrandHelper";
@@ -706,26 +707,13 @@ function ProductionOrderForm({ orderId, isOpen, toggle, onSuccess }) {
           unitPrice: Number(item.unitPrice || 0),
         })),
         status: formData.status,
-        items: formData.items.map((item) => ({
-          productId: item.productId,
-          colorId: item.colorId,
-          brandName: formData.orderType === "MARCAS" ? item.brandName || null : null,
-          quantity: item.quantity,
-          sizes: item.sizes,
-          observations: item.observations,
-          unitPrice: showItemUnitPrice
-            ? (() => {
-                const n = Number(item.unitPrice);
-                if (Number.isFinite(n) && n > 0) return n;
-                const fallback = resolveDefaultOpvUnitPrice(
-                  item,
-                  productCatalogById,
-                  isVendorOpv
-                );
-                return fallback > 0 ? fallback : undefined;
-              })()
-            : undefined,
-        })),
+        items: buildProductionOrderFormItemsPayload(formData.items, {
+          includeId: Boolean(orderId),
+          orderType: formData.orderType,
+          showItemUnitPrice,
+          productCatalogById,
+          isVendorOpv,
+        }),
       };
 
       if (orderId) {

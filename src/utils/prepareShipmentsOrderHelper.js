@@ -616,6 +616,7 @@ export function buildProductionOrderUpdatePayload(order, form) {
     shippingCost: Number.parseFloat(form.shippingCost) || 0,
     packingItems: mapPackingItemsForApi(o.packingItems),
     items: items.map((item) => ({
+      id: item.id != null ? item.id : null,
       productId: item.productId,
       colorId: item.colorId,
       brandName: item.brandName,
