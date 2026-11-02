@@ -1132,11 +1132,13 @@ function KioskSales() {
     return context.kioskCode || "";
   }, [context, selectedKioskId]);
 
+  // Miraflores siempre; administración (ve todos los kioscos) en cualquier kiosco.
   const canEditPosPrices = useMemo(() => {
+    if (context?.admin) return true;
     const code = String(selectedKioskCode || "").trim().toUpperCase();
     const name = String(selectedKioskName || "").trim().toUpperCase();
     return code === "A15" || name.includes("MIRAFLORES");
-  }, [selectedKioskCode, selectedKioskName]);
+  }, [context, selectedKioskCode, selectedKioskName]);
 
   const selectedKioskOpeningCash = useMemo(() => {
     if (!context) return 300;
