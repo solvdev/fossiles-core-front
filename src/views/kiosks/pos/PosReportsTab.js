@@ -6,7 +6,7 @@ import { getGeneralKioskBankDeposits, getGeneralKioskDisbursements, getGeneralKi
 import { getKioscoConteoHistorial } from "services/kioscoInventoryService";
 import {
   formatDateGt,
-  formatDateTimeGt,
+  formatPosSaleDateTime,
   getMonthStartYmdGuatemala,
   getTodayYmdGuatemala,
   getWeekStartYmdGuatemala,
@@ -1036,7 +1036,7 @@ function PosReportsTab({
                       }
                     }}
                   >
-                    <td>{formatDateTimeGt(sale.soldAt || sale.saleDate)}</td>
+                    <td>{formatPosSaleDateTime(sale)}</td>
                     <td>
                       {sale.saleNumber}
                       {isVoid && (
