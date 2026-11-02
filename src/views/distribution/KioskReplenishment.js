@@ -201,9 +201,10 @@ function KioskReplenishment() {
                 <strong>A</strong>: se rellena hasta el máximo aunque tenga stock ·{" "}
                 <strong>B</strong>: se repone si está bajo el mínimo o si es de alta venta / artículo base ·{" "}
                 <strong>C</strong>: solo hasta el mínimo y no se marca por defecto. Con poco stock en bodega se
-                atiende primero A, luego B y C. Solo se reponen productos que el kiosco vendió en el periodo; lo
-                demás se agrega a mano con «Revisar y agregar». Los kioscos sin categoría en Finanzas se clasifican
-                por su venta.
+                atiende primero A, luego B y C. Solo se reponen productos que el kiosco vendió en el periodo y, por
+                envío, no más de su venta de una semana (A 100%, B 80%, C 60%); lo que no entra queda para el
+                siguiente envío. Lo demás se agrega a mano con «Revisar y agregar». Los kioscos sin categoría en
+                Finanzas se clasifican por su venta.
               </Alert>
 
               {loading && !data ? (
@@ -238,9 +239,10 @@ function KioskReplenishment() {
                         <th>Kiosco</th>
                         <th>Categoría</th>
                         <th className="text-right">Vendido</th>
-                        <th className="text-right">Líneas</th>
+                        <th className="text-right" title="Venta de una semana × factor de la categoría">Tope por envío</th>
                         <th className="text-right">A enviar</th>
                         <th className="text-right">Falta en bodega</th>
+                        <th className="text-right" title="Pide la regla pero no entra en el tope">Siguiente envío</th>
                         <th />
                       </tr>
                     </thead>
@@ -277,11 +279,12 @@ function KioskReplenishment() {
                                 ) : null}
                               </td>
                               <td className="text-right">{Number(kiosk.unitsSold || 0)}</td>
-                              <td className="text-right">{kiosk.lines?.length || 0}</td>
+                              <td className="text-right">{kiosk.weeklyBudget || 0}</td>
                               <td className="text-right"><strong>{units}</strong></td>
                               <td className={`text-right ${kiosk.totalShortage > 0 ? "text-danger" : "text-muted"}`}>
                                 {kiosk.totalShortage || 0}
                               </td>
+                              <td className="text-right text-muted">{kiosk.totalDeferred || 0}</td>
                               <td className="text-right text-nowrap">
                                 {shipmentNumber ? (
                                   <Badge color="success">Envío {shipmentNumber}</Badge>
@@ -310,7 +313,7 @@ function KioskReplenishment() {
                             </tr>
                             {isOpen ? (
                               <tr>
-                                <td colSpan={8} className="p-0">
+                                <td colSpan={9} className="p-0">
                                   <KioskLinesTable
                                     kiosk={kiosk}
                                     quantityOf={quantityOf}
@@ -377,7 +380,7 @@ function KioskLinesTable({ kiosk, quantityOf, onChange, readOnly }) {
         {kiosk.lines.map((line) => {
           const qty = quantityOf(kiosk, line);
           return (
-            <tr key={lineKey(line)}>
+            <tr key={lineKey(line)} className={line.deferred > 0 && !line.suggested ? "text-muted" : undefined}>
               <td>
                 <strong>{line.productCode}</strong> {line.productName}
               </td>
@@ -405,6 +408,9 @@ function KioskLinesTable({ kiosk, quantityOf, onChange, readOnly }) {
                   <div className="text-danger" title="No alcanza en Bodega PT + Devoluciones">
                     faltan {line.shortage}
                   </div>
+                ) : null}
+                {line.deferred > 0 ? (
+                  <div title="No entra en el tope de este envío">siguiente envío {line.deferred}</div>
                 ) : null}
               </td>
               <td>
