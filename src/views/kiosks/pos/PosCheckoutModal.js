@@ -21,6 +21,7 @@ import {
   entrecuerosVolumeKey,
   lineReceivesEntrecuerosCourtesy,
 } from "utils/entrecuerosPriceLists";
+import { cartLinesForEntrecuerosVolume, isUnitPriceEdited } from "./posPriceOverride";
 
 const QUICK_CASH = [50, 100, 200, 500];
 
@@ -87,24 +88,41 @@ function PosCheckoutModal({
   const paymentMethods = entrecueros ? ENTRECUEROS_PAYMENT_METHODS : PAYMENT_METHODS;
   const checkoutTiers = useMemo(() => {
     if (!entrecueros) return [];
-    const { qtyByKey, courtesyActive } = entrecuerosCartQuantities(cart);
+    const volumeCart = cartLinesForEntrecuerosVolume(cart);
+    const { qtyByKey, courtesyActive } = entrecuerosCartQuantities(volumeCart);
     const seen = new Set();
-    return (cart || []).reduce((rows, line) => {
+    const rows = volumeCart.reduce((acc, line) => {
       const key = entrecuerosVolumeKey(line);
-      if (seen.has(key)) return rows;
+      if (seen.has(key)) return acc;
       seen.add(key);
       const groupedQty = qtyByKey[key];
       const groupQty = groupedQty != null ? groupedQty : Number(line.quantity || 0);
       const courtesy = lineReceivesEntrecuerosCourtesy(line, groupedQty || 0, courtesyActive);
       const state = describeEntrecuerosPriceState(line, groupQty, courtesy);
-      rows.push({
+      acc.push({
+        key,
         productId: line.productId,
         productName: line.productName,
         productCode: line.productCode,
+        priceOverridden: false,
         ...state,
       });
-      return rows;
+      return acc;
     }, []);
+    (cart || []).forEach((line) => {
+      if (!isUnitPriceEdited(line)) return;
+      rows.push({
+        key: line.key || `${line.productId}-edited`,
+        productId: line.productId,
+        productName: line.productName,
+        productCode: line.productCode,
+        priceOverridden: true,
+        qty: Number(line.quantity || 0),
+        unitPrice: Number(line.unitPrice || 0),
+        tiers: [],
+      });
+    });
+    return rows;
   }, [cart, entrecueros]);
 
   useEffect(() => {
@@ -422,26 +440,34 @@ function PosCheckoutModal({
               Precio por cantidad del mismo código. 4 piezas cobran el precio de 3+.
             </div>
             {checkoutTiers.map((row) => (
-              <div key={`chk-tier-${row.productId}`} className="kiosk-pos-tier-block mb-2">
+              <div key={`chk-tier-${row.key}`} className="kiosk-pos-tier-block mb-2">
                 <div className="kiosk-pos-item-sub mb-1">
                   {row.productCode} · {formatQty(row.qty)} pzas
                 </div>
-                <div className="kiosk-pos-tier-row">
-                  {row.tiers.map((tier) => (
-                    <span
-                      key={`${row.productId}-${tier.minQty}`}
-                      className={`kiosk-pos-tier-chip ${row.active.minQty === tier.minQty ? "active" : ""}`}
-                    >
-                      {tier.label} {formatCurrency(tier.unitPrice)}
-                    </span>
-                  ))}
-                </div>
-                <div className="kiosk-pos-tier-hint">
-                  Precio vigente {row.active.label}: {formatCurrency(row.active.unitPrice)} c/u
-                  {row.next
-                    ? `. Faltan ${formatQty(row.missing)} para ${row.next.label} a ${formatCurrency(row.next.unitPrice)}.`
-                    : "."}
-                </div>
+                {row.priceOverridden ? (
+                  <div className="kiosk-pos-tier-hint">
+                    Precio editado: {formatCurrency(row.unitPrice)} c/u
+                  </div>
+                ) : (
+                  <>
+                    <div className="kiosk-pos-tier-row">
+                      {row.tiers.map((tier) => (
+                        <span
+                          key={`${row.key}-${tier.minQty}`}
+                          className={`kiosk-pos-tier-chip ${row.active.minQty === tier.minQty ? "active" : ""}`}
+                        >
+                          {tier.label} {formatCurrency(tier.unitPrice)}
+                        </span>
+                      ))}
+                    </div>
+                    <div className="kiosk-pos-tier-hint">
+                      Precio vigente {row.active.label}: {formatCurrency(row.active.unitPrice)} c/u
+                      {row.next
+                        ? `. Faltan ${formatQty(row.missing)} para ${row.next.label} a ${formatCurrency(row.next.unitPrice)}.`
+                        : "."}
+                    </div>
+                  </>
+                )}
               </div>
             ))}
           </div>

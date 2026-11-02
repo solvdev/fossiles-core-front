@@ -7,6 +7,7 @@ import {
 } from "utils/productAudienceHelper";
 import { hasInventorySizeBreakdown } from "utils/inventoryVariantHelper";
 import { isPackagingProductCode } from "utils/kioskPackagingHelper";
+import { posLineChargesFinalPrice, cartLinesForEntrecuerosVolume, isUnitPriceEdited } from "./posPriceOverride";
 import {
   appendWalletMaterialToProductName,
   extractStockBrand,
@@ -26,6 +27,7 @@ import {
   listEntrecuerosPriceListTiers,
   resolveEntrecuerosListLineTotal,
   resolveEntrecuerosListUnitPrice,
+  roundEntrecuerosMoney,
 } from "utils/entrecuerosPriceLists";
 import {
   PRODUCT_BRAND_OPTIONS,
@@ -681,7 +683,7 @@ export const getSaleInternalNumber = (sale) =>
 export const isDiscountEligibleCartLine = (line) =>
   !line?.isPackaging
   && !isPackagingProductCode(line?.productCode)
-  && !line?.priceEdited;
+  && !posLineChargesFinalPrice(line);
 
 export const filterDiscountEligibleCartLines = (cartLines) =>
   (cartLines || []).filter(isDiscountEligibleCartLine);
@@ -1018,8 +1020,20 @@ const preservedCatalogUnitPrice = (line, unitPrice) => {
 };
 
 export const applyEntrecuerosCartPrices = (cart) => {
-  const { qtyByKey, courtesyActive } = entrecuerosCartQuantities(cart);
+  // Líneas con precio editado no suman al volumen ni cambian el tramo del resto.
+  const { qtyByKey, courtesyActive } = entrecuerosCartQuantities(cartLinesForEntrecuerosVolume(cart));
   return (cart || []).map((line) => {
+    if (isUnitPriceEdited(line)) {
+      const unitPrice = Number(line.unitPrice);
+      const safeUnit = Number.isFinite(unitPrice) ? unitPrice : 0;
+      const quantity = Number(line.quantity || 0);
+      return {
+        ...line,
+        unitPrice: safeUnit,
+        lineTotal: roundEntrecuerosMoney(safeUnit * (Number.isFinite(quantity) ? quantity : 0)),
+        catalogUnitPrice: preservedCatalogUnitPrice(line, safeUnit),
+      };
+    }
     const key = entrecuerosVolumeKey(line);
     const inGroup = Object.prototype.hasOwnProperty.call(qtyByKey, key);
     const groupQty = inGroup ? qtyByKey[key] : Number(line.quantity || 0);
