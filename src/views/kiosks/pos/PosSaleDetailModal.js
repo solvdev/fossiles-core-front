@@ -13,7 +13,7 @@ import {
   Alert,
 } from "reactstrap";
 import { registerDepositSlip, addCashSessionExpense, updateKioskSalePayment, voidKioskSale, getKioskSaleById } from "services/kioskPosService";
-import { formatDateTimeGt } from "utils/dateTimeHelper";
+import { formatDateTimeGt, formatPosSaleDateTime } from "utils/dateTimeHelper";
 import { downloadTaxInvoiceCertifiedXml, openFelInvoiceReport } from "services/taxInvoiceService";
 import EditTaxInvoiceFelModal from "components/accounting/EditTaxInvoiceFelModal";
 import { useAuth } from "contexts/AuthContext";
@@ -345,7 +345,7 @@ function PosSaleDetailModal({
             <div className="kiosk-pos-sale-detail-grid mb-3">
               <div>
                 <div className="kiosk-pos-detail-label">Fecha</div>
-                <div>{formatDateTime(sale.soldAt || sale.saleDate)}</div>
+                <div>{formatPosSaleDateTime(sale)}</div>
               </div>
               <div>
                 <div className="kiosk-pos-detail-label">Kiosko</div>
