@@ -14,6 +14,9 @@ import {
   Table,
 } from "reactstrap";
 import CreateStandaloneKioskShipmentModal from "components/distribution/CreateStandaloneKioskShipmentModal";
+import ReplenishmentProductionModal, {
+  groupShortagesForProduction,
+} from "components/distribution/ReplenishmentProductionModal";
 import { getKioskReplenishmentSuggestion } from "services/kioskReplenishmentService";
 import { createStandaloneKioskShipment } from "services/productDistributionService";
 import { showError, showSuccess } from "utils/notificationHelper";
@@ -45,6 +48,8 @@ function KioskReplenishment() {
   const [creating, setCreating] = useState(false);
   const [created, setCreated] = useState({});
   const [modalKiosk, setModalKiosk] = useState(null);
+  const [productionOpen, setProductionOpen] = useState(false);
+  const [productionOrders, setProductionOrders] = useState([]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -53,10 +58,11 @@ function KioskReplenishment() {
       setData(result);
       setEdits({});
       setCreated({});
+      setProductionOrders([]);
       // Categoría C no recibe envíos automáticos: queda sin marcar; se puede incluir a mano.
       const initial = {};
       (result.kiosks || []).forEach((k) => {
-        initial[k.locationId] = k.category !== "C" && k.totalSuggested > 0;
+        initial[k.locationId] = k.category !== "C" && (k.totalSuggested > 0 || k.totalShortage > 0);
       });
       setSelected(initial);
     } catch (err) {
@@ -157,6 +163,13 @@ function KioskReplenishment() {
     }
   };
 
+  const selectedKiosks = useMemo(() => kiosks.filter((k) => selected[k.locationId]), [kiosks, selected]);
+
+  const productionUnits = useMemo(() => {
+    const { opk, opc } = groupShortagesForProduction(selectedKiosks);
+    return [...opk, ...opc].reduce((sum, r) => sum + r.quantity, 0);
+  }, [selectedKiosks]);
+
   const modalLines = useMemo(() => {
     if (!modalKiosk) return [];
     return linesToSend(modalKiosk).map(({ line, quantity }) => ({ ...line, quantity }));
@@ -222,14 +235,30 @@ function KioskReplenishment() {
                         </span>
                       ) : null}
                     </div>
-                    <Button
-                      color="success"
-                      size="sm"
-                      onClick={createSelected}
-                      disabled={creating || totals.shipments === 0}
-                    >
-                      {creating ? <Spinner size="sm" /> : <><i className="nc-icon nc-check-2 mr-1" />Confirmar y crear envíos</>}
-                    </Button>
+                    <div className="d-flex align-items-center">
+                      {productionOrders.length > 0 ? (
+                        <Badge color="primary" className="mr-2">Producción: {productionOrders.join(", ")}</Badge>
+                      ) : null}
+                      <Button
+                        color="primary"
+                        size="sm"
+                        outline
+                        className="mr-2"
+                        onClick={() => setProductionOpen(true)}
+                        disabled={productionUnits === 0 || productionOrders.length > 0}
+                        title="Mandar a producción lo que no alcanza en bodega para los kioscos marcados"
+                      >
+                        <i className="nc-icon nc-settings mr-1" />Producir faltantes ({productionUnits})
+                      </Button>
+                      <Button
+                        color="success"
+                        size="sm"
+                        onClick={createSelected}
+                        disabled={creating || totals.shipments === 0}
+                      >
+                        {creating ? <Spinner size="sm" /> : <><i className="nc-icon nc-check-2 mr-1" />Confirmar y crear envíos</>}
+                      </Button>
+                    </div>
                   </div>
 
                   <Table responsive size="sm" className="mb-0">
@@ -260,7 +289,7 @@ function KioskReplenishment() {
                                   type="checkbox"
                                   className="position-static m-0"
                                   checked={!!selected[kiosk.locationId]}
-                                  disabled={!!shipmentNumber || units === 0}
+                                  disabled={!!shipmentNumber || (units === 0 && !(kiosk.totalShortage > 0))}
                                   onChange={(e) =>
                                     setSelected((prev) => ({ ...prev, [kiosk.locationId]: e.target.checked }))
                                   }
@@ -334,6 +363,14 @@ function KioskReplenishment() {
           </Card>
         </Col>
       </Row>
+
+      <ReplenishmentProductionModal
+        isOpen={productionOpen}
+        toggle={() => setProductionOpen(false)}
+        kiosks={selectedKiosks}
+        windowDays={data?.windowDays || windowDays}
+        onCreated={(codes) => setProductionOrders(codes)}
+      />
 
       <CreateStandaloneKioskShipmentModal
         isOpen={!!modalKiosk}
