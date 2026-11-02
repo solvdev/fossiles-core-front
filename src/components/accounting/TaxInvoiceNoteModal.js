@@ -14,6 +14,7 @@ import {
 } from "reactstrap";
 import { issueTaxInvoiceNote } from "services/taxInvoiceService";
 import { showError, showSuccess } from "utils/notificationHelper";
+import { formatQuetzales } from "utils/taxInvoiceLabels";
 
 const NOTE_TYPES = {
   NCRE: "Nota de crédito",
@@ -22,9 +23,7 @@ const NOTE_TYPES = {
 
 const emptyLine = () => ({ description: "", quantity: "1", unitPrice: "" });
 
-function formatCurrency(value) {
-  return `Q ${Number(value || 0).toFixed(2)}`;
-}
+const formatCurrency = formatQuetzales;
 
 function lineTotal(line) {
   const qty = Number(line.quantity);

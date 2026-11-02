@@ -36,10 +36,13 @@ export const listTaxInvoices = async (filters = {}) => {
 export const getTaxInvoiceSummary = async (filters = {}) => {
   const response = await fetch(`${API_URL}/tax-invoices/summary${toQuery({
     sourceType: filters.sourceType,
+    documentType: filters.documentType,
     customerTaxId: filters.customerTaxId,
     internalNumber: filters.internalNumber,
+    search: filters.search,
     fromDate: filters.fromDate,
     toDate: filters.toDate,
+    includeTests: filters.includeTests,
   })}`, {
     headers: headers(),
   });

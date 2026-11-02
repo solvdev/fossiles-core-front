@@ -23,39 +23,41 @@ import {
 import { formatDateTimeGt } from "utils/dateTimeHelper";
 import { useAuth } from "contexts/AuthContext";
 import { canEditTaxInvoiceFel } from "utils/taxInvoiceEditHelper";
+import {
+  TAX_INVOICE_SOURCE_LABELS,
+  formatQuantity,
+  formatQuetzales,
+  isCreditDebitNote,
+  taxInvoiceDocumentLabel,
+  taxInvoiceStatus,
+} from "utils/taxInvoiceLabels";
 import TaxInvoiceVoidModal from "components/accounting/TaxInvoiceVoidModal";
 import TaxInvoiceNoteModal from "components/accounting/TaxInvoiceNoteModal";
-
-const DOCUMENT_TYPE_LABELS = {
-  FACT: "Factura",
-  FCAM: "Factura cambiaria",
-  NCRE: "Nota de crédito",
-  NDEB: "Nota de débito",
-};
-
-const STATUS_COLORS = {
-  CERTIFIED: "success",
-  FAILED: "danger",
-  DRAFT: "secondary",
-  SKIPPED: "warning",
-  VOID: "dark",
-};
 
 const ACTION_LABELS = {
   ISSUE: "Emisión",
   RETRY: "Reintento",
+  REISSUE: "Reemisión",
   VOID: "Anulación",
 };
 
-function formatCurrency(value) {
-  return `Q ${Number(value || 0).toFixed(2)}`;
+const formatCurrency = formatQuetzales;
+
+/** Fila etiqueta / valor del detalle. */
+function Field({ label, children, className = "" }) {
+  return (
+    <div className={`mb-2 ${className}`}>
+      <div className="small text-muted">{label}</div>
+      <div>{children}</div>
+    </div>
+  );
 }
 
 function AccountingInvoiceDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
   const { hasRole, hasAnyRole, hasPermission } = useAuth();
-  const canVoidFel = canEditTaxInvoiceFel({ hasRole, hasAnyRole, hasPermission });
+  const canManageFel = canEditTaxInvoiceFel({ hasRole, hasAnyRole, hasPermission });
   const [invoice, setInvoice] = useState(null);
   const [loading, setLoading] = useState(true);
   const [retrying, setRetrying] = useState(false);
@@ -72,7 +74,7 @@ function AccountingInvoiceDetail() {
       const data = await getTaxInvoiceById(id);
       setInvoice(data);
     } catch (err) {
-      setError(err.message || "No se pudo cargar la factura.");
+      setError(err.message || "No se pudo cargar el documento.");
     } finally {
       setLoading(false);
     }
@@ -82,14 +84,20 @@ function AccountingInvoiceDetail() {
     loadInvoice();
   }, [id]);
 
+  const documentLabel = taxInvoiceDocumentLabel(invoice?.documentType);
+
   const handleRetry = async () => {
+    const confirmed = window.confirm(
+      `¿Firmar (certificar) ${documentLabel.toLowerCase()} ${invoice?.internalNumber || id} ante el SAT?`
+    );
+    if (!confirmed) return;
     try {
       setRetrying(true);
       setError("");
       await retryTaxInvoice(id);
       await loadInvoice();
     } catch (err) {
-      setError(err.message || "No se pudo reintentar la certificación.");
+      setError(err.message || "No se pudo certificar el documento.");
     } finally {
       setRetrying(false);
     }
@@ -107,31 +115,31 @@ function AccountingInvoiceDetail() {
     }
   };
 
-  const canRetry = invoice && (
+  const canRetry = canManageFel && invoice && (
     ["FAILED", "SKIPPED", "DRAFT"].includes(invoice.status)
     || (invoice.status === "VOID" && !invoice.felUuid)
   );
   const canDownloadXml = invoice?.status === "CERTIFIED" && invoice?.hasCertifiedXml;
   const canDownloadFelReport = invoice?.status === "CERTIFIED" && invoice?.felUuid;
-  const canOpenVoid = canVoidFel
+  const canOpenVoid = canManageFel
     && invoice?.status === "CERTIFIED"
     && invoice?.felUuid;
-  const isNote = ["NCRE", "NDEB"].includes(invoice?.documentType);
-  const documentLabel = DOCUMENT_TYPE_LABELS[invoice?.documentType] || "Factura";
+  const isNote = isCreditDebitNote(invoice?.documentType);
   const creditDebitNotes = invoice?.creditDebitNotes || [];
-  const canIssueNote = canVoidFel
+  const canIssueNote = canManageFel
     && invoice?.creditDebitNotesEnabled
     && !isNote
     && invoice?.status === "CERTIFIED"
     && invoice?.felUuid
     && !invoice?.consumidorFinal;
+  const status = taxInvoiceStatus(invoice?.status);
 
   const handleDownloadFelReport = () => {
     try {
       setError("");
       openFelInvoiceReport(invoice.felUuid);
     } catch (err) {
-      setError(err.message || "No se pudo abrir la factura FEL.");
+      setError(err.message || "No se pudo abrir el PDF FEL.");
     }
   };
   const attempts = invoice?.attempts || [];
@@ -143,70 +151,94 @@ function AccountingInvoiceDetail() {
   if (!invoice) {
     return (
       <div className="content">
-        <Alert color="danger">{error || "Factura no encontrada."}</Alert>
+        <Alert color="danger">{error || "Documento no encontrado."}</Alert>
         <Button color="default" onClick={() => navigate("/admin/accounting/invoices")}>Volver</Button>
       </div>
     );
   }
 
+  const sourceLabel = TAX_INVOICE_SOURCE_LABELS[invoice.sourceType] || invoice.sourceType || "—";
+
   return (
     <div className="content">
+      <Button
+        color="link"
+        className="px-0 mb-2"
+        onClick={() => navigate("/admin/accounting/invoices")}
+      >
+        <i className="nc-icon nc-minimal-left" /> Facturas FEL
+      </Button>
       <Card className="mb-4">
         <CardHeader>
-          <Row className="align-items-center">
-            <Col>
-              <CardTitle tag="h4">{documentLabel} {invoice.internalNumber || invoice.id}</CardTitle>
+          <Row className="align-items-start">
+            <Col lg="5" className="mb-2 mb-lg-0">
+              <CardTitle tag="h4" className="mb-1">
+                {documentLabel} {invoice.internalNumber || `#${invoice.id}`}
+              </CardTitle>
+              <Badge color={status.color} className="mr-1">{status.label}</Badge>
+              {status.detail && <span className="small text-muted mr-2">{status.detail}</span>}
+              {invoice.testDocument && <Badge color="warning">Prueba (sandbox)</Badge>}
             </Col>
-            <Col className="text-right">
-              <Badge color={STATUS_COLORS[invoice.status] || "secondary"} className="mr-2">
-                {invoice.status}
-              </Badge>
-              {canRetry && (
-                <Button color="warning" size="sm" className="mr-2" onClick={handleRetry} disabled={retrying}>
-                  {retrying ? <Spinner size="sm" /> : "Reintentar FEL"}
-                </Button>
-              )}
-              {canDownloadFelReport && (
-                <Button color="primary" size="sm" outline className="mr-2" onClick={handleDownloadFelReport}>
-                  Descargar factura
-                </Button>
-              )}
-              {canIssueNote && (
-                <Button color="info" size="sm" className="mr-2" onClick={() => setNoteOpen(true)}>
-                  Emitir nota de crédito/débito
-                </Button>
-              )}
-              {canOpenVoid && (
-                <Button
-                  color="danger"
-                  size="sm"
-                  outline
-                  className="mr-2"
-                  onClick={() => setVoidOpen(true)}
-                >
-                  Anular FEL
-                </Button>
-              )}
-              {canDownloadXml && (
-                <Button color="success" size="sm" className="mr-2" onClick={handleDownloadXml} disabled={downloadingXml}>
-                  {downloadingXml ? <Spinner size="sm" /> : "Descargar XML certificado"}
-                </Button>
-              )}
-              <Button color="default" size="sm" onClick={() => navigate("/admin/accounting/invoices")}>
-                Volver al listado
-              </Button>
+            <Col lg="7" className="text-lg-right">
+              <div className="d-flex flex-wrap justify-content-lg-end" style={{ gap: "0.5rem" }}>
+                {canRetry && (
+                  <Button color="warning" size="sm" className="my-0" onClick={handleRetry} disabled={retrying}>
+                    {retrying ? <Spinner size="sm" /> : "Firmar FEL"}
+                  </Button>
+                )}
+                {canDownloadFelReport && (
+                  <Button color="primary" size="sm" outline className="my-0" onClick={handleDownloadFelReport}>
+                    Ver PDF
+                  </Button>
+                )}
+                {canDownloadXml && (
+                  <Button color="primary" size="sm" outline className="my-0" onClick={handleDownloadXml} disabled={downloadingXml}>
+                    {downloadingXml ? <Spinner size="sm" /> : "Descargar XML"}
+                  </Button>
+                )}
+                {canIssueNote && (
+                  <Button color="info" size="sm" className="my-0" onClick={() => setNoteOpen(true)}>
+                    Emitir nota de crédito/débito
+                  </Button>
+                )}
+                {canOpenVoid && (
+                  <Button color="danger" size="sm" outline className="my-0" onClick={() => setVoidOpen(true)}>
+                    Anular
+                  </Button>
+                )}
+              </div>
             </Col>
           </Row>
         </CardHeader>
         <CardBody>
           {error && <Alert color="danger">{error}</Alert>}
+          {invoice.felError && invoice.status !== "CERTIFIED" && (
+            <Alert color="danger" className="small">
+              <strong>Error FEL:</strong> {invoice.felError}
+            </Alert>
+          )}
+          {invoice.status === "VOID" && (
+            <Alert color="secondary" className="small">
+              Anulado ante el SAT{invoice.voidedAt ? ` el ${formatDateTimeGt(invoice.voidedAt)}` : ""}
+              {invoice.voidReason ? ` · Motivo: ${invoice.voidReason}` : ""}.
+              {" "}Para reemitir con datos corregidos use <strong>Firmar FEL</strong>.
+            </Alert>
+          )}
 
           <Row className="mb-3">
-            <Col md="6">
+            <Col md="4">
+              <Field label="Cliente">{invoice.customerName || "—"}</Field>
+              <Field label="NIT">{invoice.customerTaxId || "—"}</Field>
+              {invoice.address && <Field label="Dirección">{invoice.address}</Field>}
+              {invoice.email && <Field label="Correo">{invoice.email}</Field>}
+            </Col>
+            <Col md="4">
+              <Field label="Fecha de emisión">
+                {invoice.issuedAt ? formatDateTimeGt(invoice.issuedAt) : "—"}
+              </Field>
               {isNote ? (
                 <>
-                  <p>
-                    <strong>Factura origen:</strong>{" "}
+                  <Field label="Factura origen">
                     <Button
                       color="link"
                       className="p-0 align-baseline"
@@ -217,64 +249,77 @@ function AccountingInvoiceDetail() {
                     {(invoice.originFelSerie || invoice.originFelNumero) && (
                       <span className="text-muted"> · {invoice.originFelSerie || "—"} / {invoice.originFelNumero || "—"}</span>
                     )}
-                  </p>
+                  </Field>
                   {invoice.adjustmentReason && (
-                    <p><strong>Motivo del ajuste:</strong> {invoice.adjustmentReason}</p>
+                    <Field label="Motivo del ajuste">{invoice.adjustmentReason}</Field>
                   )}
                 </>
               ) : (
-                <p><strong>Origen:</strong> {invoice.sourceType}{invoice.sourceId ? ` #${invoice.sourceId}` : ""}</p>
+                <Field label="Origen">
+                  {sourceLabel}
+                  {invoice.sourceId ? <span className="text-muted"> #{invoice.sourceId}</span> : null}
+                </Field>
               )}
-              <p><strong>Cliente:</strong> {invoice.customerName || "—"}</p>
-              <p><strong>NIT:</strong> {invoice.customerTaxId || "—"}</p>
-              <p><strong>Fecha emisión:</strong> {invoice.issuedAt ? formatDateTimeGt(invoice.issuedAt) : "—"}</p>
-            </Col>
-            <Col md="6">
-              <p><strong>Subtotal:</strong> {formatCurrency(invoice.subtotal)}</p>
-              <p><strong>IVA:</strong> {formatCurrency(invoice.taxAmount)}</p>
-              <p><strong>Total:</strong> {formatCurrency(invoice.totalAmount)}</p>
-              {invoice.felUuid && <p><strong>UUID FEL:</strong> {invoice.felUuid}</p>}
               {(invoice.felSerie || invoice.felNumero) && (
-                <p><strong>Serie / Número:</strong> {invoice.felSerie || "—"} / {invoice.felNumero || "—"}</p>
+                <Field label="Serie / Número FEL">
+                  {invoice.felSerie || "—"} / {invoice.felNumero || "—"}
+                </Field>
               )}
-              {invoice.felError && <p className="text-danger"><strong>Error FEL:</strong> {invoice.felError}</p>}
-              {(invoice.felVoidUuid || invoice.voidReason) && (
-                <>
-                  {invoice.voidedAt && (
-                    <p><strong>Última anulación SAT:</strong> {formatDateTimeGt(invoice.voidedAt)}</p>
-                  )}
-                  {invoice.voidReason && (
-                    <p><strong>Motivo anulación:</strong> {invoice.voidReason}</p>
-                  )}
-                  {invoice.felVoidUuid && (
-                    <p><strong>UUID anulación:</strong> {invoice.felVoidUuid}</p>
-                  )}
-                </>
+              {invoice.felUuid && (
+                <Field label="UUID (autorización)">
+                  <span className="small text-monospace" style={{ wordBreak: "break-all" }}>{invoice.felUuid}</span>
+                </Field>
               )}
-              {invoice.status === "VOID" && (
-                <p className="text-muted small">
-                  Factura anulada ante el SAT. Para reemitir con datos corregidos use{" "}
-                  <strong>Firmar FEL</strong> (pasa a borrador y certifica de nuevo).
-                </p>
+              {invoice.felVoidUuid && (
+                <Field label="UUID de anulación">
+                  <span className="small text-monospace" style={{ wordBreak: "break-all" }}>{invoice.felVoidUuid}</span>
+                </Field>
               )}
+            </Col>
+            <Col md="4">
+              <div className="border rounded p-3">
+                <div className="d-flex justify-content-between mb-1">
+                  <span className="text-muted">Subtotal</span>
+                  <span>{formatCurrency(invoice.subtotal)}</span>
+                </div>
+                {Number(invoice.discountAmount || 0) > 0 && (
+                  <div className="d-flex justify-content-between mb-1">
+                    <span className="text-muted">Descuento</span>
+                    <span>−{formatCurrency(invoice.discountAmount)}</span>
+                  </div>
+                )}
+                <div className="d-flex justify-content-between mb-1">
+                  <span className="text-muted">IVA incluido</span>
+                  <span>{formatCurrency(invoice.taxAmount)}</span>
+                </div>
+                <div className="d-flex justify-content-between border-top pt-2 mt-2">
+                  <strong>Total</strong>
+                  <strong>{formatCurrency(invoice.totalAmount)}</strong>
+                </div>
+              </div>
               {invoice.status === "CERTIFIED" && !invoice.hasCertifiedXml && (
-                <p className="text-muted small mb-0">
-                  XML certificado no disponible (factura anterior a este respaldo o certificación sin xml_certificado).
+                <p className="text-muted small mt-2 mb-0">
+                  XML certificado no guardado (documento anterior a ese respaldo).
                 </p>
+              )}
+              {invoice.notes && (
+                <Field label="Observaciones" className="mt-3">
+                  <span className="small" style={{ whiteSpace: "pre-line" }}>{invoice.notes}</span>
+                </Field>
               )}
             </Col>
           </Row>
 
-          <h5 className="mb-2">Líneas actuales</h5>
+          <h5 className="mb-2">Líneas</h5>
           <Table responsive hover size="sm" className="mb-0">
             <thead>
               <tr>
                 <th>#</th>
                 <th>Descripción</th>
-                <th>Cant.</th>
-                <th>P. unit.</th>
-                <th>Total</th>
-                <th>IVA</th>
+                <th className="text-right">Cant.</th>
+                <th className="text-right">P. unit.</th>
+                <th className="text-right">IVA</th>
+                <th className="text-right">Total</th>
               </tr>
             </thead>
             <tbody>
@@ -282,10 +327,10 @@ function AccountingInvoiceDetail() {
                 <tr key={line.id || line.lineNumber}>
                   <td>{line.lineNumber}</td>
                   <td>{line.description}</td>
-                  <td>{line.quantity}</td>
-                  <td>{formatCurrency(line.unitPrice)}</td>
-                  <td>{formatCurrency(line.lineTotal)}</td>
-                  <td>{formatCurrency(line.taxAmount)}</td>
+                  <td className="text-right">{formatQuantity(line.quantity)}</td>
+                  <td className="text-right">{formatCurrency(line.unitPrice)}</td>
+                  <td className="text-right">{formatCurrency(line.taxAmount)}</td>
+                  <td className="text-right">{formatCurrency(line.lineTotal)}</td>
                 </tr>
               ))}
             </tbody>
@@ -330,7 +375,7 @@ function AccountingInvoiceDetail() {
                   {creditDebitNotes.map((note) => (
                     <tr key={note.id}>
                       <td>{note.internalNumber || note.id}</td>
-                      <td>{DOCUMENT_TYPE_LABELS[note.documentType] || note.documentType}</td>
+                      <td>{taxInvoiceDocumentLabel(note.documentType)}</td>
                       <td>{note.issuedAt ? formatDateTimeGt(note.issuedAt) : "—"}</td>
                       <td>{note.adjustmentReason || "—"}</td>
                       <td>
@@ -338,7 +383,7 @@ function AccountingInvoiceDetail() {
                         {formatCurrency(note.totalAmount)}
                       </td>
                       <td>
-                        <Badge color={STATUS_COLORS[note.status] || "secondary"}>{note.status}</Badge>
+                        <Badge color={taxInvoiceStatus(note.status).color}>{taxInvoiceStatus(note.status).label}</Badge>
                         {note.felError && (
                           <div className="small text-danger mt-1" title={note.felError}>
                             {note.felError.length > 60 ? `${note.felError.slice(0, 60)}…` : note.felError}
@@ -387,7 +432,7 @@ function AccountingInvoiceDetail() {
                     {" · "}
                     <Badge color="info">{ACTION_LABELS[attempt.action] || attempt.action}</Badge>
                     {" "}
-                    <Badge color={STATUS_COLORS[attempt.status] || "secondary"}>{attempt.status}</Badge>
+                    <Badge color={taxInvoiceStatus(attempt.status).color}>{taxInvoiceStatus(attempt.status).label}</Badge>
                     <div className="text-muted small mt-1">
                       {attempt.createdAt ? formatDateTimeGt(attempt.createdAt) : "—"}
                       {attempt.felEnabled === false && " · FEL desactivado en servidor"}
@@ -441,7 +486,7 @@ function AccountingInvoiceDetail() {
                         <tr key={`${attempt.id}-${line.lineNumber}`}>
                           <td>{line.lineNumber}</td>
                           <td>{line.description}</td>
-                          <td>{line.quantity}</td>
+                          <td>{formatQuantity(line.quantity)}</td>
                           <td>{formatCurrency(line.unitPrice)}</td>
                           <td>{formatCurrency(line.lineTotal)}</td>
                         </tr>
