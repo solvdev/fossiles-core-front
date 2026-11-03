@@ -18,11 +18,13 @@ import {
   getActiveAnnouncement,
   broadcastAnnouncement,
   dismissAnnouncement,
+  getAnnouncementDeadline,
 } from "services/systemAnnouncementService";
 
 export default function BroadcastAnnouncementModal({ isOpen, toggle, onBroadcastSent }) {
   const [activeAnnouncement, setActiveAnnouncement] = useState(null);
   const [remainingSeconds, setRemainingSeconds] = useState(null);
+  const [deadline, setDeadline] = useState(null);
   const [loading, setLoading] = useState(false);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
@@ -45,9 +47,11 @@ export default function BroadcastAnnouncementModal({ isOpen, toggle, onBroadcast
       if (active && active.isActive && active.remainingSeconds > 0) {
         setActiveAnnouncement(active);
         setRemainingSeconds(active.remainingSeconds);
+        setDeadline(getAnnouncementDeadline(active));
       } else {
         setActiveAnnouncement(null);
         setRemainingSeconds(null);
+        setDeadline(null);
       }
     } catch (err) {
       setError(err.message || "Error al consultar estado de alertas");
@@ -64,20 +68,14 @@ export default function BroadcastAnnouncementModal({ isOpen, toggle, onBroadcast
     }
   }, [isOpen, loadCurrentStatus]);
 
-  // Cuenta regresiva en el modal
+  // Cuenta regresiva en el modal, contra la hora de vencimiento (igual que el banner)
   useEffect(() => {
-    if (!activeAnnouncement || remainingSeconds === null || remainingSeconds <= 0) return;
-    const interval = setInterval(() => {
-      setRemainingSeconds((prev) => {
-        if (prev === null || prev <= 1) {
-          clearInterval(interval);
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000);
+    if (!activeAnnouncement || !deadline) return undefined;
+    const tick = () => setRemainingSeconds(Math.max(0, Math.ceil((deadline - Date.now()) / 1000)));
+    tick();
+    const interval = setInterval(tick, 500);
     return () => clearInterval(interval);
-  }, [activeAnnouncement, remainingSeconds]);
+  }, [activeAnnouncement, deadline]);
 
   const handleSendBroadcast = async (mins, customTitle, customMsg, customType) => {
     try {
@@ -102,6 +100,7 @@ export default function BroadcastAnnouncementModal({ isOpen, toggle, onBroadcast
 
       setActiveAnnouncement(res);
       setRemainingSeconds(res.remainingSeconds);
+      setDeadline(getAnnouncementDeadline(res));
       setSuccessMsg(`¡Alerta emitida a todos los usuarios conectados (${mins} minutos de cuenta regresiva)!`);
       if (onBroadcastSent) onBroadcastSent(res);
     } catch (err) {
@@ -119,7 +118,8 @@ export default function BroadcastAnnouncementModal({ isOpen, toggle, onBroadcast
       await dismissAnnouncement();
       setActiveAnnouncement(null);
       setRemainingSeconds(null);
-      setSuccessMsg("La alerta ha sido cancelada y retirada de todas las pantallas.");
+      setDeadline(null);
+      setSuccessMsg("La alerta ha sido cancelada y retirada de todas las pantallas. Si había un deploy esperando, se detuvo.");
       if (onBroadcastSent) onBroadcastSent(null);
     } catch (err) {
       setError(err.message || "Error al cancelar la alerta");
@@ -199,6 +199,13 @@ export default function BroadcastAnnouncementModal({ isOpen, toggle, onBroadcast
                     <small className="text-muted">Tiempo restante</small>
                   </div>
                 </div>
+
+                {activeAnnouncement.targetAction === "RESTART" && (
+                  <div className="text-muted small mt-2">
+                    Si hay un deploy del back en curso, el servidor se reinicia justo cuando esta cuenta llega a 0.
+                    Cancelar el aviso también detiene ese deploy.
+                  </div>
+                )}
 
                 <div className="mt-3 pt-2 border-top d-flex justify-content-end">
                   <Button

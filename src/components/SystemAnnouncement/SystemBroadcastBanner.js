@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import {
-  getActiveAnnouncement,
+  fetchActiveAnnouncement,
   subscribeToAnnouncements,
+  pingServer,
+  getAnnouncementDeadline,
 } from "services/systemAnnouncementService";
 
 // Función para emitir sonido suave de alerta usando Web Audio API
@@ -30,59 +32,125 @@ const playAlertBeep = () => {
   }
 };
 
+// Fases del banner:
+//   COUNTDOWN   → cuenta regresiva hacia el reinicio
+//   RESTARTING  → el servidor se está reiniciando; se queda hasta que el back nuevo conteste
+//   BACK_ONLINE → el back ya arrancó (bootId distinto); se oculta solo a los pocos segundos
+const RESTART_PING_MS = 4000;
+const BACK_ONLINE_VISIBLE_MS = 8000;
+// Aviso manual sin reinicio real: si el back sigue igual (mismo arranque) tras este tiempo, se quita
+const RESTART_GIVE_UP_MS = 4 * 60 * 1000;
+
+const secondsLeft = (deadline) =>
+  deadline ? Math.max(0, Math.ceil((deadline - Date.now()) / 1000)) : 0;
+
 export default function SystemBroadcastBanner() {
   const [announcement, setAnnouncement] = useState(null);
-  const [remainingSeconds, setRemainingSeconds] = useState(null);
-  const lastAnnounceIdRef = useRef(null);
+  const [deadline, setDeadline] = useState(null);
+  const [remainingSeconds, setRemainingSeconds] = useState(0);
+  const [phase, setPhaseState] = useState(null);
 
-  // Cargar anuncio activo
+  // Refs para que los callbacks de SSE / intervalos lean el estado actual
+  const phaseRef = useRef(null);
+  const announcementRef = useRef(null);
+  const lastAnnounceIdRef = useRef(null);
+  const bootIdRef = useRef(null);
+  const restartingSinceRef = useRef(null);
+  const sawServerDownRef = useRef(false);
+
+  const setPhase = useCallback((next) => {
+    phaseRef.current = next;
+    setPhaseState(next);
+  }, []);
+
+  const clearBanner = useCallback(() => {
+    announcementRef.current = null;
+    lastAnnounceIdRef.current = null;
+    restartingSinceRef.current = null;
+    setAnnouncement(null);
+    setDeadline(null);
+    setPhase(null);
+  }, [setPhase]);
+
+  const startRestarting = useCallback(() => {
+    if (phaseRef.current === "RESTARTING" || phaseRef.current === "BACK_ONLINE") return;
+    restartingSinceRef.current = Date.now();
+    sawServerDownRef.current = false;
+    setRemainingSeconds(0);
+    setPhase("RESTARTING");
+  }, [setPhase]);
+
+  // Un bootId distinto al conocido = el servidor se reinició
+  const noteBootId = useCallback(
+    (bootId) => {
+      if (!bootId) return;
+      const known = bootIdRef.current;
+      bootIdRef.current = bootId;
+      if (known && known !== bootId) {
+        const current = phaseRef.current;
+        if (current === "RESTARTING" || current === "COUNTDOWN") {
+          announcementRef.current = null;
+          setAnnouncement(null);
+          setDeadline(null);
+          setPhase("BACK_ONLINE");
+        }
+      }
+    },
+    [setPhase]
+  );
+
+  const applyAnnouncement = useCallback(
+    (active) => {
+      if (!active) return;
+      noteBootId(active.bootId);
+      const nextDeadline = getAnnouncementDeadline(active);
+      if (!active.isActive || secondsLeft(nextDeadline) <= 0) return;
+      // Ya reiniciando o recién actualizado: un aviso viejo no vuelve a abrir la cuenta regresiva
+      if (phaseRef.current === "RESTARTING" || phaseRef.current === "BACK_ONLINE") {
+        if (lastAnnounceIdRef.current === active.id) return;
+      }
+
+      announcementRef.current = active;
+      setAnnouncement(active);
+      setDeadline(nextDeadline);
+      setRemainingSeconds(secondsLeft(nextDeadline));
+      setPhase("COUNTDOWN");
+      if (lastAnnounceIdRef.current !== active.id) {
+        lastAnnounceIdRef.current = active.id;
+        playAlertBeep();
+      }
+    },
+    [noteBootId, setPhase]
+  );
+
+  // Consulta de respaldo: un error de red NO quita el banner (el servidor puede estar reiniciando)
   const checkActiveAnnouncement = useCallback(async () => {
     try {
-      const active = await getActiveAnnouncement();
-      if (active && active.isActive && active.remainingSeconds > 0) {
-        setAnnouncement(active);
-        setRemainingSeconds(active.remainingSeconds);
-        if (lastAnnounceIdRef.current !== active.id) {
-          lastAnnounceIdRef.current = active.id;
-          playAlertBeep();
-        }
-      } else {
-        if (lastAnnounceIdRef.current) {
-          lastAnnounceIdRef.current = null;
-        }
-        setAnnouncement(null);
-        setRemainingSeconds(null);
+      const active = await fetchActiveAnnouncement();
+      if (active) {
+        applyAnnouncement(active);
+      } else if (phaseRef.current === "COUNTDOWN") {
+        clearBanner();
       }
     } catch (e) {
-      // Ignorar errores de red en polling silencioso
+      // Back sin contestar: se mantiene lo que se esté mostrando
     }
-  }, []);
+  }, [applyAnnouncement, clearBanner]);
 
   useEffect(() => {
     checkActiveAnnouncement();
 
     // 1. Suscripción en tiempo real vía Server-Sent Events (SSE)
     const unsubscribe = subscribeToAnnouncements(
-      (newAnnounce) => {
-        if (newAnnounce && newAnnounce.isActive && newAnnounce.remainingSeconds > 0) {
-          setAnnouncement(newAnnounce);
-          setRemainingSeconds(newAnnounce.remainingSeconds || 0);
-
-          if (lastAnnounceIdRef.current !== newAnnounce.id) {
-            lastAnnounceIdRef.current = newAnnounce.id;
-            playAlertBeep();
-          }
-        } else {
-          setAnnouncement(null);
-          setRemainingSeconds(null);
-          lastAnnounceIdRef.current = null;
-        }
-      },
+      (newAnnounce) => applyAnnouncement(newAnnounce),
       () => {
-        // Al descartar alerta
-        setAnnouncement(null);
-        setRemainingSeconds(null);
-        lastAnnounceIdRef.current = null;
+        // Al descartar alerta (si ya está actualizado, se deja terminar el aviso verde)
+        if (phaseRef.current !== "BACK_ONLINE") clearBanner();
+      },
+      undefined,
+      {
+        onInit: (data) => noteBootId(data && data.bootId),
+        onRestarting: () => startRestarting(),
       }
     );
 
@@ -106,28 +174,72 @@ export default function SystemBroadcastBanner() {
       window.removeEventListener("focus", handleVisibilityChange);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, [checkActiveAnnouncement]);
+  }, [checkActiveAnnouncement, applyAnnouncement, clearBanner, noteBootId, startRestarting]);
 
-  // Reloj de cuenta regresiva segundo a segundo
+  // Cuenta regresiva: se calcula contra la hora de vencimiento, así no se atrasa en pestañas
+  // de fondo ni salta cuando llega un polling.
   useEffect(() => {
-    if (!announcement || remainingSeconds === null || remainingSeconds <= 0) {
-      return;
-    }
-
-    const interval = setInterval(() => {
-      setRemainingSeconds((prev) => {
-        if (prev === null || prev <= 1) {
-          clearInterval(interval);
-          return 0;
+    if (phase !== "COUNTDOWN" || !deadline) return undefined;
+    const tick = () => {
+      const left = secondsLeft(deadline);
+      setRemainingSeconds(left);
+      if (left <= 0) {
+        const current = announcementRef.current;
+        if (current && current.targetAction === "RESTART") {
+          startRestarting();
+        } else {
+          clearBanner();
         }
-        return prev - 1;
-      });
-    }, 1000);
-
+      }
+    };
+    tick();
+    const interval = setInterval(tick, 500);
     return () => clearInterval(interval);
-  }, [announcement, remainingSeconds]);
+  }, [phase, deadline, startRestarting, clearBanner]);
 
-  if (!announcement || remainingSeconds === null) {
+  // Reiniciando: consulta /ping hasta que conteste un arranque nuevo
+  useEffect(() => {
+    if (phase !== "RESTARTING") return undefined;
+    let cancelled = false;
+    const check = async () => {
+      const res = await pingServer();
+      if (cancelled) return;
+      if (!res) {
+        sawServerDownRef.current = true;
+        return;
+      }
+      if (res.bootId && bootIdRef.current && res.bootId !== bootIdRef.current) {
+        noteBootId(res.bootId);
+        return;
+      }
+      if (!bootIdRef.current && res.bootId) {
+        bootIdRef.current = res.bootId;
+      }
+      // Volvió después de estar caído (sin bootId conocido para comparar)
+      if (sawServerDownRef.current) {
+        setPhase("BACK_ONLINE");
+        return;
+      }
+      // Aviso manual sin reinicio real: el back sigue arriba con el mismo arranque
+      if (restartingSinceRef.current && Date.now() - restartingSinceRef.current > RESTART_GIVE_UP_MS) {
+        clearBanner();
+      }
+    };
+    const interval = setInterval(check, RESTART_PING_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [phase, noteBootId, setPhase, clearBanner]);
+
+  // Actualizado: el aviso verde se quita solo
+  useEffect(() => {
+    if (phase !== "BACK_ONLINE") return undefined;
+    const timeout = setTimeout(() => clearBanner(), BACK_ONLINE_VISIBLE_MS);
+    return () => clearTimeout(timeout);
+  }, [phase, clearBanner]);
+
+  if (!phase) {
     return null;
   }
 
@@ -138,10 +250,12 @@ export default function SystemBroadcastBanner() {
     return `${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
   };
 
-  const isUrgent = remainingSeconds <= 60;
-  const type = announcement.announcementType || "RESTART_WARNING";
+  const isUrgent = phase === "COUNTDOWN" && remainingSeconds <= 60;
+  const type = (announcement && announcement.announcementType) || "RESTART_WARNING";
 
   const getBannerColor = () => {
+    if (phase === "RESTARTING") return "#2d3436"; // Gris oscuro reiniciando
+    if (phase === "BACK_ONLINE") return "#00a86b"; // Verde actualizado
     if (isUrgent) return "#d63031"; // Rojo intenso
     switch (type) {
       case "MAINTENANCE":
@@ -157,6 +271,8 @@ export default function SystemBroadcastBanner() {
   };
 
   const getBannerIcon = () => {
+    if (phase === "RESTARTING") return "nc-refresh-69";
+    if (phase === "BACK_ONLINE") return "nc-check-2";
     switch (type) {
       case "MAINTENANCE":
         return "nc-settings";
@@ -169,6 +285,19 @@ export default function SystemBroadcastBanner() {
         return "nc-bell-55";
     }
   };
+
+  let bannerTitle;
+  let bannerMessage;
+  if (phase === "RESTARTING") {
+    bannerTitle = "Reiniciando el sistema";
+    bannerMessage = "Espere un momento sin cerrar la página. Este aviso se quita solo cuando el sistema vuelva.";
+  } else if (phase === "BACK_ONLINE") {
+    bannerTitle = "Sistema actualizado";
+    bannerMessage = "Ya puede seguir trabajando. Si algo se ve raro, recargue la página.";
+  } else {
+    bannerTitle = announcement.title || "AVISO DEL SISTEMA";
+    bannerMessage = announcement.message || "Por favor guarde todos sus cambios antes del reinicio.";
+  }
 
   return (
     <div
@@ -198,6 +327,10 @@ export default function SystemBroadcastBanner() {
           50% { background-color: #e84118; }
           100% { background-color: #d63031; }
         }
+        @keyframes spin-banner {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
+        }
         .countdown-badge-live {
           background: #ffffff;
           color: #d63031;
@@ -217,30 +350,43 @@ export default function SystemBroadcastBanner() {
       <div style={{ display: "flex", alignItems: "center", gap: "12px", flex: 1, minWidth: "260px" }}>
         <i
           className={`nc-icon ${getBannerIcon()}`}
-          style={{ fontSize: "24px", color: "#fff" }}
+          style={{
+            fontSize: "24px",
+            color: "#fff",
+            animation: phase === "RESTARTING" ? "spin-banner 1.2s linear infinite" : "none",
+          }}
         />
         <div>
           <div style={{ fontWeight: 800, fontSize: "15px", textTransform: "uppercase", letterSpacing: "0.5px" }}>
-            {announcement.title || "AVISO DEL SISTEMA"}
+            {bannerTitle}
           </div>
-          <div style={{ fontSize: "13px", opacity: 0.95, lineHeight: 1.3 }}>
-            {announcement.message || "Por favor guarde todos sus cambios antes del reinicio."}
-          </div>
+          <div style={{ fontSize: "13px", opacity: 0.95, lineHeight: 1.3 }}>{bannerMessage}</div>
         </div>
       </div>
 
-      {/* Lado derecho: Cuenta Regresiva */}
+      {/* Lado derecho: Cuenta Regresiva / estado */}
       <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-        {remainingSeconds > 0 ? (
+        {phase === "COUNTDOWN" && (
           <div className="countdown-badge-live">
             <i className="nc-icon nc-time-alarm" style={{ fontSize: "16px" }} />
             <span>{formatCountdown(remainingSeconds)}</span>
           </div>
-        ) : (
-          <div className="countdown-badge-live" style={{ backgroundColor: "#2d3436", color: "#fff" }}>
-            <i className="nc-icon nc-refresh-69" />
+        )}
+        {phase === "RESTARTING" && (
+          <div className="countdown-badge-live" style={{ backgroundColor: "#636e72", color: "#fff" }}>
             <span>Reinicio en curso...</span>
           </div>
+        )}
+        {phase === "BACK_ONLINE" && (
+          <button
+            type="button"
+            className="countdown-badge-live"
+            style={{ color: "#00a86b", border: "none", cursor: "pointer", fontSize: "14px" }}
+            onClick={() => window.location.reload()}
+          >
+            <i className="nc-icon nc-refresh-69" />
+            <span>Recargar página</span>
+          </button>
         )}
       </div>
     </div>
