@@ -175,8 +175,6 @@ function KioskSales() {
   const [heldModalOpen, setHeldModalOpen] = useState(false);
   const [heldBusyId, setHeldBusyId] = useState(null);
 
-  const today = useMemo(() => getTodayYmdGuatemala(), []);
-
   const loadHeldCarts = async (kioskLocationId) => {
     const locationId = kioskLocationId || selectedKioskId || undefined;
     if (!locationId) {
@@ -847,7 +845,8 @@ function KioskSales() {
         shippingSheetNumber: isEntrecuerosPos
           ? String(checkoutData.shippingSheetNumber || "").trim() || null
           : null,
-        saleDate: today,
+        // Se calcula al cobrar: la pantalla puede quedar abierta de un día para otro.
+        saleDate: getTodayYmdGuatemala(),
         items: cart.map((line) => buildPosSaleItem(line)),
       });
 
