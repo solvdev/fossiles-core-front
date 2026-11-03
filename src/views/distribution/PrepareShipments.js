@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import "./distributionContrast.css";
 import {
   Alert,
   Button,
@@ -85,7 +86,6 @@ import {
   shouldUseSyntheticFullOrderDocument,
 } from "utils/partialReleaseHelper";
 import PrepareShipmentsCustomerBlock from "components/distribution/PrepareShipmentsCustomerBlock";
-import CreateStandaloneKioskShipmentModal from "components/distribution/CreateStandaloneKioskShipmentModal";
 import EditShipmentProductsModal from "components/distribution/EditShipmentProductsModal";
 import { FilterableSelect } from "components/distribution/FilterableSelect";
 import ShipmentPrintObservationsModal from "components/distribution/ShipmentPrintObservationsModal";
@@ -748,7 +748,6 @@ function PrepareShipments() {
   const [standaloneKioskList, setStandaloneKioskList] = useState([]);
   const [selectedStandaloneKioskId, setSelectedStandaloneKioskId] = useState("");
   const [loadingStandaloneKioskList, setLoadingStandaloneKioskList] = useState(false);
-  const [standaloneKioskModalOpen, setStandaloneKioskModalOpen] = useState(false);
   const [viewMode, setViewMode] = useState("shipments");
   const [pendingOrders, setPendingOrders] = useState([]);
   const [loadingPending, setLoadingPending] = useState(false);
@@ -1054,7 +1053,8 @@ function PrepareShipments() {
       setSelectedStandaloneKioskId("");
       setSelectedProductionOrder(null);
 
-      if (shipment.distributionId) {
+      // Un envío de OP (p. ej. OPK, que ahora vive en su distribución) se abre desde su orden, como antes.
+      if (shipment.distributionId && !shipment.productionOrderId) {
         setDistributionId(String(shipment.distributionId));
         return;
       }
@@ -1588,22 +1588,6 @@ function PrepareShipments() {
       setStandaloneKioskList([]);
     } finally {
       setLoadingStandaloneKioskList(false);
-    }
-  };
-
-  const handleStandaloneKioskCreated = async (created) => {
-    await loadStandaloneKioskShipments();
-    setViewMode("shipments");
-    setDistributionId("");
-    setSelectedOpvOrderId("");
-    setSelectedOpiOrderId("");
-    setSelectedOpcOrderId("");
-    setSelectedOpckOrderId("");
-    setSelectedOpkOrderId("");
-    setSelectedStandaloneInternalId("");
-    setSelectedProductionOrder(null);
-    if (created?.id != null) {
-      setSelectedStandaloneKioskId(String(created.id));
     }
   };
 
@@ -2239,8 +2223,8 @@ function PrepareShipments() {
     () =>
       (distributions || []).map((dist) => ({
         value: String(dist.id),
-        label: `${dist.distributionNumber} - ${dist.distributionDate ? formatDateGt(dist.distributionDate) : "Sin fecha"}`,
-        searchText: `${dist.distributionNumber} ${dist.description || ""}`,
+        label: `${dist.distributionNumber}${dist.origin === "REPOSICION" ? " · Reposición" : ""} - ${dist.distributionDate ? formatDateGt(dist.distributionDate) : "Sin fecha"}${dist.description ? ` · ${dist.description}` : ""}`,
+        searchText: `${dist.distributionNumber} ${dist.description || ""} ${dist.origin === "REPOSICION" ? "reposicion reposición" : "manual"}`,
       })),
     [distributions]
   );
@@ -3709,7 +3693,7 @@ function PrepareShipments() {
     hasAnyFiltered && filteredShipments.every((shipment) => selectedRows[shipment.id]);
 
   return (
-    <div className="content">
+    <div className="content dist-contrast">
       <Row>
         <Col md="12">
           <Card>
@@ -3748,16 +3732,6 @@ function PrepareShipments() {
                       Editar precios
                     </Button>
                   )}
-                  <Button
-                    color="success"
-                    size="sm"
-                    onClick={() => setStandaloneKioskModalOpen(true)}
-                    disabled={pendingFlow}
-                    className="mt-2 mr-2"
-                  >
-                    <i className="nc-icon nc-shop mr-1" />
-                    Envío directo a kiosko
-                  </Button>
                   <Button
                     color="primary"
                     size="sm"
@@ -3864,9 +3838,13 @@ function PrepareShipments() {
 
               {standaloneKioskFlow && (
                 <Alert color="info">
-                  <strong>Envío directo a kiosko (sin OP):</strong> documento formato OPK. Si quedó solo confirmado, use{" "}
-                  <strong>Enviar</strong>. Los empaques <strong>SUM-</strong> se agregan con el botón <strong>Empaques</strong> en la tabla
-                  o al crear el envío. Recepción en <strong>POS → Recibir distribución</strong>.
+                  <strong>Envío a kiosko sin OP:</strong> vive dentro de su distribución
+                  {selectedStandaloneKioskShipment?.distributionNumber
+                    ? ` (${selectedStandaloneKioskShipment.distributionNumber})`
+                    : ""}
+                  . Si quedó solo confirmado, use <strong>Enviar</strong>. Los empaques <strong>SUM-</strong> se agregan
+                  con el botón <strong>Empaques</strong> en la tabla. Recepción en <strong>POS → Recibir distribución</strong>.
+                  Para reponer un kiosco use una distribución manual o la Reposición de kioscos.
                 </Alert>
               )}
 
@@ -4145,7 +4123,7 @@ function PrepareShipments() {
 
               <Row className="mb-3">
                 <Col md="8">
-                  <Label><strong>Envío directo a kiosko (sin OP)</strong></Label>
+                  <Label><strong>Envío a kiosko sin OP (dentro de su distribución)</strong></Label>
                   <FilterableSelect
                     value={selectedStandaloneKioskId}
                     onChange={(id) => {
@@ -4725,7 +4703,7 @@ function PrepareShipments() {
         </Col>
       </Row>
 
-      <Modal isOpen={Boolean(packingModalShipment)} toggle={() => setPackingModalShipment(null)} size="lg">
+      <Modal className="dist-contrast" isOpen={Boolean(packingModalShipment)} toggle={() => setPackingModalShipment(null)} size="lg">
         <ModalHeader toggle={() => setPackingModalShipment(null)}>
           Empaques y costo de envío — {packingModalShipment?.shipmentNumber || "envío"}
         </ModalHeader>
@@ -4845,12 +4823,6 @@ function PrepareShipments() {
             showError(err?.message || "No se pudieron guardar las observaciones");
           }
         }}
-      />
-
-      <CreateStandaloneKioskShipmentModal
-        isOpen={standaloneKioskModalOpen}
-        toggle={() => setStandaloneKioskModalOpen(false)}
-        onCreated={handleStandaloneKioskCreated}
       />
 
       <EditShipmentProductsModal

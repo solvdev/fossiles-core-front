@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Alert,
-  Badge,
   Button,
   Card,
   CardBody,
@@ -22,19 +21,29 @@ import {
   Table,
   UncontrolledDropdown,
 } from "reactstrap";
+import { Link, useNavigate } from "react-router-dom";
 import CreateStandaloneKioskShipmentModal from "components/distribution/CreateStandaloneKioskShipmentModal";
 import ReplenishmentProductionModal, {
   groupShortagesForProduction,
 } from "components/distribution/ReplenishmentProductionModal";
-import { getKioskReplenishmentSuggestion } from "services/kioskReplenishmentService";
-import { createStandaloneKioskShipment } from "services/productDistributionService";
+import {
+  createReplenishmentDistribution,
+  getKioskReplenishmentSuggestion,
+} from "services/kioskReplenishmentService";
 import { showError, showSuccess } from "utils/notificationHelper";
+import "./distributionContrast.css";
 import "./KioskReplenishment.css";
 
 const WINDOW_OPTIONS = [30, 60, 90];
 
 const lineKey = (line) =>
   `${line.productId}|${line.colorId ?? ""}|${line.size || ""}|${line.hardwareCondition || ""}`;
+
+const todayIso = () => {
+  const d = new Date();
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+};
 
 const fmtRate = (value) => {
   const n = Number(value) || 0;
@@ -53,10 +62,13 @@ const variantLine = (line) => {
 
 /**
  * Reposición de kioscos (RF-INV-05): el sistema calcula mínimo y máximo por línea con la venta del kiosco y sus
- * envíos recientes, propone qué mandar según la categoría A/B/C y el stock de bodega, y el usuario confirma.
- * Los envíos se crean como envíos directos a kiosko confirmados (salen de bodega al usar Enviar en Preparar Envíos).
+ * envíos recientes, propone qué mandar según la categoría A/B/C y el stock de bodega, y el usuario la ajusta.
+ * Con eso se crea UNA distribución de reposición con un envío confirmado por kiosco (sale de bodega al usar Enviar
+ * en Preparar envíos). Lo que falta en bodega queda como envío pendiente de producción y como OPK sugerida, que se
+ * guarda solo desde Órdenes de producción.
  */
 function KioskReplenishment() {
+  const navigate = useNavigate();
   const [windowDays, setWindowDays] = useState(60);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState(null);
@@ -65,10 +77,12 @@ function KioskReplenishment() {
   const [expanded, setExpanded] = useState(null);
   const [edits, setEdits] = useState({});
   const [creating, setCreating] = useState(false);
-  const [created, setCreated] = useState({});
+  const [createdDistribution, setCreatedDistribution] = useState(null);
+  const [extras, setExtras] = useState({});
+  const [distDate, setDistDate] = useState(todayIso);
+  const [distDescription, setDistDescription] = useState("");
   const [modalKiosk, setModalKiosk] = useState(null);
   const [productionOpen, setProductionOpen] = useState(false);
-  const [productionOrders, setProductionOrders] = useState([]);
   const [showRules, setShowRules] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [search, setSearch] = useState("");
@@ -83,8 +97,8 @@ function KioskReplenishment() {
       const result = await getKioskReplenishmentSuggestion({ windowDays });
       setData(result);
       setEdits({});
-      setCreated({});
-      setProductionOrders([]);
+      setExtras({});
+      setCreatedDistribution(null);
       // Categoría C no recibe envíos automáticos: queda sin marcar; se puede incluir a mano.
       const initial = {};
       (result.kiosks || []).forEach((k) => {
@@ -105,7 +119,17 @@ function KioskReplenishment() {
   }, [load]);
 
   const kiosks = useMemo(() => data?.kiosks || [], [data]);
-  const inputsLocked = creating || (loading && !!data);
+  const inputsLocked = creating || (loading && !!data) || !!createdDistribution;
+
+  /** Números de envío creados por kiosco en la distribución de reposición. */
+  const createdByKiosk = useMemo(() => {
+    const out = {};
+    (createdDistribution?.shipments || []).forEach((s) => {
+      if (s.locationId == null) return;
+      out[s.locationId] = [...(out[s.locationId] || []), s.shipmentNumber || s.id];
+    });
+    return out;
+  }, [createdDistribution]);
 
   const quantityOf = useCallback(
     (kiosk, line) => {
@@ -116,11 +140,19 @@ function KioskReplenishment() {
   );
 
   const linesToSend = useCallback(
+    (kiosk) => [
+      ...(kiosk.lines || []).map((line) => ({ line, quantity: Number(quantityOf(kiosk, line)) || 0 })),
+      ...(extras[kiosk.locationId] || []).map((x) => ({ line: x, quantity: Number(x.quantity) || 0, extra: true })),
+    ].filter(({ quantity }) => quantity > 0),
+    [quantityOf, extras]
+  );
+
+  /** Líneas que el usuario cambió respecto a la sugerencia, más las que agregó a mano. */
+  const adjustmentsOf = useCallback(
     (kiosk) =>
-      (kiosk.lines || [])
-        .map((line) => ({ line, quantity: Number(quantityOf(kiosk, line)) || 0 }))
-        .filter(({ quantity }) => quantity > 0),
-    [quantityOf]
+      (kiosk.lines || []).filter((line) => (Number(quantityOf(kiosk, line)) || 0) !== (Number(line.suggested) || 0))
+        .length + (extras[kiosk.locationId] || []).length,
+    [quantityOf, extras]
   );
 
   const totals = useMemo(() => {
@@ -128,7 +160,7 @@ function KioskReplenishment() {
     let shipments = 0;
     let shortage = 0;
     kiosks.forEach((k) => {
-      if (!selected[k.locationId] || created[k.locationId]) return;
+      if (!selected[k.locationId] || createdDistribution) return;
       const qty = linesToSend(k).reduce((sum, x) => sum + x.quantity, 0);
       if (qty > 0) {
         units += qty;
@@ -137,7 +169,7 @@ function KioskReplenishment() {
       shortage += Number(k.totalShortage) || 0;
     });
     return { units, shipments, shortage };
-  }, [kiosks, selected, created, linesToSend]);
+  }, [kiosks, selected, createdDistribution, linesToSend]);
 
   const setQuantity = (kiosk, line, value) => {
     const n = Math.max(0, Math.floor(Number(value) || 0));
@@ -149,21 +181,46 @@ function KioskReplenishment() {
 
   const notesFor = () => `Reposición automática (venta de ${data?.windowDays || windowDays} días)`;
 
-  const toPayloadLines = (kiosk) =>
-    linesToSend(kiosk).map(({ line, quantity }) => ({
-      productId: line.productId,
-      colorId: line.colorId ?? null,
-      size: line.size || "",
-      hardwareCondition: line.hardwareCondition || null,
-      quantity,
-    }));
+  /** Líneas del kiosco para la distribución: lo que se manda, lo que sugirió el cálculo y el faltante. */
+  const toPayloadLines = (kiosk) => [
+    ...(kiosk.lines || [])
+      .map((line) => ({
+        productId: line.productId,
+        colorId: line.colorId ?? null,
+        size: line.size || "",
+        hardwareCondition: line.hardwareCondition || null,
+        quantity: Number(quantityOf(kiosk, line)) || 0,
+        suggestedQuantity: Number(line.suggested) || 0,
+        shortage: Number(line.shortage) || 0,
+      }))
+      .filter((l) => l.quantity > 0 || l.shortage > 0),
+    ...(extras[kiosk.locationId] || [])
+      .map((x) => ({
+        productId: x.productId,
+        colorId: x.colorId ?? null,
+        size: x.size || "",
+        hardwareCondition: x.hardwareCondition || null,
+        quantity: Number(x.quantity) || 0,
+        suggestedQuantity: null,
+        shortage: 0,
+      }))
+      .filter((l) => l.quantity > 0),
+  ];
 
   const pendingKiosks = useMemo(
     () =>
       kiosks.filter(
-        (k) => selected[k.locationId] && !created[k.locationId] && linesToSend(k).length > 0
+        (k) =>
+          selected[k.locationId]
+          && !createdDistribution
+          && (linesToSend(k).length > 0 || (Number(k.totalShortage) || 0) > 0)
       ),
-    [kiosks, selected, created, linesToSend]
+    [kiosks, selected, createdDistribution, linesToSend]
+  );
+
+  const openReplenishmentKiosks = useMemo(
+    () => kiosks.filter((k) => (k.openReplenishmentDistributions || []).length > 0),
+    [kiosks]
   );
 
   const requestCreate = () => {
@@ -171,6 +228,7 @@ function KioskReplenishment() {
       showError("No hay kioscos marcados con unidades para enviar");
       return;
     }
+    if (!distDescription) setDistDescription(notesFor());
     setConfirmOpen(true);
   };
 
@@ -183,31 +241,43 @@ function KioskReplenishment() {
     }
     setConfirmOpen(false);
     setCreating(true);
-    const done = {};
-    const failed = [];
-    for (const kiosk of targets) {
-      try {
-        const shipment = await createStandaloneKioskShipment({
+    try {
+      const distribution = await createReplenishmentDistribution({
+        windowDays: data?.windowDays || windowDays,
+        distributionDate: distDate || undefined,
+        description: distDescription.trim() || notesFor(),
+        kiosks: targets.map((kiosk) => ({
           locationId: kiosk.locationId,
           notes: notesFor(),
-          products: toPayloadLines(kiosk),
-          confirmOnly: true,
-        });
-        done[kiosk.locationId] = shipment.shipmentNumber || shipment.id;
-      } catch (err) {
-        failed.push(`${kiosk.name}: ${err.message}`);
-      }
-    }
-    setCreated((prev) => ({ ...prev, ...done }));
-    setCreating(false);
-    if (Object.keys(done).length > 0) {
+          lines: toPayloadLines(kiosk),
+        })),
+      });
+      setCreatedDistribution(distribution);
       showSuccess(
-        `${Object.keys(done).length} envío(s) creados y confirmados. Use Enviar en Preparar Envíos cuando salgan de bodega.`
+        `Distribución ${distribution.distributionNumber} creada con ${distribution.shipmentCount ?? targets.length} envío(s). Use Enviar en Preparar envíos cuando salgan de bodega.`
       );
+    } catch (err) {
+      showError(`No se creó la distribución: ${err.message || "error desconocido"}`);
+    } finally {
+      setCreating(false);
     }
-    if (failed.length > 0) {
-      showError(`No se pudieron crear: ${failed.join(" · ")}`);
-    }
+  };
+
+  const applyModalLines = (kiosk, lines) => {
+    const suggestionKeys = new Set((kiosk.lines || []).map(lineKey));
+    const byKey = new Map((lines || []).map((l) => [lineKey(l), l]));
+    setEdits((prev) => {
+      const next = { ...(prev[kiosk.locationId] || {}) };
+      (kiosk.lines || []).forEach((l) => {
+        const match = byKey.get(lineKey(l));
+        next[lineKey(l)] = match ? Math.max(0, Math.floor(Number(match.quantity) || 0)) : 0;
+      });
+      return { ...prev, [kiosk.locationId]: next };
+    });
+    setExtras((prev) => ({
+      ...prev,
+      [kiosk.locationId]: (lines || []).filter((l) => !suggestionKeys.has(lineKey(l))),
+    }));
   };
 
   const selectedKiosks = useMemo(() => kiosks.filter((k) => selected[k.locationId]), [kiosks, selected]);
@@ -247,7 +317,7 @@ function KioskReplenishment() {
   const showFirstSpinner = loading && !data;
 
   const errorBanner = loadError ? (
-    <Alert color="danger" className="d-flex justify-content-between align-items-center flex-wrap mb-3">
+    <Alert color="danger" className="kr-alert-danger d-flex justify-content-between align-items-center flex-wrap mb-3">
       <span>{loadError}</span>
       <Button color="danger" outline size="sm" className="mt-2 mt-sm-0" onClick={load} disabled={loading}>
         Reintentar
@@ -256,7 +326,7 @@ function KioskReplenishment() {
   ) : null;
 
   return (
-    <div className="content kr-page">
+    <div className="content kr-page dist-contrast">
       <Row>
         <Col md="12">
           <Card>
@@ -314,6 +384,33 @@ function KioskReplenishment() {
                   {errorBanner}
                   {showEmpty ? (
                     <p className="text-muted mb-0">No hay kioscos activos para analizar.</p>
+                  ) : null}
+                  {showTable && createdDistribution ? (
+                    <Alert color="success" className="kr-alert-success d-flex justify-content-between align-items-center flex-wrap">
+                      <span>
+                        Se creó la distribución de reposición{" "}
+                        <strong>{createdDistribution.distributionNumber}</strong> con{" "}
+                        {createdDistribution.shipmentCount ?? (createdDistribution.shipments || []).length} envío(s).
+                        {productionUnits > 0
+                          ? " Lo que falta en bodega quedó como envío pendiente de producción."
+                          : ""}
+                      </span>
+                      <span className="d-flex flex-wrap mt-2 mt-sm-0">
+                        <Link className="btn btn-sm kr-btn-outline-ok mr-2" to={`/admin/product-distributions/${createdDistribution.id}`}>
+                          Ver distribución
+                        </Link>
+                        <Link className="btn btn-sm kr-btn-outline-ok" to="/admin/prepare-shipments">
+                          Preparar envíos
+                        </Link>
+                      </span>
+                    </Alert>
+                  ) : null}
+                  {showTable && !createdDistribution && openReplenishmentKiosks.length > 0 ? (
+                    <Alert color="warning" className="kr-alert-warn small">
+                      {openReplenishmentKiosks.length} kiosco(s) ya tienen una reposición sin despachar (
+                      {[...new Set(openReplenishmentKiosks.flatMap((k) => k.openReplenishmentDistributions))].join(", ")}
+                      ). Lo que va en camino ya se descontó de la sugerencia.
+                    </Alert>
                   ) : null}
                   {showTable ? (
                     <>
@@ -380,9 +477,6 @@ function KioskReplenishment() {
                         >
                           Solo marcados
                         </Button>
-                        {productionOrders.length > 0 ? (
-                          <span className="kr-tag kr-tag-prod">Producción: {productionOrders.join(", ")}</span>
-                        ) : null}
                       </div>
 
                       {visibleKiosks.length === 0 ? (
@@ -414,7 +508,9 @@ function KioskReplenishment() {
                                 const sendLines = linesToSend(kiosk);
                                 const units = sendLines.reduce((sum, x) => sum + x.quantity, 0);
                                 const isOpen = expanded === kiosk.locationId;
-                                const shipmentNumber = created[kiosk.locationId];
+                                const createdNumbers = createdByKiosk[kiosk.locationId] || [];
+                                const shipmentNumber = createdNumbers.length > 0 ? createdNumbers.join(", ") : null;
+                                const openDists = kiosk.openReplenishmentDistributions || [];
                                 return (
                                   <React.Fragment key={kiosk.locationId}>
                                     <tr className={isOpen ? "kr-row-open" : undefined}>
@@ -426,7 +522,6 @@ function KioskReplenishment() {
                                           checked={!!selected[kiosk.locationId]}
                                           disabled={
                                             inputsLocked
-                                            || !!shipmentNumber
                                             || (units === 0 && !(kiosk.totalShortage > 0))
                                           }
                                           onChange={(e) =>
@@ -443,9 +538,17 @@ function KioskReplenishment() {
                                           <span className="text-muted small ml-1">{kiosk.code}</span>
                                         ) : null}
                                         {shipmentNumber ? (
-                                          <Badge color="success" className="ml-2">
+                                          <span className="kr-status kr-status-ok ml-2">
                                             Envío {shipmentNumber}
-                                          </Badge>
+                                          </span>
+                                        ) : null}
+                                        {!shipmentNumber && openDists.length > 0 ? (
+                                          <span
+                                            className="kr-status kr-status-warn ml-2"
+                                            title={`Reposición sin despachar: ${openDists.join(", ")}`}
+                                          >
+                                            Reposición pendiente
+                                          </span>
                                         ) : null}
                                       </td>
                                       <td>
@@ -484,9 +587,9 @@ function KioskReplenishment() {
                                               flip: { boundariesElement: "viewport" },
                                             }}
                                           >
-                                            {!shipmentNumber ? (
+                                            {!createdDistribution ? (
                                               <DropdownItem
-                                                disabled={units === 0}
+                                                disabled={inputsLocked}
                                                 onClick={() => setModalKiosk(kiosk)}
                                               >
                                                 Revisar y agregar
@@ -513,12 +616,17 @@ function KioskReplenishment() {
                                               <span title="Pide la regla pero no entra en el tope">
                                                 Siguiente envío: {kiosk.totalDeferred || 0}
                                               </span>
+                                              {(extras[kiosk.locationId] || []).length > 0 ? (
+                                                <span>
+                                                  Agregados a mano: {(extras[kiosk.locationId] || []).length}
+                                                </span>
+                                              ) : null}
                                             </div>
                                             <KioskLinesTable
                                               kiosk={kiosk}
                                               quantityOf={quantityOf}
                                               onChange={setQuantity}
-                                              readOnly={!!shipmentNumber || inputsLocked}
+                                              readOnly={inputsLocked}
                                             />
                                           </div>
                                         </td>
@@ -543,7 +651,7 @@ function KioskReplenishment() {
       {showTable ? (
         <div className="kr-sticky-bar">
           <div className="kr-sticky-summary">
-            {totals.shipments} envío(s) · {totals.units} unidades
+            {pendingKiosks.length} kiosco(s) · {totals.units} unidades
             {totals.shortage > 0 ? ` · faltan ${totals.shortage} en bodega` : ""}
           </div>
           <div className="kr-sticky-actions">
@@ -551,59 +659,98 @@ function KioskReplenishment() {
               color="secondary"
               outline
               onClick={() => setProductionOpen(true)}
-              disabled={productionUnits === 0 || productionOrders.length > 0 || creating}
-              title="Mandar a producción lo que no alcanza en bodega para los kioscos marcados"
+              disabled={productionUnits === 0 || creating}
+              title="Lo que no alcanza en bodega: se sugiere como OPK y se guarda en Órdenes de producción"
             >
-              <i className="nc-icon nc-settings mr-1" />Producir faltantes ({productionUnits})
+              <i className="nc-icon nc-settings mr-1" />OPK sugerida ({productionUnits})
             </Button>
             <Button
               color="primary"
               onClick={requestCreate}
-              disabled={creating || totals.shipments === 0}
+              disabled={creating || !!createdDistribution || pendingKiosks.length === 0}
             >
-              {creating ? <Spinner size="sm" /> : <><i className="nc-icon nc-check-2 mr-1" />Confirmar y crear envíos</>}
+              {creating ? <Spinner size="sm" /> : <><i className="nc-icon nc-check-2 mr-1" />Crear distribución…</>}
             </Button>
           </div>
         </div>
       ) : null}
 
-      <Modal isOpen={confirmOpen} toggle={() => !creating && setConfirmOpen(false)}>
-        <ModalHeader toggle={() => !creating && setConfirmOpen(false)}>Confirmar envíos</ModalHeader>
+      <Modal isOpen={confirmOpen} toggle={() => !creating && setConfirmOpen(false)} size="lg" className="kr-modal dist-contrast">
+        <ModalHeader toggle={() => !creating && setConfirmOpen(false)}>
+          Crear distribución de reposición
+        </ModalHeader>
         <ModalBody>
-          <p className="mb-0">
-            Se crearán <strong>{pendingKiosks.length}</strong> envío(s) con{" "}
-            <strong>{totals.units}</strong> unidades
-            {totals.shortage > 0 ? (
-              <>
-                {" "}
-                (<span className="text-danger">{totals.shortage} faltan en bodega</span>)
-              </>
-            ) : null}
-            .
+          <Row>
+            <Col sm="5">
+              <label htmlFor="kr-dist-date" className="kr-field-label">Fecha de distribución</label>
+              <Input
+                id="kr-dist-date"
+                type="date"
+                value={distDate}
+                onChange={(e) => setDistDate(e.target.value)}
+                disabled={creating}
+              />
+            </Col>
+            <Col sm="7" className="mt-2 mt-sm-0">
+              <label htmlFor="kr-dist-desc" className="kr-field-label">Descripción</label>
+              <Input
+                id="kr-dist-desc"
+                value={distDescription}
+                onChange={(e) => setDistDescription(e.target.value)}
+                disabled={creating}
+              />
+            </Col>
+          </Row>
+          <Table size="sm" className="mt-3 mb-2 kr-confirm-table">
+            <thead>
+              <tr>
+                <th>Kiosco</th>
+                <th className="text-right">Líneas</th>
+                <th className="text-right">Unidades</th>
+                <th className="text-right">Falta</th>
+                <th className="text-right">Ajustes</th>
+              </tr>
+            </thead>
+            <tbody>
+              {pendingKiosks.map((kiosk) => {
+                const send = linesToSend(kiosk);
+                const units = send.reduce((sum, x) => sum + x.quantity, 0);
+                const adjustments = adjustmentsOf(kiosk);
+                return (
+                  <tr key={kiosk.locationId}>
+                    <td>{kiosk.name}</td>
+                    <td className="text-right">{send.length}</td>
+                    <td className="text-right">{units}</td>
+                    <td className={`text-right${kiosk.totalShortage > 0 ? " text-danger" : ""}`}>
+                      {kiosk.totalShortage || 0}
+                    </td>
+                    <td className="text-right">{adjustments || "—"}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+            <tfoot>
+              <tr>
+                <th>{pendingKiosks.length} kiosco(s)</th>
+                <th />
+                <th className="text-right">{totals.units}</th>
+                <th className="text-right">{totals.shortage}</th>
+                <th />
+              </tr>
+            </tfoot>
+          </Table>
+          <p className="small mb-0 kr-confirm-note">
+            Se crea <strong>una distribución</strong> con un envío confirmado por kiosco, todo o nada. Cada envío toma
+            el siguiente número de su kiosco. Lo que falta en bodega queda como envío pendiente de producción en la
+            misma distribución. El inventario sale de bodega al usar <strong>Enviar</strong> en Preparar envíos.
           </p>
-          <ul className="kr-confirm-list">
-            {pendingKiosks.map((kiosk) => {
-              const units = linesToSend(kiosk).reduce((sum, x) => sum + x.quantity, 0);
-              return (
-                <li key={kiosk.locationId}>
-                  <span>{kiosk.name}</span>
-                  <span>
-                    {units} u.
-                    {kiosk.totalShortage > 0 ? (
-                      <span className="text-danger ml-2">faltan {kiosk.totalShortage}</span>
-                    ) : null}
-                  </span>
-                </li>
-              );
-            })}
-          </ul>
         </ModalBody>
         <ModalFooter>
           <Button color="secondary" outline onClick={() => setConfirmOpen(false)} disabled={creating}>
-            Cancelar
+            Volver a ajustar
           </Button>
           <Button color="primary" onClick={createSelected} disabled={creating}>
-            {creating ? <Spinner size="sm" /> : "Confirmar"}
+            {creating ? <Spinner size="sm" /> : "Crear distribución"}
           </Button>
         </ModalFooter>
       </Modal>
@@ -613,7 +760,8 @@ function KioskReplenishment() {
         toggle={() => setProductionOpen(false)}
         kiosks={selectedKiosks}
         windowDays={data?.windowDays || windowDays}
-        onCreated={(codes) => setProductionOrders(codes)}
+        distribution={createdDistribution}
+        onOpenOrder={(prefill) => navigate("/admin/production-orders", { state: { prefillOrder: prefill } })}
       />
 
       <CreateStandaloneKioskShipmentModal
@@ -622,12 +770,8 @@ function KioskReplenishment() {
         initialLocationId={modalKiosk?.locationId}
         initialLines={modalLines}
         initialNotes={modalKiosk ? notesFor() : undefined}
-        onCreated={(shipment) => {
-          if (!modalKiosk) return;
-          setCreated((prev) => ({
-            ...prev,
-            [modalKiosk.locationId]: shipment?.shipmentNumber || shipment?.id || true,
-          }));
+        onSubmitLines={(lines) => {
+          if (modalKiosk) applyModalLines(modalKiosk, lines);
         }}
       />
     </div>

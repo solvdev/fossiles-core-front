@@ -32,7 +32,8 @@ const workflowOrder = [
 
 const getOrderOrigin = (order) => {
   if (order.orderType === "VENTA_EN_LINEA") return "VENTA_EN_LINEA";
-  if (order.orderType === "DISTRIBUTION" || order.distributionId) return "DISTRIBUTION";
+  // Solo la OP generada desde una distribución (OPD). Una OPK ligada a su distribución de reposición sigue en "Otras".
+  if (order.orderType === "DISTRIBUTION") return "DISTRIBUTION";
   return "OTHER";
 };
 

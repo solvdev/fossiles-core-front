@@ -1,5 +1,5 @@
-import React, { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import React, { useEffect, useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import {
   Button,
   ButtonGroup,
@@ -85,6 +85,7 @@ const FAMILIES = [
 
 function ProductionOrdersList() {
   const navigate = useNavigate();
+  const location = useLocation();
   const {
     family, setFamily,
     status, setStatus,
@@ -108,11 +109,23 @@ function ProductionOrdersList() {
 
   const [showForm, setShowForm] = useState(false);
   const [selectedOrderId, setSelectedOrderId] = useState(null);
+  // Orden sugerida por Reposición de kioscos: abre el formulario de nueva orden ya cargado. Se guarda aquí.
+  const [prefillOrder, setPrefillOrder] = useState(null);
+
+  useEffect(() => {
+    const incoming = location.state?.prefillOrder;
+    if (!incoming) return;
+    setPrefillOrder(incoming);
+    setSelectedOrderId(null);
+    setShowForm(true);
+    navigate(location.pathname, { replace: true, state: null });
+  }, [location.state, location.pathname, navigate]);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [orderToDelete, setOrderToDelete] = useState(null);
   const [exporting, setExporting] = useState(null);
 
   const handleNew = () => {
+    setPrefillOrder(null);
     setSelectedOrderId(null);
     setShowForm(true);
   };
@@ -126,6 +139,7 @@ function ProductionOrdersList() {
     refresh();
     setShowForm(false);
     setSelectedOrderId(null);
+    setPrefillOrder(null);
   };
 
   const handleDeleteClick = (id) => {
@@ -1115,9 +1129,11 @@ function ProductionOrdersList() {
       <ProductionOrderForm
         orderId={selectedOrderId}
         isOpen={showForm}
+        initialValues={selectedOrderId ? null : prefillOrder}
         toggle={() => {
           setShowForm(false);
           setSelectedOrderId(null);
+          setPrefillOrder(null);
         }}
         onSuccess={handleFormSuccess}
       />

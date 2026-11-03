@@ -16,3 +16,21 @@ export const getKioskReplenishmentSuggestion = async ({ windowDays, locationIds 
   }
   return response.json();
 };
+
+/**
+ * Crea la distribución de reposición con un envío por kiosco (todo o nada). Cada kiosco lleva sus líneas con
+ * `quantity` (lo que se manda), `suggestedQuantity` (lo que propuso el cálculo) y `shortage` (lo que falta en bodega,
+ * que queda como envío pendiente de producción).
+ */
+export const createReplenishmentDistribution = async (payload) => {
+  const response = await fetch(`${API_URL}/kiosk-replenishment/distributions`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ message: 'Error al crear la distribución de reposición' }));
+    throw new Error(err.message || 'Error al crear la distribución de reposición');
+  }
+  return response.json();
+};

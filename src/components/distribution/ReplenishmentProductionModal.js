@@ -1,10 +1,8 @@
-import React, { useMemo, useState } from "react";
-import { Alert, Button, Modal, ModalBody, ModalFooter, ModalHeader, Spinner, Table } from "reactstrap";
-import { createProductionOrder } from "services/productionOrderService";
-import { showError, showSuccess } from "utils/notificationHelper";
+import React, { useMemo } from "react";
+import { Alert, Button, Modal, ModalBody, ModalFooter, ModalHeader, Table } from "reactstrap";
 
 /**
- * Agrupa lo que no alcanza en bodega para los kioscos marcados y lo manda a producción como se hace a mano:
+ * Agrupa lo que no alcanza en bodega para los kioscos marcados, como se arma a mano en Producción:
  * OPK (NORMAL, KIOSCOS) para productos sin talla y OPC (CINCHOS_FOSSILES, KIOSCOS) para cinchos por talla.
  */
 export function groupShortagesForProduction(kiosks) {
@@ -43,51 +41,40 @@ const sizesLabel = (sizes) =>
     .map((size) => `${size}:${sizes[size]}`)
     .join("  ");
 
-function ReplenishmentProductionModal({ isOpen, toggle, kiosks, windowDays, onCreated }) {
-  const [saving, setSaving] = useState(false);
+/**
+ * Valores iniciales para el formulario de nueva orden de producción. Reposición NO crea órdenes: solo las sugiere;
+ * la orden se revisa y se guarda en Órdenes de producción, ligada a la distribución de reposición.
+ */
+export function buildSuggestedOrder(kind, rows, { distribution, windowDays }) {
+  const distributionText = distribution?.distributionNumber ? ` (${distribution.distributionNumber})` : "";
+  const observations = `Sugerida por la reposición de kioscos${distributionText}: faltante en bodega, venta de ${windowDays} días.`;
+  const isCincho = kind === "OPC";
+  return {
+    orderType: isCincho ? "CINCHOS_FOSSILES" : "NORMAL",
+    forKiosk: true,
+    customerName: "KIOSCOS",
+    observations,
+    distributionId: distribution?.id ?? null,
+    distributionNumber: distribution?.distributionNumber ?? null,
+    items: rows.map((r) => ({
+      productId: r.productId,
+      colorId: r.colorId ?? null,
+      quantity: r.quantity,
+      sizes: isCincho ? { ...r.sizes } : {},
+      observations: "",
+    })),
+  };
+}
+
+function ReplenishmentProductionModal({ isOpen, toggle, kiosks, windowDays, distribution, onOpenOrder }) {
   const groups = useMemo(() => groupShortagesForProduction(kiosks), [kiosks]);
   const opkUnits = groups.opk.reduce((sum, r) => sum + r.quantity, 0);
   const opcUnits = groups.opc.reduce((sum, r) => sum + r.quantity, 0);
-  const kioskCount = (kiosks || []).filter((k) => (k.totalShortage || 0) > 0).length;
-  const observations = `Reposición automática de kioscos: faltante en bodega de ${kioskCount} kiosco(s), venta de ${windowDays} días.`;
+  const hasDistribution = Boolean(distribution?.id);
 
-  const create = async () => {
-    setSaving(true);
-    const codes = [];
-    try {
-      if (groups.opk.length > 0) {
-        const order = await createProductionOrder({
-          orderType: "NORMAL",
-          kioskOrder: true,
-          customerName: "KIOSCOS",
-          status: "PENDING",
-          observations,
-          items: groups.opk.map((r) => ({ productId: r.productId, colorId: r.colorId, quantity: r.quantity })),
-        });
-        codes.push(order?.code || "OPK");
-      }
-      if (groups.opc.length > 0) {
-        const order = await createProductionOrder({
-          orderType: "CINCHOS_FOSSILES",
-          customerName: "KIOSCOS",
-          status: "PENDING",
-          observations,
-          items: groups.opc.map((r) => ({ productId: r.productId, colorId: r.colorId, sizes: r.sizes })),
-        });
-        codes.push(order?.code || "OPC");
-      }
-      showSuccess(`Órdenes creadas: ${codes.join(", ")}`);
-      toggle();
-      if (onCreated) onCreated(codes);
-    } catch (err) {
-      showError(
-        `${codes.length > 0 ? `Se creó ${codes.join(", ")}, pero falló la siguiente: ` : ""}${err.message ||
-          "No se pudo crear la orden de producción"}`
-      );
-      if (codes.length > 0 && onCreated) onCreated(codes);
-    } finally {
-      setSaving(false);
-    }
+  const open = (kind) => {
+    const rows = kind === "OPC" ? groups.opc : groups.opk;
+    if (onOpenOrder) onOpenOrder(buildSuggestedOrder(kind, rows, { distribution, windowDays }));
   };
 
   const renderRows = (rows, withSizes) =>
@@ -99,25 +86,34 @@ function ReplenishmentProductionModal({ isOpen, toggle, kiosks, windowDays, onCr
         <td>{r.colorName || "—"}</td>
         {withSizes ? <td className="text-nowrap">{sizesLabel(r.sizes)}</td> : null}
         <td className="text-right">{r.quantity}</td>
-        <td className="small text-muted">{r.kiosks.size} kiosco(s)</td>
+        <td className="small kr-muted-text">{r.kiosks.size} kiosco(s)</td>
       </tr>
     ));
 
   return (
-    <Modal isOpen={isOpen} toggle={toggle} size="lg">
-      <ModalHeader toggle={toggle}>Producir faltantes de reposición</ModalHeader>
+    <Modal isOpen={isOpen} toggle={toggle} size="lg" className="kr-modal dist-contrast">
+      <ModalHeader toggle={toggle}>OPK sugerida para el faltante</ModalHeader>
       <ModalBody>
         {groups.opk.length === 0 && groups.opc.length === 0 ? (
-          <p className="text-muted mb-0">Los kioscos marcados no tienen faltante en bodega.</p>
+          <p className="kr-muted-text mb-0">Los kioscos marcados no tienen faltante en bodega.</p>
         ) : (
           <>
-            <Alert color="info" className="py-2 small">
-              Lo que no alcanza en Bodega PT + Devoluciones para los kioscos marcados. Se crean en PENDIENTE para
-              revisarlas en Producción antes de iniciar.
+            <Alert color="info" className="py-2 small kr-alert-info">
+              Lo que no alcanza en Bodega PT + Devoluciones para los kioscos marcados. Reposición no crea órdenes:
+              «Abrir orden» lleva a Órdenes de producción con estos productos ya cargados para que la revises y la
+              guardes ahí.
+              {hasDistribution
+                ? ` Queda ligada a ${distribution.distributionNumber}: lo que produzca sale dentro de esa distribución.`
+                : " Crea primero la distribución de reposición para que la orden quede ligada a ella."}
             </Alert>
             {groups.opk.length > 0 ? (
               <>
-                <h6 className="mt-2">OPK · KIOSCOS — {groups.opk.length} producto(s), {opkUnits} unidades</h6>
+                <div className="d-flex justify-content-between align-items-center mt-2 flex-wrap">
+                  <h6 className="mb-1">OPK · KIOSCOS — {groups.opk.length} producto(s), {opkUnits} unidades</h6>
+                  <Button color="primary" size="sm" onClick={() => open("OPK")} disabled={!hasDistribution}>
+                    Abrir OPK sugerida
+                  </Button>
+                </div>
                 <Table size="sm" className="small">
                   <thead>
                     <tr>
@@ -133,7 +129,12 @@ function ReplenishmentProductionModal({ isOpen, toggle, kiosks, windowDays, onCr
             ) : null}
             {groups.opc.length > 0 ? (
               <>
-                <h6 className="mt-3">OPC cinchos · KIOSCOS — {groups.opc.length} producto(s), {opcUnits} unidades</h6>
+                <div className="d-flex justify-content-between align-items-center mt-3 flex-wrap">
+                  <h6 className="mb-1">OPC cinchos · KIOSCOS — {groups.opc.length} producto(s), {opcUnits} unidades</h6>
+                  <Button color="primary" size="sm" onClick={() => open("OPC")} disabled={!hasDistribution}>
+                    Abrir OPC sugerida
+                  </Button>
+                </div>
                 <Table size="sm" className="small">
                   <thead>
                     <tr>
@@ -152,15 +153,8 @@ function ReplenishmentProductionModal({ isOpen, toggle, kiosks, windowDays, onCr
         )}
       </ModalBody>
       <ModalFooter>
-        <Button color="secondary" onClick={toggle} disabled={saving}>
-          Cancelar
-        </Button>
-        <Button
-          color="primary"
-          onClick={create}
-          disabled={saving || (groups.opk.length === 0 && groups.opc.length === 0)}
-        >
-          {saving ? <Spinner size="sm" /> : "Crear órdenes de producción"}
+        <Button color="secondary" outline onClick={toggle}>
+          Cerrar
         </Button>
       </ModalFooter>
     </Modal>

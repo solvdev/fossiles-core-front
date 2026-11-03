@@ -100,7 +100,11 @@ const getPositiveSizes = (sizes = {}) =>
     return acc;
   }, {});
 
-function ProductionOrderForm({ orderId, isOpen, toggle, onSuccess }) {
+/**
+ * initialValues: valores para una orden NUEVA (p. ej. la OPK sugerida por Reposición de kioscos, ligada a su
+ * distribución). La orden igual se revisa y se guarda aquí; Reposición nunca la crea por su cuenta.
+ */
+function ProductionOrderForm({ orderId, isOpen, toggle, onSuccess, initialValues }) {
   const [formData, setFormData] = useState({
     code: "",
     orderType: "NORMAL",
@@ -244,9 +248,21 @@ function ProductionOrderForm({ orderId, isOpen, toggle, onSuccess }) {
         loadOrder();
       } else {
         resetForm();
+        if (initialValues) {
+          setFormData((prev) => ({
+            ...prev,
+            orderType: initialValues.orderType || prev.orderType,
+            forKiosk: Boolean(initialValues.forKiosk),
+            customerName: initialValues.customerName || prev.customerName,
+            observations: initialValues.observations || prev.observations,
+            items: Array.isArray(initialValues.items) ? initialValues.items : prev.items,
+            distributionId: initialValues.distributionId ?? null,
+            distributionNumber: initialValues.distributionNumber ?? null,
+          }));
+        }
       }
     }
-  }, [isOpen, orderId]);
+  }, [isOpen, orderId, initialValues]);
 
   useEffect(() => {
     if (!isOpen || !orderId || !isOnlineSaleOrKioskOrder(formData.orderType)) {
@@ -706,6 +722,8 @@ function ProductionOrderForm({ orderId, isOpen, toggle, onSuccess }) {
           unitPrice: Number(item.unitPrice || 0),
         })),
         status: formData.status,
+        // Solo al crear: la OPK sugerida por una reposición queda ligada a esa distribución.
+        distributionId: orderId ? undefined : formData.distributionId || undefined,
         items: formData.items.map((item) => ({
           productId: item.productId,
           colorId: item.colorId,
@@ -1340,6 +1358,24 @@ function ProductionOrderForm({ orderId, isOpen, toggle, onSuccess }) {
               </FormGroup>
             </Col>
           </Row>
+
+          {formData.orderType !== "DISTRIBUTION" && formData.distributionNumber && (
+            <div
+              role="note"
+              style={{
+                background: "#e8eefc",
+                border: "1px solid #a9bbe8",
+                color: "#24418a",
+                borderRadius: 6,
+                padding: "8px 12px",
+                margin: "8px 0 12px",
+                fontSize: "0.9rem",
+              }}
+            >
+              Ligada a la distribución <strong>{formData.distributionNumber}</strong>: lo que produzca esta orden
+              para kioscos se envía dentro de esa distribución.
+            </div>
+          )}
 
           {/* Detalle de distribución (solo para órdenes tipo DISTRIBUTION) */}
           {formData.orderType === "DISTRIBUTION" && formData.distributionNumber && (
