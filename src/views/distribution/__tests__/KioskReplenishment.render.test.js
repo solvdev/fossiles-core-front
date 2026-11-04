@@ -1,16 +1,17 @@
 import React from "react";
 import "@testing-library/jest-dom";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { getKioskReplenishmentSuggestion } from "services/kioskReplenishmentService";
-import { createStandaloneKioskShipment } from "services/productDistributionService";
+import { MemoryRouter } from "react-router-dom";
+import {
+  createReplenishmentDistribution,
+  getKioskReplenishmentSuggestion,
+} from "services/kioskReplenishmentService";
 import { showError } from "utils/notificationHelper";
 import KioskReplenishment from "views/distribution/KioskReplenishment";
 
 jest.mock("services/kioskReplenishmentService", () => ({
   getKioskReplenishmentSuggestion: jest.fn(),
-}));
-jest.mock("services/productDistributionService", () => ({
-  createStandaloneKioskShipment: jest.fn(),
+  createReplenishmentDistribution: jest.fn(),
 }));
 jest.mock("utils/notificationHelper", () => ({
   showError: jest.fn(),
@@ -106,8 +107,15 @@ const suggestion = () => ({
   ],
 });
 
+const renderPage = () =>
+  render(
+    <MemoryRouter>
+      <KioskReplenishment />
+    </MemoryRouter>
+  );
+
 const mount = async () => {
-  const view = render(<KioskReplenishment />);
+  const view = renderPage();
   await waitFor(() => expect(screen.getByText("Kiosko Centro")).toBeTruthy());
   return view;
 };
@@ -122,25 +130,31 @@ const tileValue = (label) =>
   screen.getByText(label).closest(".kr-tile").querySelector(".kr-tile-value").textContent;
 
 const confirmCreate = async () => {
-  fireEvent.click(screen.getByRole("button", { name: "Confirmar y crear envíos" }));
-  const dialog = screen.getByText("Confirmar envíos").closest(".modal");
+  fireEvent.click(screen.getByRole("button", { name: "Crear distribución…" }));
+  const dialog = screen.getByText("Crear distribución de reposición").closest(".modal");
   await act(async () => {
-    fireEvent.click(within(dialog).getByRole("button", { name: "Confirmar" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Crear distribución" }));
   });
 };
 
-const payloadsByLocation = () =>
-  Object.fromEntries(createStandaloneKioskShipment.mock.calls.map(([payload]) => [payload.locationId, payload]));
+const createdDistribution = () => ({
+  id: 77,
+  distributionNumber: "DIST-20261103-412",
+  origin: "REPOSICION",
+  shipmentCount: 3,
+  shipments: [
+    { id: 1, locationId: 3, shipmentNumber: "K3-ENV-00010", status: "CONFIRMED" },
+    { id: 2, locationId: 3, shipmentNumber: "K3-ENV-00011", status: "DRAFT", pendingProduction: true },
+    { id: 3, locationId: 5, shipmentNumber: "K5-ENV-00004", status: "CONFIRMED" },
+  ],
+});
 
 beforeEach(() => {
   getKioskReplenishmentSuggestion.mockReset();
-  createStandaloneKioskShipment.mockReset();
+  createReplenishmentDistribution.mockReset();
   showError.mockReset();
   getKioskReplenishmentSuggestion.mockResolvedValue(suggestion());
-  createStandaloneKioskShipment.mockImplementation(async ({ locationId }) => ({
-    id: locationId,
-    shipmentNumber: `ENVK-${locationId}`,
-  }));
+  createReplenishmentDistribution.mockResolvedValue(createdDistribution());
 });
 
 describe("Reposición de kioscos", () => {
@@ -152,7 +166,7 @@ describe("Reposición de kioscos", () => {
     expect(screen.getByText(/Totales de todos los kioscos marcados/)).toBeTruthy();
   });
 
-  test("la categoría es un chip neutro y el color queda para el estado", async () => {
+  test("la categoría es un chip neutro y el estado del envío usa un chip con contraste", async () => {
     await mount();
     const chips = document.querySelectorAll(".kr-cat-chip");
     expect(chips).toHaveLength(3);
@@ -166,10 +180,10 @@ describe("Reposición de kioscos", () => {
     expect(plazaRow.querySelector(".text-danger")).toBeNull();
     expect(plazaRow.textContent).toContain("*");
 
-    fireEvent.click(screen.getByRole("button", { name: "Confirmar y crear envíos" }));
-    fireEvent.click(screen.getByRole("button", { name: "Confirmar" }));
-    await waitFor(() => expect(screen.getByText("Envío ENVK-3")).toBeTruthy());
-    expect(screen.getByText("Envío ENVK-3").className).toMatch(/badge-success/);
+    await confirmCreate();
+    const status = await screen.findByText("Envío K3-ENV-00010, K3-ENV-00011");
+    expect(status.className).toMatch(/kr-status-ok/);
+    expect(status.className).not.toMatch(/badge-success/);
   });
 
   test("las reglas A/B/C están plegadas por defecto", async () => {
@@ -183,7 +197,7 @@ describe("Reposición de kioscos", () => {
 
   test("si falla la carga muestra Reintentar y no el mensaje vacío", async () => {
     getKioskReplenishmentSuggestion.mockRejectedValue(new Error("No se pudo calcular la reposición"));
-    render(<KioskReplenishment />);
+    renderPage();
     expect(await screen.findByRole("button", { name: "Reintentar" })).toBeTruthy();
     expect(screen.queryByText("No hay kioscos activos para analizar.")).toBeNull();
     expect(screen.getByText("No se pudo calcular la reposición")).toBeTruthy();
@@ -196,7 +210,7 @@ describe("Reposición de kioscos", () => {
       totalShortage: 0,
       kiosks: [],
     });
-    render(<KioskReplenishment />);
+    renderPage();
     expect(await screen.findByText("No hay kioscos activos para analizar.")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Reintentar" })).toBeNull();
   });
@@ -231,75 +245,118 @@ describe("Reposición de kioscos", () => {
     expect(screen.queryByText("Outlet Sur")).toBeNull();
   });
 
-  test("pide confirmación antes de crear y bloquea entradas mientras crea", async () => {
-    const resolvers = [];
-    createStandaloneKioskShipment.mockImplementation(
-      () => new Promise((resolve) => { resolvers.push(resolve); })
-    );
-    await mount();
-    openRowDetail("Kiosko Centro");
-    expect(screen.getByLabelText("Enviar BIL-01").disabled).toBe(false);
-
-    fireEvent.click(screen.getByRole("button", { name: "Confirmar y crear envíos" }));
-    const dialog = screen.getByText("Confirmar envíos").closest(".modal");
-    expect(dialog).toBeTruthy();
-    expect(within(dialog).getByText("Kiosko Centro")).toBeTruthy();
-    expect(within(dialog).getByText("Plaza Norte")).toBeTruthy();
-    expect(createStandaloneKioskShipment).not.toHaveBeenCalled();
-
-    fireEvent.click(within(dialog).getByRole("button", { name: "Confirmar" }));
-    await waitFor(() => expect(createStandaloneKioskShipment).toHaveBeenCalled());
-    expect(createStandaloneKioskShipment.mock.calls[0][0]).toMatchObject({
-      locationId: 3,
-      confirmOnly: true,
-      products: [expect.objectContaining({ productId: 1, quantity: 5 })],
-    });
-    expect(screen.getByLabelText("Seleccionar Kiosko Centro").disabled).toBe(true);
-    expect(screen.getByLabelText("Seleccionar Plaza Norte").disabled).toBe(true);
-    expect(screen.getByLabelText("Enviar BIL-01").disabled).toBe(true);
-
-    await act(async () => { resolvers[0]({ id: 91, shipmentNumber: "ENVK-91" }); });
-    await waitFor(() => expect(resolvers.length).toBe(2));
-    await act(async () => { resolvers[1]({ id: 92, shipmentNumber: "ENVK-92" }); });
-    await waitFor(() => expect(createStandaloneKioskShipment).toHaveBeenCalledTimes(2));
-    await waitFor(() => expect(screen.getByText("Envío ENVK-91")).toBeTruthy());
-    expect(payloadsByLocation()[5]).toMatchObject({
-      locationId: 5,
-      confirmOnly: true,
-      products: [expect.objectContaining({ productId: 2, quantity: 3 })],
-    });
-    expect(payloadsByLocation()[8]).toBeUndefined();
-  });
-
-  test("el payload de crear usa la cantidad editada en Enviar", async () => {
+  test("crea UNA distribución con una sola llamada y el payload exacto por kiosco", async () => {
     await mount();
     openRowDetail("Kiosko Centro");
     fireEvent.change(screen.getByLabelText("Enviar BIL-01"), { target: { value: "4" } });
-    expect(screen.getByLabelText("Enviar BIL-01").value).toBe("4");
-    await confirmCreate();
-    await waitFor(() => expect(createStandaloneKioskShipment).toHaveBeenCalledTimes(2));
-    expect(payloadsByLocation()[3]).toMatchObject({
-      locationId: 3,
-      confirmOnly: true,
-      products: [expect.objectContaining({ productId: 1, quantity: 4 })],
+
+    fireEvent.click(screen.getByRole("button", { name: "Crear distribución…" }));
+    const dialog = screen.getByText("Crear distribución de reposición").closest(".modal");
+    expect(within(dialog).getByText("Kiosko Centro")).toBeTruthy();
+    expect(within(dialog).getByText("Plaza Norte")).toBeTruthy();
+    expect(within(dialog).queryByText("Outlet Sur")).toBeNull();
+    expect(within(dialog).getByLabelText("Descripción").value).toBe("Reposición automática (venta de 60 días)");
+    expect(createReplenishmentDistribution).not.toHaveBeenCalled();
+
+    await act(async () => {
+      fireEvent.click(within(dialog).getByRole("button", { name: "Crear distribución" }));
     });
+
+    expect(createReplenishmentDistribution).toHaveBeenCalledTimes(1);
+    const payload = createReplenishmentDistribution.mock.calls[0][0];
+    expect(payload).toMatchObject({
+      windowDays: 60,
+      description: "Reposición automática (venta de 60 días)",
+    });
+    expect(payload.distributionDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(payload.kiosks).toEqual([
+      {
+        locationId: 3,
+        notes: "Reposición automática (venta de 60 días)",
+        lines: [
+          {
+            productId: 1,
+            colorId: 10,
+            size: "",
+            hardwareCondition: "NUEVO",
+            quantity: 4,
+            suggestedQuantity: 5,
+            shortage: 2,
+          },
+        ],
+      },
+      {
+        locationId: 5,
+        notes: "Reposición automática (venta de 60 días)",
+        lines: [
+          {
+            productId: 2,
+            colorId: 10,
+            size: "32",
+            hardwareCondition: "NUEVO",
+            quantity: 3,
+            suggestedQuantity: 3,
+            shortage: 0,
+          },
+        ],
+      },
+    ]);
+
+    expect(await screen.findByText("DIST-20261103-412")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Ver distribución" }).getAttribute("href")).toBe(
+      "/admin/product-distributions/77"
+    );
+    // Ya creada: todo queda bloqueado para no duplicar.
+    expect(screen.getByLabelText("Seleccionar Kiosko Centro").disabled).toBe(true);
+    expect(screen.getByLabelText("Enviar BIL-01").disabled).toBe(true);
+    expect(screen.getByRole("button", { name: "Crear distribución…" }).disabled).toBe(true);
   });
 
-  test("si el segundo envío falla, el primero queda creado y se desbloquea", async () => {
-    createStandaloneKioskShipment
-      .mockResolvedValueOnce({ id: 3, shipmentNumber: "ENVK-3" })
-      .mockRejectedValueOnce(new Error("bodega ocupada"));
+  test("bloquea las entradas mientras crea", async () => {
+    let resolveCreate;
+    createReplenishmentDistribution.mockImplementation(
+      () => new Promise((resolve) => { resolveCreate = resolve; })
+    );
+    await mount();
+    openRowDetail("Kiosko Centro");
+    fireEvent.click(screen.getByRole("button", { name: "Crear distribución…" }));
+    const dialog = screen.getByText("Crear distribución de reposición").closest(".modal");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Crear distribución" }));
+    await waitFor(() => expect(createReplenishmentDistribution).toHaveBeenCalledTimes(1));
+    expect(screen.getByLabelText("Seleccionar Kiosko Centro").disabled).toBe(true);
+    expect(screen.getByLabelText("Enviar BIL-01").disabled).toBe(true);
+    await act(async () => { resolveCreate(createdDistribution()); });
+    expect(await screen.findByText("DIST-20261103-412")).toBeTruthy();
+  });
+
+  test("si falla no queda nada a medias: avisa y desbloquea la pantalla", async () => {
+    createReplenishmentDistribution.mockRejectedValue(new Error("bodega ocupada"));
     await mount();
     await confirmCreate();
-    await waitFor(() => expect(screen.getByText("Envío ENVK-3")).toBeTruthy());
-    expect(createStandaloneKioskShipment).toHaveBeenCalledTimes(2);
-    expect(showError).toHaveBeenCalledWith(expect.stringMatching(/Plaza Norte.*bodega ocupada/));
-    expect(screen.queryByText("Envío ENVK-5")).toBeNull();
+    await waitFor(() => expect(showError).toHaveBeenCalledWith(expect.stringMatching(/No se creó la distribución: bodega ocupada/)));
+    expect(createReplenishmentDistribution).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText(/K3-ENV/)).toBeNull();
     expect(screen.getByLabelText("Seleccionar Plaza Norte").disabled).toBe(false);
-    expect(screen.getByRole("button", { name: "Confirmar y crear envíos" }).disabled).toBe(false);
+    expect(screen.getByRole("button", { name: "Crear distribución…" }).disabled).toBe(false);
     expect(screen.getByRole("button", { name: /Recalcular/ }).disabled).toBe(false);
     openRowDetail("Plaza Norte");
     expect(screen.getByLabelText("Enviar CIN-1").disabled).toBe(false);
+  });
+
+  test("avisa cuando un kiosco ya tiene una reposición sin despachar", async () => {
+    const data = suggestion();
+    data.kiosks[0].openReplenishmentDistributions = ["DIST-20261030-398"];
+    getKioskReplenishmentSuggestion.mockResolvedValue(data);
+    await mount();
+    expect(screen.getByText(/1 kiosco\(s\) ya tienen una reposición sin despachar/)).toBeTruthy();
+    const chip = screen.getByText("Reposición pendiente");
+    expect(chip.className).toMatch(/kr-status-warn/);
+    expect(chip.getAttribute("title")).toContain("DIST-20261030-398");
+  });
+
+  test("el faltante se ofrece como OPK sugerida y Reposición no crea órdenes", async () => {
+    await mount();
+    expect(screen.getByRole("button", { name: /OPK sugerida \(2\)/ })).toBeTruthy();
   });
 
   test("al recalcular con datos existentes atenúa la tabla y no deja editar", async () => {

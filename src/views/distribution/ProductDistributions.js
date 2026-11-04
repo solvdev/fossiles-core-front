@@ -30,6 +30,8 @@ import { formatNowGt, getTodayYmdGuatemala, shiftYmdGuatemala } from "utils/date
 import { FilterableSelect } from "components/distribution/FilterableSelect";
 import QRCode from "qrcode";
 import { getPublicFrontBaseUrl, buildPtDispatchDistributionUrl } from "utils/ptDispatchQr";
+import DistributionOriginBadge, { distributionOriginOf } from "components/distribution/DistributionOriginBadge";
+import "./distributionContrast.css";
 
 const RECENT_OPTIONS = [
   { value: "7", label: "Últimos 7 días", searchText: "7 dias recientes" },
@@ -42,8 +44,16 @@ const STATUS_OPTIONS = [
   { value: "", label: "Todos los estados", searchText: "todos" },
   { value: "DRAFT", label: "Borrador", searchText: "borrador draft" },
   { value: "CONFIRMED", label: "Confirmada", searchText: "confirmada" },
+  { value: "IN_PROGRESS", label: "En proceso", searchText: "en proceso" },
   { value: "SENT", label: "Enviada", searchText: "enviada" },
+  { value: "DISPATCHED", label: "Despachada", searchText: "despachada" },
   { value: "COMPLETED", label: "Completada", searchText: "completada" },
+];
+
+const ORIGIN_OPTIONS = [
+  { value: "", label: "Todos los orígenes", searchText: "todos" },
+  { value: "MANUAL", label: "Manual", searchText: "manual" },
+  { value: "REPOSICION", label: "Reposición", searchText: "reposicion reposición" },
 ];
 
 function ProductDistributions() {
@@ -58,6 +68,7 @@ function ProductDistributions() {
     status: "",
     recent: "30",
     kioskId: "",
+    origin: "",
   });
   const [previewModal, setPreviewModal] = useState({
     open: false,
@@ -116,6 +127,7 @@ function ProductDistributions() {
     const term = String(filters.search || "").trim().toLowerCase();
     const status = String(filters.status || "").toUpperCase();
     const kioskId = String(filters.kioskId || "");
+    const origin = String(filters.origin || "");
     let minDate = null;
     if (filters.recent && filters.recent !== "ALL") {
       const days = Number(filters.recent);
@@ -127,6 +139,7 @@ function ProductDistributions() {
     return (distributions || [])
       .filter((d) => {
         if (status && String(d.status || "").toUpperCase() !== status) return false;
+        if (origin && distributionOriginOf(d) !== origin) return false;
         if (minDate) {
           const date = String(d.distributionDate || "").slice(0, 10);
           if (date && date < minDate) return false;
@@ -162,7 +175,7 @@ function ProductDistributions() {
   }, [distributions, filters]);
 
   const clearFilters = () =>
-    setFilters({ search: "", status: "", recent: "30", kioskId: "" });
+    setFilters({ search: "", status: "", recent: "30", kioskId: "", origin: "" });
 
   const handleDelete = async (id, distributionNumber) => {
     if (!window.confirm(`¿Está seguro de eliminar la distribución ${distributionNumber}?`)) {
@@ -183,7 +196,9 @@ function ProductDistributions() {
     const statusMap = {
       DRAFT: { color: "secondary", text: "Borrador" },
       CONFIRMED: { color: "info", text: "Confirmada" },
+      IN_PROGRESS: { color: "warning", text: "En proceso" },
       SENT: { color: "warning", text: "Enviada" },
+      DISPATCHED: { color: "info", text: "Despachada" },
       COMPLETED: { color: "success", text: "Completada" },
     };
     const config = statusMap[status] || { color: "default", text: status };
@@ -196,6 +211,7 @@ function ProductDistributions() {
       CONFIRMED: "Confirmada",
       SENT: "Enviada",
       DELIVERED: "Entregada",
+      DISPATCHED: "Despachada",
       COMPLETED: "Completada",
       CANCELLED: "Cancelada",
       RECEIVED: "Recibida",
@@ -767,7 +783,7 @@ function ProductDistributions() {
   }, [filteredPreviewShipments]);
 
   return (
-    <div className="content">
+    <div className="content dist-contrast">
       <Row>
         <Col md="12">
           <Card>
@@ -775,8 +791,21 @@ function ProductDistributions() {
               <Row>
                 <Col md="6">
                   <CardTitle tag="h4">Distribuciones de Productos</CardTitle>
+                  <p className="small text-muted mb-0">
+                    Todo envío de reposición a kioscos vive en una distribución: manual o desde la reposición sugerida.
+                  </p>
                 </Col>
                 <Col md="6" className="text-right">
+                  <Button
+                    color="primary"
+                    outline
+                    size="sm"
+                    onClick={() => navigate("/admin/kiosk-replenishment")}
+                    className="mt-2 mr-2"
+                  >
+                    <i className="nc-icon nc-chart-bar-32 mr-1" />
+                    Desde reposición
+                  </Button>
                   <Button
                     color="primary"
                     size="sm"
@@ -797,7 +826,7 @@ function ProductDistributions() {
               )}
 
               <Row className="mb-3 g-2 align-items-end">
-                <Col md="3">
+                <Col md="2">
                   <Label className="mb-1 small fw-semibold">Buscar</Label>
                   <Input
                     bsSize="sm"
@@ -826,6 +855,15 @@ function ProductDistributions() {
                     placeholder="Estado..."
                   />
                 </Col>
+                <Col md="2">
+                  <Label className="mb-1 small fw-semibold">Origen</Label>
+                  <FilterableSelect
+                    options={ORIGIN_OPTIONS}
+                    value={filters.origin}
+                    onChange={(v) => setFilter("origin", v)}
+                    placeholder="Origen..."
+                  />
+                </Col>
                 <Col md="3">
                   <Label className="mb-1 small fw-semibold">Kiosko</Label>
                   <FilterableSelect
@@ -835,7 +873,7 @@ function ProductDistributions() {
                     placeholder="Filtrar por kiosko..."
                   />
                 </Col>
-                <Col md="2" className="d-flex gap-2 align-items-end">
+                <Col md="1" className="d-flex gap-2 align-items-end flex-wrap">
                   <Button color="secondary" size="sm" outline onClick={clearFilters}>
                     Limpiar
                   </Button>
@@ -864,6 +902,7 @@ function ProductDistributions() {
                     <tr>
                       <th>Número</th>
                       <th>Fecha</th>
+                      <th>Origen</th>
                       <th>Estado</th>
                       <th>Envíos</th>
                       <th>Kioskos</th>
@@ -892,6 +931,7 @@ function ProductDistributions() {
                               <strong>{distribution.distributionNumber}</strong>
                             </td>
                             <td>{formatDate(distribution.distributionDate)}</td>
+                            <td><DistributionOriginBadge distribution={distribution} /></td>
                             <td>{getStatusBadge(distribution.status)}</td>
                             <td>
                               <Badge color="info">{distribution.shipmentCount || 0}</Badge>
@@ -909,7 +949,11 @@ function ProductDistributions() {
                               )}
                             </td>
                             <td>
-                              {distribution.productionOrderCode ? (
+                              {(distribution.linkedProductionOrders || []).length > 0 ? (
+                                distribution.linkedProductionOrders.map((po) => (
+                                  <Badge key={po.id} color="primary" className="mr-1">{po.code}</Badge>
+                                ))
+                              ) : distribution.productionOrderCode ? (
                                 <Badge color="primary">{distribution.productionOrderCode}</Badge>
                               ) : (
                                 <small className="text-muted">-</small>
@@ -942,7 +986,7 @@ function ProductDistributions() {
                             </td>
                           </tr>
                           <tr>
-                            <td colSpan="8" className="p-0 border-0">
+                            <td colSpan="9" className="p-0 border-0">
                               <Collapse isOpen={expanded}>
                                 <div className="p-3 mb-2" style={{ background: "#f7fbfc", border: "1px solid #e3edf0" }}>
                                   <Row>
@@ -1035,7 +1079,7 @@ function ProductDistributions() {
           </Card>
         </Col>
       </Row>
-      <Modal isOpen={previewModal.open} toggle={closePreviewModal} size="xl" scrollable>
+      <Modal className="dist-contrast" isOpen={previewModal.open} toggle={closePreviewModal} size="xl" scrollable>
         <ModalHeader toggle={closePreviewModal}>
           {previewModal.distribution
             ? `Envíos — ${previewModal.distribution.distributionNumber}`
