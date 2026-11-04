@@ -1024,6 +1024,17 @@ function ProductDistributionDetail() {
     return st === "DRAFT" || st === "CONFIRMED";
   };
 
+  // Completada no significa despachada: se sigue modificando mientras haya envíos sin despachar.
+  const isDistributionCompleted = String(distribution?.status || "").toUpperCase() === "COMPLETED";
+  // No se edita si es reposición ni si ya generó orden de producción (quedaría desfasada).
+  const completedDistributionEditable =
+    isDistributionCompleted &&
+    distributionOriginOf(distribution) !== "REPOSICION" &&
+    (distribution?.linkedProductionOrders || []).length === 0 &&
+    shipments.some((s) => isShipmentCancellable(s.status));
+  const showShipmentEditor =
+    Boolean(distribution) && (!isDistributionCompleted || completedDistributionEditable);
+
   const startEditingShipment = async (shipment) => {
     if (!shipment?.locationId) return;
     setEditingShipmentId(shipment.id);
@@ -1831,7 +1842,9 @@ function ProductDistributionDetail() {
                                     Confirmar (ya hay stock)
                                   </Button>
                                 ) : null}
-                                {!shipment.productionOrderId ? (
+                                {!shipment.productionOrderId
+                                  && (!isDistributionCompleted
+                                    || (completedDistributionEditable && isShipmentCancellable(shipment.status))) ? (
                                 <Button
                                   color="info"
                                   size="sm"
@@ -1873,10 +1886,16 @@ function ProductDistributionDetail() {
                 </Row>
               )}
 
-              {distribution && distribution.status !== "COMPLETED" && (
+              {showShipmentEditor && (
                 <>
                   <hr />
-                  
+                  {isDistributionCompleted && (
+                    <Alert color="info" className="py-2">
+                      Distribución completada: puedes modificar los envíos que aún no se han despachado
+                      (confirmados) o agregar uno nuevo para otro kiosko; los nuevos quedan confirmados.
+                    </Alert>
+                  )}
+
                   {/* Selector de kiosko */}
                   <Row className="mb-3">
                     <Col md="12">
