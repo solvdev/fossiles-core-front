@@ -453,7 +453,7 @@ export function summarizePlan(tasks) {
  *
  * @param tasks
  * @param {{ anchorDate: string, horizonDays?: number, orderPriorities?: object,
- *           dates?: Record<string,string>, planFingerprint?: string, acceptChanges?: boolean }} ctx
+ *           dates?: Record<string,string>, defaultDate?: string, planFingerprint?: string, acceptChanges?: boolean }} ctx
  */
 export function buildDayPlanPayload(tasks, ctx) {
   const body = {
@@ -463,7 +463,7 @@ export function buildDayPlanPayload(tasks, ctx) {
     tasks: (tasks || []).map((t) => ({
       clientId: t.clientId,
       productionOrderId: t.orderId,
-      scheduledDate: (ctx.dates && ctx.dates[t.clientId]) || null,
+      scheduledDate: (ctx.dates && ctx.dates[t.clientId]) || ctx.defaultDate || null,
       observations: t.observations || null,
       consolidateVendorOrders: isConsolidatedTask(t),
       items: t.lines.map((l) => ({

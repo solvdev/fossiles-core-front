@@ -587,7 +587,7 @@ export default function useDayPlanner() {
     setPreviewError(null);
     try {
       const body = buildDayPlanPayload(tasks, {
-        anchorDate: date, orderPriorities, dates: datesOverride || dates,
+        anchorDate: date, orderPriorities, dates: datesOverride || dates, defaultDate: nextWorkdayYmd(date),
       });
       const res = await previewDayPlan(body);
       if (seq === previewSeq.current) setPreview(res);
@@ -623,7 +623,7 @@ export default function useDayPlanner() {
     setConfirmError(null);
     try {
       const body = buildDayPlanPayload(tasks, {
-        anchorDate: date, orderPriorities, dates,
+        anchorDate: date, orderPriorities, dates, defaultDate: nextWorkdayYmd(date),
         planFingerprint: preview?.planFingerprint, acceptChanges,
       });
       const res = await confirmDayPlan(body);
