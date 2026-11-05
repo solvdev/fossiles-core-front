@@ -341,7 +341,7 @@ const ReconSimpleView = ({ userKey, filters, onFilters, version, perms, openId, 
   // Lo escrito sobrevive a un corte de luz o de internet: se copia al navegador y se ofrece de nuevo al volver.
   useEffect(() => {
     const restored = draftItems.length;
-    if (restored > 0) showWarning(`Se recuperaron ${restored} monto${restored === 1 ? "" : "s"} sin guardar de la última vez. Revíselos y guárdelos.`);
+    if (restored > 0) showWarning(restored === 1 ? "Se recuperó 1 monto sin guardar de la última vez. Revíselo y guárdelo." : `Se recuperaron ${restored} montos sin guardar de la última vez. Revíselos y guárdelos.`);
   }, []);
   useEffect(() => { storeDrafts(userKey, drafts); }, [userKey, drafts]);
   // Un borrador recuperado ya no vale si esa venta recibió su pago, se liquidó o se anuló mientras tanto.

@@ -520,7 +520,7 @@ describe("Conciliación de ventas en línea (interfaz)", () => {
       expect(document.querySelector('[aria-label="Monto recibido ENVL-01603"]').value).toBe("105");
       expect(byText("button", "Guardar montos (1)")).toBeDefined();
       const { showWarning } = require("utils/notificationHelper");
-      expect(showWarning).toHaveBeenCalledWith(expect.stringContaining("Se recuperaron 1 monto"));
+      expect(showWarning).toHaveBeenCalledWith(expect.stringContaining("Se recuperó 1 monto"));
       expect(api.recordCaseReceiptsBulk).not.toHaveBeenCalled();
     });
 
