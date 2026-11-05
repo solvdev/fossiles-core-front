@@ -44,7 +44,7 @@ const safeStorage = () => {
  * La regla principal: lo cobrado debe ser igual a lo recibido, al centavo, sin tolerancias.
  */
 const ReconciliationPage = () => {
-  const { hasPermission } = useAuth();
+  const { hasPermission, user } = useAuth();
   const today = getTodayYmdGuatemala();
   const perms = useMemo(() => ({
     reconcile: hasPermission("VENTAS.CONCILIACION.CONCILIAR"),
@@ -152,7 +152,7 @@ const ReconciliationPage = () => {
         </CardHeader>
         <CardBody>
           {view === "simple" && (
-            <ReconSimpleView openId={openId} filters={filters} onFilters={setFilters} version={version} perms={perms} onOpen={setOpenId} onChanged={reload} onRowsLoaded={setRowIds} />
+            <ReconSimpleView userKey={user && (user.id || user.username || user.email)} openId={openId} filters={filters} onFilters={setFilters} version={version} perms={perms} onOpen={setOpenId} onChanged={reload} onRowsLoaded={setRowIds} />
           )}
           {view === "full" && <>
           <Nav tabs className="recon-tabs mb-3" role="tablist">

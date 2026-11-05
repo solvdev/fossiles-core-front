@@ -260,7 +260,7 @@ function resultHtml(r) {
   const d = drafts[r.id];
   const live = editable(r) ? liveText(r, d) : null;
   if (live) return `<span class="pill ${live.ok ? 'ok' : 'bad'}">${live.text}<span class="ns"> · sin guardar</span></span>
-    <div class="rowact onhover"><button class="btn primary" type="button" data-act="save" data-id="${r.id}">Guardar</button><button class="btn link" type="button" data-act="drop" data-id="${r.id}">${r.editing ? 'Cancelar' : 'Quitar'}</button></div>`;
+    <div class="rowact"><button class="btn primary" type="button" data-act="save" data-id="${r.id}">Guardar</button><button class="btn link" type="button" data-act="drop" data-id="${r.id}">${r.editing ? 'Cancelar' : 'Quitar'}</button></div>`;
   if (r.editing) return `<span class="quiet">Corrigiendo el pago</span><div class="rowact"><button class="btn link" type="button" data-act="drop" data-id="${r.id}">Cancelar</button></div>`;
   if (r.status === 'void') return `<span class="quiet">Anulada</span><div class="sub">${esc(r.reason)}</div><button class="btn link" type="button" data-act="back" data-id="${r.id}" style="padding-left:0">Reincorporar</button>`;
   if (r.status === 'batch') return `<span class="pill ok">✓ Liquidada (${r.batch})</span>`;

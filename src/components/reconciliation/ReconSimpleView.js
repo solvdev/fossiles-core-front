@@ -227,6 +227,26 @@ const RowDetail = ({ state, onFull }) => {
   );
 };
 
+/**
+ * Copia en este navegador de lo escrito y aún sin guardar, por usuario, para no perderlo si se va la luz o se cierra la página.
+ * Es solo una copia de trabajo: el pago existe hasta que se guarda en el servidor.
+ */
+const draftsKey = (userKey) => `recon.drafts.${userKey || "anon"}`;
+const loadStoredDrafts = (userKey) => {
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(draftsKey(userKey)) || "{}");
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+  } catch (e) {
+    return {};
+  }
+};
+const storeDrafts = (userKey, drafts) => {
+  try {
+    if (Object.keys(drafts).length === 0) window.localStorage.removeItem(draftsKey(userKey));
+    else window.localStorage.setItem(draftsKey(userKey), JSON.stringify(drafts));
+  } catch (e) { /* sin almacenamiento disponible, solo se pierde la copia */ }
+};
+
 /** Trae todas las ventas del período que ya se pueden liquidar (puede pasar de una página). */
 const fetchSettleable = async (period) => {
   const rows = [];
@@ -244,7 +264,7 @@ const fetchSettleable = async (period) => {
  * 2) escribir lo recibido (o «=» cuando llegó completo) y guardar todo junto, 3) liquidar las ventas elegidas y descargar el Excel.
  * Lo que no cuadra al centavo no se corrige solo: se abre la ficha para resolverlo con las herramientas de siempre.
  */
-const ReconSimpleView = ({ filters, onFilters, version, perms, openId, onOpen, onChanged, onRowsLoaded }) => {
+const ReconSimpleView = ({ userKey, filters, onFilters, version, perms, openId, onOpen, onChanged, onRowsLoaded }) => {
   const [show, setShow] = useState("pending");
   const [rows, setRows] = useState([]);
   const [total, setTotal] = useState(0);
@@ -253,7 +273,7 @@ const ReconSimpleView = ({ filters, onFilters, version, perms, openId, onOpen, o
   const [summary, setSummary] = useState(null);
   const [ready, setReady] = useState([]);
   const [deselected, setDeselected] = useState(() => new Set());
-  const [drafts, setDrafts] = useState({});
+  const [drafts, setDrafts] = useState(() => loadStoredDrafts(userKey));
   const [rowErrors, setRowErrors] = useState({});
   const [expanded, setExpanded] = useState(() => new Set());
   const [details, setDetails] = useState({});
@@ -317,6 +337,23 @@ const ReconSimpleView = ({ filters, onFilters, version, perms, openId, onOpen, o
 
   const editable = (r) => !r.hasReceipts && !r.batchCode && r.status !== "EXCLUIDO";
   const draftItems = useMemo(() => draftsToItems(drafts), [drafts]);
+
+  // Lo escrito sobrevive a un corte de luz o de internet: se copia al navegador y se ofrece de nuevo al volver.
+  useEffect(() => {
+    const restored = draftItems.length;
+    if (restored > 0) showWarning(`Se recuperaron ${restored} monto${restored === 1 ? "" : "s"} sin guardar de la última vez. Revíselos y guárdelos.`);
+  }, []);
+  useEffect(() => { storeDrafts(userKey, drafts); }, [userKey, drafts]);
+  // Un borrador recuperado ya no vale si esa venta recibió su pago, se liquidó o se anuló mientras tanto.
+  useEffect(() => {
+    setDrafts((d) => {
+      const stale = rows.filter((r) => d[r.id] && !(d[r.id].editing ? !r.batchCode && r.status !== "EXCLUIDO" : editable(r)));
+      if (stale.length === 0) return d;
+      const next = { ...d };
+      stale.forEach((r) => { delete next[r.id]; });
+      return next;
+    });
+  }, [rows]);
 
   // Momento 2: guardar todos los montos escritos de una vez. Lo que falla se queda en su fila con el motivo.
   // Guarda todos los borradores (onlyId vacío) o solo el de una fila. Los pagos nuevos van en bloque; los corregidos, uno por uno.
@@ -625,7 +662,7 @@ const ReconSimpleView = ({ filters, onFilters, version, perms, openId, onOpen, o
                         ? <span className="recon-quiet">{res.text}</span>
                         : <span className={`recon-pill ${res.tone}`}>{res.text}{res.note && <span className="ns">{res.note}</span>}</span>}
                       {draft && paying && (
-                        <div className={`recon-rowact ${editing || rowErrors[r.id] ? "" : "on-hover"}`}>
+                        <div className="recon-rowact">
                           {canSave && <Button size="sm" color="primary" disabled={!perms.import || saving} aria-label={`Guardar ${name}`} onClick={() => saveDrafts(r.id)}>Guardar</Button>}
                           <Button size="sm" color="link" className="py-0" onClick={() => clearDraft(r.id)}>{editing ? "Cancelar" : "Quitar"}</Button>
                         </div>

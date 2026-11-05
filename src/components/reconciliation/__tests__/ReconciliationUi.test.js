@@ -76,6 +76,7 @@ beforeEach(() => {
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
   mockGranted = true;
   window.localStorage.setItem("recon.view", "full");
+  window.localStorage.removeItem("recon.drafts.anon");
   Object.values(api).forEach((fn) => fn.mockReset && fn.mockReset());
   api.getDashboard.mockResolvedValue(dashboard);
   api.getSellers.mockResolvedValue([{ id: 1, name: "Anthony Ixcajo", active: true }]);
@@ -510,6 +511,35 @@ describe("Conciliación de ventas en línea (interfaz)", () => {
       await flush();
       expect(byText("tr", "Sin ENVL").textContent).toContain("Pedido 118");
       expect(document.querySelector('[aria-label="Monto recibido Pedido 118"]')).not.toBeNull();
+    });
+
+    it("lo escrito sin guardar se recupera al volver a abrir y no se guarda solo", async () => {
+      window.localStorage.setItem("recon.drafts.anon", JSON.stringify({ 3: { amount: "105", matchExpected: false, reference: "LIQ-9" } }));
+      await mount();
+      await flush();
+      expect(document.querySelector('[aria-label="Monto recibido ENVL-01603"]').value).toBe("105");
+      expect(byText("button", "Guardar montos (1)")).toBeDefined();
+      const { showWarning } = require("utils/notificationHelper");
+      expect(showWarning).toHaveBeenCalledWith(expect.stringContaining("Se recuperaron 1 monto"));
+      expect(api.recordCaseReceiptsBulk).not.toHaveBeenCalled();
+    });
+
+    it("escribir deja copia en el navegador y guardar la borra", async () => {
+      api.recordCaseReceiptsBulk.mockResolvedValue({ saved: 1, failed: 0, rows: [{ caseId: 3, ok: true, difference: 0 }] });
+      await mount();
+      await flush();
+      await typeInto(document.querySelector('[aria-label="Monto recibido ENVL-01603"]'), "105");
+      expect(JSON.parse(window.localStorage.getItem("recon.drafts.anon"))["3"].amount).toBe("105");
+      await click(document.querySelector('[aria-label="Guardar ENVL-01603"]'));
+      expect(window.localStorage.getItem("recon.drafts.anon")).toBeNull();
+    });
+
+    it("un borrador recuperado se descarta si la venta ya tiene su pago", async () => {
+      window.localStorage.setItem("recon.drafts.anon", JSON.stringify({ 4: { amount: "480", matchExpected: false, reference: "" } }));
+      await mount();
+      await flush();
+      expect(document.querySelector('[aria-label="Monto recibido ENVL-01604"]')).toBeNull();
+      expect(byText("button", "Guardar montos")).toBeUndefined();
     });
 
     it("Descartar quita todos los montos sin guardar", async () => {
