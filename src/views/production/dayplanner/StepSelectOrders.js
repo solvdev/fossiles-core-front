@@ -26,7 +26,48 @@ export function filterItems(items, query, onlyPicked, picks) {
   });
 }
 
-function OrderRow({ order, selected, number, onToggle, picks, setPick, ensureItems }) {
+/**
+ * Una OP consolidada se muestra como UNA sola orden: su código, y los productos de todas las
+ * órdenes que la forman en un solo listado (cada producto con el código de su orden).
+ */
+export function mergeGroupOrders(members) {
+  const first = members[0];
+  const ready = members.every((m) => m.items !== null && m.items !== undefined);
+  const customers = Array.from(new Set(members.map((m) => m.customerName).filter(Boolean)));
+  const dates = members.map((m) => m.deliveryDate).filter(Boolean).sort();
+  return {
+    ...first,
+    code: first.groupCode,
+    customerName: customers.join(", ") || null,
+    deliveryDate: dates[0] || null,
+    observations: null,
+    remainingHours: members.reduce((s, m) => s + (m.remainingHours || 0), 0),
+    itemCount: members.reduce((s, m) => s + (m.itemCount || 0), 0),
+    remainingItemCount: members.reduce((s, m) => s + (m.remainingItemCount || 0), 0),
+    items: ready ? members.flatMap((m) => m.items.map((i) => ({ ...i, orderCode: m.code }))) : null,
+    memberCodes: members.map((m) => m.code),
+  };
+}
+
+/** Filas del listado: las órdenes de una misma OP consolidada se juntan en una sola fila. */
+export function buildOrderRows(visibleOrders, allOrders) {
+  const rows = [];
+  const seen = new Set();
+  visibleOrders.forEach((o) => {
+    if (!o.groupId) {
+      rows.push({ key: `o${o.id}`, order: o, members: [o] });
+      return;
+    }
+    if (seen.has(o.groupId)) return;
+    seen.add(o.groupId);
+    const members = allOrders.filter((x) => x.groupId === o.groupId && !x.onlineSale);
+    const list = members.length > 0 ? members : [o];
+    rows.push({ key: `g${o.groupId}`, order: mergeGroupOrders(list), members: list });
+  });
+  return rows;
+}
+
+function OrderRow({ order, members, selected, number, onToggle, picks, setPick, ensureItems }) {
   const [open, setOpen] = useState(false);
   const [shown, setShown] = useState(ITEMS_PAGE);
   const [query, setQuery] = useState("");
@@ -47,7 +88,7 @@ function OrderRow({ order, selected, number, onToggle, picks, setPick, ensureIte
         <input
           type="checkbox"
           checked={selected}
-          onChange={() => onToggle(order.id)}
+          onChange={() => onToggle((members || [order])[0].id)}
           aria-label={`Marcar ${order.code}`}
         />
         <span className="dp-box" aria-hidden="true">{selected ? (number || "✓") : ""}</span>
@@ -57,13 +98,14 @@ function OrderRow({ order, selected, number, onToggle, picks, setPick, ensureIte
           <span><FamilyBadge family={order.family} /></span>
           <strong>{order.code}</strong>
           {order.groupCode ? (
-            <span className="dp-chip lf" title="OP consolidada: sus órdenes se marcan y se reparten juntas">{order.groupCode}</span>
+            <span className="dp-chip lf" title="OP consolidada: sus órdenes se marcan y se reparten juntas">Consolidada</span>
           ) : order.luisFelipe && (
             <span className="dp-chip lf" title="Se puede juntar con otras en una OP consolidada desde el Tablero">Luis Felipe</span>
           )}
           {order.customerName && <span className="dp-muted">{order.customerName}</span>}
         </div>
         <div className="dp-ometa">
+          {order.memberCodes ? `${contar(order.memberCodes.length, "orden", "órdenes")}: ${order.memberCodes.join(", ")} · ` : ""}
           {contar(n, "producto")} · {fmt(orderHours(order))} h
           {order.deliveryDate ? ` · entrega ${formatDateGt(order.deliveryDate)}` : ""}
           {pickedCount > 0 ? ` · ${pickedCount} con cantidad de hoy` : ""}
@@ -77,7 +119,7 @@ function OrderRow({ order, selected, number, onToggle, picks, setPick, ensureIte
         className="dp-link"
         aria-expanded={open}
         onClick={() => {
-          if (!open && !itemsReady && ensureItems) ensureItems([order.id]);
+          if (!open && !itemsReady && ensureItems) ensureItems((members || [order]).map((m) => m.id));
           setOpen((v) => !v);
         }}
       >
@@ -89,7 +131,7 @@ function OrderRow({ order, selected, number, onToggle, picks, setPick, ensureIte
       {open && itemsReady && (
         <div className="dp-detail">
           <div className="dp-pick-tools">
-            <span className="dp-small">Deje «auto» para que entre lo que cabe en el día, o escriba las unidades de hoy.</span>
+            <span className="dp-small">Escriba las unidades de hoy. Si no escribe nada en ningún producto, entra lo que cabe en el día; si escribe en alguno, solo entra lo escrito.</span>
             <span className="dp-sp" />
             <Button className="dp-sm" onClick={() => setAll("auto")}>{filtering ? "Estos auto" : "Todo auto"}</Button>
             <Button className="dp-sm" onClick={() => setAll("all")}>{filtering ? "Estos hoy" : "Todo hoy"}</Button>
@@ -123,6 +165,7 @@ function OrderRow({ order, selected, number, onToggle, picks, setPick, ensureIte
             return (
               <div key={id}>
                 <span>
+                  {i.orderCode && <span className="dp-chip lf" style={{ fontSize: 11, padding: "0 6px", marginRight: 6 }}>{i.orderCode}</span>}
                   {i.productCode} {i.productName}{i.colorName ? ` · ${i.colorName}` : ""}
                   <small className="dp-muted"> · {fmt(i.prdTimePerUnit || 0.1)} h/u · quedan {i.remainingQuantity} u</small>
                 </span>
@@ -195,8 +238,17 @@ export default function StepSelectOrders({ planner }) {
 
   const allOpl = oplOrders.length > 0 && oplOrders.every((o) => selectedIds.includes(o.id));
   const allOthers = otherOrders.length > 0 && otherOrders.every((o) => selectedIds.includes(o.id));
-  const numberOf = (o) => (o.onlineSale ? 0
-    : selectedIds.filter((id) => orders.find((x) => x.id === id && !x.onlineSale)).indexOf(o.id) + 1);
+  const rowKeyOf = (o) => (o.groupId ? `g${o.groupId}` : `o${o.id}`);
+  // El orden de marcado cuenta por fila: una OP consolidada es un solo número.
+  const selectedKeys = Array.from(new Set(selectedIds
+    .map((id) => orders.find((x) => x.id === id))
+    .filter((x) => x && !x.onlineSale)
+    .map(rowKeyOf)));
+  const rows = buildOrderRows(otherOrders, orders);
+  const others = orders.filter((o) => !o.onlineSale);
+  const familyCount = (f) => (f === "ALL" ? others.length
+    : f === LF_FILTER ? others.filter((o) => o.luisFelipe).length
+      : others.filter((o) => o.family === f).length);
 
   return (
     <div>
@@ -248,28 +300,30 @@ export default function StepSelectOrders({ planner }) {
             {families.map((f) => (
               <button key={f} type="button" aria-pressed={familyFilter === f} onClick={() => setFamilyFilter(f)}>
                 {f === "ALL" ? "Todas" : f === LF_FILTER ? "Luis Felipe" : f}
+                {` (${familyCount(f)})`}
               </button>
             ))}
           </div>
         )}
         {otherOrders.length === 0 ? (
           <p className="dp-small" style={{ padding: "12px 4px" }}>Ninguna OP coincide con la búsqueda.</p>
-        ) : otherOrders.slice(0, shownOrders).map((o) => (
+        ) : rows.slice(0, shownOrders).map((r) => (
           <OrderRow
-            key={o.id}
-            order={o}
-            selected={selectedIds.includes(o.id)}
-            number={numberOf(o)}
+            key={r.key}
+            order={r.order}
+            members={r.members}
+            selected={selectedIds.includes(r.members[0].id)}
+            number={selectedKeys.indexOf(r.key) + 1}
             onToggle={toggleOrder}
             picks={picks}
             setPick={setPick}
             ensureItems={ensureItems}
           />
         ))}
-        {shownOrders < otherOrders.length && (
+        {shownOrders < rows.length && (
           <div className="dp-more">
             <Button onClick={() => setShownOrders((v) => v + ORDERS_PAGE)}>
-              Mostrar más OPs ({otherOrders.length - shownOrders})
+              Mostrar más OPs ({rows.length - shownOrders})
             </Button>
           </div>
         )}
