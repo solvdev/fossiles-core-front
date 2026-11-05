@@ -89,7 +89,7 @@ function OrderRow({ order, selected, number, onToggle, picks, setPick, ensureIte
       {open && itemsReady && (
         <div className="dp-detail">
           <div className="dp-pick-tools">
-            <span className="dp-small">Deje «auto» para que entre lo que cabe en el día, o escriba las unidades de hoy.</span>
+            <span className="dp-small">Escriba las unidades de hoy. Si no escribe nada en ningún producto, entra lo que cabe en el día; si escribe en alguno, solo entra lo escrito.</span>
             <span className="dp-sp" />
             <Button className="dp-sm" onClick={() => setAll("auto")}>{filtering ? "Estos auto" : "Todo auto"}</Button>
             <Button className="dp-sm" onClick={() => setAll("all")}>{filtering ? "Estos hoy" : "Todo hoy"}</Button>

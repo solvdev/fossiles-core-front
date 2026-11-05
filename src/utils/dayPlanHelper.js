@@ -290,7 +290,9 @@ export function capacityStatus(baseHours, capacity) {
  * lo que no cabe queda sin tarea, para otro día. Las OPL no gastan presupuesto. El criterio
  * es el tiempo de producción: de cada producto entra la cantidad que cabe en lo que queda.
  * Con `opts.picks` ({ itemId: unidades }) el jefe fija cuánto de un producto va hoy; esas
- * cantidades se respetan completas (y se descuentan primero del presupuesto).
+ * cantidades se respetan completas (y se descuentan primero del presupuesto). En una OP donde
+ * fijó al menos un producto, lo que no fijó no entra (cuenta como 0); solo una OP sin ninguna
+ * cantidad fijada se reparte sola con lo que quepa en el día.
  *
  * @param orders      OPs del listado (con items[].remainingQuantity)
  * @param selectedIds ids de las OPs marcadas, en orden de marcado
@@ -321,12 +323,16 @@ export function suggestGrouping(orders, selectedIds, existing = [], opts = {}) {
   const result = [];
   oplFirst.forEach((order) => {
     const wanted = [];
+    // Si el jefe fijó cantidades en esta OP, solo va lo que fijó: lo demás no entra solo.
+    const onlyPicked = !order.onlineSale && (order.items || []).some(hasPick);
     (order.items || []).forEach((item) => {
       const left = leftoverQuantity(item, [...existing, ...result]);
       if (left <= 0) return;
       let quantity;
       if (hasPick(item)) {
         quantity = Math.min(Math.max(0, Math.floor(picks[item.productionOrderItemId])), left);
+      } else if (onlyPicked) {
+        quantity = 0;
       } else if (order.onlineSale || !finite) {
         quantity = left;
       } else {
