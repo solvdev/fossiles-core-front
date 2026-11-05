@@ -41,6 +41,8 @@ import {
 const DRAFT_KEY = "dayplanner.draft.v1";
 /** Valor del filtro de familia que deja solo las OPV de Luis Felipe. */
 export const LF_FILTER = "LF";
+/** Tipos de OP que siempre aparecen en el filtro (las OPL tienen su propia sección). */
+const BASE_FAMILIES = ["OPK", "OPV", "OPI", "OPCK", "OPD"];
 /** El servidor devuelve a lo más 200 OPs por consulta (TaskOrganizerService). */
 const ORDERS_PAGE_SIZE = 200;
 /** Cuántas OPs piden sus ítems a la vez. */
@@ -273,7 +275,8 @@ export default function useDayPlanner() {
   const families = useMemo(
     () => [
       "ALL",
-      ...Array.from(new Set(otherOrdersAll.map((o) => o.family).filter(Boolean))),
+      // Todos los tipos de OP, estén o no en esta lista, y los que vengan fuera de esos.
+      ...Array.from(new Set([...BASE_FAMILIES, ...otherOrdersAll.map((o) => o.family).filter(Boolean)])),
       // Filtro aparte: las OPV de Luis Felipe, que se pueden juntar en una tarea.
       ...(otherOrdersAll.some((o) => o.luisFelipe) ? [LF_FILTER] : []),
     ],
@@ -285,6 +288,7 @@ export default function useDayPlanner() {
       .filter((o) => familyFilter === "ALL" || (familyFilter === LF_FILTER ? o.luisFelipe : o.family === familyFilter))
       .filter((o) => !q
         || String(o.code || "").toLowerCase().includes(q)
+        || String(o.groupCode || "").toLowerCase().includes(q)
         || String(o.customerName || "").toLowerCase().includes(q));
   }, [otherOrdersAll, search, familyFilter]);
 
