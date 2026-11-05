@@ -32,6 +32,38 @@ const playAlertBeep = () => {
   }
 };
 
+// Sonido de "sistema en línea": tres notas ascendentes, distinto al beep de alerta
+const playOnlineChime = () => {
+  try {
+    const AudioContext = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContext) return;
+    const ctx = new AudioContext();
+    if (ctx.state === "suspended") ctx.resume();
+
+    [523.25, 659.25, 783.99].forEach((frequency, index) => { // C5, E5, G5
+      const start = ctx.currentTime + index * 0.16;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+
+      osc.type = "triangle";
+      osc.frequency.setValueAtTime(frequency, start);
+
+      gain.gain.setValueAtTime(0.0001, start);
+      gain.gain.exponentialRampToValueAtTime(0.18, start + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.01, start + 0.4);
+
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+
+      osc.start(start);
+      osc.stop(start + 0.4);
+      if (index === 2) osc.onended = () => ctx.close();
+    });
+  } catch (e) {
+    // Ignorar si el navegador bloquea audio antes de interacción
+  }
+};
+
 // Fases del banner:
 //   COUNTDOWN   → cuenta regresiva hacia el reinicio
 //   RESTARTING  → el servidor se está reiniciando; se queda hasta que el back nuevo conteste
@@ -232,9 +264,10 @@ export default function SystemBroadcastBanner() {
     };
   }, [phase, noteBootId, setPhase, clearBanner]);
 
-  // Actualizado: el aviso verde se quita solo
+  // Actualizado: suena una vez y el aviso verde se quita solo
   useEffect(() => {
     if (phase !== "BACK_ONLINE") return undefined;
+    playOnlineChime();
     const timeout = setTimeout(() => clearBanner(), BACK_ONLINE_VISIBLE_MS);
     return () => clearTimeout(timeout);
   }, [phase, clearBanner]);
