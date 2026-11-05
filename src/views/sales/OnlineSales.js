@@ -56,7 +56,7 @@ const getShippingCost = (paymentMethod) => {
 
 // CAMBIO: por defecto se reenvía el mismo artículo; "OTHER" permite elegir un producto distinto.
 const EMPTY_EXCHANGE_REPLACEMENT = {
-  replaceMode: "SAME", // SAME | OTHER
+  replaceMode: "SAME", // SAME | OTHER | NOLINE (ya va en el envío destino)
   replProductId: null,
   replColorId: null,
   replSize: "",
@@ -1705,11 +1705,13 @@ function OnlineSales() {
           const max = it.maxQuantity || 1;
           const qty = parseInt(it.quantity, 10) || 1;
           const other = it.replaceMode === "OTHER" && it.replProductId;
+          const noLine = addToExisting && it.replaceMode === "NOLINE";
           return {
             productId: it.productId,
             colorId: it.colorId ?? null,
             size: it.size || "",
             quantity: Math.min(Math.max(qty, 1), max),
+            ...(noLine ? { noShipmentLine: true } : {}),
             ...(other
               ? {
                   replacementProductId: it.replProductId,
@@ -4744,7 +4746,12 @@ function OnlineSales() {
                   type="radio"
                   name="exchangeTargetMode"
                   checked={exchangeTargetMode === "NEW"}
-                  onChange={() => { setExchangeTargetMode("NEW"); setExchangeTargetSale(null); }}
+                  onChange={() => {
+                    setExchangeTargetMode("NEW");
+                    setExchangeTargetSale(null);
+                    // «Ya va en el envío destino» solo existe con envío existente
+                    setExchangeItems(prev => prev.map(p => p.replaceMode === "NOLINE" ? { ...p, ...EMPTY_EXCHANGE_REPLACEMENT } : p));
+                  }}
                 />{" "}
                 Envío nuevo
               </Label>
@@ -4902,7 +4909,9 @@ function OnlineSales() {
           <h6 className="mb-2">Items a reenviar</h6>
           <p className="text-muted" style={{ fontSize: 12 }}>
             Lo que el cliente devuelve regresa a Devoluciones. En «Se envía» elija si va el mismo artículo
-            o uno distinto (otro producto, color o talla).
+            o uno distinto (otro producto, color o talla). Si el envío destino ya lleva el producto que se
+            manda (p. ej. la venta nueva), elija «Ya va en el envío destino»: solo se registra la devolución
+            y no se agrega ninguna línea al envío.
           </p>
           {exchangeItems.length === 0 ? (
             <Alert color="warning">No se encontraron items para el cambio.</Alert>
@@ -4953,16 +4962,22 @@ function OnlineSales() {
                           <Input
                             type="select"
                             bsSize="sm"
+                            style={{ minWidth: 130 }}
                             value={it.replaceMode || "SAME"}
                             disabled={Boolean(exchangeCreatedSale)}
                             onChange={(e) => patchItem(
                               e.target.value === "OTHER"
                                 ? { replaceMode: "OTHER" }
-                                : { ...EMPTY_EXCHANGE_REPLACEMENT }
+                                : e.target.value === "NOLINE"
+                                  ? { ...EMPTY_EXCHANGE_REPLACEMENT, replaceMode: "NOLINE" }
+                                  : { ...EMPTY_EXCHANGE_REPLACEMENT }
                             )}
                           >
                             <option value="SAME">Mismo artículo</option>
                             <option value="OTHER">Otro artículo</option>
+                            {exchangeTargetMode === "EXISTING" && (
+                              <option value="NOLINE">Ya va en el envío destino</option>
+                            )}
                           </Input>
                         </td>
                       </tr>
