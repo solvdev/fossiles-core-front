@@ -51,24 +51,164 @@
   .recon-page .hide-sm { display: none; }
 }
 
-/* Vista simple de cuadre */
-.recon-page .recon-totals { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
-.recon-page .recon-totals > div { border: 1px solid #e3e3e3; border-radius: 6px; padding: 10px 12px; background: #fff; }
-.recon-page .recon-totals .l { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: #66615b; font-weight: 600; }
-.recon-page .recon-totals .v { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; }
-.recon-page .recon-close-bar { border-top: 1px solid #e3e3e3; padding-top: 12px; }
-@media (max-width: 575px) { .recon-page .recon-totals { grid-template-columns: 1fr; } }
-
-/* Liquidación: pasos, detalle dentro de la fila */
-.recon-page .recon-steps { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
-.recon-page .recon-steps .step { display: flex; align-items: center; gap: 10px; border: 1px solid #e3e3e3; border-radius: 6px; padding: 8px 12px; background: #faf9f6; }
-.recon-page .recon-steps .n { width: 26px; height: 26px; border-radius: 50%; background: #51cbce; color: #fff; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; flex: none; }
+/* Liquidación: detalle dentro de la fila */
 .recon-page .recon-inline { background: #faf9f6; border-left: 3px solid #51cbce; white-space: normal; }
 .recon-page .recon-inline-grid { display: grid; grid-template-columns: minmax(220px, 1fr) minmax(0, 2fr); gap: 16px; }
 .recon-page .recon-inline .kv { display: flex; justify-content: space-between; gap: 8px; font-size: 12.5px; border-bottom: 1px dotted #e3e3e3; padding: 2px 0; }
 .recon-page .recon-inline .kv .k { color: #66615b; }
 .recon-page .recon-table tr.recon-detail-row:hover { background: transparent; }
 @media (max-width: 767px) {
-  .recon-page .recon-steps { grid-template-columns: 1fr; }
   .recon-page .recon-inline-grid { grid-template-columns: 1fr; }
+}
+
+/* Vista simple: resumen, tabla que se lee cobrado -> recibido -> resultado y barra fija con las dos acciones principales.
+   Paper Dashboard pone en gris muy claro los textos secundarios y en blanco el texto sobre turquesa; aquí se sube el contraste. */
+.recon-page--simple .card .text-muted { color: #66615b !important; }
+.recon-page--simple .card .btn { text-transform: none; letter-spacing: 0; }
+.recon-page--simple .card .btn-primary,
+.recon-page--simple .card .btn-primary:hover,
+.recon-page--simple .card .btn-primary:focus,
+.recon-page--simple .card .btn-primary:not(:disabled):not(.disabled):active { color: #073b3d; font-weight: 700; }
+.recon-page--simple .card .btn-outline-primary { color: #0b6b6f; border-color: #8fd5d7; font-weight: 600; }
+.recon-page--simple .card .btn-outline-primary:hover:not(:disabled),
+.recon-page--simple .card .btn-outline-primary:focus { color: #073b3d; background: #e6f7f7; border-color: #0b6b6f; }
+.recon-page--simple .card .btn-link { color: #0b6b6f; font-weight: 600; }
+.recon-page--simple .card button:focus-visible,
+.recon-page--simple .card input:focus-visible,
+.recon-page--simple .card select:focus-visible { outline: 2px solid #0b6b6f; outline-offset: 1px; }
+
+.recon-page .recon-filters { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px; }
+.recon-page .recon-filters label { display: block; font-size: 11px; font-weight: 600; color: #66615b; }
+.recon-page .recon-filters .form-control { height: 31px; padding: 4px 8px; font-size: 12.5px; border-radius: 6px; color: #403d39; }
+.recon-page .recon-filters .grow { flex: 1; min-width: 190px; max-width: 320px; }
+
+.recon-page .recon-summary { border: 1px solid #e3e0d9; border-radius: 10px; overflow: hidden; }
+.recon-page .recon-steps { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.recon-page .recon-steps .step { display: flex; gap: 10px; padding: 11px 14px; background: #faf9f6; min-width: 0; }
+.recon-page .recon-steps .step + .step { border-left: 1px solid #e3e0d9; }
+.recon-page .recon-steps .n { width: 24px; height: 24px; border-radius: 50%; background: #ecebe6; color: #66615b; font-size: 12px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; flex: none; }
+.recon-page .recon-steps .t { font-size: 11px; font-weight: 700; color: #66615b; }
+.recon-page .recon-steps .v { font-size: 20px; font-weight: 700; line-height: 1.2; color: #403d39; font-variant-numeric: tabular-nums; }
+.recon-page .recon-steps .v small { font-size: 12px; font-weight: 600; color: #66615b; }
+.recon-page .recon-steps .s { font-size: 12px; color: #66615b; }
+.recon-page .recon-steps .s b { font-weight: 600; color: #403d39; font-variant-numeric: tabular-nums; }
+.recon-page .recon-steps .step.is-now { background: #fff; box-shadow: inset 0 3px 0 #51cbce; }
+.recon-page .recon-steps .is-now .n { background: #51cbce; color: #073b3d; }
+.recon-page .recon-steps .is-now .t { color: #0b6b6f; }
+.recon-page .recon-meter { display: grid; gap: 6px; padding: 9px 14px 10px; border-top: 1px solid #e3e0d9; }
+.recon-page .recon-meter .recon-bar { height: 8px; gap: 2px; background: none; border-radius: 0; }
+.recon-page .recon-meter .recon-bar i { min-width: 3px; border-radius: 2px; }
+.recon-page .recon-meter .recon-legend { gap: 4px 14px; font-size: 11.5px; }
+.recon-page .recon-meter .recon-legend strong { font-weight: 600; color: #403d39; font-variant-numeric: tabular-nums; }
+.recon-page .recon-meter .recon-legend .end { margin-left: auto; }
+.recon-page .recon-bar .void, .recon-page .recon-legend .void { background: #a8a39a; }
+.recon-page .recon-bar .rest, .recon-page .recon-legend .rest { background: #dedbd3; }
+.recon-page .recon-legend .ok { background: #18a05c; }
+.recon-page .recon-legend .pending { background: #e0a419; }
+.recon-page .recon-legend .bad { background: #c2410c; }
+
+.recon-page .recon-seg { display: inline-flex; gap: 2px; padding: 3px; background: #ecebe6; border-radius: 8px; }
+.recon-page .recon-seg button { display: inline-flex; align-items: center; gap: 6px; border: 0; background: none; border-radius: 6px; padding: 5px 11px; font-size: 12px; font-weight: 600; color: #66615b; cursor: pointer; }
+.recon-page .recon-seg button.is-on { background: #fff; color: #403d39; box-shadow: 0 1px 2px rgba(0, 0, 0, .14); }
+.recon-page .recon-seg .c { font-size: 11px; background: rgba(0, 0, 0, .07); border-radius: 9px; padding: 0 6px; font-variant-numeric: tabular-nums; }
+.recon-page .recon-seg .c.bad { background: #fde6dc; color: #a8401a; }
+
+.recon-page .recon-table-wrap { overflow-x: auto; border: 1px solid #e3e0d9; border-radius: 10px; }
+.recon-page .recon-liq { min-width: 960px; }
+.recon-page .recon-liq > thead > tr > th { padding: 7px 8px; background: #faf9f6; border: 0; border-bottom: 1px solid #e3e0d9; color: #66615b; font-size: 11px; font-weight: 700; letter-spacing: 0; text-transform: none; vertical-align: middle; }
+.recon-page .recon-liq > thead > tr > th.group { padding: 4px 8px 0; border-bottom: 0; font-size: 10.5px; font-weight: 600; }
+.recon-page .recon-liq > thead > tr > th.reg { background: #f5f4ef; }
+.recon-page .recon-sort { font-weight: 700; color: inherit; }
+.recon-page .recon-sort:hover { color: #0b6b6f; }
+.recon-page .recon-liq > tbody > tr > td { padding: 8px; border-top: 0; border-bottom: 1px solid #e3e0d9; font-size: 12.5px; color: #403d39; vertical-align: top; white-space: normal; }
+.recon-page .recon-liq > tbody > tr > td.reg { background: #f9f8f5; }
+.recon-page .recon-liq > tbody > tr.recon-row:hover > td { background: #fbfaf7; }
+.recon-page .recon-liq > tbody > tr.recon-row:hover > td.reg { background: #f5f4ef; }
+.recon-page .recon-liq > tbody > tr.recon-row.is-open { box-shadow: none; background: none; }
+.recon-page .recon-liq > tbody > tr.recon-row.is-open > td { background: #faf9f6; }
+.recon-page .recon-liq > tbody > tr.is-draft > td:first-child { box-shadow: inset 3px 0 0 #51cbce; }
+.recon-page .recon-liq > tbody > tr.is-bad > td:first-child { box-shadow: inset 3px 0 0 #c2410c; }
+.recon-page .recon-liq > tbody > tr.is-void > td { color: #66615b; }
+.recon-page .recon-liq > tbody > tr.recon-detail-row > td { padding: 0; }
+.recon-page .recon-check { position: static; display: block; width: 15px; height: 15px; margin: 2px 0 0; accent-color: #0b6b6f; cursor: pointer; }
+.recon-page .recon-date { white-space: nowrap !important; padding-top: 9px !important; font-variant-numeric: tabular-nums; }
+.recon-page .recon-envl { display: flex; align-items: center; gap: 4px; white-space: nowrap; }
+.recon-page .recon-envl strong { font-weight: 700; }
+.recon-page .recon-caret { width: 14px; padding: 0; border: 0; background: none; color: #66615b; font-size: 10px; line-height: 1; cursor: pointer; flex: none; }
+.recon-page .recon-sub { margin-top: 2px; font-size: 11.5px; color: #66615b; }
+.recon-page .recon-liq .pl { padding-left: 18px; }
+.recon-page .recon-tag { display: inline-block; padding: 1px 5px; border-radius: 4px; background: #fdf0cf; color: #865a00; font-size: 10.5px; font-weight: 700; white-space: nowrap; }
+.recon-page .recon-client { padding-top: 9px !important; }
+.recon-page .recon-money { padding-top: 13px !important; font-weight: 600; white-space: nowrap !important; }
+.recon-page .recon-good { color: #1d7a4b; }
+.recon-page .recon-bad { color: #a8401a; }
+
+.recon-page .recon-liq input[type="number"]::-webkit-outer-spin-button,
+.recon-page .recon-liq input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.recon-page .recon-liq input[type="number"] { -moz-appearance: textfield; appearance: textfield; }
+.recon-page .recon-pay { display: flex; }
+.recon-page .recon-liq .recon-pay .form-control { width: 92px; flex: none; height: 29px; padding: 4px 7px; border: 1px solid #cfccc4; border-right: 0; border-radius: 6px 0 0 6px; background: #fff; color: #403d39; font-size: 12.5px; font-weight: 600; text-align: right; font-variant-numeric: tabular-nums; }
+.recon-page .recon-liq .recon-pay .form-control::placeholder { color: #8f8a82; font-weight: 500; }
+.recon-page .recon-eq { width: 30px; height: 29px; padding: 0; border: 1px solid #cfccc4; border-radius: 0 6px 6px 0; background: #faf9f6; color: #0b6b6f; font-weight: 700; cursor: pointer; }
+.recon-page .recon-eq:hover:not(:disabled) { background: #e6f7f7; }
+.recon-page .recon-eq[aria-pressed="true"] { background: #51cbce; border-color: #51cbce; color: #073b3d; }
+.recon-page .recon-eq:disabled { opacity: .5; cursor: not-allowed; }
+.recon-page .recon-liq .form-control.recon-ghost { display: block; width: 122px; height: 24px; margin-top: 3px; padding: 2px 7px; border: 1px solid transparent; border-radius: 5px; background: transparent; color: #403d39; font-size: 11.5px; }
+.recon-page .recon-liq .form-control.recon-ghost::placeholder { color: #66615b; }
+.recon-page .recon-liq .form-control.recon-ghost:hover:not(:disabled) { border-color: #cfccc4; background: #fff; }
+.recon-page .recon-liq .form-control.recon-ghost:focus { border-color: #0b6b6f; background: #fff; }
+.recon-page .recon-paid { font-weight: 600; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.recon-page .recon-paid .btn { margin: 0; padding-left: 4px; padding-right: 0; font-size: 11.5px; }
+.recon-page .recon-soft-field { display: flex; align-items: center; gap: 4px; }
+.recon-page .recon-liq .form-control.recon-soft { width: 66px; flex: none; height: 27px; padding: 3px 6px; border: 1px solid #e3e0d9; border-radius: 5px; background: #fff; color: #403d39; font-size: 12px; text-align: right; font-variant-numeric: tabular-nums; }
+.recon-page .recon-liq .form-control.recon-soft-pct { width: 46px; }
+.recon-page .recon-liq .form-control.recon-soft:hover:not(:disabled) { border-color: #cfccc4; }
+.recon-page .recon-liq .form-control.recon-soft:focus { border-color: #0b6b6f; }
+.recon-page .recon-tick { width: 24px; height: 24px; padding: 0; border: 0; border-radius: 5px; background: #51cbce; color: #073b3d; font-weight: 700; cursor: pointer; flex: none; }
+
+.recon-page .recon-pill { display: inline-block; padding: 3px 7px; border-radius: 6px; font-size: 12px; font-weight: 700; line-height: 1.25; }
+.recon-page .recon-pill.success { background: #e3f5eb; color: #1d7a4b; }
+.recon-page .recon-pill.danger { background: #fde6dc; color: #a8401a; }
+.recon-page .recon-pill .ns { font-weight: 500; }
+.recon-page .recon-quiet { display: inline-block; padding-top: 3px; color: #66615b; }
+.recon-page .recon-rowact { display: flex; align-items: center; gap: 4px; margin-top: 4px; }
+.recon-page .recon-rowact .btn { margin: 0; }
+.recon-page .recon-rowact .btn-primary { padding: 2px 8px; font-size: 11.5px; }
+.recon-page .recon-rowact .btn-link { padding-left: 4px; padding-right: 4px; font-size: 11.5px; }
+@media (hover: hover) {
+  .recon-page tr.recon-row .recon-rowact.on-hover { visibility: hidden; }
+  .recon-page tr.recon-row:hover .recon-rowact.on-hover,
+  .recon-page tr.recon-row:focus-within .recon-rowact.on-hover { visibility: visible; }
+}
+.recon-page .recon-liq > tbody > tr > td.recon-more-cell { padding: 6px 4px; }
+.recon-page .recon-more { width: 28px; height: 27px; padding: 0; border: 1px solid transparent; border-radius: 6px; background: none; color: #66615b; font-weight: 700; line-height: 1; cursor: pointer; }
+.recon-page .recon-more:hover, .recon-page .recon-more[aria-expanded="true"] { border-color: #e3e0d9; background: #fff; }
+/* Cerrado no ocupa lugar: Paper Dashboard lo deja como bloque invisible y agrandaría el área con scroll de la tabla. */
+.recon-page .recon-more-cell .dropdown-menu:not(.show) { display: none; }
+/* El menú abierto vive en body para que la tabla no lo recorte, así que estas reglas no pueden depender de .recon-page. */
+.dropdown-menu.recon-row-menu.show { display: block; opacity: 1; visibility: visible; min-width: 178px; margin-top: 2px; padding: 4px; border: 1px solid #e3e0d9; border-radius: 8px; box-shadow: 0 8px 22px rgba(0, 0, 0, .16); z-index: 1035; }
+.dropdown-menu.recon-row-menu::before, .dropdown-menu.recon-row-menu::after { display: none; }
+.dropdown-menu.recon-row-menu .dropdown-item { padding: 7px 10px; border-radius: 5px; color: #403d39; font-size: 12.5px; }
+.dropdown-menu.recon-row-menu .dropdown-item:hover, .dropdown-menu.recon-row-menu .dropdown-item:focus { background: #ecebe6; color: #403d39; }
+.dropdown-menu.recon-row-menu .dropdown-item.is-danger, .dropdown-menu.recon-row-menu .dropdown-item.is-danger:hover, .dropdown-menu.recon-row-menu .dropdown-item.is-danger:focus { color: #a8401a; font-weight: 600; }
+.recon-page .recon-liq > tbody > tr.recon-annul-row > td { padding: 9px 14px 9px 38px; background: #fde6dc; }
+.recon-page .recon-annul { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.recon-page .recon-annul strong { white-space: nowrap; }
+.recon-page .recon-annul .form-control { flex: 1; min-width: 240px; width: auto; height: 31px; padding: 4px 8px; border-color: #d9b6a4; border-radius: 6px; background: #fff; color: #403d39; font-size: 12.5px; }
+.recon-page .recon-annul .btn { margin: 0; }
+
+.recon-page .recon-pager { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; padding: 10px 2px; }
+.recon-page .recon-pager .btn { margin: 0; }
+/* Fija abajo. El espacio a la derecha es para el botón flotante de Soporte. */
+.recon-page .recon-dock { position: sticky; bottom: 0; z-index: 5; display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 10px 20px; margin: 0 -15px -10px; padding: 10px 128px 10px 15px; background: #fff; border-top: 1px solid #e3e0d9; border-radius: 0 0 12px 12px; box-shadow: 0 -6px 12px -8px rgba(0, 0, 0, .18); font-size: 12.5px; }
+.recon-page .recon-dock .group { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.recon-page .recon-dock .btn { margin: 0; }
+.recon-page .recon-dock.is-confirm { background: #e6f7f7; }
+.recon-page .recon-dock.is-done { background: #e3f5eb; color: #1d7a4b; font-weight: 600; }
+
+@media (max-width: 767px) {
+  .recon-page .recon-steps { grid-template-columns: 1fr; }
+  .recon-page .recon-steps .step + .step { border-left: 0; border-top: 1px solid #e3e0d9; }
+  .recon-page .recon-meter .recon-legend .end { margin-left: 0; }
+  .recon-page .recon-dock { padding-right: 15px; padding-bottom: 72px; }
 }

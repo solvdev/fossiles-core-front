@@ -502,6 +502,26 @@ describe("Conciliación de ventas en línea (interfaz)", () => {
       expect(byText("tr", "ENVL-01603").textContent).not.toContain("Devolución");
     });
 
+    it("una venta sin ENVL se identifica por su pedido y lleva la etiqueta «Sin ENVL»", async () => {
+      api.getCases.mockImplementation(async (filters, opts) => (opts && opts.size === 200
+        ? { rows: [], total: 0, page: 0, size: 200 }
+        : { rows: [row({ id: 7, shipmentNumber: null, saleNumber: "118", hasReceipts: false, received: 0, status: "INFORMACION_INCOMPLETA" })], total: 1, page: 0, size: 50 }));
+      await mount();
+      await flush();
+      expect(byText("tr", "Sin ENVL").textContent).toContain("Pedido 118");
+      expect(document.querySelector('[aria-label="Monto recibido Pedido 118"]')).not.toBeNull();
+    });
+
+    it("Descartar quita todos los montos sin guardar", async () => {
+      await mount();
+      await flush();
+      await typeInto(document.querySelector('[aria-label="Monto recibido ENVL-01603"]'), "105");
+      await click(byText("button", "Descartar"));
+      expect(document.querySelector('[aria-label="Monto recibido ENVL-01603"]').value).toBe("");
+      expect(byText("button", "Guardar montos")).toBeUndefined();
+      expect(api.recordCaseReceiptsBulk).not.toHaveBeenCalled();
+    });
+
     it("un monto que falla se queda en su fila con el motivo y el borrador no se pierde", async () => {
       api.recordCaseReceiptsBulk.mockResolvedValue({ saved: 0, failed: 1, rows: [{ caseId: 3, ok: false, message: "Ya tiene un pago registrado." }] });
       await mount();

@@ -117,7 +117,7 @@ const ReconciliationPage = () => {
   };
 
   return (
-    <div className="content recon-page">
+    <div className={`content recon-page ${view === "simple" ? "recon-page--simple" : ""}`}>
       <Card>
         <CardHeader className="d-flex justify-content-between align-items-start flex-wrap" style={{ gap: 8 }}>
           <div>
@@ -129,7 +129,7 @@ const ReconciliationPage = () => {
               {view === "simple" ? "Registrar varios por ENVL" : "Registrar pagos"}
             </Button>
             {view === "simple" ? (
-              <Button color="secondary" size="sm" outline onClick={() => switchView("full")}>Vista completa</Button>
+              <Button color="link" size="sm" onClick={() => switchView("full")}>Vista completa</Button>
             ) : (
               <Button color="secondary" size="sm" outline onClick={() => switchView("simple")}>Vista simple</Button>
             )}

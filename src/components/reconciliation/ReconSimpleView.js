@@ -1,5 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Alert, Badge, Button, ButtonGroup, Input, Label, Spinner, Table } from "reactstrap";
+import {
+  Alert, Badge, Button, DropdownItem, DropdownMenu, DropdownToggle, Input, Label, Spinner, Table, UncontrolledDropdown,
+} from "reactstrap";
 import {
   downloadBatch, generateCases, getCase, getCases, getDashboard, excludeCase, includeCase, recordCaseReceiptsBulk, replaceCaseReceipt, settleCases, updateShippingCommission,
 } from "services/reconciliationService";
@@ -17,6 +19,9 @@ const SHOW = {
   differences: { label: "Con diferencia", status: "CON_DIFERENCIAS,REQUIERE_AUTORIZACION,POSIBLE_DUPLICADO", batch: "" },
   all: { label: "Todas", status: "", batch: "" },
 };
+const MONTHS = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
+// Tocar uno de estos dentro de la fila no abre el detalle de la venta.
+const NO_EXPAND = "button,input,select,a,label,.dropdown-menu,.recon-noexpand";
 
 /** Lo que el usuario necesita saber de una fila ya guardada, en palabras. */
 export const rowResult = (r) => {
@@ -32,22 +37,34 @@ export const rowResult = (r) => {
   return { tone: "danger", text: "! Revisar la ficha" };
 };
 
-const stop = (e) => e.stopPropagation();
+/** Cómo se nombra una venta en botones y avisos. Si no tiene ENVL, por su número de pedido. */
+const rowName = (r) => r.shipmentNumber || (r.saleNumber ? `Pedido ${r.saleNumber}` : `Caso ${r.id}`);
+
+/** 2026-10-05 -> "05 oct". El año completo queda en el title de la celda. */
+const shortDate = (ymd) => {
+  const [, month, day] = String(ymd || "").split("-");
+  const label = MONTHS[Number(month) - 1];
+  return label && day ? `${day} ${label}` : "—";
+};
+
+const count = (n) => Number(n || 0).toLocaleString("es-GT");
+const plural = (n, word) => `${word}${Number(n) === 1 ? "" : "s"}`;
 
 /** Monto y referencia de una venta sin pago. Lo escrito queda como borrador hasta «Guardar montos». */
 const PayCell = ({ row, draft, disabled, onChange, onSave, canSave }) => {
-  const amount = draft ? draft.amount : "";
+  const name = rowName(row);
   const onKey = (e) => { if (e.key === "Enter" && canSave && !disabled) { e.preventDefault(); onSave(); } };
   return (
-    <div className="d-flex align-items-center" style={{ gap: 6 }} onClick={stop}>
-      <Input bsSize="sm" type="number" step="0.01" min="0" style={{ width: 105 }} placeholder="Recibido" aria-label={`Monto recibido ${row.shipmentNumber}`}
-        value={amount} disabled={disabled} onKeyDown={onKey} onChange={(e) => onChange({ amount: e.target.value, matchExpected: false })} />
-      <Button size="sm" outline color="primary" disabled={disabled} title="Recibido = cobrado" aria-label={`Recibido igual a cobrado ${row.shipmentNumber}`}
-        active={!!(draft && draft.matchExpected)} onClick={() => onChange({ amount: String(row.expected), matchExpected: true })}>=</Button>
-      <Input bsSize="sm" style={{ width: 190 }} placeholder="No. Autorización/Referencia" aria-label={`No. Autorización/Referencia ${row.shipmentNumber}`}
+    <>
+      <div className="recon-pay">
+        <Input bsSize="sm" type="number" step="0.01" min="0" placeholder="0.00" aria-label={`Monto recibido ${name}`}
+          value={draft ? draft.amount : ""} disabled={disabled} onKeyDown={onKey} onChange={(e) => onChange({ amount: e.target.value, matchExpected: false })} />
+        <button type="button" className="recon-eq" disabled={disabled} title="Llegó exactamente lo cobrado" aria-label={`Recibido igual a cobrado ${name}`}
+          aria-pressed={!!(draft && draft.matchExpected)} onClick={() => onChange({ amount: String(row.expected), matchExpected: true })}>=</button>
+      </div>
+      <Input bsSize="sm" className="recon-ghost" placeholder="+ Referencia" title="No. Autorización/Referencia" aria-label={`No. Autorización/Referencia ${name}`}
         value={draft ? draft.reference || "" : ""} disabled={disabled} onKeyDown={onKey} onChange={(e) => onChange({ reference: e.target.value })} />
-      {canSave && <Button size="sm" color="primary" disabled={disabled} aria-label={`Guardar ${row.shipmentNumber}`} onClick={onSave}>Guardar</Button>}
-    </div>
+    </>
   );
 };
 
@@ -72,6 +89,7 @@ const parsePercent = (text) => {
 
 /** Lo que de verdad costó el envío. Se compara con el envío cobrado al cliente; es solo un registro y no cambia el cuadre. */
 const RealShippingCell = ({ row, canEdit, onSave }) => {
+  const name = rowName(row);
   const saved = row.realShipping == null ? "" : String(row.realShipping);
   const [value, setValue] = useState(saved);
   useEffect(() => { setValue(saved); }, [saved]);
@@ -79,24 +97,25 @@ const RealShippingCell = ({ row, canEdit, onSave }) => {
   const diff = row.realShipping == null || row.chargedShipping == null ? null : Math.round((Number(row.chargedShipping) - Number(row.realShipping)) * 100) / 100;
   const submit = () => onSave(value === "" ? null : Number(value));
   return (
-    <div onClick={stop} style={{ minWidth: 150 }}>
+    <>
       {canEdit ? (
-        <div className="d-flex align-items-center" style={{ gap: 6 }}>
-          <Input bsSize="sm" type="number" step="0.01" min="0" style={{ width: 90 }} placeholder="Real" aria-label={`Envío real ${row.shipmentNumber}`}
+        <div className="recon-soft-field">
+          <Input bsSize="sm" type="number" step="0.01" min="0" className="recon-soft" placeholder="Real" aria-label={`Envío real ${name}`}
             value={value} onChange={(e) => setValue(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && dirty) { e.preventDefault(); submit(); } }} />
-          {dirty && <Button size="sm" color="primary" aria-label={`Guardar envío real ${row.shipmentNumber}`} onClick={submit}>Guardar</Button>}
+          {dirty && <button type="button" className="recon-tick" title="Guardar" aria-label={`Guardar envío real ${name}`} onClick={submit}>✓</button>}
         </div>
       ) : <span>{row.realShipping == null ? "—" : formatQ(row.realShipping)}</span>}
-      <div className="small text-muted">
+      <div className="recon-sub">
         Cobrado {row.chargedShipping == null ? "—" : formatQ(row.chargedShipping)}
-        {diff !== null && <span className={diff < 0 ? "text-danger" : "text-success"}> · {diff === 0 ? "igual" : diff > 0 ? `+${formatQ(diff)} a favor` : `-${formatQ(-diff)} en contra`}</span>}
+        {diff !== null && <span className={diff < 0 ? "recon-bad" : "recon-good"}> · {diff === 0 ? "igual" : diff > 0 ? `+${formatQ(diff)} a favor` : `-${formatQ(-diff)} en contra`}</span>}
       </div>
-    </div>
+    </>
   );
 };
 
 /** Comisión sobre el total con el envío cobrado. El porcentaje se escribe y queda fijo en esa venta. Forza y Guatex arrancan en 3.5% si nadie lo escribió. */
 const CommissionCell = ({ row, canEdit, onSave }) => {
+  const name = rowName(row);
   const saved = percentText(row.carrierCommissionRate);
   const [value, setValue] = useState(saved);
   useEffect(() => { setValue(saved); }, [saved]);
@@ -110,34 +129,45 @@ const CommissionCell = ({ row, canEdit, onSave }) => {
     onSave(written);
   };
   return (
-    <div onClick={stop} style={{ minWidth: 120 }}>
+    <>
       {canEdit ? (
-        <div className="d-flex align-items-center" style={{ gap: 6 }}>
-          <Input bsSize="sm" type="number" step="0.01" min="0.01" max="100" style={{ width: 78 }} placeholder="%"
-            aria-label={`Porcentaje de comisión ${row.shipmentNumber}`} value={value}
+        <div className="recon-soft-field">
+          <Input bsSize="sm" type="number" step="0.01" min="0.01" max="100" className="recon-soft recon-soft-pct" aria-label={`Porcentaje de comisión ${name}`} value={value}
             onChange={(e) => setValue(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter" && dirty) { e.preventDefault(); submit(); } }} />
-          <span className="small text-muted">%</span>
-          {dirty && <Button size="sm" color="primary" aria-label={`Guardar comisión ${row.shipmentNumber}`} onClick={submit}>Guardar</Button>}
+          <span className="recon-sub">%</span>
+          {dirty && <button type="button" className="recon-tick" title="Guardar" aria-label={`Guardar comisión ${name}`} onClick={submit}>✓</button>}
         </div>
       ) : <span>{saved === "" ? "—" : pct(row.carrierCommissionRate)}</span>}
-      <div className="small text-muted">{row.carrierCommission == null ? "Escriba el porcentaje" : formatQ(row.carrierCommission)}</div>
-    </div>
+      <div className="recon-sub">{row.carrierCommission == null ? "Escriba el porcentaje" : formatQ(row.carrierCommission)}</div>
+    </>
   );
 };
 
-/** Encabezado que ordena la lista al tocarlo. El orden lo hace el servidor, así vale para todas las páginas. */
-const SortTh = ({ label, field, sort, onSort, className }) => (
-  <th className={className} aria-sort={sort.key === field ? (sort.dir === "asc" ? "ascending" : "descending") : "none"}>
-    <button type="button" className="recon-sort" onClick={() => onSort(field)}>{label}{sort.key === field ? (sort.dir === "asc" ? " ▲" : " ▼") : ""}</button>
-  </th>
+/** Botón de encabezado que ordena la lista. El orden lo hace el servidor, así vale para todas las páginas. */
+const SortButton = ({ label, field, sort, onSort }) => (
+  <button type="button" className="recon-sort" onClick={() => onSort(field)}>{label}{sort.key === field ? (sort.dir === "asc" ? " ▲" : " ▼") : ""}</button>
 );
 
+const ariaSort = (sort, ...fields) => (fields.includes(sort.key) ? (sort.dir === "asc" ? "ascending" : "descending") : "none");
+
 /** Si la venta es una devolución, su número de devolución es lo que se ve (el mismo del documento impreso). */
-const ReturnTag = ({ row }) => (row.returnNumber ? <Badge color="warning" className="ml-1" title="Número de devolución">Devolución No. {row.returnNumber}</Badge> : null);
+const ReturnTag = ({ row }) => (row.returnNumber ? <span className="recon-tag" title="Número de devolución">Devolución No. {row.returnNumber}</span> : null);
 
 const Kv = ({ label, children }) => (
   <div className="kv"><span className="k">{label}</span><span className="v">{children}</span></div>
+);
+
+/** Una columna del resumen: el paso, su número principal y un dato de apoyo. */
+const Step = ({ n, title, value, unit, now, children }) => (
+  <div className={`step ${now ? "is-now" : ""}`} aria-current={now ? "step" : undefined}>
+    <span className="n">{n}</span>
+    <div>
+      <div className="t">{title}</div>
+      <div className="v">{value} <small>{unit}</small></div>
+      <div className="s">{children}</div>
+    </div>
+  </div>
 );
 
 /** Venta a la vista dentro de la misma fila, sin salir de la liquidación. La ficha completa es el panel lateral. */
@@ -149,7 +179,7 @@ const RowDetail = ({ state, onFull }) => {
   return (
     <div className="recon-inline p-3">
       <div className="d-flex justify-content-between align-items-start mb-2" style={{ gap: 8 }}>
-        <strong>{row.shipmentNumber} · {sale ? sale.customerName : "—"}</strong><ReturnTag row={row} />
+        <div><strong>{rowName(row)} · {sale ? sale.customerName : "—"}</strong> <ReturnTag row={row} /></div>
         <Button size="sm" outline color="primary" onClick={onFull}>Ficha completa</Button>
       </div>
       <div className="recon-inline-grid">
@@ -366,7 +396,7 @@ const ReconSimpleView = ({ filters, onFilters, version, perms, openId, onOpen, o
       setAnnul(null);
       setRowErrors((e) => { const n = { ...e }; delete n[r.id]; return n; });
       clearDraft(r.id);
-      showSuccess(`${r.shipmentNumber} quedó anulada en la conciliación.`);
+      showSuccess(`${rowName(r)} quedó anulada en la conciliación.`);
       onChanged();
     } catch (e) {
       setRowErrors((errs) => ({ ...errs, [r.id]: e.message }));
@@ -375,7 +405,7 @@ const ReconSimpleView = ({ filters, onFilters, version, perms, openId, onOpen, o
   const reinstate = async (r) => {
     try {
       await includeCase(r.id);
-      showSuccess(`${r.shipmentNumber} volvió a la conciliación.`);
+      showSuccess(`${rowName(r)} volvió a la conciliación.`);
       onChanged();
     } catch (e) {
       setRowErrors((errs) => ({ ...errs, [r.id]: e.message }));
@@ -439,57 +469,102 @@ const ReconSimpleView = ({ filters, onFilters, version, perms, openId, onOpen, o
   const totalCases = summary ? Object.values(summary.byStatus || {}).reduce((a, b) => a + b, 0) : 0;
   const pendingCount = summary ? totalCases - Number(summary.reconciled || 0) - Number(summary.excluded || 0) : 0;
   const noPayment = summary ? Number(summary.incomplete || 0) : 0;
+  const differences = summary ? Number(summary.withDifferences || 0) : 0;
   const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const unsaved = draftItems.length;
+  const readyTotal = ready.reduce((a, r) => a + Number(r.expected || 0), 0);
+  // El paso donde queda trabajo: primero lo que falta por cuadrar y, cuando ya no queda, liquidar.
+  const nowStep = totalCases === 0 ? 1 : unsaved > 0 || pendingCount > ready.length ? 2 : ready.length > 0 ? 3 : null;
+  const segments = summary ? [
+    { key: "ok", label: "✓ Cuadran", value: Number(summary.reconciled || 0) },
+    { key: "pending", label: "Por revisar", value: Number(summary.pending || 0) },
+    { key: "bad", label: "! Con diferencia", value: differences },
+    { key: "void", label: "Anuladas", value: Number(summary.excluded || 0) },
+    { key: "rest", label: "Sin pago", value: noPayment },
+  ].filter((s) => s.value > 0) : [];
+  const tabCount = (k) => {
+    if (show === k && !loading) return total;
+    if (k === "all") return totalCases;
+    if (k === "differences") return differences;
+    return null;
+  };
 
   return (
     <div className="recon-simple">
-      <div className="recon-steps mb-3" aria-label="Pasos de la liquidación">
-        <div className="step"><span className="n">1</span><div><strong>Revisar</strong><div className="small text-muted">{totalCases} venta{totalCases === 1 ? "" : "s"} en el período</div></div></div>
-        <div className="step"><span className="n">2</span><div><strong>Montos</strong><div className="small text-muted">{unsaved > 0 ? `${unsaved} sin guardar` : `${noPayment} sin pago registrado`}</div></div></div>
-        <div className="step"><span className="n">3</span><div><strong>Liquidar</strong><div className="small text-muted">{ready.length} lista{ready.length === 1 ? "" : "s"} · {formatQ(ready.reduce((a, r) => a + Number(r.expected || 0), 0))}</div></div></div>
-      </div>
-
-      <div className="d-flex flex-wrap align-items-end mb-3" style={{ gap: 12 }}>
-        <div><Label for="rs-from" className="small mb-0">Desde</Label><Input id="rs-from" type="date" bsSize="sm" value={filters.from} onChange={(e) => onFilters({ ...filters, from: e.target.value })} /></div>
-        <div><Label for="rs-to" className="small mb-0">Hasta</Label><Input id="rs-to" type="date" bsSize="sm" value={filters.to} onChange={(e) => onFilters({ ...filters, to: e.target.value })} /></div>
+      <div className="recon-filters mb-3">
+        <div><Label for="rs-from" className="mb-0">Desde</Label><Input id="rs-from" type="date" bsSize="sm" value={filters.from} onChange={(e) => onFilters({ ...filters, from: e.target.value })} /></div>
+        <div><Label for="rs-to" className="mb-0">Hasta</Label><Input id="rs-to" type="date" bsSize="sm" value={filters.to} onChange={(e) => onFilters({ ...filters, to: e.target.value })} /></div>
         <div>
-          <Label for="rs-carrier" className="small mb-0">Transportista</Label>
+          <Label for="rs-carrier" className="mb-0">Transportista</Label>
           <Input id="rs-carrier" type="select" bsSize="sm" value={filters.carrier} onChange={(e) => onFilters({ ...filters, carrier: e.target.value })}>
             <option value="">Todos</option>
             {Object.keys(CARRIER_LABELS).map((k) => <option key={k} value={k}>{CARRIER_LABELS[k]}</option>)}
           </Input>
         </div>
-        <div className="flex-fill" style={{ maxWidth: 280 }}>
-          <Label for="rs-q" className="small mb-0">Buscar</Label>
-          <Input id="rs-q" type="search" bsSize="sm" placeholder="ENVL o guía" value={text} onChange={(e) => setText(e.target.value)} />
+        <div className="grow">
+          <Label for="rs-q" className="mb-0">Buscar</Label>
+          <Input id="rs-q" type="search" bsSize="sm" placeholder="ENVL, guía o pedido" value={text} onChange={(e) => setText(e.target.value)} />
         </div>
         {syncing && <small className="text-muted"><Spinner size="sm" /> Trayendo las ventas del sistema…</small>}
       </div>
 
-      <div className="recon-totals mb-3">
-        <div><div className="l">Cobrado según el sistema</div><div className="v">{formatQ(expected)}</div></div>
-        <div><div className="l">Recibido</div><div className="v">{formatQ(received)}</div></div>
-        <div><div className="l">Falta por cuadrar</div><div className={`v ${pendingCount === 0 && totalCases > 0 ? "text-success" : ""}`}>{pendingCount === 0 && totalCases > 0 ? "✓ Nada" : `${pendingCount} venta${pendingCount === 1 ? "" : "s"}`}</div></div>
-      </div>
+      <section className="recon-summary mb-3" aria-label="Cuadre del período">
+        <div className="recon-steps" aria-label="Pasos de la liquidación">
+          <Step n={1} title="Revisar" value={count(totalCases)} unit={plural(totalCases, "venta")} now={nowStep === 1}>
+            Cobrado según el sistema <b>{formatQ(expected)}</b>
+          </Step>
+          <Step n={2} title="Montos" value={count(noPayment)} unit="sin pago" now={nowStep === 2}>
+            Recibido <b>{formatQ(received)}</b>{unsaved > 0 && <> · <b>{count(unsaved)} sin guardar</b></>}
+          </Step>
+          <Step n={3} title="Liquidar" value={count(ready.length)} unit={plural(ready.length, "lista")} now={nowStep === 3}>
+            Por <b>{formatQ(readyTotal)}</b>
+          </Step>
+        </div>
+        {totalCases > 0 && (
+          <div className="recon-meter">
+            <div className="recon-bar" role="img" aria-label={`De ${count(totalCases)} ventas: ${segments.map((s) => `${s.label.replace(/^[✓!] /, "")} ${count(s.value)}`).join(", ")}`}>
+              {segments.map((s) => <i key={s.key} className={s.key} style={{ flex: `${s.value} 1 0` }} title={`${s.label}: ${count(s.value)}`} />)}
+            </div>
+            <div className="recon-legend">
+              {segments.map((s) => <span key={s.key}><b className={s.key} />{s.label} <strong>{count(s.value)}</strong></span>)}
+              <span className="end">Falta por cuadrar <strong className={pendingCount === 0 ? "recon-good" : ""}>{pendingCount === 0 ? "✓ Nada" : `${count(pendingCount)} ${plural(pendingCount, "venta")}`}</strong></span>
+            </div>
+          </div>
+        )}
+      </section>
 
       <div className="d-flex flex-wrap justify-content-between align-items-center mb-2" style={{ gap: 8 }}>
-        <ButtonGroup size="sm">
-          {Object.entries(SHOW).map(([k, s]) => <Button key={k} outline={show !== k} color="primary" onClick={() => setShow(k)}>{s.label}</Button>)}
-        </ButtonGroup>
-        <div className="d-flex align-items-center" style={{ gap: 8 }}>
-          {rows.some(editable) && <Button size="sm" outline color="primary" disabled={!perms.import || saving} onClick={fillAllEqual}>Todo lo de esta página llegó completo (=)</Button>}
-          {unsaved > 0 && <Button size="sm" color="primary" disabled={!perms.import || saving} onClick={() => saveDrafts()}>{saving ? <Spinner size="sm" /> : `Guardar montos (${unsaved})`}</Button>}
+        <div className="recon-seg" role="tablist" aria-label="Qué ventas ver">
+          {Object.entries(SHOW).map(([k, s]) => {
+            const c = tabCount(k);
+            return (
+              <button key={k} type="button" role="tab" aria-selected={show === k} className={show === k ? "is-on" : ""} onClick={() => setShow(k)}>
+                {s.label}{c != null && <span className={`c ${k === "differences" && c > 0 ? "bad" : ""}`}>{count(c)}</span>}
+              </button>
+            );
+          })}
         </div>
+        {rows.some(editable) && <Button size="sm" outline color="primary" disabled={!perms.import || saving} onClick={fillAllEqual}>Esta página llegó completa (=)</Button>}
       </div>
 
       {error && <Alert color="danger">{error}</Alert>}
-      <div className="table-responsive">
-        <Table hover size="sm" className="recon-table">
+      <div className="recon-table-wrap">
+        <Table className="recon-table recon-liq mb-0">
           <thead>
             <tr>
-              <th style={{ width: 28 }}><Input type="checkbox" aria-label="Elegir todas las que se pueden liquidar" checked={allChecked} disabled={ready.length === 0 || !perms.close} onChange={toggleAll} /></th>
-              <SortTh label="Fecha" field="saleDate" sort={sort} onSort={toggleSort} /><SortTh label="ENVL" field="shipmentNumber" sort={sort} onSort={toggleSort} /><SortTh label="Cliente" field="customerName" sort={sort} onSort={toggleSort} /><SortTh label="Guía" field="guideNumber" sort={sort} onSort={toggleSort} className="hide-sm" /><th className="num">Cobrado</th><th>Envío real</th><th>Comisión</th><th>Recibido</th><th>Resultado</th>
+              <th rowSpan={2} style={{ width: 30 }}><Input type="checkbox" className="recon-check" aria-label="Elegir todas las que se pueden liquidar" checked={allChecked} disabled={ready.length === 0 || !perms.close} onChange={toggleAll} /></th>
+              <th rowSpan={2} style={{ width: 62 }} aria-sort={ariaSort(sort, "saleDate")}><SortButton label="Fecha" field="saleDate" sort={sort} onSort={toggleSort} /></th>
+              <th rowSpan={2} style={{ width: 150 }} aria-sort={ariaSort(sort, "shipmentNumber", "guideNumber")}><SortButton label="ENVL" field="shipmentNumber" sort={sort} onSort={toggleSort} /> · <SortButton label="Guía" field="guideNumber" sort={sort} onSort={toggleSort} /></th>
+              <th rowSpan={2} aria-sort={ariaSort(sort, "customerName")}><SortButton label="Cliente" field="customerName" sort={sort} onSort={toggleSort} /></th>
+              <th rowSpan={2} className="num" style={{ width: 88 }}>Cobrado</th>
+              <th rowSpan={2} style={{ width: 136 }}>Recibido</th>
+              <th rowSpan={2} style={{ width: 128 }}>Resultado</th>
+              <th colSpan={2} className="reg group">Solo registro, no cambia el cuadre</th>
+              <th rowSpan={2} style={{ width: 36 }}><span className="sr-only">Más acciones</span></th>
+            </tr>
+            <tr>
+              <th className="reg" style={{ width: 120 }}>Envío real</th>
+              <th className="reg" style={{ width: 100 }}>Comisión</th>
             </tr>
           </thead>
           <tbody>
@@ -502,55 +577,91 @@ const ReconSimpleView = ({ filters, onFilters, version, perms, openId, onOpen, o
               </div></td></tr>
             )}
             {rows.map((r) => {
+              const name = rowName(r);
               const draft = drafts[r.id];
               const editing = !!(draft && draft.editing);
-              const live = draft && (editable(r) || editing) ? draftResult(r.expected, draft.amount) : null;
+              const paying = editable(r) || editing;
+              const live = draft && paying ? draftResult(r.expected, draft.amount) : null;
               const canSave = !!draft && draftsToItems({ [r.id]: draft }).length > 0;
-              const res = live ? { tone: live.ok ? "success" : "danger", text: `${live.text} · sin guardar` } : rowResult(r);
+              const res = live ? { tone: live.ok ? "success" : "danger", text: live.text, note: " · sin guardar" } : rowResult(r);
               const open = expanded.has(r.id);
+              const annulling = !!(annul && annul.id === r.id);
+              const rowClass = ["recon-row", open && "is-open", draft && paying && "is-draft", !(draft && paying) && res.tone === "danger" && "is-bad", r.status === "EXCLUIDO" && "is-void"].filter(Boolean).join(" ");
               return (
                 <React.Fragment key={r.id}>
-                  <tr className={`recon-row ${open ? "is-open" : ""}`} onClick={() => toggleRow(r.id)} aria-expanded={open}>
-                    <td onClick={stop}>
-                      {canSettle(r) && <Input type="checkbox" aria-label={`Liquidar ${r.shipmentNumber}`} checked={isChecked(r)} disabled={!perms.close} onChange={() => toggleCheck(r.id)} />}
+                  <tr className={rowClass} onClick={(e) => { if (!e.target.closest(NO_EXPAND)) toggleRow(r.id); }} aria-expanded={open}>
+                    <td className="recon-noexpand">
+                      {canSettle(r) && <Input type="checkbox" className="recon-check" aria-label={`Liquidar ${name}`} checked={isChecked(r)} disabled={!perms.close} onChange={() => toggleCheck(r.id)} />}
                     </td>
-                    <td>{(r.saleDate || "").slice(5)}</td>
-                    <td><span className="mr-1">{open ? "▾" : "▸"}</span><strong>{r.shipmentNumber}</strong><ReturnTag row={r} />
-                      <div className="small text-muted">{labelOf(CARRIER_LABELS, r.carrier)} · {labelOf(METHOD_LABELS, r.paymentMethod)}</div></td>
-                    <td style={{ whiteSpace: "normal", minWidth: 120 }}>{r.customerName || <span className="text-muted">—</span>}</td>
-                    <td className="hide-sm">{r.guideNumber || <span className="text-muted">—</span>}</td>
-                    <td className="num">{formatQ(r.expected)}</td>
-                    <td><RealShippingCell row={r} canEdit={canEditExtras(r)} onSave={(v) => saveExtras(r, { realShipping: v })} /></td>
-                    <td><CommissionCell row={r} canEdit={canEditExtras(r)} onSave={(v) => saveExtras(r, { commissionRate: v })} /></td>
+                    <td className="recon-date" title={r.saleDate || undefined}>{shortDate(r.saleDate)}</td>
                     <td>
-                      {editable(r) || editing
+                      <div className="recon-envl">
+                        <button type="button" className="recon-caret" aria-expanded={open} aria-label={`Ver detalle de ${name}`} onClick={() => toggleRow(r.id)}>{open ? "▾" : "▸"}</button>
+                        {r.shipmentNumber ? <strong>{r.shipmentNumber}</strong> : <><span className="recon-tag">Sin ENVL</span> <strong className="font-weight-bold">{name}</strong></>}
+                      </div>
+                      <div className="recon-sub pl">{labelOf(CARRIER_LABELS, r.carrier)}</div>
+                      {r.guideNumber && <div className="recon-sub pl">Guía {r.guideNumber}</div>}
+                      {r.returnNumber && <div className="pl"><ReturnTag row={r} /></div>}
+                    </td>
+                    <td className="recon-client">
+                      {r.customerName || <span className="text-muted">—</span>}
+                      <div className="recon-sub">{labelOf(METHOD_LABELS, r.paymentMethod)}</div>
+                    </td>
+                    <td className="num recon-money">{formatQ(r.expected)}</td>
+                    <td className="recon-noexpand">
+                      {paying
                         ? <PayCell row={r} draft={draft} disabled={!perms.import || saving} canSave={canSave} onSave={() => saveDrafts(r.id)}
                             onChange={(patch) => { setDraft(r.id, patch); setRowErrors((e) => { const n = { ...e }; delete n[r.id]; return n; }); }} />
-                        : <>{formatQ(r.received)}{r.reference && <div className="small text-muted">{r.reference}</div>}</>}
+                        : <>
+                            <div className="recon-paid">
+                              {r.status === "EXCLUIDO" && !r.hasReceipts ? "—" : formatQ(r.received)}
+                              {canEditPayment(r) && <Button size="sm" color="link" className="py-0" aria-label={`Editar el pago de ${name}`} onClick={() => startEdit(r)}>Editar</Button>}
+                            </div>
+                            {r.reference && <div className="recon-sub">{r.reference}</div>}
+                          </>}
                     </td>
-                    <td className={`text-${res.tone}`} style={{ whiteSpace: "normal" }}>
-                      {res.text}
-                      {draft && (editable(r) || editing) && <Button size="sm" color="link" className="py-0" onClick={(e) => { stop(e); clearDraft(r.id); }}>{editing ? "Cancelar" : "Quitar"}</Button>}
-                      {!draft && canEditPayment(r) && <Button size="sm" color="link" className="py-0" aria-label={`Editar el pago de ${r.shipmentNumber}`} onClick={(e) => { stop(e); startEdit(r); }}>Editar</Button>}
-                      {r.status === "EXCLUIDO" && r.excludedReason && <div className="small text-muted">{r.excludedReason}</div>}
-                      {r.status === "EXCLUIDO" && !r.batchCode && perms.reconcile && (
-                        <Button size="sm" color="link" className="py-0" aria-label={`Reincorporar ${r.shipmentNumber}`} onClick={(e) => { stop(e); reinstate(r); }}>Reincorporar</Button>
-                      )}
-                      {canAnnul(r) && !(annul && annul.id === r.id) && (
-                        <Button size="sm" color="link" className="py-0 text-danger" aria-label={`Anular ${r.shipmentNumber}`} onClick={(e) => { stop(e); setAnnul({ id: r.id, reason: "" }); }}>Anular</Button>
-                      )}
-                      {annul && annul.id === r.id && (
-                        <div className="mt-1" onClick={stop}>
-                          <Input bsSize="sm" placeholder="Motivo de la anulación (mínimo 10 letras)" aria-label={`Motivo de la anulación ${r.shipmentNumber}`}
-                            value={annul.reason} onChange={(e) => setAnnul({ id: r.id, reason: e.target.value })} />
-                          <Button size="sm" color="danger" className="mt-1 mr-1" disabled={annul.reason.trim().length < 10}
-                            aria-label={`Confirmar anulación ${r.shipmentNumber}`} onClick={() => confirmAnnul(r)}>Anular venta</Button>
-                          <Button size="sm" outline className="mt-1" onClick={() => setAnnul(null)}>Cancelar</Button>
+                    <td className="recon-result">
+                      {res.tone === "muted"
+                        ? <span className="recon-quiet">{res.text}</span>
+                        : <span className={`recon-pill ${res.tone}`}>{res.text}{res.note && <span className="ns">{res.note}</span>}</span>}
+                      {draft && paying && (
+                        <div className={`recon-rowact ${editing || rowErrors[r.id] ? "" : "on-hover"}`}>
+                          {canSave && <Button size="sm" color="primary" disabled={!perms.import || saving} aria-label={`Guardar ${name}`} onClick={() => saveDrafts(r.id)}>Guardar</Button>}
+                          <Button size="sm" color="link" className="py-0" onClick={() => clearDraft(r.id)}>{editing ? "Cancelar" : "Quitar"}</Button>
                         </div>
                       )}
-                      {rowErrors[r.id] && <div className="small text-danger">{rowErrors[r.id]}</div>}
+                      {r.status === "EXCLUIDO" && r.excludedReason && <div className="recon-sub">{r.excludedReason}</div>}
+                      {r.status === "EXCLUIDO" && !r.batchCode && perms.reconcile && (
+                        <Button size="sm" color="link" className="py-0 px-0" aria-label={`Reincorporar ${name}`} onClick={() => reinstate(r)}>Reincorporar</Button>
+                      )}
+                      {rowErrors[r.id] && <div className="recon-sub recon-bad">{rowErrors[r.id]}</div>}
+                    </td>
+                    <td className="reg recon-noexpand"><RealShippingCell row={r} canEdit={canEditExtras(r)} onSave={(v) => saveExtras(r, { realShipping: v })} /></td>
+                    <td className="reg recon-noexpand"><CommissionCell row={r} canEdit={canEditExtras(r)} onSave={(v) => saveExtras(r, { commissionRate: v })} /></td>
+                    <td className="recon-noexpand recon-more-cell">
+                      <UncontrolledDropdown>
+                        <DropdownToggle tag="button" type="button" className="recon-more" aria-label={`Más acciones de ${name}`}>⋯</DropdownToggle>
+                        <DropdownMenu right container="body" className="recon-row-menu">
+                          <DropdownItem onClick={() => onOpen(r.id)}>Ver ficha completa</DropdownItem>
+                          {canAnnul(r) && !annulling && <DropdownItem divider />}
+                          {canAnnul(r) && !annulling && (
+                            <DropdownItem className="is-danger" aria-label={`Anular ${name}`} onClick={() => setAnnul({ id: r.id, reason: "" })}>Anular venta…</DropdownItem>
+                          )}
+                        </DropdownMenu>
+                      </UncontrolledDropdown>
                     </td>
                   </tr>
+                  {annulling && (
+                    <tr className="recon-annul-row"><td colSpan={10}>
+                      <div className="recon-annul">
+                        <strong>Anular {name}</strong>
+                        <Input bsSize="sm" placeholder="Motivo de la anulación (mínimo 10 letras)" aria-label={`Motivo de la anulación ${name}`}
+                          value={annul.reason} onChange={(e) => setAnnul({ id: r.id, reason: e.target.value })} />
+                        <Button size="sm" color="danger" disabled={annul.reason.trim().length < 10} aria-label={`Confirmar anulación ${name}`} onClick={() => confirmAnnul(r)}>Anular venta</Button>
+                        <Button size="sm" color="link" onClick={() => setAnnul(null)}>Cancelar</Button>
+                      </div>
+                    </td></tr>
+                  )}
                   {open && (
                     <tr className="recon-detail-row"><td colSpan={10} className="p-0"><RowDetail state={details[r.id]} onFull={() => onOpen(r.id)} /></td></tr>
                   )}
@@ -560,47 +671,63 @@ const ReconSimpleView = ({ filters, onFilters, version, perms, openId, onOpen, o
           </tbody>
         </Table>
       </div>
-      {pages > 1 && (
-        <div className="d-flex justify-content-between align-items-center mb-3">
-          <small className="text-muted">Página {page + 1} de {pages}</small>
-          <div>
-            <Button size="sm" outline disabled={page <= 0} onClick={() => setPage((p) => p - 1)}>Anterior</Button>{" "}
+
+      <div className="recon-pager">
+        <small className="text-muted">
+          {total > 0 && <>{count(page * PAGE_SIZE + 1)} a {count(Math.min((page + 1) * PAGE_SIZE, total))} de {count(total)} · </>}
+          Toque una fila para ver la venta. «=» significa que llegó exactamente lo cobrado. Lo que no cuadra al centavo no se corrige solo.
+        </small>
+        {pages > 1 && (
+          <div className="d-flex" style={{ gap: 6 }}>
+            <Button size="sm" outline disabled={page <= 0} onClick={() => setPage((p) => p - 1)}>Anterior</Button>
             <Button size="sm" outline disabled={page + 1 >= pages} onClick={() => setPage((p) => p + 1)}>Siguiente</Button>
           </div>
-        </div>
-      )}
-      <small className="text-muted d-block mb-3">Toque una fila para ver la venta a detalle. «=» significa que llegó exactamente lo cobrado. Lo que no cuadra al centavo no se corrige solo.</small>
+        )}
+      </div>
 
-      <div className="recon-close-bar">
-        {done ? (
-          <Alert color="success" className="mb-0" toggle={() => setDone(null)}>
+      {done ? (
+        <div className="recon-dock is-done">
+          <span>
             Liquidación {done.close.batch.code} lista: {done.close.closedCases} ventas
             {done.acceptedWithWarnings > 0 ? ` (${done.acceptedWithWarnings} con avisos anotados en su historial)` : ""}. {done.close.alreadyClosed ? "Ya estaba hecha; no se duplicó nada." : "Se descargó el Excel y los saldos quedaron en cero."}
-          </Alert>
-        ) : confirmKey ? (
-          <Alert color="info" className="mb-0">
+          </span>
+          <Button size="sm" color="link" onClick={() => setDone(null)}>Cerrar</Button>
+        </div>
+      ) : confirmKey ? (
+        <div className="recon-dock is-confirm">
+          <span>
             Se liquidarán <strong>{chosen.length}</strong> ventas por <strong>{formatQ(chosenTotal)}</strong> del {filters.from} al {filters.to}
             {withWarnings > 0 ? `; ${withWarnings} llevan avisos que se aceptan y quedan anotados en su historial` : ""}.
-            Quedan bloqueadas y se descarga el Excel. Lo que no está marcado sigue pendiente.
-            <div className="mt-2">
-              <Button size="sm" color="primary" disabled={settling} onClick={settle}>{settling ? <Spinner size="sm" /> : "Sí, liquidar y descargar"}</Button>{" "}
-              <Button size="sm" color="link" disabled={settling} onClick={() => setConfirmKey(null)}>Cancelar</Button>
-            </div>
-          </Alert>
-        ) : (
-          <div className="d-flex flex-wrap align-items-center" style={{ gap: 12 }}>
-            <Button color="primary" disabled={!perms.close || chosen.length === 0 || unsaved > 0} onClick={() => setConfirmKey(`liquidar-${createClientRequestId()}`)}>
-              Liquidar {chosen.length} · {formatQ(chosenTotal)} y descargar Excel
-            </Button>
+            {" "}Quedan bloqueadas y se descarga el Excel. Lo que no está marcado sigue pendiente.
+          </span>
+          <div className="group">
+            <Button size="sm" color="link" disabled={settling} onClick={() => setConfirmKey(null)}>Cancelar</Button>
+            <Button color="primary" disabled={settling} onClick={settle}>{settling ? <Spinner size="sm" /> : "Sí, liquidar y descargar"}</Button>
+          </div>
+        </div>
+      ) : (
+        <div className="recon-dock">
+          <div className="group">
+            {unsaved > 0 ? (
+              <>
+                <Button color="primary" disabled={!perms.import || saving} onClick={() => saveDrafts()}>{saving ? <Spinner size="sm" /> : `Guardar montos (${unsaved})`}</Button>
+                <Button size="sm" color="link" disabled={saving} onClick={() => { setDrafts({}); setRowErrors({}); }}>Descartar</Button>
+              </>
+            ) : <small className="text-muted">Sin montos por guardar.</small>}
+          </div>
+          <div className="group">
             <small className="text-muted">
               {unsaved > 0 ? "Guarde los montos escritos antes de liquidar."
                 : ready.length === 0 ? "Aún no hay ventas que cuadren para liquidar."
                   : `${ready.length - chosen.length > 0 ? `${ready.length - chosen.length} sin marcar. ` : ""}${pendingCount > ready.length ? `${pendingCount - ready.length} venta(s) por cuadrar quedarán para después.` : "Todo el período cuadra."}`}
               {!perms.close && " Liquidar requiere el permiso de cierre."}
             </small>
+            <Button color="primary" outline={unsaved > 0} disabled={!perms.close || chosen.length === 0 || unsaved > 0} onClick={() => setConfirmKey(`liquidar-${createClientRequestId()}`)}>
+              Liquidar {chosen.length} · {formatQ(chosenTotal)} y descargar Excel
+            </Button>
           </div>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 };
