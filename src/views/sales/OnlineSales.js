@@ -54,6 +54,14 @@ const getShippingCost = (paymentMethod) => {
   return found ? found.shipping : 15;
 };
 
+// CAMBIO: por defecto se reenvía el mismo artículo; "OTHER" permite elegir un producto distinto.
+const EMPTY_EXCHANGE_REPLACEMENT = {
+  replaceMode: "SAME", // SAME | OTHER
+  replProductId: null,
+  replColorId: null,
+  replSize: "",
+};
+
 const emptyItem = () => ({ productId: null, colorId: null, size: "", quantity: 1, unitPrice: "" });
 
 const getStatusBadge = (status) => {
@@ -1618,6 +1626,7 @@ function OnlineSales() {
           quantity: parseInt(it.quantity, 10) || 1,
           maxQuantity: parseInt(it.quantity, 10) || 1,
           selected: true,
+          ...EMPTY_EXCHANGE_REPLACEMENT,
         }))
       : [{
           key: `${sale?.id}-legacy`,
@@ -1630,6 +1639,7 @@ function OnlineSales() {
           quantity: parseInt(sale.quantity, 10) || 1,
           maxQuantity: parseInt(sale.quantity, 10) || 1,
           selected: true,
+          ...EMPTY_EXCHANGE_REPLACEMENT,
         }];
     setExchangeItems(items.filter(i => i.productId));
     setExchangeForm({
@@ -1674,6 +1684,11 @@ function OnlineSales() {
       setError("Seleccione al menos un item con cantidad para el CAMBIO.");
       return;
     }
+    const missingReplacement = selected.find((it) => it.replaceMode === "OTHER" && !it.replProductId);
+    if (missingReplacement) {
+      setError(`Elija el producto que se enviará en lugar de ${missingReplacement.productCode || "la línea"}, o marque «Mismo artículo».`);
+      return;
+    }
     const addToExisting = exchangeTargetMode === "EXISTING";
     if (addToExisting && !exchangeTargetSale) {
       setError("Seleccione el envío existente al que se agregará el cambio.");
@@ -1689,11 +1704,19 @@ function OnlineSales() {
         items: selected.map((it) => {
           const max = it.maxQuantity || 1;
           const qty = parseInt(it.quantity, 10) || 1;
+          const other = it.replaceMode === "OTHER" && it.replProductId;
           return {
             productId: it.productId,
             colorId: it.colorId ?? null,
             size: it.size || "",
             quantity: Math.min(Math.max(qty, 1), max),
+            ...(other
+              ? {
+                  replacementProductId: it.replProductId,
+                  replacementColorId: it.replColorId ?? null,
+                  replacementSize: it.replSize || "",
+                }
+              : {}),
           };
         }),
       });
@@ -4877,54 +4900,112 @@ function OnlineSales() {
           </Row>
 
           <h6 className="mb-2">Items a reenviar</h6>
+          <p className="text-muted" style={{ fontSize: 12 }}>
+            Lo que el cliente devuelve regresa a Devoluciones. En «Se envía» elija si va el mismo artículo
+            o uno distinto (otro producto, color o talla).
+          </p>
           {exchangeItems.length === 0 ? (
             <Alert color="warning">No se encontraron items para el cambio.</Alert>
           ) : (
-            <Table bordered responsive size="sm">
+            <Table bordered size="sm">
               <thead className="text-primary">
                 <tr>
                   <th style={{ width: 50 }}>OK</th>
-                  <th style={{ width: 90 }}>Código</th>
+                  <th style={{ width: 90 }}>Devuelve</th>
                   <th>Producto</th>
-                  <th style={{ width: 140 }}>Color / Talla</th>
-                  <th style={{ width: 110 }}>Cantidad</th>
+                  <th style={{ width: 130 }}>Color / Talla</th>
+                  <th style={{ width: 90 }}>Cantidad</th>
+                  <th style={{ width: 160 }}>Se envía</th>
                 </tr>
               </thead>
               <tbody>
-                {exchangeItems.map((it) => (
-                  <tr key={it.key}>
-                    <td className="text-center">
-                      <Input
-                        type="checkbox"
-                        checked={Boolean(it.selected)}
-                        onChange={(e) => {
-                          const checked = e.target.checked;
-                          setExchangeItems(prev => prev.map(p => p.key === it.key ? { ...p, selected: checked } : p));
-                        }}
-                      />
-                    </td>
-                    <td><strong>{it.productCode || "—"}</strong></td>
-                    <td>{it.productName || "—"}</td>
-                    <td>{[it.colorName, it.size].filter(Boolean).join(" / ") || "—"}</td>
-                    <td>
-                      <Input
-                        type="number"
-                        min={1}
-                        max={it.maxQuantity || 1}
-                        value={it.quantity}
-                        onChange={(e) => {
-                          const next = parseInt(e.target.value, 10);
-                          setExchangeItems(prev => prev.map(p => {
-                            if (p.key !== it.key) return p;
-                            const max = p.maxQuantity || 1;
-                            const bounded = Number.isFinite(next) ? Math.min(Math.max(next, 1), max) : 1;
-                            return { ...p, quantity: bounded };
-                          }));
-                        }}
-                      />
-                    </td>
-                  </tr>
-                ))}
+                {exchangeItems.map((it) => {
+                  const patchItem = (patch) =>
+                    setExchangeItems(prev => prev.map(p => p.key === it.key ? { ...p, ...patch } : p));
+                  const other = it.replaceMode === "OTHER";
+                  return (
+                    <React.Fragment key={it.key}>
+                      <tr>
+                        <td className="text-center">
+                          <Input
+                            type="checkbox"
+                            checked={Boolean(it.selected)}
+                            onChange={(e) => patchItem({ selected: e.target.checked })}
+                          />
+                        </td>
+                        <td><strong>{it.productCode || "—"}</strong></td>
+                        <td>{it.productName || "—"}</td>
+                        <td>{[it.colorName, it.size].filter(Boolean).join(" / ") || "—"}</td>
+                        <td>
+                          <Input
+                            type="number"
+                            min={1}
+                            max={it.maxQuantity || 1}
+                            value={it.quantity}
+                            onChange={(e) => {
+                              const next = parseInt(e.target.value, 10);
+                              const max = it.maxQuantity || 1;
+                              patchItem({ quantity: Number.isFinite(next) ? Math.min(Math.max(next, 1), max) : 1 });
+                            }}
+                          />
+                        </td>
+                        <td>
+                          <Input
+                            type="select"
+                            bsSize="sm"
+                            value={it.replaceMode || "SAME"}
+                            disabled={Boolean(exchangeCreatedSale)}
+                            onChange={(e) => patchItem(
+                              e.target.value === "OTHER"
+                                ? { replaceMode: "OTHER" }
+                                : { ...EMPTY_EXCHANGE_REPLACEMENT }
+                            )}
+                          >
+                            <option value="SAME">Mismo artículo</option>
+                            <option value="OTHER">Otro artículo</option>
+                          </Input>
+                        </td>
+                      </tr>
+                      {other && (
+                        <tr style={{ background: "#f4f9fb" }}>
+                          <td />
+                          <td colSpan={5}>
+                            <div style={{ fontSize: 11, fontWeight: 700, color: "#0A4C60", marginBottom: 4 }}>
+                              Se enviará en lugar de {it.productCode || "esta línea"}:
+                            </div>
+                            <Row className="align-items-end">
+                              <Col md="6">
+                                <Label style={{ fontSize: 11 }}>Producto *</Label>
+                                <ProductSelector
+                                  products={products}
+                                  value={it.replProductId}
+                                  onChange={(p) => patchItem({ replProductId: p.id })}
+                                />
+                              </Col>
+                              <Col md="4">
+                                <Label style={{ fontSize: 11 }}>Color</Label>
+                                <ColorSelector
+                                  colors={colors}
+                                  value={it.replColorId}
+                                  onChange={(c) => patchItem({ replColorId: c.id })}
+                                />
+                              </Col>
+                              <Col md="2">
+                                <Label style={{ fontSize: 11 }}>Talla</Label>
+                                <Input
+                                  bsSize="sm"
+                                  value={it.replSize || ""}
+                                  onChange={(e) => patchItem({ replSize: e.target.value })}
+                                  placeholder="M, L..."
+                                />
+                              </Col>
+                            </Row>
+                          </td>
+                        </tr>
+                      )}
+                    </React.Fragment>
+                  );
+                })}
               </tbody>
             </Table>
           )}
