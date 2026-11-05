@@ -78,11 +78,13 @@ function CreateStandaloneKioskShipmentModal({
   const [packingUnitPriceInput, setPackingUnitPriceInput] = useState("");
   const [shipmentPacking, setShipmentPacking] = useState({});
   const [shipmentPackingPrice, setShipmentPackingPrice] = useState({});
+  const [withoutDistribution, setWithoutDistribution] = useState(false);
 
   const resetForm = useCallback(() => {
     setLocationId("");
     setNotes("");
     setDocumentDate(getDefaultShipmentDocumentDate());
+    setWithoutDistribution(false);
     setLines([emptyLine()]);
     setPackingSearch("");
     setSelectedPackingMaterialId("");
@@ -360,6 +362,7 @@ function CreateStandaloneKioskShipmentModal({
         documentDate: documentDate || undefined,
         products: productsPayload.length > 0 ? productsPayload : undefined,
         packingItems: packingItems.length > 0 ? packingItems : undefined,
+        withoutDistribution: withoutDistribution || undefined,
         confirmOnly: true,
       });
       showSuccess(
@@ -425,6 +428,23 @@ function CreateStandaloneKioskShipmentModal({
                 onChange={(e) => setNotes(e.target.value)}
                 placeholder="Salen impresas en el documento del envío"
               />
+            </FormGroup>
+          </Col>
+          <Col md="12">
+            <FormGroup check className="mb-2">
+              <Label check>
+                <Input
+                  type="checkbox"
+                  checked={withoutDistribution}
+                  onChange={(e) => setWithoutDistribution(e.target.checked)}
+                />
+                <span className="form-check-sign" />
+                Sin distribución (excepción)
+              </Label>
+              <div className="text-muted small">
+                Por defecto el envío se guarda en una distribución manual. Marque esto solo si este envío no debe
+                pertenecer a ninguna distribución.
+              </div>
             </FormGroup>
           </Col>
           </>

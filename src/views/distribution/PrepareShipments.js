@@ -86,6 +86,7 @@ import {
   shouldUseSyntheticFullOrderDocument,
 } from "utils/partialReleaseHelper";
 import PrepareShipmentsCustomerBlock from "components/distribution/PrepareShipmentsCustomerBlock";
+import CreateStandaloneKioskShipmentModal from "components/distribution/CreateStandaloneKioskShipmentModal";
 import EditShipmentProductsModal from "components/distribution/EditShipmentProductsModal";
 import { FilterableSelect } from "components/distribution/FilterableSelect";
 import ShipmentPrintObservationsModal from "components/distribution/ShipmentPrintObservationsModal";
@@ -748,6 +749,7 @@ function PrepareShipments() {
   const [standaloneKioskList, setStandaloneKioskList] = useState([]);
   const [selectedStandaloneKioskId, setSelectedStandaloneKioskId] = useState("");
   const [loadingStandaloneKioskList, setLoadingStandaloneKioskList] = useState(false);
+  const [standaloneKioskModalOpen, setStandaloneKioskModalOpen] = useState(false);
   const [viewMode, setViewMode] = useState("shipments");
   const [pendingOrders, setPendingOrders] = useState([]);
   const [loadingPending, setLoadingPending] = useState(false);
@@ -1588,6 +1590,22 @@ function PrepareShipments() {
       setStandaloneKioskList([]);
     } finally {
       setLoadingStandaloneKioskList(false);
+    }
+  };
+
+  const handleStandaloneKioskCreated = async (created) => {
+    await loadStandaloneKioskShipments();
+    setViewMode("shipments");
+    setDistributionId("");
+    setSelectedOpvOrderId("");
+    setSelectedOpiOrderId("");
+    setSelectedOpcOrderId("");
+    setSelectedOpckOrderId("");
+    setSelectedOpkOrderId("");
+    setSelectedStandaloneInternalId("");
+    setSelectedProductionOrder(null);
+    if (created?.id != null) {
+      setSelectedStandaloneKioskId(String(created.id));
     }
   };
 
@@ -3733,6 +3751,16 @@ function PrepareShipments() {
                     </Button>
                   )}
                   <Button
+                    color="success"
+                    size="sm"
+                    onClick={() => setStandaloneKioskModalOpen(true)}
+                    disabled={pendingFlow}
+                    className="mt-2 mr-2"
+                  >
+                    <i className="nc-icon nc-shop mr-1" />
+                    Envío directo a kiosko
+                  </Button>
+                  <Button
                     color="primary"
                     size="sm"
                     onClick={printSelected}
@@ -4823,6 +4851,12 @@ function PrepareShipments() {
             showError(err?.message || "No se pudieron guardar las observaciones");
           }
         }}
+      />
+
+      <CreateStandaloneKioskShipmentModal
+        isOpen={standaloneKioskModalOpen}
+        toggle={() => setStandaloneKioskModalOpen(false)}
+        onCreated={handleStandaloneKioskCreated}
       />
 
       <EditShipmentProductsModal
