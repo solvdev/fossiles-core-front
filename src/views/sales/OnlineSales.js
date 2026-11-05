@@ -56,7 +56,7 @@ const getShippingCost = (paymentMethod) => {
 
 // CAMBIO: por defecto se reenvía el mismo artículo; "OTHER" permite elegir un producto distinto.
 const EMPTY_EXCHANGE_REPLACEMENT = {
-  replaceMode: "SAME", // SAME | OTHER
+  replaceMode: "SAME", // SAME | OTHER | NOLINE (ya va en el envío destino)
   replProductId: null,
   replColorId: null,
   replSize: "",
@@ -653,6 +653,8 @@ function OnlineSales() {
   const [exchangeShipmentLoading, setExchangeShipmentLoading] = useState(false);
   const [exchangeTargetSale, setExchangeTargetSale] = useState(null);
   const [exchangeAddedToExisting, setExchangeAddedToExisting] = useState(false);
+  // true cuando todas las líneas eran «ya va en el envío destino»: solo se registró la devolución
+  const [exchangeRegisteredOnly, setExchangeRegisteredOnly] = useState(false);
 
   // Inventario de devoluciones (historial)
   const [returnsStartDate, setReturnsStartDate] = useState(() => dateDaysAgo(30));
@@ -1653,6 +1655,7 @@ function OnlineSales() {
     setExchangeShipmentResults([]);
     setExchangeTargetSale(null);
     setExchangeAddedToExisting(false);
+    setExchangeRegisteredOnly(false);
     setShowExchangeModal(true);
   };
 
@@ -1684,9 +1687,11 @@ function OnlineSales() {
       setError("Seleccione al menos un item con cantidad para el CAMBIO.");
       return;
     }
-    const missingReplacement = selected.find((it) => it.replaceMode === "OTHER" && !it.replProductId);
+    const missingReplacement = selected.find(
+      (it) => (it.replaceMode === "OTHER" || it.replaceMode === "NOLINE") && !it.replProductId
+    );
     if (missingReplacement) {
-      setError(`Elija el producto que se enviará en lugar de ${missingReplacement.productCode || "la línea"}, o marque «Mismo artículo».`);
+      setError(`Elija el producto que se envía a cambio de ${missingReplacement.productCode || "la línea"}, o marque «Mismo artículo».`);
       return;
     }
     const addToExisting = exchangeTargetMode === "EXISTING";
@@ -1704,12 +1709,14 @@ function OnlineSales() {
         items: selected.map((it) => {
           const max = it.maxQuantity || 1;
           const qty = parseInt(it.quantity, 10) || 1;
-          const other = it.replaceMode === "OTHER" && it.replProductId;
+          const noLine = addToExisting && it.replaceMode === "NOLINE";
+          const other = (it.replaceMode === "OTHER" || noLine) && it.replProductId;
           return {
             productId: it.productId,
             colorId: it.colorId ?? null,
             size: it.size || "",
             quantity: Math.min(Math.max(qty, 1), max),
+            ...(noLine ? { noShipmentLine: true } : {}),
             ...(other
               ? {
                   replacementProductId: it.replProductId,
@@ -1722,8 +1729,12 @@ function OnlineSales() {
       });
       setExchangeCreatedSale(created);
       setExchangeAddedToExisting(addToExisting);
+      const registeredOnly = addToExisting && selected.every((it) => it.replaceMode === "NOLINE");
+      setExchangeRegisteredOnly(registeredOnly);
       showNotification(
-        addToExisting
+        registeredOnly
+          ? `CAMBIO registrado contra el envío ${created.shipmentNumber || created.id}. Unidades en Devoluciones.`
+          : addToExisting
           ? `CAMBIO agregado al envío ${created.shipmentNumber || created.id}. Unidades en Devoluciones.`
           : `CAMBIO creado · ${created.shipmentNumber || created.id}. Unidades en Devoluciones.`
       );
@@ -1852,6 +1863,11 @@ function OnlineSales() {
     if (dto?.exchangeShipmentNumber) {
       parts.push(`Relacionado con el envío de cambio ${dto.exchangeShipmentNumber}`);
     }
+    const sent = (dto?.sentItems || []).map((it) => {
+      const variant = [it.colorName, it.size].filter(Boolean).join(" / ");
+      return `${it.productCode || ""} ${it.productName || ""}${variant ? ` (${variant})` : ""} x${it.quantity || 1}`.trim();
+    });
+    if (sent.length > 0) parts.push(`Se envió a cambio: ${sent.join("; ")}`);
     return parts.join(" | ");
   };
 
@@ -3330,6 +3346,8 @@ function OnlineSales() {
                             <th style={{ width: 110 }}>Pedido</th>
                             <th style={{ width: 140 }}>Envío relacionado</th>
                             <th style={{ width: 150 }}>Envío del cambio</th>
+                            <th style={{ width: 200 }}>Devuelve</th>
+                            <th style={{ width: 200 }}>Se envió</th>
                             <th style={{ width: 120 }}>Condición</th>
                             <th>Motivo</th>
                             <th style={{ width: 180 }}>Acciones</th>
@@ -3350,6 +3368,10 @@ function OnlineSales() {
                                 {e.exchangeShipmentNumber
                                   ? <strong style={{ color: "#0A4C60" }}>{e.exchangeShipmentNumber}</strong>
                                   : "—"}
+                              </td>
+                              <td style={{ whiteSpace: "pre-wrap", fontSize: 12 }}>{e.returnedItems || "—"}</td>
+                              <td style={{ whiteSpace: "pre-wrap", fontSize: 12 }}>
+                                {isExchangeDocument(e.returnReason) ? (e.sentItems || "—") : "—"}
                               </td>
                               <td>
                                 <Badge color={String(e.itemCondition || "").toUpperCase() === "DAÑADO" ? "danger" : "secondary"}>
@@ -4744,7 +4766,12 @@ function OnlineSales() {
                   type="radio"
                   name="exchangeTargetMode"
                   checked={exchangeTargetMode === "NEW"}
-                  onChange={() => { setExchangeTargetMode("NEW"); setExchangeTargetSale(null); }}
+                  onChange={() => {
+                    setExchangeTargetMode("NEW");
+                    setExchangeTargetSale(null);
+                    // «Ya va en el envío destino» solo existe con envío existente
+                    setExchangeItems(prev => prev.map(p => p.replaceMode === "NOLINE" ? { ...p, ...EMPTY_EXCHANGE_REPLACEMENT } : p));
+                  }}
                 />{" "}
                 Envío nuevo
               </Label>
@@ -4902,7 +4929,9 @@ function OnlineSales() {
           <h6 className="mb-2">Items a reenviar</h6>
           <p className="text-muted" style={{ fontSize: 12 }}>
             Lo que el cliente devuelve regresa a Devoluciones. En «Se envía» elija si va el mismo artículo
-            o uno distinto (otro producto, color o talla).
+            o uno distinto (otro producto, color o talla). Si el envío destino ya lleva el producto que se
+            manda (p. ej. la venta nueva), elija «Ya va en el envío destino» e indique cuál es: el cambio queda
+            registrado con ambos productos, pero no se agrega ninguna línea al envío.
           </p>
           {exchangeItems.length === 0 ? (
             <Alert color="warning">No se encontraron items para el cambio.</Alert>
@@ -4922,7 +4951,8 @@ function OnlineSales() {
                 {exchangeItems.map((it) => {
                   const patchItem = (patch) =>
                     setExchangeItems(prev => prev.map(p => p.key === it.key ? { ...p, ...patch } : p));
-                  const other = it.replaceMode === "OTHER";
+                  const other = it.replaceMode === "OTHER" || it.replaceMode === "NOLINE";
+                  const alreadyInShipment = it.replaceMode === "NOLINE";
                   return (
                     <React.Fragment key={it.key}>
                       <tr>
@@ -4953,16 +4983,22 @@ function OnlineSales() {
                           <Input
                             type="select"
                             bsSize="sm"
+                            style={{ minWidth: 130 }}
                             value={it.replaceMode || "SAME"}
                             disabled={Boolean(exchangeCreatedSale)}
                             onChange={(e) => patchItem(
                               e.target.value === "OTHER"
                                 ? { replaceMode: "OTHER" }
-                                : { ...EMPTY_EXCHANGE_REPLACEMENT }
+                                : e.target.value === "NOLINE"
+                                  ? { replaceMode: "NOLINE" }
+                                  : { ...EMPTY_EXCHANGE_REPLACEMENT }
                             )}
                           >
                             <option value="SAME">Mismo artículo</option>
                             <option value="OTHER">Otro artículo</option>
+                            {exchangeTargetMode === "EXISTING" && (
+                              <option value="NOLINE">Ya va en el envío destino</option>
+                            )}
                           </Input>
                         </td>
                       </tr>
@@ -4971,7 +5007,9 @@ function OnlineSales() {
                           <td />
                           <td colSpan={5}>
                             <div style={{ fontSize: 11, fontWeight: 700, color: "#0A4C60", marginBottom: 4 }}>
-                              Se enviará en lugar de {it.productCode || "esta línea"}:
+                              {alreadyInShipment
+                                ? `Producto que se envió a cambio de ${it.productCode || "esta línea"} (ya va en el envío destino, no se agrega al envío):`
+                                : `Se enviará en lugar de ${it.productCode || "esta línea"}:`}
                             </div>
                             <Row className="align-items-end">
                               <Col md="6">
@@ -5012,10 +5050,12 @@ function OnlineSales() {
 
           {exchangeCreatedSale && (
             <Alert color="success" className="mt-3">
-              {exchangeAddedToExisting ? "CAMBIO agregado al envío existente. " : "CAMBIO creado. "}
+              {exchangeRegisteredOnly ? "CAMBIO registrado. " : exchangeAddedToExisting ? "CAMBIO agregado al envío existente. " : "CAMBIO creado. "}
               ENVL: <strong>{exchangeCreatedSale.shipmentNumber || "—"}</strong>
               <div className="mt-1">
-                {exchangeAddedToExisting
+                {exchangeRegisteredOnly
+                  ? "Esas unidades entraron a bodega Devoluciones. El cambio quedó registrado con el producto enviado; al envío no se le agregó ninguna línea."
+                  : exchangeAddedToExisting
                   ? "Esas unidades entraron a bodega Devoluciones. Los productos del cambio se agregaron al envío a Q0."
                   : "Esas unidades entraron a bodega Devoluciones. El envío nuevo queda en Q0."}
               </div>
