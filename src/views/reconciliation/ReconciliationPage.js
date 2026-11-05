@@ -44,7 +44,7 @@ const safeStorage = () => {
  * La regla principal: lo cobrado debe ser igual a lo recibido, al centavo, sin tolerancias.
  */
 const ReconciliationPage = () => {
-  const { hasPermission } = useAuth();
+  const { hasPermission, user } = useAuth();
   const today = getTodayYmdGuatemala();
   const perms = useMemo(() => ({
     reconcile: hasPermission("VENTAS.CONCILIACION.CONCILIAR"),
@@ -117,7 +117,7 @@ const ReconciliationPage = () => {
   };
 
   return (
-    <div className="content recon-page">
+    <div className={`content recon-page ${view === "simple" ? "recon-page--simple" : ""}`}>
       <Card>
         <CardHeader className="d-flex justify-content-between align-items-start flex-wrap" style={{ gap: 8 }}>
           <div>
@@ -129,7 +129,7 @@ const ReconciliationPage = () => {
               {view === "simple" ? "Registrar varios por ENVL" : "Registrar pagos"}
             </Button>
             {view === "simple" ? (
-              <Button color="secondary" size="sm" outline onClick={() => switchView("full")}>Vista completa</Button>
+              <Button color="link" size="sm" onClick={() => switchView("full")}>Vista completa</Button>
             ) : (
               <Button color="secondary" size="sm" outline onClick={() => switchView("simple")}>Vista simple</Button>
             )}
@@ -152,7 +152,7 @@ const ReconciliationPage = () => {
         </CardHeader>
         <CardBody>
           {view === "simple" && (
-            <ReconSimpleView openId={openId} filters={filters} onFilters={setFilters} version={version} perms={perms} onOpen={setOpenId} onChanged={reload} onRowsLoaded={setRowIds} />
+            <ReconSimpleView userKey={user && (user.id || user.username || user.email)} openId={openId} filters={filters} onFilters={setFilters} version={version} perms={perms} onOpen={setOpenId} onChanged={reload} onRowsLoaded={setRowIds} />
           )}
           {view === "full" && <>
           <Nav tabs className="recon-tabs mb-3" role="tablist">
