@@ -880,6 +880,7 @@ function KioskReturns() {
         kioskLocationId={selectedKiosk ? Number(selectedKiosk) : null}
         kioskCode={selectedKioskCode}
         kioskName={selectedKioskName}
+        isAdmin={isAdmin}
         onCompleted={() => void loadData()}
       />
       <SimpleReturnWizard
