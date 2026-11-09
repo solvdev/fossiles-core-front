@@ -160,12 +160,24 @@ function ProductionOrderPartialReleasesPanel({
 
   const releases = listData?.releases || [];
   const availabilityRows = listData?.orderItemAvailability || [];
+  const openBoxPieces = Number(listData?.openBoxPieces) || 0;
   const isPrepare = context === "prepare-shipments";
 
   return (
     <Card className={`mt-3 border-primary${isPrepare ? "" : ""}`}>
       <CardHeader className="d-flex justify-content-between align-items-center py-2">
-        <strong>{panelTitle}</strong>
+        <span>
+          <strong>{panelTitle}</strong>
+          {openBoxPieces > 0 && (
+            <Badge
+              color="warning"
+              className="ml-2"
+              title="Bodega PT las tiene en cajas armadas sin despachar; el pendiente de abajo ya las descuenta."
+            >
+              {openBoxPieces} {openBoxPieces === 1 ? "pieza" : "piezas"} en cajas
+            </Badge>
+          )}
+        </span>
         <Button color="primary" size="sm" onClick={openNewEditor} disabled={loading}>
           Nuevo envío parcial
         </Button>
