@@ -35,15 +35,15 @@ const BANNER_TONES = {
 const BANNER_TEXT = {
   DISPONIBLE: {
     title: "Hay stock para despachar",
-    body: "Todas las líneas alcanzan en Devoluciones / Bodega PT. Puede autorizar el envío y se generará el ENVI.",
+    body: "Todas las líneas alcanzan en Devoluciones. Puede autorizar el envío y se generará el ENVI.",
   },
   SIN_STOCK: {
     title: "Sin stock suficiente",
-    body: "Hay líneas que no alcanzan. Autorice la producción: se genera una OPI solo por el faltante y el envío se habilita cuando el producto entre a Bodega PT.",
+    body: "Hay líneas que no alcanzan. Autorice la producción: se genera una OPI solo por el faltante y el envío se habilita cuando el producto entre a Devoluciones.",
   },
   EN_PRODUCCION: {
-    title: "Producción autorizada, esperando ingreso a Bodega PT",
-    body: "El envío se podrá autorizar cuando el producto terminado de la OPI ingrese a Bodega PT.",
+    title: "Producción autorizada, esperando ingreso a Devoluciones",
+    body: "El envío se podrá autorizar cuando el producto terminado de la OPI ingrese a Devoluciones.",
   },
 };
 

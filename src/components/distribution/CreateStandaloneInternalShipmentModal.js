@@ -129,11 +129,12 @@ function CreateStandaloneInternalShipmentModal({ isOpen, toggle, onCreated }) {
         productId: pid,
         colorId: line.colorId || null,
         size: line.size || "",
+        internal: true,
       });
       const breakdown = (preview?.breakdown || [])
         .map((b) => `${b.locationName || b.locationCode}: ${Number(b.quantity || 0)}`)
         .join(" · ");
-      const hint = `Disp. ${Number(preview?.availableTotal || 0)} (${breakdown || "PT/Devoluciones"})`;
+      const hint = `Disp. ${Number(preview?.availableTotal || 0)} (${breakdown || "Devoluciones"})`;
       return { ...line, stockHint: hint, stockLoading: false };
     } catch (err) {
       return { ...line, stockHint: err.message || "Sin stock", stockLoading: false };
@@ -302,7 +303,7 @@ function CreateStandaloneInternalShipmentModal({ isOpen, toggle, onCreated }) {
       <ModalBody>
         <Alert color="info" className="py-2">
           La solicitud queda <strong>pendiente</strong> hasta que Contabilidad autorice el envío. Si hay stock en
-          Devoluciones / Bodega PT se genera el <strong>ENVI</strong>. Si falta stock, se crea una <strong>OPI</strong>
+          Devoluciones se genera el <strong>ENVI</strong>. Si falta stock, se crea una <strong>OPI</strong>
           en borrador para producir el faltante (aún no se despacha).
         </Alert>
         {loadingCatalog && (

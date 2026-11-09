@@ -28,14 +28,14 @@ export function describeStock(request) {
         tone: "ok",
         icon: "✓",
         label: "Hay stock",
-        hint: "Alcanza en Devoluciones / Bodega PT. Se puede autorizar el envío.",
+        hint: "Alcanza en Devoluciones. Se puede autorizar el envío.",
       };
     case "SIN_STOCK":
       return {
         tone: "danger",
         icon: "!",
         label: `Sin stock · faltan ${shortage}`,
-        hint: "No alcanza en Devoluciones / Bodega PT. Autorice la producción del faltante.",
+        hint: "No alcanza en Devoluciones. Autorice la producción del faltante.",
       };
     case "EN_PRODUCCION":
       return {
@@ -43,7 +43,7 @@ export function describeStock(request) {
         icon: "⟳",
         label: `En producción · faltan ${shortage}`,
         sub: opi,
-        hint: `${opi || "La OPI"} ya está autorizada. El envío se habilita cuando el producto entre a Bodega PT.`,
+        hint: `${opi || "La OPI"} ya está autorizada. El envío se habilita cuando el producto entre a Devoluciones.`,
       };
     default:
       break;
@@ -148,7 +148,7 @@ export function RequestActionButtons({
           size={size}
           className="btn-round mr-1"
           disabled
-          title="La producción ya está autorizada; el envío se habilita al ingresar el producto a Bodega PT."
+          title="La producción ya está autorizada; el envío se habilita al ingresar el producto a Devoluciones."
         >
           Esperando producción
         </Button>

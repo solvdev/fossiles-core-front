@@ -729,8 +729,10 @@ export const validateDispatchStock = async (products) => {
   }
 };
 
-export const previewDispatchStock = async ({ productId, colorId, size }) => {
+// internal: envío interno (OPI), que solo puede salir de Devoluciones (no cuenta Bodega PT).
+export const previewDispatchStock = async ({ productId, colorId, size, internal = false }) => {
   const params = new URLSearchParams({ productId: String(productId) });
+  if (internal) params.set('internal', 'true');
   if (colorId != null && colorId !== '') params.set('colorId', String(colorId));
   if (size != null && String(size).trim() !== '') params.set('size', String(size).trim());
   const response = await fetch(`${API_URL}/product-distributions/dispatch-stock-preview?${params}`, {
