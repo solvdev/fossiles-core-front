@@ -351,7 +351,7 @@ function AuthorizeShipments() {
               </CardTitle>
               <p className="text-muted mb-0 small mt-1">
                 {isAccountingView
-                  ? "Distribución crea solicitudes. Con stock se autoriza el envío (ENVI); sin stock se autoriza la producción del faltante y se espera su ingreso a Bodega PT."
+                  ? "Distribución crea solicitudes. Con stock se autoriza el envío (ENVI); sin stock se autoriza la producción del faltante y se espera su ingreso a Devoluciones."
                   : "Consulte el estado de sus solicitudes pendientes de autorización por Contabilidad."}
               </p>
             </Col>
