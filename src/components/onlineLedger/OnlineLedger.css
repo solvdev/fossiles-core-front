@@ -131,10 +131,35 @@
 .ol-cell.is-saving { background: #fff8e6; }
 .ol-cell.is-ok { background: #e9f8ef; transition: background .2s; }
 .ol-cell.is-err { box-shadow: inset 0 0 0 2px #d9534f; background: #fdeeea; }
-.ol-cell.w-money { min-width: 86px; }
-.ol-cell.w-text { min-width: 190px; }
-.ol-cell.w-short { min-width: 120px; }
-.ol-cell.w-date { min-width: 128px; }
+
+/* Ancho de columnas: asa al borde derecho del encabezado */
+.ol-sheet thead tr.h th { position: sticky; overflow: hidden; text-overflow: ellipsis; padding-right: 12px; }
+.ol-sheet thead tr.h th .lbl { overflow: hidden; text-overflow: ellipsis; display: block; }
+.ol-resize { position: absolute; top: 0; right: 0; width: 7px; height: 100%; cursor: col-resize; z-index: 2; }
+.ol-resize:hover, body.ol-resizing .ol-resize:active { background: #51cbce; opacity: .55; }
+body.ol-resizing, body.ol-resizing * { cursor: col-resize !important; user-select: none !important; }
+.ol-sheet td { overflow: hidden; text-overflow: ellipsis; }
+.ol-sheet td.clip { max-width: none; }
+.ol-sheet.is-wrap td { white-space: normal; height: auto; padding-top: 5px; padding-bottom: 5px; vertical-align: top; word-break: break-word; }
+.ol-sheet.is-wrap td.ed { vertical-align: middle; padding-top: 0; padding-bottom: 0; }
+.ol-sheet.is-wrap td.stick.c1 { white-space: normal; }
+
+/* Menú de columnas */
+.ol-menu-anchor { position: relative; }
+.ol-menu { position: absolute; right: 0; top: calc(100% + 6px); z-index: 30; width: 420px; max-width: calc(100vw - 32px); background: #fff; border: 1px solid #d9d5cc; border-radius: 10px; box-shadow: 0 10px 30px rgba(0, 0, 0, .14); padding: 12px; }
+.ol-menu-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.ol-menu .ol-check { height: auto; padding: 3px 0; font-weight: 500; }
+.ol-menu-wrap { padding: 6px 0 8px !important; border-bottom: 1px solid #ecebe6; margin-bottom: 8px !important; width: 100%; }
+.ol-menu-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 16px; max-height: 320px; overflow: auto; margin-bottom: 8px; }
+.ol-menu-cols .ttl { font-size: 11px; font-weight: 700; color: #66615b; margin-bottom: 2px; }
+
+/* Ayuda de atajos */
+.ol-shortcuts { position: fixed; right: 24px; bottom: 24px; z-index: 1050; width: 360px; max-width: calc(100vw - 32px); background: #fff; border: 1px solid #d9d5cc; border-radius: 10px; box-shadow: 0 10px 30px rgba(0, 0, 0, .18); padding: 10px 14px 12px; font-size: 12.5px; }
+.ol-shortcuts .head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+.ol-shortcuts .head button { border: 0; background: none; font-size: 20px; line-height: 1; color: #66615b; cursor: pointer; }
+.ol-shortcuts td { padding: 3px 8px 3px 0; vertical-align: top; }
+.ol-shortcuts kbd { background: #f4f3ef; color: #403d39; border: 1px solid #d9d5cc; border-bottom-width: 2px; border-radius: 4px; padding: 1px 6px; font-size: 11.5px; white-space: nowrap; font-family: inherit; }
+.ol-sheet td.ed input[type="checkbox"]:focus-visible { outline: 2px solid #0b6b6f; outline-offset: 2px; }
 .ol-sheet td.ed.empty-need { background: #fffaeb; }
 .ol-sheet td.ed.center { text-align: center; }
 .ol-sheet td.ed.center input { width: 16px; height: 16px; cursor: pointer; vertical-align: middle; }

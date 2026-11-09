@@ -8,7 +8,7 @@ import {
   netOf, effectiveSentDate, effectivePaymentForm, isPendingReview, isVoided, sellerLabel, computeCommissions,
   computeAccountingSummary, matchesQuery,
 } from "./onlineLedgerHelper";
-import DayNav from "./DayNav";
+import DayNav, { addDays } from "./DayNav";
 import "./OnlineLedger.css";
 
 /**
@@ -25,9 +25,35 @@ const DELIVERY_NOTES = ["ENTREGADO", "PENDIENTE", "DEVOLUCIÓN", "REPROGRAMADO"]
 
 const cellKey = (id, field) => `${id}:${field}`;
 
+/** Mueve el foco a otra celda de la hoja (fila r, columna c entre las que se pueden enfocar). */
+const focusCell = (from, r, c) => {
+  const scope = from?.closest("table");
+  const target = scope?.querySelector(`[data-r="${r}"][data-c="${c}"]`);
+  if (!target) return false;
+  target.focus();
+  if (target.select) target.select();
+  return true;
+};
+
+/** Teclas de hoja de cálculo comunes a celdas de texto y casillas. Devuelve true si la tecla se usó. */
+const navKey = (e, el, opts = {}) => {
+  const r = Number(el.dataset.r);
+  const c = Number(el.dataset.c);
+  const atStart = opts.atStart ?? true;
+  const atEnd = opts.atEnd ?? true;
+  switch (e.key) {
+    case "ArrowDown": return focusCell(el, r + 1, c);
+    case "ArrowUp": return focusCell(el, r - 1, c);
+    case "ArrowLeft": return atStart && focusCell(el, r, c - 1);
+    case "ArrowRight": return atEnd && focusCell(el, r, c + 1);
+    case "Home": return (e.ctrlKey || e.metaKey) && focusCell(el, 0, 0);
+    default: return false;
+  }
+};
+
 /** Celda editable. Guarda al salir (o con Enter) solo si el valor cambió. */
 const EditCell = React.memo(function EditCell({
-  rowId, rowIndex, field, value, type = "text", disabled, state, onCommit, placeholder, list, system, width,
+  rowId, r, c, field, value, type = "text", disabled, state, onCommit, placeholder, list, system,
 }) {
   const initial = value === null || value === undefined ? "" : String(value);
   const [draft, setDraft] = useState(initial);
@@ -44,24 +70,53 @@ const EditCell = React.memo(function EditCell({
     return t;
   };
 
-  const commit = () => {
+  const commit = (text = draft) => {
     if (disabled) return;
-    const next = normalized(draft);
+    const next = normalized(text);
     const current = type === "money" && initial !== "" ? String(parseFloat(initial)) : initial.trim();
     if (next !== current) onCommit(rowId, field, next);
   };
 
-  const move = (delta) => {
-    const scope = document.activeElement?.closest("table");
-    const target = scope?.querySelector(`[data-nav="${field}"][data-rowi="${rowIndex + delta}"]`);
-    if (target) { target.focus(); if (target.select) target.select(); }
-  };
-
   const onKeyDown = (e) => {
-    if (e.key === "Enter") { e.preventDefault(); commit(); move(e.shiftKey ? -1 : 1); }
-    else if (e.key === "Escape") { setDraft(initial); e.currentTarget.blur(); }
-    else if (type !== "date" && e.key === "ArrowDown") { e.preventDefault(); move(1); }
-    else if (type !== "date" && e.key === "ArrowUp") { e.preventDefault(); move(-1); }
+    const el = e.currentTarget;
+    if (e.key === "Enter") {
+      e.preventDefault();
+      commit();
+      focusCell(el, r + (e.shiftKey ? -1 : 1), c);
+      return;
+    }
+    if (e.key === "Escape") {
+      setDraft(initial);
+      el.blur();
+      return;
+    }
+    // Ctrl+D: copia el valor de la celda de arriba (como «rellenar hacia abajo» de Excel).
+    if ((e.ctrlKey || e.metaKey) && (e.key === "d" || e.key === "D")) {
+      e.preventDefault();
+      const above = el.closest("table")?.querySelector(`[data-r="${r - 1}"][data-c="${c}"]`);
+      if (above && above.dataset.raw !== undefined) {
+        setDraft(above.dataset.raw);
+        commit(above.dataset.raw);
+      }
+      return;
+    }
+    // Supr / Retroceso con todo seleccionado: deja la celda vacía y guarda.
+    if ((e.key === "Delete") && el.selectionStart === 0 && el.selectionEnd === String(el.value).length && type !== "date") {
+      e.preventDefault();
+      setDraft("");
+      commit("");
+      return;
+    }
+    if (type === "date" && (e.key === "ArrowUp" || e.key === "ArrowDown")) return; // el navegador cambia la fecha
+    let atStart = true;
+    let atEnd = true;
+    if (type !== "date") {
+      const len = String(el.value).length;
+      const whole = el.selectionStart === 0 && el.selectionEnd === len;
+      atStart = whole || el.selectionStart === 0;
+      atEnd = whole || el.selectionEnd === len;
+    }
+    if (navKey(e, el, { atStart, atEnd })) e.preventDefault();
   };
 
   const shown = type === "money" && !focused && draft !== "" && Number.isFinite(parseFloat(draft))
@@ -70,7 +125,7 @@ const EditCell = React.memo(function EditCell({
 
   return (
     <input
-      className={`ol-cell w-${width || type}${type === "money" ? " num" : ""}${system ? " sys" : ""}${state ? ` is-${state.status}` : ""}`}
+      className={`ol-cell${type === "money" ? " num" : ""}${system ? " sys" : ""}${state ? ` is-${state.status}` : ""}`}
       type={type === "date" ? "date" : "text"}
       inputMode={type === "money" ? "decimal" : undefined}
       value={shown}
@@ -78,8 +133,9 @@ const EditCell = React.memo(function EditCell({
       placeholder={disabled ? "" : placeholder}
       list={list}
       title={state?.status === "err" ? state.message : undefined}
-      data-nav={field}
-      data-rowi={rowIndex}
+      data-r={r}
+      data-c={c}
+      data-raw={initial}
       onChange={(e) => setDraft(e.target.value)}
       onFocus={(e) => { setFocused(true); if (type !== "date") e.target.select(); }}
       onBlur={() => { setFocused(false); commit(); }}
@@ -98,94 +154,298 @@ const Social = ({ value }) => {
   return s.icon ? <span className="ol-social" title={s.label} role="img" aria-label={s.label}>{s.icon}</span> : null;
 };
 
-// ───────── Fila de la hoja principal ─────────
+// ───────── Columnas ─────────
+// kind: lock = dato de la venta (gris, no se edita) · calc = calculado o del sistema · ed = lo anota Contabilidad.
+// edit: { field, type, placeholder(row), list, systemValue(row) } — systemValue se muestra en cursiva si no hay dato propio.
+// total: clave de `totals` para la fila de totales.
 
-const SalesRow = React.memo(function SalesRow({ row, n, index, canEdit, states, onCommit }) {
-  const tone = rowTone(row);
-  const status = statusOf(row.status);
-  const ed = (field, type, extra = {}) => (
-    <EditCell rowId={row.id} rowIndex={index} field={field} value={row[field]} type={type} disabled={!canEdit}
-      state={states?.[field]} onCommit={onCommit} {...extra} />
+const SALES_COLUMNS = [
+  { id: "address", label: "Dirección", kind: "lock", width: 220, clip: true, cell: (r) => r.address },
+  { id: "phone", label: "Teléfono", kind: "lock", width: 120, cell: (r) => r.phone },
+  { id: "packaging", label: "Empaque", kind: "lock", width: 72, cell: (r) => (r.packaging ? "Sí" : "No") },
+  { id: "payment", label: "Forma de pago", kind: "lock", width: 130, cell: (r) => r.paymentMethodDisplay },
+  { id: "invoice", label: "Factura", kind: "lock", width: 90, cell: (r) => r.invoiceTaxId },
+  { id: "products", label: "Producto", kind: "lock", width: 240, clip: true, cell: (r) => r.products },
+  { id: "colors", label: "Color", kind: "lock", width: 130, clip: true, cell: (r) => r.colors },
+  { id: "sizes", label: "Talla", kind: "lock", width: 80, cell: (r) => r.sizes },
+  { id: "total", label: "Total con envío", kind: "lock", width: 110, num: true, strong: true, total: "total", cell: (r) => formatMoney(num(r.totalAmount)) },
+  { id: "shipping", label: "Envío", kind: "calc", width: 80, num: true, total: "shipping", cell: (r) => formatMoney(num(r.shippingCost)) },
+  { id: "realShipping", label: "Envío real", kind: "ed", width: 96, num: true, total: "real", need: isPendingReview, edit: { field: "realShippingCost", type: "money", placeholder: () => "0.00" } },
+  { id: "commission", label: "Comisión", kind: "ed", width: 96, num: true, total: "commission", edit: { field: "carrierCommission", type: "money", placeholder: () => "0.00" } },
+  { id: "carrier", label: "Transporte", kind: "calc", width: 110, cell: (r) => <CarrierChip carrier={r.carrier} /> },
+  { id: "date", label: "Fecha", kind: "calc", width: 92, cell: (r) => formatDay(r.saleDate) },
+  { id: "social", label: "Red", kind: "calc", width: 54, center: true, cell: (r) => <Social value={r.socialNetwork} /> },
+  { id: "email", label: "Correo", kind: "calc", width: 170, clip: true, cell: (r) => r.email },
+  { id: "seller", label: "Vendedor", kind: "calc", width: 130, cell: (r) => r.salesperson },
+  { id: "guide", label: "Guía", kind: "calc", width: 120, cell: (r) => r.guideNumber },
+  {
+    id: "shipment", label: "Envío", kind: "calc", width: 110,
+    cell: (r) => <>{r.shipmentNumber}{r.saleNumber ? <span className="pedido">Pedido {r.saleNumber}</span> : null}</>,
+  },
+  { id: "auth", label: "Autorización", kind: "calc", width: 130, clip: true, cell: (r) => r.paymentAuthorization },
+  { id: "status", label: "Estado", kind: "calc", width: 104, cell: (r) => { const s = statusOf(r.status); return <span className={`ol-st ${s.tone}`}>{s.label}</span>; } },
+  { id: "note", label: "Observación", kind: "ed", width: 220, edit: { field: "accountingNote", type: "text", placeholder: (r) => r.observations || "" } },
+  { id: "net", label: "Sin envío", kind: "calc", width: 100, num: true, strong: true, total: "net", cell: (r) => formatMoney(netOf(r)) },
+  { id: "shortage", label: "Faltante (+) / Sobrante (−)", kind: "ed", width: 120, num: true, total: "shortage", title: "Positivo = faltante, negativo = sobrante", edit: { field: "shortageAmount", type: "money", placeholder: () => "0.00" } },
+  { id: "shortageNote", label: "Detalle", kind: "ed", width: 150, edit: { field: "shortageNote", type: "text" } },
+  { id: "reviewed", label: "Revisado", kind: "ed", width: 76, center: true, check: "reviewed" },
+];
+
+const MOTO_COLUMNS = [
+  { id: "sentDate", label: "Fecha de envío", kind: "ed", width: 136, edit: { field: "sentDate", type: "date", systemValue: effectiveSentDate } },
+  { id: "receivedDate", label: "Fecha de recepción", kind: "ed", width: 136, edit: { field: "receivedDate", type: "date" } },
+  {
+    id: "shipment", label: "No. envío", kind: "lock", width: 120,
+    cell: (r) => <>{r.shipmentNumber || r.guideNumber || "—"}{r.shipmentNumber && r.guideNumber ? <span className="pedido">Guía {r.guideNumber}</span> : null}</>,
+  },
+  { id: "products", label: "Descripción", kind: "lock", width: 240, clip: true, cell: (r) => r.products },
+  { id: "net", label: "Monto sin envío", kind: "lock", width: 112, num: true, strong: true, total: "net", cell: (r) => formatMoney(netOf(r)) },
+  { id: "total", label: "Total con envío", kind: "lock", width: 112, num: true, total: "total", cell: (r) => formatMoney(num(r.totalAmount)) },
+  { id: "paymentForm", label: "Forma de pago", kind: "ed", width: 140, edit: { field: "paymentForm", type: "text", list: "ol-payment-forms", systemValue: effectivePaymentForm } },
+  { id: "liquidationDate", label: "Fecha de liquidación", kind: "ed", width: 136, edit: { field: "liquidationDate", type: "date" } },
+  { id: "slip", label: "No. de boleta", kind: "ed", width: 120, edit: { field: "depositSlipNumber", type: "text" } },
+  { id: "deliveryNote", label: "Observación", kind: "ed", width: 130, edit: { field: "deliveryNote", type: "text", list: "ol-delivery-notes", placeholder: (r) => statusOf(r.status).label } },
+  { id: "deposit", label: "Valor real depósito", kind: "ed", width: 120, num: true, total: "deposit", edit: { field: "realDepositAmount", type: "money", placeholder: () => "0.00" } },
+  { id: "depositNote", label: "Observación", kind: "ed", width: 200, edit: { field: "depositNote", type: "text" } },
+];
+
+/** Vista «solo lo de Contabilidad»: oculta lo que no hace falta para revisar montos. */
+const ACCOUNTING_PRESET = ["address", "phone", "packaging", "invoice", "colors", "sizes", "email", "social", "auth"];
+
+const LAYOUT_KEY = "ol.ledger.layout.v1";
+const readLayout = () => {
+  try {
+    const raw = window.localStorage.getItem(LAYOUT_KEY);
+    const parsed = raw ? JSON.parse(raw) : null;
+    if (parsed && typeof parsed === "object") return parsed;
+  } catch (e) { /* sin almacenamiento: se usa el diseño por defecto */ }
+  return {};
+};
+const writeLayout = (layout) => {
+  try { window.localStorage.setItem(LAYOUT_KEY, JSON.stringify(layout)); } catch (e) { /* ignorar */ }
+};
+
+const MIN_WIDTH = 48;
+const MAX_WIDTH = 640;
+const widthStyle = (w) => ({ width: w, minWidth: w, maxWidth: w });
+
+/** Encabezado con asa para cambiar el ancho (arrastrar) y volver al ancho original (doble clic). */
+function ResizableTh({ col, width, onResize, className, children }) {
+  const startDrag = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const startX = e.clientX;
+    const startW = width;
+    const onMove = (ev) => onResize(col.id, Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, startW + ev.clientX - startX)));
+    const onUp = () => {
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+      document.body.classList.remove("ol-resizing");
+    };
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+    document.body.classList.add("ol-resizing");
+  };
+  return (
+    <th className={className} style={widthStyle(width)} title={col.title || col.label}>
+      <span className="lbl">{children}</span>
+      <span className="ol-resize" onMouseDown={startDrag} onDoubleClick={() => onResize(col.id, null)}
+        role="separator" aria-orientation="vertical" aria-label={`Ancho de ${col.label}`} title="Arrastre para cambiar el ancho · doble clic: ancho original" />
+    </th>
   );
-  const needsShipping = canEdit && isPendingReview(row);
+}
+
+/** Fila de la hoja: se dibuja desde las columnas visibles. */
+const SheetRow = React.memo(function SheetRow({ row, n, r, columns, editIndex, canEdit, states, onCommit, widths }) {
+  const tone = rowTone(row);
   return (
     <tr className={`t-${carrierOf(row.carrier).key}${tone ? ` s-${tone}` : ""}`}>
       <td className="stick c0 rowno">{n}</td>
-      <td className="stick c1 lock strong" title={row.customerName || ""}>{row.customerName || "—"}</td>
-      <td className="lock clip" title={row.address || ""}>{row.address}</td>
-      <td className="lock">{row.phone}</td>
-      <td className="lock">{row.packaging ? "Sí" : "No"}</td>
-      <td className="lock">{row.paymentMethodDisplay}</td>
-      <td className="lock">{row.invoiceTaxId}</td>
-      <td className="lock clip wide" title={row.products || ""}>{row.products}</td>
-      <td className="lock clip" title={row.colors || ""}>{row.colors}</td>
-      <td className="lock">{row.sizes}</td>
-      <td className="lock num strong">{formatMoney(num(row.totalAmount))}</td>
-
-      <td className="calc num">{formatMoney(num(row.shippingCost))}</td>
-      <td className={`ed${needsShipping ? " empty-need" : ""}`}>{ed("realShippingCost", "money", { placeholder: "0.00" })}</td>
-      <td className="ed">{ed("carrierCommission", "money", { placeholder: "0.00" })}</td>
-      <td className="calc"><CarrierChip carrier={row.carrier} /></td>
-      <td className="calc">{formatDay(row.saleDate)}</td>
-      <td className="calc" style={{ textAlign: "center" }}><Social value={row.socialNetwork} /></td>
-      <td className="calc clip" title={row.email || ""}>{row.email}</td>
-      <td className="calc">{row.salesperson}</td>
-      <td className="calc">{row.guideNumber}</td>
-      <td className="calc">
-        {row.shipmentNumber}
-        {row.saleNumber ? <span className="pedido">Pedido {row.saleNumber}</span> : null}
-      </td>
-      <td className="calc clip" title={row.paymentAuthorization || ""}>{row.paymentAuthorization}</td>
-      <td className="calc"><span className={`ol-st ${status.tone}`}>{status.label}</span></td>
-      <td className="ed">{ed("accountingNote", "text", { placeholder: row.observations || "" })}</td>
-      <td className="calc num strong">{formatMoney(netOf(row))}</td>
-      <td className="ed">{ed("shortageAmount", "money", { placeholder: "0.00" })}</td>
-      <td className="ed">{ed("shortageNote", "text", { width: "short" })}</td>
-      <td className="ed center">
-        <input type="checkbox" checked={Boolean(row.reviewed)} disabled={!canEdit}
-          aria-label="Revisado" onChange={(e) => onCommit(row.id, "reviewed", e.target.checked)} />
-      </td>
+      <td className="stick c1 lock strong" title={row.customerName || ""} style={widthStyle(widths.customer)}>{row.customerName || "—"}</td>
+      {columns.map((col) => {
+        const style = widthStyle(widths[col.id]);
+        if (col.check) {
+          return (
+            <td key={col.id} className="ed center" style={style}>
+              <input type="checkbox" checked={Boolean(row[col.check])} disabled={!canEdit} aria-label={col.label}
+                data-r={r} data-c={editIndex[col.id]}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") { e.preventDefault(); onCommit(row.id, col.check, !row[col.check]); return; }
+                  if (navKey(e, e.currentTarget)) e.preventDefault();
+                }}
+                onChange={(e) => onCommit(row.id, col.check, e.target.checked)} />
+            </td>
+          );
+        }
+        if (col.edit) {
+          const ed = col.edit;
+          const own = row[ed.field];
+          const hasOwn = own !== null && own !== undefined && own !== "";
+          const value = ed.systemValue ? ed.systemValue(row) : own;
+          return (
+            <td key={col.id} className={`ed${canEdit && col.need && col.need(row) ? " empty-need" : ""}`} style={style}>
+              <EditCell rowId={row.id} r={r} c={editIndex[col.id]} field={ed.field} value={value} type={ed.type}
+                disabled={!canEdit} state={states?.[ed.field]} onCommit={onCommit} list={ed.list}
+                placeholder={ed.placeholder ? ed.placeholder(row) : ""} system={Boolean(ed.systemValue) && !hasOwn} />
+            </td>
+          );
+        }
+        const content = col.cell(row);
+        return (
+          <td key={col.id} style={{ ...style, textAlign: col.center ? "center" : undefined }}
+            className={`${col.kind}${col.num ? " num" : ""}${col.strong ? " strong" : ""}${col.clip ? " clip" : ""}`}
+            title={col.clip && typeof content === "string" ? content : undefined}>
+            {content}
+          </td>
+        );
+      })}
     </tr>
   );
 });
 
-// ───────── Fila de la hoja Moto ─────────
+/** Hoja (Ventas o Moto) con columnas que se pueden ocultar y ensanchar. */
+function Sheet({ columns, rows, lineNumber, canEdit, cellStates, onCommit, widths, onResize, totals, count, nameLabel, lockLabel, editLabel, wrap }) {
+  const editIndex = useMemo(() => {
+    const map = {};
+    let i = 0;
+    columns.forEach((col) => { if (col.edit || col.check) { map[col.id] = i; i += 1; } });
+    return map;
+  }, [columns]);
 
-const MotoRow = React.memo(function MotoRow({ row, n, index, canEdit, states, onCommit }) {
-  const tone = rowTone(row);
-  const ed = (field, type, extra = {}) => (
-    <EditCell rowId={row.id} rowIndex={index} field={field} value={row[field]} type={type} disabled={!canEdit}
-      state={states?.[field]} onCommit={onCommit} {...extra} />
-  );
+  // Encabezado de grupos: tramos seguidos de «venta» (lock) y «contabilidad» (calc/ed).
+  const groups = useMemo(() => {
+    const out = [];
+    columns.forEach((col) => {
+      const g = col.kind === "lock" ? "lock" : "edit";
+      const last = out[out.length - 1];
+      if (last && last.g === g) last.span += 1; else out.push({ g, span: 1 });
+    });
+    return out;
+  }, [columns]);
+
   return (
-    <tr className={`t-${carrierOf(row.carrier).key}${tone ? ` s-${tone}` : ""}`}>
-      <td className="stick c0 rowno">{n}</td>
-      <td className="stick c1 lock strong" title={row.customerName || ""}>{row.customerName || "—"}</td>
-      <td className="ed">
-        <EditCell rowId={row.id} rowIndex={index} field="sentDate" value={effectiveSentDate(row)} type="date"
-          disabled={!canEdit} state={states?.sentDate} onCommit={onCommit} system={!row.sentDate} />
-      </td>
-      <td className="ed">{ed("receivedDate", "date")}</td>
-      <td className="lock">
-        {row.shipmentNumber || row.guideNumber || "—"}
-        {row.shipmentNumber && row.guideNumber ? <span className="pedido">Guía {row.guideNumber}</span> : null}
-      </td>
-      <td className="lock clip wide" title={row.products || ""}>{row.products}</td>
-      <td className="lock num strong">{formatMoney(netOf(row))}</td>
-      <td className="lock num">{formatMoney(num(row.totalAmount))}</td>
-      <td className="ed">
-        <EditCell rowId={row.id} rowIndex={index} field="paymentForm" value={effectivePaymentForm(row)} type="text"
-          width="short" disabled={!canEdit} state={states?.paymentForm} onCommit={onCommit} system={!row.paymentForm}
-          list="ol-payment-forms" />
-      </td>
-      <td className="ed">{ed("liquidationDate", "date")}</td>
-      <td className="ed">{ed("depositSlipNumber", "text", { width: "short" })}</td>
-      <td className="ed">{ed("deliveryNote", "text", { width: "short", list: "ol-delivery-notes", placeholder: statusOf(row.status).label })}</td>
-      <td className="ed">{ed("realDepositAmount", "money", { placeholder: "0.00" })}</td>
-      <td className="ed">{ed("depositNote", "text")}</td>
-    </tr>
+    <table className={`ol-sheet${wrap ? " is-wrap" : ""}`}>
+      <thead>
+        <tr className="g">
+          <th className="g-lock stick c0" />
+          <th className="g-lock stick c1" style={widthStyle(widths.customer)}>{nameLabel}</th>
+          {groups.map((g, i) => (
+            <th key={i} className={g.g === "lock" ? "g-lock" : "g-edit"} colSpan={g.span}>
+              {g.span > 1 ? (g.g === "lock" ? lockLabel : editLabel) : ""}
+            </th>
+          ))}
+        </tr>
+        <tr className="h">
+          <th className="stick c0 num">No.</th>
+          <ResizableTh col={{ id: "customer", label: "Cliente" }} width={widths.customer} onResize={onResize} className="stick c1">
+            Cliente
+          </ResizableTh>
+          {columns.map((col) => (
+            <ResizableTh key={col.id} col={col} width={widths[col.id]} onResize={onResize}
+              className={`${col.num ? "num" : ""}${col.edit || col.check ? " edit" : ""}`}>
+              {col.label}
+            </ResizableTh>
+          ))}
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((row, i) => (
+          <SheetRow key={row.id} row={row} n={lineNumber.get(row.id)} r={i} columns={columns} editIndex={editIndex}
+            canEdit={canEdit} states={cellStates[row.id]} onCommit={onCommit} widths={widths} />
+        ))}
+      </tbody>
+      <tfoot>
+        <tr>
+          <td className="stick c0" />
+          <td className="stick c1" style={widthStyle(widths.customer)}>Totales ({count})</td>
+          {columns.map((col) => (
+            <td key={col.id} className={col.num ? "num" : ""} style={widthStyle(widths[col.id])}>
+              {col.total ? formatMoney(totals[col.total]) : ""}
+            </td>
+          ))}
+        </tr>
+      </tfoot>
+    </table>
   );
-});
+}
+
+/** Menú «Columnas»: casillas por columna, vistas rápidas, anchos y texto completo. */
+function ColumnsMenu({ allColumns, hidden, onToggle, onShowAll, onPreset, onResetWidths, wrap, onWrap, onClose }) {
+  const ref = useRef(null);
+  useEffect(() => {
+    const onDown = (e) => { if (ref.current && !ref.current.contains(e.target)) onClose(); };
+    const onKey = (e) => { if (e.key === "Escape") onClose(); };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => { document.removeEventListener("mousedown", onDown); document.removeEventListener("keydown", onKey); };
+  }, [onClose]);
+  useEffect(() => { ref.current?.querySelector("input, button")?.focus(); }, []);
+  const groups = [
+    ["Datos de la venta", allColumns.filter((c) => c.kind === "lock")],
+    ["Contabilidad", allColumns.filter((c) => c.kind !== "lock")],
+  ];
+  return (
+    <div className="ol-menu" ref={ref} role="dialog" aria-label="Columnas visibles">
+      <div className="ol-menu-actions">
+        <button type="button" className="ol-btn quiet sm" onClick={onShowAll}>Mostrar todas</button>
+        {onPreset && <button type="button" className="ol-btn quiet sm" onClick={onPreset}>Solo contabilidad</button>}
+        <button type="button" className="ol-btn quiet sm" onClick={onResetWidths}>Anchos originales</button>
+      </div>
+      <label className="ol-check ol-menu-wrap">
+        <input type="checkbox" checked={wrap} onChange={(e) => onWrap(e.target.checked)} />
+        Texto completo (las filas crecen para mostrar todo)
+      </label>
+      <div className="ol-menu-cols">
+        {groups.map(([title, cols]) => (
+          <div key={title}>
+            <div className="ttl">{title}</div>
+            {cols.map((c) => (
+              <label key={c.id} className="ol-check">
+                <input type="checkbox" checked={!hidden.includes(c.id)} onChange={() => onToggle(c.id)} />
+                {c.label}
+              </label>
+            ))}
+          </div>
+        ))}
+      </div>
+      <p className="ol-note mb-0">Se guarda en este navegador. El Excel siempre trae todas las columnas.</p>
+    </div>
+  );
+}
+
+const SHORTCUTS = [
+  ["↑ ↓ ← →", "Moverse entre celdas editables"],
+  ["Enter / Shift+Enter", "Guardar y bajar / subir"],
+  ["Tab / Shift+Tab", "Siguiente / anterior celda"],
+  ["Esc", "Deshacer lo escrito en la celda"],
+  ["Supr", "Vaciar la celda (con todo seleccionado)"],
+  ["Ctrl+D", "Copiar el valor de la celda de arriba"],
+  ["Espacio / Enter", "Marcar «Revisado»"],
+  ["/", "Ir al buscador"],
+  ["Alt+1 · Alt+2 · Alt+3", "Ventas · Comisiones · Moto"],
+  ["[  ]", "Día (o rango) anterior / siguiente"],
+  ["{  }", "Mes anterior / siguiente"],
+  ["Re Pág / Av Pág", "Página anterior / siguiente"],
+  ["?", "Mostrar u ocultar esta ayuda"],
+];
+
+function ShortcutsPanel({ onClose }) {
+  return (
+    <div className="ol-shortcuts" role="dialog" aria-label="Atajos de teclado">
+      <div className="head">
+        <b>Atajos de teclado</b>
+        <button type="button" onClick={onClose} aria-label="Cerrar">×</button>
+      </div>
+      <table>
+        <tbody>
+          {SHORTCUTS.map(([k, d]) => (
+            <tr key={k}><td><kbd>{k}</kbd></td><td>{d}</td></tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
 
 // ───────── Comisiones ─────────
 
@@ -328,6 +588,10 @@ function OnlineSalesLedger() {
   const [fill, setFill] = useState({ carrier: "guatex", field: "realShippingCost", value: "" });
   const [filling, setFilling] = useState(false);
   const [downloading, setDownloading] = useState(false);
+  const [layout, setLayout] = useState(readLayout);
+  const [showCols, setShowCols] = useState(false);
+  const [showKeys, setShowKeys] = useState(false);
+  const searchRef = useRef(null);
   const requestRef = useRef(0);
   const chainsRef = useRef(new Map());
 
@@ -424,6 +688,38 @@ function OnlineSalesLedger() {
   useEffect(() => { setPage(0); }, [fCarrier, fSeller, fPayment, fStatus, onlyPending, query, tab, motoCarrier, motoPending, pageSize]);
 
   const active = tab === "moto" ? motoRows : filtered;
+
+  // ── Columnas visibles y anchos (por hoja, guardados en este navegador) ──
+  const sheetKey = tab === "moto" ? "moto" : "ventas";
+  const allColumns = sheetKey === "moto" ? MOTO_COLUMNS : SALES_COLUMNS;
+  const sheetLayout = layout[sheetKey] || {};
+  const hidden = sheetLayout.hidden || [];
+  const visibleColumns = useMemo(() => allColumns.filter((c) => !hidden.includes(c.id)), [allColumns, hidden]);
+  const widths = useMemo(() => {
+    const w = { customer: 190 };
+    allColumns.forEach((c) => { w[c.id] = c.width; });
+    return { ...w, ...(sheetLayout.widths || {}) };
+  }, [allColumns, sheetLayout.widths]);
+
+  const updateLayout = useCallback((fn) => {
+    setLayout((prev) => {
+      const next = fn(prev);
+      writeLayout(next);
+      return next;
+    });
+  }, []);
+  const patchSheet = useCallback((patch) => updateLayout((prev) => ({
+    ...prev, [sheetKey]: { ...(prev[sheetKey] || {}), ...patch(prev[sheetKey] || {}) },
+  })), [sheetKey, updateLayout]);
+  const toggleColumn = (id) => patchSheet((cur) => {
+    const h = cur.hidden || [];
+    return { hidden: h.includes(id) ? h.filter((x) => x !== id) : [...h, id] };
+  });
+  const resizeColumn = useCallback((id, width) => patchSheet((cur) => {
+    const w = { ...(cur.widths || {}) };
+    if (width === null) delete w[id]; else w[id] = Math.round(width);
+    return { widths: w };
+  }), [patchSheet]);
   const pageCount = pageSize ? Math.max(1, Math.ceil(active.length / pageSize)) : 1;
   const safePage = Math.min(page, pageCount - 1);
   const visible = pageSize ? active.slice(safePage * pageSize, safePage * pageSize + pageSize) : active;
@@ -506,6 +802,47 @@ function OnlineSalesLedger() {
   const isRange = (r) => r.from === from && r.to === to && !meta.historyQuery;
   const today = toIso(new Date());
   const canEdit = meta.canEdit;
+
+  // Atajos de página (fuera de las celdas). Dentro de una celda solo se usan los de la celda.
+  useEffect(() => {
+    const onKey = (e) => {
+      const t = e.target;
+      const typing = t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable);
+      if (e.altKey && !e.ctrlKey && ["1", "2", "3"].includes(e.key)) {
+        e.preventDefault();
+        setTab({ 1: "ventas", 2: "comisiones", 3: "moto" }[e.key]);
+        return;
+      }
+      if (typing || e.ctrlKey || e.metaKey || e.altKey) {
+        if (typing && (e.key === "PageDown" || e.key === "PageUp")) {
+          // Re Pág / Av Pág también funcionan desde una celda
+        } else {
+          return;
+        }
+      }
+      if (e.key === "/") { e.preventDefault(); searchRef.current?.focus(); searchRef.current?.select(); }
+      else if (e.key === "?") { e.preventDefault(); setShowKeys((v) => !v); }
+      else if (e.key === "[" || e.key === "]") {
+        if (meta.historyQuery || !from || !to) return;
+        e.preventDefault();
+        const dir = e.key === "]" ? 1 : -1;
+        const span = Math.round((new Date(`${to}T12:00:00`) - new Date(`${from}T12:00:00`)) / 86400000) + 1;
+        setRange({ from: addDays(from, dir * span), to: addDays(to, dir * span) });
+      } else if (e.key === "{" || e.key === "}") {
+        if (meta.historyQuery) return;
+        e.preventDefault();
+        shiftMonth(e.key === "}" ? 1 : -1);
+      } else if (e.key === "PageDown") {
+        e.preventDefault();
+        setPage((pg) => Math.min(pg + 1, pageCount - 1));
+      } else if (e.key === "PageUp") {
+        e.preventDefault();
+        setPage((pg) => Math.max(pg - 1, 0));
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }); // se vuelve a enlazar en cada render para ver el periodo y la página actuales
 
   const pager = (
     <div className="ol-foot">
@@ -634,7 +971,7 @@ function OnlineSalesLedger() {
           </div>
           <div className="grow ol-search">
             <label htmlFor="ol-q">Buscar</label>
-            <input id="ol-q" type="search" className="form-control" value={query} placeholder="Cliente, teléfono, envío, guía, producto…"
+            <input id="ol-q" ref={searchRef} type="search" className="form-control" value={query} placeholder="Cliente, teléfono, envío, guía, producto… ( / )"
               onChange={(e) => setQuery(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && active.length === 0) searchHistory(); }} />
           </div>
           {tab === "ventas" ? (
@@ -689,6 +1026,27 @@ function OnlineSalesLedger() {
             </>
           )}
           <div className="end">
+            <div className="ol-menu-anchor">
+              <button type="button" className="ol-btn quiet sm" onClick={() => setShowCols((v) => !v)} aria-expanded={showCols}
+                title="Ocultar, mostrar o ensanchar columnas">
+                Columnas{hidden.length > 0 ? ` · ${hidden.length} ocultas` : ""}
+              </button>
+              {showCols && (
+                <ColumnsMenu
+                  allColumns={allColumns}
+                  hidden={hidden}
+                  onToggle={toggleColumn}
+                  onShowAll={() => patchSheet(() => ({ hidden: [] }))}
+                  onPreset={sheetKey === "ventas" ? () => patchSheet(() => ({ hidden: ACCOUNTING_PRESET })) : null}
+                  onResetWidths={() => patchSheet(() => ({ widths: {} }))}
+                  wrap={Boolean(layout.wrap)}
+                  onWrap={(v) => updateLayout((prev) => ({ ...prev, wrap: v }))}
+                  onClose={() => setShowCols(false)}
+                />
+              )}
+            </div>
+            <button type="button" className="ol-btn quiet sm" onClick={() => setShowKeys((v) => !v)} aria-expanded={showKeys}
+              title="Atajos de teclado (?)">⌨ Atajos</button>
             {tab === "ventas" && hasFilters && <button type="button" className="ol-btn quiet sm" onClick={clearFilters}>Quitar filtros</button>}
             {tab === "ventas" && canEdit && (
               <button type="button" className="ol-btn sm" onClick={() => setShowFill((v) => !v)} aria-expanded={showFill}>Llenado rápido</button>
@@ -733,6 +1091,8 @@ function OnlineSalesLedger() {
         </div>
       )}
 
+      {showKeys && <ShortcutsPanel onClose={() => setShowKeys(false)} />}
+
       {tab === "comisiones" && (
         <CommissionsView rows={rows} commissionRate={meta.commissionRate} vatRate={meta.vatRate}
           onShowPending={(seller) => { setFSeller(seller); setOnlyPending(true); setTab("ventas"); }} />
@@ -759,85 +1119,23 @@ function OnlineSalesLedger() {
                   </>
                 )}
               </div>
-            ) : tab === "ventas" ? (
-              <table className="ol-sheet">
-                <thead>
-                  <tr className="g">
-                    <th className="g-lock stick c0" />
-                    <th className="g-lock stick c1">Datos de la venta</th>
-                    <th className="g-lock" colSpan={9}>🔒 No se editan aquí</th>
-                    <th className="g-edit" colSpan={17}>Contabilidad · lo marcado con ✎ se edita, lo demás se calcula</th>
-                  </tr>
-                  <tr className="h">
-                    <th className="stick c0 num">No.</th>
-                    <th className="stick c1">Nombre</th>
-                    <th>Dirección</th><th>Teléfono</th><th>Empaque</th><th>Forma de pago</th><th>Factura</th>
-                    <th>Producto</th><th>Color</th><th>Talla</th><th className="num">Total con envío</th>
-                    <th className="num">Envío</th><th className="num edit">Envío real</th><th className="num edit">Comisión</th>
-                    <th>Transporte</th><th>Fecha</th><th>Red</th><th>Correo</th><th>Vendedor</th><th>Guía</th><th>Envío</th>
-                    <th>Autorización</th><th>Estado</th><th className="edit">Observación</th><th className="num">Sin envío</th>
-                    <th className="num edit" title="Positivo = faltante, negativo = sobrante">Faltante (+) / Sobrante (−)</th>
-                    <th className="edit">Detalle</th><th className="edit">Revisado</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {visible.map((r, i) => (
-                    <SalesRow key={r.id} row={r} n={lineNumber.get(r.id)} index={i} canEdit={canEdit}
-                      states={cellStates[r.id]} onCommit={commitCell} />
-                  ))}
-                </tbody>
-                <tfoot>
-                  <tr>
-                    <td className="stick c0" />
-                    <td className="stick c1">Totales ({active.length})</td>
-                    <td colSpan={8} />
-                    <td className="num">{formatMoney(totals.total)}</td>
-                    <td className="num">{formatMoney(totals.shipping)}</td>
-                    <td className="num">{formatMoney(totals.real)}</td>
-                    <td className="num">{formatMoney(totals.commission)}</td>
-                    <td colSpan={10} />
-                    <td className="num">{formatMoney(totals.net)}</td>
-                    <td className="num">{formatMoney(totals.shortage)}</td>
-                    <td colSpan={2} />
-                  </tr>
-                </tfoot>
-              </table>
             ) : (
-              <table className="ol-sheet">
-                <thead>
-                  <tr className="g">
-                    <th className="g-lock stick c0" />
-                    <th className="g-lock stick c1">Venta</th>
-                    <th className="g-edit" colSpan={12}>Liquidación · lo marcado con ✎ se edita. En cursiva: dato del sistema, se puede corregir</th>
-                  </tr>
-                  <tr className="h">
-                    <th className="stick c0 num">Línea</th>
-                    <th className="stick c1">Cliente</th>
-                    <th className="edit">Fecha de envío</th><th className="edit">Fecha de recepción</th><th>No. envío</th>
-                    <th>Descripción</th><th className="num">Monto sin envío</th><th className="num">Total con envío</th>
-                    <th className="edit">Forma de pago</th><th className="edit">Fecha de liquidación</th><th className="edit">No. de boleta</th>
-                    <th className="edit">Observación</th><th className="num edit">Valor real depósito</th><th className="edit">Observación</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {visible.map((r, i) => (
-                    <MotoRow key={r.id} row={r} n={lineNumber.get(r.id)} index={i} canEdit={canEdit}
-                      states={cellStates[r.id]} onCommit={commitCell} />
-                  ))}
-                </tbody>
-                <tfoot>
-                  <tr>
-                    <td className="stick c0" />
-                    <td className="stick c1">Totales ({active.length})</td>
-                    <td colSpan={4} />
-                    <td className="num">{formatMoney(totals.net)}</td>
-                    <td className="num">{formatMoney(totals.total)}</td>
-                    <td colSpan={4} />
-                    <td className="num">{formatMoney(totals.deposit)}</td>
-                    <td />
-                  </tr>
-                </tfoot>
-              </table>
+              <Sheet
+                columns={visibleColumns}
+                rows={visible}
+                lineNumber={lineNumber}
+                canEdit={canEdit}
+                cellStates={cellStates}
+                onCommit={commitCell}
+                widths={widths}
+                onResize={resizeColumn}
+                totals={totals}
+                count={active.length}
+                wrap={Boolean(layout.wrap)}
+                nameLabel={tab === "moto" ? "Venta" : "Datos de la venta"}
+                lockLabel={tab === "moto" ? "🔒 De la venta" : "🔒 No se editan aquí"}
+                editLabel={tab === "moto" ? "Liquidación · ✎ se edita; en cursiva: dato del sistema" : "Contabilidad · ✎ se edita, lo demás se calcula"}
+              />
             )}
           </div>
           {active.length > 0 && pager}
