@@ -110,6 +110,7 @@ import TotalSales from "views/sales/TotalSales.js";
 import SalesBySeller from "views/sales/SalesBySeller.js";
 import OnlineSales from "views/sales/OnlineSales.js";
 import ReconciliationPage from "views/reconciliation/ReconciliationPage.js";
+import OnlineSalesLedgerPage from "views/sales/OnlineSalesLedgerPage.js";
 import OpvShipmentsPage from "views/sales/OpvShipmentsPage.js";
 import Invoicing from "views/sales/Invoicing.js";
 import AccountingInvoices from "views/accounting/AccountingInvoices.js";
@@ -1231,6 +1232,17 @@ const routes = [
           create: "VENTAS.VENTAS_ONLINE.CREAR",
           edit: "VENTAS.VENTAS_ONLINE.EDITAR",
           delete: "VENTAS.VENTAS_ONLINE.ELIMINAR",
+        },
+      },
+      {
+        path: "/online-sales-ledger",
+        name: "Libro ventas en línea",
+        mini: "LV",
+        component: <OnlineSalesLedgerPage />,
+        layout: "/admin",
+        module: "VENTAS",
+        permissions: {
+          view: "VENTAS.CONCILIACION.VER",
         },
       },
       {

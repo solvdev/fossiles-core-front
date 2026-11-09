@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback, useRef } from "react"
 import {
   Button, Card, CardHeader, CardBody, CardTitle, CardFooter,
   Row, Col, Table, Badge, Input, Label, FormGroup, Modal, ModalHeader,
-  ModalBody, ModalFooter, Alert, Spinner, Nav, NavItem, NavLink,
+  ModalBody, ModalFooter, Alert, Spinner,
   TabContent, TabPane, Progress
 } from "reactstrap";
 import { getProducts } from "../../services/productService";
@@ -34,6 +34,9 @@ import { lookupTaxpayerByNit } from "../../services/kioskPosService";
 import EditTaxInvoiceFelModal from "../../components/accounting/EditTaxInvoiceFelModal";
 import { useAuth } from "../../contexts/AuthContext";
 import { canEditTaxInvoiceFel } from "../../utils/taxInvoiceEditHelper";
+import OnlineSalesLedger from "../../components/onlineLedger/OnlineSalesLedger";
+import { carrierOf, fold } from "../../components/onlineLedger/onlineLedgerHelper";
+import "../../components/onlineLedger/OnlineLedger.css";
 
 // ─── Helpers ─────────────────────────────────────────────────────
 
@@ -215,10 +218,19 @@ const buildFelInvoicePreview = (sale, invoiceCustomerName = null) => {
   };
 };
 
-const getSocialIcon = (sn) => {
+// En las tablas la red social va solo como emoji (el nombre queda en el tooltip); con `withLabel` se muestra el nombre.
+const getSocialIcon = (sn, withLabel = false) => {
   const found = SOCIAL_NETWORKS.find(s => s.value === sn);
   if (!found) return sn;
-  return <span style={{ color: found.color, fontWeight: 600 }}>{found.icon} {found.label}</span>;
+  if (withLabel) return <span style={{ color: found.color, fontWeight: 600 }}>{found.icon} {found.label}</span>;
+  return <span className="ol-social" title={found.label} role="img" aria-label={found.label}>{found.icon}</span>;
+};
+
+// Transporte con color: motorista amarillo, Forza naranja, Guatex celeste.
+const CarrierChip = ({ carrier }) => {
+  if (!carrier) return <span>—</span>;
+  const c = carrierOf(carrier);
+  return <span className={`ol-chip ${c.key}`}>{c.label}</span>;
 };
 
 // ─── CSV Import Parser ───────────────────────────────────────────
@@ -565,6 +577,8 @@ function OnlineSales() {
 
   // Filtros
   const [filterDate, setFilterDate] = useState(today());
+  const [filterDateTo, setFilterDateTo] = useState(today());
+  const [filterQuery, setFilterQuery] = useState("");
   const [filterSalesperson, setFilterSalesperson] = useState("");
   const [filterSocial, setFilterSocial] = useState("");
   const [filterStatus, setFilterStatus] = useState("");
@@ -682,7 +696,7 @@ function OnlineSales() {
 
   useEffect(() => {
     loadSales();
-  }, [filterDate]); // eslint-disable-line
+  }, [filterDate, filterDateTo]); // eslint-disable-line
 
   const loadProducts = async () => {
     try {
@@ -700,19 +714,21 @@ function OnlineSales() {
 
   const loadSales = useCallback(async () => {
     setLoading(true);
+    const from = filterDate;
+    const to = filterDateTo && filterDateTo > filterDate ? filterDateTo : filterDate;
+    // El avance de producción (vista de bodega) es lo más pesado: se carga aparte y no detiene la tabla.
+    getWarehouseView().then((wOrders) => setWarehouseOrders(wOrders || [])).catch(() => {});
     try {
-      const [data, wOrders] = await Promise.all([
-        getOnlineSalesByDate(filterDate),
-        getWarehouseView(),
-      ]);
+      const data = from === to ? await getOnlineSalesByDate(from) : await getOnlineSalesByDateRange(from, to);
       setSales(data || []);
-      setWarehouseOrders(wOrders || []);
     } catch (e) {
       setError(e.message);
     } finally {
       setLoading(false);
     }
-  }, [filterDate]);
+  }, [filterDate, filterDateTo]);
+
+  const setSalesRange = (from, to) => { setFilterDate(from); setFilterDateTo(to); };
 
   const summaryRangeLabel = useMemo(() => {
     const from = summaryDateFrom || summaryDateTo;
@@ -1159,8 +1175,18 @@ function OnlineSales() {
     if (filterSalesperson) result = result.filter(s => s.salesperson === filterSalesperson);
     if (filterSocial) result = result.filter(s => s.socialNetwork === filterSocial);
     if (filterStatus) result = result.filter(s => s.status === filterStatus);
+    const words = fold(filterQuery).trim().split(/\s+/).filter(Boolean);
+    if (words.length > 0) {
+      result = result.filter((s) => {
+        const text = fold([
+          s.customerName, s.phone, s.phone2, s.address, s.shipmentNumber, s.guideNumber, s.paymentAuthorization,
+          s.email, s.productName, ...(s.items || []).map((it) => `${it.productCode || ""} ${it.productName || ""}`),
+        ].join(" | "));
+        return words.every((w) => text.includes(w));
+      });
+    }
     return result;
-  }, [sales, filterSalesperson, filterSocial, filterStatus]);
+  }, [sales, filterSalesperson, filterSocial, filterStatus, filterQuery]);
 
   const exportSalesRows = activeTab === "resumen" ? summarySales : sales;
   const exportSalesFiltered = useMemo(() => {
@@ -1168,7 +1194,8 @@ function OnlineSales() {
     return filteredSales;
   }, [activeTab, exportSalesRows, filteredSales]);
 
-  const exportDateLabel = activeTab === "resumen" ? summaryRangeLabel : filterDate;
+  const exportDateLabel = activeTab === "resumen" ? summaryRangeLabel
+    : (filterDateTo && filterDateTo > filterDate ? `${filterDate} al ${filterDateTo}` : filterDate);
 
   const saleProductionProgress = useMemo(() => {
     const map = {};
@@ -2041,6 +2068,14 @@ function OnlineSales() {
           autoFocus style={{ minWidth: 80 }} />
       );
     }
+    if (field === "shippingCarrier" && sale[field]) {
+      return (
+        <span style={{ cursor: "pointer" }} title="Clic para cambiar el transporte"
+          onClick={() => startInlineEdit(sale, field)}>
+          <CarrierChip carrier={sale[field]} />
+        </span>
+      );
+    }
     return (
       <span style={{ cursor: "pointer", borderBottom: "1px dashed #ccc" }}
         onClick={() => startInlineEdit(sale, field)}>
@@ -2727,115 +2762,133 @@ function OnlineSales() {
   // ─── Render ────────────────────────────────────────────────────
 
   return (
-    <div className="content">
+    <div className="content ol">
       {/* Notificaciones */}
       {error && <Alert color="danger" toggle={() => setError("")}>{error}</Alert>}
       {successMsg && <Alert color="success" toggle={() => setSuccessMsg("")}>{successMsg}</Alert>}
 
       {/* Tabs */}
-      <Nav tabs className="mb-3">
-        <NavItem>
-          <NavLink className={activeTab === "ventas" ? "active" : ""} onClick={() => setActiveTab("ventas")}
-            style={{ cursor: "pointer" }}>
-            📋 Ventas del Día
-          </NavLink>
-        </NavItem>
-        <NavItem>
-          <NavLink className={activeTab === "resumen" ? "active" : ""} onClick={() => setActiveTab("resumen")}
-            style={{ cursor: "pointer" }}>
-            📊 Resumen por fechas
-          </NavLink>
-        </NavItem>
-        <NavItem>
-          <NavLink className={activeTab === "envios" ? "active" : ""} onClick={() => setActiveTab("envios")}
-            style={{ cursor: "pointer" }}>
-            🚚 Envíos
-          </NavLink>
-        </NavItem>
-        <NavItem>
-          <NavLink className={activeTab === "devoluciones" ? "active" : ""} onClick={() => setActiveTab("devoluciones")}
-            style={{ cursor: "pointer" }}>
-            ↩ Cambios y devoluciones
-          </NavLink>
-        </NavItem>
-        <NavItem>
-          <NavLink className={activeTab === "mensual" ? "active" : ""} onClick={() => setActiveTab("mensual")}
-            style={{ cursor: "pointer" }}>
-            📅 Resumen Mensual
-          </NavLink>
-        </NavItem>
-        <NavItem>
-          <NavLink className={activeTab === "produccion" ? "active" : ""} onClick={() => setActiveTab("produccion")}
-            style={{ cursor: "pointer" }}>
-            📦 Despacho / Producción
-            {eligibleSales.length > 0 && (
-              <Badge color="danger" pill className="ml-1">{eligibleSales.length}</Badge>
-            )}
-          </NavLink>
-        </NavItem>
-      </Nav>
+      <div className="ol-bar">
+        <div className="ol-seg" role="tablist" aria-label="Ventas en línea">
+          {[
+            ["ventas", "Ventas"],
+            ["libro", "Libro contable"],
+            ["envios", "Envíos"],
+            ["devoluciones", "Cambios y devoluciones"],
+            ["resumen", "Resumen por fechas"],
+            ["mensual", "Resumen mensual"],
+            ["produccion", "Despacho / Producción"],
+          ].map(([id, label]) => (
+            <button key={id} type="button" role="tab" aria-selected={activeTab === id}
+              className={activeTab === id ? "is-on" : ""} onClick={() => setActiveTab(id)}>
+              {label}
+              {id === "produccion" && eligibleSales.length > 0 && <span className="c warn">{eligibleSales.length}</span>}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Libro contable: se monta solo al abrirlo, con su propia consulta liviana */}
+      {activeTab === "libro" && <OnlineSalesLedger />}
 
       <TabContent activeTab={activeTab}>
         {/* ═══ TAB VENTAS ═══ */}
         <TabPane tabId="ventas">
           <Card>
             <CardHeader>
-              <Row className="align-items-center">
-                <Col md="3">
-                  <CardTitle tag="h4" className="mb-0">Ventas Online</CardTitle>
-                </Col>
-                <Col md="2">
-                  <Input type="date" bsSize="sm" value={filterDate}
-                    onChange={e => setFilterDate(e.target.value)} />
-                </Col>
-                <Col md="2">
-                  <Input type="select" bsSize="sm" value={filterSalesperson}
-                    onChange={e => setFilterSalesperson(e.target.value)}>
-                    <option value="">Todos los vendedores</option>
-                    {SALESPERSONS.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
-                  </Input>
-                </Col>
-                <Col md="2">
-                  <Input type="select" bsSize="sm" value={filterSocial}
-                    onChange={e => setFilterSocial(e.target.value)}>
-                    <option value="">Todas las redes</option>
-                    {SOCIAL_NETWORKS.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
-                  </Input>
-                </Col>
-                <Col md="1">
-                  <Input type="select" bsSize="sm" value={filterStatus}
-                    onChange={e => setFilterStatus(e.target.value)}>
-                    <option value="">Estado</option>
-                    {SALE_STATUSES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
-                  </Input>
-                </Col>
-                <Col md="2" className="text-right">
-                  <Button color="default" size="sm" onClick={exportToExcel} title="Descargar Excel"
-                    style={{ marginRight: 4 }}>
+              <div className="ol-head" style={{ marginBottom: 10 }}>
+                <div>
+                  <h4>Ventas Online</h4>
+                  <div className="sub">
+                    {filteredSales.length} {filteredSales.length === 1 ? "venta" : "ventas"}
+                    {filteredSales.length !== sales.length ? ` de ${sales.length}` : ""} · {exportDateLabel}
+                  </div>
+                </div>
+                <div className="end">
+                  <button type="button" className="ol-btn quiet sm" onClick={exportToExcel} title="Descargar Excel">
                     <i className="nc-icon nc-cloud-download-93" /> Excel
-                  </Button>
-                  <Button color="default" size="sm" onClick={exportToPDF} title="Imprimir / PDF"
-                    style={{ marginRight: 4 }}>
+                  </button>
+                  <button type="button" className="ol-btn quiet sm" onClick={exportToPDF} title="Imprimir / PDF">
                     <i className="nc-icon nc-paper" /> PDF
-                  </Button>
-                  <Button color="info" size="sm" onClick={() => csvInputRef.current?.click()}
-                    style={{ marginRight: 4 }} title="Importar ventas desde CSV">
+                  </button>
+                  <button type="button" className="ol-btn quiet sm" onClick={() => csvInputRef.current?.click()}
+                    title="Importar ventas desde CSV">
                     <i className="nc-icon nc-cloud-upload-94" /> CSV
-                  </Button>
+                  </button>
                   <input type="file" accept=".csv" ref={csvInputRef} onChange={handleCSVFileSelect}
                     style={{ display: "none" }} />
-                  <Button color="success" size="sm" onClick={openNewForm}>
-                    <i className="nc-icon nc-simple-add" /> Nueva Venta
-                  </Button>
-                </Col>
-              </Row>
+                  <button type="button" className="ol-btn primary" onClick={openNewForm}>
+                    <i className="nc-icon nc-simple-add" /> Nueva venta
+                  </button>
+                </div>
+              </div>
+              <div className="ol-filters" style={{ marginBottom: 0 }}>
+                <div>
+                  <label htmlFor="os-from">Desde</label>
+                  <Input id="os-from" type="date" value={filterDate}
+                    onChange={e => {
+                      const v = e.target.value;
+                      if (!v) return;
+                      setSalesRange(v, filterDateTo && filterDateTo >= v ? filterDateTo : v);
+                    }} />
+                </div>
+                <div>
+                  <label htmlFor="os-to">Hasta</label>
+                  <Input id="os-to" type="date" value={filterDateTo} min={filterDate}
+                    onChange={e => e.target.value && setFilterDateTo(e.target.value)} />
+                </div>
+                <div className="ol-quick" role="group" aria-label="Fechas rápidas">
+                  <button type="button" className={filterDate === today() && filterDateTo === today() ? "is-on" : ""}
+                    onClick={() => setSalesRange(today(), today())}>Hoy</button>
+                  <button type="button" onClick={() => setSalesRange(dateDaysAgo(1), dateDaysAgo(1))}>Ayer</button>
+                  <button type="button" onClick={() => setSalesRange(dateDaysAgo(6), today())}>7 días</button>
+                  <button type="button" onClick={() => setSalesRange(`${today().slice(0, 8)}01`, today())}>Este mes</button>
+                </div>
+                <div className="grow ol-search">
+                  <label htmlFor="os-q">Buscar</label>
+                  <Input id="os-q" type="search" value={filterQuery} placeholder="Cliente, teléfono, envío, guía, producto…"
+                    onChange={e => setFilterQuery(e.target.value)} />
+                </div>
+                <div>
+                  <label htmlFor="os-seller">Vendedor</label>
+                  <Input id="os-seller" type="select" value={filterSalesperson}
+                    onChange={e => setFilterSalesperson(e.target.value)}>
+                    <option value="">Todos</option>
+                    {SALESPERSONS.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
+                  </Input>
+                </div>
+                <div>
+                  <label htmlFor="os-social">Red social</label>
+                  <Input id="os-social" type="select" value={filterSocial}
+                    onChange={e => setFilterSocial(e.target.value)}>
+                    <option value="">Todas</option>
+                    {SOCIAL_NETWORKS.map(s => <option key={s.value} value={s.value}>{s.icon} {s.label}</option>)}
+                  </Input>
+                </div>
+                <div>
+                  <label htmlFor="os-status">Estado</label>
+                  <Input id="os-status" type="select" value={filterStatus}
+                    onChange={e => setFilterStatus(e.target.value)}>
+                    <option value="">Todos</option>
+                    {SALE_STATUSES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
+                  </Input>
+                </div>
+                {(filterQuery || filterSalesperson || filterSocial || filterStatus) && (
+                  <div className="end">
+                    <button type="button" className="ol-btn quiet sm"
+                      onClick={() => { setFilterQuery(""); setFilterSalesperson(""); setFilterSocial(""); setFilterStatus(""); }}>
+                      Quitar filtros
+                    </button>
+                  </div>
+                )}
+              </div>
             </CardHeader>
             <CardBody style={{ padding: 0 }}>
               {loading ? (
                 <div className="text-center p-4"><Spinner color="primary" /></div>
               ) : filteredSales.length === 0 ? (
                 <div className="text-center p-4" style={{ color: "#999" }}>
-                  No hay ventas para esta fecha.
+                  No hay ventas con estas fechas y filtros.
                 </div>
               ) : (
                 <div style={{ overflowX: "auto" }}>
@@ -3132,7 +3185,7 @@ function OnlineSales() {
                             })()}
                           </td>
                           <td><strong>{sale.shipmentNumber || "—"}</strong></td>
-                          <td>{SHIPPING_CARRIERS.find(c => c.value === sale.shippingCarrier)?.label || sale.shippingCarrier || "—"}</td>
+                          <td><CarrierChip carrier={sale.shippingCarrier} /></td>
                           <td>{sale.guideNumber || "—"}</td>
                           <td>{getStatusBadge(sale.status)}</td>
                           <td>
@@ -3613,7 +3666,7 @@ function OnlineSales() {
                           <tbody>
                             {summary.bySocialNetwork.map(g => (
                               <tr key={g.name}>
-                                <td>{getSocialIcon(g.name)}</td>
+                                <td>{getSocialIcon(g.name, true)}</td>
                                 <td className="text-center"><strong>{g.salesCount}</strong></td>
                                 <td className="text-right">{formatQ(g.totalAmount)}</td>
                                 <td className="text-right" style={{ color: "#2e7d32", fontWeight: 600 }}>{formatQ(g.totalNetAmount)}</td>
@@ -3937,7 +3990,7 @@ function OnlineSales() {
                               <tbody>
                                 {Object.entries(byMonthSocial).map(([key, data]) => (
                                   <tr key={key}>
-                                    <td>{getSocialIcon(key)}</td>
+                                    <td>{getSocialIcon(key, true)}</td>
                                     <td className="text-center"><strong>{data.count}</strong></td>
                                     <td className="text-right">{formatQ(data.total)}</td>
                                     <td className="text-right" style={{ color: "#2e7d32", fontWeight: 600 }}>{formatQ(data.net)}</td>
@@ -4662,7 +4715,7 @@ function OnlineSales() {
                           <td className="text-right">{formatQ(s.shippingCost)}</td>
                           <td className="text-right">{formatQ(s.netAmount)}</td>
                           <td>{PAYMENT_METHODS.find(p => p.value === s.paymentMethod)?.label || s.paymentMethod || "—"}</td>
-                          <td>{s.shippingCarrier || "—"}</td>
+                          <td><CarrierChip carrier={s.shippingCarrier} /></td>
                           <td>{s.salesperson || "—"}</td>
                         </tr>
                       ))}
