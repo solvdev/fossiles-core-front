@@ -35,7 +35,7 @@ import EditTaxInvoiceFelModal from "../../components/accounting/EditTaxInvoiceFe
 import { useAuth } from "../../contexts/AuthContext";
 import { canEditTaxInvoiceFel } from "../../utils/taxInvoiceEditHelper";
 import OnlineSalesLedger from "../../components/onlineLedger/OnlineSalesLedger";
-import { carrierOf, fold } from "../../components/onlineLedger/onlineLedgerHelper";
+import { carrierOf, fold, statusOf } from "../../components/onlineLedger/onlineLedgerHelper";
 import "../../components/onlineLedger/OnlineLedger.css";
 
 // ─── Helpers ─────────────────────────────────────────────────────
@@ -68,8 +68,31 @@ const EMPTY_EXCHANGE_REPLACEMENT = {
 const emptyItem = () => ({ productId: null, colorId: null, size: "", quantity: 1, unitPrice: "" });
 
 const getStatusBadge = (status) => {
-  const found = SALE_STATUSES.find(s => s.value === status);
-  return found ? <Badge color={found.color}>{found.label}</Badge> : <Badge>{status}</Badge>;
+  const st = statusOf(status);
+  return <span className={`ol-st ${st.tone}`}>{st.label}</span>;
+};
+
+/** Tarjeta de resumen (misma fila de indicadores que el libro contable). */
+const Kpi = ({ title, value, sub, tone, onClick, hint }) => {
+  const Tag = onClick ? "button" : "div";
+  return (
+    <Tag type={onClick ? "button" : undefined} className={`k${tone ? ` ${tone}` : ""}`} onClick={onClick} title={hint}>
+      <div className="t">{title}</div>
+      <div className="v">{value}</div>
+      {sub ? <div className="s">{sub}</div> : null}
+    </Tag>
+  );
+};
+
+/** Barra de avance de producción de una venta. */
+const ProgressCell = ({ progress }) => {
+  if (!progress || !progress.total) return <span className="text-muted">—</span>;
+  return (
+    <div className="os-progress" title={`${progress.produced} hechas · ${progress.pending} faltan`}>
+      <div className="bar"><i style={{ width: `${progress.pct}%` }} className={progress.pct >= 100 ? "done" : ""} /></div>
+      <span>{progress.produced}/{progress.total}</span>
+    </div>
+  );
 };
 
 // Estados no válidos como destino de un CAMBIO (el envío ya no existe operativamente)
@@ -579,6 +602,8 @@ function OnlineSales() {
   const [filterDate, setFilterDate] = useState(today());
   const [filterDateTo, setFilterDateTo] = useState(today());
   const [filterQuery, setFilterQuery] = useState("");
+  const [filterCarrier, setFilterCarrier] = useState("");
+  const [filterShipmentPending, setFilterShipmentPending] = useState(false);
   const [filterSalesperson, setFilterSalesperson] = useState("");
   const [filterSocial, setFilterSocial] = useState("");
   const [filterStatus, setFilterStatus] = useState("");
@@ -1241,13 +1266,24 @@ function OnlineSales() {
     return { label: `En bodega PT${sn}`, color: "primary" };
   };
 
+  const isDispatchedStatus = (status) => status === "ENVIADO" || status === "ENTREGADO";
+
   const shipmentSales = useMemo(() => {
     let result = (sales || []).filter(s =>
       s.status !== "ANULADA" && s.status !== "DEVOLUCION" && s.status !== "CANCELADO"
     );
     if (filterStatus) result = result.filter(s => s.status === filterStatus);
+    if (filterCarrier) result = result.filter(s => carrierOf(s.shippingCarrier).key === filterCarrier);
+    if (filterShipmentPending) result = result.filter(s => !s.shipmentNumber && !isDispatchedStatus(s.status));
+    const words = fold(filterQuery).trim().split(/\s+/).filter(Boolean);
+    if (words.length > 0) {
+      result = result.filter((s) => {
+        const text = fold([s.customerName, s.phone, s.address, s.shipmentNumber, s.guideNumber, s.saleNumber].join(" | "));
+        return words.every((w) => text.includes(w));
+      });
+    }
     return result;
-  }, [sales, filterStatus]);
+  }, [sales, filterStatus, filterCarrier, filterShipmentPending, filterQuery]); // eslint-disable-line
 
   // ─── Form helpers ───────────────────────────────────────────────
 
@@ -1611,7 +1647,6 @@ function OnlineSales() {
     }
   };
 
-  const isDispatchedStatus = (status) => status === "ENVIADO" || status === "ENTREGADO";
 
   const openShipmentModal = (sale) => {
     setShipmentSale(sale);
@@ -2794,7 +2829,7 @@ function OnlineSales() {
       <TabContent activeTab={activeTab}>
         {/* ═══ TAB VENTAS ═══ */}
         <TabPane tabId="ventas">
-          <Card>
+          <Card className="os-card">
             <CardHeader>
               <div className="ol-head" style={{ marginBottom: 10 }}>
                 <div>
@@ -3104,44 +3139,103 @@ function OnlineSales() {
 
         {/* ═══ TAB ENVIOS ═══ */}
         <TabPane tabId="envios">
-          <Card>
+          <Card className="os-card">
             <CardHeader>
-              <Row className="align-items-center">
-                <Col md="4">
-                  <CardTitle tag="h4" className="mb-0">Preparación de envíos</CardTitle>
-                </Col>
-                <Col md="2">
-                  <Input type="date" bsSize="sm" value={filterDate}
-                    onChange={e => setFilterDate(e.target.value)} />
-                </Col>
-                <Col md="3">
-                  <Input type="select" bsSize="sm" value={filterStatus}
-                    onChange={e => setFilterStatus(e.target.value)}>
-                    <option value="">Todos los estados</option>
+              <div className="ol-head" style={{ marginBottom: 10 }}>
+                <div>
+                  <h4>Preparación de envíos</h4>
+                  <div className="sub">
+                    El ENVL y la guía se guardan como preparación; «Enviado» solo cuando Bodega PT confirma el despacho.
+                  </div>
+                </div>
+                <div className="end">
+                  <button type="button" className="ol-btn quiet sm" onClick={loadSales} disabled={loading}>
+                    {loading ? <Spinner size="sm" /> : <i className="nc-icon nc-refresh-69" />} Actualizar
+                  </button>
+                </div>
+              </div>
+              {(() => {
+                const base = (sales || []).filter(s => !["ANULADA", "DEVOLUCION", "CANCELADO"].includes(s.status));
+                const sinPreparar = base.filter(s => !s.shipmentNumber && !isDispatchedStatus(s.status)).length;
+                const enviados = base.filter(s => isDispatchedStatus(s.status)).length;
+                const byCarrier = { moto: 0, forza: 0, guatex: 0 };
+                base.forEach(s => { const k = carrierOf(s.shippingCarrier).key; if (byCarrier[k] !== undefined) byCarrier[k] += 1; });
+                return (
+                  <div className="ol-kpis">
+                    <Kpi title="Pedidos" value={base.length} sub={exportDateLabel} />
+                    <Kpi title="Sin preparar" value={sinPreparar} tone={sinPreparar > 0 ? "warn" : "done"}
+                      sub={sinPreparar > 0 ? "Sin número de envío · ver" : "Todos tienen envío"}
+                      onClick={() => setFilterShipmentPending((v) => !v)} />
+                    <Kpi title="Enviados / entregados" value={enviados} sub={`${base.length - enviados} por despachar`} />
+                    <Kpi title="Motorista" value={byCarrier.moto} onClick={() => setFilterCarrier(filterCarrier === "moto" ? "" : "moto")}
+                      sub={<span className="ol-chip moto">Motorista</span>} />
+                    <Kpi title="Forza / Guatex" value={`${byCarrier.forza} / ${byCarrier.guatex}`}
+                      sub={<><span className="ol-chip forza">Forza</span> <span className="ol-chip guatex">Guatex</span></>} />
+                  </div>
+                );
+              })()}
+              <div className="ol-filters" style={{ marginBottom: 0 }}>
+                <div>
+                  <label htmlFor="osh-from">Desde</label>
+                  <Input id="osh-from" type="date" value={filterDate}
+                    onChange={e => {
+                      const v = e.target.value;
+                      if (!v) return;
+                      setSalesRange(v, filterDateTo && filterDateTo >= v ? filterDateTo : v);
+                    }} />
+                </div>
+                <div>
+                  <label htmlFor="osh-to">Hasta</label>
+                  <Input id="osh-to" type="date" value={filterDateTo} min={filterDate}
+                    onChange={e => e.target.value && setFilterDateTo(e.target.value)} />
+                </div>
+                <div className="ol-quick" role="group" aria-label="Fechas rápidas">
+                  <button type="button" onClick={() => setSalesRange(today(), today())}>Hoy</button>
+                  <button type="button" onClick={() => setSalesRange(dateDaysAgo(1), dateDaysAgo(1))}>Ayer</button>
+                  <button type="button" onClick={() => setSalesRange(dateDaysAgo(6), today())}>7 días</button>
+                </div>
+                <div className="grow ol-search">
+                  <label htmlFor="osh-q">Buscar</label>
+                  <Input id="osh-q" type="search" value={filterQuery} placeholder="Cliente, teléfono, envío, guía, pedido…"
+                    onChange={e => setFilterQuery(e.target.value)} />
+                </div>
+                <div>
+                  <label htmlFor="osh-carrier">Transporte</label>
+                  <Input id="osh-carrier" type="select" value={filterCarrier} onChange={e => setFilterCarrier(e.target.value)}>
+                    <option value="">Todos</option>
+                    <option value="moto">Motorista</option>
+                    <option value="forza">Forza</option>
+                    <option value="guatex">Guatex</option>
+                  </Input>
+                </div>
+                <div>
+                  <label htmlFor="osh-status">Estado</label>
+                  <Input id="osh-status" type="select" value={filterStatus} onChange={e => setFilterStatus(e.target.value)}>
+                    <option value="">Todos</option>
                     {SALE_STATUSES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
                   </Input>
-                </Col>
-                <Col md="3" className="text-right">
-                  <Button color="primary" size="sm" onClick={loadSales}>
-                    <i className="nc-icon nc-refresh-69" /> Actualizar
-                  </Button>
-                </Col>
-              </Row>
-              <Row className="mt-1">
-                <Col>
-                  <p className="text-muted mb-0" style={{ fontSize: 13 }}>
-                    Número ENVL y guía/transporte se guardan como preparación (aun sin mandar a producir o antes de bodega).
-                    El estado &quot;Enviado&quot; solo aplica cuando bodega PT confirma el despacho.
-                  </p>
-                </Col>
-              </Row>
+                </div>
+                <label className="ol-check">
+                  <input type="checkbox" checked={filterShipmentPending} onChange={e => setFilterShipmentPending(e.target.checked)} />
+                  Solo sin preparar
+                </label>
+                {(filterQuery || filterCarrier || filterStatus || filterShipmentPending) && (
+                  <div className="end">
+                    <button type="button" className="ol-btn quiet sm"
+                      onClick={() => { setFilterQuery(""); setFilterCarrier(""); setFilterStatus(""); setFilterShipmentPending(false); }}>
+                      Quitar filtros
+                    </button>
+                  </div>
+                )}
+              </div>
             </CardHeader>
             <CardBody style={{ padding: 0 }}>
               {loading ? (
                 <div className="text-center p-4"><Spinner color="primary" /></div>
               ) : shipmentSales.length === 0 ? (
-                <div className="text-center p-4" style={{ color: "#999" }}>
-                  No hay pedidos en esta fecha. Use el filtro de estado o cargue ventas del día.
+                <div className="ol-empty">
+                  <h5>Sin pedidos para preparar</h5>
+                  Cambie las fechas o quite filtros.
                 </div>
               ) : (
                 <div style={{ overflowX: "auto" }}>
@@ -3154,7 +3248,6 @@ function OnlineSales() {
                         <th>Dirección</th>
                         <th>Total</th>
                         <th>Avance OP</th>
-                        <th>Cant. Hecho/Falta</th>
                         <th>N° Envío</th>
                         <th>Transporte</th>
                         <th>Guía</th>
@@ -3166,24 +3259,12 @@ function OnlineSales() {
                     <tbody>
                       {shipmentSales.map((sale) => (
                         <tr key={`shipment-${sale.id}`}>
-                          <td><strong>#{sale.saleNumber || sale.id}</strong></td>
-                          <td>{sale.customerName || "—"}</td>
+                          <td><strong>#{sale.saleNumber || sale.id}</strong><span className="os-sub">{sale.saleDate}</span></td>
+                          <td className="os-strong">{sale.customerName || "—"}</td>
                           <td>{sale.phone || "—"}</td>
-                          <td>{sale.address || "—"}</td>
-                          <td>{formatQ(sale.totalAmount)}</td>
-                          <td>
-                            {(() => {
-                              const p = saleProductionProgress[String(sale.id)];
-                              return p ? `${p.pct}%` : "0%";
-                            })()}
-                          </td>
-                          <td>
-                            {(() => {
-                              const p = saleProductionProgress[String(sale.id)];
-                              if (!p) return "0/0";
-                              return `${p.produced}/${p.pending}`;
-                            })()}
-                          </td>
+                          <td className="os-clip" title={sale.address || ""}>{sale.address || "—"}</td>
+                          <td className="os-num">{formatQ(sale.totalAmount)}</td>
+                          <td><ProgressCell progress={saleProductionProgress[String(sale.id)]} /></td>
                           <td><strong>{sale.shipmentNumber || "—"}</strong></td>
                           <td><CarrierChip carrier={sale.shippingCarrier} /></td>
                           <td>{sale.guideNumber || "—"}</td>
@@ -3191,23 +3272,23 @@ function OnlineSales() {
                           <td>
                             {(() => {
                               const stage = getSaleLogisticsStage(sale);
-                              return <Badge color={stage.color}>{stage.label}</Badge>;
+                              return <span className={`os-stage ${stage.color}`}>{stage.label}</span>;
                             })()}
                           </td>
                           <td style={{ whiteSpace: "nowrap" }}>
                             {isDispatchedStatus(sale.status) || sale.shipmentNumber ? (
                               <>
-                                <Button color="default" size="sm" onClick={() => void printShipmentDocument(sale)} style={{ padding: "3px 8px" }}>
+                                <button type="button" className="ol-btn quiet sm" onClick={() => void printShipmentDocument(sale)}>
                                   Imprimir
-                                </Button>{" "}
-                                <Button color="info" size="sm" onClick={() => void downloadShipmentPdf(sale)} style={{ padding: "3px 8px" }}>
+                                </button>{" "}
+                                <button type="button" className="ol-btn quiet sm" onClick={() => void downloadShipmentPdf(sale)}>
                                   PDF
-                                </Button>
+                                </button>
                               </>
                             ) : (
-                              <Button color="success" size="sm" onClick={() => openShipmentModal(sale)} style={{ padding: "3px 8px" }}>
+                              <button type="button" className="ol-btn primary sm" onClick={() => openShipmentModal(sale)}>
                                 Preparar envío
-                              </Button>
+                              </button>
                             )}
                           </td>
                         </tr>
@@ -3222,48 +3303,48 @@ function OnlineSales() {
 
         {/* ═══ TAB DEVOLUCIONES ═══ */}
         <TabPane tabId="devoluciones">
-          <Card className="mb-3">
+          <Card className="os-card mb-3">
             <CardHeader>
-              <CardTitle tag="h4" className="mb-0">Cambios y devoluciones</CardTitle>
-              <small className="text-muted d-block">
-                Busca el envío por número o por fecha. Cambio reenvía las líneas en Q0. Devolución cierra el pedido completo.
-              </small>
+              <div className="ol-head" style={{ marginBottom: 10 }}>
+                <div>
+                  <h4>Cambios y devoluciones</h4>
+                  <div className="sub">
+                    Busque el envío por número o por fecha. Cambio reenvía las líneas en Q0; devolución cierra el pedido completo.
+                  </div>
+                </div>
+              </div>
+              <div className="ol-filters" style={{ marginBottom: 0 }}>
+                <div className="grow ol-search">
+                  <label htmlFor="odv-env">Número de envío</label>
+                  <Input id="odv-env" type="search" value={lookupShipment} placeholder="Ej. ENVL-00105"
+                    onChange={(e) => setLookupShipment(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter") searchSalesForAction(); }} />
+                </div>
+                <div>
+                  <label htmlFor="odv-from">Desde</label>
+                  <Input id="odv-from" type="date" value={lookupFrom} disabled={Boolean(lookupShipment.trim())}
+                    onChange={(e) => setLookupFrom(e.target.value)} />
+                </div>
+                <div>
+                  <label htmlFor="odv-to">Hasta</label>
+                  <Input id="odv-to" type="date" value={lookupTo} disabled={Boolean(lookupShipment.trim())}
+                    onChange={(e) => setLookupTo(e.target.value)} />
+                </div>
+                <button type="button" className="ol-btn primary" onClick={searchSalesForAction} disabled={lookupLoading}>
+                  {lookupLoading ? <><Spinner size="sm" /> Buscando…</> : "Buscar"}
+                </button>
+                <span className="ol-note" style={{ alignSelf: "center" }}>
+                  Con número de envío no se usan las fechas. Por fecha solo salen ventas Enviado o Entregado.
+                </span>
+              </div>
             </CardHeader>
             <CardBody>
-              {lookupError && <Alert color="danger" toggle={() => setLookupError("")}>{lookupError}</Alert>}
-              <Row className="align-items-end">
-                <Col md="3">
-                  <Label className="mb-0" style={{ fontSize: 12 }}>Número de envío</Label>
-                  <Input
-                    bsSize="sm"
-                    value={lookupShipment}
-                    placeholder="Ej. ENVL-00105"
-                    onChange={(e) => setLookupShipment(e.target.value)}
-                    onKeyDown={(e) => { if (e.key === "Enter") searchSalesForAction(); }}
-                  />
-                </Col>
-                <Col md="2">
-                  <Label className="mb-0" style={{ fontSize: 12 }}>Desde</Label>
-                  <Input type="date" bsSize="sm" value={lookupFrom} onChange={(e) => setLookupFrom(e.target.value)} />
-                </Col>
-                <Col md="2">
-                  <Label className="mb-0" style={{ fontSize: 12 }}>Hasta</Label>
-                  <Input type="date" bsSize="sm" value={lookupTo} onChange={(e) => setLookupTo(e.target.value)} />
-                </Col>
-                <Col md="2">
-                  <Button color="primary" size="sm" onClick={searchSalesForAction} disabled={lookupLoading}>
-                    {lookupLoading ? <><Spinner size="sm" /> Buscando...</> : "Buscar"}
-                  </Button>
-                </Col>
-              </Row>
-              <small className="text-muted d-block mt-2">
-                Si escribes el número de envío, la fecha no se usa. Por fecha solo se listan ventas ENVIADO o ENTREGADO.
-              </small>
+              {lookupError && <div className="ol-alert err" role="alert">{lookupError}<button type="button" onClick={() => setLookupError("")}>Cerrar</button></div>}
 
               {lookupSearched && (
                 <div className="mt-3" style={{ overflowX: "auto" }}>
                   {lookupSales.length === 0 ? (
-                    <Alert color="info" className="mb-0">No hay ventas para esa búsqueda.</Alert>
+                    <div className="ol-empty" style={{ padding: "22px 12px" }}><h5>Sin resultados</h5>Revise el número de envío o el rango de fechas.</div>
                   ) : (
                     <Table bordered responsive size="sm" className="mb-0">
                       <thead className="text-primary">
@@ -3283,16 +3364,16 @@ function OnlineSales() {
                             <td>{sale.saleDate || "—"}</td>
                             <td>{sale.customerName || "—"}</td>
                             <td>{saleProductLabel(sale)}</td>
-                            <td><Badge color="info">{sale.status || "—"}</Badge></td>
+                            <td>{getStatusBadge(sale.status)}</td>
                             <td style={{ whiteSpace: "nowrap" }}>
                               {canReturnOrExchange(sale) ? (
                                 <>
-                                  <Button color="primary" size="sm" className="mr-1" onClick={() => openExchangeModal(sale)}>
+                                  <button type="button" className="ol-btn primary sm mr-1" onClick={() => openExchangeModal(sale)}>
                                     Cambio
-                                  </Button>
-                                  <Button color="dark" size="sm" onClick={() => openReturnModal(sale.id)}>
+                                  </button>
+                                  <button type="button" className="ol-btn quiet sm" onClick={() => openReturnModal(sale.id)}>
                                     Devolución
-                                  </Button>
+                                  </button>
                                 </>
                               ) : (
                                 <span className="text-muted">Solo ENVIADO o ENTREGADO</span>
@@ -3308,86 +3389,68 @@ function OnlineSales() {
             </CardBody>
           </Card>
 
-          <Card>
+          <Card className="os-card">
             <CardHeader>
-              <Row className="align-items-center">
-                <Col md="3">
-                  <CardTitle tag="h4" className="mb-0">Historial</CardTitle>
-                  <small className="text-muted d-block">Documentos que ya ingresaron a Devoluciones</small>
-                </Col>
-                <Col md="2">
-                  <Label className="mb-0" style={{ fontSize: 12 }}>Desde</Label>
-                  <Input type="date" bsSize="sm" value={returnsStartDate}
-                    onChange={(e) => setReturnsStartDate(e.target.value)} />
-                </Col>
-                <Col md="2">
-                  <Label className="mb-0" style={{ fontSize: 12 }}>Hasta</Label>
-                  <Input type="date" bsSize="sm" value={returnsEndDate}
-                    onChange={(e) => setReturnsEndDate(e.target.value)} />
-                </Col>
-                <Col md="2">
-                  <Label className="mb-0" style={{ fontSize: 12 }}>Tipo</Label>
-                  <Input type="select" bsSize="sm" value={returnsDocType}
-                    onChange={(e) => setReturnsDocType(e.target.value)}>
-                    <option value="">Todos</option>
-                    <option value="CAMBIO">Cambio</option>
-                    <option value="DEVOLUCION">Devolución</option>
-                  </Input>
-                </Col>
-                <Col md="1">
-                  <Label className="mb-0" style={{ fontSize: 12 }}>Condición</Label>
-                  <Input type="select" bsSize="sm" value={returnsCondition}
-                    onChange={(e) => setReturnsCondition(e.target.value)}>
-                    <option value="">Todas</option>
-                    <option value="BUENO">BUENO</option>
-                    <option value="USADO">USADO</option>
-                    <option value="DAÑADO">DAÑADO</option>
-                  </Input>
-                </Col>
-                <Col md="2" className="text-right">
-                  <Button
-                    color="primary"
-                    size="sm"
-                    className="mr-2"
-                    onClick={() => loadReturns()}
-                    disabled={loadingReturns}
-                  >
-                    {loadingReturns ? <><Spinner size="sm" /> Cargando...</> : "Actualizar"}
-                  </Button>
-                  <Button
-                    color="default"
-                    size="sm"
+              <div className="ol-head" style={{ marginBottom: 10 }}>
+                <div>
+                  <h4>Historial</h4>
+                  <div className="sub">Documentos que ya ingresaron a Devoluciones · el stock está en Inventarios → Productos → DEVOLUCIÓN</div>
+                </div>
+                <div className="end">
+                  <button type="button" className="ol-btn quiet sm"
                     onClick={() => { window.location.href = "/admin/product-inventory-by-location?category=DEVOLUCION"; }}
-                    title="Ver inventario de productos en categoría DEVOLUCIÓN"
-                  >
+                    title="Ver inventario de productos en categoría DEVOLUCIÓN">
                     Ver inventario
-                  </Button>
-                </Col>
-              </Row>
+                  </button>
+                </div>
+              </div>
+              <div className="ol-filters" style={{ marginBottom: 0 }}>
+                <div>
+                  <label htmlFor="odh-from">Desde</label>
+                  <Input id="odh-from" type="date" value={returnsStartDate} onChange={(e) => setReturnsStartDate(e.target.value)} />
+                </div>
+                <div>
+                  <label htmlFor="odh-to">Hasta</label>
+                  <Input id="odh-to" type="date" value={returnsEndDate} onChange={(e) => setReturnsEndDate(e.target.value)} />
+                </div>
+                <div>
+                  <label>Tipo</label>
+                  <div className="ol-seg sm">
+                    {[["", "Todos"], ["CAMBIO", "Cambio"], ["DEVOLUCION", "Devolución"]].map(([v, l]) => (
+                      <button key={v || "all"} type="button" className={returnsDocType === v ? "is-on" : ""} onClick={() => setReturnsDocType(v)}>{l}</button>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <label htmlFor="odh-cond">Condición</label>
+                  <Input id="odh-cond" type="select" value={returnsCondition} onChange={(e) => setReturnsCondition(e.target.value)}>
+                    <option value="">Todas</option>
+                    <option value="BUENO">Bueno</option>
+                    <option value="USADO">Usado</option>
+                    <option value="DAÑADO">Dañado</option>
+                  </Input>
+                </div>
+                <button type="button" className="ol-btn primary" onClick={() => loadReturns()} disabled={loadingReturns}>
+                  {loadingReturns ? <><Spinner size="sm" /> Cargando…</> : "Actualizar"}
+                </button>
+              </div>
             </CardHeader>
             <CardBody>
-              {returnsError && <Alert color="danger" toggle={() => setReturnsError("")}>{returnsError}</Alert>}
+              {returnsError && <div className="ol-alert err" role="alert">{returnsError}<button type="button" onClick={() => setReturnsError("")}>Cerrar</button></div>}
 
-              <Row className="mb-3">
-                <Col md="6">
-                  <Alert color="light" className="mb-0">
-                    <strong>Total unidades:</strong> {returnsTotals.units} &nbsp;|&nbsp;
-                    <strong>Total Q:</strong> {formatQ(returnsTotals.amount)}
-                  </Alert>
-                </Col>
-                <Col md="6" className="text-right">
-                  <small className="text-muted d-block">
-                    El stock se consulta en Inventarios → Productos → DEVOLUCIÓN.
-                  </small>
-                </Col>
-              </Row>
+              <div className="ol-kpis" style={{ gridTemplateColumns: "repeat(4, minmax(0, 1fr))" }}>
+                <Kpi title="Documentos" value={filteredReturnEvents.length} />
+                <Kpi title="Cambios" value={filteredReturnEvents.filter((e) => isExchangeDocument(e.returnReason)).length} />
+                <Kpi title="Unidades devueltas" value={returnsTotals.units} />
+                <Kpi title="Valor devuelto" value={formatQ(returnsTotals.amount)} />
+              </div>
 
               {loadingReturns ? (
                 <div className="text-center py-4"><Spinner /> <div className="mt-2">Cargando devoluciones...</div></div>
               ) : (
                 <>
                   {filteredReturnEvents.length === 0 ? (
-                    <Alert color="info">No hay documentos en el rango seleccionado.</Alert>
+                    <div className="ol-empty" style={{ padding: "22px 12px" }}><h5>Sin documentos</h5>No hay cambios ni devoluciones en el rango.</div>
                   ) : (
                     <div className="mb-4" style={{ overflowX: "auto" }}>
                       <h6 className="mb-2">Documentos</h6>
@@ -3411,9 +3474,9 @@ function OnlineSales() {
                             <tr key={e.id}>
                               <td><strong>{e.id}</strong></td>
                               <td>
-                                <Badge color={isExchangeDocument(e.returnReason) ? "primary" : "dark"}>
+                                <span className={`ol-st ${isExchangeDocument(e.returnReason) ? "info" : "ret"}`}>
                                   {isExchangeDocument(e.returnReason) ? "Cambio" : "Devolución"}
-                                </Badge>
+                                </span>
                               </td>
                               <td>#{e.onlineSaleId || "—"}</td>
                               <td>{e.relatedShipmentNumber || "—"}</td>
@@ -3433,12 +3496,12 @@ function OnlineSales() {
                               </td>
                               <td style={{ whiteSpace: "pre-wrap" }}>{e.returnReason || "—"}</td>
                               <td style={{ whiteSpace: "nowrap" }}>
-                                <Button color="default" size="sm" onClick={() => printReturnDocument(e.id)} style={{ padding: "3px 8px" }}>
+                                <button type="button" className="ol-btn quiet sm" onClick={() => printReturnDocument(e.id)}>
                                   Imprimir
-                                </Button>{" "}
-                                <Button color="info" size="sm" onClick={() => void downloadReturnPdf(e.id)} style={{ padding: "3px 8px" }}>
-                                  Descargar PDF
-                                </Button>
+                                </button>{" "}
+                                <button type="button" className="ol-btn quiet sm" onClick={() => void downloadReturnPdf(e.id)}>
+                                  PDF
+                                </button>
                               </td>
                             </tr>
                           ))}
@@ -3448,7 +3511,7 @@ function OnlineSales() {
                   )}
 
                   {filteredReturns.length === 0 ? (
-                    <Alert color="light" className="mb-0">Sin líneas de inventario de devolución para el filtro actual.</Alert>
+                    <p className="ol-note mb-0">Sin líneas de inventario de devolución para el filtro actual.</p>
                   ) : (
                     <div style={{ overflowX: "auto" }}>
                       <h6 className="mb-2">Líneas ingresadas a inventario de devoluciones</h6>
@@ -3499,125 +3562,50 @@ function OnlineSales() {
 
         {/* ═══ TAB RESUMEN ═══ */}
         <TabPane tabId="resumen">
-          <Row className="mb-3 align-items-end">
-            <Col md="3">
-              <FormGroup className="mb-md-0">
-                <Label className="font-weight-bold">Desde</Label>
-                <Input
-                  type="date"
-                  value={summaryDateFrom}
-                  onChange={(e) => setSummaryDateFrom(e.target.value)}
-                />
-              </FormGroup>
-            </Col>
-            <Col md="3">
-              <FormGroup className="mb-md-0">
-                <Label className="font-weight-bold">Hasta</Label>
-                <Input
-                  type="date"
-                  value={summaryDateTo}
-                  onChange={(e) => setSummaryDateTo(e.target.value)}
-                />
-              </FormGroup>
-            </Col>
-            <Col md="2" className="d-flex align-items-end">
-              <Button color="primary" size="sm" onClick={loadSummary} disabled={loadingSummary}>
-                {loadingSummary ? "Cargando…" : "Actualizar"}
-              </Button>
-            </Col>
-            <Col md="auto" className="d-flex align-items-end">
-              <Button color="default" size="sm" onClick={exportToExcel} style={{ marginRight: 4 }} disabled={!summary}>
+          <div className="ol-head">
+            <div>
+              <h4>Resumen por fechas</h4>
+              <div className="sub">Totales por vendedor, red social, forma de pago y estado</div>
+            </div>
+            <div className="end">
+              <button type="button" className="ol-btn quiet sm" onClick={exportToExcel} disabled={!summary}>
                 <i className="nc-icon nc-cloud-download-93" /> Excel
-              </Button>
-              <Button color="default" size="sm" onClick={exportToPDF} disabled={!summary}>
+              </button>
+              <button type="button" className="ol-btn quiet sm" onClick={exportToPDF} disabled={!summary}>
                 <i className="nc-icon nc-paper" /> PDF
-              </Button>
-            </Col>
-          </Row>
+              </button>
+            </div>
+          </div>
+          <div className="ol-filters">
+            <div>
+              <label htmlFor="ors-from">Desde</label>
+              <Input id="ors-from" type="date" value={summaryDateFrom} onChange={(e) => setSummaryDateFrom(e.target.value)} />
+            </div>
+            <div>
+              <label htmlFor="ors-to">Hasta</label>
+              <Input id="ors-to" type="date" value={summaryDateTo} onChange={(e) => setSummaryDateTo(e.target.value)} />
+            </div>
+            <div className="ol-quick" role="group" aria-label="Fechas rápidas">
+              <button type="button" onClick={() => { setSummaryDateFrom(today()); setSummaryDateTo(today()); }}>Hoy</button>
+              <button type="button" onClick={() => { setSummaryDateFrom(dateDaysAgo(6)); setSummaryDateTo(today()); }}>7 días</button>
+              <button type="button" onClick={() => { setSummaryDateFrom(`${today().slice(0, 8)}01`); setSummaryDateTo(today()); }}>Este mes</button>
+            </div>
+            <button type="button" className="ol-btn primary" onClick={loadSummary} disabled={loadingSummary}>
+              {loadingSummary ? <><Spinner size="sm" /> Cargando…</> : "Ver resumen"}
+            </button>
+          </div>
 
           {loadingSummary ? (
             <div className="text-center p-4"><Spinner color="primary" /></div>
           ) : summary ? (
             <>
-              <p className="text-muted mb-3">
-                Período: <strong>{summaryRangeLabel}</strong>
-                {summary.totalSalesCount != null ? (
-                  <span> · {summary.totalSalesCount} venta(s) en el rango</span>
-                ) : null}
-              </p>
-              {/* Tarjetas de resumen */}
-              <Row>
-                <Col md="3">
-                  <Card className="card-stats">
-                    <CardBody>
-                      <Row>
-                        <Col xs="5">
-                          <div className="icon-big text-center" style={{ fontSize: 32 }}>📦</div>
-                        </Col>
-                        <Col xs="7">
-                          <div className="numbers">
-                            <p className="card-category">Total Ventas</p>
-                            <CardTitle tag="p">{summary.totalSalesCount}</CardTitle>
-                          </div>
-                        </Col>
-                      </Row>
-                    </CardBody>
-                  </Card>
-                </Col>
-                <Col md="3">
-                  <Card className="card-stats">
-                    <CardBody>
-                      <Row>
-                        <Col xs="5">
-                          <div className="icon-big text-center" style={{ fontSize: 32 }}>💰</div>
-                        </Col>
-                        <Col xs="7">
-                          <div className="numbers">
-                            <p className="card-category">Total Bruto</p>
-                            <CardTitle tag="p">{formatQ(summary.totalAmount)}</CardTitle>
-                          </div>
-                        </Col>
-                      </Row>
-                    </CardBody>
-                  </Card>
-                </Col>
-                <Col md="3">
-                  <Card className="card-stats">
-                    <CardBody>
-                      <Row>
-                        <Col xs="5">
-                          <div className="icon-big text-center" style={{ fontSize: 32 }}>💵</div>
-                        </Col>
-                        <Col xs="7">
-                          <div className="numbers">
-                            <p className="card-category">Total Neto</p>
-                            <CardTitle tag="p" style={{ color: "#2e7d32" }}>{formatQ(summary.totalNetAmount)}</CardTitle>
-                          </div>
-                        </Col>
-                      </Row>
-                    </CardBody>
-                  </Card>
-                </Col>
-                <Col md="3">
-                  <Card className="card-stats">
-                    <CardBody>
-                      <Row>
-                        <Col xs="5">
-                          <div className="icon-big text-center" style={{ fontSize: 32 }}>🚚</div>
-                        </Col>
-                        <Col xs="7">
-                          <div className="numbers">
-                            <p className="card-category">Envíos</p>
-                            <CardTitle tag="p">{formatQ(
-                              parseFloat(summary.totalAmount || 0) - parseFloat(summary.totalNetAmount || 0)
-                            )}</CardTitle>
-                          </div>
-                        </Col>
-                      </Row>
-                    </CardBody>
-                  </Card>
-                </Col>
-              </Row>
+              <div className="ol-kpis" style={{ gridTemplateColumns: "repeat(4, minmax(0, 1fr))" }}>
+                <Kpi title="Ventas" value={summary.totalSalesCount} sub={summaryRangeLabel} />
+                <Kpi title="Total con envío" value={formatQ(summary.totalAmount)} />
+                <Kpi title="Total sin envío" value={formatQ(summary.totalNetAmount)} />
+                <Kpi title="Envíos cobrados"
+                  value={formatQ(parseFloat(summary.totalAmount || 0) - parseFloat(summary.totalNetAmount || 0))} />
+              </div>
 
               {/* Por vendedor */}
               <Row>
@@ -3746,45 +3734,54 @@ function OnlineSales() {
         </TabPane>
         {/* ═══ TAB RESUMEN MENSUAL ═══ */}
         <TabPane tabId="mensual">
-          <Card>
+          <Card className="os-card">
             <CardHeader>
-              <Row className="align-items-center">
-                <Col md="4">
-                  <CardTitle tag="h4" className="mb-0">📅 Resumen Mensual</CardTitle>
-                </Col>
-                <Col md="3">
-                  <Input type="month" bsSize="sm" value={monthFilter}
-                    onChange={e => setMonthFilter(e.target.value)} />
-                </Col>
-                <Col md="auto" className="text-right">
-                  <Button color="primary" size="sm" onClick={loadMonthlySales} style={{ marginRight: 4 }}>
+              <div className="ol-head" style={{ marginBottom: 0 }}>
+                <div>
+                  <h4>Resumen mensual</h4>
+                  <div className="sub">Ventas válidas, devoluciones, anuladas y comisión 2 % por vendedor</div>
+                </div>
+                <div className="end">
+                  <div className="ol-period" role="group" aria-label="Mes">
+                    <button type="button" aria-label="Mes anterior" onClick={() => {
+                      const [y, m] = monthFilter.split("-").map(Number);
+                      const d = new Date(y, m - 2, 1);
+                      setMonthFilter(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`);
+                    }}>‹</button>
+                    <span className="name">
+                      {(() => {
+                        const t = new Date(`${monthFilter}-15T12:00:00`).toLocaleDateString("es-GT", { month: "long", year: "numeric" });
+                        return t.charAt(0).toUpperCase() + t.slice(1);
+                      })()}
+                    </span>
+                    <button type="button" aria-label="Mes siguiente" onClick={() => {
+                      const [y, m] = monthFilter.split("-").map(Number);
+                      const d = new Date(y, m, 1);
+                      setMonthFilter(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`);
+                    }}>›</button>
+                  </div>
+                  <button type="button" className="ol-btn quiet sm" onClick={loadMonthlySales} disabled={loadingMonthly}>
                     <i className="nc-icon nc-refresh-69" /> Actualizar
-                  </Button>
-                  <Button color="default" size="sm" onClick={() => exportMonthlyExcel(true)}
-                    disabled={monthlySales.length === 0} style={{ marginRight: 4 }} title="Excel con comisiones">
-                    <i className="nc-icon nc-cloud-download-93" /> Excel
-                  </Button>
-                  <Button color="default" size="sm" onClick={() => exportMonthlyPDF(true)}
-                    disabled={monthlySales.length === 0} style={{ marginRight: 4 }} title="PDF con comisiones">
-                    <i className="nc-icon nc-paper" /> PDF
-                  </Button>
-                  <Button color="warning" size="sm" onClick={() => exportMonthlyPDF(false)}
-                    disabled={monthlySales.length === 0} style={{ marginRight: 4 }} title="PDF sin comisiones">
-                    <i className="nc-icon nc-paper" /> PDF s/c
-                  </Button>
-                  <Button color="warning" size="sm" onClick={() => exportMonthlyExcel(false)}
-                    disabled={monthlySales.length === 0} title="Excel sin comisiones">
-                    <i className="nc-icon nc-cloud-download-93" /> Excel s/c
-                  </Button>
-                </Col>
-              </Row>
+                  </button>
+                  <div className="os-btngroup" role="group" aria-label="Descargas con comisiones">
+                    <span>Con comisiones</span>
+                    <button type="button" onClick={() => exportMonthlyExcel(true)} disabled={monthlySales.length === 0}>Excel</button>
+                    <button type="button" onClick={() => exportMonthlyPDF(true)} disabled={monthlySales.length === 0}>PDF</button>
+                  </div>
+                  <div className="os-btngroup" role="group" aria-label="Descargas sin comisiones">
+                    <span>Sin comisiones</span>
+                    <button type="button" onClick={() => exportMonthlyExcel(false)} disabled={monthlySales.length === 0}>Excel</button>
+                    <button type="button" onClick={() => exportMonthlyPDF(false)} disabled={monthlySales.length === 0}>PDF</button>
+                  </div>
+                </div>
+              </div>
             </CardHeader>
             <CardBody>
               {loadingMonthly ? (
                 <div className="text-center p-4"><Spinner color="primary" /></div>
               ) : (() => {
                 if (monthlySales.length === 0) {
-                  return <p className="text-muted text-center py-4">No hay ventas en este mes.</p>;
+                  return <div className="ol-empty"><h5>Sin ventas en este mes</h5>Use las flechas para cambiar de mes.</div>;
                 }
 
                 // Agrupar por día
@@ -3863,92 +3860,18 @@ function OnlineSales() {
                 return (
                   <>
                     {/* Tarjetas resumen del mes */}
-                    <Row className="mb-3">
-                      <Col md="2">
-                        <Card className="card-stats">
-                          <CardBody>
-                            <Row>
-                              <Col xs="5"><div className="icon-big text-center" style={{ fontSize: 28 }}>📦</div></Col>
-                              <Col xs="7">
-                                <div className="numbers">
-                                  <p className="card-category">Ventas</p>
-                                  <CardTitle tag="p">{monthlySales.length}</CardTitle>
-                                </div>
-                              </Col>
-                            </Row>
-                          </CardBody>
-                        </Card>
-                      </Col>
-                      <Col md="2">
-                        <Card className="card-stats">
-                          <CardBody>
-                            <Row>
-                              <Col xs="5"><div className="icon-big text-center" style={{ fontSize: 28 }}>💰</div></Col>
-                              <Col xs="7">
-                                <div className="numbers">
-                                  <p className="card-category">Bruto</p>
-                                  <CardTitle tag="p">{formatQ(monthTotalBruto)}</CardTitle>
-                                </div>
-                              </Col>
-                            </Row>
-                          </CardBody>
-                        </Card>
-                      </Col>
-                      <Col md="2">
-                        <Card className="card-stats">
-                          <CardBody>
-                            <Row>
-                              <Col xs="5"><div className="icon-big text-center" style={{ fontSize: 28 }}>💵</div></Col>
-                              <Col xs="7">
-                                <div className="numbers">
-                                  <p className="card-category">Neto</p>
-                                  <CardTitle tag="p" style={{ color: "#2e7d32" }}>{formatQ(monthTotalNeto)}</CardTitle>
-                                </div>
-                              </Col>
-                            </Row>
-                          </CardBody>
-                        </Card>
-                      </Col>
-                      <Col md="2">
-                        <Card className="card-stats">
-                          <CardBody>
-                            <Row>
-                              <Col xs="5"><div className="icon-big text-center" style={{ fontSize: 28 }}>🚚</div></Col>
-                              <Col xs="7">
-                                <div className="numbers">
-                                  <p className="card-category">Envíos</p>
-                                  <CardTitle tag="p">{formatQ(monthTotalEnvios)}</CardTitle>
-                                </div>
-                              </Col>
-                            </Row>
-                          </CardBody>
-                        </Card>
-                      </Col>
+                    <div className="ol-kpis" style={{ gridTemplateColumns: `repeat(${4 + (returnedSales.length > 0 ? 1 : 0) + (voidedSales.length > 0 ? 1 : 0)}, minmax(0, 1fr))` }}>
+                      <Kpi title="Ventas" value={monthlySales.length} />
+                      <Kpi title="Total con envío" value={formatQ(monthTotalBruto)} />
+                      <Kpi title="Total sin envío" value={formatQ(monthTotalNeto)} />
+                      <Kpi title="Envíos" value={formatQ(monthTotalEnvios)} />
                       {returnedSales.length > 0 && (
-                        <Col md="2">
-                          <Card className="card-stats" style={{ borderLeft: "3px solid #ff9800" }}>
-                            <CardBody>
-                              <div className="numbers">
-                                <p className="card-category">🔄 Devoluciones</p>
-                                <CardTitle tag="p" style={{ color: "#e65100" }}>{returnedSales.length} — {formatQ(totalDevoluciones)}</CardTitle>
-                              </div>
-                            </CardBody>
-                          </Card>
-                        </Col>
+                        <Kpi title="Devoluciones" value={formatQ(totalDevoluciones)} sub={`${returnedSales.length} ventas`} />
                       )}
                       {voidedSales.length > 0 && (
-                        <Col md="2">
-                          <Card className="card-stats" style={{ borderLeft: "3px solid #d32f2f" }}>
-                            <CardBody>
-                              <div className="numbers">
-                                <p className="card-category">❌ Anuladas</p>
-                                <CardTitle tag="p" style={{ color: "#d32f2f" }}>{voidedSales.length} — {formatQ(totalAnuladas)}</CardTitle>
-                              </div>
-                            </CardBody>
-                          </Card>
-                        </Col>
+                        <Kpi title="Anuladas" value={formatQ(totalAnuladas)} sub={`${voidedSales.length} ventas`} tone="warn" />
                       )}
-                    </Row>
+                    </div>
 
                     {/* Resumen por vendedor con comisión */}
                     <Row className="mb-3">
@@ -4139,118 +4062,63 @@ function OnlineSales() {
 
         {/* ═══ TAB PRODUCCIÓN ═══ */}
         <TabPane tabId="produccion">
-          <Card>
+          <Card className="os-card">
             <CardHeader>
-              <Row className="align-items-start">
-                <Col md="7">
-                  <CardTitle tag="h4" className="mb-0">
-                    Ventas para despacho o producción
-                  </CardTitle>
-                  <p className="text-muted mb-0" style={{ fontSize: 12 }}>
-                    Decide rápido: lo que ya está en Bodega PT o Devoluciones queda listo para despacho; lo demás genera OP.
-                  </p>
-                </Col>
-                <Col md="5" className="text-right">
-                  <Button color="default" size="sm" className="mr-2" onClick={loadEligibleSales}>
-                    Actualizar
-                  </Button>
-                  <Button
-                    color="success"
-                    size="sm"
-                    className="mr-2"
+              <div className="ol-head" style={{ marginBottom: 10 }}>
+                <div>
+                  <h4>Despacho o producción</h4>
+                  <div className="sub">Lo que ya está en Bodega PT o Devoluciones queda listo para despacho; lo demás genera OP.</div>
+                </div>
+                <div className="end">
+                  <button type="button" className="ol-btn quiet sm" onClick={loadEligibleSales}>
+                    <i className="nc-icon nc-refresh-69" /> Actualizar
+                  </button>
+                  <button type="button" className="ol-btn sm"
                     disabled={selectedWithStock.length === 0 || loadingPO}
                     onClick={handleMarkReadyFromBodega}
-                    title="Descuenta inventario (Bodega PT / Devoluciones) y deja la venta PRODUCIDO/lista para despacho"
-                  >
+                    title="Descuenta inventario (Bodega PT / Devoluciones) y deja la venta PRODUCIDO/lista para despacho">
                     {loadingPO ? <Spinner size="sm" /> : `Listo para despacho (${selectedWithStock.length})`}
-                  </Button>
-                  <Button
-                    color="primary"
-                    size="sm"
+                  </button>
+                  <button type="button" className="ol-btn primary sm"
                     disabled={selectedWithoutStock.length === 0 || loadingPO}
                     onClick={handleCreatePO}
-                    title="Crea OP solo para ventas sin stock en Bodega PT / Devoluciones"
-                  >
+                    title="Crea OP solo para ventas sin stock en Bodega PT / Devoluciones">
                     {loadingPO ? <Spinner size="sm" /> : `Crear OP (${selectedWithoutStock.length})`}
-                  </Button>
-                </Col>
-              </Row>
+                  </button>
+                </div>
+              </div>
+              <div className="ol-kpis" style={{ gridTemplateColumns: "repeat(3, minmax(0, 1fr))" }}>
+                <Kpi title="Pendientes" value={filteredEligibleSales.length} sub={`${selectedForPO.size} seleccionadas`} />
+                <Kpi title="En Bodega PT / Devoluciones" value={visibleWithStock.length} tone={visibleWithStock.length > 0 ? "done" : ""}
+                  sub="Clic para seleccionar y dejar listo" onClick={selectSalesWithBodegaStock} />
+                <Kpi title="Requiere producción" value={visibleWithoutStock.length}
+                  sub="Clic para seleccionar y crear OP" onClick={selectSalesWithoutBodegaStock} />
+              </div>
+              <div className="ol-filters" style={{ marginBottom: 0 }}>
+                <div>
+                  <label htmlFor="opr-from">Desde</label>
+                  <Input id="opr-from" type="date" value={productionDateFrom} onChange={e => setProductionDateFrom(e.target.value)} />
+                </div>
+                <div>
+                  <label htmlFor="opr-to">Hasta</label>
+                  <Input id="opr-to" type="date" value={productionDateTo} onChange={e => setProductionDateTo(e.target.value)} />
+                </div>
+                <button type="button" className="ol-btn sm" style={{ height: 32 }} onClick={applyProductionDateFilter}>Filtrar</button>
+                <button type="button" className="ol-btn quiet sm" style={{ height: 32 }} onClick={clearProductionDateFilter}>Ver todas</button>
+                <div className="end">
+                  <div>
+                    <label htmlFor="opr-day">Seleccionar un día</label>
+                    <Input id="opr-day" type="date" value={productionBulkDate} onChange={e => setProductionBulkDate(e.target.value)} />
+                  </div>
+                  <button type="button" className="ol-btn sm" style={{ height: 32, alignSelf: "flex-end" }} onClick={selectAllForDay}>Seleccionar</button>
+                  <button type="button" className="ol-btn quiet sm" style={{ height: 32, alignSelf: "flex-end" }} onClick={clearProductionSelection}>Limpiar</button>
+                </div>
+              </div>
             </CardHeader>
             <CardBody>
-              <Row className="mb-3">
-                <Col md="4">
-                  <div style={{ border: "1px solid #e9ecef", borderRadius: 8, padding: 12, background: "#f8f9fa" }}>
-                    <div className="text-muted" style={{ fontSize: 11, textTransform: "uppercase", fontWeight: 700 }}>
-                      Total pendiente
-                    </div>
-                    <div style={{ fontSize: 24, fontWeight: 700 }}>{filteredEligibleSales.length}</div>
-                    <small className="text-muted">{selectedForPO.size} seleccionada(s)</small>
-                  </div>
-                </Col>
-                <Col md="4">
-                  <div
-                    onClick={selectSalesWithBodegaStock}
-                    style={{ border: "1px solid #d4edda", borderRadius: 8, padding: 12, background: "#f3fbf5", cursor: "pointer" }}
-                  >
-                    <div className="text-success" style={{ fontSize: 11, textTransform: "uppercase", fontWeight: 700 }}>
-                      En Bodega PT / Devoluciones
-                    </div>
-                    <div className="text-success" style={{ fontSize: 24, fontWeight: 700 }}>{visibleWithStock.length}</div>
-                    <small className="text-muted">Click para seleccionar y dejar listo</small>
-                  </div>
-                </Col>
-                <Col md="4">
-                  <div
-                    onClick={selectSalesWithoutBodegaStock}
-                    style={{ border: "1px solid #cce5ff", borderRadius: 8, padding: 12, background: "#f4f9ff", cursor: "pointer" }}
-                  >
-                    <div className="text-primary" style={{ fontSize: 11, textTransform: "uppercase", fontWeight: 700 }}>
-                      Requiere producción
-                    </div>
-                    <div className="text-primary" style={{ fontSize: 24, fontWeight: 700 }}>{visibleWithoutStock.length}</div>
-                    <small className="text-muted">Click para seleccionar y crear OP</small>
-                  </div>
-                </Col>
-              </Row>
-
-              <Row className="mb-3 align-items-end">
-                <Col md="2">
-                  <Label className="mb-1">Desde</Label>
-                  <Input type="date" bsSize="sm" value={productionDateFrom}
-                    onChange={e => setProductionDateFrom(e.target.value)} />
-                </Col>
-                <Col md="2">
-                  <Label className="mb-1">Hasta</Label>
-                  <Input type="date" bsSize="sm" value={productionDateTo}
-                    onChange={e => setProductionDateTo(e.target.value)} />
-                </Col>
-                <Col md="3" className="d-flex align-items-end">
-                  <Button color="primary" size="sm" onClick={applyProductionDateFilter} className="mr-2">
-                    Filtrar
-                  </Button>
-                  <Button color="default" size="sm" onClick={clearProductionDateFilter}>
-                    Ver todas
-                  </Button>
-                </Col>
-                <Col md="2">
-                  <Label className="mb-1">Seleccionar día</Label>
-                  <Input type="date" bsSize="sm" value={productionBulkDate}
-                    onChange={e => setProductionBulkDate(e.target.value)} />
-                </Col>
-                <Col md="3" className="text-right">
-                  <Button color="secondary" size="sm" onClick={selectAllForDay} className="mr-2">
-                    Seleccionar día
-                  </Button>
-                  <Button color="danger" size="sm" outline onClick={clearProductionSelection}>
-                    Limpiar
-                  </Button>
-                </Col>
-              </Row>
 
               {filteredEligibleSales.length === 0 ? (
-                <Alert color="info">
-                  <strong>Sin ventas elegibles para el filtro aplicado.</strong> Ajusta fechas o usa "Ver todas".
-                </Alert>
+                <div className="ol-empty"><h5>Nada pendiente</h5>Sin ventas elegibles para el filtro. Ajuste fechas o use «Ver todas».</div>
               ) : (
                 <>
                   <div className="mb-2 text-muted" style={{ fontSize: 12 }}>

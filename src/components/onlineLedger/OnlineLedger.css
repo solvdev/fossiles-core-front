@@ -166,6 +166,57 @@
 .ol-calc small { color: #66615b; font-weight: 400; }
 .ol-card .warnline { padding: 8px 14px; background: #fff8e6; color: #7a5a00; font-size: 12px; border-top: 1px solid #f0dfae; }
 
+/* ── Ventas Online: tarjetas y tablas de las demás pestañas con la misma base ── */
+.ol .card { border: 1px solid #e3e0d9; border-radius: 10px; box-shadow: none; }
+.ol .card > .card-header { background: #fff; border-bottom: 1px solid #ecebe6; padding: 14px 16px 12px; }
+.ol .card > .card-header .card-title { font-size: 15px; font-weight: 700; margin: 0; color: #403d39; }
+.ol .card > .card-header h5.card-title { font-size: 14px; }
+.ol .card > .card-body { padding: 14px 16px; }
+.ol .os-card > .card-body { padding: 0; }
+.ol .os-card > .card-body > .ol-alert,
+.ol .os-card > .card-body > .ol-kpis,
+.ol .os-card > .card-body > .ol-note { margin: 12px 16px; }
+.ol .os-card > .card-body > .mb-4, .ol .os-card > .card-body > div > .mb-4 { margin: 0 !important; }
+.ol .os-card > .card-body h6 { margin: 14px 16px 6px !important; font-size: 12px; font-weight: 700; color: #66615b; text-transform: none; }
+.ol .os-card > .card-body > .mt-3 { margin-top: 0 !important; }
+.ol .ol-kpis .k:first-child { border-left: 0; }
+.ol .card .ol-kpis, .ol .card-header .ol-kpis { margin-bottom: 10px; }
+
+.ol .table { margin-bottom: 0; color: #403d39; font-size: 12.5px; }
+.ol .table thead th, .ol .table thead { background: #faf9f6 !important; }
+.ol .table thead th { color: #66615b !important; font-size: 11px; font-weight: 700; text-transform: none; letter-spacing: 0;
+  border-top: 0; border-bottom: 1px solid #d9d5cc; padding: 8px 10px; white-space: nowrap; position: sticky; top: 0; z-index: 1; }
+.ol .table td { border-top: 1px solid #ecebe6; padding: 7px 10px; vertical-align: middle; }
+.ol .table-bordered, .ol .table-bordered td, .ol .table-bordered th { border-color: #ecebe6; }
+.ol .table-bordered { border-left: 0; border-right: 0; }
+.ol .table-hover tbody tr:hover { background: #f3fcfc; }
+.ol .table .os-num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ol .table .os-strong { font-weight: 600; }
+.ol .table .os-clip { max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ol .os-sub { display: block; font-size: 10.5px; color: #9a958c; line-height: 1.1; font-weight: 400; }
+.ol .badge { font-weight: 600; text-transform: none; letter-spacing: 0; border-radius: 6px; padding: 3px 7px; font-size: 11px; }
+.ol .card-stats { border-radius: 10px; }
+.ol .text-primary:not(.btn):not(.ol-seg *) { color: #0b6b6f !important; }
+
+.ol .os-progress { display: flex; align-items: center; gap: 6px; min-width: 96px; font-size: 11.5px; color: #66615b; font-variant-numeric: tabular-nums; }
+.ol .os-progress .bar { flex: 1; height: 6px; border-radius: 3px; background: #ecebe6; overflow: hidden; }
+.ol .os-progress .bar i { display: block; height: 100%; background: #51cbce; }
+.ol .os-progress .bar i.done { background: #18a05c; }
+.ol .os-stage { display: inline-block; padding: 2px 8px; border-radius: 6px; font-size: 11.5px; font-weight: 600; white-space: nowrap; background: #ecebe6; color: #403d39; }
+.ol .os-stage.info, .ol .os-stage.primary { background: #e3f1f6; color: #17607a; }
+.ol .os-stage.success { background: #dff3e7; color: #116a3d; }
+.ol .os-stage.warning { background: #fff4d6; color: #7a5a00; }
+.ol .os-btngroup { display: inline-flex; align-items: center; border: 1px solid #e3e0d9; border-radius: 8px; overflow: hidden; height: 30px; background: #fff; }
+.ol .os-btngroup span { padding: 0 8px; font-size: 11px; font-weight: 600; color: #66615b; background: #faf9f6; height: 100%; display: inline-flex; align-items: center; border-right: 1px solid #e3e0d9; }
+.ol .os-btngroup button { border: 0; background: none; height: 100%; padding: 0 10px; font-size: 12.5px; font-weight: 600; color: #0b6b6f; cursor: pointer; }
+.ol .os-btngroup button + button { border-left: 1px solid #e3e0d9; }
+.ol .os-btngroup button:hover:not(:disabled) { background: #e6f7f7; }
+.ol .os-btngroup button:disabled { color: #b4afa6; cursor: default; }
+.ol .ol-filters .form-control:disabled { background: #f4f3ef; color: #9a958c; }
+.ol .ol-filters .end > div label { display: block; }
+.ol .ol-filters .end { align-items: flex-end; }
+.ol > .ol-bar .ol-seg { background: #e8e6df; }
+
 @media (max-width: 1100px) {
   .ol-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .ol-kpis .k { border-left: 0 !important; border-top: 1px solid #e3e0d9; }
