@@ -217,6 +217,11 @@
 .ol .ol-filters .end { align-items: flex-end; }
 .ol > .ol-bar .ol-seg { background: #e8e6df; }
 
+.ol .os-daynav { height: 32px; padding: 2px; }
+.ol .os-daynav button { height: 26px; }
+.ol .os-daynav button:disabled { opacity: .35; cursor: default; background: none; }
+.ol .os-daynav .name { min-width: 112px; font-size: 12.5px; text-transform: capitalize; }
+
 @media (max-width: 1100px) {
   .ol-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .ol-kpis .k { border-left: 0 !important; border-top: 1px solid #e3e0d9; }

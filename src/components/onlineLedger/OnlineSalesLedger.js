@@ -8,6 +8,7 @@ import {
   netOf, effectiveSentDate, effectivePaymentForm, isPendingReview, isVoided, sellerLabel, computeCommissions,
   computeAccountingSummary, matchesQuery,
 } from "./onlineLedgerHelper";
+import DayNav from "./DayNav";
 import "./OnlineLedger.css";
 
 /**
@@ -625,6 +626,7 @@ function OnlineSalesLedger() {
             <input id="ol-to" type="date" className="form-control" value={to} min={from || undefined}
               onChange={(e) => e.target.value && setTo(e.target.value)} />
           </div>
+          <DayNav from={from} to={to} onChange={(f, t) => setRange({ from: f, to: t })} label="Mover" />
           <div className="ol-quick" role="group" aria-label="Periodos rápidos">
             <button type="button" className={isRange({ from: today, to: today }) ? "is-on" : ""} onClick={() => setRange({ from: today, to: today })}>Hoy</button>
             <button type="button" className={isRange(thisMonth) ? "is-on" : ""} onClick={() => setRange(thisMonth)}>Este mes</button>

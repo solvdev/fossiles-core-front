@@ -35,6 +35,7 @@ import EditTaxInvoiceFelModal from "../../components/accounting/EditTaxInvoiceFe
 import { useAuth } from "../../contexts/AuthContext";
 import { canEditTaxInvoiceFel } from "../../utils/taxInvoiceEditHelper";
 import OnlineSalesLedger from "../../components/onlineLedger/OnlineSalesLedger";
+import DayNav from "../../components/onlineLedger/DayNav";
 import { carrierOf, fold, statusOf } from "../../components/onlineLedger/onlineLedgerHelper";
 import "../../components/onlineLedger/OnlineLedger.css";
 
@@ -2872,6 +2873,7 @@ function OnlineSales() {
                   <Input id="os-to" type="date" value={filterDateTo} min={filterDate}
                     onChange={e => e.target.value && setFilterDateTo(e.target.value)} />
                 </div>
+                <DayNav from={filterDate} to={filterDateTo} onChange={setSalesRange} />
                 <div className="ol-quick" role="group" aria-label="Fechas rápidas">
                   <button type="button" className={filterDate === today() && filterDateTo === today() ? "is-on" : ""}
                     onClick={() => setSalesRange(today(), today())}>Hoy</button>
@@ -3189,6 +3191,7 @@ function OnlineSales() {
                   <Input id="osh-to" type="date" value={filterDateTo} min={filterDate}
                     onChange={e => e.target.value && setFilterDateTo(e.target.value)} />
                 </div>
+                <DayNav from={filterDate} to={filterDateTo} onChange={setSalesRange} />
                 <div className="ol-quick" role="group" aria-label="Fechas rápidas">
                   <button type="button" onClick={() => setSalesRange(today(), today())}>Hoy</button>
                   <button type="button" onClick={() => setSalesRange(dateDaysAgo(1), dateDaysAgo(1))}>Ayer</button>
@@ -3585,6 +3588,8 @@ function OnlineSales() {
               <label htmlFor="ors-to">Hasta</label>
               <Input id="ors-to" type="date" value={summaryDateTo} onChange={(e) => setSummaryDateTo(e.target.value)} />
             </div>
+            <DayNav from={summaryDateFrom} to={summaryDateTo}
+              onChange={(f, t) => { setSummaryDateFrom(f); setSummaryDateTo(t); }} />
             <div className="ol-quick" role="group" aria-label="Fechas rápidas">
               <button type="button" onClick={() => { setSummaryDateFrom(today()); setSummaryDateTo(today()); }}>Hoy</button>
               <button type="button" onClick={() => { setSummaryDateFrom(dateDaysAgo(6)); setSummaryDateTo(today()); }}>7 días</button>
