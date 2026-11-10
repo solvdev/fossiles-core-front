@@ -335,3 +335,24 @@ body.ol-resizing, body.ol-resizing * { cursor: col-resize !important; user-selec
 .ol-status b { color: #403d39; font-variant-numeric: tabular-nums; }
 .ol-shortcuts { max-height: calc(100vh - 48px); overflow: auto; }
 .ol-shortcuts tr.grp td { padding-top: 8px; font-size: 11px; font-weight: 700; color: #66615b; text-transform: uppercase; letter-spacing: .03em; }
+
+/* ── Revisión por periodo ── */
+.ol-review { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; padding: 8px 12px; background: #fff; border: 1px solid #e3e0d9; border-radius: 10px; margin-bottom: 10px; font-size: 12.5px; }
+.ol-review > .ttl { font-weight: 700; color: #66615b; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
+.ol-review > .end { margin-left: auto; }
+.ol-pcard { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding: 4px 6px 4px 4px; border-radius: 8px; }
+.ol-pcard.open { background: #f3fcfc; box-shadow: inset 0 0 0 1px #b9e6e7; }
+.ol-pcard.closed { background: #eef0f3; box-shadow: inset 0 0 0 1px #d9dde3; }
+.ol-pcard .who { color: #66615b; }
+.ol-pcard .act { display: inline-flex; gap: 6px; }
+.ol-pcard .prog { display: inline-flex; align-items: center; gap: 6px; color: #403d39; font-variant-numeric: tabular-nums; }
+.ol-pcard .prog em { font-style: normal; color: #7a5a00; }
+.ol-pcard .prog .bar { width: 80px; height: 6px; border-radius: 3px; background: #dceeee; overflow: hidden; }
+.ol-pcard .prog .bar i { display: block; height: 100%; background: #18a05c; }
+.ol-pst { display: inline-block; padding: 2px 8px; border-radius: 6px; font-size: 11.5px; font-weight: 700; white-space: nowrap; }
+.ol-pst.open { background: #dff3e7; color: #116a3d; }
+.ol-pst.closed { background: #4a4f57; color: #fff; }
+.ol-periods-menu { width: 360px; max-height: 360px; overflow: auto; padding: 6px; }
+.ol-period-item { display: grid; grid-template-columns: auto 1fr; gap: 0 8px; width: 100%; text-align: left; border: 0; background: none; padding: 6px 8px; border-radius: 6px; cursor: pointer; color: #403d39; font-size: 12.5px; }
+.ol-period-item:hover, .ol-period-item:focus-visible { background: #e6f7f7; }
+.ol-period-item small { grid-column: 2; color: #66615b; }

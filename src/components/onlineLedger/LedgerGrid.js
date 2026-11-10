@@ -288,7 +288,7 @@ const GridRow = React.memo(function GridRow({
             <input type="checkbox" tabIndex={-1} checked={checked} onChange={(e) => onCheck(row.id, e.target.checked)} aria-label={`Marcar línea ${n}`} />
           )}
           {(locked || canLock) && (
-            <button type="button" tabIndex={-1} className={`ol-lockbtn${locked ? " is-on" : ""}`} disabled={locked ? !canUnlock : !canLock}
+            <button type="button" tabIndex={-1} className={`ol-lockbtn${locked ? " is-on" : ""}`} disabled={locked ? (!canUnlock || row.periodClosed) : !canLock}
               title={locked && !canUnlock ? `${lockTitle(row)} · solo un administrador puede desbloquearla` : lockTitle(row)}
               aria-label={locked ? "Línea bloqueada" : "Bloquear línea"} aria-pressed={locked} onClick={() => onToggleLock(row)}>🔒</button>
           )}
@@ -439,6 +439,7 @@ export default function LedgerGrid({
     const row = rows[r];
     if (!col || !row) return;
     if (!canEdit) onMessage("Solo lectura: no tiene permiso para editar el libro.");
+    else if (row.periodClosed) onMessage(`El periodo «${row.periodLabel || ""}» está cerrado: un administrador puede reabrirlo.`);
     else if (row.locked) onMessage("Esta línea está bloqueada: ya no se modifica.");
     else if (!col.field) onMessage(`«${col.label}» es dato de la venta y no se edita aquí.`);
   }, [columns, rows, canEdit, onMessage]);
@@ -760,7 +761,7 @@ export default function LedgerGrid({
         <span className="val" title={formula}>{formula}</span>
         {formulaOrig !== null && <span className="orig">En la venta: <b>{formulaOrig || "(vacío)"}</b> · Supr para volver a ese dato</span>}
         {activeCol && !activeCol.field && <span className="ro-tag">🔒 de la venta</span>}
-        {activeRow?.locked && <span className="ro-tag">🔒 línea bloqueada</span>}
+        {activeRow?.locked && <span className="ro-tag">🔒 {activeRow.periodClosed ? `periodo «${activeRow.periodLabel || ""}» cerrado` : "línea bloqueada"}</span>}
       </div>
       <div className="ol-sheet-wrap ol-grid" ref={wrapRef} tabIndex={0} onKeyDown={onKeyDown} onMouseDown={onMouseDown}
         onMouseOver={onMouseOver} onDoubleClick={onDoubleClick} role="grid" aria-rowcount={rows.length} aria-colcount={columns.length}

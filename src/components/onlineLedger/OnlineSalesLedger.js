@@ -11,6 +11,7 @@ import {
 } from "./onlineLedgerHelper";
 import DayNav, { addDays } from "./DayNav";
 import LedgerGrid, { applyColumnFilters } from "./LedgerGrid";
+import ReviewPeriodsBar from "./ReviewPeriodsBar";
 import "./OnlineLedger.css";
 
 /**
@@ -30,6 +31,9 @@ const DELIVERY_NOTES = ["ENTREGADO", "PENDIENTE", "DEVOLUCIÓN", "REPROGRAMADO"]
 
 /** «Bloqueada por ana el 10/11/2026 14:05» para el título del candado. */
 const lockTitle = (row) => {
+  if (row.periodClosed) {
+    return `Periodo «${row.periodLabel || ""}» cerrado${row.lockedByName ? ` por ${row.lockedByName}` : ""}: se reabre el periodo, no la línea`;
+  }
   if (!row.locked) return "Bloquear esta línea: ya no se podrá modificar";
   const at = row.lockedAt ? String(row.lockedAt) : "";
   const when = at ? ` el ${formatDay(at)}${at.length >= 16 ? ` ${at.slice(11, 16)}` : ""}` : "";
@@ -378,7 +382,10 @@ function OnlineSalesLedger() {
   const [from, setFrom] = useState(initial.from);
   const [to, setTo] = useState(initial.to);
   const [rows, setRows] = useState([]);
-  const [meta, setMeta] = useState({ canEdit: false, canLock: false, canUnlock: false, commissionRate: 0.02, vatRate: 0.12, truncated: false, historyQuery: "" });
+  const [meta, setMeta] = useState({
+    canEdit: false, canLock: false, canUnlock: false, commissionRate: 0.02, vatRate: 0.12, truncated: false, historyQuery: "",
+    periods: [], canManagePeriods: false, canReopenPeriods: false,
+  });
   const [selected, setSelected] = useState(() => new Set());
   const [fLock, setFLock] = useState("");
   const [locking, setLocking] = useState(false);
@@ -423,6 +430,9 @@ function OnlineSalesLedger() {
         vatRate: num(data.vatRate) || 0.12,
         truncated: Boolean(data.truncated),
         historyQuery: opts.history || "",
+        periods: data.periods || [],
+        canManagePeriods: Boolean(data.canManagePeriods),
+        canReopenPeriods: Boolean(data.canReopenPeriods),
       });
       setCellStates({});
       setSelected(new Set());
@@ -684,7 +694,8 @@ function OnlineSalesLedger() {
   const lockStats = useMemo(() => ({
     locked: active.filter((r) => r.locked).length,
     selToLock: selectedRows.filter((r) => !r.locked).length,
-    selToUnlock: selectedRows.filter((r) => r.locked).length,
+    selToUnlock: selectedRows.filter((r) => r.locked && !r.periodClosed).length,
+    unlockable: active.filter((r) => r.locked && !r.periodClosed).length,
   }), [active, selectedRows]);
 
   const selectRow = useCallback((id, on) => setSelected((prev) => {
@@ -696,7 +707,7 @@ function OnlineSalesLedger() {
 
   /** Bloquea o desbloquea las filas dadas (solo las que cambian de estado). */
   const applyLock = useCallback(async (targetRows, lock, confirmText) => {
-    const ids = targetRows.filter((r) => Boolean(r.locked) !== lock).map((r) => r.id);
+    const ids = targetRows.filter((r) => Boolean(r.locked) !== lock && !(r.periodClosed && !lock)).map((r) => r.id);
     if (ids.length === 0) return;
     if (confirmText && !window.confirm(confirmText)) return;
     setLocking(true);
@@ -905,6 +916,20 @@ function OnlineSalesLedger() {
         </button>
       </div>
 
+      <ReviewPeriodsBar
+        from={from}
+        to={to}
+        rows={rows}
+        periods={meta.periods}
+        canManage={meta.canManagePeriods}
+        canReopen={meta.canReopenPeriods}
+        historyMode={Boolean(meta.historyQuery)}
+        onChanged={() => load()}
+        onGoTo={(p) => { if (p.from === from && p.to === to) load(); else setRange({ from: p.from, to: p.to }); }}
+        onError={setError}
+        onNotice={setNotice}
+      />
+
       <div className="ol-bar">
         <div className="ol-seg" role="tablist">
           <button type="button" role="tab" aria-selected={tab === "ventas"} className={tab === "ventas" ? "is-on" : ""} onClick={() => setTab("ventas")}>
@@ -1069,10 +1094,10 @@ function OnlineSalesLedger() {
             onClick={() => applyLock(active, true, `¿Bloquear las ${active.length - lockStats.locked} ventas sin bloquear de ${hasFilters || tab === "moto" ? "este filtro" : "este periodo"}? Ya no se podrán modificar; solo un administrador puede desbloquearlas.`)}>
             {locking ? <Spinner size="sm" /> : null} Bloquear todas las del filtro ({active.length - lockStats.locked})
           </button>
-          {canUnlock && lockStats.locked > 0 && (
+          {canUnlock && lockStats.unlockable > 0 && (
             <button type="button" className="ol-btn quiet sm" disabled={locking}
-              onClick={() => applyLock(active, false, `¿Desbloquear las ${lockStats.locked} ventas bloqueadas de este filtro? Se podrán volver a modificar.`)}>
-              Desbloquear todas ({lockStats.locked})
+              onClick={() => applyLock(active, false, `¿Desbloquear las ${lockStats.unlockable} ventas bloqueadas de este filtro? Se podrán volver a modificar.`)}>
+              Desbloquear todas ({lockStats.unlockable})
             </button>
           )}
           <span className="end">{lockStats.locked} de {active.length} bloqueadas{canUnlock ? "" : " · desbloquear: solo un administrador"}</span>

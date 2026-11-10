@@ -461,6 +461,37 @@ export const lockOnlineSaleLedger = async (saleIds, locked) => {
   return response.json();
 };
 
+// ── Periodos de revisión del libro: abrir, cerrar (bloquea el rango), reabrir (solo admin), borrar (si está abierto) ──
+
+export const getOnlineLedgerPeriods = async () => {
+  const response = await fetch(`${API_URL}/online-sales-ledger/periods`, { headers: headers() });
+  if (!response.ok) throw await ledgerError(response, 'No se pudieron cargar los periodos de revisión');
+  return response.json();
+};
+
+export const openOnlineLedgerPeriod = async (from, to, note) => {
+  const response = await fetch(`${API_URL}/online-sales-ledger/periods`, {
+    method: 'POST',
+    headers: headers(),
+    body: JSON.stringify({ from, to, note })
+  });
+  if (!response.ok) throw await ledgerError(response, 'No se pudo abrir el periodo');
+  return response.json();
+};
+
+const periodAction = async (id, action, fallback) => {
+  const response = await fetch(`${API_URL}/online-sales-ledger/periods/${id}/${action}`, { method: 'POST', headers: headers() });
+  if (!response.ok) throw await ledgerError(response, fallback);
+  return response.json();
+};
+export const closeOnlineLedgerPeriod = (id) => periodAction(id, 'close', 'No se pudo cerrar el periodo');
+export const reopenOnlineLedgerPeriod = (id) => periodAction(id, 'reopen', 'No se pudo reabrir el periodo');
+
+export const deleteOnlineLedgerPeriod = async (id) => {
+  const response = await fetch(`${API_URL}/online-sales-ledger/periods/${id}`, { method: 'DELETE', headers: headers() });
+  if (!response.ok) throw await ledgerError(response, 'No se pudo borrar el periodo');
+};
+
 /** Descarga el Excel del periodo (Ventas, Comisiones, Moto, Faltantes). */
 export const downloadOnlineSalesLedgerExcel = async (from, to) => {
   const response = await fetch(
