@@ -22,6 +22,7 @@ import { lookupKioskSale } from "services/kioskExchangeService";
 import { lookupTaxpayerByNit } from "services/kioskPosService";
 import { formatFelCustomerName, isValidGuatemalaNit, normalizeNit } from "views/kiosks/pos/posUtils";
 import Select from "react-select";
+import { CONSUMIDOR_FINAL_LIMIT } from "utils/taxInvoiceLabels";
 
 const DISCOUNT_OPTIONS = [
   { value: "0", label: "Precio normal" },
@@ -171,6 +172,9 @@ function AccountingInvoiceForm() {
       }, 0),
     [form.lines]
   );
+  const isConsumidorFinal = (normalizeNit(form.customerTaxId) || "CF") === "CF";
+  const exceedsConsumidorFinalLimit =
+    isConsumidorFinal && !String(form.kioskSaleNumber || "").trim() && linesTotal >= CONSUMIDOR_FINAL_LIMIT;
 
   const patchLine = (index, patch) => {
     setForm((prev) => ({
@@ -332,6 +336,10 @@ function AccountingInvoiceForm() {
       setError("Seleccione el establecimiento desde donde se emitirá la factura.");
       return;
     }
+    if (exceedsConsumidorFinalLimit) {
+      setError("SAT no acepta facturas a Consumidor Final (CF) de Q2,500.00 o más. Ingrese el NIT o CUI del cliente.");
+      return;
+    }
 
     try {
       setSaving(true);
@@ -409,11 +417,11 @@ function AccountingInvoiceForm() {
                     value={form.kioskSaleNumber}
                     onChange={(e) => setForm((prev) => ({ ...prev, kioskSaleNumber: e.target.value }))}
                     onBlur={lookupPosSale}
-                    placeholder="Número de venta = fel_transaction_id"
+                    placeholder="Ej. POS-20261102-0005"
                     disabled={!form.locationId}
                   />
                   <small className="text-muted d-block mt-1">
-                    Mismo valor que sale_number en POS. Busca la venta y usa sus datos al certificar.
+                    Número de venta del POS. Trae el cliente y las líneas de esa venta.
                   </small>
                 </FormGroup>
               </Col>
@@ -503,14 +511,13 @@ function AccountingInvoiceForm() {
               <Col md="4">
                 <FormGroup>
                   <Label>Tipo de documento</Label>
-                  <Input type="select" value={form.documentType} disabled>
-                    <option value="FACT">Factura (FACT)</option>
-                    <option value="FCAM">Factura Cambiaria (FCAM)</option>
-                  </Input>
+                  <div className="form-control-plaintext py-1">
+                    {resolvedDocumentType === "FCAM" ? "Factura cambiaria (FCAM)" : "Factura (FACT)"}
+                  </div>
                   <small className="text-muted">
                     {resolvedDocumentType === "FCAM"
-                      ? "Establecimiento 1 emite FCAM (complemento Abonos SAT)."
-                      : "Los demás establecimientos emiten FACT."}
+                      ? "El establecimiento 1 (central) siempre emite factura cambiaria."
+                      : "Lo define el establecimiento emisor."}
                   </small>
                 </FormGroup>
               </Col>
@@ -637,7 +644,16 @@ function AccountingInvoiceForm() {
                       </td>
                       <td className="align-middle text-right">{formatMoney(lineTotal)}</td>
                       <td>
-                        <Button type="button" color="danger" size="sm" onClick={() => removeLine(index)}>
+                        <Button
+                          type="button"
+                          color="danger"
+                          outline
+                          size="sm"
+                          className="my-0"
+                          onClick={() => removeLine(index)}
+                          aria-label="Quitar línea"
+                          title="Quitar línea"
+                        >
                           ×
                         </Button>
                       </td>
@@ -647,8 +663,13 @@ function AccountingInvoiceForm() {
               </tbody>
             </Table>
             <div className="text-right mb-3">
-              <strong>Total líneas: {formatMoney(linesTotal)}</strong>
+              <strong>Total: {formatMoney(linesTotal)}</strong>
             </div>
+            {exceedsConsumidorFinalLimit && (
+              <Alert color="warning" className="py-2">
+                SAT no acepta facturas a Consumidor Final (CF) de Q2,500.00 o más. Ingrese el NIT o CUI del cliente.
+              </Alert>
+            )}
 
             <div className="text-right">
               <Button
@@ -662,7 +683,7 @@ function AccountingInvoiceForm() {
               <Button
                 color="primary"
                 type="submit"
-                disabled={saving || locationsLoading || establishments.length === 0}
+                disabled={saving || locationsLoading || establishments.length === 0 || exceedsConsumidorFinalLimit}
               >
                 {saving ? <Spinner size="sm" /> : "Crear y certificar"}
               </Button>

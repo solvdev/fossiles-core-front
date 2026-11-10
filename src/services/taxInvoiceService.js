@@ -36,10 +36,13 @@ export const listTaxInvoices = async (filters = {}) => {
 export const getTaxInvoiceSummary = async (filters = {}) => {
   const response = await fetch(`${API_URL}/tax-invoices/summary${toQuery({
     sourceType: filters.sourceType,
+    documentType: filters.documentType,
     customerTaxId: filters.customerTaxId,
     internalNumber: filters.internalNumber,
+    search: filters.search,
     fromDate: filters.fromDate,
     toDate: filters.toDate,
+    includeTests: filters.includeTests,
   })}`, {
     headers: headers(),
   });
@@ -146,6 +149,23 @@ export const voidTaxInvoice = async (id, reason) => {
     body: JSON.stringify({ reason }),
   });
   return parseJson(response, "No se pudo anular la factura FEL.");
+};
+
+/** Emite NCRE/NDEB ligada a la factura {id}. payload: { documentType, reason, notes, lines[] } */
+export const issueTaxInvoiceNote = async (id, payload) => {
+  const response = await fetch(`${API_URL}/tax-invoices/${id}/notes`, {
+    method: "POST",
+    headers: headers(),
+    body: JSON.stringify(payload),
+  });
+  return parseJson(response, "No se pudo emitir la nota FEL.");
+};
+
+export const listTaxInvoiceNotes = async (id) => {
+  const response = await fetch(`${API_URL}/tax-invoices/${id}/notes`, {
+    headers: headers(),
+  });
+  return parseJson(response, "No se pudieron cargar las notas de la factura.");
 };
 
 export const updateTaxInvoiceFelMetadata = async (id, payload) => {

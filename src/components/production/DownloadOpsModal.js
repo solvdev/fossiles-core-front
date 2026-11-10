@@ -16,6 +16,7 @@ import {
   CustomInput,
 } from "reactstrap";
 import { getProductionOrderById } from "services/productionOrderService";
+import { getProductionOrderGroups } from "services/productionOrderGroupService";
 import { showError, showSuccess } from "utils/notificationHelper";
 import { classifyPrepareOrder } from "utils/prepareShipmentsOrderHelper";
 import {
@@ -70,6 +71,17 @@ function DownloadOpsModal({ isOpen, toggle, orders, tasks, dayDeskTasks = null, 
   const [printOrientation, setPrintOrientation] = useState("portrait");
   const [includeSummaryBox, setIncludeSummaryBox] = useState(true);
   const [loadingAction, setLoadingAction] = useState(false);
+  /** Qué hoja: "ALL" = la de siempre (OPs marcadas); un id = solo esa OP consolidada. */
+  const [sheetMode, setSheetMode] = useState("ALL");
+  const [groups, setGroups] = useState([]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    setSheetMode("ALL");
+    getProductionOrderGroups().then((g) => setGroups(Array.isArray(g) ? g : [])).catch(() => setGroups([]));
+  }, [isOpen]);
+
+  const group = sheetMode === "ALL" ? null : groups.find((g) => String(g.id) === sheetMode) || null;
 
   const scopeToOrganizerDay = Array.isArray(dayDeskTasks);
   const dayOrderIdSet = useMemo(() => {
@@ -151,7 +163,22 @@ function DownloadOpsModal({ isOpen, toggle, orders, tasks, dayDeskTasks = null, 
 
   const toggleAllVisible = () => setVisibleSelection(!allVisibleSelected);
 
+  /** OP consolidada: sus órdenes completas (no solo lo programado del día), con sus productos. */
+  const resolveGroupOrders = async () => Promise.all((group?.orders || []).map(async (o) => {
+    const known = (orders || []).find((x) => Number(x.id) === Number(o.id));
+    if (known && Array.isArray(known.items) && known.items.length > 0) return known;
+    try {
+      return await getProductionOrderById(o.id);
+    } catch {
+      return known || o;
+    }
+  }));
+
+  const groupTitle = group ? `OP consolidada ${group.code} · ${(group.orders || []).map((o) => o.code).join(", ")}` : null;
+  const actionCount = group ? (group.orders || []).length : selectedCount;
+
   const resolveSelectedOrders = async () => {
+    if (group) return resolveGroupOrders();
     const picked = sortedOrders.filter((o) => selectedIds[orderKey(o.id)]);
     if (!picked.length) return [];
     const enriched = await Promise.all(
@@ -171,7 +198,7 @@ function DownloadOpsModal({ isOpen, toggle, orders, tasks, dayDeskTasks = null, 
   };
 
   const handlePrint = async () => {
-    if (selectedCount === 0) {
+    if (actionCount === 0) {
       showError("Marque al menos una orden en la lista.");
       return;
     }
@@ -182,6 +209,7 @@ function DownloadOpsModal({ isOpen, toggle, orders, tasks, dayDeskTasks = null, 
         tasks,
         orientation: printOrientation,
         includeSummary: includeSummaryBox,
+        title: groupTitle,
       });
       if (!ok) {
         showError("Permita ventanas emergentes para imprimir.");
@@ -196,14 +224,14 @@ function DownloadOpsModal({ isOpen, toggle, orders, tasks, dayDeskTasks = null, 
   };
 
   const handleExcel = async () => {
-    if (selectedCount === 0) {
+    if (actionCount === 0) {
       showError("Marque al menos una orden en la lista.");
       return;
     }
     setLoadingAction(true);
     try {
       const list = await resolveSelectedOrders();
-      downloadProductionOrdersBatchExcel(list, tasks);
+      downloadProductionOrdersBatchExcel(list, tasks, group ? `op_consolidada_${group.code}` : undefined);
       showSuccess(`Excel generado (${list.length} OP).`);
     } catch (err) {
       showError(err.message || "No se pudo generar el Excel");
@@ -216,6 +244,31 @@ function DownloadOpsModal({ isOpen, toggle, orders, tasks, dayDeskTasks = null, 
     <Modal isOpen={isOpen} toggle={toggle} size="lg">
       <ModalHeader toggle={toggle}>Descargar / imprimir OPs</ModalHeader>
       <ModalBody>
+        {groups.length > 0 && (
+          <FormGroup className="mb-3">
+            <Label className="mb-1" for="download-ops-sheet-mode"><strong>Qué descargar</strong></Label>
+            <Input id="download-ops-sheet-mode" type="select" value={sheetMode} onChange={(e) => setSheetMode(e.target.value)}>
+              <option value="ALL">Hoja de OPs (las que marque abajo)</option>
+              {groups.map((g) => (
+                <option key={g.id} value={String(g.id)}>
+                  Solo OP consolidada {g.code} · {(g.orders || []).map((o) => o.code).join(", ")}
+                </option>
+              ))}
+            </Input>
+          </FormGroup>
+        )}
+        {group ? (
+          <Alert color="light" className="py-2 mb-3" style={{ borderLeft: "4px solid #6f42c1" }}>
+            Hoja de la <strong>OP consolidada {group.code}</strong> ({group.family === "OPC" ? "cinchos" : "marroquinería"}):
+            sus {(group.orders || []).length} órdenes completas en una sola tabla, sumando el mismo código, color y talla.
+            <div className="mt-2 small">
+              {(group.orders || []).map((o) => (
+                <Badge key={o.id} color="light" className="mr-1 border text-dark">{o.code} · {o.units} uds</Badge>
+              ))}
+              <span className="ml-1 text-muted">Total {group.totalUnits} uds</span>
+            </div>
+          </Alert>
+        ) : (
         <Alert color="light" className="py-2 mb-3">
           {scopeToOrganizerDay ? (
             <>
@@ -233,6 +286,7 @@ function DownloadOpsModal({ isOpen, toggle, orders, tasks, dayDeskTasks = null, 
             </>
           )}
         </Alert>
+        )}
 
         <div className="border rounded p-3 mb-3" style={{ backgroundColor: "#f8f9fa" }}>
           <div className="mb-2 text-primary">
@@ -267,6 +321,8 @@ function DownloadOpsModal({ isOpen, toggle, orders, tasks, dayDeskTasks = null, 
           </Row>
         </div>
 
+        {!group && (
+        <>
         <Row className="mb-3">
           <Col md="3">
             <FormGroup className="mb-0">
@@ -409,16 +465,18 @@ function DownloadOpsModal({ isOpen, toggle, orders, tasks, dayDeskTasks = null, 
             </tbody>
           </Table>
         </div>
+        </>
+        )}
       </ModalBody>
       <ModalFooter>
         <Button color="secondary" outline onClick={toggle} disabled={loadingAction}>
           Cerrar
         </Button>
-        <Button color="info" onClick={handleExcel} disabled={loadingAction || selectedCount === 0}>
-          Descargar Excel ({selectedCount})
+        <Button color="info" onClick={handleExcel} disabled={loadingAction || actionCount === 0}>
+          Descargar Excel ({actionCount})
         </Button>
-        <Button color="primary" onClick={handlePrint} disabled={loadingAction || selectedCount === 0}>
-          Imprimir ({selectedCount})
+        <Button color="primary" onClick={handlePrint} disabled={loadingAction || actionCount === 0}>
+          Imprimir ({actionCount})
         </Button>
       </ModalFooter>
     </Modal>

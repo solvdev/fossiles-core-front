@@ -30,6 +30,7 @@ import {
   deleteShipment,
   cancelShipment,
   completeDistribution,
+  confirmShipmentDraft,
 } from "services/productDistributionService";
 import { getProductInventoryByLocation, getProductInventoryByProductAndLocation } from "services/productInventoryService";
 import { getKioscoStock } from "services/kioscoInventoryService";
@@ -59,6 +60,8 @@ import { FilterableSelect } from "components/distribution/FilterableSelect";
 import * as XLSX from "xlsx-js-style";
 import QRCode from "qrcode";
 import { getPublicFrontBaseUrl, buildPtDispatchDistributionUrl } from "utils/ptDispatchQr";
+import DistributionOriginBadge, { distributionOriginOf } from "components/distribution/DistributionOriginBadge";
+import "./distributionContrast.css";
 
 /** Códigos de ubicación de devoluciones (alineado con backend OnlineSaleProductionOrderService). */
 const RETURNS_WAREHOUSE_CODES = new Set([
@@ -1021,6 +1024,17 @@ function ProductDistributionDetail() {
     return st === "DRAFT" || st === "CONFIRMED";
   };
 
+  // Completada no significa despachada: se sigue modificando mientras haya envíos sin despachar.
+  const isDistributionCompleted = String(distribution?.status || "").toUpperCase() === "COMPLETED";
+  // No se edita si es reposición ni si ya generó orden de producción (quedaría desfasada).
+  const completedDistributionEditable =
+    isDistributionCompleted &&
+    distributionOriginOf(distribution) !== "REPOSICION" &&
+    (distribution?.linkedProductionOrders || []).length === 0 &&
+    shipments.some((s) => isShipmentCancellable(s.status));
+  const showShipmentEditor =
+    Boolean(distribution) && (!isDistributionCompleted || completedDistributionEditable);
+
   const startEditingShipment = async (shipment) => {
     if (!shipment?.locationId) return;
     setEditingShipmentId(shipment.id);
@@ -1070,11 +1084,38 @@ function ProductDistributionDetail() {
     }
   };
 
+  const isReplenishment = distributionOriginOf(distribution) === "REPOSICION";
+
+  const shipmentUnits = (shipment, field) =>
+    (shipment?.products || []).reduce((sum, p) => sum + (Number(p?.[field]) || 0), 0);
+
+  const handleConfirmPendingShipment = async (shipment) => {
+    if (!window.confirm(
+      `¿Confirmar el envío ${shipment.shipmentNumber}? Úsalo cuando el faltante ya esté en Bodega PT.`
+    )) {
+      return;
+    }
+    try {
+      setSaving(true);
+      await confirmShipmentDraft(shipment.id);
+      showSuccess(`Envío ${shipment.shipmentNumber} confirmado. Use Enviar en Preparar envíos.`);
+      await loadDistribution();
+      await loadShipments();
+    } catch (err) {
+      showError(err.message || "No se pudo confirmar el envío");
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const getStatusBadge = (status) => {
     const statusMap = {
       DRAFT: { color: "secondary", text: "Borrador" },
       CONFIRMED: { color: "info", text: "Confirmada" },
+      IN_PROGRESS: { color: "warning", text: "En proceso" },
       SENT: { color: "warning", text: "Enviada" },
+      DISPATCHED: { color: "info", text: "Despachada" },
+      DELIVERED: { color: "success", text: "Recibida" },
       COMPLETED: { color: "success", text: "Completada" },
       CANCELLED: { color: "dark", text: "Anulado" },
     };
@@ -1442,7 +1483,7 @@ function ProductDistributionDetail() {
     // Si hay error al crear, mostrar error
     if (error && !saving) {
       return (
-        <div className="content">
+        <div className="content dist-contrast">
           <Alert color="danger">
             <h4>Error al crear distribución</h4>
             <p>{error}</p>
@@ -1457,7 +1498,7 @@ function ProductDistributionDetail() {
     // Si está guardando, mostrar spinner
     if (saving) {
       return (
-        <div className="content">
+        <div className="content dist-contrast">
           <div className="text-center py-5">
             <Spinner color="primary" />
             <p className="mt-2">Creando distribución...</p>
@@ -1470,7 +1511,7 @@ function ProductDistributionDetail() {
     if (!distribution) {
       console.log("Rendering form for new distribution");
       return (
-        <div className="content">
+        <div className="content dist-contrast">
         <Row>
           <Col md="12">
             <Card>
@@ -1578,7 +1619,7 @@ function ProductDistributionDetail() {
   // Si NO es nueva y está cargando
   if (loading && !isNew) {
     return (
-      <div className="content">
+      <div className="content dist-contrast">
         <div className="text-center py-5">
           <Spinner color="primary" />
           <p className="mt-2">Cargando distribución...</p>
@@ -1590,7 +1631,7 @@ function ProductDistributionDetail() {
   // Si NO es nueva y no hay distribución
   if (!distribution && !isNew && !loading) {
     return (
-      <div className="content">
+      <div className="content dist-contrast">
         <Alert color="danger">No se pudo cargar la distribución</Alert>
         <Button color="secondary" onClick={() => navigate("/admin/product-distributions")} className="mt-3">
           Volver a Distribuciones
@@ -1600,7 +1641,7 @@ function ProductDistributionDetail() {
   }
 
   return (
-    <div className="content">
+    <div className="content dist-contrast">
       <Row>
         <Col md="12">
           <Card>
@@ -1612,7 +1653,7 @@ function ProductDistributionDetail() {
                   </CardTitle>
                 </Col>
                 <Col md="6" className="text-right">
-                  {distribution && distribution.status !== "COMPLETED" && (
+                  {distribution && distribution.status !== "COMPLETED" && !isReplenishment && (
                     <Button
                       color="success"
                       size="sm"
@@ -1649,19 +1690,30 @@ function ProductDistributionDetail() {
               {distribution && (
                 <>
                   <Row className="mb-3">
-                    <Col md="3">
+                    <Col md="2">
                       <Label>Fecha</Label>
                       <p>{formatDate(distribution.distributionDate)}</p>
                     </Col>
-                    <Col md="3">
+                    <Col md="2">
+                      <Label>Origen</Label>
+                      <p>
+                        <DistributionOriginBadge distribution={distribution} />
+                        {isReplenishment && distribution.replenishmentWindowDays ? (
+                          <small className="text-muted d-block mt-1">
+                            Venta de {distribution.replenishmentWindowDays} días
+                          </small>
+                        ) : null}
+                      </p>
+                    </Col>
+                    <Col md="2">
                       <Label>Estado</Label>
                       <p>{getStatusBadge(distribution.status)}</p>
                     </Col>
-                    <Col md="3">
+                    <Col md="2">
                       <Label>Envíos</Label>
                       <p><Badge color="info">{distribution.shipmentCount || 0}</Badge></p>
                     </Col>
-                    <Col md="3">
+                    <Col md="4">
                       <Label>Descripción</Label>
                       <p><small className="text-muted">{distribution.description || "Sin descripción"}</small></p>
                     </Col>
@@ -1684,7 +1736,22 @@ function ProductDistributionDetail() {
                       </Col>
                     </Row>
                   )}
-                  {distribution.productionOrderCode && (
+                  {(distribution.linkedProductionOrders || []).length > 0 ? (
+                    <Alert color="success" className="mb-3">
+                      <i className="nc-icon nc-settings-gear-65 mr-1" />
+                      <strong>
+                        {isReplenishment ? "Órdenes ligadas al faltante:" : "Orden de Producción ligada:"}
+                      </strong>{" "}
+                      {distribution.linkedProductionOrders.map((po) => (
+                        <Badge key={po.id} color="primary" className="mr-1" style={{ fontSize: "1em" }}>
+                          {po.code}
+                        </Badge>
+                      ))}
+                      <small className="ml-2 text-muted">
+                        Lo que produzcan para kioscos sale dentro de esta distribución.
+                      </small>
+                    </Alert>
+                  ) : distribution.productionOrderCode ? (
                     <Alert color="success" className="mb-3">
                       <i className="nc-icon nc-settings-gear-65 mr-1" />
                       <strong>Orden de Producción generada:</strong>{" "}
@@ -1695,7 +1762,14 @@ function ProductDistributionDetail() {
                         Puedes ver el detalle en el módulo de Órdenes de Producción.
                       </small>
                     </Alert>
-                  )}
+                  ) : null}
+                  {isReplenishment && shipments.some((s) => s.pendingProduction) ? (
+                    <Alert color="warning" className="mb-3">
+                      Hay envíos <strong>pendientes de producción</strong>: llevan el faltante de bodega. Confírmalos
+                      cuando la OPK sugerida deje el producto en Bodega PT (o se cumplen solos al crear el envío
+                      desde la OPK).
+                    </Alert>
+                  ) : null}
                 </>
               )}
 
@@ -1730,6 +1804,8 @@ function ProductDistributionDetail() {
                             <th>Número</th>
                             <th>Kiosko</th>
                             <th>Productos</th>
+                            {isReplenishment ? <th className="text-right">Sugerido</th> : null}
+                            <th className="text-right">Unidades</th>
                             <th>Estado</th>
                             <th>Acciones</th>
                           </tr>
@@ -1739,9 +1815,36 @@ function ProductDistributionDetail() {
                             <tr key={shipment.id}>
                               <td>{shipment.shipmentNumber}</td>
                               <td>{shipment.locationName} ({shipment.locationCode})</td>
-                              <td><Badge>{shipment.products?.length || 0}</Badge></td>
-                              <td>{getStatusBadge(shipment.status)}</td>
+                              <td><Badge color="secondary">{shipment.products?.length || 0}</Badge></td>
+                              {isReplenishment ? (
+                                <td className="text-right text-muted">{shipmentUnits(shipment, "suggestedQuantity") || "—"}</td>
+                              ) : null}
+                              <td className="text-right"><strong>{shipmentUnits(shipment, "quantity")}</strong></td>
                               <td>
+                                {getStatusBadge(shipment.status)}
+                                {shipment.pendingProduction ? (
+                                  <span className="dist-pending-production ml-1">Pendiente de producción</span>
+                                ) : null}
+                                {shipment.productionOrderCode ? (
+                                  <small className="text-muted d-block">De {shipment.productionOrderCode}</small>
+                                ) : null}
+                              </td>
+                              <td>
+                                {shipment.pendingProduction ? (
+                                  <Button
+                                    color="primary"
+                                    size="sm"
+                                    onClick={() => handleConfirmPendingShipment(shipment)}
+                                    className="mr-2"
+                                    disabled={saving}
+                                  >
+                                    <i className="nc-icon nc-check-2 mr-1" />
+                                    Confirmar (ya hay stock)
+                                  </Button>
+                                ) : null}
+                                {!shipment.productionOrderId
+                                  && (!isDistributionCompleted
+                                    || (completedDistributionEditable && isShipmentCancellable(shipment.status))) ? (
                                 <Button
                                   color="info"
                                   size="sm"
@@ -1751,6 +1854,7 @@ function ProductDistributionDetail() {
                                   <i className="nc-icon nc-ruler-pencil mr-1" />
                                   Editar
                                 </Button>
+                                ) : null}
                                 {isShipmentCancellable(shipment.status) && (
                                   <Button
                                     color="warning"
@@ -1782,10 +1886,16 @@ function ProductDistributionDetail() {
                 </Row>
               )}
 
-              {distribution && distribution.status !== "COMPLETED" && (
+              {showShipmentEditor && (
                 <>
                   <hr />
-                  
+                  {isDistributionCompleted && (
+                    <Alert color="info" className="py-2">
+                      Distribución completada: puedes modificar los envíos que aún no se han despachado
+                      (confirmados) o agregar uno nuevo para otro kiosko; los nuevos quedan confirmados.
+                    </Alert>
+                  )}
+
                   {/* Selector de kiosko */}
                   <Row className="mb-3">
                     <Col md="12">
@@ -2459,7 +2569,7 @@ function ProductDistributionDetail() {
       </Row>
 
       {/* Modal de confirmación para finalizar */}
-      <Modal isOpen={showCompleteModal} toggle={() => setShowCompleteModal(false)}>
+      <Modal className="dist-contrast" isOpen={showCompleteModal} toggle={() => setShowCompleteModal(false)}>
         <ModalHeader toggle={() => setShowCompleteModal(false)}>
           Finalizar Distribución
         </ModalHeader>

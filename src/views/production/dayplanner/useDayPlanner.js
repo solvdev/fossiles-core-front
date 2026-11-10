@@ -10,6 +10,7 @@ import { getProductionOrders } from "services/productionOrderService";
 import { getDeskSupervisorsForDate } from "services/deskSupervisorService";
 import { getDeskCountForDate } from "services/deskCountService";
 import { getTaskBaseHours } from "utils/taskHoursHelper";
+import { mergeOrdersForDownload } from "components/production/DownloadOpsModal";
 import { buildTableCenterTasks } from "utils/cinchoProductionHelper";
 import { getOrganizerDayDeskTasks } from "utils/organizerDayTasks";
 import { buildProductionTasksSheetPrintModel } from "utils/productionTasksSheetPrintData";
@@ -25,9 +26,11 @@ import {
   capacityStatus,
   clampTasksToRemaining,
   dayCapacity,
+  isConsolidatedTask,
   leftoverQuantity,
   lineFromItem,
   orderPrioritiesFromSelection,
+  packGroupLines,
   packOrderLines,
   sortTasksBySelection,
   splitOverflow,
@@ -36,6 +39,10 @@ import {
 } from "utils/dayPlanHelper";
 
 const DRAFT_KEY = "dayplanner.draft.v1";
+/** Valor del filtro de familia que deja solo las OPV de Luis Felipe. */
+export const LF_FILTER = "LF";
+/** Tipos de OP que siempre aparecen en el filtro (las OPL tienen su propia sección). */
+const BASE_FAMILIES = ["OPK", "OPV", "OPI", "OPCK", "OPD"];
 /** El servidor devuelve a lo más 200 OPs por consulta (TaskOrganizerService). */
 const ORDERS_PAGE_SIZE = 200;
 /** Cuántas OPs piden sus ítems a la vez. */
@@ -266,22 +273,36 @@ export default function useDayPlanner() {
   const oplOrders = useMemo(() => orders.filter((o) => o.onlineSale), [orders]);
   const otherOrdersAll = useMemo(() => orders.filter((o) => !o.onlineSale), [orders]);
   const families = useMemo(
-    () => ["ALL", ...Array.from(new Set(otherOrdersAll.map((o) => o.family).filter(Boolean)))],
+    () => [
+      "ALL",
+      // Todos los tipos de OP, estén o no en esta lista, y los que vengan fuera de esos.
+      ...Array.from(new Set([...BASE_FAMILIES, ...otherOrdersAll.map((o) => o.family).filter(Boolean)])),
+      // Filtro aparte: las OPV de Luis Felipe, que se pueden juntar en una tarea.
+      ...(otherOrdersAll.some((o) => o.luisFelipe) ? [LF_FILTER] : []),
+    ],
     [otherOrdersAll]
   );
   const otherOrders = useMemo(() => {
     const q = search.trim().toLowerCase();
     return otherOrdersAll
-      .filter((o) => familyFilter === "ALL" || o.family === familyFilter)
+      .filter((o) => familyFilter === "ALL" || (familyFilter === LF_FILTER ? o.luisFelipe : o.family === familyFilter))
       .filter((o) => !q
         || String(o.code || "").toLowerCase().includes(q)
+        || String(o.groupCode || "").toLowerCase().includes(q)
         || String(o.customerName || "").toLowerCase().includes(q));
   }, [otherOrdersAll, search, familyFilter]);
 
+  /** Marca o desmarca una OP; las de una OP consolidada se marcan y desmarcan todas juntas. */
   const toggleOrder = useCallback((id) => {
+    const order = ordersRef.current.find((o) => o.id === id);
+    const groupIds = order?.groupId
+      ? ordersRef.current.filter((o) => o.groupId === order.groupId).map((o) => o.id)
+      : [id];
     setSelectedIds((prev) => {
       const cur = prev || [];
-      return cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id];
+      return cur.includes(id)
+        ? cur.filter((x) => !groupIds.includes(x))
+        : [...cur, ...groupIds.filter((x) => !cur.includes(x))];
     });
   }, []);
 
@@ -399,42 +420,96 @@ export default function useDayPlanner() {
     }), { keepEmpty: false });
   }, [editTasks, itemById]);
 
-  const removeLine = useCallback((clientId, itemId) => {
+  /**
+   * Fija cuántas unidades lleva una celda de la tabla (un producto y un color en una tarea).
+   * La celda puede juntar varios ítems: al subir se llena el primero que tenga restante; al
+   * bajar se descuenta desde el último. Nunca pasa de lo que queda por repartir.
+   */
+  const setCellQty = useCallback((clientId, itemIds, wanted) => {
+    const target = Math.max(0, Math.floor(Number(wanted) || 0));
+    editTasks((prev) => prev.map((t) => {
+      if (t.clientId !== clientId) return t;
+      const inCell = t.lines.filter((l) => itemIds.includes(l.productionOrderItemId));
+      let delta = target - inCell.reduce((s, l) => s + l.quantity, 0);
+      if (delta === 0) return t;
+      const qty = new Map(inCell.map((l) => [l.productionOrderItemId, l.quantity]));
+      if (delta > 0) {
+        inCell.forEach((l) => {
+          if (delta <= 0) return;
+          const item = itemById(l.productionOrderItemId);
+          const room = item ? leftoverQuantity(item, prev) : 0;
+          const add = Math.min(delta, room);
+          qty.set(l.productionOrderItemId, qty.get(l.productionOrderItemId) + add);
+          delta -= add;
+        });
+      } else {
+        [...inCell].reverse().forEach((l) => {
+          if (delta >= 0) return;
+          const take = Math.min(-delta, qty.get(l.productionOrderItemId));
+          qty.set(l.productionOrderItemId, qty.get(l.productionOrderItemId) - take);
+          delta += take;
+        });
+      }
+      const lines = t.lines
+        .map((l) => (qty.has(l.productionOrderItemId) ? { ...l, quantity: qty.get(l.productionOrderItemId) } : l))
+        .filter((l) => l.quantity > 0);
+      return { ...t, lines };
+    }));
+  }, [editTasks, itemById]);
+
+  /** Quita de la tarea una o varias líneas (una fila de la tabla). */
+  const removeLine = useCallback((clientId, itemIds) => {
+    const set = new Set([].concat(itemIds));
     editTasks((prev) => prev.map((t) => (t.clientId === clientId
-      ? { ...t, lines: t.lines.filter((l) => l.productionOrderItemId !== itemId) }
+      ? { ...t, lines: t.lines.filter((l) => !set.has(l.productionOrderItemId)) }
       : t)));
   }, [editTasks]);
 
-  /** Mueve la línea entera a otra tarea de la misma OP (o a una nueva con target = "new"). */
-  const moveLine = useCallback((clientId, itemId, target) => {
+  /**
+   * Mueve una o varias líneas enteras (una fila de la tabla) a otra tarea de la misma OP o
+   * consolidada, o a una nueva con target = "new".
+   */
+  const moveLine = useCallback((clientId, itemIds, target) => {
+    const set = new Set([].concat(itemIds));
     editTasks((prev) => {
       const from = prev.find((t) => t.clientId === clientId);
-      const line = from?.lines.find((l) => l.productionOrderItemId === itemId);
-      if (!from || !line) return prev;
+      const moving = from ? from.lines.filter((l) => set.has(l.productionOrderItemId)) : [];
+      if (!from || moving.length === 0) return prev;
       let next = prev.map((t) => (t.clientId === clientId
-        ? { ...t, lines: t.lines.filter((l) => l !== line) }
+        ? { ...t, lines: t.lines.filter((l) => !set.has(l.productionOrderItemId)) }
         : t));
       if (target === "new") {
         const order = orders.find((o) => o.id === from.orderId);
-        // Si la línea sola pasa de 4 h, se parte en varias tareas en vez de perder unidades.
-        next = [...next, ...packOrderLines(order, [{ item: { ...line }, quantity: line.quantity }])];
+        // Si lo que se mueve pasa de 4 h, se parte en varias tareas en vez de perder unidades.
+        next = [...next, ...(from.groupId
+          ? packGroupLines(moving.map((l) => ({ ...l, orderId: l.orderId || from.orderId, orderCode: l.orderCode || from.orderCode })), orders)
+          : packOrderLines(order, moving.map((l) => ({ item: { ...l }, quantity: l.quantity }))))];
       } else {
         next = next.map((t) => {
           if (t.clientId !== target) return t;
-          const same = t.lines.find((l) => l.productionOrderItemId === itemId);
-          return same
-            ? { ...t, lines: t.lines.map((l) => (l === same ? { ...l, quantity: l.quantity + line.quantity } : l)) }
-            : { ...t, lines: [...t.lines, line] };
+          let lines = t.lines;
+          moving.forEach((line) => {
+            const same = lines.find((l) => l.productionOrderItemId === line.productionOrderItemId);
+            lines = same
+              ? lines.map((l) => (l === same ? { ...l, quantity: l.quantity + line.quantity } : l))
+              : [...lines, line];
+          });
+          return { ...t, lines };
         });
       }
       return sortTasksBySelection(next, orders, ids);
     });
   }, [editTasks, orders, ids]);
 
-  /** Agrega a una tarea todo lo que queda de un producto de su OP. */
+  /** OP dueña de un ítem (para etiquetar las líneas de una consolidada). */
+  const orderOfItem = useCallback((itemId) => orders.find((o) => (o.items || [])
+    .some((i) => i.productionOrderItemId === itemId)) || null, [orders]);
+
+  /** Agrega a una tarea todo lo que queda de un producto de su OP (o de su OP consolidada). */
   const addItem = useCallback((clientId, itemId) => {
     const item = itemById(itemId);
     if (!item) return;
+    const owner = orderOfItem(itemId);
     editTasks((prev) => {
       const qty = leftoverQuantity(item, prev);
       if (qty <= 0) return prev;
@@ -442,10 +517,12 @@ export default function useDayPlanner() {
         if (t.clientId !== clientId) return t;
         const same = t.lines.find((l) => l.productionOrderItemId === itemId);
         if (same) return { ...t, lines: t.lines.map((l) => (l === same ? { ...l, quantity: l.quantity + qty } : l)) };
-        return { ...t, lines: [...t.lines, lineFromItem(item, qty)] };
+        // En una tarea de consolidada cada línea recuerda su OP.
+        const tagged = t.groupId && owner ? { ...item, orderId: owner.id, orderCode: owner.code } : item;
+        return { ...t, lines: [...t.lines, lineFromItem(tagged, qty)] };
       });
     }, { keepEmpty: true });
-  }, [editTasks, itemById]);
+  }, [editTasks, itemById, orderOfItem]);
 
   /** Tarea vacía para una OP marcada. Devuelve su clientId para abrirla. */
   const newTask = useCallback((orderId) => {
@@ -454,7 +531,9 @@ export default function useDayPlanner() {
     const clientId = `n${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`;
     const task = {
       clientId, orderId: order.id, orderCode: order.code, family: order.family || null,
-      onlineSale: !!order.onlineSale, customerName: order.customerName || null, lines: [],
+      onlineSale: !!order.onlineSale, luisFelipe: !!order.luisFelipe,
+      groupId: order.groupId || null, groupCode: order.groupCode || null,
+      customerName: order.customerName || null, lines: [],
     };
     editTasks((prev) => sortTasksBySelection([...prev, task], orders, ids), { keepEmpty: true });
     return clientId;
@@ -466,6 +545,14 @@ export default function useDayPlanner() {
       const task = prev.find((t) => t.clientId === clientId);
       const order = orders.find((o) => o.id === task?.orderId);
       if (!task || !order) return prev;
+      if (isConsolidatedTask(task)) {
+        // Se vuelve a repartir en tareas de hasta 4 h con las órdenes de la consolidada.
+        const parts = packGroupLines(task.lines.map((l) => ({
+          ...l, orderId: l.orderId || task.orderId, orderCode: l.orderCode || task.orderCode,
+        })), orders);
+        const at = prev.indexOf(task);
+        return [...prev.slice(0, at), ...parts, ...prev.slice(at + 1)];
+      }
       const { task: fixed, extra } = splitOverflow(task, order);
       return sortTasksBySelection(prev.map((t) => (t.clientId === clientId ? fixed : t)).concat(extra), orders, ids);
     });
@@ -504,7 +591,7 @@ export default function useDayPlanner() {
     setPreviewError(null);
     try {
       const body = buildDayPlanPayload(tasks, {
-        anchorDate: date, orderPriorities, dates: datesOverride || dates,
+        anchorDate: date, orderPriorities, dates: datesOverride || dates, defaultDate: nextWorkdayYmd(date),
       });
       const res = await previewDayPlan(body);
       if (seq === previewSeq.current) setPreview(res);
@@ -540,7 +627,7 @@ export default function useDayPlanner() {
     setConfirmError(null);
     try {
       const body = buildDayPlanPayload(tasks, {
-        anchorDate: date, orderPriorities, dates,
+        anchorDate: date, orderPriorities, dates, defaultDate: nextWorkdayYmd(date),
         planFingerprint: preview?.planFingerprint, acceptChanges,
       });
       const res = await confirmDayPlan(body);
@@ -624,6 +711,23 @@ export default function useDayPlanner() {
     return model;
   }, [loadSheetModel]);
 
+  /**
+   * Datos de «Descargar OPs» para un día: las OPs con tareas ese día (con o sin mesa) y el
+   * catálogo de órdenes para armar el lote. Es la hoja que se baja al terminar de armar el día.
+   */
+  const loadOpsDownload = useCallback(async (ymd) => {
+    const [tasksOfDay, productionOrders] = await Promise.all([
+      getTasksByDate(ymd),
+      getProductionOrders({ cached: true }),
+    ]);
+    const center = buildTableCenterTasks(Array.isArray(tasksOfDay) ? tasksOfDay : [], productionOrders);
+    return {
+      date: ymd,
+      orders: mergeOrdersForDownload(productionOrders, []),
+      dayDeskTasks: getOrganizerDayDeskTasks(center, ymd),
+    };
+  }, []);
+
   const downloadSheet = useCallback(async (ymd = date) => {
     try {
       const model = await sheetFor(ymd, { fresh: true });
@@ -672,13 +776,13 @@ export default function useDayPlanner() {
     capacity, planLoad,
     // paso 2
     tasks, notice, setNotice, leftovers,
-    buildTasks, rebuildTasks, changeQty, removeLine, moveLine, addItem, newTask, fixTask,
+    buildTasks, rebuildTasks, changeQty, setCellQty, removeLine, moveLine, addItem, newTask, fixTask,
     buildFromLeftovers, itemById,
     // paso 3
     preview, previewLoading, previewError, previewByClientId, dates, goReview, runPreview, changeTaskDate,
     // paso 4
     confirm, confirming, confirmError, result, startOver,
     // hoja
-    downloadSheet, printSheet,
+    downloadSheet, printSheet, loadOpsDownload,
   };
 }

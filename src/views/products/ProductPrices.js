@@ -18,6 +18,7 @@ import { getProductCategories } from "services/productCategoryService";
 import { getProducts, updateProduct, bulkApplyDiscounts, bulkRemoveDiscounts } from "services/productService";
 import { showError, showSuccess } from "utils/notificationHelper";
 import ConfirmModal from "components/ConfirmModal/ConfirmModal";
+import PriceTemplatePanel from "./PriceTemplatePanel";
 
 function ProductPrices() {
   const [categories, setCategories] = useState([]);
@@ -36,7 +37,6 @@ function ProductPrices() {
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [confirmAction, setConfirmAction] = useState(null);
   const [confirmMessage, setConfirmMessage] = useState("");
-
   useEffect(() => {
     loadData();
   }, []);
@@ -347,6 +347,11 @@ function ProductPrices() {
                   </FormGroup>
                 </Col>
               </Row>
+              <Row className="mt-2">
+                <Col md="12">
+                  <PriceTemplatePanel categories={categories} onApplied={loadData} />
+                </Col>
+              </Row>
               {filterCategory !== "all" ? (
                 <Row className="mt-3">
                   <Col md="12">
@@ -428,7 +433,7 @@ function ProductPrices() {
               ) : (
                 <Row className="mt-3">
                   <Col md="12">
-                    <Alert color="secondary" className="mb-0">
+                    <Alert color="light" className="mb-0 border text-dark">
                       <i className="fa fa-info-circle" /> <strong>Para aplicar descuentos:</strong> Selecciona una categoría específica en el filtro de arriba. Los descuentos se aplican por categoría.
                     </Alert>
                   </Col>

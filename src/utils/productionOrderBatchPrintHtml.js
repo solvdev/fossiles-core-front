@@ -1,6 +1,7 @@
 import * as XLSX from "xlsx-js-style";
 import { formatDateGt } from "utils/dateTimeHelper";
 import { isCinchoOrderType } from "utils/cinchoProductionHelper";
+import { compareColorNames } from "utils/colorOrder";
 import {
   escapeHtml,
   buildCinchoDetailTableHtml,
@@ -482,7 +483,7 @@ function buildUnifiedMatrixDetailTable(orders) {
   const { detailRows, showBrand } = mergeBatchMatrixGroups(orders);
   const colorColumns = new Set();
   detailRows.forEach((g) => Object.keys(g.colorQty).forEach((c) => colorColumns.add(c)));
-  const colors = Array.from(colorColumns).sort((a, b) => a.localeCompare(b, "es", { sensitivity: "base" }));
+  const colors = Array.from(colorColumns).sort(compareColorNames);
   if (!detailRows.length) {
     return `<p class="empty-detail">Sin líneas de producto en el lote.</p></section>`;
   }
@@ -677,7 +678,7 @@ function mergeBatchFlatLines(orders) {
         sensitivity: "base",
       });
       if (c0 !== 0) return c0;
-      const c1 = String(a.colorName).localeCompare(String(b.colorName), "es", { sensitivity: "base" });
+      const c1 = compareColorNames(a.colorName, b.colorName);
       if (c1 !== 0) return c1;
       return String(a.size).localeCompare(String(b.size), "es", { numeric: true, sensitivity: "base" });
     });
@@ -756,13 +757,14 @@ export function openProductionOrdersBatchPrintWindow(orders, options = {}) {
       <!doctype html>
       <html>
         <head>
-          <title>OPs ${escapeHtml(codesLabel.slice(0, 80))}</title>
+          <title>${options.title ? escapeHtml(options.title) : `OPs ${escapeHtml(codesLabel.slice(0, 80))}`}</title>
           <style id="print-page-size"></style>
           <style>${getBatchPrintDocumentStyles()}</style>
         </head>
         <body>
           ${getPrintOrientationToolbarHtml(landscape)}
           <div class="print-meta no-print">${sorted.length} orden(es) · ${orientNote}${includeSummary ? " · con resumen" : " · sin resumen"} · ${escapeHtml(generatedAt)}</div>
+          ${options.title ? `<h2 style="margin:4px 0 8px;font-size:18px">${escapeHtml(options.title)}</h2>` : ""}
           ${bodyHtml}
         </body>
       </html>
@@ -886,7 +888,7 @@ function buildMergedBatchDetailExcelRows(orders) {
     const { detailRows } = mergeBatchMatrixGroups(orders);
     const rows = [];
     detailRows.forEach((g) => {
-      Object.entries(g.colorQty).forEach(([color, qty]) => {
+      Object.entries(g.colorQty).sort(([a], [b]) => compareColorNames(a, b)).forEach(([color, qty]) => {
         if (Number(qty || 0) <= 0) return;
         rows.push([
           g.productCode,
@@ -934,7 +936,8 @@ function buildMergedBatchDetailExcelRows(orders) {
 }
 
 /** Excel: resumen + detalle unificado (sin hoja por OP). */
-export function downloadProductionOrdersBatchExcel(orders, tasks = []) {
+/** @param fileBase nombre del archivo sin fecha ni extensión (p. ej. la OP consolidada) */
+export function downloadProductionOrdersBatchExcel(orders, tasks = [], fileBase = "ordenes_produccion") {
   const sorted = sortProductionOrdersByCode(orders);
   if (!sorted.length) return false;
 
@@ -948,6 +951,6 @@ export function downloadProductionOrdersBatchExcel(orders, tasks = []) {
   XLSX.utils.book_append_sheet(wb, wsDetail, "Detalle_unificado");
 
   const stamp = new Date().toISOString().slice(0, 10);
-  XLSX.writeFile(wb, `ordenes_produccion_${stamp}.xlsx`);
+  XLSX.writeFile(wb, `${fileBase}_${stamp}.xlsx`);
   return true;
 }

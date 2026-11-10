@@ -1,0 +1,244 @@
+/*
+ * Contraste sobre fondo blanco en las pantallas de distribución y reposición.
+ * Paper Dashboard pinta texto blanco sobre alertas y badges claros (#6bd098, #51bcda, #fbc658, #ef8157) y el
+ * primario turquesa (#51cbce) con texto blanco: ninguno llega a 4.5:1. Estos tonos sí pasan (WCAG AA).
+ * Se aplica con la clase .dist-contrast en la raíz de la pantalla y en sus modales.
+ */
+
+.dist-contrast .alert-info {
+  background-color: #e8eefc;
+  border: 1px solid #a9bbe8;
+  color: #24418a;
+}
+
+.dist-contrast .alert-success {
+  background-color: #e6f4ea;
+  border: 1px solid #9fd0ad;
+  color: #1d5c2e;
+}
+
+.dist-contrast .alert-warning {
+  background-color: #fff7e8;
+  border: 1px solid #e9c58a;
+  color: #6b4a12;
+}
+
+.dist-contrast .alert-danger {
+  background-color: #fdeee2;
+  border: 1px solid #e6b48c;
+  color: #7a2a12;
+}
+
+.dist-contrast .alert-primary {
+  background-color: #e3f2f2;
+  border: 1px solid #8cc7c8;
+  color: #07494b;
+}
+
+.dist-contrast .alert .close,
+.dist-contrast .alert a:not(.btn) {
+  color: inherit;
+}
+
+.dist-contrast .badge-success {
+  background-color: #1d6b35;
+  border-color: #1d6b35;
+  color: #fff;
+}
+
+.dist-contrast .badge-info {
+  background-color: #24418a;
+  border-color: #24418a;
+  color: #fff;
+}
+
+.dist-contrast .badge-primary {
+  background-color: #0b6e71;
+  border-color: #0b6e71;
+  color: #fff;
+}
+
+.dist-contrast .badge-warning {
+  background-color: #fbc658;
+  border-color: #c9952b;
+  color: #3d2a00;
+}
+
+.dist-contrast .badge-danger {
+  background-color: #a3361b;
+  border-color: #a3361b;
+  color: #fff;
+}
+
+.dist-contrast .badge-secondary,
+.dist-contrast .badge-default {
+  background-color: #4a5560;
+  border-color: #4a5560;
+  color: #fff;
+}
+
+.dist-contrast .btn-primary {
+  background-color: #0b6e71;
+  border-color: #0b6e71;
+  color: #fff;
+}
+
+.dist-contrast .btn-success {
+  background-color: #1d6b35;
+  border-color: #1d6b35;
+  color: #fff;
+}
+
+.dist-contrast .btn-info {
+  background-color: #24418a;
+  border-color: #24418a;
+  color: #fff;
+}
+
+.dist-contrast .btn-warning {
+  background-color: #fbc658;
+  border-color: #c9952b;
+  color: #3d2a00;
+}
+
+.dist-contrast .btn-danger {
+  background-color: #a3361b;
+  border-color: #a3361b;
+  color: #fff;
+}
+
+.dist-contrast .btn-primary:hover,
+.dist-contrast .btn-primary:focus,
+.dist-contrast .btn-primary:active {
+  background-color: #07494b !important;
+  border-color: #07494b !important;
+  color: #fff !important;
+}
+
+.dist-contrast .btn-success:hover,
+.dist-contrast .btn-success:focus,
+.dist-contrast .btn-success:active {
+  background-color: #144d26 !important;
+  border-color: #144d26 !important;
+  color: #fff !important;
+}
+
+.dist-contrast .btn-info:hover,
+.dist-contrast .btn-info:focus,
+.dist-contrast .btn-info:active {
+  background-color: #1a3066 !important;
+  border-color: #1a3066 !important;
+  color: #fff !important;
+}
+
+.dist-contrast .btn-warning:hover,
+.dist-contrast .btn-warning:focus,
+.dist-contrast .btn-warning:active {
+  background-color: #e9ad31 !important;
+  border-color: #a87a1c !important;
+  color: #3d2a00 !important;
+}
+
+.dist-contrast .btn-danger:hover,
+.dist-contrast .btn-danger:focus,
+.dist-contrast .btn-danger:active {
+  background-color: #7a2a12 !important;
+  border-color: #7a2a12 !important;
+  color: #fff !important;
+}
+
+/* Botones outline: Paper deja el borde y el texto en el color claro. */
+.dist-contrast .btn-outline-primary,
+.dist-contrast .btn-primary.btn-outline {
+  color: #07494b;
+  border-color: #0b6e71;
+  background-color: #fff;
+}
+
+.dist-contrast .btn-outline-success,
+.dist-contrast .btn-success.btn-outline {
+  color: #1d5c2e;
+  border-color: #1d6b35;
+  background-color: #fff;
+}
+
+.dist-contrast .btn-outline-info,
+.dist-contrast .btn-info.btn-outline {
+  color: #24418a;
+  border-color: #24418a;
+  background-color: #fff;
+}
+
+.dist-contrast .btn-outline-danger,
+.dist-contrast .btn-danger.btn-outline {
+  color: #7a2a12;
+  border-color: #a3361b;
+  background-color: #fff;
+}
+
+.dist-contrast .btn-outline-secondary,
+.dist-contrast .btn-secondary.btn-outline {
+  color: #2f3a44;
+  border-color: #4a5560;
+  background-color: #fff;
+}
+
+.dist-contrast .text-danger {
+  color: #a3361b !important;
+}
+
+.dist-contrast .text-success {
+  color: #1d5c2e !important;
+}
+
+.dist-contrast .text-info {
+  color: #24418a !important;
+}
+
+.dist-contrast .text-warning {
+  color: #6b4a12 !important;
+}
+
+.dist-contrast .text-muted {
+  color: #5f5a55 !important;
+}
+
+/* Origen de la distribución. */
+.dist-origin {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.3;
+  white-space: nowrap;
+}
+
+.dist-origin-manual {
+  background: #eef1f4;
+  color: #2f3a44;
+  border-color: #b9c1ca;
+}
+
+.dist-origin-reposicion {
+  background: #e3f2f2;
+  color: #07494b;
+  border-color: #8cc7c8;
+}
+
+.dist-pending-production {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #fff7e8;
+  color: #6b4a12;
+  border: 1px solid #e9c58a;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.dist-contrast .text-primary,
+.dist-contrast thead.text-primary th {
+  color: #0b6e71 !important;
+}

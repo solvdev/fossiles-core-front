@@ -463,3 +463,34 @@ export const formatFossLocationSizeSummary = (byLocation) => {
   if (warehouse) parts.push(`BO: ${warehouse}`);
   return parts.join(" · ");
 };
+
+/** Todas las tallas de cincho que maneja el sistema (niño, Entre Cueros y adulto: 16–46 pares). */
+export const ALL_CINCHO_SIZES = sortSizeKeys([
+  ...new Set([...KIDS_CINCHO_SIZES, ...ENTRECUEROS_ALL_CINCHO_SIZES, ...ADULT_CINCHO_SIZES]),
+]);
+
+/**
+ * Tallas que se ofrecen en una línea de movimiento de kiosko.
+ * - Ingreso (entrada / ajuste +): todas las tallas de cincho aunque el kiosko tenga 0, más las
+ *   que ya existan en el stock. No tiene sentido limitar un ingreso a lo que ya hay.
+ * - Salidas (venta, merma, traslado, ajuste −…): catálogo del producto + tallas con registro.
+ * - No cincho: solo las tallas del desglose actual (si lo hay).
+ */
+export const resolveKioskLineSizeOptions = ({
+  product,
+  existingSizes = [],
+  isCincho = false,
+  inflow = false,
+  entreCueros = false,
+} = {}) => {
+  const existing = (existingSizes || []).map((s) => String(s).trim()).filter(Boolean);
+  if (!isCincho) {
+    return sortSizeKeys([...new Set(existing)]);
+  }
+  const catalog = inflow
+    ? ALL_CINCHO_SIZES
+    : entreCueros
+      ? resolveCinchoSizesForOpening(product, { entreCueros: true })
+      : resolveCinchoSizesForProduct(product);
+  return sortSizeKeys([...new Set([...catalog, ...existing])]);
+};

@@ -1,4 +1,5 @@
 /** HTML fragments for printing production orders (cincho grid vs color matrix). */
+import { compareColorNames } from "./colorOrder";
 
 export function escapeHtml(value) {
   return String(value ?? "")
@@ -75,7 +76,7 @@ export function formatObservationsByColor(observationsByColor, colorOrder = []) 
   });
   Object.keys(byColor)
     .filter((c) => byColor[c]?.length && !seen.has(c))
-    .sort((a, b) => a.localeCompare(b, "es", { sensitivity: "base" }))
+    .sort(compareColorNames)
     .forEach((c) => {
       seen.add(c);
       colors.push(c);
@@ -227,7 +228,7 @@ export function mergeCinchoItemsByProductCodeAndColor(items) {
       const cb = normalizeProductCodeKey(b.productCode) || b.productCode;
       const c0 = ca.localeCompare(cb, "es", { numeric: true, sensitivity: "base" });
       if (c0 !== 0) return c0;
-      return String(a.colorName || "").localeCompare(String(b.colorName || ""), "es", { sensitivity: "base" });
+      return compareColorNames(a.colorName, b.colorName);
     });
 }
 
@@ -381,7 +382,7 @@ export function buildNormalColorMatrixTableHtml(order) {
     const name = String(item?.colorName || "").trim();
     colorSet.add(name || "-");
   });
-  const colorColumns = Array.from(colorSet).sort((a, b) => a.localeCompare(b, "es", { sensitivity: "base" }));
+  const colorColumns = Array.from(colorSet).sort(compareColorNames);
 
   const groups = new Map();
   items.forEach((item) => {

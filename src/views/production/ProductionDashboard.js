@@ -1,19 +1,23 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import {
   Alert, Badge, Button, Card, CardBody, CardHeader, CardTitle,
-  Col, Input, Label, Progress, Row, Spinner, Table,
+  Col, Input, Label, Nav, NavItem, NavLink, Progress, Row, Spinner, Table,
 } from "reactstrap";
 import {
   getConsumptionHistory,
   getCustomerShipments,
+  getLeatherDemand,
   getProductionDashboardV2,
   getProductionOrderById,
-  getProductionOrders,
+  getProductionOrdersPage,
 } from "services/productionOrderService";
 import { getTasksByProductionOrder } from "services/taskService";
 import { exportRowsToCsv, exportRowsToPdf } from "utils/reportExportHelper";
 import { formatProductionOrderCodeDate, formatProductionOrderSelectLabel } from "utils/productionOrderDisplayHelper";
+import { buildLeatherView, fmtFt2, swatchFor } from "utils/leatherDemandReport";
+import LeatherDemandPanel from "./LeatherDemandPanel";
+import OrderProgressPanel from "./OrderProgressPanel";
 
 const ACTIONS = [
   { label: "OPs", path: "/admin/production-orders", color: "primary" },
@@ -26,9 +30,14 @@ const ACTIONS = [
 /** Corte post-saneamiento KPI: misma base de eficiencia que el backend. */
 const KPI_EFFICIENCY_FROM = "2026-09-14";
 
-const CARD_STYLE = { marginBottom: 22, borderRadius: 12 };
-const KPI_CARD_STYLE = { ...CARD_STYLE, minHeight: 150 };
-const SECTION_ROW_STYLE = { marginBottom: 18 };
+const CARD_STYLE = { marginBottom: 18, borderRadius: 12 };
+const KPI_CARD_STYLE = { ...CARD_STYLE, height: "calc(100% - 18px)" };
+const SECTION_ROW_STYLE = { marginBottom: 0 };
+const TABS = [
+  { key: "resumen", label: "Resumen" },
+  { key: "avance", label: "Avance por orden" },
+  { key: "cuero", label: "Cuero por color" },
+];
 
 const STATUS = {
   PENDING: "Pendiente",
@@ -108,10 +117,10 @@ function CompactKpi({ label, value, color = "primary", hint }) {
   );
 }
 
-function KpiGroup({ title, subtitle, items }) {
+function KpiGroup({ title, subtitle, items, lg = "4" }) {
   return (
-    <Col lg="4">
-      <Card style={CARD_STYLE}>
+    <Col lg={lg}>
+      <Card style={KPI_CARD_STYLE}>
         <CardHeader>
           <CardTitle tag="h5" className="mb-0">{title}</CardTitle>
           <small className="text-muted">{subtitle}</small>
@@ -130,10 +139,72 @@ function KpiGroup({ title, subtitle, items }) {
   );
 }
 
+/** Resumen corto del cuero que falta; el detalle está en la pestaña «Cuero por color». */
+function LeatherSummaryCard({ data, loading, error, onOpen }) {
+  const view = useMemo(() => buildLeatherView(data), [data]);
+  const top = view.colors.slice(0, 5);
+  const maxFt2 = top[0]?.pendingFt2 || 1;
+  return (
+    <Col lg="4">
+      <Card style={KPI_CARD_STYLE}>
+        <CardHeader>
+          <CardTitle tag="h5" className="mb-0">Cuero que falta entregar</CardTitle>
+          <small className="text-muted">OP activas, por color.</small>
+        </CardHeader>
+        <CardBody>
+          {loading && !data ? (
+            <div className="text-center py-3"><Spinner size="sm" color="primary" /></div>
+          ) : error && !data ? (
+            <Alert color="danger" className="mb-0" style={{ fontSize: 13 }}>{error}</Alert>
+          ) : (
+            <>
+              <div className="d-flex align-items-baseline justify-content-between">
+                <div style={{ fontSize: 28, fontWeight: 800, color: "#b45309" }}>
+                  {fmtFt2(view.totals.pendingFt2)} <span style={{ fontSize: 13, fontWeight: 600 }}>pies²</span>
+                </div>
+                {view.totals.shortageFt2 > 0 ? (
+                  <Badge color="danger">Comprar {fmtFt2(view.totals.shortageFt2)}</Badge>
+                ) : (
+                  <Badge color="success">Bodega alcanza</Badge>
+                )}
+              </div>
+              <div className="mt-2">
+                {top.map((c) => (
+                  <div key={c.key} style={{ marginBottom: 6 }}>
+                    <div className="d-flex justify-content-between" style={{ fontSize: 12 }}>
+                      <span>
+                        <span style={{ display: "inline-block", width: 10, height: 10, borderRadius: "50%", background: swatchFor(c.colorName), border: "1px solid rgba(0,0,0,.2)", marginRight: 6 }} />
+                        {c.colorName}
+                      </span>
+                      <strong>{fmtFt2(c.pendingFt2)}</strong>
+                    </div>
+                    <div style={{ height: 6, borderRadius: 3, background: "#f3f4f6" }}>
+                      <div style={{ width: `${Math.max(3, (c.pendingFt2 * 100) / maxFt2)}%`, height: "100%", borderRadius: 3, background: c.shortageFt2 > 0 ? "#ef4444" : "#f59e0b" }} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <Button color="primary" size="sm" block className="mt-3" onClick={onOpen}>
+                Ver cuero por color y por orden
+              </Button>
+            </>
+          )}
+        </CardBody>
+      </Card>
+    </Col>
+  );
+}
+
 function ProductionDashboard() {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const tab = TABS.some((t) => t.key === searchParams.get("tab")) ? searchParams.get("tab") : "resumen";
+  const setTab = (key) => setSearchParams(key === "resumen" ? {} : { tab: key }, { replace: true });
   const [dashboard, setDashboard] = useState(null);
   const [orders, setOrders] = useState([]);
+  const [leather, setLeather] = useState(null);
+  const [leatherLoading, setLeatherLoading] = useState(true);
+  const [leatherError, setLeatherError] = useState("");
   const [loading, setLoading] = useState(true);
   const [loadingTrace, setLoadingTrace] = useState(false);
   const [error, setError] = useState("");
@@ -154,12 +225,8 @@ function ProductionDashboard() {
     try {
       setLoading(true);
       setError("");
-      const [data, orderData] = await Promise.all([
-        getProductionDashboardV2(from || KPI_EFFICIENCY_FROM, to),
-        getProductionOrders(),
-      ]);
+      const data = await getProductionDashboardV2(from || KPI_EFFICIENCY_FROM, to);
       setDashboard(data);
-      setOrders((orderData || []).filter((order) => order.status !== "CANCELLED"));
       if (!selectedOrderId && data?.criticalOrders?.[0]?.id) {
         setSelectedOrderId(String(data.criticalOrders[0].id));
       }
@@ -170,9 +237,36 @@ function ProductionDashboard() {
     }
   };
 
+  const loadLeather = async () => {
+    try {
+      setLeatherLoading(true);
+      setLeatherError("");
+      setLeather(await getLeatherDemand());
+    } catch (err) {
+      setLeatherError(err.message || "No se pudo calcular el cuero");
+    } finally {
+      setLeatherLoading(false);
+    }
+  };
+
   useEffect(() => {
     loadDashboard(KPI_EFFICIENCY_FROM);
+    loadLeather();
   }, []);
+
+  // Selector de trazabilidad: búsqueda en el servidor (antes bajaba todas las OP).
+  useEffect(() => {
+    const controller = new AbortController();
+    const handle = setTimeout(() => {
+      getProductionOrdersPage({ process: "ACTIVE", search: orderSearch.trim(), size: 25, signal: controller.signal })
+        .then((page) => setOrders(page?.content || []))
+        .catch(() => {});
+    }, orderSearch ? 300 : 0);
+    return () => {
+      clearTimeout(handle);
+      controller.abort();
+    };
+  }, [orderSearch]);
 
   useEffect(() => {
     if (!selectedOrderId) return;
@@ -203,13 +297,10 @@ function ProductionDashboard() {
   }, [selectedOrderId]);
 
   const filteredOrders = useMemo(() => {
-    const term = orderSearch.trim().toLowerCase();
-    if (!term) return orders.slice(0, 25);
-    return orders.filter((order) => {
-      const text = `${order.code || ""} ${order.customerName || ""} ${order.orderType || ""} ${formatProductionOrderCodeDate(order)}`.toLowerCase();
-      return text.includes(term);
-    }).slice(0, 25);
-  }, [orders, orderSearch]);
+    // La OP elegida siempre en la lista, aunque no salga en la búsqueda.
+    if (!trace.order || orders.some((order) => Number(order.id) === Number(trace.order.id))) return orders;
+    return [trace.order, ...orders];
+  }, [orders, trace.order]);
 
   const globalHealth = useMemo(() => {
     if ((summary.overdueOrders || 0) > 0 || (taskSummary.overdueTasks || 0) > 0) {
@@ -273,25 +364,11 @@ function ProductionDashboard() {
     ? ((production.completedTasksWithTime || 0) * 100) / taskSummary.completedTasks
     : 0;
 
-  const productionKpis = [
-    { label: "Pendientes", value: fmtN(production.pendingUnits), color: "warning", hint: "unidades por iniciar" },
-    { label: "En proceso", value: fmtN(production.inProgressUnits), color: "info", hint: "mesas y QA" },
-    { label: "Completadas", value: fmtN(production.completedUnits), color: "success", hint: "salida producida" },
-    { label: "Desperdicio", value: fmtPct(production.wasteRate), color: (production.wasteRate || 0) > 5 ? "danger" : "secondary", hint: `${fmtN(production.wasteUnits)} uds` },
-  ];
-
   const efficiencyKpis = [
     { label: "On-time", value: fmtPct(production.onTimeTaskRate), color: (production.onTimeTaskRate || 0) >= 80 ? "success" : "warning", hint: "vs tiempo estimado" },
     { label: "Tareas medidas", value: fmtN(production.completedTasksWithTime), color: "info", hint: `${fmtPct(measuredTaskRate)} de completadas` },
     { label: "Eficiencia mesas", value: fmtPct(avgDeskEfficiency), color: avgDeskEfficiency >= 80 ? "success" : "warning", hint: `${fmtN(desksWithEfficiency.length)} con tiempo` },
     { label: "Mesas en riesgo", value: fmtN(riskDeskCount), color: riskDeskCount > 0 ? "danger" : "success", hint: "cuellos o baja eficiencia" },
-  ];
-
-  const traceKpis = [
-    { label: "Avance OP", value: trace.order ? `${traceProgress}%` : "-", color: traceProgress >= 80 ? "success" : "warning", hint: trace.order ? "tareas completadas" : "selecciona una OP" },
-    { label: "Materiales", value: trace.order ? fmtN(traceTotals.materialsPending) : "-", color: traceTotals.materialsPending > 0 ? "warning" : "success", hint: "pendientes de entrega" },
-    { label: "Consumos", value: trace.order ? fmtN(trace.consumptions.length) : "-", color: "info", hint: "registros kardex" },
-    { label: "BPT / Envios", value: trace.order ? `${fmtN(traceReceivedBpt)} / ${fmtN(trace.shipments.length)}` : "-", color: "secondary", hint: "recibido y despachado" },
   ];
 
   const exportRows = useMemo(() => [
@@ -347,154 +424,72 @@ function ProductionDashboard() {
     ], exportRows);
   };
 
-  if (loading) {
-    return (
-      <div className="content">
-        <div className="text-center py-5">
-          <Spinner color="primary" />
-          <p className="mt-2">Cargando dashboard...</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="content">
-        <Alert color="danger">{error}</Alert>
-        <Button color="primary" onClick={() => loadDashboard(dateFrom || undefined, dateTo || undefined)}>
-          Reintentar
-        </Button>
-      </div>
-    );
-  }
-
-  return (
-    <div className="content">
-      <Card style={CARD_STYLE}>
-        <CardHeader>
-          <Row className="align-items-end">
-            <Col lg="5">
-              <CardTitle tag="h4" className="mb-1">Dashboard de Produccion</CardTitle>
-              <div className="text-muted" style={{ fontSize: 13 }}>
-                Vista ejecutiva y operativa. Referencia: {fmtDate(dashboard?.referenceDate)}
-              </div>
-            </Col>
-            <Col md="2">
-              <Label className="mb-1">Desde</Label>
-              <Input type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} />
-            </Col>
-            <Col md="2">
-              <Label className="mb-1">Hasta</Label>
-              <Input type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} />
-            </Col>
-            <Col lg="3" className="text-right">
-              <Button color="primary" className="mr-2" onClick={() => loadDashboard(dateFrom || undefined, dateTo || undefined)}>
-                Aplicar
-              </Button>
-              <Button color="secondary" className="mr-2" onClick={() => {
-                setDateFrom(KPI_EFFICIENCY_FROM);
-                setDateTo("");
-                loadDashboard(KPI_EFFICIENCY_FROM);
-              }}>
-                Limpiar
-              </Button>
-              <Button color="secondary" onClick={exportCsv}>CSV</Button>
-            </Col>
-          </Row>
-        </CardHeader>
-        <CardBody className="pt-0">
-          <Row className="align-items-center">
-            <Col md="5">
-              <Badge color={globalHealth.color} style={{ fontSize: 13 }} className="mr-2">
-                Salud: {globalHealth.label}
-              </Badge>
-              <span className="text-muted" style={{ fontSize: 13 }}>{globalHealth.note}</span>
-            </Col>
-            <Col md="7" className="text-right">
-              {ACTIONS.map((action) => (
-                <Button key={action.path} color={action.color} size="sm" className="ml-2 mt-2" onClick={() => navigate(action.path)}>
-                  {action.label}
-                </Button>
-              ))}
-              <Button color="secondary" size="sm" className="ml-2 mt-2" onClick={exportPdf}>PDF</Button>
-            </Col>
-          </Row>
-        </CardBody>
-      </Card>
-
+  const resumenBody = loading ? (
+    <div className="text-center py-5">
+      <Spinner color="primary" />
+      <p className="mt-2">Cargando indicadores...</p>
+    </div>
+  ) : error ? (
+    <Alert color="danger">
+      {error}
+      <Button color="danger" outline size="sm" className="ml-2" onClick={() => loadDashboard(dateFrom || undefined, dateTo || undefined)}>
+        Reintentar
+      </Button>
+    </Alert>
+  ) : (
+    <>
       <Row style={SECTION_ROW_STYLE}>
-        <Col md="3">
+        <Col lg="3" sm="6">
           <ScoreCard
             title="Avance general"
             value={fmtPct(production.completionRate)}
-            subtitle={`${fmtN(production.completedUnits)} de ${fmtN(production.plannedUnits)} unidades`}
+            subtitle={`${fmtN(production.completedUnits)} de ${fmtN(production.plannedUnits)} piezas`}
             color={globalHealth.color}
             progress={production.completionRate}
-            note={(production.completionRate || 0) >= 80 ? "Ritmo saludable para el rango." : "Revisar OP criticas y mesas con baja carga terminada."}
           />
         </Col>
-        <Col md="3">
+        <Col lg="3" sm="6">
           <ScoreCard
             title="OP atrasadas"
             value={fmtN(summary.overdueOrders)}
-            subtitle={`${fmtN(summary.dueTodayOrders)} vencen hoy - ${fmtN(summary.dueTomorrowOrders)} manana`}
+            subtitle={`${fmtN(summary.dueTodayOrders)} vencen hoy · ${fmtN(summary.dueTomorrowOrders)} mañana`}
             color={(summary.overdueOrders || 0) > 0 ? "danger" : "success"}
-            note={(summary.overdueOrders || 0) > 0 ? "Atender primero las vencidas." : "Sin OP vencidas visibles."}
+            note={(summary.overdueOrders || 0) > 0 ? "Atender primero las vencidas." : "Sin OP vencidas."}
           />
         </Col>
-        <Col md="3">
+        <Col lg="3" sm="6">
           <ScoreCard
-            title="Trabajo en proceso"
+            title="En proceso"
             value={fmtN(production.inProgressUnits)}
-            subtitle={`${fmtN(production.pendingUnits)} unidades pendientes`}
+            subtitle={`${fmtN(production.pendingUnits)} piezas por iniciar`}
             color="info"
             note="Carga viva en mesas y QA."
           />
         </Col>
-        <Col md="3">
+        <Col lg="3" sm="6">
           <ScoreCard
             title="Cumplimiento"
             value={fmtPct(production.onTimeTaskRate)}
-            subtitle={`${fmtN(production.wasteUnits)} desperdicio - ${fmtPct(production.wasteRate)}`}
+            subtitle={`Desperdicio ${fmtN(production.wasteUnits)} pzas · ${fmtPct(production.wasteRate)}`}
             color={(production.onTimeTaskRate || 0) >= 80 ? "success" : "warning"}
             progress={production.onTimeTaskRate}
-            note="Tareas completadas contra su tiempo estimado."
           />
         </Col>
       </Row>
 
       <Row style={SECTION_ROW_STYLE}>
-        <KpiGroup
-          title="Produccion"
-          subtitle="Volumen real por etapa del rango."
-          items={productionKpis}
-        />
-        <KpiGroup
-          title="Eficiencia"
-          subtitle="Tiempo, cumplimiento y salud de mesas."
-          items={efficiencyKpis}
-        />
-        <KpiGroup
-          title="Trazabilidad"
-          subtitle="Lectura rapida de la OP seleccionada."
-          items={traceKpis}
-        />
-      </Row>
-
-      <Row style={SECTION_ROW_STYLE}>
         <Col lg="4">
-          <Card style={CARD_STYLE}>
+          <Card style={KPI_CARD_STYLE}>
             <CardHeader>
-              <CardTitle tag="h5" className="mb-0">Atencion inmediata</CardTitle>
-              <small className="text-muted">Bloqueos que cambian prioridades del dia.</small>
+              <CardTitle tag="h5" className="mb-0">Atención inmediata</CardTitle>
+              <small className="text-muted">Lo que cambia las prioridades del día.</small>
             </CardHeader>
             <CardBody>
               {blockers.map((item) => (
-                <div key={item.label} style={{ borderBottom: "1px solid #edf2f7", padding: "10px 0" }}>
+                <div key={item.label} style={{ borderBottom: "1px solid #edf2f7", padding: "8px 0" }}>
                   <div className="d-flex justify-content-between align-items-center">
                     <strong>{item.label}</strong>
-                    <Badge color={item.color} pill>{fmtN(item.value)}</Badge>
+                    <Badge color={item.color} pill style={{ fontSize: 13 }}>{fmtN(item.value)}</Badge>
                   </div>
                   <div className="text-muted" style={{ fontSize: 12 }}>{item.action}</div>
                 </div>
@@ -502,43 +497,48 @@ function ProductionDashboard() {
             </CardBody>
           </Card>
         </Col>
-        <Col lg="8">
-          <Card style={CARD_STYLE}>
+        <LeatherSummaryCard data={leather} loading={leatherLoading} error={leatherError} onOpen={() => setTab("cuero")} />
+        <KpiGroup title="Eficiencia" subtitle="Tiempo, cumplimiento y mesas." items={efficiencyKpis} />
+      </Row>
+
+      <Row style={SECTION_ROW_STYLE}>
+        <Col lg="7">
+          <Card style={KPI_CARD_STYLE}>
             <CardHeader>
-              <CardTitle tag="h5" className="mb-0">Mesas y cuellos de botella</CardTitle>
-              <small className="text-muted">Carga, avance y eficiencia por mesa.</small>
+              <CardTitle tag="h5" className="mb-0">OP críticas</CardTitle>
+              <small className="text-muted">Órdenes que requieren decisión o seguimiento.</small>
             </CardHeader>
             <CardBody>
-              {desks.length === 0 ? (
-                <Alert color="light" className="mb-0">No hay tareas por mesa en el rango seleccionado.</Alert>
+              {criticalOrders.length === 0 ? (
+                <Alert color="success" className="mb-0">No hay OP críticas en el rango.</Alert>
               ) : (
                 <Table responsive hover size="sm" className="mb-0">
                   <thead>
-                    <tr>
-                      <th>Mesa</th>
-                      <th>Salud</th>
-                      <th>Trabajo</th>
-                      <th>Avance</th>
-                      <th className="text-right">Eficiencia</th>
+                    <tr style={{ fontSize: 11, textTransform: "uppercase", color: "#6b7280" }}>
+                      <th>OP</th><th>Motivo</th><th style={{ minWidth: 130 }}>Avance</th><th />
                     </tr>
                   </thead>
                   <tbody>
-                    {desks.map((desk) => {
-                      const health = deskHealth(desk);
-                      const activeTasks = (desk.pendingTasks || 0) + (desk.inProgressTasks || 0);
+                    {criticalOrders.slice(0, 10).map((order) => {
+                      const health = orderHealth(order);
+                      const selected = Number(selectedOrderId) === Number(order.id);
                       return (
-                        <tr key={`desk-${desk.desk || "none"}`}>
-                          <td><strong>{desk.desk ? `Mesa ${desk.desk}` : "Sin mesa"}</strong></td>
+                        <tr key={order.id || order.code} style={{ background: selected ? "#f0fdff" : undefined }}>
+                          <td>
+                            <strong>{order.code}</strong>
+                            <div className="text-muted" style={{ fontSize: 11 }}>{statusLabel(order.status)} · Entrega {fmtDate(order.deliveryDate)}</div>
+                          </td>
                           <td>
                             <Badge color={health.color}>{health.label}</Badge>
                             <div className="text-muted" style={{ fontSize: 11 }}>{health.action}</div>
                           </td>
-                          <td>{fmtN(activeTasks)} activas - {fmtN(desk.completedTasks)} completadas</td>
-                          <td style={{ minWidth: 160 }}>
-                            <Progress value={clamp(desk.completionRate)} color={health.color} />
-                            <small>{fmtPct(desk.completionRate)}</small>
+                          <td>
+                            <Progress value={clamp(order.completionRate)} color={health.color} style={{ height: 8 }} />
+                            <small>{fmtN(order.completedUnits)}/{fmtN(order.plannedUnits)} pzas · {fmtPct(order.completionRate)}</small>
                           </td>
-                          <td className="text-right">{fmtPct(desk.efficiencyRate)}</td>
+                          <td className="text-right">
+                            <Button color="info" size="sm" outline className="my-0" onClick={() => setSelectedOrderId(String(order.id))}>Trazar</Button>
+                          </td>
                         </tr>
                       );
                     })}
@@ -548,52 +548,43 @@ function ProductionDashboard() {
             </CardBody>
           </Card>
         </Col>
-      </Row>
-
-      <Row style={SECTION_ROW_STYLE}>
-        <Col lg="12">
-          <Card style={CARD_STYLE}>
+        <Col lg="5">
+          <Card style={KPI_CARD_STYLE}>
             <CardHeader>
-              <CardTitle tag="h5" className="mb-0">OP criticas</CardTitle>
-              <small className="text-muted">Top de ordenes que requieren decision o seguimiento.</small>
+              <CardTitle tag="h5" className="mb-0">Mesas</CardTitle>
+              <small className="text-muted">Carga, avance y eficiencia por mesa.</small>
             </CardHeader>
             <CardBody>
-              {criticalOrders.length === 0 ? (
-                <Alert color="success" className="mb-0">No hay OP criticas en el rango seleccionado.</Alert>
+              {desks.length === 0 ? (
+                <Alert color="light" className="mb-0">No hay tareas por mesa en el rango.</Alert>
               ) : (
-                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                  {criticalOrders.slice(0, 10).map((order) => {
-                    const health = orderHealth(order);
-                    const selected = Number(selectedOrderId) === Number(order.id);
-                    return (
-                      <div key={order.id || order.code} style={{
-                        border: selected ? "2px solid #51cbce" : "1px solid #e9ecef",
-                        borderRadius: 10,
-                        padding: 12,
-                        background: selected ? "#f0fdff" : "#fff",
-                      }}>
-                        <Row className="align-items-center">
-                          <Col md="4">
-                            <strong>{order.code}</strong>
-                            <div className="text-muted" style={{ fontSize: 12 }}>{statusLabel(order.status)} - Entrega {fmtDate(order.deliveryDate)}</div>
-                          </Col>
-                          <Col md="3">
-                            <Badge color={health.color}>{health.label}</Badge>
-                            <div className="text-muted" style={{ fontSize: 11 }}>{(order.reasons || []).join(", ")}</div>
-                          </Col>
-                          <Col md="3">
-                            <Progress value={clamp(order.completionRate)} color={health.color} />
-                            <small>{fmtPct(order.completionRate)} - {fmtN(order.completedUnits)}/{fmtN(order.plannedUnits)} uds</small>
-                          </Col>
-                          <Col md="2" className="text-right">
-                            <Button color="info" size="sm" onClick={() => setSelectedOrderId(String(order.id))}>Trazar</Button>
-                          </Col>
-                        </Row>
-                        <div className="text-muted mt-2" style={{ fontSize: 12 }}>Accion sugerida: <strong>{health.action}</strong></div>
-                      </div>
-                    );
-                  })}
-                </div>
+                <Table responsive hover size="sm" className="mb-0">
+                  <thead>
+                    <tr style={{ fontSize: 11, textTransform: "uppercase", color: "#6b7280" }}>
+                      <th>Mesa</th><th>Trabajo</th><th style={{ minWidth: 110 }}>Avance</th><th className="text-right">Efic.</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {desks.map((desk) => {
+                      const health = deskHealth(desk);
+                      const activeTasks = (desk.pendingTasks || 0) + (desk.inProgressTasks || 0);
+                      return (
+                        <tr key={`desk-${desk.desk || "none"}`} title={health.action}>
+                          <td style={{ whiteSpace: "nowrap" }}>
+                            <strong>{desk.desk ? `Mesa ${desk.desk}` : "Sin mesa"}</strong>
+                            <div><Badge color={health.color} style={{ fontSize: 10 }}>{health.label}</Badge></div>
+                          </td>
+                          <td style={{ fontSize: 12 }}>{fmtN(activeTasks)} activas<br />{fmtN(desk.completedTasks)} hechas</td>
+                          <td>
+                            <Progress value={clamp(desk.completionRate)} color={health.color} style={{ height: 8 }} />
+                            <small>{fmtPct(desk.completionRate)}</small>
+                          </td>
+                          <td className="text-right">{fmtPct(desk.efficiencyRate)}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </Table>
               )}
             </CardBody>
           </Card>
@@ -688,6 +679,87 @@ function ProductionDashboard() {
           )}
         </CardBody>
       </Card>
+    </>
+  );
+
+  return (
+    <div className="content">
+      <Card style={CARD_STYLE}>
+        <CardBody style={{ paddingBottom: 0 }}>
+          <Row className="align-items-center">
+            <Col lg="6" className="mb-2">
+              <div className="d-flex align-items-center flex-wrap" style={{ gap: 10 }}>
+                <h4 className="mb-0" style={{ fontWeight: 700 }}>Producción</h4>
+                {!loading && !error && (
+                  <Badge color={globalHealth.color} style={{ fontSize: 12 }} title={globalHealth.note}>
+                    {globalHealth.label}
+                  </Badge>
+                )}
+              </div>
+              <div className="text-muted" style={{ fontSize: 12 }}>
+                {!loading && !error ? globalHealth.note : "Cargando…"} Referencia {fmtDate(dashboard?.referenceDate)}.
+              </div>
+            </Col>
+            <Col lg="6" className="mb-2 text-lg-right">
+              <span className="text-muted mr-1" style={{ fontSize: 12 }}>Ir a:</span>
+              {ACTIONS.map((action) => (
+                <Button key={action.path} color="link" size="sm" className="px-2 my-0" onClick={() => navigate(action.path)}>
+                  {action.label}
+                </Button>
+              ))}
+            </Col>
+          </Row>
+          <div className="d-flex justify-content-between align-items-end flex-wrap" style={{ gap: 8 }}>
+            <Nav tabs style={{ borderBottom: 0 }}>
+              {TABS.map((t) => (
+                <NavItem key={t.key}>
+                  <NavLink
+                    href="#"
+                    active={tab === t.key}
+                    onClick={(e) => { e.preventDefault(); setTab(t.key); }}
+                    style={{ fontWeight: tab === t.key ? 700 : 500, cursor: "pointer" }}
+                  >
+                    {t.label}
+                    {t.key === "cuero" && leather?.totals && (
+                      <Badge color="warning" pill className="ml-2">{fmtFt2(leather.totals.pendingFt2)} pies²</Badge>
+                    )}
+                  </NavLink>
+                </NavItem>
+              ))}
+            </Nav>
+            {tab === "resumen" && (
+              <div className="d-flex align-items-end flex-wrap pb-2" style={{ gap: 6 }}>
+                <div>
+                  <Label className="mb-0" style={{ fontSize: 11 }}>Desde</Label>
+                  <Input bsSize="sm" type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} />
+                </div>
+                <div>
+                  <Label className="mb-0" style={{ fontSize: 11 }}>Hasta</Label>
+                  <Input bsSize="sm" type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} />
+                </div>
+                <Button color="primary" size="sm" className="my-0" onClick={() => loadDashboard(dateFrom || undefined, dateTo || undefined)}>
+                  Aplicar
+                </Button>
+                <Button color="secondary" outline size="sm" className="my-0" onClick={() => {
+                  setDateFrom(KPI_EFFICIENCY_FROM);
+                  setDateTo("");
+                  loadDashboard(KPI_EFFICIENCY_FROM);
+                }}>
+                  Limpiar
+                </Button>
+                <Button color="secondary" outline size="sm" className="my-0" onClick={exportCsv} disabled={loading || !!error}>CSV</Button>
+                <Button color="secondary" outline size="sm" className="my-0" onClick={exportPdf} disabled={loading || !!error}>PDF</Button>
+              </div>
+            )}
+          </div>
+        </CardBody>
+      </Card>
+
+      {tab === "resumen" && resumenBody}
+      {tab === "avance" && <OrderProgressPanel />}
+      {tab === "cuero" && (
+        <LeatherDemandPanel data={leather} loading={leatherLoading} error={leatherError} onReload={loadLeather} />
+      )}
     </div>
   );
 }

@@ -48,6 +48,7 @@ describe("StepBuildTasks", () => {
     buildFromLeftovers: jest.fn(),
     rebuildTasks: jest.fn(),
     changeQty: jest.fn(),
+    setCellQty: jest.fn(),
     removeLine: jest.fn(),
     moveLine: jest.fn(),
     addItem: jest.fn(),
@@ -55,19 +56,32 @@ describe("StepBuildTasks", () => {
     itemById: jest.fn(),
   });
 
-  const openAll = () => screen.getAllByRole("button", { name: /^Ver / }).forEach((b) => fireEvent.click(b));
-
   test("«Arreglar sola» aparece solo en las tareas rojas", () => {
     render(<StepBuildTasks planner={planner([
       task("t1", 2), task("t2", 4.5), task("t3", 6), task("t4", 8, { onlineSale: true }),
     ])} />);
-    openAll();
     expect(screen.getAllByText("Arreglar sola")).toHaveLength(1);
   });
 
   test("sin tareas rojas no hay «Arreglar sola»", () => {
     render(<StepBuildTasks planner={planner([task("t1", 2), task("t2", 4.5)])} />);
-    openAll();
     expect(screen.queryByText("Arreglar sola")).toBeNull();
+  });
+
+  test("tabla: una fila por tarea y producto; la celda cambia la cantidad al salir del campo", () => {
+    const p = planner([
+      task("t1", 2, { lines: [{ ...task("t1", 2).lines[0], colorName: "Café" }, {
+        productionOrderItemId: 9, productCode: "P1", productName: "Producto", colorName: "Negro",
+        quantity: 3, prdTimePerUnit: 0.1, remainingQuantity: 10,
+      }] }),
+    ]);
+    render(<StepBuildTasks planner={p} />);
+    const headers = screen.getAllByRole("columnheader").map((h) => h.textContent);
+    expect(headers.slice(0, 4)).toEqual(["Tarea", "Producto", "Negro", "Café"]);
+    const cell = screen.getByLabelText("P1 Negro en la tarea 1");
+    fireEvent.change(cell, { target: { value: "5" } });
+    expect(p.setCellQty).not.toHaveBeenCalled();
+    fireEvent.blur(cell);
+    expect(p.setCellQty).toHaveBeenCalledWith("t1", [9], 5);
   });
 });

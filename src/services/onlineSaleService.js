@@ -409,3 +409,75 @@ export const searchOnlineSaleShipments = async (q) => {
   }
   return response.json();
 };
+
+// ─── Libro de ventas en línea (Contabilidad) ─────────────────────
+
+const ledgerError = async (response, fallback) => {
+  const err = await response.json().catch(() => ({}));
+  return new Error(err.message || err.error || fallback);
+};
+
+/** Ventas del rango con sus datos contables. Con `q` y sin fechas busca en todo el historial. */
+export const getOnlineSalesLedger = async ({ from, to, q } = {}) => {
+  const params = new URLSearchParams();
+  if (from) params.append('from', from);
+  if (to) params.append('to', to);
+  if (q) params.append('q', q);
+  const response = await fetch(`${API_URL}/online-sales-ledger?${params.toString()}`, { headers: headers() });
+  if (!response.ok) throw await ledgerError(response, 'No se pudo cargar el libro de ventas en línea');
+  return response.json();
+};
+
+/** Guarda campos contables de una venta. `changes`: { campo: valor } (vacío borra). Devuelve la fila actualizada. */
+export const updateOnlineSaleLedger = async (saleId, changes) => {
+  const response = await fetch(`${API_URL}/online-sales-ledger/${saleId}`, {
+    method: 'PUT',
+    headers: headers(),
+    body: JSON.stringify(changes)
+  });
+  if (!response.ok) throw await ledgerError(response, 'No se pudo guardar el cambio');
+  return response.json();
+};
+
+/** Aplica los mismos campos a varias ventas. `onlyEmpty` evita pisar lo ya anotado. */
+export const bulkUpdateOnlineSaleLedger = async (saleIds, changes, onlyEmpty = true) => {
+  const response = await fetch(`${API_URL}/online-sales-ledger/bulk`, {
+    method: 'POST',
+    headers: headers(),
+    body: JSON.stringify({ saleIds, changes, onlyEmpty })
+  });
+  if (!response.ok) throw await ledgerError(response, 'No se pudo aplicar el cambio en lote');
+  return response.json();
+};
+
+/** Bloquea (`locked` true) o desbloquea líneas del libro. Devuelve las filas actualizadas. */
+export const lockOnlineSaleLedger = async (saleIds, locked) => {
+  const response = await fetch(`${API_URL}/online-sales-ledger/lock`, {
+    method: 'POST',
+    headers: headers(),
+    body: JSON.stringify({ saleIds, locked })
+  });
+  if (!response.ok) throw await ledgerError(response, locked ? 'No se pudo bloquear' : 'No se pudo desbloquear');
+  return response.json();
+};
+
+/** Descarga el Excel del periodo (Ventas, Comisiones, Moto, Faltantes). */
+export const downloadOnlineSalesLedgerExcel = async (from, to) => {
+  const response = await fetch(
+    `${API_URL}/online-sales-ledger/export?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
+    { headers: getAuthHeader() }
+  );
+  if (!response.ok) throw await ledgerError(response, 'No se pudo descargar el Excel');
+  const blob = await response.blob();
+  const match = (response.headers.get('Content-Disposition') || '').match(/filename="?([^";]+)"?/i);
+  const filename = match?.[1] || `ventas-en-linea-${from}_${to}.xlsx`;
+  const url = window.URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.URL.revokeObjectURL(url);
+  return filename;
+};

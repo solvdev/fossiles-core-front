@@ -594,6 +594,25 @@ export const getShipmentsInTransit = async (kioskLocationId) => {
   return response.json();
 };
 
+/**
+ * Pendientes de recepción de un kiosko en una sola llamada: envíos en tránsito (SENT) más los entregados
+ * con líneas aún por recibir. Reemplaza pedir en tránsito + todos los DELIVERED históricos y filtrar en el cliente.
+ */
+export const getShipmentsPendingReceipt = async (kioskLocationId) => {
+  const params = new URLSearchParams({ kioskLocationId: String(kioskLocationId) });
+  const response = await fetch(
+    `${API_URL}/product-distributions/shipments/pending-receipt?${params.toString()}`,
+    {
+      headers: { 'Content-Type': 'application/json', ...getAuthHeader() }
+    }
+  );
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ message: 'Error al obtener envíos pendientes de recepción' }));
+    throw new Error(err.message || 'Error al obtener envíos pendientes de recepción');
+  }
+  return response.json();
+};
+
 export const countShipmentsInTransit = async (kioskLocationId) => {
   const params = new URLSearchParams();
   if (kioskLocationId != null && kioskLocationId !== '') {
@@ -710,8 +729,10 @@ export const validateDispatchStock = async (products) => {
   }
 };
 
-export const previewDispatchStock = async ({ productId, colorId, size }) => {
+// internal: envío interno (OPI), que solo puede salir de Devoluciones (no cuenta Bodega PT).
+export const previewDispatchStock = async ({ productId, colorId, size, internal = false }) => {
   const params = new URLSearchParams({ productId: String(productId) });
+  if (internal) params.set('internal', 'true');
   if (colorId != null && colorId !== '') params.set('colorId', String(colorId));
   if (size != null && String(size).trim() !== '') params.set('size', String(size).trim());
   const response = await fetch(`${API_URL}/product-distributions/dispatch-stock-preview?${params}`, {

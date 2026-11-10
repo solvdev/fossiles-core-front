@@ -29,6 +29,7 @@ import {
   applyExchangePackagingCredit,
   EXCHANGE_DIFFERENCE_NONE,
   EXCHANGE_DIFFERENCE_WITH,
+  EXCHANGE_PRICING_CATALOG_GIVEN,
   resolveExchangePricingMode,
   shouldAskExchangeDiscount,
   sumGivenLineAmounts,
@@ -102,9 +103,11 @@ const dedupeSellableInventory = (rows) => {
   return Array.from(byKey.values());
 };
 
-function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kioskName, onCompleted }) {
+function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kioskName, isAdmin = false, onCompleted }) {
+  // Administración edita precios en cualquier kiosco (el back lo valida igual); Miraflores (A15) también.
   const canEditPrices =
-    String(kioskCode || "").trim().toUpperCase() === MIRAFLORES_PRICE_EDIT_CODE
+    Boolean(isAdmin)
+    || String(kioskCode || "").trim().toUpperCase() === MIRAFLORES_PRICE_EDIT_CODE
     || String(kioskName || "").trim().toUpperCase().includes("MIRAFLORES");
   const [step, setStep] = useState(1);
   const [differenceMode, setDifferenceMode] = useState(DIFFERENCE_NONE);
@@ -506,7 +509,7 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
       : [];
 
   /** `useEditedReturnedPrices`: solo al aplicar precios / confirmar; un preview nuevo parte de los precios calculados. */
-  const buildPreviewPayload = ({ useEditedReturnedPrices = false } = {}) => {
+  const buildPreviewPayload = ({ useEditedReturnedPrices = false, pricingModeOverride = null } = {}) => {
     const returnedItems = buildReturnedItemsPayload(useEditedReturnedPrices);
     const primaryReturned = returnedItems[0];
     const freeReturnedUnit = useEditedReturnedPrices ? Number(editReturnedUnitPrices.free) : 0;
@@ -540,7 +543,7 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
       givenHardwareCondition: primary.hardwareCondition || null,
       returnedQuantity: Number(primaryReturned?.quantity || returnedQty || preview?.returned?.quantity || 1),
       givenQuantity: Number(primary.quantity || defaultGivenQty),
-      pricingMode,
+      pricingMode: pricingModeOverride || pricingMode,
       ...(canEditPrices && exchangeMode === "FREE" && freeReturnedUnit > 0
         ? { returnedUnitPrice: freeReturnedUnit }
         : {}),
@@ -676,7 +679,8 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
     setStep(3);
   };
 
-  const handlePreview = async () => {
+  /** `chargeDifference`: recalcula a precio de catálogo (Con diferencia) desde el aviso de precio. */
+  const handlePreview = async ({ chargeDifference = false } = {}) => {
     resetError();
     if (exchangeMode === "SALE" && !selectedReturnLines.length) {
       setError("Marca al menos un producto que devuelve el cliente en el paso anterior.");
@@ -692,7 +696,12 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
     }
     try {
       setLoading(true);
-      const result = await previewKioskExchange(buildPreviewPayload());
+      const result = await previewKioskExchange(
+        buildPreviewPayload(chargeDifference ? { pricingModeOverride: EXCHANGE_PRICING_CATALOG_GIVEN } : {})
+      );
+      if (chargeDifference) {
+        setDifferenceMode(DIFFERENCE_WITH);
+      }
       setPreview(result);
       setEditReturnedUnitPrices(buildReturnedPriceMap(result));
       const priceMap = {};
@@ -1492,6 +1501,27 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
                       Marcaste sin diferencia pero hay cobro. Revisa cantidades o cambia a &quot;Con diferencia&quot;.
                     </p>
                   )}
+                  {differenceMode === DIFFERENCE_NONE
+                    && exchangeMode === "SALE"
+                    && Number(displayPreview.catalogDifferenceAmount || 0) > 0.009 && (
+                    <Alert color="warning" className="mt-3 mb-0 small">
+                      <strong>El precio de hoy es mayor.</strong> Lo que ingresa se pagó a{" "}
+                      {formatCurrency(displayPreview.returnedAmount)} y lo que se entrega vale{" "}
+                      {formatCurrency(displayPreview.catalogGivenAmount)} a precio de catálogo (diferencia{" "}
+                      {formatCurrency(displayPreview.catalogDifferenceAmount)}). Con &quot;Sin diferencia&quot; no se
+                      cobra ni se factura. Si el cliente va a pagar la diferencia, cóbrala aquí con factura.
+                      <div className="mt-2">
+                        <Button
+                          color="warning"
+                          size="sm"
+                          onClick={() => void handlePreview({ chargeDifference: true })}
+                          disabled={loading}
+                        >
+                          {loading ? "Calculando..." : "Cobrar la diferencia con factura"}
+                        </Button>
+                      </div>
+                    </Alert>
+                  )}
                   {canEditPrices ? (
                     <Button
                       color="secondary"
@@ -1510,7 +1540,8 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
                 <div className="kiosk-exchange-hint">
                   <span className="kiosk-exchange-hint-icon" aria-hidden>i</span>
                   <span>
-                    Miraflores (A15): edita los precios para que lo cobrado en POS coincida con lo facturado.
+                    Administración / Miraflores (A15): edita los precios para que lo cobrado coincida con lo facturado
+                    (por ejemplo, para respetar un precio anterior al alza).
                   </span>
                 </div>
               ) : null}

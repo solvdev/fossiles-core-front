@@ -8,6 +8,8 @@
 =========================================================
 */
 
+import { Navigate } from "react-router-dom";
+
 // Dashboards
 import ProductionDashboard from "views/production/ProductionDashboard.js";
 import SalesDashboard from "views/sales/SalesDashboard.js";
@@ -52,7 +54,6 @@ import ProductPrices from "views/products/ProductPrices.js";
 import ProductionOrdersList from "views/production/ProductionOrdersList.js";
 import DailyProductionPlan from "views/production/DailyProductionPlan.js";
 import TasksByTable from "views/production/TasksByTable.js";
-import TaskOrganizer from "views/production/TaskOrganizer.js";
 import DayPlanner from "views/production/dayplanner/DayPlanner.js";
 import ProductionPhaseTrays from "views/production/ProductionPhaseTrays.js";
 import ProductionTraceability from "views/production/ProductionTraceability.js";
@@ -91,6 +92,7 @@ import MaterialConsumptionHistory from "views/purchases/MaterialConsumptionHisto
 
 // Distribución
 import PrepareShipments from "views/distribution/PrepareShipments.js";
+import KioskReplenishment from "views/distribution/KioskReplenishment.js";
 import AuthorizeShipments from "views/distribution/AuthorizeShipments.js";
 import ShipmentsInTransit from "views/distribution/ShipmentsInTransit.js";
 import ReceiptConfirmation from "views/distribution/ReceiptConfirmation.js";
@@ -107,6 +109,8 @@ import KioskSupervisorAssignments from "views/kiosks/KioskSupervisorAssignments.
 import TotalSales from "views/sales/TotalSales.js";
 import SalesBySeller from "views/sales/SalesBySeller.js";
 import OnlineSales from "views/sales/OnlineSales.js";
+import ReconciliationPage from "views/reconciliation/ReconciliationPage.js";
+import OnlineSalesLedgerPage from "views/sales/OnlineSalesLedgerPage.js";
 import OpvShipmentsPage from "views/sales/OpvShipmentsPage.js";
 import Invoicing from "views/sales/Invoicing.js";
 import AccountingInvoices from "views/accounting/AccountingInvoices.js";
@@ -686,7 +690,7 @@ const routes = [
       },
       {
         path: "/tasks-by-station",
-        name: "Centro de Producción",
+        name: "Tablero",
         mini: "CP",
         component: <TasksByTable />,
         layout: "/admin",
@@ -696,12 +700,15 @@ const routes = [
         },
       },
       {
+        // El Organizador de Tareas se retiró: Armar el día lo reemplaza. Se conserva la ruta
+        // para los marcadores y enlaces viejos.
         path: "/task-organizer",
         name: "Organizador de Tareas",
         mini: "OT",
-        component: <TaskOrganizer />,
+        component: <Navigate to="/admin/day-planner" replace />,
         layout: "/admin",
         module: "PRODUCCION",
+        showInSidebar: false,
         permissions: {
           view: "PRODUCCION.TAREAS_ESTACION.VER",
         },
@@ -1055,6 +1062,19 @@ const routes = [
         },
       },
       {
+        // Crea envíos directos a kiosko: mismos permisos que Preparar Envíos.
+        path: "/kiosk-replenishment",
+        name: "Reposición de Kioscos",
+        mini: "RK",
+        component: <KioskReplenishment />,
+        layout: "/admin",
+        module: "DISTRIBUCION",
+        permissions: {
+          view: "DISTRIBUCION.PREPARAR_ENVIOS.VER",
+          create: "DISTRIBUCION.PREPARAR_ENVIOS.CREAR",
+        },
+      },
+      {
         path: "/authorize-shipments",
         name: "Solicitudes envío interno",
         mini: "AE",
@@ -1214,6 +1234,28 @@ const routes = [
           create: "VENTAS.VENTAS_ONLINE.CREAR",
           edit: "VENTAS.VENTAS_ONLINE.EDITAR",
           delete: "VENTAS.VENTAS_ONLINE.ELIMINAR",
+        },
+      },
+      {
+        path: "/online-sales-ledger",
+        name: "Libro ventas en línea",
+        mini: "LV",
+        component: <OnlineSalesLedgerPage />,
+        layout: "/admin",
+        module: "VENTAS",
+        permissions: {
+          view: "VENTAS.CONCILIACION.VER",
+        },
+      },
+      {
+        path: "/online-reconciliation",
+        name: "Conciliación en línea",
+        mini: "CL",
+        component: <ReconciliationPage />,
+        layout: "/admin",
+        module: "VENTAS",
+        permissions: {
+          view: "VENTAS.CONCILIACION.VER",
         },
       },
       {

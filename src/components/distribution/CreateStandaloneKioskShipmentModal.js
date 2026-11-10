@@ -46,7 +46,21 @@ const emptyLine = () => ({
   stockLoading: false,
 });
 
-function CreateStandaloneKioskShipmentModal({ isOpen, toggle, onCreated }) {
+/**
+ * initialLocationId / initialLines / initialNotes: abre el modal precargado.
+ * onSubmitLines: modo "solo líneas" (Reposición de kioscos). No crea ningún envío: devuelve las líneas ajustadas
+ * para que entren a la distribución de reposición. Sin empaques, fecha ni observaciones.
+ */
+function CreateStandaloneKioskShipmentModal({
+  isOpen,
+  toggle,
+  onCreated,
+  onSubmitLines,
+  initialLocationId,
+  initialLines,
+  initialNotes,
+}) {
+  const linesOnly = typeof onSubmitLines === "function";
   const [locationId, setLocationId] = useState("");
   const [notes, setNotes] = useState("");
   const [documentDate, setDocumentDate] = useState(() => getDefaultShipmentDocumentDate());
@@ -64,11 +78,13 @@ function CreateStandaloneKioskShipmentModal({ isOpen, toggle, onCreated }) {
   const [packingUnitPriceInput, setPackingUnitPriceInput] = useState("");
   const [shipmentPacking, setShipmentPacking] = useState({});
   const [shipmentPackingPrice, setShipmentPackingPrice] = useState({});
+  const [withoutDistribution, setWithoutDistribution] = useState(false);
 
   const resetForm = useCallback(() => {
     setLocationId("");
     setNotes("");
     setDocumentDate(getDefaultShipmentDocumentDate());
+    setWithoutDistribution(false);
     setLines([emptyLine()]);
     setPackingSearch("");
     setSelectedPackingMaterialId("");
@@ -97,6 +113,20 @@ function CreateStandaloneKioskShipmentModal({ isOpen, toggle, onCreated }) {
   useEffect(() => {
     if (!isOpen) return;
     resetForm();
+    if (initialLocationId) setLocationId(String(initialLocationId));
+    if (initialNotes) setNotes(initialNotes);
+    if (Array.isArray(initialLines) && initialLines.length > 0) {
+      setLines(
+        initialLines.map((line) => ({
+          ...emptyLine(),
+          productId: line.productId ? String(line.productId) : "",
+          colorId: line.colorId ? String(line.colorId) : "",
+          size: line.size || "",
+          hardwareCondition: line.hardwareCondition || "",
+          quantity: Number(line.quantity) || 1,
+        }))
+      );
+    }
     setLoadingCatalog(true);
     Promise.all([getProducts(), getColors(), getLocations(), loadPackingMaterials()])
       .then(([prods, cols, locs]) => {
@@ -110,7 +140,7 @@ function CreateStandaloneKioskShipmentModal({ isOpen, toggle, onCreated }) {
       })
       .catch((err) => showError(err.message || "No se pudo cargar catálogo"))
       .finally(() => setLoadingCatalog(false));
-  }, [isOpen, resetForm, loadPackingMaterials]);
+  }, [isOpen, resetForm, loadPackingMaterials, initialLocationId, initialLines, initialNotes]);
 
   const kioskOptions = useMemo(
     () =>
@@ -294,6 +324,10 @@ function CreateStandaloneKioskShipmentModal({ isOpen, toggle, onCreated }) {
       unitPrice: unitPrice > 0 ? unitPrice : undefined,
     }));
 
+    if (linesOnly && payloadLines.length === 0) {
+      showError("Agregue al menos un producto con cantidad mayor a cero");
+      return;
+    }
     if (payloadLines.length === 0 && packingItems.length === 0) {
       showError("Agregue al menos un producto o un empaque SUM- con cantidad mayor a cero");
       return;
@@ -315,6 +349,11 @@ function CreateStandaloneKioskShipmentModal({ isOpen, toggle, onCreated }) {
     }
 
     const productsPayload = payloadLines.map(({ rowKey, ...rest }) => rest);
+    if (linesOnly) {
+      onSubmitLines(productsPayload);
+      toggle();
+      return;
+    }
     setSaving(true);
     try {
       const created = await createStandaloneKioskShipment({
@@ -323,6 +362,7 @@ function CreateStandaloneKioskShipmentModal({ isOpen, toggle, onCreated }) {
         documentDate: documentDate || undefined,
         products: productsPayload.length > 0 ? productsPayload : undefined,
         packingItems: packingItems.length > 0 ? packingItems : undefined,
+        withoutDistribution: withoutDistribution || undefined,
         confirmOnly: true,
       });
       showSuccess(
@@ -338,15 +378,24 @@ function CreateStandaloneKioskShipmentModal({ isOpen, toggle, onCreated }) {
   };
 
   return (
-    <Modal isOpen={isOpen} toggle={toggle} size="xl">
-      <ModalHeader toggle={toggle}>Envío directo a kiosko (sin OP)</ModalHeader>
+    <Modal isOpen={isOpen} toggle={toggle} size="xl" className={linesOnly ? "kr-modal dist-contrast" : undefined}>
+      <ModalHeader toggle={toggle}>
+        {linesOnly ? "Revisar y agregar productos del kiosco" : "Envío directo a kiosko (sin OP)"}
+      </ModalHeader>
       <ModalBody>
+        {linesOnly ? (
+          <Alert color="info" className="py-2 kr-alert-info">
+            Ajusta cantidades o agrega productos. No se crea ningún envío todavía: las líneas entran a la
+            distribución de reposición cuando la confirmes.
+          </Alert>
+        ) : (
         <Alert color="info" className="py-2">
           Paso 1: <strong>Generar envío</strong> crea el documento confirmado (sin validar stock).
           Paso 2: en la tabla use <strong>Enviar</strong> cuando deba salir de Bodega PT hacia el kiosko.
           Los empaques <strong>SUM-</strong> se incluyen en el documento impreso y cargan inventario del kiosko al confirmar la recepción.
           También puede registrar entradas manuales de productos SUM- en Inventario kiosco.
         </Alert>
+        )}
         <Row>
           <Col md="6">
             <FormGroup>
@@ -355,12 +404,14 @@ function CreateStandaloneKioskShipmentModal({ isOpen, toggle, onCreated }) {
                 value={locationId}
                 onChange={setLocationId}
                 options={kioskOptions}
-                disabled={loadingCatalog}
+                disabled={loadingCatalog || linesOnly}
                 placeholder="Buscar kiosko…"
                 emptyLabel="— Seleccione kiosko —"
               />
             </FormGroup>
           </Col>
+          {!linesOnly ? (
+          <>
           <Col md="3">
             <FormGroup>
               <Label>Fecha documento</Label>
@@ -379,6 +430,25 @@ function CreateStandaloneKioskShipmentModal({ isOpen, toggle, onCreated }) {
               />
             </FormGroup>
           </Col>
+          <Col md="12">
+            <FormGroup check className="mb-2">
+              <Label check>
+                <Input
+                  type="checkbox"
+                  checked={withoutDistribution}
+                  onChange={(e) => setWithoutDistribution(e.target.checked)}
+                />
+                <span className="form-check-sign" />
+                Sin distribución (excepción)
+              </Label>
+              <div className="text-muted small">
+                Por defecto el envío se guarda en una distribución manual. Marque esto solo si este envío no debe
+                pertenecer a ninguna distribución.
+              </div>
+            </FormGroup>
+          </Col>
+          </>
+          ) : null}
         </Row>
 
         <div className="d-flex justify-content-between align-items-center mb-2">
@@ -507,6 +577,8 @@ function CreateStandaloneKioskShipmentModal({ isOpen, toggle, onCreated }) {
           </tbody>
         </Table>
 
+        {!linesOnly ? (
+        <>
         <Label>
           <strong>Empaques SUM-</strong>
           <small className="text-muted ml-2">(Opcional — se guardan en el detalle del envío)</small>
@@ -608,13 +680,15 @@ function CreateStandaloneKioskShipmentModal({ isOpen, toggle, onCreated }) {
             )}
           </>
         )}
+        </>
+        ) : null}
       </ModalBody>
       <ModalFooter>
         <Button color="secondary" outline onClick={toggle} disabled={saving}>
           Cancelar
         </Button>
-        <Button color="success" onClick={handleSubmit} disabled={saving || loadingCatalog}>
-          {saving ? <Spinner size="sm" /> : "Generar envío"}
+        <Button color={linesOnly ? "primary" : "success"} onClick={handleSubmit} disabled={saving || loadingCatalog}>
+          {saving ? <Spinner size="sm" /> : linesOnly ? "Usar estas líneas" : "Generar envío"}
         </Button>
       </ModalFooter>
     </Modal>

@@ -44,13 +44,14 @@ import {
 } from "services/kioscoInventoryService";
 import { isPackagingProductCode } from "utils/kioskPackagingHelper";
 import { hasInventorySizeBreakdown, formatInventorySizesLine } from "utils/inventoryVariantHelper";
-import { isFossCinchosProductCode } from "utils/cinchoProductionHelper";
+import {
+  isCinchoInventoryProductByCodeAndName,
+  isFossCinchosProductCode,
+} from "utils/cinchoProductionHelper";
 import {
   filterVisibleKioskStockRows,
   formatCinchoClassification,
-  resolveCinchoSizesForOpening,
-  resolveCinchoSizesForProduct,
-  sortSizeKeys,
+  resolveKioskLineSizeOptions,
 } from "utils/productCinchoHelper";
 import {
   STOCK_DIMENSION_KIND,
@@ -80,6 +81,9 @@ import {
 import KioskInventoryMovementsPanel from "./KioskInventoryMovementsPanel";
 import KioskInventoryStockExplorer from "./KioskInventoryStockExplorer";
 import "./KioskInventory.css";
+
+/** Opción del selector de talla para escribir una talla fuera de la lista (solo ingresos). */
+const CUSTOM_SIZE_OPTION = "__OTRA_TALLA__";
 
 const INITIAL_FORM = {
   operation: "ENTRADA",
@@ -513,7 +517,22 @@ function KioskInventory() {
       || product?.cinchoType
       || product?.cinchoForKids
       || isFossCinchosProductCode(row?.productCode || product?.code)
+      // Mismo criterio que el back (nombre con "cincho"): sin esto un cincho sin fila de stock
+      // en el kiosko quedaba sin selector de talla y no se podía ingresar.
+      || isCinchoInventoryProductByCodeAndName(
+        row?.productCode || product?.code,
+        row?.productName || product?.name
+      )
     );
+  };
+
+  /** Movimiento que suma stock en el kiosko: entrada o ajuste (+). */
+  const lineIsInflow = (line) => {
+    if (form.operation === "ENTRADA") return true;
+    if (form.operation === "AJUSTE") {
+      return String(line?.direction || "INGRESO").toUpperCase() === "INGRESO";
+    }
+    return false;
   };
 
   const lineNeedsSize = (line) => {
@@ -525,16 +544,15 @@ function KioskInventory() {
 
   const resolveLineSizeOptions = (line) => {
     const row = findStockRow(line.productId, line.colorId, line.hardwareCondition);
-    const existingSizes = Object.keys(row?.sizes || {});
-    if (!isCinchoLine(line, row)) {
-      return hasInventorySizeBreakdown(row?.sizes) ? sortSizeKeys(existingSizes) : [];
-    }
-    const product = findCatalogProduct(line.productId) || row;
+    const existingSizes = hasInventorySizeBreakdown(row?.sizes) ? Object.keys(row.sizes) : [];
     const locationId = form.operation === "TRASLADO" ? form.locationOriginId : form.locationId;
-    const catalogSizes = isEntreCuerosLocation(locationId)
-      ? resolveCinchoSizesForOpening(product, { entreCueros: true })
-      : resolveCinchoSizesForProduct(product);
-    return sortSizeKeys([...new Set([...catalogSizes, ...existingSizes])]);
+    return resolveKioskLineSizeOptions({
+      product: findCatalogProduct(line.productId) || row,
+      existingSizes,
+      isCincho: isCinchoLine(line, row),
+      inflow: lineIsInflow(line),
+      entreCueros: isEntreCuerosLocation(locationId),
+    });
   };
 
   /**
@@ -1482,14 +1500,19 @@ function KioskInventory() {
                                         </td>
                                       ) : null}
                                       <td className="kiosk-inv-col-size">
-                                        {needsSize && sizeOptions.length > 0 ? (
+                                        {needsSize && sizeOptions.length > 0 && !line.customSize ? (
                                           <Input
                                             type="select"
                                             bsSize="sm"
                                             value={line.sizeKey}
-                                            onChange={(e) =>
-                                              updateLineItem(line.id, "sizeKey", e.target.value)
-                                            }
+                                            onChange={(e) => {
+                                              if (e.target.value === CUSTOM_SIZE_OPTION) {
+                                                updateLineItem(line.id, "customSize", true);
+                                                updateLineItem(line.id, "sizeKey", "");
+                                                return;
+                                              }
+                                              updateLineItem(line.id, "sizeKey", e.target.value);
+                                            }}
                                           >
                                             <option value="">Talla…</option>
                                             {sizeOptions.map((size) => (
@@ -1500,6 +1523,9 @@ function KioskInventory() {
                                                   : ""}
                                               </option>
                                             ))}
+                                            {lineIsInflow(line) ? (
+                                              <option value={CUSTOM_SIZE_OPTION}>Otra talla…</option>
+                                            ) : null}
                                           </Input>
                                         ) : (
                                           <Input

@@ -4,6 +4,7 @@ import {
   buildShipmentDocumentInnerHtml,
 } from "utils/shipmentPrintDocumentHtml";
 import { getTodayYmdGuatemala } from "utils/dateTimeHelper";
+import { resolveShipmentDocumentNumber } from "utils/prepareShipmentsOrderHelper";
 import { getInternalEnviPriceNote, parseStandaloneInternalMeta, buildInternalEnviPrintNotes, isStandaloneInternalShipment, getStandaloneInternalUserNotes } from "utils/standaloneInternalShipmentHelper";
 
 /**
@@ -62,9 +63,7 @@ export function buildOpShipmentPrintDocumentHtml({ order, shipment, rows, applyH
     phone2: order?.customerPhone || "—",
     saleNumber: order?.code || String(order?.id || ""),
     shipmentNumber:
-      shipment?.shipmentNumber ||
-      order?.vendorShipmentNumber ||
-      shipment?.vendorShipmentNumber ||
+      resolveShipmentDocumentNumber(shipment, order) ||
       order?.code ||
       String(shipment?.id || ""),
     saleDate: dateStr,

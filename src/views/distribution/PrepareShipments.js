@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import "./distributionContrast.css";
 import {
   Alert,
   Button,
@@ -34,6 +35,7 @@ import {
   lookupShipmentsByNumber,
   repairDeliveredShipmentReceiptInventory,
   updateShipmentObservations,
+  updateShipmentProducts,
 } from "services/productDistributionService";
 import * as XLSX from "xlsx-js-style";
 import { getProducts } from "services/productService";
@@ -45,6 +47,7 @@ import {
   getProductionOrderPartialReleases,
   searchPartialReleasesForPrepare,
   searchProductionOrdersForPrepare,
+  updateProductionOrderPacking,
   voidVendorShipmentDocument,
 } from "services/productionOrderService";
 import { showError, showSuccess, showWarning } from "utils/notificationHelper";
@@ -60,14 +63,18 @@ import {
   PRINT_PAPER_WIDTH_MM,
   applyOrderItemPricesToShipmentProducts,
   buildPartialPanelOrder,
+  buildShipmentProductsReplacePayload,
   classifyPrepareOrder,
   isDirectPrepareOrder,
   isEntreCuerosCustomerOpv,
+  isMissingSavedNumber,
   lookupOpvPrintPriceIndex,
   mapShipmentProductsForOpvPrint,
+  mergeShipmentDetailForReprint,
   orderIsPendingForPrepare,
   orderItemsHaveBrand,
   resolveOpvUnitPriceForSize,
+  resolveShipmentDocumentNumber,
 } from "utils/prepareShipmentsOrderHelper";
 import {
   filterShipmentsByPartialReleaseId,
@@ -75,6 +82,7 @@ import {
   orderAllowsPartialReleases,
   resolvePartialReleaseShipmentProducts,
   resolveShipmentLinesForPrint,
+  shipmentHasSavedProductLines,
   shouldUseSyntheticFullOrderDocument,
 } from "utils/partialReleaseHelper";
 import PrepareShipmentsCustomerBlock from "components/distribution/PrepareShipmentsCustomerBlock";
@@ -133,41 +141,50 @@ const BELT_SIZE_TAG = "__BELT_SIZE__:";
 const DOCUMENT_DATE_TAG = "DOCUMENT_DATE:";
 
 const buildPrepareShipmentProductsExtra = (order) => (shipment, linked) => {
+  const isPartial = Boolean(
+    shipment?.partialReleaseId ||
+      linked ||
+      isPartialReleaseShipmentDoc(shipment)
+  );
+  const shippingCost = shippingCostForPrepareShipment(shipment, order, linked);
+  const savedPacking = Array.isArray(shipment?.packingItems) ? shipment.packingItems : null;
+  const packingItems = savedPacking != null
+    ? savedPacking
+    : isPartial
+      ? []
+      : order?.packingItems;
+  const extra = { packingItems, shippingCost };
+  if (shipmentHasSavedProductLines(shipment?.products)) {
+    const priced = applyOrderItemPricesToShipmentProducts(
+      order,
+      classifyPrepareOrder(order) === "OPV"
+        ? mapShipmentProductsForOpvPrint(shipment)
+        : shipment.products
+    );
+    return { ...extra, products: priced };
+  }
   const partialProducts = resolvePartialReleaseShipmentProducts(
     shipment,
     linked,
     order?.orderType
   );
-  const isPartial = Boolean(
-    partialProducts ||
-      shipment?.partialReleaseId ||
-      (linked && isPartialReleaseShipmentDoc(shipment))
-  );
-  const shippingCost = shippingCostForPrepareShipment(shipment, order, linked);
   if (partialProducts) {
     const priced = applyOrderItemPricesToShipmentProducts(order, partialProducts);
-    return {
-      products: priced,
-      _printProducts: priced,
-      packingItems: Array.isArray(shipment?.packingItems) ? shipment.packingItems : [],
-      shippingCost,
-    };
+    return { ...extra, products: priced };
+  }
+  if (isPartial) {
+    return extra;
   }
   if (classifyPrepareOrder(order) === "OPV") {
     return {
+      ...extra,
       products: applyOrderItemPricesToShipmentProducts(
         order,
         mapShipmentProductsForOpvPrint(shipment)
       ),
-      packingItems: isPartial
-        ? Array.isArray(shipment?.packingItems)
-          ? shipment.packingItems
-          : []
-        : order.packingItems,
-      shippingCost,
     };
   }
-  return {};
+  return extra;
 };
 
 const isPartialReleaseShipmentDoc = (shipment) =>
@@ -207,6 +224,21 @@ const enrichShipmentsWithPartialMeta = (printable, partialList, mapExtra) =>
       ...(typeof mapExtra === "function" ? mapExtra(s, linked) : {}),
     };
   });
+
+const hydrateShipmentsFromApi = async (printable) => {
+  const rows = printable || [];
+  return Promise.all(
+    rows.map(async (shipment) => {
+      if (!shipment?.id || isSyntheticShipmentId(shipment.id)) return shipment;
+      try {
+        const detail = await getShipmentById(shipment.id);
+        return mergeShipmentDetailForReprint(shipment, detail);
+      } catch (_err) {
+        return shipment;
+      }
+    })
+  );
+};
 const PROCESSED_SHIPMENT_STATUSES = new Set(["SENT", "DELIVERED", "COMPLETED", "RECEIVED", "CANCELLED"]);
 /** Ocultar solo entregados/cancelados; SENT sigue visible para reimprimir. */
 const HIDDEN_FROM_PREPARE_LIST_STATUSES = new Set(["DELIVERED", "COMPLETED", "RECEIVED", "CANCELLED"]);
@@ -361,7 +393,7 @@ const getShipmentPackingItems = (shipment, localState) => {
   return [];
 };
 
-const resolveMaterialUnitPrice = (item, material) => {
+const resolveCatalogMaterialUnitPrice = (item, material) => {
   const candidates = [
     item?.unitPrice,
     item?.purchasePrice,
@@ -619,7 +651,12 @@ const buildOpvOnlineSalePayload = (printDoc, productionOrder, deps) => {
     ...printDoc,
     _printProducts: stampedProducts,
   };
-  const items = buildOnlineSaleItemsFromShipmentDoc(printSource, deps);
+  // OPV/OPC de Luis Felipe: el empaque se imprime sin precio, sin depender del estado de la pantalla.
+  const freePacking = isLuisFelipeVendorFlow(productionOrder?.orderType, productionOrder?.sellerName);
+  const items = buildOnlineSaleItemsFromShipmentDoc(
+    printSource,
+    freePacking ? { ...deps, resolveMaterialUnitPrice: () => 0 } : deps
+  );
   const netAmount = items.reduce((s, it) => s + Number(it.subtotal || 0), 0);
   const order = productionOrder || {};
   const shippingCost = Number(
@@ -646,8 +683,7 @@ const buildOpvOnlineSalePayload = (printDoc, productionOrder, deps) => {
     phone2: order.customerPhone || "—",
     saleNumber: order.code || String(order.id || ""),
     shipmentNumber:
-      order.vendorShipmentNumber ||
-      printDoc.shipmentNumber ||
+      resolveShipmentDocumentNumber(printDoc, order) ||
       order.code ||
       String(order.id || ""),
     saleDate: dateStr,
@@ -1019,7 +1055,8 @@ function PrepareShipments() {
       setSelectedStandaloneKioskId("");
       setSelectedProductionOrder(null);
 
-      if (shipment.distributionId) {
+      // Un envío de OP (p. ej. OPK, que ahora vive en su distribución) se abre desde su orden, como antes.
+      if (shipment.distributionId && !shipment.productionOrderId) {
         setDistributionId(String(shipment.distributionId));
         return;
       }
@@ -1183,7 +1220,8 @@ function PrepareShipments() {
       setPartialPendingCount(pendingConfirm.length);
 
       if (printable.length > 0) {
-        commitEnrichedShipments(printable, partialList, order);
+        const hydrated = await hydrateShipmentsFromApi(printable);
+        commitEnrichedShipments(hydrated, partialList, order);
       } else if (
         !shouldUseSyntheticFullOrderDocument({
           realShipmentCount: printable.length,
@@ -1243,7 +1281,8 @@ function PrepareShipments() {
       setPartialPendingCount(pendingConfirm.length);
 
       if (printable.length > 0) {
-        commitEnrichedShipments(printable, partialList, order);
+        const hydrated = await hydrateShipmentsFromApi(printable);
+        commitEnrichedShipments(hydrated, partialList, order);
       } else if (pendingConfirm.length > 0) {
         setShipments([]);
         setCopiesByShipment({});
@@ -1293,7 +1332,8 @@ function PrepareShipments() {
       setPartialPendingCount(pendingConfirm.length);
 
       if (printable.length > 0) {
-        commitEnrichedShipments(printable, partialList, order);
+        const hydrated = await hydrateShipmentsFromApi(printable);
+        commitEnrichedShipments(hydrated, partialList, order);
       } else if (pendingConfirm.length > 0) {
         setShipments([]);
         setCopiesByShipment({});
@@ -1343,7 +1383,8 @@ function PrepareShipments() {
       setPartialPendingCount(pendingConfirm.length);
 
       if (printable.length > 0) {
-        commitEnrichedShipments(printable, partialList, order);
+        const hydrated = await hydrateShipmentsFromApi(printable);
+        commitEnrichedShipments(hydrated, partialList, order);
       } else if (pendingConfirm.length > 0) {
         setShipments([]);
         setCopiesByShipment({});
@@ -1418,7 +1459,8 @@ function PrepareShipments() {
         }
         const printable = (realShipments || []).filter(isShipmentRowForPrepareList);
         if (printable.length > 0) {
-          commitEnrichedShipments(printable, null, order);
+          const hydrated = await hydrateShipmentsFromApi(printable);
+          commitEnrichedShipments(hydrated, null, order);
         } else if (String(order?.status || "").trim().toUpperCase() === "DRAFT") {
           setError("La orden INTERNA (OPI) está en borrador. Contabilidad debe autorizar la producción desde Autorizar envíos internos.");
           setShipments([]);
@@ -1713,6 +1755,24 @@ function PrepareShipments() {
     }
   };
 
+  const luisFelipePrintFlow = useMemo(() => {
+    if (isLuisFelipeVendorFlow(selectedProductionOrder?.orderType, selectedProductionOrder?.sellerName)) {
+      return true;
+    }
+    const fromOpc = (opcOrders || []).find((o) => String(o.id) === String(selectedOpcOrderId));
+    if (fromOpc && isLuisFelipeVendorFlow(fromOpc.orderType, fromOpc.sellerName)) {
+      return true;
+    }
+    const fromOpv = (opvOrders || []).find((o) => String(o.id) === String(selectedOpvOrderId));
+    return Boolean(fromOpv && isLuisFelipeVendorFlow(fromOpv.orderType, fromOpv.sellerName));
+  }, [selectedProductionOrder, selectedOpcOrderId, selectedOpvOrderId, opcOrders, opvOrders]);
+
+  // OPV/OPC de Luis Felipe: el empaque no se cobra (precio 0). Sin esto el envío caía al costo del material.
+  const resolveMaterialUnitPrice = useCallback(
+    (item, material) => (luisFelipePrintFlow ? 0 : resolveCatalogMaterialUnitPrice(item, material)),
+    [luisFelipePrintFlow]
+  );
+
   const getPackingKey = (shipmentId, materialId) => `${shipmentId}:${materialId}`;
 
   const resolveShipmentPackingItems = useCallback(
@@ -1736,27 +1796,49 @@ function PrepareShipments() {
           };
         })
         .filter(Boolean),
-    [packingMaterials, packingQtyByShipment]
+    [packingMaterials, packingQtyByShipment, resolveMaterialUnitPrice]
   );
 
-  const openPackingModal = (shipment) => {
-    const items = getShipmentPackingItems(shipment, { packingQtyByShipment, packingMaterials });
-    if (items.length > 0) {
-      setPackingQtyByShipment((prev) => {
-        const next = { ...prev };
-        items.forEach((item) => {
-          next[getPackingKey(shipment.id, item.materialId)] = item.quantity;
-        });
-        return next;
-      });
+  const openSavedShipmentEditor = async (shipment, onReady) => {
+    if (!shipment?.id) return;
+    let doc = shipment;
+    if (!isSyntheticShipmentId(shipment.id)) {
+      try {
+        const detail = await getShipmentById(shipment.id);
+        doc = mergeShipmentDetailForReprint(shipment, detail);
+        setShipments((prev) =>
+          (prev || []).map((row) =>
+            String(row.id) === String(doc.id) ? mergeShipmentDetailForReprint(row, doc) : row
+          )
+        );
+      } catch (err) {
+        showError(err.message || "No se pudo cargar el envío guardado");
+        return;
+      }
     }
-    setPackingModalShipment(shipment);
-    const linked = findLinkedPartialRelease(shipment, orderPartialReleases?.releases);
-    const initial =
-      shipment?.shippingCost != null && shipment.shippingCost !== ""
-        ? String(shipment.shippingCost)
-        : String(shippingCostForPrepareShipment(shipment, selectedProductionOrder, linked) || "");
-    setModalShippingCost(initial);
+    onReady(doc);
+  };
+
+  const openPackingModal = (shipment) => {
+    void openSavedShipmentEditor(shipment, (doc) => {
+      const items = getShipmentPackingItems(doc, { packingQtyByShipment, packingMaterials });
+      if (items.length > 0) {
+        setPackingQtyByShipment((prev) => {
+          const next = { ...prev };
+          items.forEach((item) => {
+            next[getPackingKey(doc.id, item.materialId)] = item.quantity;
+          });
+          return next;
+        });
+      }
+      setPackingModalShipment(doc);
+      const linked = findLinkedPartialRelease(doc, orderPartialReleases?.releases);
+      const initial =
+        doc?.shippingCost != null && doc.shippingCost !== ""
+          ? String(doc.shippingCost)
+          : String(shippingCostForPrepareShipment(doc, selectedProductionOrder, linked) || "");
+      setModalShippingCost(initial);
+    });
   };
 
   const handleSavePackingModal = async () => {
@@ -1768,12 +1850,31 @@ function PrepareShipments() {
       setSavingPacking(true);
       setError("");
       const payload = buildPackingItemsPayloadForShipment(shipment.id);
-      const updatedPacking = await updateShipmentPackingItems(shipment.id, payload);
       const shippingRaw = String(modalShippingCost ?? "").trim();
       const shippingValue = shippingRaw === "" ? null : Number(shippingRaw);
       if (shippingRaw !== "" && (!Number.isFinite(shippingValue) || shippingValue < 0)) {
         throw new Error("Indique un costo de envío válido (0 o mayor).");
       }
+      // Documento OPV/OPI armado desde la orden (id "opv-123"): no hay envío en sistema, se guarda en la OP.
+      if (isSyntheticShipmentId(shipment.id)) {
+        const orderId = syntheticShipmentOrderId(shipment.id);
+        const updatedOrder = await updateProductionOrderPacking(orderId, payload, shippingValue);
+        const merged = {
+          ...shipment,
+          packingItems: updatedOrder?.packingItems || payload,
+          shippingCost: updatedOrder?.shippingCost ?? shippingValue ?? 0,
+        };
+        setSelectedProductionOrder((prev) =>
+          prev && String(prev.id) === String(orderId)
+            ? { ...prev, packingItems: merged.packingItems, shippingCost: merged.shippingCost }
+            : prev
+        );
+        setShipments((prev) => prev.map((s) => (s.id === shipment.id ? { ...s, ...merged } : s)));
+        showSuccess("Empaques y costo de envío guardados en la orden");
+        setPackingModalShipment(null);
+        return;
+      }
+      const updatedPacking = await updateShipmentPackingItems(shipment.id, payload);
       const updatedShipping = await updateShipmentShippingCost(shipment.id, shippingValue);
       const merged = {
         ...shipment,
@@ -1824,18 +1925,6 @@ function PrepareShipments() {
 
   const standaloneInternalFlow = Boolean(selectedStandaloneInternalId);
   const standaloneKioskFlow = Boolean(selectedStandaloneKioskId);
-
-  const luisFelipePrintFlow = useMemo(() => {
-    if (isLuisFelipeVendorFlow(selectedProductionOrder?.orderType, selectedProductionOrder?.sellerName)) {
-      return true;
-    }
-    const fromOpc = (opcOrders || []).find((o) => String(o.id) === String(selectedOpcOrderId));
-    if (fromOpc && isLuisFelipeVendorFlow(fromOpc.orderType, fromOpc.sellerName)) {
-      return true;
-    }
-    const fromOpv = (opvOrders || []).find((o) => String(o.id) === String(selectedOpvOrderId));
-    return Boolean(fromOpv && isLuisFelipeVendorFlow(fromOpv.orderType, fromOpv.sellerName));
-  }, [selectedProductionOrder, selectedOpcOrderId, selectedOpvOrderId, opcOrders, opvOrders]);
 
   const opckFlow = Boolean(selectedOpckOrderId);
   const opkFlow = Boolean(selectedOpkOrderId);
@@ -1929,6 +2018,11 @@ function PrepareShipments() {
       );
       if (fromIndex != null) return fromIndex;
 
+      if (!isMissingSavedNumber(item?.unitPrice)) {
+        const saved = Number(item.unitPrice);
+        if (Number.isFinite(saved)) return saved;
+      }
+
       const unitPrices =
         item?.unitPrices && typeof item.unitPrices === "object" ? item.unitPrices : null;
       if (unitPrices && sizeKey) {
@@ -1992,9 +2086,37 @@ function PrepareShipments() {
     [resolveProductUnitPriceForOrder, selectedProductionOrder]
   );
 
+  const persistShipmentProductLines = async (docs) => {
+    const persisted = [];
+    for (const shipment of docs || []) {
+      if (!shipment?.id || isSyntheticShipmentId(shipment.id)) {
+        persisted.push(shipment);
+        continue;
+      }
+      const payload = buildShipmentProductsReplacePayload(
+        shipment._printProducts || shipment.products
+      );
+      if (!payload.length) {
+        persisted.push(shipment);
+        continue;
+      }
+      try {
+        const updated = await updateShipmentProducts(shipment.id, payload);
+        persisted.push(mergeShipmentDetailForReprint(shipment, updated));
+      } catch (err) {
+        showError(
+          err.message ||
+            `No se pudieron guardar los productos del envío ${shipment.shipmentNumber || shipment.id}`
+        );
+        persisted.push(shipment);
+      }
+    }
+    return persisted;
+  };
+
   const handleOpvPricesSaved = async (order, meta = {}) => {
     const shouldPrint = Boolean(meta?.print || opvPendingPrint);
-    const updatedShipments = (shipments || []).map((s) => {
+    const pricedShipments = (shipments || []).map((s) => {
       const rawLines = resolveShipmentLinesForPrint(
         { ...s, _printProducts: undefined },
         order,
@@ -2021,6 +2143,7 @@ function PrepareShipments() {
         ),
       };
     });
+    const updatedShipments = await persistShipmentProductLines(pricedShipments);
     setSelectedProductionOrder(order);
     setShipments(updatedShipments);
     setOpvPendingPrint(false);
@@ -2118,8 +2241,8 @@ function PrepareShipments() {
     () =>
       (distributions || []).map((dist) => ({
         value: String(dist.id),
-        label: `${dist.distributionNumber} - ${dist.distributionDate ? formatDateGt(dist.distributionDate) : "Sin fecha"}`,
-        searchText: `${dist.distributionNumber} ${dist.description || ""}`,
+        label: `${dist.distributionNumber}${dist.origin === "REPOSICION" ? " · Reposición" : ""} - ${dist.distributionDate ? formatDateGt(dist.distributionDate) : "Sin fecha"}${dist.description ? ` · ${dist.description}` : ""}`,
+        searchText: `${dist.distributionNumber} ${dist.description || ""} ${dist.origin === "REPOSICION" ? "reposicion reposición" : "manual"}`,
       })),
     [distributions]
   );
@@ -2321,7 +2444,6 @@ function PrepareShipments() {
 
   const getShipmentPrintProducts = useCallback(
     (shipment, order = selectedProductionOrder) => {
-      // Siempre partir de productos crudos y reaplicar precios de la OP (evita _printProducts viejos).
       const lines = resolveShipmentLinesForPrint(
         { ...shipment, _printProducts: undefined },
         order,
@@ -2353,7 +2475,7 @@ function PrepareShipments() {
           : [];
         const printPacking = opiInternalFlow || standaloneInternalFlow
           ? []
-          : isPartialReleaseShipmentDoc(shipment)
+          : isPartialReleaseShipmentDoc(shipment) || !isSyntheticShipmentId(shipment.id)
             ? shipmentPacking
             : shipmentPacking.length > 0
               ? shipmentPacking
@@ -2521,12 +2643,15 @@ function PrepareShipments() {
         }
       })
     );
-    setShipments((prev) =>
-      (prev || []).map((row) => {
-        const refreshed = updatedRows.find((u) => u && Number(u.id) === Number(row.id));
-        return refreshed ? { ...row, notes: refreshed.notes } : row;
-      })
-    );
+    const withNotes = (shipments || []).map((row) => {
+      const refreshed = updatedRows.find((u) => u && Number(u.id) === Number(row.id));
+      return refreshed ? { ...row, notes: refreshed.notes } : row;
+    });
+    const selectedDocs = withNotes.filter((row) => selectedRows[row.id]);
+    const persistedSelected = await persistShipmentProductLines(selectedDocs);
+    const persistedById = new Map(persistedSelected.map((row) => [String(row.id), row]));
+    const merged = withNotes.map((row) => persistedById.get(String(row.id)) || row);
+    setShipments(merged);
   };
 
   const executePrintSelected = (observationsText = "") => {
@@ -3464,16 +3589,14 @@ function PrepareShipments() {
 
   const handleEditShipmentFromPartial = async (release) => {
     if (!release?.shipmentId) return;
-    let shipment = (shipments || []).find((s) => Number(s.id) === Number(release.shipmentId));
-    if (!shipment) {
-      try {
-        shipment = await getShipmentById(release.shipmentId);
-      } catch (err) {
-        showError(err.message || "No se pudo cargar el envío");
-        return;
-      }
+    const listed = (shipments || []).find((s) => Number(s.id) === Number(release.shipmentId));
+    try {
+      const detail = await getShipmentById(release.shipmentId);
+      const shipment = mergeShipmentDetailForReprint(listed, detail);
+      setEditProductsShipment(shipment);
+    } catch (err) {
+      showError(err.message || "No se pudo cargar el envío");
     }
-    setEditProductsShipment(shipment);
   };
 
   const handleSendShipmentFromPartial = async (release) => {
@@ -3588,7 +3711,7 @@ function PrepareShipments() {
     hasAnyFiltered && filteredShipments.every((shipment) => selectedRows[shipment.id]);
 
   return (
-    <div className="content">
+    <div className="content dist-contrast">
       <Row>
         <Col md="12">
           <Card>
@@ -3743,9 +3866,13 @@ function PrepareShipments() {
 
               {standaloneKioskFlow && (
                 <Alert color="info">
-                  <strong>Envío directo a kiosko (sin OP):</strong> documento formato OPK. Si quedó solo confirmado, use{" "}
-                  <strong>Enviar</strong>. Los empaques <strong>SUM-</strong> se agregan con el botón <strong>Empaques</strong> en la tabla
-                  o al crear el envío. Recepción en <strong>POS → Recibir distribución</strong>.
+                  <strong>Envío a kiosko sin OP:</strong> vive dentro de su distribución
+                  {selectedStandaloneKioskShipment?.distributionNumber
+                    ? ` (${selectedStandaloneKioskShipment.distributionNumber})`
+                    : ""}
+                  . Si quedó solo confirmado, use <strong>Enviar</strong>. Los empaques <strong>SUM-</strong> se agregan
+                  con el botón <strong>Empaques</strong> en la tabla. Recepción en <strong>POS → Recibir distribución</strong>.
+                  Para reponer un kiosco use una distribución manual o la Reposición de kioscos.
                 </Alert>
               )}
 
@@ -4024,7 +4151,7 @@ function PrepareShipments() {
 
               <Row className="mb-3">
                 <Col md="8">
-                  <Label><strong>Envío directo a kiosko (sin OP)</strong></Label>
+                  <Label><strong>Envío a kiosko sin OP (dentro de su distribución)</strong></Label>
                   <FilterableSelect
                     value={selectedStandaloneKioskId}
                     onChange={(id) => {
@@ -4451,7 +4578,7 @@ function PrepareShipments() {
                             color="warning"
                             size="sm"
                             outline
-                            onClick={() => setEditProductsShipment(shipment)}
+                            onClick={() => void openSavedShipmentEditor(shipment, setEditProductsShipment)}
                             className="mr-2"
                             disabled={
                               !isShipmentProductsEditable(shipment.status) ||
@@ -4604,7 +4731,7 @@ function PrepareShipments() {
         </Col>
       </Row>
 
-      <Modal isOpen={Boolean(packingModalShipment)} toggle={() => setPackingModalShipment(null)} size="lg">
+      <Modal className="dist-contrast" isOpen={Boolean(packingModalShipment)} toggle={() => setPackingModalShipment(null)} size="lg">
         <ModalHeader toggle={() => setPackingModalShipment(null)}>
           Empaques y costo de envío — {packingModalShipment?.shipmentNumber || "envío"}
         </ModalHeader>

@@ -161,10 +161,40 @@ export function needsOpiProductionAuthorization(request) {
   return String(request.productionOrderStatus || "").toUpperCase() === "DRAFT";
 }
 
+export const NEXT_ACTION = {
+  SHIP: "AUTORIZAR_ENVIO",
+  PRODUCE: "AUTORIZAR_PRODUCCION",
+  WAIT: "ESPERAR_PRODUCCION",
+};
+
+/**
+ * Acción principal que Contabilidad puede tomar sobre una solicitud PENDIENTE:
+ *  - AUTORIZAR_ENVIO: hay stock, se autoriza el envío (ENVI).
+ *  - AUTORIZAR_PRODUCCION: falta stock, se autoriza la producción del faltante (OPI).
+ *  - ESPERAR_PRODUCCION: la OPI ya está autorizada; falta que entre a Bodega PT.
+ * El backend manda `nextAction`; si no viene (no se pudo calcular el stock) se deduce de la OPI vinculada.
+ */
+export function resolveNextAction(request) {
+  if (!request || request.status !== "PENDIENTE") return null;
+  if (request.nextAction) return request.nextAction;
+  if (needsOpiProductionAuthorization(request)) return NEXT_ACTION.PRODUCE;
+  if (String(request.requestType || "").toUpperCase() === "OPI") return null;
+  return NEXT_ACTION.SHIP;
+}
+
 export function canApproveInternalShipment(request) {
-  if (!request || request.status !== "PENDIENTE") return false;
-  if (String(request.requestType || "").toUpperCase() === "OPI") return false;
-  return !needsOpiProductionAuthorization(request);
+  return resolveNextAction(request) === NEXT_ACTION.SHIP;
+}
+
+export function canAuthorizeProduction(request) {
+  return resolveNextAction(request) === NEXT_ACTION.PRODUCE;
+}
+
+/** Cantidad legible (sin decimales sobrantes). */
+export function formatQty(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return "0";
+  return Number.isInteger(n) ? String(n) : n.toFixed(2);
 }
 
 export function canGenerateOpiForApprovedEnvi(request, shipment) {

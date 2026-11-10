@@ -54,6 +54,7 @@ const emptyLine = () => ({
   colorId: "",
   size: "",
   hardwareCondition: "",
+  unitPrice: "",
   quantity: 1,
   stockHint: "",
   stockLoading: false,
@@ -65,6 +66,7 @@ const lineFromProduct = (product, index) => ({
   colorId: product.colorId != null && product.colorId !== "" ? String(product.colorId) : "",
   size: String(product.size || product.sizeLabel || "").trim().toUpperCase(),
   hardwareCondition: String(product.hardwareCondition || "").trim().toUpperCase(),
+  unitPrice: product.unitPrice,
   quantity: Number(product.quantity) || 1,
   stockHint: "",
   stockLoading: false,
@@ -248,6 +250,7 @@ function EditShipmentProductsModal({ isOpen, toggle, shipment, onSaved }) {
         hardwareCondition: entreCuerosDest
           ? resolvePayloadHardware(locationId || shipment?.locationId, productsById.get(Number(row.productId)), row.hardwareCondition) || null
           : String(row.hardwareCondition || "").trim().toUpperCase() || null,
+        unitPrice: row.unitPrice == null || row.unitPrice === "" ? 0 : Number(row.unitPrice) || 0,
         quantity: Number(row.quantity) || 0,
         rowKey: row.key,
       }))

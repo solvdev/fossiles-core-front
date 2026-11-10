@@ -280,7 +280,13 @@ describe("capacidad del día", () => {
 
   test("un producto en 0 se deja para otro día", () => {
     const a = order(1, "OPV-1", [item(1, 10, 0.1), item(2, 10, 0.1)]);
-    const tasks = suggestGrouping([a], [1], [], { picks: { 1: 0 }, newId });
-    expect(tasks.flatMap((t) => t.lines).map((l) => l.productionOrderItemId)).toEqual([2]);
+    const tasks = suggestGrouping([a], [1], [], { picks: { 1: 0, 2: 5 }, newId });
+    expect(tasks.flatMap((t) => t.lines).map((l) => [l.productionOrderItemId, l.quantity])).toEqual([[2, 5]]);
+  });
+
+  test("en una OP con cantidades fijadas, lo que no se fijó no entra solo", () => {
+    const a = order(1, "OPV-1", [item(1, 10, 0.1), item(2, 10, 0.1), item(3, 10, 0.1)]);
+    const tasks = suggestGrouping([a], [1], [], { budgetHours: 4, picks: { 2: 3 }, newId });
+    expect(tasks.flatMap((t) => t.lines).map((l) => [l.productionOrderItemId, l.quantity])).toEqual([[2, 3]]);
   });
 });

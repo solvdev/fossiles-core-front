@@ -20,6 +20,12 @@ export const DAY_PLANNER_CSS = `
 .dp-seg button{border:0;background:#fff;padding:0 16px;min-height:48px;cursor:pointer}
 .dp-seg button+button{border-left:1px solid #c9c4bb}
 .dp-seg button[aria-pressed="true"]{background:var(--dp-primary);color:#fff;font-weight:700}
+.dp-views{margin:0 0 12px}
+.dp-views button{font-weight:700;padding:0 20px}
+.dp-count{display:inline-block;min-width:22px;margin-left:8px;padding:1px 7px;border-radius:999px;background:#ef8157;color:#fff;font-size:12px;line-height:18px;text-align:center}
+.dp-views button[aria-pressed="true"] .dp-count{background:#fff;color:var(--dp-primary)}
+.dp-cutstep{margin:14px 0}
+.dp-cutstep ol{margin:6px 0 10px 18px;padding:0}
 
 .dp-step{background:#fff;border:1px solid var(--dp-line);border-radius:10px;margin-bottom:12px;overflow:hidden}
 .dp-step>.dp-step-head{display:flex;flex-wrap:wrap;align-items:center;gap:4px 12px;padding:12px 16px;min-height:60px}
@@ -37,6 +43,7 @@ export const DAY_PLANNER_CSS = `
 .dp-note.info{background:#e8f6fb;border-color:#a7dcee;color:#0b5c75}
 .dp-note.bad{background:#fdece6;border-color:#f3b49f;color:#a3300f}
 .dp-note.good{background:#e6f6ee;border-color:#a8dcc0;color:#1e6b45}
+.dp-note.lf{background:#f1ecfb;border-color:#c9b8ee;color:#4a2f8a;align-items:center}
 .dp-state{text-align:center;padding:32px 12px}
 .dp-state .dp-big-icon{font-size:40px}
 
@@ -77,6 +84,7 @@ export const DAY_PLANNER_CSS = `
 .dp-chip{display:inline-block;border-radius:999px;padding:3px 12px;font-size:14px;font-weight:700}
 .dp-chip.ok{background:#dff5e9;color:#1e6b45}.dp-chip.near{background:#fff0c4;color:#7a5a00}
 .dp-chip.over{background:#fbd9cc;color:#a3300f}.dp-chip.opl{background:#dcedc8;color:#33691e}
+.dp-chip.lf{background:#ebe3fa;color:#4a2f8a}
 .dp-cap{padding:0 14px 12px}
 .dp-cap .dp-cap-txt{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;font-weight:700;margin-bottom:4px}
 .dp-track{position:relative;height:16px;background:#ebe8e1;border-radius:999px}
@@ -95,6 +103,40 @@ export const DAY_PLANNER_CSS = `
 .dp-qty{display:inline-flex;align-items:center;gap:6px}
 .dp-qty output{min-width:36px;text-align:center;font-weight:800;font-size:18px}
 .dp-tfoot{display:flex;flex-wrap:wrap;gap:8px;padding:8px 0 4px;align-items:center}
+
+/* Paso 2 en tabla: tarea × producto, una columna por color */
+.dp-tt-wrap{overflow-x:auto;border:1px solid var(--dp-line);border-radius:10px;margin-top:12px;background:#fff}
+.dp-tt{border-collapse:collapse;width:100%;min-width:720px;font-size:15px}
+.dp-tt th,.dp-tt td{border-bottom:1px solid var(--dp-line);padding:8px 10px;vertical-align:middle;text-align:left}
+.dp-tt thead th{background:#f5f4f1;font-size:12px;text-transform:uppercase;letter-spacing:.03em;color:#555;white-space:nowrap}
+.dp-tt th.dp-tt-c,.dp-tt td.dp-tt-c{text-align:center;width:76px}
+.dp-tt th.dp-tt-c.prio{background:#ebe9e3}
+.dp-tt td.dp-tt-n{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
+.dp-tt td.dp-tt-task{width:220px;background:#fcfbf9;border-right:1px solid var(--dp-line);vertical-align:top}
+.dp-tt td.dp-tt-task.lv-over{box-shadow:inset 4px 0 0 var(--dp-over)}
+.dp-tt td.dp-tt-task.lv-opl{box-shadow:inset 4px 0 0 var(--dp-opl)}
+.dp-tt tr.dp-tt-first>td{border-top:2px solid #cfcbc3}
+.dp-tt .dp-tt-tn{font-weight:800;display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+.dp-tt .dp-tt-meta{color:var(--dp-muted);font-size:13px;margin-top:2px}
+.dp-tt .dp-tt-bar{height:6px;background:#ebe7e1;border-radius:3px;margin:6px 0;position:relative}
+.dp-tt .dp-tt-bar i{display:block;height:100%;border-radius:3px}
+.dp-tt .dp-tt-bar span{position:absolute;top:-3px;bottom:-3px;width:1px;background:#555;left:80%}
+.dp-tt .dp-tt-tact{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;margin-top:6px}
+.dp-tt .dp-tt-tact .dp-link{min-height:36px;padding:0;font-size:14px}
+.dp .dp-tt .dp-tt-tact .btn{min-height:36px;margin:0;font-size:12px}
+.dp-tt .dp-tt-prod b{font-weight:800}
+.dp-tt .dp-tt-prod small{display:block;color:var(--dp-muted)}
+.dp-tt input.dp-tt-q{width:58px;min-height:40px;text-align:center;font-weight:800;border:1px solid #d8d4cc;border-radius:8px;background:#fff;font-size:16px}
+.dp-tt input.dp-tt-q:focus{outline:2px solid var(--dp-primary)}
+.dp-tt td.dp-tt-c.zero{color:#c9cdd1}
+.dp-tt .dp-tt-act{display:flex;gap:6px;align-items:center;justify-content:flex-end}
+.dp-tt .dp-tt-act select.dp-select{min-height:40px;max-width:130px}
+.dp-tt .dp-tt-act .dp-icon{width:40px;height:40px}
+.dp-tt tfoot td{background:#f5f4f1;font-weight:800}
+.dp-tt tfoot tr.dp-tt-ask td{background:#fff;font-weight:600;font-size:13px;color:var(--dp-muted)}
+.dp-tt tfoot tr.dp-tt-ask td.ok{color:#1e6b45}
+.dp-tt tfoot tr.dp-tt-ask td.left{color:#a3300f}
+.dp-tt .dp-tt-oc{display:inline-block;background:#ebe3fa;color:#4a2f8a;border-radius:4px;padding:0 5px;font-size:12px;font-weight:700;margin-left:4px}
 .dp-addlist{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0}
 .dp-daycap{position:sticky;top:0;z-index:5;background:#fff;border:1px solid var(--dp-line);border-radius:10px;padding:10px 14px;margin:10px 0}
 .dp-daycap[data-level=over]{border-color:#f3b49f;background:#fdece6}
@@ -103,6 +145,9 @@ export const DAY_PLANNER_CSS = `
 .dp-daycap .dp-track{margin:6px 0}
 .dp-detail .dp-pick-tools{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
 .dp-detail .dp-pick-tools .dp-sp{flex:1}
+.dp-detail .dp-item-filter{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin:8px 0 4px;padding:0}
+.dp-detail .dp-item-filter input[type=search]{flex:1 1 240px;min-height:40px;border:1px solid #c9c4bb;border-radius:8px;padding:0 10px}
+.dp-detail .dp-item-filter label{display:flex;align-items:center;gap:4px;margin:0;cursor:pointer}
 .dp-more{display:flex;justify-content:center;padding:10px 0}
 .dp-pick{display:flex;align-items:center;gap:6px}
 .dp-pick input{width:84px;min-height:44px;text-align:right;border:1px solid #b9b4aa;border-radius:8px;padding:0 8px}

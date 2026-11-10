@@ -25,7 +25,9 @@ import {
   setDraftLinesIncluded,
   buildPartialReleaseLinesPayload,
   countDraftTotalUnits,
+  draftLineVisibleInPartialEditor,
   draftLinesForReviewFromRelease,
+  draftSizeVisibleInPartialEditor,
   groupDraftLinesByVariant,
   initDraftLinesFromAvailability,
   initDraftLinesFromRelease,
@@ -133,13 +135,16 @@ function PartialReleaseEditorModal({
   );
 
   const filteredLines = useMemo(() => {
+    const visible = readOnly
+      ? draftLines
+      : draftLines.filter((row) => draftLineVisibleInPartialEditor(row));
     const q = String(lineFilter || "").trim().toLowerCase();
-    if (!q) return draftLines;
-    return draftLines.filter((row) => {
+    if (!q) return visible;
+    return visible.filter((row) => {
       const text = `${row.productCode || ""} ${row.productName || ""} ${row.colorName || ""}`.toLowerCase();
       return text.includes(q);
     });
-  }, [draftLines, lineFilter]);
+  }, [draftLines, lineFilter, readOnly]);
 
   const filteredGroups = useMemo(() => {
     const visible = readOnly
@@ -163,12 +168,14 @@ function PartialReleaseEditorModal({
     setDraftLines((prev) =>
       prev.map((row) => {
         if (row.productionOrderItemId !== itemId) return row;
+        const cap = maxDraftLineQuantity(row, sizeKey);
+        const raw = Math.max(0, value);
+        const qty = cap > 0 ? Math.min(raw, cap) : 0;
         if (sizeKey != null) {
-          const sizes = { ...row.sizes, [sizeKey]: value };
+          const sizes = { ...row.sizes, [sizeKey]: qty };
           const included = Object.values(sizes).some((q) => Number(q) > 0);
           return { ...row, sizes, included };
         }
-        const qty = Math.max(0, value);
         return { ...row, [field]: qty, included: qty > 0 };
       })
     );
@@ -291,6 +298,8 @@ function PartialReleaseEditorModal({
               </div>
             );
           }
+          if (!draftSizeVisibleInPartialEditor(row, size)) return null;
+          const sizeDisabled = pendingForSize <= 0 && !sizeIncluded;
           return (
             <div key={size} className="mr-2 mb-2" style={{ minWidth: 100 }}>
               <div className="custom-control custom-checkbox mb-1">
@@ -299,7 +308,7 @@ function PartialReleaseEditorModal({
                   className="custom-control-input"
                   id={`size-inc-${row.productionOrderItemId}-${size}`}
                   checked={sizeIncluded}
-                  disabled={maxQty <= 0}
+                  disabled={sizeDisabled || maxQty <= 0}
                   onChange={(e) => toggleSizeIncluded(row, size, e.target.checked)}
                 />
                 <label
@@ -530,6 +539,8 @@ function PartialReleaseEditorModal({
               ) : (
                 filteredLines.map((row) => {
                   const maxQty = maxDraftLineQuantity(row);
+                  const pendingTotal = Number(row.pendingTotal) || 0;
+                  const lineDisabled = pendingTotal <= 0 && !row.included;
                   return (
                     <tr
                       key={row.productionOrderItemId}
@@ -546,7 +557,7 @@ function PartialReleaseEditorModal({
                                 className="custom-control-input"
                                 id={`inc-${row.productionOrderItemId}`}
                                 checked={!!row.included}
-                                disabled={(maxQty ?? 0) <= 0 && !lineUsesSizeBreakdown(row)}
+                                disabled={lineDisabled || ((maxQty ?? 0) <= 0 && !lineUsesSizeBreakdown(row))}
                                 onChange={(e) => toggleRowIncluded(row, e.target.checked)}
                               />
                               <label
@@ -577,9 +588,9 @@ function PartialReleaseEditorModal({
                           <Input
                             type="number"
                             min={0}
-                            max={maxQty ?? undefined}
+                            max={maxQty || undefined}
                             bsSize="sm"
-                            disabled={!row.included}
+                            disabled={!row.included || lineDisabled}
                             value={row.quantity ?? 0}
                             onChange={(e) =>
                               patchLineQty(

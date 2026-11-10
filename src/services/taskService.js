@@ -46,6 +46,21 @@ export const getTasksByDesk = async (desk) => {
   return response.json();
 };
 
+/**
+ * Tablero del día en una sola consulta liviana: las tareas activas de la fecha, las que siguen
+ * sin mesa y los conteos de «Por cortar» y «Atrasadas». Si el servidor todavía no lo tiene
+ * (404/405) el error trae `status` para que la pantalla caiga al listado completo.
+ */
+export const getBoardTasks = async (date) => {
+  const response = await fetch(`${API_URL}/tasks/board?date=${encodeURIComponent(date)}`, { headers: headers() });
+  if (!response.ok) {
+    const err = new Error('No se pudo cargar el tablero');
+    err.status = response.status;
+    throw err;
+  }
+  return response.json();
+};
+
 export const getTasksByDate = async (date) => {
   const response = await fetch(`${API_URL}/tasks/date/${date}`, { headers: headers() });
   if (!response.ok) {
@@ -141,33 +156,6 @@ export const scheduleTask = async (id, data) => {
   return response.json();
 };
 
-/** Cola del día guardada en el servidor: [{ id, code }] en orden de prioridad. */
-export const getDayQueue = async () => {
-  const response = await fetch(`${API_URL}/tasks/day-queue`, { headers: headers() });
-  if (!response.ok) {
-    const err = await response.json().catch(() => ({ message: 'Error al leer la cola del día' }));
-    throw new Error(err.message || 'Error al leer la cola del día');
-  }
-  return response.json();
-};
-
-/**
- * Reemplaza la cola del día. El orden de `orderIds` es la prioridad que usan «Planificar» y
- * «Distribuir»; las órdenes que salen de la lista vuelven a la prioridad de su tipo.
- */
-export const saveDayQueue = async (orderIds) => {
-  const response = await fetch(`${API_URL}/tasks/day-queue`, {
-    method: 'PUT',
-    headers: headers(),
-    body: JSON.stringify({ orderIds }),
-  });
-  if (!response.ok) {
-    const err = await response.json().catch(() => ({ message: 'Error al guardar la cola del día' }));
-    throw new Error(err.message || 'Error al guardar la cola del día');
-  }
-  return response.json();
-};
-
 /**
  * Pide mesa al backend con la regla única del sistema: día de la tarea, mesa con menos carga
  * que tenga cupo y desempate al azar. Solo acepta tareas pendientes y troqueladas.
@@ -259,6 +247,24 @@ export const setTaskItemDieCut = async (taskId, taskItemId, dieCutReady) => {
   if (!response.ok) {
     const err = await response.json().catch(() => ({ message: 'Error al marcar el troquelado' }));
     throw new Error(err.message || 'Error al marcar el troquelado');
+  }
+  return response.json();
+};
+
+/**
+ * Marca el corte de todos los productos de la tarea que falten, de una vez. Con
+ * `deliverLeather` entrega antes el cuero de los que no lo tienen; sin él, esos se saltan.
+ * Devuelve { task, cutItems, leatherDeliveredItems, skippedWithoutLeather }.
+ */
+export const setTaskDieCutAll = async (taskId, deliverLeather) => {
+  const response = await fetch(`${API_URL}/tasks/${taskId}/die-cut/all`, {
+    method: 'PUT',
+    headers: headers(),
+    body: JSON.stringify({ deliverLeather: Boolean(deliverLeather) }),
+  });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ message: 'Error al marcar el corte de la tarea' }));
+    throw new Error(err.message || 'Error al marcar el corte de la tarea');
   }
   return response.json();
 };
@@ -454,45 +460,6 @@ export const addDaySaleItemsToTask = async (taskId, productionOrderItemIds) => {
 
 // ==================== ORGANIZADOR DE TAREAS ====================
 
-/**
- * OPs activas con ítems que aún tienen cantidad restante sin tarea.
- * @param {Object} filters { type: 'OPL'|'REGULAR'|'ALL', search: string }
- */
-/**
- * Órdenes del organizador, paginadas por el servidor.
- * @returns {Promise<{content: Array, totalElements: number, totalPages: number, number: number, last: boolean}>}
- */
-export const getOrganizerOrders = async ({ type = 'ALL', search = '', page = 0, size = 30 } = {}) => {
-  const params = new URLSearchParams();
-  if (type) params.set('type', type);
-  if (search) params.set('search', search);
-  params.set('page', String(page));
-  params.set('size', String(size));
-  const response = await fetch(`${API_URL}/tasks/organizer/orders?${params.toString()}`, { headers: headers() });
-  if (!response.ok) {
-    const err = await response.json().catch(() => ({ message: 'Error al obtener órdenes del organizador' }));
-    throw new Error(err.message || 'Error al obtener órdenes del organizador');
-  }
-  return response.json();
-};
-
-/**
- * Crea una tarea manual desde el organizador.
- * @param {Object} payload { productionOrderId, items: [{productionOrderItemId, quantity, daySaleExtra}], desk?, scheduledDate?, observations? }
- */
-export const createManualTask = async (payload) => {
-  const response = await fetch(`${API_URL}/tasks/organizer/manual`, {
-    method: 'POST',
-    headers: headers(),
-    body: JSON.stringify(payload)
-  });
-  if (!response.ok) {
-    const err = await response.json().catch(() => ({ message: 'Error al crear la tarea' }));
-    throw new Error(err.message || 'Error al crear la tarea');
-  }
-  return response.json();
-};
-
 /** Tareas PENDING atrasadas (fecha pasada) o sin fecha, con o sin mesa. */
 export const getBacklogTasks = async () => {
   const response = await fetch(`${API_URL}/tasks/organizer/backlog`, { headers: headers() });
@@ -512,25 +479,6 @@ export const getUnfinishedTasks = async () => {
   if (!response.ok) {
     const err = await response.json().catch(() => ({ message: 'Error al obtener tareas no terminadas' }));
     throw new Error(err.message || 'Error al obtener tareas no terminadas');
-  }
-  return response.json();
-};
-
-/**
- * Libera mesa (y fecha) de tareas PENDING para reorganizar (no toca en progreso/completadas).
- * @param {string} [date] YYYY-MM-DD — si se indica, "reinicia el día": solo libera mesa de
- *   las PENDING programadas ese día (conserva su fecha). Sin fecha: reset completo (mesa+fecha
- *   de TODAS las PENDING).
- */
-export const clearAllDesks = async (date) => {
-  const query = date ? `?date=${encodeURIComponent(date)}` : '';
-  const response = await fetch(`${API_URL}/tasks/organizer/clear-desks${query}`, {
-    method: 'POST',
-    headers: headers()
-  });
-  if (!response.ok) {
-    const err = await response.json().catch(() => ({ message: 'Error al limpiar mesas' }));
-    throw new Error(err.message || 'Error al limpiar mesas');
   }
   return response.json();
 };
@@ -608,26 +556,6 @@ export const confirmDayPlan = async (payload) => {
     body: JSON.stringify(payload),
   });
   if (!response.ok) throw await apiError(response, 'No se pudieron crear las tareas');
-  return response.json();
-};
-
-export const runAutoPlan = async (productionOrderId, { regenerate = false, date } = {}) => {
-  const params = new URLSearchParams();
-  if (productionOrderId != null) params.append('productionOrderId', String(productionOrderId));
-  if (regenerate) params.append('regenerate', 'true');
-  if (date) params.append('date', date);
-  const query = params.toString() ? `?${params}` : '';
-  const response = await fetch(`${API_URL}/tasks/auto-plan${query}`, {
-    method: 'POST',
-    headers: headers(),
-  });
-  if (!response.ok) {
-    const err = await response.json().catch(() => ({}));
-    const detail = err.message || err.error || err.detail
-      || (typeof err === 'string' ? err : null)
-      || `Error al generar y asignar (${response.status})`;
-    throw new Error(detail);
-  }
   return response.json();
 };
 

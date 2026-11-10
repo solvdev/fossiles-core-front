@@ -163,3 +163,90 @@ export function filterPendingCinchoRows(rows, deliveredMap, workStatusMap) {
     (row) => !isCinchoRowFullyDone(row, deliveredMap, workStatusMap)
   );
 }
+
+/** Tallas del servidor ({ "32": 3, "34": 2 }) en texto corto. */
+export function sizesMapText(sizes) {
+  const parts = Object.entries(sizes || {}).filter(([, q]) => Number(q) > 0).map(([size, q]) => `${size}: ${q}`);
+  return parts.join(" · ");
+}
+
+/**
+ * Filas del cuadro desde `GET /production/cinchos/day`, con la misma forma que
+ * `buildCinchoDayBoardRows`, y los mapas de entregado y estado de ese día.
+ */
+export function cinchoDayFromApi(day) {
+  const rows = [];
+  const deliveredMap = {};
+  const workStatusMap = {};
+  (day?.orders || []).forEach((order) => {
+    (order.lines || []).forEach((line) => {
+      const id = line.productionOrderItemId;
+      rows.push({
+        key: `${order.family}-${order.id}-${id}`,
+        family: order.family,
+        order,
+        orderCode: order.code,
+        customerName: order.customerName,
+        productCode: line.productCode,
+        productName: line.productName,
+        colorName: line.colorName,
+        sizes: line.sizes || {},
+        sizesText: sizesMapText(line.sizes),
+        totalQty: line.totalQty,
+        mixedOrder: Boolean(order.mixedOrder),
+        productionOrderId: order.id,
+        productionOrderItemId: id,
+        startDate: order.startDate,
+        deliveryDate: order.deliveryDate,
+        // De un día anterior: se arrastra mientras no quede completada y entregada.
+        carriedFrom: order.carriedFrom || null,
+      });
+      deliveredMap[id] = Boolean(line.delivered);
+      workStatusMap[id] = String(line.workStatus || CINCHO_WORK_STATUS.PENDING).toUpperCase();
+    });
+  });
+  return { rows, deliveredMap, workStatusMap };
+}
+
+const SIZE_ORDER = ["XXS", "XS", "S", "M", "L", "XL", "XXL", "XXXL"];
+const sizeNumber = (s) => {
+  const n = Number(String(s).trim().replace(",", "."));
+  return Number.isFinite(n) && String(s).trim() !== "" ? n : null;
+};
+
+/** Mismo orden de tallas que el servidor: numéricas, luego XS…XXXL, luego el resto. */
+export function compareSizes(a, b) {
+  const na = sizeNumber(a);
+  const nb = sizeNumber(b);
+  if (na !== null && nb !== null) return na - nb;
+  if (na !== null) return -1;
+  if (nb !== null) return 1;
+  const ia = SIZE_ORDER.indexOf(String(a).toUpperCase());
+  const ib = SIZE_ORDER.indexOf(String(b).toUpperCase());
+  if (ia >= 0 && ib >= 0) return ia - ib;
+  if (ia >= 0) return -1;
+  if (ib >= 0) return 1;
+  return String(a).localeCompare(String(b), "es", { sensitivity: "base" });
+}
+
+/** Tallas de todas las líneas de una orden, ordenadas: las columnas de su tabla. */
+export function sizeColumns(lines) {
+  const set = new Set();
+  (lines || []).forEach((l) => Object.keys(l.sizes || {}).forEach((k) => set.add(k)));
+  return [...set].sort(compareSizes);
+}
+
+/**
+ * Cuánto falta para la entrega, en días corridos, y el tono con que se pinta.
+ * @returns {{ days: number|null, label: string, tone: "late"|"today"|"soon"|"ok"|"none" }}
+ */
+export function deliveryUrgency(deliveryYmd, todayYmd) {
+  if (!deliveryYmd) return { days: null, label: "Sin fecha de entrega", tone: "none" };
+  const d = new Date(`${String(deliveryYmd).slice(0, 10)}T12:00:00`);
+  const t = new Date(`${String(todayYmd).slice(0, 10)}T12:00:00`);
+  const days = Math.round((d - t) / 86400000);
+  if (days < 0) return { days, label: `Atrasada ${-days} ${-days === 1 ? "día" : "días"}`, tone: "late" };
+  if (days === 0) return { days, label: "Se entrega hoy", tone: "today" };
+  if (days <= 7) return { days, label: `Faltan ${days} ${days === 1 ? "día" : "días"}`, tone: "soon" };
+  return { days, label: `Faltan ${days} días`, tone: "ok" };
+}

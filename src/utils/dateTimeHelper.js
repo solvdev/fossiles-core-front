@@ -16,9 +16,8 @@ const toDate = (value) => {
     const [year, month, day] = text.split("-").map(Number);
     return new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
   }
-  // El backend envía LocalDateTime sin offset, ya en hora Guatemala. Sin esto, el navegador
-  // lo interpretaría como su propia hora local, dando resultados incorrectos si el dispositivo
-  // no está configurado en zona Guatemala.
+  // LocalDateTime naive: wall-clock Guatemala (GuatemalaDateTime.now()). No usar
+  // `new Date(naive)`: el navegador lo tomaría como hora local del dispositivo.
   const noZoneMatch = DATE_TIME_NO_ZONE_REGEX.exec(text);
   if (noZoneMatch) {
     const [, year, month, day, hour, minute, second] = noZoneMatch;
@@ -48,6 +47,77 @@ export const formatDateTimeGt = (value, options = {}) => {
     ...options,
   }).format(date);
 };
+
+const pad2 = (value) => String(value).padStart(2, "0");
+
+const formatGtWallClock = (year, month, day, hour, minute) =>
+  `${pad2(day)}/${pad2(month)}/${year} ${pad2(hour)}:${pad2(minute)}`;
+
+const formatGtDateOnly = (year, month, day) =>
+  `${pad2(day)}/${pad2(month)}/${year}`;
+
+/** ISO con Z u offset (`+00:00`, `-06:00`, `+0000`). */
+const HAS_EXPLICIT_ZONE_REGEX = /[zZ]|[+-]\d{2}:?\d{2}$/;
+
+const formatInstantInGuatemala = (date) => {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: GT_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+    hourCycle: "h23",
+  }).formatToParts(date);
+  const get = (type) => parts.find((p) => p.type === type)?.value;
+  const year = get("year");
+  const month = get("month");
+  const day = get("day");
+  const hour = get("hour");
+  const minute = get("minute");
+  if (!year || !month || !day || hour == null || minute == null) return "-";
+  return `${day}/${month}/${year} ${hour}:${minute}`;
+};
+
+/**
+ * Fecha/hora en Guatemala (`dd/MM/yyyy HH:mm`, 24h).
+ *
+ * - Naive (Jackson LocalDateTime, p. ej. `2026-11-02T09:13:00`): wall-clock GT
+ *   tal cual; se leen los componentes del string, nunca `new Date(naive)`.
+ * - Con Z/offset: se toma el instante y se convierte a America/Guatemala.
+ * - Solo fecha (`yyyy-MM-dd`): `dd/MM/yyyy` sin inventar hora.
+ */
+export const formatGuatemalaDateTime = (value) => {
+  if (value == null || value === "") return "-";
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? "-" : formatInstantInGuatemala(value);
+  }
+  const text = String(value).trim();
+  if (!text) return "-";
+  if (DATE_ONLY_REGEX.test(text)) {
+    const [year, month, day] = text.split("-");
+    return formatGtDateOnly(year, month, day);
+  }
+  if (HAS_EXPLICIT_ZONE_REGEX.test(text)) {
+    const parsed = new Date(text);
+    return Number.isNaN(parsed.getTime()) ? "-" : formatInstantInGuatemala(parsed);
+  }
+  const noZoneMatch = DATE_TIME_NO_ZONE_REGEX.exec(text);
+  if (noZoneMatch) {
+    const [, year, month, day, hour, minute] = noZoneMatch;
+    return formatGtWallClock(year, month, day, hour, minute);
+  }
+  return "-";
+};
+
+/**
+ * Hora de una venta POS: `soldAt`, si no `createdAt` de la cabecera.
+ * Si solo hay `saleDate` (DATE), se muestra la fecha sin hora.
+ * No usar `items[].createdAt` (zona del servidor, no GT).
+ */
+export const formatPosSaleDateTime = (sale) =>
+  formatGuatemalaDateTime(sale?.soldAt || sale?.createdAt || sale?.saleDate);
 
 export const formatDateGt = (value, options = {}) => {
   const date = toDate(value);

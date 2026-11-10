@@ -38,7 +38,7 @@ import { getKioscoConteoHistorial } from "services/kioscoInventoryService";
 import { getLocations } from "services/locationService";
 import {
   formatDateGt,
-  formatDateTimeGt,
+  formatPosSaleDateTime,
   getMonthStartYmdGuatemala,
   getTodayYmdGuatemala,
   getWeekStartYmdGuatemala,
@@ -1314,7 +1314,7 @@ function SalesReports() {
                     <tbody>
                       {salesDetail.map((sale) => (
                         <tr key={`sale-${sale.id}`}>
-                          <td>{formatDateTimeGt(sale.soldAt || sale.saleDate)}</td>
+                          <td>{formatPosSaleDateTime(sale)}</td>
                           <td>{sale.kioskName || "—"}</td>
                           <td>{sale.saleNumber || "—"}</td>
                           <td>{getSaleInternalNumber(sale) || "—"}</td>

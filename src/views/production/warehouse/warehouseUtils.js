@@ -170,9 +170,21 @@ export const getOrderCustomerHint = (order) => {
   return `${names[0]} +${names.length - 1}`;
 };
 
+/**
+ * Piezas pedidas de un ítem. Las OPC (cinchos) no traen `quantity`: sus cantidades vienen por talla
+ * en `sizes`, así que se suman las tallas.
+ */
+export const getItemPlannedQty = (item) => {
+  const quantity = Number(item?.quantity || 0);
+  if (quantity > 0) return quantity;
+  const sizes = item?.sizes;
+  if (!sizes || typeof sizes !== "object") return 0;
+  return Object.values(sizes).reduce((sum, qty) => sum + Math.max(Number(qty) || 0, 0), 0);
+};
+
 /** Piezas aún por recibir de un ítem (pedido − recibido en bodega). */
 export const getItemPendingReceiptQty = (item) => {
-  const planned = Number(item?.quantity || 0);
+  const planned = getItemPlannedQty(item);
   const received = Number(item?.warehouseReceivedQty || 0);
   return Math.max(planned - received, 0);
 };
@@ -295,9 +307,10 @@ export const getOrderQtyProgress = (order, summary) => {
     const pct = total > 0 ? Math.round((produced / total) * 100) : 0;
     return { total, produced, pending, pct };
   }
-  const total = Number(order?.totalQuantity || 0);
+  const itemsTotal = (order?.items || []).reduce((sum, item) => sum + getItemPlannedQty(item), 0);
+  const total = Math.max(Number(order?.totalQuantity || 0), itemsTotal);
   const produced = (order?.items || []).reduce((sum, item) => {
-    const planned = Number(item?.quantity || 0);
+    const planned = getItemPlannedQty(item);
     const received = Number(item?.warehouseReceivedQty || 0);
     return sum + Math.min(Math.max(received, 0), Math.max(planned, 0));
   }, 0);
@@ -309,9 +322,5 @@ export const getOrderQtyProgress = (order, summary) => {
 export const getPendingReceiptQty = (order) => {
   const ws = order?.warehouseWorkspaceSummary;
   if (ws) return Number(ws.pendingUnits || 0);
-  return (order.items || []).reduce((sum, item) => {
-    const planned = Number(item.quantity || 0);
-    const received = Number(item.warehouseReceivedQty || 0);
-    return sum + Math.max(planned - received, 0);
-  }, 0);
+  return (order.items || []).reduce((sum, item) => sum + getItemPendingReceiptQty(item), 0);
 };
