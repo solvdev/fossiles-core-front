@@ -105,6 +105,7 @@ export const netOf = (row) =>
 
 /** Fecha de envío y forma de pago que se muestran cuando Contabilidad no ha anotado otra. */
 export const effectiveSentDate = (row) => row.sentDate || row.dispatchedDate || "";
+export const effectiveAuthorization = (row) => row.accountingAuthorization || row.paymentAuthorization || "";
 export const effectivePaymentForm = (row) => row.paymentForm || row.paymentMethodDisplay || "";
 
 /** Falta el envío real de una venta que sí salió (no anulada). */
@@ -187,7 +188,7 @@ export const matchesQuery = (row, query) => {
   if (!q) return true;
   const haystack = fold([
     row.customerName, row.phone, row.address, row.products, row.colors, row.shipmentNumber, row.guideNumber,
-    row.paymentAuthorization, row.salesperson, row.email, row.depositSlipNumber, row.accountingNote,
+    row.paymentAuthorization, row.accountingAuthorization, row.salesperson, row.email, row.depositSlipNumber, row.accountingNote,
   ].join(" | "));
   return q.split(/\s+/).every((word) => haystack.includes(word));
 };
