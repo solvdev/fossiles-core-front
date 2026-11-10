@@ -278,7 +278,8 @@ const GridRow = React.memo(function GridRow({
   canLock, canUnlock, checked, onCheck, onToggleLock, lockTitle, rowTone, carrierKey,
 }) {
   const locked = Boolean(row.locked);
-  const canEdit = canEditSheet && !locked;
+  // Solo se edita dentro de una revisión abierta (el servidor también lo exige).
+  const canEdit = canEditSheet && !locked && Boolean(row.periodOpen);
   const tone = rowTone(row);
   return (
     <tr className={`t-${carrierKey(row)}${tone ? ` s-${tone}` : ""}${locked ? " is-locked" : ""}${checked ? " is-selected" : ""}`}>
@@ -431,7 +432,7 @@ export default function LedgerGrid({
     const col = columns[c];
     const row = rows[r];
     if (!col || !row) return false;
-    return Boolean(col.field) && canEdit && !row.locked;
+    return Boolean(col.field) && canEdit && !row.locked && Boolean(row.periodOpen);
   }, [columns, rows, canEdit]);
 
   const explainReadOnly = useCallback((r, c) => {
@@ -441,6 +442,7 @@ export default function LedgerGrid({
     if (!canEdit) onMessage("Solo lectura: no tiene permiso para editar el libro.");
     else if (row.periodClosed) onMessage(`El periodo «${row.periodLabel || ""}» está cerrado: un administrador puede reabrirlo.`);
     else if (row.locked) onMessage("Esta línea está bloqueada: ya no se modifica.");
+    else if (!row.periodOpen) onMessage("Esta venta no tiene revisión abierta: use «Abrir revisión» en la barra Revisión para poder editar.");
     else if (!col.field) onMessage(`«${col.label}» es dato de la venta y no se edita aquí.`);
   }, [columns, rows, canEdit, onMessage]);
 
@@ -467,7 +469,7 @@ export default function LedgerGrid({
       const row = rows[r];
       const col = columns[c];
       if (!row || !col) return;
-      if (!col.field || !canEdit || row.locked) { if (col.field || raw !== "") skipped += 1; return; }
+      if (!col.field || !canEdit || row.locked || !row.periodOpen) { if (col.field || raw !== "") skipped += 1; return; }
       const p = parsed || parseInput(col, raw);
       if (p.error) { bad = bad || `${col.label}: ${p.error}`; return; }
       // Vaciar una celda que muestra el dato de la venta no cambia nada.
@@ -476,7 +478,7 @@ export default function LedgerGrid({
       out.push({ row, col, value: p.value });
     });
     if (bad) onMessage(bad);
-    else if (skipped > 0) onMessage(`${skipped} ${skipped === 1 ? "celda no se cambió" : "celdas no se cambiaron"}: son de la venta o la línea está bloqueada.`);
+    else if (skipped > 0) onMessage(`${skipped} ${skipped === 1 ? "celda no se cambió" : "celdas no se cambiaron"}: son de la venta, la línea está bloqueada o no tiene revisión abierta.`);
     return out;
   }, [rows, columns, canEdit, onMessage]);
 
@@ -761,6 +763,7 @@ export default function LedgerGrid({
         <span className="val" title={formula}>{formula}</span>
         {formulaOrig !== null && <span className="orig">En la venta: <b>{formulaOrig || "(vacío)"}</b> · Supr para volver a ese dato</span>}
         {activeCol && !activeCol.field && <span className="ro-tag">🔒 de la venta</span>}
+        {activeRow && !activeRow.locked && !activeRow.periodOpen && <span className="ro-tag">sin revisión abierta</span>}
         {activeRow?.locked && <span className="ro-tag">🔒 {activeRow.periodClosed ? `periodo «${activeRow.periodLabel || ""}» cerrado` : "línea bloqueada"}</span>}
       </div>
       <div className="ol-sheet-wrap ol-grid" ref={wrapRef} tabIndex={0} onKeyDown={onKeyDown} onMouseDown={onMouseDown}

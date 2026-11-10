@@ -667,6 +667,7 @@ function OnlineSalesLedger() {
     (fill.carrier === "all" || carrierOf(r.carrier).key === fill.carrier)
     && !isVoided(r)
     && !r.locked
+    && r.periodOpen
     && (r[fill.field] === null || r[fill.field] === undefined)), [filtered, fill.carrier, fill.field]);
 
   const applyFill = async () => {
@@ -1063,7 +1064,7 @@ function OnlineSalesLedger() {
           <button type="button" className="ol-btn primary sm" style={{ height: 32 }} disabled={filling || fill.value === "" || fillTargets.length === 0} onClick={applyFill}>
             {filling ? <Spinner size="sm" /> : null} Aplicar a {fillTargets.length} {fillTargets.length === 1 ? "venta" : "ventas"}
           </button>
-          <span className="ol-note">Solo toca las ventas filtradas que aún no tienen ese dato; no cambia lo ya anotado ni las anuladas.</span>
+          <span className="ol-note">Solo toca las ventas filtradas con revisión abierta que aún no tienen ese dato; no cambia lo ya anotado ni las anuladas.</span>
         </div>
       )}
 

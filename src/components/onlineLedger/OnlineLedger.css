@@ -356,3 +356,4 @@ body.ol-resizing, body.ol-resizing * { cursor: col-resize !important; user-selec
 .ol-period-item { display: grid; grid-template-columns: auto 1fr; gap: 0 8px; width: 100%; text-align: left; border: 0; background: none; padding: 6px 8px; border-radius: 6px; cursor: pointer; color: #403d39; font-size: 12.5px; }
 .ol-period-item:hover, .ol-period-item:focus-visible { background: #e6f7f7; }
 .ol-period-item small { grid-column: 2; color: #66615b; }
+.ol-review .ol-note.warn { color: #7a5a00; background: #fff4d6; border-radius: 6px; padding: 3px 8px; }

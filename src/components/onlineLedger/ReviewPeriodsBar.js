@@ -6,7 +6,7 @@ import {
 import { formatDay, periodLabel, isPendingReview, isVoided, carrierOf } from "./onlineLedgerHelper";
 
 /**
- * Revisión por periodo: se abre un rango o un mes, Contabilidad lo revisa y al terminar lo cierra. Al cerrar se
+ * Revisión por periodo: se abre un rango o un mes (obligatorio para editar), Contabilidad lo revisa y al terminar lo cierra. Al cerrar se
  * bloquean todas las ventas del rango (también las que se registren después con fecha dentro). Reabrir: solo admin.
  */
 
@@ -167,7 +167,7 @@ export default function ReviewPeriodsBar({
           {exact && <Card p={exact} />}
           {others.map((p) => <Card key={p.id} p={p} />)}
           {!exact && others.length === 0 && (
-            <span className="ol-note">«{label}» no tiene revisión abierta.</span>
+            <span className="ol-note warn">«{label}» no tiene revisión abierta: el libro está en solo lectura hasta abrirla.</span>
           )}
           {!exact && canManage && from && to && (
             <button type="button" className="ol-btn sm" disabled={busy || others.length > 0} onClick={open}
