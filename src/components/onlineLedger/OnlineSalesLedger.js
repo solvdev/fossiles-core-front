@@ -6,7 +6,7 @@ import {
 } from "../../services/onlineSaleService";
 import {
   num, formatQ, formatMoney, formatDay, toIso, monthRange, periodLabel, carrierOf, socialOf, statusOf, rowTone,
-  netOf, effectiveSentDate, effectivePaymentForm, isPendingReview, isVoided, sellerLabel, computeCommissions,
+  netOf, effectiveSentDate, effectivePaymentForm, effectiveAuthorization, isPendingReview, isVoided, sellerLabel, computeCommissions,
   computeAccountingSummary, matchesQuery,
 } from "./onlineLedgerHelper";
 import DayNav, { addDays } from "./DayNav";
@@ -193,7 +193,7 @@ const SALES_COLUMNS = [
     id: "shipment", label: "Envío", kind: "calc", width: 110,
     cell: (r) => <>{r.shipmentNumber}{r.saleNumber ? <span className="pedido">Pedido {r.saleNumber}</span> : null}</>,
   },
-  { id: "auth", label: "Autorización", kind: "calc", width: 130, clip: true, cell: (r) => r.paymentAuthorization },
+  { id: "auth", label: "Autorización", kind: "ed", width: 130, clip: true, edit: { field: "accountingAuthorization", type: "text", systemValue: effectiveAuthorization } },
   { id: "status", label: "Estado", kind: "calc", width: 104, cell: (r) => { const s = statusOf(r.status); return <span className={`ol-st ${s.tone}`}>{s.label}</span>; } },
   { id: "note", label: "Observación", kind: "ed", width: 220, edit: { field: "accountingNote", type: "text", placeholder: (r) => r.observations || "" } },
   { id: "net", label: "Sin envío", kind: "calc", width: 100, num: true, strong: true, total: "net", cell: (r) => formatMoney(netOf(r)) },
