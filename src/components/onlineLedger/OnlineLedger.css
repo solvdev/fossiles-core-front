@@ -103,8 +103,8 @@
 .ol-sheet td.clip.wide { max-width: 300px; }
 .ol-sheet .stick { position: sticky; z-index: 2; }
 .ol-sheet thead .stick { z-index: 4; }
-.ol-sheet .stick.c0 { left: 0; width: 46px; min-width: 46px; }
-.ol-sheet .stick.c1 { left: 46px; box-shadow: 2px 0 0 #e3e0d9; max-width: 200px; overflow: hidden; text-overflow: ellipsis; }
+.ol-sheet .stick.c0 { left: 0; width: 92px; min-width: 92px; }
+.ol-sheet .stick.c1 { left: 92px; box-shadow: 2px 0 0 #e3e0d9; max-width: 200px; overflow: hidden; text-overflow: ellipsis; }
 .ol-sheet td.stick { background: #faf9f6; }
 .ol-sheet td.rowno { color: #9a958c; font-variant-numeric: tabular-nums; text-align: right; border-left: 4px solid transparent; }
 .ol-sheet tr.t-moto td.rowno { border-left-color: #f4c20d; }
@@ -256,3 +256,21 @@ body.ol-resizing, body.ol-resizing * { cursor: col-resize !important; user-selec
   .ol-sheet-wrap { max-height: none; }
   .ol-head .end { margin-left: 0; }
 }
+
+/* ── Bloqueo de líneas revisadas ── */
+.ol-sheet td.rowno, .ol-sheet th.stick.c0 { white-space: nowrap; }
+.ol-sheet .ol-rowtools { display: flex; align-items: center; justify-content: space-between; gap: 4px; }
+.ol-sheet .ol-rowtools input[type="checkbox"] { margin: 0; cursor: pointer; }
+.ol-lockbtn { border: 0; background: transparent; padding: 0 2px; font-size: 13px; line-height: 1; cursor: pointer; opacity: .28; filter: grayscale(1); }
+.ol-lockbtn:hover:not(:disabled) { opacity: .9; filter: none; }
+.ol-lockbtn.is-on { opacity: 1; filter: none; }
+.ol-lockbtn:disabled { cursor: default; }
+.ol-sheet tr.is-locked td { background-color: #eef0f3; }
+.ol-sheet tr.is-locked td.ed { background-image: repeating-linear-gradient(135deg, rgba(90, 100, 115, .07) 0 6px, transparent 6px 12px); }
+.ol-sheet tr.is-locked .ol-cell:disabled { background: transparent; color: #4a4f57; }
+.ol-sheet tr.is-locked td.rowno { color: #4a4f57; font-weight: 700; }
+.ol-sheet tr.is-selected td.stick { background-color: #e6f7f7; }
+.ol-lockbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; padding: 8px 12px; background: #f4f5f7; border: 1px solid #d9dde3; border-radius: 10px; margin-bottom: 10px; font-size: 12.5px; color: #403d39; }
+.ol-lockbar .ttl { font-weight: 700; }
+.ol-lockbar .sep { width: 1px; align-self: stretch; background: #d9dde3; }
+.ol-lockbar .end { margin-left: auto; color: #66615b; }

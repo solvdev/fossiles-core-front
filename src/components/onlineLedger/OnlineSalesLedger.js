@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Spinner } from "reactstrap";
 import {
   getOnlineSalesLedger, updateOnlineSaleLedger, bulkUpdateOnlineSaleLedger, downloadOnlineSalesLedgerExcel,
+  lockOnlineSaleLedger,
 } from "../../services/onlineSaleService";
 import {
   num, formatQ, formatMoney, formatDay, toIso, monthRange, periodLabel, carrierOf, socialOf, statusOf, rowTone,
@@ -17,6 +18,8 @@ import "./OnlineLedger.css";
  * - Comisiones: cálculo por vendedor sobre todo el periodo.
  * - Moto: liquidación de lo que entrega el motorista.
  * Cada celda se guarda sola al salir de ella.
+ * Bloqueo: una línea ya revisada se bloquea (una, las seleccionadas o todas las del filtro) y deja de admitir cambios;
+ * el servidor también los rechaza. Desbloquear es solo de administradores.
  */
 
 const PAGE_SIZES = [50, 100, 250, 0];
@@ -24,6 +27,14 @@ const PAYMENT_FORMS = ["Contra Entrega", "Visalink", "Depósito", "Transferencia
 const DELIVERY_NOTES = ["ENTREGADO", "PENDIENTE", "DEVOLUCIÓN", "REPROGRAMADO"];
 
 const cellKey = (id, field) => `${id}:${field}`;
+
+/** «Bloqueada por ana el 10/11/2026 14:05» para el título del candado. */
+const lockTitle = (row) => {
+  if (!row.locked) return "Bloquear esta línea: ya no se podrá modificar";
+  const at = row.lockedAt ? String(row.lockedAt) : "";
+  const when = at ? ` el ${formatDay(at)}${at.length >= 16 ? ` ${at.slice(11, 16)}` : ""}` : "";
+  return `Bloqueada${row.lockedByName ? ` por ${row.lockedByName}` : ""}${when}`;
+};
 
 /** Mueve el foco a otra celda de la hoja (fila r, columna c entre las que se pueden enfocar). */
 const focusCell = (from, r, c) => {
@@ -256,11 +267,31 @@ function ResizableTh({ col, width, onResize, className, children }) {
 }
 
 /** Fila de la hoja: se dibuja desde las columnas visibles. */
-const SheetRow = React.memo(function SheetRow({ row, n, r, columns, editIndex, canEdit, states, onCommit, widths }) {
+const SheetRow = React.memo(function SheetRow({
+  row, n, r, columns, editIndex, canEdit: canEditSheet, states, onCommit, widths,
+  canLock, canUnlock, selected, onSelect, onToggleLock,
+}) {
   const tone = rowTone(row);
+  const locked = Boolean(row.locked);
+  const canEdit = canEditSheet && !locked;
+  const canToggle = locked ? canUnlock : canLock;
   return (
-    <tr className={`t-${carrierOf(row.carrier).key}${tone ? ` s-${tone}` : ""}`}>
-      <td className="stick c0 rowno">{n}</td>
+    <tr className={`t-${carrierOf(row.carrier).key}${tone ? ` s-${tone}` : ""}${locked ? " is-locked" : ""}${selected ? " is-selected" : ""}`}>
+      <td className="stick c0 rowno">
+        <span className="ol-rowtools">
+          {canLock && (
+            <input type="checkbox" checked={selected} onChange={(e) => onSelect(row.id, e.target.checked)}
+              aria-label={`Seleccionar línea ${n}`} />
+          )}
+          {(locked || canLock) && (
+            <button type="button" className={`ol-lockbtn${locked ? " is-on" : ""}`} disabled={!canToggle}
+              title={locked && !canUnlock ? `${lockTitle(row)} · solo un administrador puede desbloquearla` : lockTitle(row)}
+              aria-label={locked ? "Línea bloqueada" : "Bloquear línea"} aria-pressed={locked}
+              onClick={() => onToggleLock(row)}>🔒</button>
+          )}
+          <span>{n}</span>
+        </span>
+      </td>
       <td className="stick c1 lock strong" title={row.customerName || ""} style={widthStyle(widths.customer)}>{row.customerName || "—"}</td>
       {columns.map((col) => {
         const style = widthStyle(widths[col.id]);
@@ -304,7 +335,10 @@ const SheetRow = React.memo(function SheetRow({ row, n, r, columns, editIndex, c
 });
 
 /** Hoja (Ventas o Moto) con columnas que se pueden ocultar y ensanchar. */
-function Sheet({ columns, rows, lineNumber, canEdit, cellStates, onCommit, widths, onResize, totals, count, nameLabel, lockLabel, editLabel, wrap }) {
+function Sheet({
+  columns, rows, lineNumber, canEdit, cellStates, onCommit, widths, onResize, totals, count, nameLabel, lockLabel, editLabel, wrap,
+  canLock, canUnlock, selected, onSelect, onSelectAll, allSelected, onToggleLock,
+}) {
   const editIndex = useMemo(() => {
     const map = {};
     let i = 0;
@@ -336,7 +370,15 @@ function Sheet({ columns, rows, lineNumber, canEdit, cellStates, onCommit, width
           ))}
         </tr>
         <tr className="h">
-          <th className="stick c0 num">No.</th>
+          <th className="stick c0 num">
+            <span className="ol-rowtools">
+              {canLock && (
+                <input type="checkbox" checked={allSelected} onChange={(e) => onSelectAll(e.target.checked)}
+                  aria-label="Seleccionar todas las ventas del filtro" title="Seleccionar todas las ventas del filtro" />
+              )}
+              <span>No.</span>
+            </span>
+          </th>
           <ResizableTh col={{ id: "customer", label: "Cliente" }} width={widths.customer} onResize={onResize} className="stick c1">
             Cliente
           </ResizableTh>
@@ -351,7 +393,8 @@ function Sheet({ columns, rows, lineNumber, canEdit, cellStates, onCommit, width
       <tbody>
         {rows.map((row, i) => (
           <SheetRow key={row.id} row={row} n={lineNumber.get(row.id)} r={i} columns={columns} editIndex={editIndex}
-            canEdit={canEdit} states={cellStates[row.id]} onCommit={onCommit} widths={widths} />
+            canEdit={canEdit} states={cellStates[row.id]} onCommit={onCommit} widths={widths}
+            canLock={canLock} canUnlock={canUnlock} selected={selected.has(row.id)} onSelect={onSelect} onToggleLock={onToggleLock} />
         ))}
       </tbody>
       <tfoot>
@@ -421,6 +464,7 @@ const SHORTCUTS = [
   ["Supr", "Vaciar la celda (con todo seleccionado)"],
   ["Ctrl+D", "Copiar el valor de la celda de arriba"],
   ["Espacio / Enter", "Marcar «Revisado»"],
+  ["🔒 (primera columna)", "Bloquear la línea: ya no se modifica"],
   ["/", "Ir al buscador"],
   ["Alt+1 · Alt+2 · Alt+3", "Ventas · Comisiones · Moto"],
   ["[  ]", "Día (o rango) anterior / siguiente"],
@@ -568,7 +612,10 @@ function OnlineSalesLedger() {
   const [from, setFrom] = useState(initial.from);
   const [to, setTo] = useState(initial.to);
   const [rows, setRows] = useState([]);
-  const [meta, setMeta] = useState({ canEdit: false, commissionRate: 0.02, vatRate: 0.12, truncated: false, historyQuery: "" });
+  const [meta, setMeta] = useState({ canEdit: false, canLock: false, canUnlock: false, commissionRate: 0.02, vatRate: 0.12, truncated: false, historyQuery: "" });
+  const [selected, setSelected] = useState(() => new Set());
+  const [fLock, setFLock] = useState("");
+  const [locking, setLocking] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -605,12 +652,15 @@ function OnlineSalesLedger() {
       setRows(data.rows || []);
       setMeta({
         canEdit: Boolean(data.canEdit),
+        canLock: Boolean(data.canLock),
+        canUnlock: Boolean(data.canUnlock),
         commissionRate: num(data.commissionRate) || 0.02,
         vatRate: num(data.vatRate) || 0.12,
         truncated: Boolean(data.truncated),
         historyQuery: opts.history || "",
       });
       setCellStates({});
+      setSelected(new Set());
       setPage(0);
     } catch (e) {
       if (request !== requestRef.current) return;
@@ -676,8 +726,9 @@ function OnlineSalesLedger() {
     if (fPayment && r.paymentMethodDisplay !== fPayment) return false;
     if (fStatus && r.status !== fStatus) return false;
     if (onlyPending && !isPendingReview(r)) return false;
+    if (fLock && Boolean(r.locked) !== (fLock === "locked")) return false;
     return matchesQuery(r, query);
-  }), [rows, fCarrier, fSeller, fPayment, fStatus, onlyPending, query]);
+  }), [rows, fCarrier, fSeller, fPayment, fStatus, onlyPending, fLock, query]);
 
   const motoRows = useMemo(() => rows.filter((r) => {
     if (motoCarrier !== "all" && carrierOf(r.carrier).key !== motoCarrier) return false;
@@ -685,7 +736,7 @@ function OnlineSalesLedger() {
     return matchesQuery(r, query);
   }), [rows, motoCarrier, motoPending, query]);
 
-  useEffect(() => { setPage(0); }, [fCarrier, fSeller, fPayment, fStatus, onlyPending, query, tab, motoCarrier, motoPending, pageSize]);
+  useEffect(() => { setPage(0); }, [fCarrier, fSeller, fPayment, fStatus, onlyPending, fLock, query, tab, motoCarrier, motoPending, pageSize]);
 
   const active = tab === "moto" ? motoRows : filtered;
 
@@ -759,6 +810,7 @@ function OnlineSalesLedger() {
   const fillTargets = useMemo(() => filtered.filter((r) =>
     (fill.carrier === "all" || carrierOf(r.carrier).key === fill.carrier)
     && !isVoided(r)
+    && !r.locked
     && (r[fill.field] === null || r[fill.field] === undefined)), [filtered, fill.carrier, fill.field]);
 
   const applyFill = async () => {
@@ -778,6 +830,61 @@ function OnlineSalesLedger() {
     }
   };
 
+  // ── Bloqueo ──
+  const activeIds = useMemo(() => new Set(active.map((r) => r.id)), [active]);
+  // La selección solo cuenta dentro de lo que se ve con el filtro actual.
+  const selectedRows = useMemo(() => active.filter((r) => selected.has(r.id)), [active, selected]);
+  const allSelected = active.length > 0 && selectedRows.length === active.length;
+  const lockStats = useMemo(() => ({
+    locked: active.filter((r) => r.locked).length,
+    selToLock: selectedRows.filter((r) => !r.locked).length,
+    selToUnlock: selectedRows.filter((r) => r.locked).length,
+  }), [active, selectedRows]);
+
+  const selectRow = useCallback((id, on) => setSelected((prev) => {
+    const next = new Set(prev);
+    if (on) next.add(id); else next.delete(id);
+    return next;
+  }), []);
+  const selectAll = (on) => setSelected(on ? new Set(activeIds) : new Set());
+
+  /** Bloquea o desbloquea las filas dadas (solo las que cambian de estado). */
+  const applyLock = useCallback(async (targetRows, lock, confirmText) => {
+    const ids = targetRows.filter((r) => Boolean(r.locked) !== lock).map((r) => r.id);
+    if (ids.length === 0) return;
+    if (confirmText && !window.confirm(confirmText)) return;
+    setLocking(true);
+    setError("");
+    try {
+      // Antes de bloquear se espera a que terminen de guardarse las celdas de esas ventas.
+      await Promise.all(ids.map((id) => chainsRef.current.get(id) || Promise.resolve()));
+      const updated = await lockOnlineSaleLedger(ids, lock);
+      const byId = new Map(updated.map((r) => [r.id, r]));
+      setRows((prev) => prev.map((r) => byId.get(r.id) || r));
+      setSelected((prev) => {
+        const next = new Set(prev);
+        ids.forEach((id) => next.delete(id));
+        return next;
+      });
+      setNotice(`${ids.length} ${ids.length === 1 ? "línea" : "líneas"} ${lock
+        ? (ids.length === 1 ? "bloqueada" : "bloqueadas")
+        : (ids.length === 1 ? "desbloqueada" : "desbloqueadas")}.`);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setLocking(false);
+    }
+  }, []);
+
+  const toggleRowLock = useCallback((row) => {
+    if (row.locked) {
+      applyLock([row], false, `¿Desbloquear la línea de ${row.customerName || "esta venta"}? Se podrá volver a modificar.`);
+    } else {
+      // Quien no puede desbloquear confirma antes: un clic por error necesitaría a un administrador.
+      applyLock([row], true, meta.canUnlock ? "" : `¿Bloquear la línea de ${row.customerName || "esta venta"}? Ya no se podrá modificar; solo un administrador puede desbloquearla.`);
+    }
+  }, [applyLock, meta.canUnlock]);
+
   const download = async () => {
     setDownloading(true);
     setError("");
@@ -796,12 +903,13 @@ function OnlineSalesLedger() {
     load({ history: q });
   };
 
-  const clearFilters = () => { setQuery(""); setFCarrier(""); setFSeller(""); setFPayment(""); setFStatus(""); setOnlyPending(false); };
-  const hasFilters = Boolean(query || fCarrier || fSeller || fPayment || fStatus || onlyPending);
+  const clearFilters = () => { setQuery(""); setFCarrier(""); setFSeller(""); setFPayment(""); setFStatus(""); setOnlyPending(false); setFLock(""); };
+  const hasFilters = Boolean(query || fCarrier || fSeller || fPayment || fStatus || onlyPending || fLock);
   const thisMonth = monthRange(toIso(new Date()));
   const isRange = (r) => r.from === from && r.to === to && !meta.historyQuery;
   const today = toIso(new Date());
   const canEdit = meta.canEdit;
+  const { canLock, canUnlock } = meta;
 
   // Atajos de página (fuera de las celdas). Dentro de una celda solo se usan los de la celda.
   useEffect(() => {
@@ -853,6 +961,7 @@ function OnlineSalesLedger() {
         <span><b style={{ background: "#fdeeea", border: "1px solid #f3c4ba" }} /> Anulado</span>
         <span><b style={{ background: "#f5edfb", border: "1px solid #d9c2ee" }} /> Devolución</span>
         <span><b style={{ background: "#f0efec", border: "1px solid #d9d5cc" }} /> Cambio</span>
+        <span>🔒 Bloqueada (no se modifica)</span>
       </div>
       <div className="end">
         <span>{active.length} {active.length === 1 ? "venta" : "ventas"}</span>
@@ -1006,6 +1115,14 @@ function OnlineSalesLedger() {
                   {statuses.map((s) => <option key={s} value={s}>{statusOf(s).label}</option>)}
                 </select>
               </div>
+              <div>
+                <label htmlFor="ol-lock">Bloqueo</label>
+                <select id="ol-lock" className="form-control" value={fLock} onChange={(e) => setFLock(e.target.value)}>
+                  <option value="">Todas</option>
+                  <option value="open">Sin bloquear</option>
+                  <option value="locked">Bloqueadas</option>
+                </select>
+              </div>
               <label className="ol-check">
                 <input type="checkbox" checked={onlyPending} onChange={(e) => setOnlyPending(e.target.checked)} /> Solo por revisar
               </label>
@@ -1091,6 +1208,43 @@ function OnlineSalesLedger() {
         </div>
       )}
 
+      {tab !== "comisiones" && canLock && active.length > 0 && (
+        <div className="ol-lockbar">
+          <span className="ttl">🔒 Bloqueo</span>
+          {selectedRows.length > 0 ? (
+            <>
+              <span>{selectedRows.length} {selectedRows.length === 1 ? "seleccionada" : "seleccionadas"}</span>
+              <button type="button" className="ol-btn sm" disabled={locking || lockStats.selToLock === 0}
+                onClick={() => applyLock(selectedRows, true)}>
+                Bloquear seleccionadas{lockStats.selToLock > 0 ? ` (${lockStats.selToLock})` : ""}
+              </button>
+              {canUnlock && lockStats.selToUnlock > 0 && (
+                <button type="button" className="ol-btn quiet sm" disabled={locking}
+                  onClick={() => applyLock(selectedRows, false, `¿Desbloquear ${lockStats.selToUnlock} ${lockStats.selToUnlock === 1 ? "línea" : "líneas"}? Se podrán volver a modificar.`)}>
+                  Desbloquear seleccionadas ({lockStats.selToUnlock})
+                </button>
+              )}
+              <button type="button" className="ol-btn quiet sm" onClick={() => setSelected(new Set())}>Quitar selección</button>
+            </>
+          ) : (
+            <span>Marque líneas en la primera columna o use el candado de cada una.</span>
+          )}
+          <span className="sep" />
+          <button type="button" className="ol-btn sm" disabled={locking || lockStats.locked === active.length}
+            title="Bloquea todas las ventas que se ven con el periodo y los filtros actuales (todas las páginas)"
+            onClick={() => applyLock(active, true, `¿Bloquear las ${active.length - lockStats.locked} ventas sin bloquear de ${hasFilters || tab === "moto" ? "este filtro" : "este periodo"}? Ya no se podrán modificar; solo un administrador puede desbloquearlas.`)}>
+            {locking ? <Spinner size="sm" /> : null} Bloquear todas las del filtro ({active.length - lockStats.locked})
+          </button>
+          {canUnlock && lockStats.locked > 0 && (
+            <button type="button" className="ol-btn quiet sm" disabled={locking}
+              onClick={() => applyLock(active, false, `¿Desbloquear las ${lockStats.locked} ventas bloqueadas de este filtro? Se podrán volver a modificar.`)}>
+              Desbloquear todas ({lockStats.locked})
+            </button>
+          )}
+          <span className="end">{lockStats.locked} de {active.length} bloqueadas{canUnlock ? "" : " · desbloquear: solo un administrador"}</span>
+        </div>
+      )}
+
       {showKeys && <ShortcutsPanel onClose={() => setShowKeys(false)} />}
 
       {tab === "comisiones" && (
@@ -1132,6 +1286,13 @@ function OnlineSalesLedger() {
                 totals={totals}
                 count={active.length}
                 wrap={Boolean(layout.wrap)}
+                canLock={canLock}
+                canUnlock={canUnlock}
+                selected={selected}
+                onSelect={selectRow}
+                onSelectAll={selectAll}
+                allSelected={allSelected}
+                onToggleLock={toggleRowLock}
                 nameLabel={tab === "moto" ? "Venta" : "Datos de la venta"}
                 lockLabel={tab === "moto" ? "🔒 De la venta" : "🔒 No se editan aquí"}
                 editLabel={tab === "moto" ? "Liquidación · ✎ se edita; en cursiva: dato del sistema" : "Contabilidad · ✎ se edita, lo demás se calcula"}

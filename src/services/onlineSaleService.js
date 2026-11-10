@@ -450,6 +450,17 @@ export const bulkUpdateOnlineSaleLedger = async (saleIds, changes, onlyEmpty = t
   return response.json();
 };
 
+/** Bloquea (`locked` true) o desbloquea líneas del libro. Devuelve las filas actualizadas. */
+export const lockOnlineSaleLedger = async (saleIds, locked) => {
+  const response = await fetch(`${API_URL}/online-sales-ledger/lock`, {
+    method: 'POST',
+    headers: headers(),
+    body: JSON.stringify({ saleIds, locked })
+  });
+  if (!response.ok) throw await ledgerError(response, locked ? 'No se pudo bloquear' : 'No se pudo desbloquear');
+  return response.json();
+};
+
 /** Descarga el Excel del periodo (Ventas, Comisiones, Moto, Faltantes). */
 export const downloadOnlineSalesLedgerExcel = async (from, to) => {
   const response = await fetch(
