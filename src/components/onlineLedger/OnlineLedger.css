@@ -274,3 +274,64 @@ body.ol-resizing, body.ol-resizing * { cursor: col-resize !important; user-selec
 .ol-lockbar .ttl { font-weight: 700; }
 .ol-lockbar .sep { width: 1px; align-self: stretch; background: #d9dde3; }
 .ol-lockbar .end { margin-left: auto; color: #66615b; }
+
+/* ── Hoja tipo Excel (LedgerGrid) ── */
+.ol-grid { outline: 0; user-select: none; }
+.ol-grid:focus-visible { box-shadow: 0 0 0 2px rgba(81, 203, 206, .45); }
+.ol-grid .ol-sheet td { cursor: cell; scroll-margin-top: 62px; scroll-margin-bottom: 38px; scroll-margin-left: var(--stick-w, 282px); }
+.ol-grid .ol-sheet td.stick { scroll-margin-left: 0; }
+.ol-grid .ol-sheet td.rowno { cursor: e-resize; }
+.ol-grid .ol-sheet td.ed { padding: 0 8px; background: #fff; }
+.ol-grid .ol-sheet td.ed.ro { background: #faf9f6; color: #66615b; }
+.ol-grid .ol-sheet td.sys { color: #8b867d; font-style: italic; }
+.ol-grid .ol-sheet td.sys .ol-chip, .ol-grid .ol-sheet td.sys .ol-st { font-style: normal; opacity: .8; }
+/* Celda corregida en el libro (distinta de la venta): esquina como el comentario de Excel. */
+.ol-grid .ol-sheet td.ov { position: relative; }
+.ol-grid .ol-sheet td.ov::after { content: ""; position: absolute; top: 0; right: 0; border-style: solid; border-width: 0 7px 7px 0; border-color: transparent #e07b00 transparent transparent; }
+.ol-grid .ol-sheet td.in-sel { background-image: linear-gradient(rgba(33, 115, 70, .13), rgba(33, 115, 70, .13)) !important; }
+.ol-grid .ol-sheet td.is-active { box-shadow: inset 0 0 0 2px #217346; background-image: none !important; }
+.ol-grid .ol-sheet td.is-saving { background-color: #fff8e6; }
+.ol-grid .ol-sheet td.is-ok { background-color: #e9f8ef; transition: background-color .2s; }
+.ol-grid .ol-sheet td.is-err { box-shadow: inset 0 0 0 2px #d9534f; background-color: #fdeeea; }
+.ol-grid .ol-sheet tbody tr:hover td { background-image: none; }
+.ol-grid .ol-sheet thead tr.h th.hl { background: #dbeee3; color: #1b5e3a; }
+.ol-grid .ol-sheet thead tr.h th .lbl { cursor: s-resize; padding-right: 16px; }
+.ol-grid .ol-sheet thead tr.h th.edit::after { content: none; }
+.ol-grid .ol-sheet thead tr.h th.edit .lbl::after { content: " ✎"; font-weight: 400; opacity: .7; }
+.ol-editor { display: block; margin: 0 -8px; width: calc(100% + 16px); height: 31px; border: 0; padding: 0 7px; font: inherit; color: #403d39; background: #fff; box-shadow: inset 0 0 0 2px #217346; outline: 0; font-style: normal; user-select: text; }
+.ol-editor.num { text-align: right; font-variant-numeric: tabular-nums; }
+.ol-tick { display: inline-block; width: 16px; height: 16px; line-height: 14px; border: 1px solid #cfcbc2; border-radius: 3px; font-size: 12px; font-weight: 700; color: #fff; text-align: center; vertical-align: middle; }
+.ol-tick.on { background: #217346; border-color: #217346; }
+.ol-social { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+.ol-social i { font-style: normal; font-size: 14px; }
+
+/* Botón de filtro del encabezado (▾ como el autofiltro de Excel) */
+.ol-fbtn { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); width: 18px; height: 18px; padding: 0; border: 1px solid #d9d5cc; border-radius: 3px; background: #fff; color: #66615b; font-size: 10px; line-height: 16px; cursor: pointer; z-index: 1; }
+.ol-fbtn:hover { border-color: #217346; color: #217346; }
+.ol-fbtn.on { background: #217346; border-color: #217346; color: #fff; }
+.ol-fmenu { position: fixed; z-index: 1060; width: 290px; background: #fff; border: 1px solid #c8c4bb; border-radius: 6px; box-shadow: 0 10px 30px rgba(0, 0, 0, .18); padding: 6px; font-size: 12.5px; color: #403d39; }
+.ol-fmenu .it { display: block; width: 100%; text-align: left; border: 0; background: none; padding: 5px 8px; border-radius: 4px; font-size: 12.5px; color: #403d39; cursor: pointer; }
+.ol-fmenu .it:hover:not(:disabled), .ol-fmenu .it:focus-visible { background: #e8f3ec; }
+.ol-fmenu .it.on { font-weight: 700; color: #217346; }
+.ol-fmenu .it:disabled { color: #b4afa6; cursor: default; }
+.ol-fmenu .sep { height: 1px; background: #ecebe6; margin: 4px 0 6px; }
+.ol-fmenu .srch { width: 100%; height: 30px; margin-bottom: 6px; }
+.ol-fmenu .vals { max-height: 240px; overflow: auto; border: 1px solid #ecebe6; border-radius: 4px; padding: 4px 6px; }
+.ol-fmenu .vals .ol-check { display: flex; height: auto; padding: 2px 0; font-weight: 500; }
+.ol-fmenu .vals .lbl { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ol-fmenu .vals .cnt { color: #9a958c; font-size: 11px; font-variant-numeric: tabular-nums; }
+.ol-fmenu .foot { display: flex; justify-content: flex-end; gap: 6px; margin-top: 6px; }
+
+/* Barra de fórmulas y barra de estado */
+.ol-fx { display: flex; align-items: center; gap: 8px; min-height: 30px; padding: 0 10px; background: #fff; border: 1px solid #e3e0d9; border-bottom: 0; border-radius: 10px 10px 0 0; font-size: 12.5px; overflow: hidden; }
+.ol-fx .ref { min-width: 150px; font-weight: 700; color: #403d39; white-space: nowrap; border-right: 1px solid #ecebe6; padding-right: 8px; }
+.ol-fx .fx { font-style: italic; color: #9a958c; font-weight: 700; }
+.ol-fx .val { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; user-select: text; }
+.ol-fx .orig { color: #8a4b00; background: #fff3e0; border-radius: 4px; padding: 1px 6px; white-space: nowrap; }
+.ol-fx .ro-tag { color: #66615b; white-space: nowrap; }
+.ol-fx + .ol-grid { border-radius: 0; }
+.ol-status { display: flex; align-items: center; gap: 12px; min-height: 26px; padding: 0 10px; background: #f4f3ef; border: 1px solid #e3e0d9; border-top: 0; border-radius: 0 0 10px 10px; font-size: 12px; color: #66615b; }
+.ol-status .end { margin-left: auto; display: flex; gap: 14px; }
+.ol-status b { color: #403d39; font-variant-numeric: tabular-nums; }
+.ol-shortcuts { max-height: calc(100vh - 48px); overflow: auto; }
+.ol-shortcuts tr.grp td { padding-top: 8px; font-size: 11px; font-weight: 700; color: #66615b; text-transform: uppercase; letter-spacing: .03em; }
