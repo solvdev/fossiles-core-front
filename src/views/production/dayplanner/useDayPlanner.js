@@ -701,6 +701,7 @@ export default function useDayPlanner() {
       workDateYmd: ymd,
       deskSupervisorByDesk: supervisorMap(supRes),
       numDesksForLegend: countRes?.numDesks,
+      specialDesks: countRes?.specialDesks,
     });
   }, []);
 

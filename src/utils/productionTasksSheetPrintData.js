@@ -153,6 +153,7 @@ function flattenTaskLines(task, orderMap) {
  *   workDateYmd?: string,
  *   deskSupervisorByDesk?: Record<number|string, string>,
  *   numDesksForLegend?: number,
+ *   specialDesks?: { desk: number, name?: string }[],
  * }} [options]
  */
 export function buildProductionTasksSheetPrintModel(tasks, productionOrders, options = {}) {
@@ -162,7 +163,11 @@ export function buildProductionTasksSheetPrintModel(tasks, productionOrders, opt
     options.numDesksForLegend && options.numDesksForLegend > 0
       ? options.numDesksForLegend
       : 12;
-  const deskSupervisorLegend = buildDeskSupervisorLegendLine(deskSupervisorByDesk, numDesksForLegend);
+  const deskSupervisorLegend = buildDeskSupervisorLegendLine(
+    deskSupervisorByDesk,
+    numDesksForLegend,
+    options.specialDesks
+  );
   const orderMap = new Map((productionOrders || []).map((o) => [Number(o.id), o]));
 
   // Mismo criterio que getOrganizerDayDeskTasks: fecha del día, sin exigir mesa;

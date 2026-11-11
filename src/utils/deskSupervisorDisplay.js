@@ -1,15 +1,54 @@
 /**
+ * Mesa especial (maquila) de la lista que manda el back en `desks-count.specialDesks`.
+ * @param {number|string|null|undefined} deskNumber
+ * @param {{ desk: number, name?: string, kind?: string }[]|null|undefined} specialDesks
+ */
+export function findSpecialDesk(deskNumber, specialDesks) {
+  const d = Number(deskNumber);
+  if (!Number.isFinite(d) || !Array.isArray(specialDesks)) return null;
+  return specialDesks.find((s) => Number(s?.desk) === d) || null;
+}
+
+/** Nombre corto de la mesa especial, p. ej. «Maquila». */
+export function specialDeskName(special) {
+  const name = special?.name != null ? String(special.name).trim() : "";
+  return name || "Maquila";
+}
+
+/**
+ * Mesas que se ven en el tablero: las de planta 1..N y después las especiales (maquila).
+ * @param {number} numDesks
+ * @param {{ desk: number }[]|null|undefined} specialDesks
+ * @returns {number[]}
+ */
+export function deskNumbersWithSpecial(numDesks, specialDesks) {
+  const n = Math.max(0, Math.floor(Number(numDesks) || 0));
+  const out = Array.from({ length: n }, (_, i) => i + 1);
+  (Array.isArray(specialDesks) ? specialDesks : [])
+    .map((s) => Number(s?.desk))
+    .filter((d) => Number.isFinite(d) && d > n)
+    .sort((a, b) => a - b)
+    .forEach((d) => {
+      if (!out.includes(d)) out.push(d);
+    });
+  return out;
+}
+
+/**
  * @param {number|string|null|undefined} deskNumber
  * @param {Record<number|string, string>|null|undefined} supervisorByDesk mapa mesa -> nombre (trim)
- * @returns {string} ej. "Mesa 3" o "Mesa 3 (Ana López)"
+ * @param {{ desk: number, name?: string }[]|null|undefined} [specialDesks] mesas de maquila
+ * @returns {string} ej. "Mesa 3", "Mesa 3 (Ana López)" o "Mesa 12 · Maquila (Juan)"
  */
-export function deskDisplayLabel(deskNumber, supervisorByDesk) {
+export function deskDisplayLabel(deskNumber, supervisorByDesk, specialDesks) {
   const d = Number(deskNumber);
   if (!Number.isFinite(d) || d < 1) return "";
   const raw = supervisorByDesk?.[d] ?? supervisorByDesk?.[String(d)];
   const name = raw != null ? String(raw).trim() : "";
-  if (name) return `Mesa ${d} (${name})`;
-  return `Mesa ${d}`;
+  const special = findSpecialDesk(d, specialDesks);
+  const base = special ? `Mesa ${d} · ${specialDeskName(special)}` : `Mesa ${d}`;
+  if (name) return `${base} (${name})`;
+  return base;
 }
 
 /**
@@ -47,13 +86,15 @@ export function resolveDeskSupervisorNameForTicket(ticket, supervisorByDesk) {
   return raw != null ? String(raw).trim() : "";
 }
 
-export function buildDeskSupervisorLegendLine(supervisorByDesk, numDesks) {
+export function buildDeskSupervisorLegendLine(supervisorByDesk, numDesks, specialDesks) {
   const n = Math.max(1, Math.min(Number(numDesks) || 1, 32));
   const parts = [];
-  for (let d = 1; d <= n; d++) {
+  deskNumbersWithSpecial(n, specialDesks).forEach((d) => {
     const raw = supervisorByDesk?.[d] ?? supervisorByDesk?.[String(d)];
     const name = raw != null ? String(raw).trim() : "";
-    parts.push(name ? `Mesa ${d} — ${name}` : `Mesa ${d} —`);
-  }
+    const special = findSpecialDesk(d, specialDesks);
+    const label = special ? `Mesa ${d} (${specialDeskName(special)})` : `Mesa ${d}`;
+    parts.push(name ? `${label} — ${name}` : `${label} —`);
+  });
   return parts.join(" · ");
 }

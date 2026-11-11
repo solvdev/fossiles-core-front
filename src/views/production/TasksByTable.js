@@ -66,8 +66,18 @@ import { openProductionTasksSheetPrintWindow, downloadProductionTasksSheetExcel 
 import { buildProductionTasksSheetPrintModel } from "utils/productionTasksSheetPrintData";
 import { getOrganizerDayDeskTasks, getOrganizerDayBoletaTasks, isCarryOverTask } from "utils/organizerDayTasks";
 import { getDeskSupervisorsForDate, replaceDeskSupervisorsForDate } from "services/deskSupervisorService";
-import { getDeskCountForDate, replaceDeskCountForDate } from "services/deskCountService";
-import { deskDisplayLabel } from "utils/deskSupervisorDisplay";
+import {
+  getDeskCountForDate,
+  replaceDeskCountForDate,
+  listSpecialDesks,
+  saveSpecialDesk,
+  deactivateSpecialDesk,
+} from "services/deskCountService";
+import {
+  deskDisplayLabel as deskDisplayLabelBase,
+  deskNumbersWithSpecial,
+  findSpecialDesk,
+} from "utils/deskSupervisorDisplay";
 import {
   cinchoDayFromApi,
   filterPendingCinchoRows,
@@ -398,6 +408,11 @@ function TasksByTable() {
   const [printBatchTaskIds, setPrintBatchTaskIds] = useState(null);
   const [printSupervisorByDesk, setPrintSupervisorByDesk] = useState(null);
   const [numDesks, setNumDesks] = useState(12);
+  /** Mesas especiales activas (maquila): fuera de 1..numDesks, solo reciben tareas a mano. */
+  const [specialDesks, setSpecialDesks] = useState([]);
+  /** Borrador de la mesa de maquila en el modal de mesas. */
+  const [maquilaDraft, setMaquilaDraft] = useState({ enabled: false, desk: 12, name: "Maquila", supervisorName: "", prevDesk: null });
+  const deskDisplayLabel = (desk, supervisorByDesk) => deskDisplayLabelBase(desk, supervisorByDesk, specialDesks);
   const [workingDesksCount, setWorkingDesksCount] = useState(12);
   const [showQuickGuide, setShowQuickGuide] = useState(false);
   const [showDownloadOpsModal, setShowDownloadOpsModal] = useState(false);
@@ -457,6 +472,7 @@ function TasksByTable() {
       const count = res.numDesks ?? 12;
       setNumDesks(count);
       setWorkingDesksCount(count);
+      setSpecialDesks(Array.isArray(res.specialDesks) ? res.specialDesks : []);
       if (res.isDefault) {
         setDeskConfigWarning(
           `No se pudo leer la configuración de mesas activas; se está usando ${count}. ` +
@@ -1171,8 +1187,9 @@ function TasksByTable() {
       workDateYmd: printWorkDateYmd,
       deskSupervisorByDesk: supervisorMapForDate(printWorkDateYmd),
       numDesksForLegend: workingDesksCount,
+      specialDesks,
     });
-  }, [organizerDayDeskTasks, productionOrders, supervisorMapForDate, workingDesksCount, printWorkDateYmd]);
+  }, [organizerDayDeskTasks, productionOrders, supervisorMapForDate, workingDesksCount, printWorkDateYmd, specialDesks]);
 
   const handlePrintTasksSheet = useCallback(() => {
     openProductionTasksSheetPrintWindow(
@@ -1206,7 +1223,11 @@ function TasksByTable() {
     const d = filterDate || getTodayYmdGuatemala();
     setDeskSupervisorModalDate(d);
     try {
-      const [countRes, supRes] = await Promise.all([getDeskCountForDate(d), getDeskSupervisorsForDate(d)]);
+      const [countRes, supRes, specialList] = await Promise.all([
+        getDeskCountForDate(d),
+        getDeskSupervisorsForDate(d),
+        listSpecialDesks().catch(() => []),
+      ]);
       const count = Number(countRes?.numDesks ?? 12);
       setDeskCountDraft(count);
       setDeskSupervisorDraft(
@@ -1215,6 +1236,17 @@ function TasksByTable() {
           count
         )
       );
+      const maquila = (Array.isArray(specialList) ? specialList : []).find((s) => s.active)
+        || (Array.isArray(specialList) ? specialList : [])[0];
+      const maquilaDesk = maquila ? Number(maquila.desk) : 12;
+      const maquilaSup = (supRes.assignments || []).find((a) => Number(a.desk) === maquilaDesk);
+      setMaquilaDraft({
+        enabled: Boolean(maquila?.active),
+        desk: maquilaDesk,
+        name: maquila?.name || "Maquila",
+        supervisorName: maquilaSup?.supervisorName || "",
+        prevDesk: maquila?.active ? maquilaDesk : null,
+      });
       setShowDeskSupervisorsModal(true);
     } catch (e) {
       showError(e.message || "No se pudieron cargar encargados");
@@ -1225,13 +1257,37 @@ function TasksByTable() {
     try {
       setSavingDeskSupervisors(true);
       const nextCount = Math.max(1, Math.min(32, Number(deskCountDraft) || 1));
+      const maquilaDesk = Math.floor(Number(maquilaDraft.desk) || 0);
+      if (maquilaDraft.enabled && (maquilaDesk < 1 || maquilaDesk > 32)) {
+        throw new Error("El número de la mesa de maquila tiene que ser de 1 a 32.");
+      }
+      if (maquilaDraft.enabled && maquilaDesk <= nextCount) {
+        throw new Error(
+          `La mesa de maquila (${maquilaDesk}) tiene que ser un número mayor que las ${nextCount} mesas de planta.`
+        );
+      }
+      // Se quita primero la maquila que ya no va (o que cambió de número), para que el
+      // número quede libre; el back no deja si todavía tiene tareas abiertas.
+      if (maquilaDraft.prevDesk != null && (!maquilaDraft.enabled || maquilaDraft.prevDesk !== maquilaDesk)) {
+        await deactivateSpecialDesk(maquilaDraft.prevDesk);
+      }
       await replaceDeskCountForDate(deskSupervisorModalDate, nextCount);
+      if (maquilaDraft.enabled) {
+        await saveSpecialDesk({
+          desk: maquilaDesk,
+          name: (maquilaDraft.name || "").trim() || "Maquila",
+          active: true,
+        });
+      }
       // Ajustar draft a 1..N (evitar enviar mesas fuera de rango)
       const normalizedDraft = normalizeSupervisorRowsForCount(deskSupervisorDraft, nextCount);
       const body = normalizedDraft.map((r) => ({
         desk: Number(r.desk),
         supervisorName: (r.supervisorName || "").trim(),
       }));
+      if (maquilaDraft.enabled) {
+        body.push({ desk: maquilaDesk, supervisorName: (maquilaDraft.supervisorName || "").trim() });
+      }
       await replaceDeskSupervisorsForDate(deskSupervisorModalDate, body);
       const toRefresh = new Set([
         deskSupervisorModalDate,
@@ -1281,9 +1337,12 @@ function TasksByTable() {
       unassigned: waitingCut + readyNoDesk,
       pending: ofDay.filter((t) => t.status === "PENDING").length,
       inProgress: ofDay.filter((t) => t.status === "IN_PROGRESS").length,
-      dayHours: ofDay.reduce((sum, t) => sum + getTaskBaseHours(t), 0),
+      // La mesa de maquila (número > mesas de planta) no ocupa cupo de la planta.
+      dayHours: ofDay
+        .filter((t) => !t.desk || Number(t.desk) <= numDesks)
+        .reduce((sum, t) => sum + getTaskBaseHours(t), 0),
     };
-  }, [tableCenterTasks, statsDay]);
+  }, [tableCenterTasks, statsDay, numDesks]);
 
   const daySaleModalOrderCodes = useMemo(() => {
     const unique = [...new Set((daySaleCandidates || []).map((c) => c.productionOrderCode).filter(Boolean))];
@@ -1488,8 +1547,8 @@ function TasksByTable() {
     return `${days[d.getDay()]} ${formatDateGt(dateStr)}`;
   };
 
-  const deskOptions = [];
-  for (let i = 1; i <= numDesks; i++) deskOptions.push(i);
+  /** Planta 1..N y después la mesa de maquila. */
+  const allDeskNumbers = deskNumbersWithSpecial(numDesks, specialDesks);
 
   const getTaskItems = (task) =>
     task.items && task.items.length > 0
@@ -1509,7 +1568,7 @@ function TasksByTable() {
   const deskNumbers = filterDesk
     ? [Number(filterDesk)]
     : [...new Set([
-      ...Array.from({ length: numDesks }, (_, i) => i + 1),
+      ...allDeskNumbers,
       ...Object.keys(dayDeskMap).map(Number),
     ])].sort((a, b) => a - b);
   const cinchoRows = pendingCinchoRowsByDate[boardDay] || [];
@@ -1694,20 +1753,27 @@ function TasksByTable() {
     const tope = deskVisible[claveMesa] || DESK_PAGE;
     const visibles = deskTasks.slice(0, tope);
     const ocultas = deskTasks.length - visibles.length;
+    // Mesa de maquila: no tiene cupo de planta, as\u00ed que no lleva barra ni tope de horas.
+    const esMaquila = Boolean(findSpecialDesk(desk, specialDesks));
     return (
       <div key={desk} className="tbs-board-item">
-        <div className="tbs-desk">
+        <div className="tbs-desk" style={esMaquila ? { border: "2px solid #9b59b6" } : undefined}>
           <div className="tbs-desk-top">
-            <span className="tbs-desk-name">{deskDisplayLabel(Number(desk), supMap)}</span>
+            <span className="tbs-desk-name">
+              {deskDisplayLabel(Number(desk), supMap)}
+              {esMaquila && <Badge className="ml-1" style={{ background: "#9b59b6" }}>Maquila</Badge>}
+            </span>
             <span className="tbs-desk-load">
               <b>{formatProductionDuration(totalHours)}</b>
-              {" / "}{formatProductionDuration(MAX_HOURS_PER_DESK)}
+              {!esMaquila && <>{" / "}{formatProductionDuration(MAX_HOURS_PER_DESK)}</>}
               {"  \u00b7  "}{deskTasks.length}
             </span>
           </div>
-          <div className="tbs-desk-bar">
-            <i style={{ width: capacityPct + "%", background: cupoColor }} />
-          </div>
+          {!esMaquila && (
+            <div className="tbs-desk-bar">
+              <i style={{ width: capacityPct + "%", background: cupoColor }} />
+            </div>
+          )}
           <div className="tbs-desk-body">
             {deskTasks.length === 0 && <small className="text-muted">Libre</small>}
             {renderTaskCards(visibles)}
@@ -1833,6 +1899,7 @@ function TasksByTable() {
             <LateTasksPanel
               late={late}
               numDesks={numDesks}
+              specialDesks={specialDesks}
               onChanged={async () => { await Promise.all([late.loadAll(), loadTasks({ background: true })]); }}
             />
           </CardBody>
@@ -1854,7 +1921,7 @@ function TasksByTable() {
             <Col md="3" className="mb-2 mb-md-0">
               <Input type="select" aria-label="Mesa" value={filterDesk} onChange={(e) => setFilterDesk(e.target.value)}>
                 <option value="">Todas las mesas</option>
-                {Array.from({ length: numDesks }, (_, i) => i + 1).map((d) => (
+                {allDeskNumbers.map((d) => (
                   <option key={d} value={d}>{deskDisplayLabel(d, supervisorMapForUi)}</option>
                 ))}
               </Input>
@@ -1877,6 +1944,7 @@ function TasksByTable() {
                 <RedistributeBoard
                   tasks={tasks}
                   numDesks={numDesks}
+                  specialDesks={specialDesks}
                   date={boardDay}
                   setDate={setFilterDate}
                   onMove={handleMoveTaskItem}
@@ -2701,6 +2769,74 @@ function TasksByTable() {
               ))}
             </tbody>
           </Table>
+          <div className="p-2 mt-2" style={{ border: "2px solid #9b59b6", borderRadius: 6 }}>
+            <FormGroup check className="mb-2">
+              <Label check>
+                <Input
+                  type="checkbox"
+                  checked={maquilaDraft.enabled}
+                  onChange={(e) => {
+                    const on = e.target.checked;
+                    setMaquilaDraft((m) => ({ ...m, enabled: on }));
+                  }}
+                />{" "}
+                <strong>Mesa de maquila</strong>
+              </Label>
+            </FormGroup>
+            <div className="text-muted small mb-2">
+              Mesa aparte para lo que se manda a maquilar. El sistema nunca le reparte tareas solo:
+              se le pasan a mano (Mover entre mesas o la mesa de la tarea). No cuenta en el cupo de la planta.
+            </div>
+            {maquilaDraft.enabled && (
+              <Row>
+                <Col xs="3">
+                  <FormGroup className="mb-0">
+                    <Label className="mb-1 small">Número</Label>
+                    <Input
+                      bsSize="sm"
+                      type="number"
+                      min="1"
+                      max="32"
+                      value={maquilaDraft.desk}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        setMaquilaDraft((m) => ({ ...m, desk: v }));
+                      }}
+                    />
+                  </FormGroup>
+                </Col>
+                <Col xs="4">
+                  <FormGroup className="mb-0">
+                    <Label className="mb-1 small">Nombre</Label>
+                    <Input
+                      bsSize="sm"
+                      value={maquilaDraft.name}
+                      placeholder="Maquila"
+                      maxLength={100}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        setMaquilaDraft((m) => ({ ...m, name: v }));
+                      }}
+                    />
+                  </FormGroup>
+                </Col>
+                <Col xs="5">
+                  <FormGroup className="mb-0">
+                    <Label className="mb-1 small">Encargado</Label>
+                    <Input
+                      bsSize="sm"
+                      value={maquilaDraft.supervisorName}
+                      placeholder="Nombre"
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        setMaquilaDraft((m) => ({ ...m, supervisorName: v }));
+                      }}
+                    />
+                  </FormGroup>
+                </Col>
+              </Row>
+            )}
+          </div>
         </ModalBody>
         <ModalFooter>
           <Button color="secondary" disabled={savingDeskSupervisors} onClick={() => setShowDeskSupervisorsModal(false)}>
