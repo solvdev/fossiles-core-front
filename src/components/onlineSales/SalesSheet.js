@@ -500,11 +500,12 @@ const SheetRow = React.memo(function SheetRow({
 });
 
 /** Botón de icono para la columna Acciones. tone: info | ok | warn | danger | dark */
-export function SheetAction({ title, icon, tone, onClick, disabled, busy }) {
+export function SheetAction({ title, icon, tone, onClick, disabled, busy, label }) {
   return (
-    <button type="button" className={`ss-ib${tone ? ` ${tone}` : ""}`} title={title} aria-label={title}
+    <button type="button" className={`ss-ib${tone ? ` ${tone}` : ""}${label ? " lbl" : ""}`} title={title} aria-label={title}
       onClick={onClick} disabled={disabled}>
       {busy ? <span className="ss-spin" /> : <i className={`nc-icon ${icon}`} />}
+      {label && <span>{label}</span>}
     </button>
   );
 }

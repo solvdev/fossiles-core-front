@@ -2134,12 +2134,19 @@ function OnlineSales() {
       )}
       <SheetAction tone="info" icon="nc-ruler-pencil" title="Editar" onClick={() => openEditForm(sale)} />
       <SheetAction icon="nc-single-copy-04" title="Imprimir hoja de envío" onClick={() => void printShipmentDocument(sale)} />
-      {(sale.status === "ENVIADO" || sale.status === "ENTREGADO") && (
-        <>
-          <SheetAction tone="info" icon="nc-send" title="Registrar CAMBIO (Q0)" onClick={() => openExchangeModal(sale)} />
-          <SheetAction icon="nc-refresh-69" title="Devolución" onClick={() => openReturnModal(sale.id)} />
-        </>
-      )}
+      {(() => {
+        // Cambio y devolución siempre a la vista; solo se usan cuando la venta ya salió (como antes).
+        const sent = sale.status === "ENVIADO" || sale.status === "ENTREGADO";
+        const why = "Solo para ventas enviadas o entregadas";
+        return (
+          <>
+            <SheetAction tone="info" icon="nc-send" label="Cambio" disabled={!sent}
+              title={sent ? "Registrar CAMBIO (Q0)" : `Cambio · ${why}`} onClick={() => openExchangeModal(sale)} />
+            <SheetAction tone="dark" icon="nc-refresh-69" label="Devolución" disabled={!sent}
+              title={sent ? "Registrar devolución" : `Devolución · ${why}`} onClick={() => openReturnModal(sale.id)} />
+          </>
+        );
+      })()}
       {sale.status === "ENVIADO" && (
         <SheetAction tone="warn" icon="nc-simple-remove" title="Anular envío (stock → devoluciones)"
           onClick={() => openCancelDispatchModal(sale.id)} />
