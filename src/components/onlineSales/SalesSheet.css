@@ -222,6 +222,11 @@ body.ss-resizing, body.ss-resizing * { cursor: col-resize !important; user-selec
 .ss-ib.warn:hover:not(:disabled) { color: #b45309; }
 .ss-ib.danger:hover:not(:disabled) { color: #c43c3c; background: #fef0f0; }
 .ss-ib:disabled { opacity: .45; cursor: default; }
+.ss-ib.lbl { width: auto; padding: 0 8px; gap: 5px; display: inline-flex; align-items: center; border-color: var(--ss-border);
+  background: #fff; font-size: 11.5px; font-weight: 600; }
+.ss-ib.lbl.info:not(:disabled) { color: var(--ss-blue); border-color: #c7d7fb; }
+.ss-ib.lbl.dark:not(:disabled) { color: #374151; border-color: #d1d5db; }
+.ss-ib.lbl:disabled { background: #f9fafb; color: #9ca3af; opacity: 1; }
 .ss-ib .nc-icon { font-size: 13px; top: 0; }
 .ss-spin { width: 12px; height: 12px; border: 2px solid #cbd5e1; border-top-color: var(--ss-blue); border-radius: 50%;
   display: inline-block; animation: ss-rot .7s linear infinite; }
