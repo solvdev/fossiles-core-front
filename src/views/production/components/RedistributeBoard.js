@@ -7,6 +7,7 @@ import {
 import DatePickerField from "components/common/DatePickerField";
 import { isWeekendYmd } from "utils/dateTimeHelper";
 import { showError } from "utils/notificationHelper";
+import { deskNumbersWithSpecial, findSpecialDesk, specialDeskName } from "utils/deskSupervisorDisplay";
 
 /**
  * Tablero de mesas con drag & drop (extraído de TasksByTable para compartirlo
@@ -84,12 +85,19 @@ export const DraggableCard = React.memo(function DraggableCard({ id, title, chil
 export default function RedistributeBoard({
   tasks,
   numDesks,
+  specialDesks,
   date,
   setDate,
   onMove,
   deskTitleFor,
   introText,
 }) {
+  /** Planta 1..N y después la mesa de maquila (solo se le pasa trabajo a mano, aquí). */
+  const deskList = useMemo(() => deskNumbersWithSpecial(numDesks || 12, specialDesks), [numDesks, specialDesks]);
+  const deskOptionLabel = useCallback((d) => {
+    const special = findSpecialDesk(d, specialDesks);
+    return special ? `Mesa ${d} · ${specialDeskName(special)}` : `Mesa ${d}`;
+  }, [specialDesks]);
   const [activeItemId, setActiveItemId] = useState(null);
   /** Mesa elegida en el selector manual por taskItemId (alternativa a arrastrar). */
   const [manualDeskByItem, setManualDeskByItem] = useState({});
@@ -126,12 +134,15 @@ export default function RedistributeBoard({
 
   const containers = useMemo(() => {
     const list = [{ id: "unassigned", title: "Sin asignar" }];
-    for (let d = 1; d <= (numDesks || 12); d++) {
-      const title = typeof deskTitleFor === "function" ? deskTitleFor(d) : `Mesa ${d}`;
+    deskList.forEach((d) => {
+      const special = findSpecialDesk(d, specialDesks);
+      const title = special
+        ? deskOptionLabel(d)
+        : typeof deskTitleFor === "function" ? deskTitleFor(d) : `Mesa ${d}`;
       list.push({ id: `desk-${d}`, title, desk: d });
-    }
+    });
     return list;
-  }, [numDesks, deskTitleFor]);
+  }, [deskList, specialDesks, deskOptionLabel, deskTitleFor]);
 
   const itemsByContainer = useMemo(() => {
     const map = {};
@@ -361,8 +372,8 @@ export default function RedistributeBoard({
                           style={{ fontSize: 12 }}
                         >
                           <option value="">Sin mesa</option>
-                          {Array.from({ length: numDesks || 12 }, (_, i) => i + 1).map((d) => (
-                            <option key={d} value={d}>Mesa {d}</option>
+                          {deskList.map((d) => (
+                            <option key={d} value={d}>{deskOptionLabel(d)}</option>
                           ))}
                         </Input>
                         <button

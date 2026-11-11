@@ -7,6 +7,7 @@ import { scheduleTask } from "services/taskService";
 import { formatDateGt, getTodayYmdGuatemala, isWeekendYmd } from "utils/dateTimeHelper";
 import { showSuccess, showError } from "utils/notificationHelper";
 import { getTaskBaseHours } from "utils/taskHoursHelper";
+import { deskNumbersWithSpecial, findSpecialDesk, specialDeskName } from "utils/deskSupervisorDisplay";
 
 const INITIAL_VISIBLE = 30;
 const LOAD_MORE_STEP = 30;
@@ -104,7 +105,7 @@ function ColorCell({ label }) {
  * Tareas PENDING atrasadas, sin fecha, o sin mesa (aunque la fecha sea hoy).
  * Permite reprogramarlas a la fecha/mesa que se elija.
  */
-export default function PendingTasksBacklog({ backlog, loading, numDesks, onReload, onRescheduled }) {
+export default function PendingTasksBacklog({ backlog, loading, numDesks, specialDesks, onReload, onRescheduled }) {
   const [modal, setModal] = useState({ open: false, task: null, date: getTodayYmdGuatemala(), desk: "" });
   const [saving, setSaving] = useState(false);
   const [orderFilter, setOrderFilter] = useState("");
@@ -348,9 +349,14 @@ export default function PendingTasksBacklog({ backlog, loading, numDesks, onRelo
                   onChange={(e) => setModal((m) => ({ ...m, desk: e.target.value }))}
                 >
                   <option value="">Sin mesa (asignar en tablero)</option>
-                  {Array.from({ length: numDesks || 12 }, (_, i) => i + 1).map((d) => (
-                    <option key={d} value={d}>Mesa {d}</option>
-                  ))}
+                  {deskNumbersWithSpecial(numDesks || 12, specialDesks).map((d) => {
+                    const special = findSpecialDesk(d, specialDesks);
+                    return (
+                      <option key={d} value={d}>
+                        {special ? `Mesa ${d} · ${specialDeskName(special)}` : `Mesa ${d}`}
+                      </option>
+                    );
+                  })}
                 </Input>
               </FormGroup>
             </Col>
