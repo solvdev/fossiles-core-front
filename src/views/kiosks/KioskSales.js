@@ -779,8 +779,7 @@ function KioskSales() {
       cancelled = true;
       clearTimeout(timer);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [promoEstimateKey]);
+  }, [promoEstimateKey, promoEstimatePayload]);
 
   const cartTotals = useMemo(() => {
     // El complemento (extra por pieza) suma al total pero no entra al descuento: las promociones
