@@ -19,8 +19,12 @@ import {
 } from "reactstrap";
 import {
   createKioskPosSale,
+  approveKioskPromotion,
   createKioskPromotion,
   deleteKioskPromotion,
+  estimateKioskPromotionDiscount,
+  returnKioskPromotionToDraft,
+  updateKioskPromotion,
   getCurrentCashSession,
   getKioskPosContext,
   getKioskPromotions,
@@ -74,6 +78,12 @@ import PosInvoiceEmailModal from "./pos/PosInvoiceEmailModal";
 import PosSuccessScreen from "./pos/PosSuccessScreen";
 import PosReportsTab from "./pos/PosReportsTab";
 import PosPromotionsTab from "./pos/PosPromotionsTab";
+import {
+  EMPTY_PROMO_FORM,
+  buildPromotionPayload,
+  isRulesPromotion,
+  promotionToForm,
+} from "./pos/promotionRules";
 import PosReceiptTab from "./pos/PosReceiptTab";
 import PosCashTab from "./pos/PosCashTab";
 import PosCashClosuresTab from "./pos/PosCashClosuresTab";
@@ -143,20 +153,13 @@ function KioskSales() {
   const [lastSale, setLastSale] = useState(null);
   const [pendingFelSale, setPendingFelSale] = useState(null);
   const [felCertModalOpen, setFelCertModalOpen] = useState(false);
-  const [promoForm, setPromoForm] = useState({
-    name: "",
-    description: "",
-    discountType: "PERCENT",
-    discountValue: "",
-    comboBuyQty: "2",
-    comboPayQty: "1",
-    kioskLocationId: "",
-    audienceCategory: "",
-    tiers: [{ audienceCategory: "CABALLERO", categoryId: "", discountValue: "" }],
-    startDate: "",
-    endDate: "",
-    active: true,
-  });
+  const [promoForm, setPromoForm] = useState(() => EMPTY_PROMO_FORM());
+  const [editingPromotionId, setEditingPromotionId] = useState(null);
+  const [promoSaving, setPromoSaving] = useState(false);
+  const [promoStatusBusyId, setPromoStatusBusyId] = useState(null);
+  // Estimado del back para promociones dinámicas (RULES): el cálculo vive en el servidor.
+  const [serverPromoEstimate, setServerPromoEstimate] = useState(null);
+  const [checkoutPaymentMethod, setCheckoutPaymentMethod] = useState(null);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [availabilityLoading, setAvailabilityLoading] = useState(false);
@@ -704,6 +707,81 @@ function KioskSales() {
     [checkoutPromotions, selectedPromotionId]
   );
 
+  // ¿Hay promociones dinámicas en juego? Entonces el descuento del carrito lo calcula el back
+  // (mismo motor que cobra la venta), para que lo que ve la cajera sea lo que se cobra.
+  const usesServerPromoEstimate = useMemo(() => {
+    if (isEntrecuerosPos || !cart.length) return false;
+    if (selectedPromotion) return isRulesPromotion(selectedPromotion);
+    return (promotions || []).some(isRulesPromotion);
+  }, [isEntrecuerosPos, cart.length, selectedPromotion, promotions]);
+
+  const promoEstimatePayload = useMemo(() => {
+    if (!usesServerPromoEstimate) return null;
+    const promoPayload = parseCheckoutPromotionPayload(selectedPromotionId);
+    return {
+      kioskLocationId: selectedKioskId ? Number(selectedKioskId) : null,
+      promotionId: promoPayload.promotionId,
+      manualDiscountPercent: promoPayload.manualDiscountPercent,
+      paymentMethod: checkoutOpen ? checkoutPaymentMethod || null : null,
+      items: cart.map((line) => ({
+        ...buildPosSaleItem(line),
+        extraAmount: lineExtraUnit(line) > 0 ? lineExtraUnit(line) : null,
+      })),
+    };
+  }, [
+    usesServerPromoEstimate,
+    selectedPromotionId,
+    selectedKioskId,
+    checkoutOpen,
+    checkoutPaymentMethod,
+    cart,
+  ]);
+
+  const promoEstimateKey = useMemo(
+    () => (promoEstimatePayload ? JSON.stringify(promoEstimatePayload) : ""),
+    [promoEstimatePayload]
+  );
+
+  useEffect(() => {
+    if (!promoEstimatePayload) {
+      setServerPromoEstimate(null);
+      return undefined;
+    }
+    let cancelled = false;
+    const key = promoEstimateKey;
+    const payload = promoEstimatePayload;
+    const timer = setTimeout(async () => {
+      try {
+        const res = await estimateKioskPromotionDiscount(payload);
+        if (cancelled) return;
+        const lineNotes = [];
+        (res?.lines || []).forEach((row) => {
+          if (row && Number(row.discountAmount) > 0) {
+            lineNotes[row.index] = { amount: Number(row.discountAmount), note: row.note || "" };
+          }
+        });
+        setServerPromoEstimate({
+          key,
+          failed: false,
+          discountAmount: res?.discountAmount,
+          autoApplied: res?.autoApplied,
+          promotionName: res?.promotionName,
+          promotionId: res?.promotionId,
+          hints: res?.hints || [],
+          lineNotes,
+        });
+      } catch (err) {
+        // Sin servidor: se queda el cálculo local (no incluye reglas dinámicas).
+        if (!cancelled) setServerPromoEstimate({ key, failed: true });
+      }
+    }, 300);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [promoEstimateKey]);
+
   const cartTotals = useMemo(() => {
     // El complemento (extra por pieza) suma al total pero no entra al descuento: las promociones
     // trabajan sobre unitPrice (precio base) de cada línea.
@@ -731,11 +809,21 @@ function KioskSales() {
 
     // priceFinal (monto capturado en Final) no entra al descuento.
     // Con desc. sí: el porcentaje se calcula sobre el unitPrice editado.
-    const resolved = resolveCartDiscount(cart, {
+    const clientResolved = resolveCartDiscount(cart, {
       selectedPromotion,
       promotions,
       subtotal: subtotal.total,
     });
+    // Promociones dinámicas: manda el cálculo del servidor (el mismo que cobra la venta).
+    const resolved =
+      usesServerPromoEstimate && serverPromoEstimate?.key === promoEstimateKey && !serverPromoEstimate.failed
+        ? {
+            discount: Number(serverPromoEstimate.discountAmount || 0),
+            autoApplied: Boolean(serverPromoEstimate.autoApplied),
+            promotionName: serverPromoEstimate.promotionName || null,
+            promotionId: serverPromoEstimate.promotionId ?? null,
+          }
+        : clientResolved;
 
     return {
       items: subtotal.items,
@@ -745,8 +833,23 @@ function KioskSales() {
       estimated: Math.max(0, subtotal.total - resolved.discount),
       autoApplied: resolved.autoApplied,
       promotionName: resolved.promotionName,
+      lineNotes: usesServerPromoEstimate && serverPromoEstimate?.key === promoEstimateKey && !serverPromoEstimate.failed
+        ? serverPromoEstimate.lineNotes
+        : null,
+      hints: usesServerPromoEstimate && serverPromoEstimate?.key === promoEstimateKey && !serverPromoEstimate.failed
+        ? serverPromoEstimate.hints || []
+        : [],
+      estimating: usesServerPromoEstimate && serverPromoEstimate?.key !== promoEstimateKey,
     };
-  }, [cart, selectedPromotion, promotions, isEntrecuerosPos]);
+  }, [
+    cart,
+    selectedPromotion,
+    promotions,
+    isEntrecuerosPos,
+    usesServerPromoEstimate,
+    serverPromoEstimate,
+    promoEstimateKey,
+  ]);
 
   const applyReportFilters = async (fromOverride, toOverride) => {
     const from = fromOverride || startDate || getTodayYmdGuatemala();
@@ -935,73 +1038,108 @@ function KioskSales() {
     }
   };
 
-  const createPromotion = async () => {
+  const reloadPromotionLists = async () => {
+    await Promise.all([
+      loadAdminPromotions(),
+      getKioskPromotions(true, selectedKioskId || undefined).then((rows) =>
+        setPromotions(Array.isArray(rows) ? rows : [])
+      ),
+    ]);
+  };
+
+  /** Crea o actualiza la promoción del formulario. Siempre queda en borrador hasta aprobarla. */
+  const savePromotion = async () => {
+    const payload = buildPromotionPayload(promoForm);
+    if (!payload.name) {
+      showError("El nombre de la promoción es obligatorio.");
+      return null;
+    }
+    if (promoForm.discountType === "TIERED_PERCENT") {
+      if (!payload.tiers?.length) {
+        showError("Indique al menos un tier con categoría y porcentaje mayor a cero.");
+        return null;
+      }
+      const tierKeys = payload.tiers.map((tier) => `${tier.audienceCategory}:${tier.categoryId}`);
+      if (new Set(tierKeys).size !== tierKeys.length) {
+        showError("No puede repetir la misma audiencia y categoría en dos tiers.");
+        return null;
+      }
+    }
     try {
-      if (!promoForm.name.trim()) {
-        showError("El nombre de la promoción es obligatorio.");
-        return;
+      setPromoSaving(true);
+      const saved = editingPromotionId
+        ? await updateKioskPromotion(editingPromotionId, payload)
+        : await createKioskPromotion(payload);
+      // Se queda abierta para seguir probando y ajustando.
+      if (saved?.id) {
+        setEditingPromotionId(saved.id);
+        setPromoForm(promotionToForm(saved));
       }
-      const payload = {
-        name: promoForm.name,
-        description: promoForm.description,
-        discountType: promoForm.discountType,
-        startDate: promoForm.startDate || null,
-        endDate: promoForm.endDate || null,
-        active: Boolean(promoForm.active),
-        kioskLocationId: promoForm.kioskLocationId ? Number(promoForm.kioskLocationId) : null,
-        audienceCategory: promoForm.audienceCategory || null,
-      };
-      if (promoForm.discountType === "COMBO") {
-        payload.comboBuyQty = Number(promoForm.comboBuyQty || 0);
-        payload.comboPayQty = Number(promoForm.comboPayQty || 0);
-        payload.discountValue = 0;
-      } else if (promoForm.discountType === "TIERED_PERCENT") {
-        const rawTiers = (promoForm.tiers || [])
-          .map((tier) => ({
-            audienceCategory: tier.audienceCategory,
-            categoryId: tier.categoryId ? Number(tier.categoryId) : null,
-            discountValue: Number(tier.discountValue || 0),
-          }))
-          .filter((tier) => tier.categoryId && tier.discountValue > 0);
-        if (!rawTiers.length) {
-          showError("Indique al menos un tier con categoría y porcentaje mayor a cero.");
-          return;
-        }
-        const tierKeys = rawTiers.map((tier) => `${tier.audienceCategory}:${tier.categoryId}`);
-        if (new Set(tierKeys).size !== tierKeys.length) {
-          showError("No puede repetir la misma audiencia y categoría en dos tiers.");
-          return;
-        }
-        payload.tiers = rawTiers;
-        payload.discountValue = 0;
-        payload.audienceCategory = null;
-      } else {
-        payload.discountValue = Number(promoForm.discountValue || 0);
-      }
-      await createKioskPromotion(payload);
-      setPromoForm({
-        name: "",
-        description: "",
-        discountType: "PERCENT",
-        discountValue: "",
-        comboBuyQty: "2",
-        comboPayQty: "1",
-        kioskLocationId: "",
-        audienceCategory: "",
-        tiers: [{ audienceCategory: "CABALLERO", categoryId: "", discountValue: "" }],
-        startDate: "",
-        endDate: "",
-        active: true,
-      });
-      showSuccess("Promoción creada correctamente.");
-      await Promise.all([
-        loadAdminPromotions(),
-        getKioskPromotions(true, selectedKioskId || undefined).then((rows) =>
-          setPromotions(Array.isArray(rows) ? rows : [])
-        ),
-      ]);
+      showSuccess(
+        String(saved?.status || "").toUpperCase() === "DRAFT"
+          ? "Guardada en borrador. Pruébala en el simulador y apruébala para que el POS la use."
+          : "Promoción guardada."
+      );
+      await reloadPromotionLists();
+      return saved;
     } catch (err) {
-      showError(err.message || "No se pudo crear la promoción.");
+      showError(err.message || "No se pudo guardar la promoción.");
+      return null;
+    } finally {
+      setPromoSaving(false);
+    }
+  };
+
+  const editPromotion = (promo) => {
+    if (!promo?.id) return;
+    setEditingPromotionId(promo.id);
+    setPromoForm(promotionToForm(promo));
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const cancelPromotionEdit = () => {
+    setEditingPromotionId(null);
+    setPromoForm(EMPTY_PROMO_FORM());
+  };
+
+  const approvePromotion = async (promo) => {
+    if (!promo?.id) return;
+    if (
+      !window.confirm(
+        `¿Aprobar "${promo.name}"? Desde ahora el POS la aplica sola en caja (si está activa y dentro de sus fechas).`
+      )
+    ) {
+      return;
+    }
+    try {
+      setPromoStatusBusyId(promo.id);
+      await approveKioskPromotion(promo.id);
+      showSuccess("Promoción aprobada y en vigencia.");
+      await reloadPromotionLists();
+    } catch (err) {
+      showError(err.message || "No se pudo aprobar la promoción.");
+    } finally {
+      setPromoStatusBusyId(null);
+    }
+  };
+
+  const returnPromotionToDraft = async (promo) => {
+    if (!promo?.id) return;
+    if (!window.confirm(`¿Pasar "${promo.name}" a borrador? El POS deja de aplicarla desde ya.`)) {
+      return;
+    }
+    try {
+      setPromoStatusBusyId(promo.id);
+      await returnKioskPromotionToDraft(promo.id);
+      if (String(selectedPromotionId) === String(promo.id)) {
+        setSelectedPromotionId("");
+      }
+      showSuccess("La promoción quedó en borrador.");
+      await reloadPromotionLists();
+    } catch (err) {
+      showError(err.message || "No se pudo pasar la promoción a borrador.");
+    } finally {
+      setPromoStatusBusyId(null);
     }
   };
 
@@ -1421,6 +1559,9 @@ function KioskSales() {
                         lockFinalPrices={isEntrecuerosPos}
                         posMode={selectedKioskPosMode}
                         cart={cart}
+                        onPaymentMethodChange={setCheckoutPaymentMethod}
+                        promotionHints={cartTotals.hints}
+                        estimatingDiscount={cartTotals.estimating}
                       />
                     </>
                   )}
@@ -1508,10 +1649,17 @@ function KioskSales() {
                       promoForm={promoForm}
                       onPromoFormChange={(patch) => setPromoForm((prev) => ({ ...prev, ...patch }))}
                       promotions={adminPromotions}
-                      onCreatePromotion={createPromotion}
+                      onSavePromotion={savePromotion}
                       onDeletePromotion={deletePromotion}
                       deletingPromotionId={deletingPromotionId}
                       kiosks={context.kiosks}
+                      editingPromotionId={editingPromotionId}
+                      onEditPromotion={editPromotion}
+                      onCancelEdit={cancelPromotionEdit}
+                      onApprovePromotion={approvePromotion}
+                      onDraftPromotion={returnPromotionToDraft}
+                      statusBusyId={promoStatusBusyId}
+                      saving={promoSaving}
                     />
                   )}
 

@@ -125,7 +125,8 @@ function PosCartPanel({
               <p>Toca un producto para agregarlo</p>
             </div>
           ) : (
-            cart.map((line) => {
+            cart.map((line, lineIndex) => {
+              const promoLine = cartTotals?.lineNotes?.[lineIndex];
               const isPackaging = Boolean(line.isPackaging) || isPackagingProductCode(line.productCode);
               const showPriceControls = canEditPrices && !isPackaging;
               const volumeKey = entrecueros ? entrecuerosVolumeKey(line) : null;
@@ -147,6 +148,11 @@ function PosCartPanel({
                       {line.productName}
                       {isPackaging && (
                         <Badge color="secondary" className="ml-1">Empaque</Badge>
+                      )}
+                      {promoLine && (
+                        <span className="pos-line-promo-note">
+                          −{formatCurrency(promoLine.amount)}{promoLine.note ? ` · ${promoLine.note}` : ""}
+                        </span>
                       )}
                     </div>
                     <div className="kiosk-pos-item-sub">
@@ -328,6 +334,11 @@ function PosCartPanel({
                 <span style={{ color: "#1D9E75" }}>-{formatCurrency(cartTotals.discount)}</span>
               </div>
             )}
+            {(cartTotals.hints || []).map((hint, i) => (
+              <div key={`promo-hint-${i}`} className="pos-promo-hint">
+                {hint}
+              </div>
+            ))}
             <hr className="kiosk-pos-totals-divider" />
             <div className="kiosk-pos-totals-row total">
               <span>Total</span>
