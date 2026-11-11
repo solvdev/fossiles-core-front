@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import {
-  Button, Card, CardHeader, CardBody, CardTitle, CardFooter,
+  Button, Card, CardHeader, CardBody, CardTitle,
   Row, Col, Table, Badge, Input, Label, FormGroup, Modal, ModalHeader,
   ModalBody, ModalFooter, Alert, Spinner,
   TabContent, TabPane, Progress
@@ -22,7 +22,9 @@ import * as XLSX from "xlsx";
 import { formatNowGt } from "utils/dateTimeHelper";
 import html2canvas from "html2canvas";
 import { jsPDF } from "jspdf";
-import { buildShipmentDocumentHtml, getSimplePaymentLabel } from "utils/shipmentPrintDocumentHtml";
+import {
+  buildShipmentDocumentHtml, buildShipmentDocumentInnerHtml, getShipmentDocumentStyles, getSimplePaymentLabel,
+} from "utils/shipmentPrintDocumentHtml";
 import QRCode from "qrcode";
 import { getPublicFrontBaseUrl, buildPtDispatchOnlineUrl } from "utils/ptDispatchQr";
 import {
@@ -36,6 +38,7 @@ import { useAuth } from "../../contexts/AuthContext";
 import { canEditTaxInvoiceFel } from "../../utils/taxInvoiceEditHelper";
 import OnlineSalesLedger from "../../components/onlineLedger/OnlineSalesLedger";
 import DayNav from "../../components/onlineLedger/DayNav";
+import SalesSheet, { SheetAction } from "../../components/onlineSales/SalesSheet";
 import { carrierOf, fold, statusOf } from "../../components/onlineLedger/onlineLedgerHelper";
 import "../../components/onlineLedger/OnlineLedger.css";
 
@@ -130,14 +133,6 @@ const getExchangeStatusChip = (status) => {
       {found ? found.label : (status || "—")}
     </span>
   );
-};
-
-const getFelInvoiceBadge = (sale) => {
-  const status = sale?.invoiceStatus;
-  if (status === "CERTIFIED") return <Badge color="success">Certificada</Badge>;
-  if (status === "FAILED") return <Badge color="danger" title={sale.invoiceFelError || ""}>Error</Badge>;
-  if (status === "SKIPPED") return <Badge color="warning">Omitida</Badge>;
-  return <Badge color="secondary">Sin factura</Badge>;
 };
 
 const canGenerateFelInvoice = (sale) => {
@@ -615,8 +610,6 @@ function OnlineSales() {
   const [formData, setFormData] = useState(getEmptyForm());
 
   // Inline editing
-  const [editCell, setEditCell] = useState(null); // { id, field }
-  const [editValue, setEditValue] = useState("");
 
   // Producción
   const [eligibleSales, setEligibleSales] = useState([]);
@@ -2065,60 +2058,99 @@ function OnlineSales() {
     }
   };
 
-  // ─── Inline editing ────────────────────────────────────────────
+  // ─── Hoja de ventas (forma de Excel) ───────────────────────────
 
-  const startInlineEdit = (sale, field) => {
-    setEditCell({ id: sale.id, field });
-    setEditValue(sale[field] ?? "");
-  };
-
-  const saveInlineEdit = async () => {
-    if (!editCell) return;
-    const { id, field } = editCell;
-    try {
-      await updateOnlineSale(id, { [field]: editValue });
-      setSales(prev => prev.map(s => s.id === id ? { ...s, [field]: editValue } : s));
-    } catch (e) {
-      setError(e.message);
-    }
-    setEditCell(null);
-  };
-
-  const renderInlineCell = (sale, field, type = "text", options = null) => {
-    const isEditing = editCell && editCell.id === sale.id && editCell.field === field;
-    if (isEditing) {
-      if (options) {
-        return (
-          <Input type="select" bsSize="sm" value={editValue}
-            onChange={e => setEditValue(e.target.value)}
-            onBlur={saveInlineEdit} autoFocus
-            style={{ minWidth: 120 }}>
-            {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-          </Input>
-        );
-      }
-      return (
-        <Input type={type} bsSize="sm" value={editValue}
-          onChange={e => setEditValue(e.target.value)}
-          onBlur={saveInlineEdit} onKeyDown={e => e.key === "Enter" && saveInlineEdit()}
-          autoFocus style={{ minWidth: 80 }} />
-      );
-    }
-    if (field === "shippingCarrier" && sale[field]) {
-      return (
-        <span style={{ cursor: "pointer" }} title="Clic para cambiar el transporte"
-          onClick={() => startInlineEdit(sale, field)}>
-          <CarrierChip carrier={sale[field]} />
-        </span>
-      );
-    }
-    return (
-      <span style={{ cursor: "pointer", borderBottom: "1px dashed #ccc" }}
-        onClick={() => startInlineEdit(sale, field)}>
-        {sale[field] || "—"}
-      </span>
+  /** Guarda celdas editadas o pegadas en la hoja: una llamada por venta con todos sus campos. */
+  const saveSheetCells = useCallback(async (changes) => {
+    const bySale = new Map();
+    changes.forEach(({ sale, field, value }) => {
+      bySale.set(sale.id, { ...(bySale.get(sale.id) || {}), [field]: value });
+    });
+    const results = await Promise.allSettled(
+      Array.from(bySale.entries()).map(([id, patch]) => updateOnlineSale(id, patch).then((updated) => ({ id, patch, updated })))
     );
+    const saved = new Map();
+    results.forEach((r) => { if (r.status === "fulfilled") saved.set(r.value.id, r.value); });
+    if (saved.size > 0) {
+      setSales((prev) => prev.map((s) => {
+        const hit = saved.get(s.id);
+        if (!hit) return s;
+        // Solo los campos que el servidor sí devuelve: una respuesta parcial no borra datos de la fila.
+        const fromServer = hit.updated && typeof hit.updated === "object" && hit.updated.id === s.id
+          ? Object.fromEntries(Object.entries(hit.updated).filter(([, v]) => v !== null && v !== undefined))
+          : {};
+        return { ...s, ...hit.patch, ...fromServer };
+      }));
+    }
+    const failed = results.find((r) => r.status === "rejected");
+    if (failed) throw failed.reason;
+  }, []);
+
+  /** Hojas de envío de varias ventas en una sola ventana de impresión. */
+  const printShipmentDocuments = async (list) => {
+    if (!list || list.length === 0) return;
+    if (list.length === 1) { await printShipmentDocument(list[0]); return; }
+    const printWindow = window.open("", "_blank", "width=1000,height=800");
+    if (!printWindow) {
+      setError("No se pudo abrir la ventana de impresión. Verifique bloqueador de ventanas.");
+      return;
+    }
+    const docs = await Promise.all(list.map(async (sale) => {
+      let qrDataUrl = "";
+      try {
+        const url = buildPtDispatchOnlineUrl(getPublicFrontBaseUrl(), {
+          onlineSaleId: sale.id,
+          productionOrderId: sale.productionOrderId,
+        });
+        qrDataUrl = await QRCode.toDataURL(url, { width: 160, margin: 1 });
+      } catch (_e) {
+        qrDataUrl = "";
+      }
+      return buildShipmentDocumentInnerHtml(sale, { qrDataUrl });
+    }));
+    printWindow.document.write(`<html><head><meta charset="UTF-8" /><title>Hojas de envío (${list.length})</title>`
+      + `<style>${getShipmentDocumentStyles()}</style></head><body>${docs.join("")}</body></html>`);
+    printWindow.document.close();
+    printWindow.focus();
+    setTimeout(() => printWindow.print(), 400);
   };
+
+  /** Acciones de cada fila de la hoja (las mismas que tenía la tabla). */
+  const renderSaleActions = (sale) => (
+    <>
+      {canGenerateFelInvoice(sale) && (
+        <SheetAction tone="ok" icon={isFelInvoiceRetry(sale) ? "nc-refresh-69" : "nc-paper"}
+          title={isFelInvoiceRetry(sale) ? "Reintentar factura FEL" : "Generar factura FEL"}
+          onClick={() => openFelInvoiceModal(sale)} disabled={felInvoiceLoadingId === sale.id}
+          busy={felInvoiceLoadingId === sale.id} />
+      )}
+      {canDownloadFelInvoice(sale) && (
+        <SheetAction tone="info" icon="nc-cloud-download-93" title="Descargar factura certificada"
+          onClick={() => handleDownloadCertifiedFelInvoice(sale)} />
+      )}
+      {canEditFel && sale.invoiceId && (
+        <SheetAction tone="warn" icon="nc-settings-gear-65" title="Corregir factura FEL real (UUID, serie, número, fecha)"
+          onClick={() => openFelEditModal(sale)} />
+      )}
+      <SheetAction tone="info" icon="nc-ruler-pencil" title="Editar" onClick={() => openEditForm(sale)} />
+      <SheetAction icon="nc-single-copy-04" title="Imprimir hoja de envío" onClick={() => void printShipmentDocument(sale)} />
+      {(sale.status === "ENVIADO" || sale.status === "ENTREGADO") && (
+        <>
+          <SheetAction tone="info" icon="nc-send" title="Registrar CAMBIO (Q0)" onClick={() => openExchangeModal(sale)} />
+          <SheetAction icon="nc-refresh-69" title="Devolución" onClick={() => openReturnModal(sale.id)} />
+        </>
+      )}
+      {sale.status === "ENVIADO" && (
+        <SheetAction tone="warn" icon="nc-simple-remove" title="Anular envío (stock → devoluciones)"
+          onClick={() => openCancelDispatchModal(sale.id)} />
+      )}
+      {sale.status !== "DEVOLUCION" && sale.status !== "ANULADA" && sale.status !== "ENVIADO" && sale.status !== "ENTREGADO" && (
+        <SheetAction tone="warn" icon="nc-simple-delete" title="Anular (stock → devoluciones si aplica)"
+          onClick={() => openVoidModal(sale.id)} />
+      )}
+      <SheetAction tone="danger" icon="nc-simple-remove" title="Eliminar" onClick={() => handleDelete(sale.id)} />
+    </>
+  );
 
   // ─── Notificaciones ────────────────────────────────────────────
 
@@ -2921,221 +2953,15 @@ function OnlineSales() {
               </div>
             </CardHeader>
             <CardBody style={{ padding: 0 }}>
-              {loading ? (
-                <div className="text-center p-4"><Spinner color="primary" /></div>
-              ) : filteredSales.length === 0 ? (
-                <div className="text-center p-4" style={{ color: "#999" }}>
-                  No hay ventas con estas fechas y filtros.
-                </div>
-              ) : (
-                <div style={{ overflowX: "auto" }}>
-                  <Table responsive hover size="sm" style={{ fontSize: 12, marginBottom: 0 }}>
-                    <thead style={{ background: "#f8f9fa" }}>
-                      <tr>
-                        <th style={{ minWidth: 35 }}>No.</th>
-                        <th style={{ minWidth: 120 }}>Nombre</th>
-                        <th style={{ minWidth: 80 }}>Teléfono</th>
-                        <th style={{ minWidth: 80 }}>Teléfono 2</th>
-                        <th style={{ minWidth: 160 }}>Dirección</th>
-                        <th style={{ minWidth: 50 }}>Emp.</th>
-                        <th style={{ minWidth: 130 }}>Forma Pago</th>
-                        <th style={{ minWidth: 60 }}>NIT</th>
-                        <th style={{ minWidth: 90 }}>FEL</th>
-                        <th style={{ minWidth: 180 }}>Productos</th>
-                        <th style={{ minWidth: 70 }}>Total</th>
-                        <th style={{ minWidth: 50 }}>Envío</th>
-                        <th style={{ minWidth: 70 }}>Sin Envío</th>
-                        <th style={{ minWidth: 90 }}>Transporte</th>
-                        <th style={{ minWidth: 80 }}>Red Social</th>
-                        <th style={{ minWidth: 80 }}>Vendedor</th>
-                        <th style={{ minWidth: 70 }}>Estado</th>
-                        <th style={{ minWidth: 80 }}>Guía</th>
-                        <th style={{ minWidth: 90 }}>Autorización</th>
-                        <th style={{ minWidth: 100 }}>Observación</th>
-                        <th style={{ minWidth: 80 }}>Acciones</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {filteredSales.map((sale, idx) => (
-                        <tr key={sale.id} style={{
-                          background: (sale.paymentMethod === "CONTRA_ENTREGA" || sale.paymentMethod === "CONTRA_ENTREGA_DEPOSITO") ? "#fff3e0" :
-                            (sale.paymentMethod && sale.paymentMethod.includes("PENDIENTE") ? "#fff8e1" : "transparent")
-                        }}>
-                          <td><strong>{sale.saleNumber || idx + 1}</strong></td>
-                          <td>{renderInlineCell(sale, "customerName")}</td>
-                          <td>{renderInlineCell(sale, "phone")}</td>
-                          <td>{renderInlineCell(sale, "phone2")}</td>
-                          <td style={{ maxWidth: 220, whiteSpace: "normal", wordBreak: "break-word" }}>
-                            {renderInlineCell(sale, "address")}
-                          </td>
-                          <td>
-                            <span style={{ cursor: "pointer" }}
-                              onClick={async () => {
-                                const newVal = !sale.packaging;
-                                await updateOnlineSale(sale.id, { packaging: newVal });
-                                setSales(prev => prev.map(s => s.id === sale.id ? { ...s, packaging: newVal } : s));
-                              }}>
-                              {sale.packaging ? <Badge color="success">Sí</Badge> : <Badge color="secondary">No</Badge>}
-                            </span>
-                          </td>
-                          <td>{renderInlineCell(sale, "paymentMethod", "select",
-                            PAYMENT_METHODS.map(p => ({ value: p.value, label: p.label })))}</td>
-                          <td>{renderInlineCell(sale, "invoiceTaxId")}</td>
-                          <td>{getFelInvoiceBadge(sale)}</td>
-                          <td style={{ fontSize: 11 }}>
-                            {(sale.items && sale.items.length > 0) ? sale.items.map((it, i) => (
-                              <div key={i} style={{
-                                borderBottom: i < sale.items.length - 1 ? "1px dashed #e0e0e0" : "none",
-                                paddingBottom: 2, marginBottom: 2
-                              }}>
-                                <strong>{it.productCode}</strong> {it.productName}
-                                {it.colorName && <span style={{ color: "#666" }}> · {it.colorName}</span>}
-                                {it.size && <span style={{ color: "#999" }}> · {it.size}</span>}
-                                {(it.quantity && it.quantity > 1) && <span style={{ color: "#1565c0", fontWeight: 600 }}> ×{it.quantity}</span>}
-                              </div>
-                            )) : (
-                              <div>
-                                <strong>{sale.productCode}</strong> {sale.productName}
-                                {sale.colorName && <span style={{ color: "#666" }}> · {sale.colorName}</span>}
-                                {(sale.quantity && sale.quantity > 1) && <span style={{ color: "#1565c0", fontWeight: 600 }}> ×{sale.quantity}</span>}
-                              </div>
-                            )}
-                          </td>
-                          <td>
-                            {(() => {
-                              const amounts = computeSaleAmountsFromItems(sale);
-                              const storedTotal = parseFloat(sale.totalAmount || 0);
-                              const mismatch = amounts.lineCount > 1
-                                && amounts.total > 0
-                                && Math.abs(amounts.total - storedTotal) > 0.01;
-                              return (
-                                <>
-                                  <strong title={mismatch ? "Total recalculado desde productos" : undefined}>
-                                    {formatQ(mismatch ? amounts.total : sale.totalAmount)}
-                                  </strong>
-                                  {mismatch && (
-                                    <div className="text-warning small" title={`Guardado: ${formatQ(storedTotal)}`}>
-                                      ≠ {formatQ(storedTotal)}
-                                    </div>
-                                  )}
-                                </>
-                              );
-                            })()}
-                          </td>
-                          <td>{formatQ(sale.shippingCost)}</td>
-                          <td style={{ color: "#2e7d32", fontWeight: 600 }}>
-                            {(() => {
-                              const amounts = computeSaleAmountsFromItems(sale);
-                              const storedNet = parseFloat(sale.netAmount || 0);
-                              const mismatch = amounts.lineCount > 1
-                                && amounts.net > 0
-                                && Math.abs(amounts.net - storedNet) > 0.01;
-                              return formatQ(mismatch ? amounts.net : sale.netAmount);
-                            })()}
-                          </td>
-                          <td>{renderInlineCell(sale, "shippingCarrier", "select",
-                            SHIPPING_CARRIERS.map(c => ({ value: c.value, label: c.label })))}</td>
-                          <td>{getSocialIcon(sale.socialNetwork)}</td>
-                          <td style={{ fontSize: 11 }}>{sale.salesperson ? sale.salesperson.split(" ")[0] : "—"}</td>
-                          <td>{getStatusBadge(sale.status)}</td>
-                          <td>{renderInlineCell(sale, "guideNumber")}</td>
-                          <td>{renderInlineCell(sale, "paymentAuthorization")}</td>
-                          <td>{renderInlineCell(sale, "observations")}</td>
-                          <td style={{ whiteSpace: "nowrap" }}>
-                            {canGenerateFelInvoice(sale) && (
-                              <Button
-                                color={isFelInvoiceRetry(sale) ? "warning" : "success"}
-                                size="sm"
-                                className="btn-icon btn-round"
-                                title={isFelInvoiceRetry(sale)
-                                  ? "Reintentar factura FEL"
-                                  : "Generar factura FEL"}
-                                onClick={() => openFelInvoiceModal(sale)}
-                                disabled={felInvoiceLoadingId === sale.id}
-                                style={{ padding: "3px 7px" }}>
-                                {felInvoiceLoadingId === sale.id
-                                  ? <Spinner size="sm" />
-                                  : <i className={isFelInvoiceRetry(sale) ? "nc-icon nc-refresh-69" : "nc-icon nc-paper"} />}
-                              </Button>
-                            )}{" "}
-                            {canDownloadFelInvoice(sale) && (
-                              <Button
-                                color="primary"
-                                size="sm"
-                                className="btn-icon btn-round"
-                                title="Descargar factura certificada"
-                                onClick={() => handleDownloadCertifiedFelInvoice(sale)}
-                                style={{ padding: "3px 7px" }}>
-                                <i className="nc-icon nc-cloud-download-93" />
-                              </Button>
-                            )}{" "}
-                            {canEditFel && sale.invoiceId && (
-                              <Button
-                                color="warning"
-                                size="sm"
-                                className="btn-icon btn-round"
-                                title="Corregir factura FEL real (UUID, serie, número, fecha)"
-                                onClick={() => openFelEditModal(sale)}
-                                style={{ padding: "3px 7px" }}>
-                                <i className="nc-icon nc-settings-gear-65" />
-                              </Button>
-                            )}{" "}
-                            <Button color="info" size="sm" className="btn-icon btn-round" title="Editar"
-                              onClick={() => openEditForm(sale)} style={{ padding: "3px 7px" }}>
-                              <i className="nc-icon nc-ruler-pencil" />
-                            </Button>{" "}
-                            {(sale.status === "ENVIADO" || sale.status === "ENTREGADO") && (
-                              <>
-                                <Button color="primary" size="sm" className="btn-icon btn-round" title="Registrar CAMBIO (Q0)"
-                                  onClick={() => openExchangeModal(sale)} style={{ padding: "3px 7px" }}>
-                                  <i className="nc-icon nc-send" />
-                                </Button>{" "}
-                                <Button color="dark" size="sm" className="btn-icon btn-round" title="Devolución"
-                                  onClick={() => openReturnModal(sale.id)} style={{ padding: "3px 7px" }}>
-                                  <i className="nc-icon nc-refresh-69" />
-                                </Button>{" "}
-                              </>
-                            )}
-                            {sale.status === "ENVIADO" && (
-                              <><Button color="warning" size="sm" className="btn-icon btn-round" title="Anular envío (stock → devoluciones)"
-                                onClick={() => openCancelDispatchModal(sale.id)} style={{ padding: "3px 7px" }}>
-                                <i className="nc-icon nc-simple-remove" />
-                              </Button>{" "}</>
-                            )}
-                            {sale.status !== "DEVOLUCION" && sale.status !== "ANULADA"
-                              && sale.status !== "ENVIADO" && sale.status !== "ENTREGADO" && (
-                              <><Button color="warning" size="sm" className="btn-icon btn-round" title="Anular (stock → devoluciones si aplica)"
-                                onClick={() => openVoidModal(sale.id)} style={{ padding: "3px 7px" }}>
-                                <i className="nc-icon nc-simple-delete" />
-                              </Button>{" "}</>
-                            )}
-                            <Button color="danger" size="sm" className="btn-icon btn-round" title="Eliminar"
-                              onClick={() => handleDelete(sale.id)} style={{ padding: "3px 7px" }}>
-                              <i className="nc-icon nc-simple-remove" />
-                            </Button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </Table>
-                </div>
-              )}
+              <SalesSheet
+                sales={filteredSales}
+                loading={loading}
+                amountsOf={computeSaleAmountsFromItems}
+                onSaveCells={saveSheetCells}
+                onPrint={printShipmentDocuments}
+                renderActions={renderSaleActions}
+              />
             </CardBody>
-            {filteredSales.length > 0 && (
-              <CardFooter>
-                <Row>
-                  <Col md="4">
-                    <small className="text-muted">
-                      {filteredSales.length} venta(s) • Total: <strong>{formatQ(
-                        filteredSales.reduce((sum, s) => sum + (parseFloat(s.totalAmount) || 0), 0)
-                      )}</strong> • Neto: <strong>{formatQ(
-                        filteredSales.reduce((sum, s) => sum + (parseFloat(s.netAmount) || 0), 0)
-                      )}</strong>
-                    </small>
-                  </Col>
-                </Row>
-              </CardFooter>
-            )}
           </Card>
         </TabPane>
 
