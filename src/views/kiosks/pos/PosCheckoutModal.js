@@ -57,8 +57,17 @@ function PosCheckoutModal({
   lockFinalPrices = false,
   posMode = "STANDARD",
   cart = [],
+  /** Promociones dinámicas: el descuento puede depender del método de pago (lo recalcula el back). */
+  onPaymentMethodChange,
+  promotionHints = [],
+  estimatingDiscount = false,
 }) {
   const [paymentMethod, setPaymentMethod] = useState("EFECTIVO");
+  useEffect(() => {
+    if (typeof onPaymentMethodChange === "function") {
+      onPaymentMethodChange(isOpen ? paymentMethod : null);
+    }
+  }, [isOpen, paymentMethod, onPaymentMethodChange]);
   const [amountReceived, setAmountReceived] = useState("");
   const [cashAmount, setCashAmount] = useState("");
   const [cardAmount, setCardAmount] = useState("");
@@ -424,9 +433,14 @@ function PosCheckoutModal({
           )}
           <div className="kiosk-pos-metric">
             <div className="kiosk-pos-metric-value primary">{formatCurrency(checkoutTotal)}</div>
-            <div className="kiosk-pos-metric-label">total a cobrar</div>
+            <div className="kiosk-pos-metric-label">{estimatingDiscount ? "calculando promoción…" : "total a cobrar"}</div>
           </div>
         </div>
+        {(promotionHints || []).map((hint, i) => (
+          <div key={`checkout-hint-${i}`} className="pos-promo-hint mb-2">
+            {hint}
+          </div>
+        ))}
 
         {lockFinalPrices && !entrecueros ? (
           <div className="kiosk-pos-checkout-section">
@@ -1055,7 +1069,7 @@ function PosCheckoutModal({
           type="button"
           className="kiosk-pos-btn-confirm"
           onClick={handleConfirm}
-          disabled={!canConfirm}
+          disabled={!canConfirm || estimatingDiscount}
         >
           {saving
             ? "Procesando..."
