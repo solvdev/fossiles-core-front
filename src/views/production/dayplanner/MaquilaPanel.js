@@ -155,6 +155,8 @@ export default function MaquilaPanel({ planner }) {
   const [picks, setPicks] = useState({});
   const [showLoad, setShowLoad] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  /** El cuero sale de nuestra bodega al maquilador: se descuenta al enviar. */
+  const [deliverLeather, setDeliverLeather] = useState(true);
   const [sending, setSending] = useState(false);
   const detailRef = useRef(null);
 
@@ -258,12 +260,16 @@ export default function MaquilaPanel({ planner }) {
       const res = await sendToMaquila({
         date,
         desk: maquila.desk,
+        deliverLeather,
         orders: load.rows.map((r) => ({ productionOrderId: r.order.id, items: r.lines })),
       });
       const created = res?.created || [];
       const codes = created.map((c) => c.code).join(", ");
+      const leatherText = !res?.leatherDelivered ? " El cuero queda pendiente de entregar en «Por troquelar»."
+        : res?.leatherFt2 > 0 ? ` Se descontaron ${fmt(res.leatherFt2)} ft² de cuero del kardex.`
+          : " Cuero marcado como entregado.";
       showSuccess(`Se ${concordar(created.length, "creó", "crearon")} ${contar(created.length, "tarea")} con `
-        + `${res?.totalQuantity || load.units} u en la mesa ${maquila.desk}${codes ? ` (${codes})` : ""}.`);
+        + `${res?.totalQuantity || load.units} u en la mesa ${maquila.desk}${codes ? ` (${codes})` : ""}.${leatherText}`);
       setPicks({});
       setConfirmOpen(false);
       setShowLoad(false);
@@ -539,9 +545,26 @@ export default function MaquilaPanel({ planner }) {
               <li key={r.order.id}><b>{r.order.code}</b>: {r.units} u · {fmt(r.hours)} h ({contar(r.lines.length, "producto")})</li>
             ))}
           </ul>
-          <p className="dp-small mb-0">
+          <p className="dp-small mb-2">
             Total {load.units} u · {fmt(load.hours)} h. Estas unidades dejan de estar por repartir en sus OPs.
           </p>
+          <label className="d-flex align-items-start mb-0" style={{ gap: 8, padding: "10px 12px", borderRadius: 8,
+            background: deliverLeather ? "#f4ecf8" : "#fff4e5", border: `1px solid ${deliverLeather ? "#c9b3d6" : "#f0c36d"}` }}>
+            <input
+              type="checkbox" checked={deliverLeather} disabled={sending}
+              onChange={(e) => setDeliverLeather(e.target.checked)}
+              style={{ width: 22, height: 22, marginTop: 2 }}
+            />
+            <span>
+              <b>El cuero sale de nuestra bodega al maquilador</b>
+              <br />
+              <small>
+                {deliverLeather
+                  ? "Se entrega y se descuenta del kardex por la receta de cada producto al enviar. Si falta cuero o receta de algún producto, no se envía nada."
+                  : "No se descuenta ahora: el cuero se entrega después en «Por troquelar», como en las tareas de planta."}
+              </small>
+            </span>
+          </label>
         </ModalBody>
         <ModalFooter>
           <Button outline disabled={sending} onClick={() => setConfirmOpen(false)}>Volver</Button>
