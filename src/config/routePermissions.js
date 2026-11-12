@@ -49,6 +49,7 @@ export const routePermissions = {
   '/admin/daily-production-plan': 'DAILY_PRODUCTION_PLAN_VIEW',
   '/admin/day-planner': 'PRODUCCION.TAREAS_ESTACION.VER',
   '/admin/tasks-by-station': 'PRODUCCION.TAREAS_ESTACION.VER',
+  '/admin/desk-history': 'PRODUCCION.TAREAS_ESTACION.VER',
   '/admin/task-organizer': 'PRODUCCION.TAREAS_ESTACION.VER',
 
   // INVENTARIOS

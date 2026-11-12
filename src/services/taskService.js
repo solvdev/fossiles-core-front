@@ -619,3 +619,17 @@ export const getDayPlanOrders = async ({ type = 'ALL', search = '', page = 0, si
   }
   return response.json();
 };
+
+/**
+ * Historial de mesas: tareas (con su orden, mesa, horas y tiempos) entre dos fechas YYYY-MM-DD.
+ * El back limita el rango a 93 días.
+ */
+export const getDeskHistory = async (from, to) => {
+  const qs = `from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`;
+  const response = await fetch(`${API_URL}/tasks/desk-history?${qs}`, { headers: headers() });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ message: 'Error al obtener el historial de mesas' }));
+    throw new Error(err.message || 'Error al obtener el historial de mesas');
+  }
+  return response.json();
+};
