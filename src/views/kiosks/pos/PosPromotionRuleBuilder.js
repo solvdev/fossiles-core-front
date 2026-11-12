@@ -256,6 +256,13 @@ function ActionEditor({ action, onChange, categoryOptions, productOptions }) {
               help="Piezas sin posición propia"
               onChange={(value) => patch({ remainderPercent: value })}
             />
+            <NumberField
+              label="Posiciones desde (piezas)"
+              value={a.positionsMinQty}
+              step="1"
+              help="Con menos piezas, todas llevan el % del resto"
+              onChange={(value) => patch({ positionsMinQty: value })}
+            />
             {Number(a.groupSize) > 0 && (
               <Col md="3">
                 <Label className="kiosk-pos-label small mb-1">Si el último grupo no se completa</Label>
