@@ -81,6 +81,7 @@ export const emptyRuleConfig = () => ({
     positions: ["", ""],
     remainderPercent: "",
     incompleteGroup: "POSITIONS",
+    positionsMinQty: "",
     qtyTiers: [{ minQty: 2, percent: "" }],
     amountTiers: [{ minAmount: "", percent: "", amount: "" }],
     buyFilter: emptyFilter(),
@@ -104,6 +105,20 @@ const withAction = (template, action, conditions = {}, limits = {}) => {
 
 export const RULE_TEMPLATES = [
   {
+    id: "BF_CHEAPEST",
+    label: "Black Friday: la más barata 30%, el resto 15%",
+    description: "1 pieza: 15%. Desde 2 piezas: solo la más barata lleva 30% y todas las demás 15%.",
+    build: () =>
+      withAction("BF_CHEAPEST", {
+        type: "POSITION",
+        order: "ASC",
+        groupSize: 0,
+        positions: [30],
+        remainderPercent: 15,
+        positionsMinQty: 2,
+      }),
+  },
+  {
     id: "BF_PAIRS",
     label: "La cara 15%, la barata 30% (en pares)",
     description: "De cada par (de la más cara a la más barata): la 1.ª 15%, la 2.ª 30%. La que sobra, 15%.",
@@ -111,17 +126,6 @@ export const RULE_TEMPLATES = [
       withAction(
         "BF_PAIRS",
         { type: "POSITION", order: "DESC", groupSize: 2, positions: [15, 30], incompleteGroup: "REMAINDER", remainderPercent: 15 },
-        { minQty: 2 }
-      ),
-  },
-  {
-    id: "BF_CHEAPEST",
-    label: "La más barata 30%, el resto 15%",
-    description: "Con 2 o más piezas: solo la más barata lleva 30% y todas las demás 15%.",
-    build: () =>
-      withAction(
-        "BF_CHEAPEST",
-        { type: "POSITION", order: "ASC", groupSize: 0, positions: [30], remainderPercent: 15 },
         { minQty: 2 }
       ),
   },
@@ -216,6 +220,7 @@ export const cleanRuleConfig = (config) => {
     action.positions = (a.positions || []).map((p) => num(p) ?? 0);
     action.remainderPercent = num(a.remainderPercent);
     action.incompleteGroup = a.incompleteGroup || "POSITIONS";
+    action.positionsMinQty = num(a.positionsMinQty);
   }
   if (type === "QTY_TIERS") {
     action.qtyTiers = (a.qtyTiers || [])
@@ -449,6 +454,11 @@ export const describePromotionRule = (promoForm, { categoriesById = {}, products
         text += num(a.groupSize) > 0 && a.incompleteGroup === "REMAINDER"
           ? `; las que sobran ${pct(a.remainderPercent)}`
           : `; el resto ${pct(a.remainderPercent)}`;
+      }
+      if (num(a.positionsMinQty) > 1) {
+        text += num(a.remainderPercent)
+          ? `. Con menos de ${num(a.positionsMinQty)} piezas, cada una lleva ${pct(a.remainderPercent)}`
+          : `. Con menos de ${num(a.positionsMinQty)} piezas no hay descuento`;
       }
       lines.push(`${text}.`);
       break;
