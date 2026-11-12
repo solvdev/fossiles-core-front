@@ -1,20 +1,8 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import {
-  Alert,
-  Button,
-  Card,
-  CardBody,
-  CardHeader,
-  CardTitle,
-  Col,
-  FormGroup,
-  Input,
-  Label,
-  Row,
-  Spinner,
-  Table,
-} from "reactstrap";
+import { Spinner } from "reactstrap";
+import { IconBack, IconClose, IconPlus } from "components/accounting/felUi";
+import "./fel-ui.css";
 import { createManualTaxInvoice } from "services/taxInvoiceService";
 import { getLocations } from "services/locationService";
 import { getProducts } from "services/productService";
@@ -364,197 +352,202 @@ function AccountingInvoiceForm() {
   };
 
   return (
-    <div className="content">
-      <Card>
-        <CardHeader>
-          <CardTitle tag="h4">Nueva factura manual</CardTitle>
-        </CardHeader>
-        <CardBody>
-          {error && <Alert color="danger">{error}</Alert>}
-          <form onSubmit={handleSubmit}>
-            <Row className="mb-2">
-              <Col md="8">
-                <FormGroup>
-                  <Label>Establecimiento emisor</Label>
-                  <Input
-                    type="select"
-                    value={form.locationId}
-                    onChange={(e) => setForm((prev) => ({ ...prev, locationId: e.target.value }))}
-                    disabled={locationsLoading}
-                    required
-                  >
-                    <option value="">
-                      {locationsLoading ? "Cargando establecimientos..." : "Seleccione establecimiento"}
-                    </option>
-                    {establishments.map((location) => (
-                      <option key={location.id} value={location.id}>
-                        {formatEstablishmentLabel(location)}
-                      </option>
-                    ))}
-                  </Input>
-                  {!locationsLoading && establishments.length === 0 && (
-                    <small className="text-danger d-block mt-1">
-                      No hay ubicaciones con código de establecimiento FEL. Configúrelas en Catálogos → Ubicaciones.
-                    </small>
-                  )}
-                  {selectedEstablishment && (
-                    <small className="text-muted d-block mt-1">
-                      Facturará como {selectedEstablishment.felEstablishmentName || selectedEstablishment.name}
-                      {selectedEstablishment.internalSeriesCode
-                        ? ` · número interno serie ${selectedEstablishment.internalSeriesCode}`
-                        : ""}
-                    </small>
-                  )}
-                </FormGroup>
-              </Col>
-            </Row>
+    <div className="content fel-ui">
+      <button
+        type="button"
+        className="fel-back"
+        onClick={() => navigate("/admin/accounting/invoices")}
+      >
+        <IconBack /> Facturas FEL
+      </button>
 
-            <Row className="mb-2">
-              <Col md="5">
-                <FormGroup>
-                  <Label>Venta POS asociada (opcional)</Label>
-                  <Input
-                    value={form.kioskSaleNumber}
-                    onChange={(e) => setForm((prev) => ({ ...prev, kioskSaleNumber: e.target.value }))}
-                    onBlur={lookupPosSale}
-                    placeholder="Ej. POS-20261102-0005"
-                    disabled={!form.locationId}
-                  />
-                  <small className="text-muted d-block mt-1">
-                    Número de venta del POS. Trae el cliente y las líneas de esa venta.
-                  </small>
-                </FormGroup>
-              </Col>
-              <Col md="3" className="d-flex align-items-end">
-                <Button
+      <div className="fel-header">
+        <div>
+          <h1 className="fel-title">Nueva factura manual</h1>
+          <p className="fel-subtitle">
+            Se crea y se certifica ante el SAT desde el establecimiento que elijas.
+          </p>
+        </div>
+      </div>
+
+      {error && <div className="fel-notice fel-notice--err" role="alert">{error}</div>}
+
+      <form onSubmit={handleSubmit}>
+        <div className="fel-card">
+          <div className="fel-card__head">
+            <h2 className="fel-card__title">Emisión</h2>
+          </div>
+          <div className="fel-form-grid fel-form-grid--wide">
+            <div>
+              <label className="fel-label" htmlFor="fel-form-location">Establecimiento emisor</label>
+              <select
+                id="fel-form-location"
+                className="fel-select"
+                value={form.locationId}
+                onChange={(e) => setForm((prev) => ({ ...prev, locationId: e.target.value }))}
+                disabled={locationsLoading}
+                required
+              >
+                <option value="">
+                  {locationsLoading ? "Cargando establecimientos..." : "Seleccione establecimiento"}
+                </option>
+                {establishments.map((location) => (
+                  <option key={location.id} value={location.id}>
+                    {formatEstablishmentLabel(location)}
+                  </option>
+                ))}
+              </select>
+              {!locationsLoading && establishments.length === 0 && (
+                <span className="fel-help fel-help--error">
+                  No hay ubicaciones con código de establecimiento FEL. Configúrelas en Catálogos → Ubicaciones.
+                </span>
+              )}
+              {selectedEstablishment && (
+                <span className="fel-help">
+                  Facturará como {selectedEstablishment.felEstablishmentName || selectedEstablishment.name}
+                  {selectedEstablishment.internalSeriesCode
+                    ? ` · número interno serie ${selectedEstablishment.internalSeriesCode}`
+                    : ""}
+                </span>
+              )}
+            </div>
+            <div>
+              <div className="fel-label">Tipo de documento</div>
+              <div style={{ minHeight: 44, display: "flex", alignItems: "center" }}>
+                <span className="fel-pill fel-pill--lg">
+                  {resolvedDocumentType === "FCAM" ? "Factura cambiaria (FCAM)" : "Factura (FACT)"}
+                </span>
+              </div>
+              <span className="fel-help">
+                {resolvedDocumentType === "FCAM"
+                  ? "El establecimiento 1 (central) siempre emite factura cambiaria."
+                  : "Lo define el establecimiento emisor."}
+              </span>
+            </div>
+            <div>
+              <label className="fel-label" htmlFor="fel-form-sale">
+                Venta POS asociada <small>(opcional)</small>
+              </label>
+              <div className="fel-field-row">
+                <input
+                  id="fel-form-sale"
+                  className="fel-input"
+                  value={form.kioskSaleNumber}
+                  onChange={(e) => setForm((prev) => ({ ...prev, kioskSaleNumber: e.target.value }))}
+                  onBlur={lookupPosSale}
+                  placeholder="Ej. POS-20261102-0005"
+                  disabled={!form.locationId}
+                />
+                <button
                   type="button"
-                  color="info"
-                  className="mb-3"
+                  className="fel-btn"
                   onClick={lookupPosSale}
                   disabled={saleLookupLoading || !form.locationId || !form.kioskSaleNumber.trim()}
                 >
                   {saleLookupLoading ? <Spinner size="sm" /> : "Buscar venta"}
-                </Button>
-              </Col>
-            </Row>
+                </button>
+              </div>
+              <span className="fel-help">
+                Número de venta del POS. Trae el cliente y las líneas de esa venta.
+              </span>
+            </div>
+          </div>
+        </div>
 
-            <Row>
-              <Col md="3">
-                <FormGroup>
-                  <Label>NIT / CF</Label>
-                  <Input
-                    value={form.customerTaxId}
-                    onChange={(e) =>
-                      setForm((prev) => ({
-                        ...prev,
-                        customerTaxId: e.target.value,
-                        customerName:
-                          normalizeNit(e.target.value) === "CF" ? "CONSUMIDOR FINAL" : prev.customerName,
-                      }))
-                    }
-                  />
-                </FormGroup>
-              </Col>
-              <Col md="5">
-                <FormGroup>
-                  <Label>Nombre en factura</Label>
-                  <Input
-                    value={form.customerName}
-                    onChange={(e) => setForm((prev) => ({ ...prev, customerName: e.target.value }))}
-                  />
-                </FormGroup>
-              </Col>
-              <Col md="4" className="d-flex align-items-end">
-                <Button
+        <div className="fel-card">
+          <div className="fel-card__head">
+            <h2 className="fel-card__title">Cliente</h2>
+          </div>
+          <div className="fel-form-grid">
+            <div>
+              <label className="fel-label" htmlFor="fel-form-nit">NIT / CF</label>
+              <div className="fel-field-row">
+                <input
+                  id="fel-form-nit"
+                  className="fel-input"
+                  value={form.customerTaxId}
+                  onChange={(e) =>
+                    setForm((prev) => ({
+                      ...prev,
+                      customerTaxId: e.target.value,
+                      customerName:
+                        normalizeNit(e.target.value) === "CF" ? "CONSUMIDOR FINAL" : prev.customerName,
+                    }))
+                  }
+                />
+                <button
                   type="button"
-                  color="info"
-                  className="mb-3 mr-2"
+                  className="fel-btn"
                   onClick={lookupTaxId}
                   disabled={taxLookupLoading}
                 >
                   {taxLookupLoading ? <Spinner size="sm" /> : "Consultar NIT"}
-                </Button>
-              </Col>
-            </Row>
-
-            <Row>
-              <Col md="4">
-                <FormGroup>
-                  <Label>Dirección</Label>
-                  <Input
-                    value={form.address}
-                    onChange={(e) => setForm((p) => ({ ...p, address: e.target.value }))}
-                  />
-                </FormGroup>
-              </Col>
-              <Col md="4">
-                <FormGroup>
-                  <Label>Teléfono</Label>
-                  <Input
-                    value={form.phone}
-                    onChange={(e) => setForm((p) => ({ ...p, phone: e.target.value }))}
-                  />
-                </FormGroup>
-              </Col>
-              <Col md="4">
-                <FormGroup>
-                  <Label>Correo</Label>
-                  <Input
-                    value={form.email}
-                    onChange={(e) => setForm((p) => ({ ...p, email: e.target.value }))}
-                  />
-                </FormGroup>
-              </Col>
-            </Row>
-
-            <Row>
-              <Col md="4">
-                <FormGroup>
-                  <Label>Tipo de documento</Label>
-                  <div className="form-control-plaintext py-1">
-                    {resolvedDocumentType === "FCAM" ? "Factura cambiaria (FCAM)" : "Factura (FACT)"}
-                  </div>
-                  <small className="text-muted">
-                    {resolvedDocumentType === "FCAM"
-                      ? "El establecimiento 1 (central) siempre emite factura cambiaria."
-                      : "Lo define el establecimiento emisor."}
-                  </small>
-                </FormGroup>
-              </Col>
-            </Row>
-
-            <FormGroup>
-              <Label>Notas</Label>
-              <Input
-                type="textarea"
-                rows="2"
-                value={form.notes}
-                onChange={(e) => setForm((p) => ({ ...p, notes: e.target.value }))}
-              />
-            </FormGroup>
-
-            <div className="d-flex justify-content-between align-items-center mb-2">
-              <h5 className="mb-0">Líneas</h5>
-              <Button type="button" color="default" size="sm" onClick={addLine}>
-                Agregar línea
-              </Button>
+                </button>
+              </div>
             </div>
-            {productsLoading && (
-              <Alert color="light" className="border py-2">
-                Cargando catálogo de productos...
-              </Alert>
-            )}
-            <Table responsive size="sm">
+            <div>
+              <label className="fel-label" htmlFor="fel-form-name">Nombre en factura</label>
+              <input
+                id="fel-form-name"
+                className="fel-input"
+                value={form.customerName}
+                onChange={(e) => setForm((prev) => ({ ...prev, customerName: e.target.value }))}
+              />
+            </div>
+            <div>
+              <label className="fel-label" htmlFor="fel-form-address">Dirección</label>
+              <input
+                id="fel-form-address"
+                className="fel-input"
+                value={form.address}
+                onChange={(e) => setForm((p) => ({ ...p, address: e.target.value }))}
+              />
+            </div>
+            <div>
+              <label className="fel-label" htmlFor="fel-form-phone">Teléfono</label>
+              <input
+                id="fel-form-phone"
+                className="fel-input"
+                value={form.phone}
+                onChange={(e) => setForm((p) => ({ ...p, phone: e.target.value }))}
+              />
+            </div>
+            <div>
+              <label className="fel-label" htmlFor="fel-form-email">Correo</label>
+              <input
+                id="fel-form-email"
+                className="fel-input"
+                value={form.email}
+                onChange={(e) => setForm((p) => ({ ...p, email: e.target.value }))}
+              />
+            </div>
+          </div>
+        </div>
+
+        <div className="fel-card fel-card--flush">
+          <div className="fel-card__head">
+            <h2 className="fel-card__title">Líneas</h2>
+            <button type="button" className="fel-btn fel-btn--sm" onClick={addLine}>
+              <IconPlus /> Agregar línea
+            </button>
+          </div>
+          {productsLoading && (
+            <div className="fel-notice fel-notice--muted" style={{ margin: "0 20px 12px" }}>
+              Cargando catálogo de productos...
+            </div>
+          )}
+          <div className="fel-table-wrap">
+            <table className="fel-table fel-lines-table" style={{ minWidth: 1020 }}>
               <thead>
                 <tr>
-                  <th style={{ minWidth: 220 }}>Producto</th>
-                  <th>Descripción (personalizable)</th>
-                  <th style={{ width: 110 }}>Cantidad</th>
-                  <th style={{ width: 120 }}>P. lista</th>
+                  <th style={{ minWidth: 250 }}>Producto</th>
+                  <th style={{ minWidth: 240 }}>Descripción (personalizable)</th>
+                  <th style={{ width: 100 }}>Cantidad</th>
+                  <th style={{ width: 110 }}>P. lista</th>
                   <th style={{ width: 130 }}>Descuento</th>
-                  <th style={{ width: 120 }}>P. unit.</th>
-                  <th style={{ width: 110 }}>Total</th>
-                  <th style={{ width: 50 }} />
+                  <th style={{ width: 110 }}>P. unit.</th>
+                  <th style={{ width: 110 }} className="is-right">Total</th>
+                  <th style={{ width: 50 }}><span className="fel-visually-hidden">Quitar</span></th>
                 </tr>
               </thead>
               <tbody>
@@ -586,41 +579,41 @@ function AccountingInvoiceForm() {
                         />
                       </td>
                       <td>
-                        <Input
-                          bsSize="sm"
+                        <input
+                          className="fel-input"
+                          aria-label={`Descripción de la línea ${index + 1}`}
                           value={line.description}
                           onChange={(e) => updateLineField(index, "description", e.target.value)}
                           placeholder="Texto libre para la factura FEL"
                         />
-                        <small className="text-muted">
-                          Puedes dejar la del producto o escribir una descripción personalizada.
-                        </small>
                       </td>
                       <td>
-                        <Input
-                          bsSize="sm"
+                        <input
+                          className="fel-input"
                           type="number"
                           min="0"
                           step="0.001"
+                          aria-label={`Cantidad de la línea ${index + 1}`}
                           value={line.quantity}
                           onChange={(e) => updateLineField(index, "quantity", e.target.value)}
                         />
                       </td>
                       <td>
-                        <Input
-                          bsSize="sm"
+                        <input
+                          className="fel-input"
                           type="number"
                           min="0"
                           step="0.01"
+                          aria-label={`Precio de lista de la línea ${index + 1}`}
                           value={line.basePrice}
                           onChange={(e) => updateLineField(index, "basePrice", e.target.value)}
                           title="Precio de lista / normal"
                         />
                       </td>
                       <td>
-                        <Input
-                          type="select"
-                          bsSize="sm"
+                        <select
+                          className="fel-select"
+                          aria-label={`Descuento de la línea ${index + 1}`}
                           value={line.discountPercent || "0"}
                           onChange={(e) => updateLineField(index, "discountPercent", e.target.value)}
                         >
@@ -629,68 +622,81 @@ function AccountingInvoiceForm() {
                               {opt.label}
                             </option>
                           ))}
-                        </Input>
+                        </select>
                       </td>
                       <td>
-                        <Input
-                          bsSize="sm"
+                        <input
+                          className="fel-input"
                           type="number"
                           min="0"
                           step="0.01"
+                          aria-label={`Precio unitario de la línea ${index + 1}`}
                           value={line.unitPrice}
                           onChange={(e) => updateLineField(index, "unitPrice", e.target.value)}
                           title="Precio unitario final (con descuento)"
                         />
                       </td>
-                      <td className="align-middle text-right">{formatMoney(lineTotal)}</td>
+                      <td className="is-right fel-num" style={{ fontWeight: 600 }}>{formatMoney(lineTotal)}</td>
                       <td>
-                        <Button
+                        <button
                           type="button"
-                          color="danger"
-                          outline
-                          size="sm"
-                          className="my-0"
+                          className="fel-icon-btn"
                           onClick={() => removeLine(index)}
-                          aria-label="Quitar línea"
+                          disabled={form.lines.length <= 1}
+                          aria-label={`Quitar la línea ${index + 1}`}
                           title="Quitar línea"
                         >
-                          ×
-                        </Button>
+                          <IconClose />
+                        </button>
                       </td>
                     </tr>
                   );
                 })}
               </tbody>
-            </Table>
-            <div className="text-right mb-3">
-              <strong>Total: {formatMoney(linesTotal)}</strong>
+            </table>
+          </div>
+          {exceedsConsumidorFinalLimit && (
+            <div className="fel-notice fel-notice--warn" style={{ margin: "12px 20px 0" }} role="alert">
+              SAT no acepta facturas a Consumidor Final (CF) de Q2,500.00 o más. Ingrese el NIT o CUI del cliente.
             </div>
-            {exceedsConsumidorFinalLimit && (
-              <Alert color="warning" className="py-2">
-                SAT no acepta facturas a Consumidor Final (CF) de Q2,500.00 o más. Ingrese el NIT o CUI del cliente.
-              </Alert>
-            )}
-
-            <div className="text-right">
-              <Button
-                color="default"
-                className="mr-2"
+          )}
+          <div className="fel-footer-bar" style={{ marginTop: 16 }}>
+            <div>
+              <div className="fel-kv__label">Total de la factura</div>
+              <div className="fel-footer-bar__total fel-num">{formatMoney(linesTotal)}</div>
+            </div>
+            <div className="d-flex flex-wrap" style={{ gap: 10 }}>
+              <button
                 type="button"
+                className="fel-btn"
                 onClick={() => navigate("/admin/accounting/invoices")}
               >
                 Cancelar
-              </Button>
-              <Button
-                color="primary"
+              </button>
+              <button
                 type="submit"
+                className="fel-btn fel-btn--primary"
                 disabled={saving || locationsLoading || establishments.length === 0 || exceedsConsumidorFinalLimit}
               >
                 {saving ? <Spinner size="sm" /> : "Crear y certificar"}
-              </Button>
+              </button>
             </div>
-          </form>
-        </CardBody>
-      </Card>
+          </div>
+        </div>
+
+        <div className="fel-card">
+          <label className="fel-label" htmlFor="fel-form-notes">
+            Notas <small>(internas)</small>
+          </label>
+          <textarea
+            id="fel-form-notes"
+            className="fel-textarea"
+            rows="2"
+            value={form.notes}
+            onChange={(e) => setForm((p) => ({ ...p, notes: e.target.value }))}
+          />
+        </div>
+      </form>
     </div>
   );
 }

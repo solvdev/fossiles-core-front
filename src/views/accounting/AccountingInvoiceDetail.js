@@ -1,19 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import {
-  Alert,
-  Badge,
-  Button,
-  Card,
-  CardBody,
-  CardHeader,
-  CardTitle,
-  Col,
-  Collapse,
-  Row,
-  Spinner,
-  Table,
-} from "reactstrap";
+import { Collapse, Spinner } from "reactstrap";
 import {
   getTaxInvoiceById,
   retryTaxInvoice,
@@ -23,6 +10,7 @@ import {
 import { formatDateTimeGt } from "utils/dateTimeHelper";
 import { useAuth } from "contexts/AuthContext";
 import { canEditTaxInvoiceFel } from "utils/taxInvoiceEditHelper";
+import { showSuccess } from "utils/notificationHelper";
 import {
   TAX_INVOICE_SOURCE_LABELS,
   formatQuantity,
@@ -33,6 +21,14 @@ import {
 } from "utils/taxInvoiceLabels";
 import TaxInvoiceVoidModal from "components/accounting/TaxInvoiceVoidModal";
 import TaxInvoiceNoteModal from "components/accounting/TaxInvoiceNoteModal";
+import {
+  FelKv,
+  FelStatusPill,
+  IconBack,
+  IconCopy,
+  IconPlus,
+} from "components/accounting/felUi";
+import "./fel-ui.css";
 
 const ACTION_LABELS = {
   ISSUE: "Emisión",
@@ -41,17 +37,15 @@ const ACTION_LABELS = {
   VOID: "Anulación",
 };
 
-const formatCurrency = formatQuetzales;
+const DOT_COLORS = {
+  CERTIFIED: "#11603a",
+  FAILED: "#9b241b",
+  VOID: "#6b746d",
+  DRAFT: "#b87400",
+  SKIPPED: "#b87400",
+};
 
-/** Fila etiqueta / valor del detalle. */
-function Field({ label, children, className = "" }) {
-  return (
-    <div className={`mb-2 ${className}`}>
-      <div className="small text-muted">{label}</div>
-      <div>{children}</div>
-    </div>
-  );
-}
+const formatCurrency = formatQuetzales;
 
 function AccountingInvoiceDetail() {
   const { id } = useParams();
@@ -115,6 +109,15 @@ function AccountingInvoiceDetail() {
     }
   };
 
+  const handleCopyUuid = async () => {
+    try {
+      await navigator.clipboard.writeText(invoice.felUuid);
+      showSuccess("UUID copiado.");
+    } catch (err) {
+      setError("No se pudo copiar el UUID.");
+    }
+  };
+
   const canRetry = canManageFel && invoice && (
     ["FAILED", "SKIPPED", "DRAFT"].includes(invoice.status)
     || (invoice.status === "VOID" && !invoice.felUuid)
@@ -145,360 +148,432 @@ function AccountingInvoiceDetail() {
   const attempts = invoice?.attempts || [];
 
   if (loading) {
-    return <div className="content text-center p-5"><Spinner color="primary" /></div>;
+    return <div className="content fel-ui text-center p-5"><Spinner color="primary" /></div>;
   }
 
   if (!invoice) {
     return (
-      <div className="content">
-        <Alert color="danger">{error || "Documento no encontrado."}</Alert>
-        <Button color="default" onClick={() => navigate("/admin/accounting/invoices")}>Volver</Button>
+      <div className="content fel-ui">
+        <div className="fel-notice fel-notice--err" role="alert">{error || "Documento no encontrado."}</div>
+        <button type="button" className="fel-btn" onClick={() => navigate("/admin/accounting/invoices")}>
+          Volver
+        </button>
       </div>
     );
   }
 
   const sourceLabel = TAX_INVOICE_SOURCE_LABELS[invoice.sourceType] || invoice.sourceType || "—";
 
+  // Saldo: lo vigente frente a lo acreditado / cargado por notas certificadas.
+  const certifiedNotes = creditDebitNotes.filter((note) => note.status === "CERTIFIED");
+  const creditedTotal = certifiedNotes
+    .filter((note) => note.documentType === "NCRE")
+    .reduce((sum, note) => sum + Number(note.totalAmount || 0), 0);
+  const debitedTotal = certifiedNotes
+    .filter((note) => note.documentType === "NDEB")
+    .reduce((sum, note) => sum + Number(note.totalAmount || 0), 0);
+  const balance = Number(invoice.noteBalance ?? invoice.totalAmount ?? 0);
+  const barBase = Math.max(Number(invoice.totalAmount || 0) + debitedTotal, 0.01);
+  const creditPct = Math.min(100, (creditedTotal / barBase) * 100);
+  const debitPct = Math.min(100 - creditPct, (debitedTotal / barBase) * 100);
+  const validPct = Math.max(0, 100 - creditPct - debitPct);
+
+  const showBalanceColumn = !isNote && (creditDebitNotes.length > 0 || canIssueNote);
+  const showIdentity = invoice.felSerie || invoice.felNumero || invoice.felUuid;
+
   return (
-    <div className="content">
-      <Button
-        color="link"
-        className="px-0 mb-2"
+    <div className="content fel-ui">
+      <button
+        type="button"
+        className="fel-back"
         onClick={() => navigate("/admin/accounting/invoices")}
       >
-        <i className="nc-icon nc-minimal-left" /> Facturas FEL
-      </Button>
-      <Card className="mb-4">
-        <CardHeader>
-          <Row className="align-items-start">
-            <Col lg="5" className="mb-2 mb-lg-0">
-              <CardTitle tag="h4" className="mb-1">
-                {documentLabel} {invoice.internalNumber || `#${invoice.id}`}
-              </CardTitle>
-              <Badge color={status.color} className="mr-1">{status.label}</Badge>
-              {status.detail && <span className="small text-muted mr-2">{status.detail}</span>}
-              {invoice.testDocument && <Badge color="warning">Prueba (sandbox)</Badge>}
-            </Col>
-            <Col lg="7" className="text-lg-right">
-              <div className="d-flex flex-wrap justify-content-lg-end" style={{ gap: "0.5rem" }}>
-                {canRetry && (
-                  <Button color="warning" size="sm" className="my-0" onClick={handleRetry} disabled={retrying}>
-                    {retrying ? <Spinner size="sm" /> : "Firmar FEL"}
-                  </Button>
-                )}
-                {canDownloadFelReport && (
-                  <Button color="primary" size="sm" outline className="my-0" onClick={handleDownloadFelReport}>
-                    Ver PDF
-                  </Button>
-                )}
-                {canDownloadXml && (
-                  <Button color="primary" size="sm" outline className="my-0" onClick={handleDownloadXml} disabled={downloadingXml}>
-                    {downloadingXml ? <Spinner size="sm" /> : "Descargar XML"}
-                  </Button>
-                )}
-                {canIssueNote && (
-                  <Button color="info" size="sm" className="my-0" onClick={() => setNoteOpen(true)}>
-                    Emitir nota de crédito/débito
-                  </Button>
-                )}
-                {canOpenVoid && (
-                  <Button color="danger" size="sm" outline className="my-0" onClick={() => setVoidOpen(true)}>
-                    Anular
-                  </Button>
-                )}
-              </div>
-            </Col>
-          </Row>
-        </CardHeader>
-        <CardBody>
-          {error && <Alert color="danger">{error}</Alert>}
-          {invoice.felError && invoice.status !== "CERTIFIED" && (
-            <Alert color="danger" className="small">
-              <strong>Error FEL:</strong> {invoice.felError}
-            </Alert>
-          )}
-          {invoice.status === "VOID" && (
-            <Alert color="secondary" className="small">
-              Anulado ante el SAT{invoice.voidedAt ? ` el ${formatDateTimeGt(invoice.voidedAt)}` : ""}
-              {invoice.voidReason ? ` · Motivo: ${invoice.voidReason}` : ""}.
-              {" "}Para reemitir con datos corregidos use <strong>Firmar FEL</strong>.
-            </Alert>
-          )}
+        <IconBack /> Facturas FEL
+      </button>
 
-          <Row className="mb-3">
-            <Col md="4">
-              <Field label="Cliente">{invoice.customerName || "—"}</Field>
-              <Field label="NIT">{invoice.customerTaxId || "—"}</Field>
-              {invoice.address && <Field label="Dirección">{invoice.address}</Field>}
-              {invoice.email && <Field label="Correo">{invoice.email}</Field>}
-            </Col>
-            <Col md="4">
-              <Field label="Fecha de emisión">
-                {invoice.issuedAt ? formatDateTimeGt(invoice.issuedAt) : "—"}
-              </Field>
-              {isNote ? (
-                <>
-                  <Field label="Factura origen">
-                    <Button
-                      color="link"
-                      className="p-0 align-baseline"
-                      onClick={() => navigate(`/admin/accounting/invoices/${invoice.originInvoiceId}`)}
+      <div className="fel-header" style={{ alignItems: "flex-start" }}>
+        <div>
+          <div className="d-flex flex-wrap align-items-center" style={{ gap: 12 }}>
+            <h1 className="fel-title">
+              {documentLabel} {invoice.internalNumber || `#${invoice.id}`}
+            </h1>
+            <FelStatusPill status={invoice.status} label={status.label} large />
+            {invoice.testDocument && <span className="fel-pill fel-pill--test fel-pill--lg">Prueba (sandbox)</span>}
+          </div>
+          <p className="fel-subtitle">
+            {invoice.issuedAt ? `Emitida el ${formatDateTimeGt(invoice.issuedAt)}` : "Aún sin fecha de emisión"}
+            {" · "}
+            {sourceLabel}
+            {invoice.sourceId ? ` #${invoice.sourceId}` : ""}
+            {status.detail ? ` · ${status.detail}` : ""}
+          </p>
+        </div>
+        <div className="fel-actions">
+          {canRetry && (
+            <button
+              type="button"
+              className="fel-btn fel-btn--primary"
+              onClick={handleRetry}
+              disabled={retrying}
+            >
+              {retrying ? <Spinner size="sm" /> : "Firmar FEL"}
+            </button>
+          )}
+          {canDownloadFelReport && (
+            <button type="button" className="fel-btn" onClick={handleDownloadFelReport}>
+              Ver PDF
+            </button>
+          )}
+          {canDownloadXml && (
+            <button type="button" className="fel-btn" onClick={handleDownloadXml} disabled={downloadingXml}>
+              {downloadingXml ? <Spinner size="sm" /> : "Descargar XML"}
+            </button>
+          )}
+          {canOpenVoid && (
+            <button type="button" className="fel-btn fel-btn--danger" onClick={() => setVoidOpen(true)}>
+              Anular
+            </button>
+          )}
+          {canIssueNote && (
+            <button type="button" className="fel-btn fel-btn--primary" onClick={() => setNoteOpen(true)}>
+              <IconPlus /> Emitir nota de crédito/débito
+            </button>
+          )}
+        </div>
+      </div>
+
+      {error && <div className="fel-notice fel-notice--err" role="alert">{error}</div>}
+      {invoice.felError && invoice.status !== "CERTIFIED" && (
+        <div className="fel-notice fel-notice--err" role="alert">
+          <span><strong>Error FEL:</strong> {invoice.felError}</span>
+        </div>
+      )}
+      {invoice.status === "VOID" && (
+        <div className="fel-notice fel-notice--muted">
+          <span>
+            Anulado ante el SAT{invoice.voidedAt ? ` el ${formatDateTimeGt(invoice.voidedAt)}` : ""}
+            {invoice.voidReason ? ` · Motivo: ${invoice.voidReason}` : ""}.
+            {" "}Para reemitir con datos corregidos use <strong>Firmar FEL</strong>.
+          </span>
+        </div>
+      )}
+
+      {showIdentity && (
+        <div className="fel-card">
+          <div className="fel-identity">
+            <FelKv label="Serie">
+              <span className="fel-mono" style={{ fontSize: 15, fontWeight: 500 }}>{invoice.felSerie || "—"}</span>
+            </FelKv>
+            <FelKv label="Número">
+              <span className="fel-mono" style={{ fontSize: 15, fontWeight: 500 }}>{invoice.felNumero || "—"}</span>
+            </FelKv>
+            <div className="fel-identity__wide">
+              <div className="fel-kv__label">UUID de autorización</div>
+              <div className="d-flex align-items-center" style={{ gap: 8, marginTop: 2 }}>
+                {invoice.felUuid ? (
+                  <>
+                    <span className="fel-mono" style={{ fontSize: 13, wordBreak: "break-all" }}>{invoice.felUuid}</span>
+                    <button
+                      type="button"
+                      className="fel-icon-btn fel-icon-btn--bordered"
+                      aria-label="Copiar UUID"
+                      onClick={handleCopyUuid}
                     >
-                      {invoice.originInternalNumber || `#${invoice.originInvoiceId}`}
-                    </Button>
-                    {(invoice.originFelSerie || invoice.originFelNumero) && (
-                      <span className="text-muted"> · {invoice.originFelSerie || "—"} / {invoice.originFelNumero || "—"}</span>
-                    )}
-                  </Field>
-                  {invoice.adjustmentReason && (
-                    <Field label="Motivo del ajuste">{invoice.adjustmentReason}</Field>
-                  )}
-                </>
-              ) : (
-                <Field label="Origen">
-                  {sourceLabel}
-                  {invoice.sourceId ? <span className="text-muted"> #{invoice.sourceId}</span> : null}
-                </Field>
-              )}
-              {(invoice.felSerie || invoice.felNumero) && (
-                <Field label="Serie / Número FEL">
-                  {invoice.felSerie || "—"} / {invoice.felNumero || "—"}
-                </Field>
-              )}
-              {invoice.felUuid && (
-                <Field label="UUID (autorización)">
-                  <span className="small text-monospace" style={{ wordBreak: "break-all" }}>{invoice.felUuid}</span>
-                </Field>
-              )}
-              {invoice.felVoidUuid && (
-                <Field label="UUID de anulación">
-                  <span className="small text-monospace" style={{ wordBreak: "break-all" }}>{invoice.felVoidUuid}</span>
-                </Field>
-              )}
-            </Col>
-            <Col md="4">
-              <div className="border rounded p-3">
-                <div className="d-flex justify-content-between mb-1">
-                  <span className="text-muted">Subtotal</span>
-                  <span>{formatCurrency(invoice.subtotal)}</span>
-                </div>
-                {Number(invoice.discountAmount || 0) > 0 && (
-                  <div className="d-flex justify-content-between mb-1">
-                    <span className="text-muted">Descuento</span>
-                    <span>−{formatCurrency(invoice.discountAmount)}</span>
-                  </div>
-                )}
-                <div className="d-flex justify-content-between mb-1">
-                  <span className="text-muted">IVA incluido</span>
-                  <span>{formatCurrency(invoice.taxAmount)}</span>
-                </div>
-                <div className="d-flex justify-content-between border-top pt-2 mt-2">
-                  <strong>Total</strong>
-                  <strong>{formatCurrency(invoice.totalAmount)}</strong>
+                      <IconCopy />
+                    </button>
+                  </>
+                ) : "—"}
+              </div>
+            </div>
+            {invoice.felVoidUuid && (
+              <div className="fel-identity__wide">
+                <div className="fel-kv__label">UUID de anulación</div>
+                <div className="fel-mono" style={{ fontSize: 13, marginTop: 2, wordBreak: "break-all" }}>
+                  {invoice.felVoidUuid}
                 </div>
               </div>
-              {invoice.status === "CERTIFIED" && !invoice.hasCertifiedXml && (
-                <p className="text-muted small mt-2 mb-0">
-                  XML certificado no guardado (documento anterior a ese respaldo).
-                </p>
-              )}
-              {invoice.notes && (
-                <Field label="Observaciones" className="mt-3">
-                  <span className="small" style={{ whiteSpace: "pre-line" }}>{invoice.notes}</span>
-                </Field>
-              )}
-            </Col>
-          </Row>
+            )}
+          </div>
+        </div>
+      )}
 
-          <h5 className="mb-2">Líneas</h5>
-          <Table responsive hover size="sm" className="mb-0">
-            <thead>
-              <tr>
-                <th>#</th>
-                <th>Descripción</th>
-                <th className="text-right">Cant.</th>
-                <th className="text-right">P. unit.</th>
-                <th className="text-right">IVA</th>
-                <th className="text-right">Total</th>
-              </tr>
-            </thead>
-            <tbody>
-              {(invoice.lines || []).map((line) => (
-                <tr key={line.id || line.lineNumber}>
-                  <td>{line.lineNumber}</td>
-                  <td>{line.description}</td>
-                  <td className="text-right">{formatQuantity(line.quantity)}</td>
-                  <td className="text-right">{formatCurrency(line.unitPrice)}</td>
-                  <td className="text-right">{formatCurrency(line.taxAmount)}</td>
-                  <td className="text-right">{formatCurrency(line.lineTotal)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </Table>
-        </CardBody>
-      </Card>
+      <div className="fel-detail-layout">
+        <div className="fel-detail-main">
+          <div className="fel-card">
+            <div className="fel-card__head">
+              <h2 className="fel-card__title">Cliente</h2>
+            </div>
+            <div className="fel-kv-grid">
+              <FelKv label="Nombre">{invoice.customerName || "—"}</FelKv>
+              <FelKv label="NIT">{invoice.customerTaxId || "—"}</FelKv>
+              {invoice.address && <FelKv label="Dirección">{invoice.address}</FelKv>}
+              {invoice.email && <FelKv label="Correo">{invoice.email}</FelKv>}
+              {isNote && (
+                <FelKv label="Factura origen">
+                  <button
+                    type="button"
+                    className="fel-link-btn"
+                    style={{ padding: 0, minHeight: 0 }}
+                    onClick={() => navigate(`/admin/accounting/invoices/${invoice.originInvoiceId}`)}
+                  >
+                    {invoice.originInternalNumber || `#${invoice.originInvoiceId}`}
+                  </button>
+                  {(invoice.originFelSerie || invoice.originFelNumero) && (
+                    <span className="fel-muted"> · {invoice.originFelSerie || "—"} / {invoice.originFelNumero || "—"}</span>
+                  )}
+                </FelKv>
+              )}
+              {isNote && invoice.adjustmentReason && (
+                <FelKv label="Motivo del ajuste">{invoice.adjustmentReason}</FelKv>
+              )}
+            </div>
+            {invoice.notes && (
+              <div style={{ marginTop: 16 }}>
+                <div className="fel-kv__label">Observaciones</div>
+                <div className="fel-kv__value" style={{ whiteSpace: "pre-line", fontSize: 13 }}>{invoice.notes}</div>
+              </div>
+            )}
+          </div>
 
-      {!isNote && (creditDebitNotes.length > 0 || canIssueNote) && (
-        <Card className="mb-4">
-          <CardHeader>
-            <Row className="align-items-center">
-              <Col>
-                <CardTitle tag="h4" className="mb-0">
-                  Notas de crédito/débito ({creditDebitNotes.length})
-                </CardTitle>
-              </Col>
-              <Col className="text-right">
-                <span className="text-muted">
-                  Saldo de la factura: <strong>{formatCurrency(invoice.noteBalance ?? invoice.totalAmount)}</strong>
-                </span>
-              </Col>
-            </Row>
-          </CardHeader>
-          <CardBody>
-            {creditDebitNotes.length === 0 ? (
-              <p className="text-muted mb-0">Esta factura no tiene notas ligadas.</p>
-            ) : (
-              <Table responsive hover size="sm" className="mb-0">
+          <div className="fel-card fel-card--flush">
+            <div className="fel-card__head">
+              <h2 className="fel-card__title">Líneas</h2>
+            </div>
+            <div className="fel-table-wrap">
+              <table className="fel-table" style={{ minWidth: 560 }}>
                 <thead>
                   <tr>
-                    <th>Número</th>
-                    <th>Tipo</th>
-                    <th>Fecha</th>
-                    <th>Motivo</th>
-                    <th>Total</th>
-                    <th>Estado</th>
-                    <th>Serie / Número</th>
-                    <th />
+                    <th>#</th>
+                    <th>Descripción</th>
+                    <th className="is-right">Cant.</th>
+                    <th className="is-right">P. unit.</th>
+                    <th className="is-right">IVA</th>
+                    <th className="is-right">Total</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {creditDebitNotes.map((note) => (
-                    <tr key={note.id}>
-                      <td>{note.internalNumber || note.id}</td>
-                      <td>{taxInvoiceDocumentLabel(note.documentType)}</td>
-                      <td>{note.issuedAt ? formatDateTimeGt(note.issuedAt) : "—"}</td>
-                      <td>{note.adjustmentReason || "—"}</td>
-                      <td>
-                        {note.documentType === "NCRE" ? "−" : "+"}
-                        {formatCurrency(note.totalAmount)}
-                      </td>
-                      <td>
-                        <Badge color={taxInvoiceStatus(note.status).color}>{taxInvoiceStatus(note.status).label}</Badge>
-                        {note.felError && (
-                          <div className="small text-danger mt-1" title={note.felError}>
-                            {note.felError.length > 60 ? `${note.felError.slice(0, 60)}…` : note.felError}
-                          </div>
-                        )}
-                      </td>
-                      <td>{note.felSerie || "—"} / {note.felNumero || "—"}</td>
-                      <td className="text-right">
-                        <Button
-                          color="link"
-                          size="sm"
-                          className="p-0"
-                          onClick={() => navigate(`/admin/accounting/invoices/${note.id}`)}
-                        >
-                          Ver detalle
-                        </Button>
-                      </td>
+                  {(invoice.lines || []).map((line) => (
+                    <tr key={line.id || line.lineNumber}>
+                      <td className="fel-muted">{line.lineNumber}</td>
+                      <td>{line.description}</td>
+                      <td className="is-right fel-num">{formatQuantity(line.quantity)}</td>
+                      <td className="is-right fel-num">{formatCurrency(line.unitPrice)}</td>
+                      <td className="is-right fel-num fel-muted">{formatCurrency(line.taxAmount)}</td>
+                      <td className="is-right fel-num" style={{ fontWeight: 600 }}>{formatCurrency(line.lineTotal)}</td>
                     </tr>
                   ))}
                 </tbody>
-              </Table>
+              </table>
+            </div>
+            <div className="fel-totals">
+              <div className="fel-totals__box">
+                <div className="fel-totals__row">
+                  <span className="fel-muted">Subtotal</span>
+                  <span className="fel-num">{formatCurrency(invoice.subtotal)}</span>
+                </div>
+                {Number(invoice.discountAmount || 0) > 0 && (
+                  <div className="fel-totals__row">
+                    <span className="fel-muted">Descuento</span>
+                    <span className="fel-num">−{formatCurrency(invoice.discountAmount)}</span>
+                  </div>
+                )}
+                <div className="fel-totals__row">
+                  <span className="fel-muted">IVA incluido</span>
+                  <span className="fel-num">{formatCurrency(invoice.taxAmount)}</span>
+                </div>
+                <div className="fel-totals__row fel-totals__row--total">
+                  <span>Total</span>
+                  <span className="fel-num">{formatCurrency(invoice.totalAmount)}</span>
+                </div>
+              </div>
+            </div>
+            {invoice.status === "CERTIFIED" && !invoice.hasCertifiedXml && (
+              <p className="fel-muted px-3 pb-3 mb-0" style={{ fontSize: 13 }}>
+                XML certificado no guardado (documento anterior a ese respaldo).
+              </p>
             )}
-            <p className="text-muted small mt-2 mb-0">
-              Saldo = total de la factura + notas de débito − notas de crédito certificadas. Para anular la
-              factura primero anule sus notas vigentes (SAT).
-            </p>
-          </CardBody>
-        </Card>
-      )}
+          </div>
+        </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle tag="h4" className="mb-0">
-            Bitácora de intentos FEL ({attempts.length})
-          </CardTitle>
-        </CardHeader>
-        <CardBody>
-          {attempts.length === 0 ? (
-            <p className="text-muted mb-0">Aún no hay intentos registrados para esta factura.</p>
-          ) : (
-            attempts.map((attempt) => (
-              <div key={attempt.id} className="border rounded p-3 mb-3">
-                <Row className="align-items-center">
-                  <Col md="8">
-                    <strong>Intento #{attempt.attemptNumber}</strong>
-                    {" · "}
-                    <Badge color="info">{ACTION_LABELS[attempt.action] || attempt.action}</Badge>
-                    {" "}
-                    <Badge color={taxInvoiceStatus(attempt.status).color}>{taxInvoiceStatus(attempt.status).label}</Badge>
-                    <div className="text-muted small mt-1">
-                      {attempt.createdAt ? formatDateTimeGt(attempt.createdAt) : "—"}
-                      {attempt.felEnabled === false && " · FEL desactivado en servidor"}
+        {showBalanceColumn && (
+          <div className="fel-detail-side">
+            <div className="fel-card">
+              <h2 className="fel-card__title">Saldo de la factura</h2>
+              <div className="fel-balance fel-num">{formatCurrency(balance)}</div>
+              {creditDebitNotes.length > 0 && (
+                <div style={{ marginTop: 16 }}>
+                  <div className="fel-bar" role="img" aria-label={`Vigente ${formatCurrency(balance)}, acreditado ${formatCurrency(creditedTotal)}`}>
+                    <div className="fel-bar__valid" style={{ width: `${validPct}%` }} />
+                    {debitPct > 0 && <div className="fel-bar__debit" style={{ width: `${debitPct}%` }} />}
+                    {creditPct > 0 && <div className="fel-bar__credit" style={{ width: `${creditPct}%` }} />}
+                  </div>
+                  <div className="fel-bar-legend">
+                    <span>Vigente {formatCurrency(balance)}</span>
+                    <span>Acreditado {formatCurrency(creditedTotal)}</span>
+                    {debitedTotal > 0 && <span>Cargado {formatCurrency(debitedTotal)}</span>}
+                  </div>
+                </div>
+              )}
+              <p className="fel-muted" style={{ fontSize: 13, margin: "16px 0 0" }}>
+                Total de la factura + notas de débito − notas de crédito. Solo cuentan las notas certificadas ante el SAT.
+              </p>
+            </div>
+
+            <div className="fel-card">
+              <div className="fel-card__head">
+                <h2 className="fel-card__title">
+                  Notas ligadas <span className="fel-muted" style={{ fontWeight: 500 }}>({creditDebitNotes.length})</span>
+                </h2>
+              </div>
+              {creditDebitNotes.length === 0 ? (
+                <p className="fel-muted mb-0">Esta factura no tiene notas ligadas.</p>
+              ) : (
+                creditDebitNotes.map((note) => {
+                  const noteStatus = taxInvoiceStatus(note.status);
+                  const failed = note.status === "FAILED" || note.status === "DRAFT" || note.status === "SKIPPED";
+                  return (
+                    <div className="fel-note-card" key={note.id}>
+                      <div className="fel-note-card__top">
+                        <span>{note.internalNumber || note.id}</span>
+                        <span className="fel-num">
+                          {note.documentType === "NCRE" ? "−" : "+"}
+                          {formatCurrency(note.totalAmount)}
+                        </span>
+                      </div>
+                      <div className="fel-note-card__meta">
+                        <span className="fel-pill fel-pill--note">{taxInvoiceDocumentLabel(note.documentType)}</span>
+                        <FelStatusPill status={note.status} label={noteStatus.label} />
+                        <span>{note.issuedAt ? formatDateTimeGt(note.issuedAt) : "—"}</span>
+                      </div>
+                      {note.adjustmentReason && <div>{note.adjustmentReason}</div>}
+                      {note.felError && (
+                        <div style={{ fontSize: 13, color: "var(--fel-danger)" }}>
+                          {note.felError.length > 120 ? `${note.felError.slice(0, 120)}…` : note.felError}
+                        </div>
+                      )}
+                      {failed && (
+                        <div className="fel-muted" style={{ fontSize: 13 }}>
+                          No cuenta en el saldo hasta que se certifique.
+                        </div>
+                      )}
+                      <div>
+                        <button
+                          type="button"
+                          className="fel-link-btn"
+                          onClick={() => navigate(`/admin/accounting/invoices/${note.id}`)}
+                        >
+                          {failed ? "Abrir y reintentar firma" : "Ver nota"}
+                        </button>
+                      </div>
                     </div>
-                  </Col>
-                  <Col md="4" className="text-md-right">
-                    <Button
-                      color="link"
-                      size="sm"
-                      className="p-0"
-                      onClick={() => setOpenAttemptId(openAttemptId === attempt.id ? null : attempt.id)}
-                    >
-                      {openAttemptId === attempt.id ? "Ocultar detalle" : "Ver detalle"}
-                    </Button>
-                  </Col>
-                </Row>
+                  );
+                })
+              )}
+              <p className="fel-muted" style={{ fontSize: 13, margin: "4px 0 0" }}>
+                Para anular la factura primero hay que anular sus notas vigentes (SAT).
+              </p>
+            </div>
+          </div>
+        )}
+      </div>
 
-                <Row className="mt-2 small">
-                  <Col md="6">
-                    <div><strong>Cliente:</strong> {attempt.customerName || "—"}</div>
-                    <div><strong>NIT:</strong> {attempt.customerTaxId || "—"}</div>
-                    <div><strong>Total:</strong> {formatCurrency(attempt.totalAmount)}</div>
-                  </Col>
-                  <Col md="6">
-                    {attempt.felUuid && <div><strong>UUID:</strong> {attempt.felUuid}</div>}
-                    {(attempt.felSerie || attempt.felNumero) && (
-                      <div><strong>Serie / Número:</strong> {attempt.felSerie || "—"} / {attempt.felNumero || "—"}</div>
+      <div className="fel-card">
+        <div className="fel-card__head">
+          <h2 className="fel-card__title">Bitácora FEL</h2>
+          <span className="fel-card__hint">
+            {attempts.length} intento{attempts.length === 1 ? "" : "s"}
+          </span>
+        </div>
+        {attempts.length === 0 ? (
+          <p className="fel-muted mb-0">Aún no hay intentos registrados para esta factura.</p>
+        ) : (
+          <div>
+            {attempts.map((attempt) => {
+              const attemptStatus = taxInvoiceStatus(attempt.status);
+              const isOpen = openAttemptId === attempt.id;
+              return (
+                <div className="fel-timeline__item" key={attempt.id}>
+                  <div className="fel-timeline__rail">
+                    <span
+                      className="fel-timeline__dot"
+                      style={{ background: DOT_COLORS[attempt.status] || "#6b746d" }}
+                    />
+                    <span className="fel-timeline__line" />
+                  </div>
+                  <div className="fel-timeline__body">
+                    <div className="d-flex flex-wrap align-items-center" style={{ gap: 8 }}>
+                      <strong>
+                        Intento #{attempt.attemptNumber} · {ACTION_LABELS[attempt.action] || attempt.action}
+                      </strong>
+                      <FelStatusPill status={attempt.status} label={attemptStatus.label} />
+                      <span className="fel-muted" style={{ fontSize: 13 }}>
+                        {attempt.createdAt ? formatDateTimeGt(attempt.createdAt) : "—"}
+                        {attempt.felEnabled === false && " · FEL desactivado en servidor"}
+                      </span>
+                    </div>
+                    <div className="fel-muted" style={{ fontSize: 13, marginTop: 4, wordBreak: "break-word" }}>
+                      {attempt.customerName || "—"} · NIT {attempt.customerTaxId || "—"} · Total {formatCurrency(attempt.totalAmount)}
+                      {attempt.felSerie || attempt.felNumero
+                        ? ` · ${attempt.felSerie || "—"} / ${attempt.felNumero || "—"}`
+                        : ""}
+                    </div>
+                    {attempt.felUuid && (
+                      <div className="fel-mono fel-muted" style={{ fontSize: 12, marginTop: 2, wordBreak: "break-all" }}>
+                        UUID {attempt.felUuid}
+                      </div>
                     )}
                     {attempt.felTransactionId && (
-                      <div><strong>ID transacción:</strong> {attempt.felTransactionId}</div>
+                      <div className="fel-muted" style={{ fontSize: 13, marginTop: 2 }}>
+                        ID de transacción {attempt.felTransactionId}
+                      </div>
                     )}
                     {attempt.felError && (
-                      <div className="text-danger"><strong>Error:</strong> {attempt.felError}</div>
+                      <div style={{ fontSize: 13, marginTop: 4, color: "var(--fel-danger)", wordBreak: "break-word" }}>
+                        Error: {attempt.felError}
+                      </div>
                     )}
-                  </Col>
-                </Row>
-
-                <Collapse isOpen={openAttemptId === attempt.id}>
-                  <Table responsive size="sm" className="mt-3 mb-0">
-                    <thead>
-                      <tr>
-                        <th>#</th>
-                        <th>Descripción</th>
-                        <th>Cant.</th>
-                        <th>P. unit.</th>
-                        <th>Total</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {(attempt.lines || []).map((line) => (
-                        <tr key={`${attempt.id}-${line.lineNumber}`}>
-                          <td>{line.lineNumber}</td>
-                          <td>{line.description}</td>
-                          <td>{formatQuantity(line.quantity)}</td>
-                          <td>{formatCurrency(line.unitPrice)}</td>
-                          <td>{formatCurrency(line.lineTotal)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </Table>
-                </Collapse>
-              </div>
-            ))
-          )}
-        </CardBody>
-      </Card>
+                    <button
+                      type="button"
+                      className="fel-link-btn"
+                      style={{ paddingLeft: 0 }}
+                      aria-expanded={isOpen}
+                      onClick={() => setOpenAttemptId(isOpen ? null : attempt.id)}
+                    >
+                      {isOpen ? "Ocultar líneas enviadas" : "Ver líneas enviadas"}
+                    </button>
+                    <Collapse isOpen={isOpen}>
+                      <div className="fel-attempt-lines fel-table-wrap">
+                        <table className="fel-table" style={{ minWidth: 420 }}>
+                          <thead>
+                            <tr>
+                              <th>#</th>
+                              <th>Descripción</th>
+                              <th className="is-right">Cant.</th>
+                              <th className="is-right">P. unit.</th>
+                              <th className="is-right">Total</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {(attempt.lines || []).map((line) => (
+                              <tr key={`${attempt.id}-${line.lineNumber}`}>
+                                <td>{line.lineNumber}</td>
+                                <td>{line.description}</td>
+                                <td className="is-right fel-num">{formatQuantity(line.quantity)}</td>
+                                <td className="is-right fel-num">{formatCurrency(line.unitPrice)}</td>
+                                <td className="is-right fel-num">{formatCurrency(line.lineTotal)}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </Collapse>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
 
       <TaxInvoiceVoidModal
         isOpen={voidOpen}
