@@ -11,6 +11,9 @@ import { isLuisFelipeVendorFlow } from "utils/luisFelipeVendorHelper";
 import OpcGenerateShipmentModal from "components/production/OpcGenerateShipmentModal";
 import ProductionOrderPartialReleasesPanel from "components/production/ProductionOrderPartialReleasesPanel";
 
+/** Ventas y envíos internos: su OP sigue en el Centro de Producción, aquí solo se ven los cinchos. */
+const isSaleFamily = (family) => family === "OPL" || family === "OPCK" || family === "OPI";
+
 const STATUS_LABELS = {
   PENDING: "Pendiente",
   IN_PROGRESS: "En progreso",
@@ -31,7 +34,7 @@ const SCOPES = [
 const SOURCES = [
   { id: "ALL", label: "Todo" },
   { id: "OPC", label: "OP de cinchos" },
-  { id: "SALES", label: "Cinchos de ventas (OPL / OPCK)" },
+  { id: "SALES", label: "Cinchos de ventas e internas (OPL / OPCK / OPI)" },
 ];
 
 const LINE_STATUS = {
@@ -80,6 +83,7 @@ const CSS = `
 .cpv .cpv-fam{font-size:11px;font-weight:800;border-radius:4px;padding:1px 6px;color:#fff;background:#51504a}
 .cpv .cpv-fam.OPL{background:var(--info)}
 .cpv .cpv-fam.OPCK{background:#17a2b8}
+.cpv .cpv-fam.OPI{background:#28a745}
 .cpv .cpv-fam.OPCF{background:#b7791f}
 .cpv .cpv-fam.OPCM{background:#718096}
 .cpv .cpv-chip{font-size:11px;font-weight:700;border-radius:999px;padding:1px 8px;background:var(--soft);color:var(--muted);border:1px solid var(--line)}
@@ -233,7 +237,7 @@ function OrderCard({ order, today, open, onToggle, onStatus, busy, onDetail }) {
 
 /**
  * Cinchos en producción: las OP de cinchos (OPC/OPCF/OPCM) y los cinchos y pulseras de las
- * ventas (OPL/OPCK), con lo urgente arriba.
+ * ventas e internas (OPL/OPCK/OPI), con lo urgente arriba.
  *
  * Arriba el resumen de lo activo; cada orden dice cuánto falta para su entrega, cuántas
  * unidades lleva y cuántas líneas se marcaron hechas en el cuadro de cinchos del Tablero.
@@ -431,12 +435,12 @@ function CinchosProductionOrdersView() {
                   </Input>
                 </div>
               )}
-              {detail.family !== "OPL" && detail.family !== "OPCK" && isLuisFelipeVendorFlow(detail.orderType, detail.sellerName) && (
+              {!isSaleFamily(detail.family) && isLuisFelipeVendorFlow(detail.orderType, detail.sellerName) && (
                 <div className="mt-3"><ProductionOrderPartialReleasesPanel order={detail} /></div>
               )}
-              {(detail.family === "OPL" || detail.family === "OPCK") && (
+              {isSaleFamily(detail.family) && (
                 <p className="cpv-note mt-3">
-                  El estado de una venta no se cambia aquí: el resto del pedido sigue en el Centro de Producción.
+                  El estado de una venta o envío interno no se cambia aquí: el resto del pedido sigue en el Centro de Producción.
                   Sus líneas de cincho se marcan en el cuadro de cinchos del Tablero.
                 </p>
               )}
@@ -445,7 +449,7 @@ function CinchosProductionOrdersView() {
         </ModalBody>
         <ModalFooter>
           <Button color="secondary" outline onClick={() => setDetail(null)}>Cerrar</Button>
-          {detail && detail.family !== "OPL" && detail.family !== "OPCK" && (
+          {detail && !isSaleFamily(detail.family) && (
             <Button color="success" outline onClick={() => setShipmentOrder(detail)}>Generar envío</Button>
           )}
         </ModalFooter>

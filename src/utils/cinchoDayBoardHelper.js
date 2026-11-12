@@ -12,6 +12,7 @@ export const CINCHO_WORK_STATUS = {
 
 const VENTA_EN_LINEA = "VENTA_EN_LINEA";
 const CLIENTE_KIOSKO = "CLIENTE_KIOSKO";
+const INTERNA = "INTERNA";
 
 function normalizeYmd(dateStr) {
   if (!dateStr) return "";
@@ -57,6 +58,7 @@ function familyForOrderType(orderType) {
   const t = String(orderType || "").trim().toUpperCase();
   if (t === VENTA_EN_LINEA) return "OPL";
   if (t === CLIENTE_KIOSKO) return "OPCK";
+  if (t === INTERNA) return "OPI";
   if (t === "CINCHOS_FOSSILES") return "OPCF";
   if (t === "CINCHOS_MARCAS") return "OPCM";
   if (t === "CINCHOS") return "OPC";
@@ -65,13 +67,13 @@ function familyForOrderType(orderType) {
 
 function isEligibleOrder(order) {
   const t = String(order?.orderType || "").trim().toUpperCase();
-  if (t !== VENTA_EN_LINEA && t !== CLIENTE_KIOSKO && !isCinchoOrderType(t)) return false;
+  if (t !== VENTA_EN_LINEA && t !== CLIENTE_KIOSKO && t !== INTERNA && !isCinchoOrderType(t)) return false;
   if (String(order?.status || "").toUpperCase() === "CANCELLED") return false;
   return true;
 }
 
 /**
- * Filas del cuadro cinchos del día: una por línea cincho en OPL, OPCK u OPC.
+ * Filas del cuadro cinchos del día: una por línea cincho en OPL, OPCK, OPI u OPC.
  * @param {object[]} orders
  * @param {string} workDateYmd YYYY-MM-DD
  */
