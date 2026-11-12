@@ -29,6 +29,7 @@ import {
   normalizeSiteIds,
   orderFixedCategories,
   previousPeriod,
+  lastClosedDay,
   sameDateLastYear,
 } from "./reports/financeReportHelpers";
 import "./KioskFinance.css";
@@ -44,6 +45,7 @@ const TABS = [
 
 const initialFilters = () => {
   const today = getTodayYmdGuatemala();
+  const closed = lastClosedDay(today);
   const year = Number(today.slice(0, 4));
   const month = Number(today.slice(5, 7));
   return {
@@ -54,11 +56,11 @@ const initialFilters = () => {
     month,
     mode: "SAME_PERIOD",
     siteIds: [],
-    // Modo "Fechas específicas": por defecto el mes en curso hasta hoy contra las mismas fechas del año anterior
-    from: `${today.slice(0, 8)}01`,
-    to: today,
-    baseFrom: sameDateLastYear(`${today.slice(0, 8)}01`),
-    baseTo: sameDateLastYear(today),
+    // Modo "Fechas específicas": por defecto el mes en curso hasta el cierre de ayer contra las mismas fechas del año anterior
+    from: `${closed.slice(0, 8)}01`,
+    to: closed,
+    baseFrom: sameDateLastYear(`${closed.slice(0, 8)}01`),
+    baseTo: sameDateLastYear(closed),
   };
 };
 
