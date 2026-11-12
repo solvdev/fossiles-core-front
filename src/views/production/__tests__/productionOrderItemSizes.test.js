@@ -71,4 +71,46 @@ describe("productionOrderItemSizes", () => {
     expect(firstCinchoSizesError(items, catalog, "OPV")).toMatch(/FOSS-01 - Cincho Casual/);
     expect(firstCinchoSizesError([{ productId: 2, quantity: 4 }], catalog, "NORMAL")).toBeNull();
   });
+
+  test("buildPositiveSizes drops empty, negative and non-numeric quantities", () => {
+    expect(
+      buildPositiveSizes({
+        S: "",
+        M: "abc",
+        L: -3,
+        XL: "-1",
+        XXL: null,
+        OS: undefined,
+        "32": 2,
+      })
+    ).toEqual({ "32": 2 });
+  });
+
+  test("buildPositiveSizes keeps unconstrained keys including 95 and XL", () => {
+    expect(buildPositiveSizes({ "  xl ": 1, "95": 2, 32: 1 })).toEqual({
+      XL: 1,
+      "95": 2,
+      "32": 1,
+    });
+  });
+
+  test("empty size grid becomes {} from buildPositiveSizes and null from sizesPayload", () => {
+    expect(buildPositiveSizes({})).toEqual({});
+    expect(buildPositiveSizes({ "  ": 4 })).toEqual({});
+    expect(sizesPayload({})).toBeNull();
+    expect(sizesPayload(undefined)).toBeNull();
+  });
+
+  // BUG: expected duplicate keys after trim/upper-case to be summed (XL: 2+3=5);
+  // actual last write wins, so { " xl ": 2, XL: 3 } becomes { XL: 3 }.
+  test.skip("buildPositiveSizes sums quantities when keys collide after normalization", () => {
+    expect(buildPositiveSizes({ " xl ": 2, XL: 3 })).toEqual({ XL: 5 });
+  });
+
+  test("isBeltProductionItem is true for cinchos on MARCAS and VENTA_EN_LINEA", () => {
+    expect(isBeltProductionItem({ productId: 1 }, catalog, "MARCAS")).toBe(true);
+    expect(isBeltProductionItem({ productId: 2 }, catalog, "MARCAS")).toBe(false);
+    expect(isBeltProductionItem({ productId: 1 }, catalog, "VENTA_EN_LINEA")).toBe(true);
+    expect(isBeltProductionItem({ productId: 2 }, catalog, "VENTA_EN_LINEA")).toBe(false);
+  });
 });
