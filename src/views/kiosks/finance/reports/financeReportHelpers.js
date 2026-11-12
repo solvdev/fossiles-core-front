@@ -669,6 +669,9 @@ export const previousPeriod = (from, to) => {
   return { baseFrom: addDaysYmd(from, -days), baseTo: addDaysYmd(from, -1) };
 };
 
+/** Último día cerrado: los reportes de Finanzas llegan hasta el cierre de ayer, hoy aún no termina. */
+export const lastClosedDay = (today) => addDaysYmd(today, -1);
+
 /** Mensaje de error (o null) para los cuatro extremos del modo CUSTOM. today = "yyyy-mm-dd". */
 export const validateCustomRange = ({ from, to, baseFrom, baseTo, today }) => {
   const periods = [
@@ -678,7 +681,7 @@ export const validateCustomRange = ({ from, to, baseFrom, baseTo, today }) => {
   for (const [label, a, b] of periods) {
     if (!isYmd(a) || !isYmd(b)) return `Indica las dos fechas del periodo ${label}.`;
     if (a > b) return `En el periodo ${label} la fecha inicial no puede ser posterior a la final.`;
-    if (today && b > today) return `El periodo ${label} no puede terminar después de hoy.`;
+    if (today && b > lastClosedDay(today)) return `El periodo ${label} no puede terminar después de ayer.`;
     if (rangeDays(a, b) > CUSTOM_MAX_DAYS) return `El periodo ${label} no puede pasar de ${CUSTOM_MAX_DAYS} días.`;
   }
   return null;
@@ -717,12 +720,13 @@ export const describeComparison = ({ year, baseYear, fromMonth, toMonth, mode, t
       (a !== b ? " Los periodos no duran lo mismo: compara con cuidado los totales." : "")
     );
   }
-  const cy = Number(String(today).slice(0, 4));
-  const cm = Number(String(today).slice(5, 7));
-  const cd = Number(String(today).slice(8, 10));
+  const closed = lastClosedDay(today); // el corte es el cierre de ayer
+  const cy = Number(closed.slice(0, 4));
+  const cm = Number(closed.slice(5, 7));
+  const cd = Number(closed.slice(8, 10));
   const inProgress = year === cy && toMonth >= cm;
   if (mode === "SAME_PERIOD") {
-    const end = inProgress ? `hoy (${cd} de ${monthName(cm)})` : `el fin de ${monthName(toMonth)}`;
+    const end = inProgress ? `ayer (${cd} de ${monthName(cm)})` : `el fin de ${monthName(toMonth)}`;
     return (
       `Mismos días en ambos años: del 1 de ${monthName(fromMonth)} hasta ${end} de ${year}, contra esas mismas fechas de ` +
       `${baseYear}. Un kiosco que arrancó en el POS después empieza en su primera venta.`
@@ -731,6 +735,8 @@ export const describeComparison = ({ year, baseYear, fromMonth, toMonth, mode, t
   const range = fromMonth === toMonth ? monthName(fromMonth) : `${monthName(fromMonth)} a ${monthName(toMonth)}`;
   return (
     `Meses completos de ${range}: ${year} contra ${baseYear}.` +
-    (inProgress ? ` ${MONTHS_ES[cm - 1]} ${year} aún no termina, por eso se ve más bajo que ${baseYear}.` : "")
+    (inProgress
+      ? ` ${MONTHS_ES[cm - 1]} ${year} aún no termina (sus ventas llegan al cierre de ayer), por eso se ve más bajo que ${baseYear}.`
+      : "")
   );
 };
