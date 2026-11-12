@@ -613,6 +613,27 @@ export const getShipmentsPendingReceipt = async (kioskLocationId) => {
   return response.json();
 };
 
+/**
+ * Todos los envíos de un kiosko (cualquier estado) con fecha de envío (o de creación) entre `from` y `to`
+ * (YYYY-MM-DD, ambos incluidos). Alimenta la pestaña «Envíos» de Kioscos. El back topa en 500 envíos.
+ */
+export const getShipmentsByKiosk = async (kioskLocationId, from, to) => {
+  const params = new URLSearchParams({ kioskLocationId: String(kioskLocationId) });
+  if (from) params.set('from', from);
+  if (to) params.set('to', to);
+  const response = await fetch(
+    `${API_URL}/product-distributions/shipments/by-kiosk?${params.toString()}`,
+    {
+      headers: { 'Content-Type': 'application/json', ...getAuthHeader() }
+    }
+  );
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ message: 'Error al obtener los envíos del kiosko' }));
+    throw new Error(err.message || 'Error al obtener los envíos del kiosko');
+  }
+  return response.json();
+};
+
 export const countShipmentsInTransit = async (kioskLocationId) => {
   const params = new URLSearchParams();
   if (kioskLocationId != null && kioskLocationId !== '') {
