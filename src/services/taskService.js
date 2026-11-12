@@ -621,6 +621,22 @@ export const getDayPlanOrders = async ({ type = 'ALL', search = '', page = 0, si
 };
 
 /**
+ * «Enviar a maquila» de Armar el día: crea una tarea por OP en la mesa de maquila del día,
+ * sin tope de horas ni de productos.
+ * @param {{ date: string, desk?: number, observations?: string,
+ *   orders: { productionOrderId: number, items: { productionOrderItemId: number, quantity: number }[] }[] }} payload
+ */
+export const sendToMaquila = async (payload) => {
+  const response = await fetch(`${API_URL}/tasks/organizer/day-plan/maquila`, {
+    method: 'POST',
+    headers: headers(),
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) throw await apiError(response, 'No se pudo mandar a maquila');
+  return response.json();
+};
+
+/**
  * Historial de mesas: tareas (con su orden, mesa, horas y tiempos) entre dos fechas YYYY-MM-DD.
  * El back limita el rango a 93 días.
  */

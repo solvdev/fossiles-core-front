@@ -203,6 +203,43 @@ export function filterOrderLines(order, { search = "", color = "ALL", stage = "A
   };
 }
 
+/** Piezas que faltan por terminar (pedidas − terminadas). */
+export const missingUnits = (stages) => Math.max(0, Number(stages?.units || 0) - Number(stages?.done || 0));
+
+/** Cuántas líneas comparten código con otra (para saber si vale la pena unir por código). */
+export const hasRepeatedCodes = (lines) => {
+  const keys = (lines || []).map((l) => l.productCode || l.productName || `#${l.itemId}`);
+  return new Set(keys).size < keys.length;
+};
+
+/**
+ * Junta las líneas que tienen el mismo código de producto (p. ej. un Giorgio en varios colores)
+ * en una sola fila con las etapas sumadas. Respeta el orden de la primera aparición.
+ */
+export function groupLinesByCode(lines) {
+  const groups = new Map();
+  (lines || []).forEach((l) => {
+    const key = l.productCode || l.productName || `#${l.itemId}`;
+    let g = groups.get(key);
+    if (!g) {
+      g = {
+        itemId: `code:${key}`, productCode: l.productCode, productName: l.productName, brandName: l.brandName || "",
+        colorName: "", colors: [], lineCount: 0, receivedUnits: 0, extraUnits: 0, overAssignedUnits: 0,
+        stages: { ...EMPTY_STAGES },
+      };
+      groups.set(key, g);
+    }
+    g.lineCount += 1;
+    if (l.colorName && !g.colors.includes(l.colorName)) g.colors.push(l.colorName);
+    if (l.brandName && g.brandName && g.brandName !== l.brandName) g.brandName = "";
+    g.receivedUnits += Number(l.receivedUnits || 0);
+    g.extraUnits += Number(l.extraUnits || 0);
+    g.overAssignedUnits += Number(l.overAssignedUnits || 0);
+    addStages(g.stages, l.stages);
+  });
+  return [...groups.values()].map((g) => ({ ...g, colors: g.colors.sort((a, b) => a.localeCompare(b, "es")) }));
+}
+
 // ==================== Excel ====================
 
 const border = { style: "thin", color: { rgb: "D1D5DB" } };

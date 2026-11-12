@@ -413,9 +413,9 @@ describe("filtro por supervisora", () => {
 describe("texto del modo de comparación", () => {
   const base = { year: 2026, baseYear: 2025, fromMonth: 1, toMonth: 9 };
 
-  test("mismas fechas: llega hasta hoy si el rango incluye el mes en curso", () => {
+  test("mismas fechas: llega hasta ayer si el rango incluye el mes en curso", () => {
     const t = describeComparison({ ...base, mode: "SAME_PERIOD", today: "2026-09-30" });
-    expect(t).toContain("del 1 de enero hasta hoy (30 de septiembre) de 2026");
+    expect(t).toContain("del 1 de enero hasta ayer (29 de septiembre) de 2026");
     expect(t).toContain("esas mismas fechas de 2025");
     expect(t).toContain("primera venta");
   });
@@ -479,7 +479,8 @@ describe("comparación por fechas específicas", () => {
     expect(validateCustomRange(ok)).toBeNull();
     expect(validateCustomRange({ ...ok, to: "" })).toContain("periodo actual");
     expect(validateCustomRange({ ...ok, baseFrom: "2025-10-06" })).toContain("de comparación");
-    expect(validateCustomRange({ ...ok, to: "2026-10-07" })).toContain("después de hoy");
+    expect(validateCustomRange({ ...ok, to: "2026-10-07" })).toContain("después de ayer");
+    expect(validateCustomRange({ ...ok, to: "2026-10-06" })).toContain("después de ayer"); // hoy aún no cierra
     expect(validateCustomRange({ ...ok, from: "2025-01-01" })).toContain("366");
   });
 

@@ -10,10 +10,11 @@ import {
   describeComparison,
   selectedSupervisorOptions,
   validateCustomRange,
+  lastClosedDay,
 } from "./financeReportHelpers";
 
 const MODE_HELP =
-  "Mismas fechas: compara lo vendido en el rango elegido, sólo hasta hoy, contra esos mismos días del año base. Un kiosco que arrancó en el POS a mitad de año se compara desde su primera venta contra los mismos días del año anterior. Meses completos: compara cada mes entero de ambos años, aunque el mes actual aún no termine. Fechas específicas: tú eliges el rango exacto del periodo actual y el rango exacto contra el que se compara (cualquier día, mes o año).";
+  "Mismas fechas: compara lo vendido en el rango elegido, sólo hasta el cierre de ayer, contra esos mismos días del año base. Un kiosco que arrancó en el POS a mitad de año se compara desde su primera venta contra los mismos días del año anterior. Meses completos: compara cada mes entero de ambos años, aunque el mes actual aún no termine. Fechas específicas: tú eliges el rango exacto del periodo actual y el rango exacto contra el que se compara (cualquier día, mes o año).";
 
 const selectStyles = {
   control: (base, state) => ({
@@ -100,7 +101,7 @@ export default function FinanceFilters({
                 type="date"
                 bsSize="sm"
                 aria-label="Periodo actual, desde"
-                max={today}
+                max={lastClosedDay(today)}
                 value={filters.from}
                 onChange={(e) => onChange({ from: e.target.value })}
               />
@@ -109,7 +110,7 @@ export default function FinanceFilters({
                 type="date"
                 bsSize="sm"
                 aria-label="Periodo actual, hasta"
-                max={today}
+                max={lastClosedDay(today)}
                 value={filters.to}
                 onChange={(e) => onChange({ to: e.target.value })}
               />
@@ -122,7 +123,7 @@ export default function FinanceFilters({
                 type="date"
                 bsSize="sm"
                 aria-label="Periodo de comparación, desde"
-                max={today}
+                max={lastClosedDay(today)}
                 value={filters.baseFrom}
                 onChange={(e) => onChange({ baseFrom: e.target.value })}
               />
@@ -131,7 +132,7 @@ export default function FinanceFilters({
                 type="date"
                 bsSize="sm"
                 aria-label="Periodo de comparación, hasta"
-                max={today}
+                max={lastClosedDay(today)}
                 value={filters.baseTo}
                 onChange={(e) => onChange({ baseTo: e.target.value })}
               />
