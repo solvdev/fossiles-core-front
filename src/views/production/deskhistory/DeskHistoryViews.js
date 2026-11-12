@@ -30,7 +30,6 @@ function useOpenSet(keys, defaultOpen) {
   const sig = keys.join("|");
   useEffect(() => {
     setOpen(new Set(defaultOpen ? keys : []));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sig, defaultOpen]);
   const toggle = (k) => setOpen((prev) => {
     const next = new Set(prev);
