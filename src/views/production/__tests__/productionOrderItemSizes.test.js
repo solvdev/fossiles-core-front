@@ -101,9 +101,7 @@ describe("productionOrderItemSizes", () => {
     expect(sizesPayload(undefined)).toBeNull();
   });
 
-  // BUG: expected duplicate keys after trim/upper-case to be summed (XL: 2+3=5);
-  // actual last write wins, so { " xl ": 2, XL: 3 } becomes { XL: 3 }.
-  test.skip("buildPositiveSizes sums quantities when keys collide after normalization", () => {
+  test("buildPositiveSizes sums quantities when keys collide after normalization", () => {
     expect(buildPositiveSizes({ " xl ": 2, XL: 3 })).toEqual({ XL: 5 });
   });
 

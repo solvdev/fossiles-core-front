@@ -19,7 +19,7 @@ export function buildPositiveSizes(sizes = {}) {
     const key = String(size).trim().toUpperCase();
     const quantity = parseInt(qty, 10);
     if (key && quantity > 0) {
-      acc[key] = quantity;
+      acc[key] = (acc[key] || 0) + quantity;
     }
     return acc;
   }, {});
