@@ -23,6 +23,7 @@ import { FilterableSelect } from "components/distribution/FilterableSelect";
 import { getLocations } from "services/locationService";
 import KioskInventoryCountReport from "./KioskInventoryCountReport";
 import KioskOpeningInventoryTab from "./KioskOpeningInventoryTab";
+import KioskShipmentsTab from "./KioskShipmentsTab";
 import { getProducts } from "services/productService";
 import { getColors } from "services/colorService";
 import {
@@ -1112,6 +1113,18 @@ function KioskInventory() {
                 <NavItem>
                   <NavLink
                     href="#"
+                    className={activeTab === "ENVIOS" ? "active" : ""}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      setActiveTab("ENVIOS");
+                    }}
+                  >
+                    Envíos
+                  </NavLink>
+                </NavItem>
+                <NavItem>
+                  <NavLink
+                    href="#"
                     className={activeTab === "DONDE_ESTA" ? "active" : ""}
                     onClick={(e) => {
                       e.preventDefault();
@@ -1952,6 +1965,15 @@ function KioskInventory() {
                   loadingStock={loadingData}
                   onRefreshStock={() =>
                     selectedLocation ? refreshLocationData(selectedLocation) : Promise.resolve()
+                  }
+                />
+              )}
+
+              {activeTab === "ENVIOS" && (
+                <KioskShipmentsTab
+                  locationId={selectedLocation}
+                  locationName={
+                    kioskOptions.find((o) => o.value === String(selectedLocation))?.label || ""
                   }
                 />
               )}
