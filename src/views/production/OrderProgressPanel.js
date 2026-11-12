@@ -15,7 +15,10 @@ import {
   fmtDate,
   filterOrderLines,
   fmtInt,
+  groupLinesByCode,
+  hasRepeatedCodes,
   lineColorsIn,
+  missingUnits,
   orderTypesIn,
   pctOf,
   taskProductsText,
@@ -133,8 +136,20 @@ function WorkingNow({ task, todayYmd, now }) {
 
 const STICKY_TH = { position: "sticky", top: 0, zIndex: 1, background: "#fff", boxShadow: "inset 0 -1px 0 #e5e7eb" };
 
-function LinesTable({ lines, scroll = false }) {
+const STICKY_TF = { position: "sticky", bottom: 0, zIndex: 1, background: "#f3f4f6", boxShadow: "inset 0 1px 0 #d1d5db" };
+
+/** Productos de una OP. `totals` agrega al pie una fila con la suma de todo lo que se ve. */
+function LinesTable({ lines, scroll = false, totals = null, totalLabel = "Total" }) {
   const th = scroll ? STICKY_TH : undefined;
+  const tf = { ...(scroll ? STICKY_TF : { background: "#f3f4f6" }), fontWeight: 700, borderTop: "2px solid #d1d5db" };
+  const missingCell = (stages, bold) => {
+    const n = missingUnits(stages);
+    return (
+      <td className="text-right" style={{ color: n > 0 ? "#b91c1c" : "#047857", fontWeight: bold ? 800 : 700 }}>
+        {fmtInt(n)}
+      </td>
+    );
+  };
   const table = (
     <Table responsive={!scroll} size="sm" className="mb-0" style={{ background: "#fff" }}>
       <thead>
@@ -142,6 +157,7 @@ function LinesTable({ lines, scroll = false }) {
           <th style={th}>Producto</th><th style={th}>Color</th>
           <th className="text-right" style={th}>Pedidas</th>
           {STAGES.map((st) => <th key={st.key} className="text-right" style={{ ...th, color: st.text }}>{st.label}</th>)}
+          <th className="text-right" style={{ ...th, color: "#b91c1c" }} title="Pedidas − terminadas">Faltan</th>
           <th style={{ ...th, minWidth: 110 }}>Avance</th>
         </tr>
       </thead>
@@ -156,13 +172,23 @@ function LinesTable({ lines, scroll = false }) {
                 <div style={{ fontSize: 11, color: "#b45309" }}>{fmtInt(l.overAssignedUnits)} pzas de más en tareas</div>
               )}
             </td>
-            <td style={{ whiteSpace: "nowrap" }}>{l.colorName || "—"}</td>
+            <td style={l.colors ? { fontSize: 12 } : { whiteSpace: "nowrap" }}>
+              {l.colors
+                ? (
+                  <>
+                    <strong>{l.colors.length > 1 ? `${l.colors.length} colores` : l.colors[0] || "—"}</strong>
+                    {l.colors.length > 1 && <div style={{ fontSize: 11, color: MUTED }}>{l.colors.join(", ")}</div>}
+                  </>
+                )
+                : (l.colorName || "—")}
+            </td>
             <td className="text-right"><strong>{fmtInt(l.stages?.units)}</strong></td>
             {STAGES.map((st) => (
               <td key={st.key} className="text-right" style={{ color: l.stages?.[st.key] ? st.text : "#d1d5db" }}>
                 {fmtInt(l.stages?.[st.key])}
               </td>
             ))}
+            {missingCell(l.stages)}
             <td style={{ verticalAlign: "middle" }}>
               <StageBar stages={l.stages} height={10} showNumbers={false} />
               {l.receivedUnits > 0 && <div style={{ fontSize: 11, color: MUTED }}>{fmtInt(l.receivedUnits)} recibidas en bodega</div>}
@@ -170,6 +196,24 @@ function LinesTable({ lines, scroll = false }) {
           </tr>
         ))}
       </tbody>
+      {totals && (
+        <tfoot>
+          <tr>
+            <td colSpan={2} style={tf}>{totalLabel}</td>
+            <td className="text-right" style={tf}>{fmtInt(totals.units)}</td>
+            {STAGES.map((st) => (
+              <td key={st.key} className="text-right" style={{ ...tf, color: totals[st.key] ? st.text : "#9ca3af" }}>{fmtInt(totals[st.key])}</td>
+            ))}
+            <td className="text-right" style={{ ...tf, color: missingUnits(totals) > 0 ? "#b91c1c" : "#047857", fontSize: 14 }}>
+              {fmtInt(missingUnits(totals))}
+            </td>
+            <td style={tf}>
+              <StageBar stages={totals} height={10} showNumbers={false} />
+              <div style={{ fontSize: 11, color: MUTED, fontWeight: 500 }}>{pctOf(totals.done, totals.units)}% terminado</div>
+            </td>
+          </tr>
+        </tfoot>
+      )}
     </Table>
   );
   if (!scroll) return table;
@@ -300,6 +344,10 @@ function OrderDetail({ order, todayYmd }) {
   const [stage, setStage] = useState("ALL");
   const colors = useMemo(() => lineColorsIn(order.lines), [order.lines]);
   const f = useMemo(() => filterOrderLines(order, { search, color, stage }), [order, search, color, stage]);
+  const [byCode, setByCode] = useState(false);
+  const canGroup = useMemo(() => hasRepeatedCodes(order.lines), [order.lines]);
+  const grouped = byCode && canGroup;
+  const rows = useMemo(() => (grouped ? groupLinesByCode(f.lines) : f.lines), [grouped, f.lines]);
   const showFilters = f.totalLines > 3 || f.totalTasks > 5;
   const clear = () => { setSearch(""); setColor("ALL"); setStage("ALL"); };
 
@@ -308,8 +356,17 @@ function OrderDetail({ order, todayYmd }) {
       <div className="d-flex flex-wrap align-items-center" style={{ gap: "4px 10px", margin: "4px 0 6px" }}>
         <span style={SECTION_TITLE}>
           Avance por producto · {f.active ? `${fmtInt(f.lines.length)} de ${fmtInt(f.totalLines)}` : fmtInt(f.totalLines)} líneas
+          {grouped && ` → ${fmtInt(rows.length)} códigos`}
         </span>
         {order.receivedUnits > 0 && <span style={{ fontSize: 12, color: MUTED }}>{fmtInt(order.receivedUnits)} pzas recibidas en bodega</span>}
+        {canGroup && (
+          <Button
+            size="sm" color={grouped ? "primary" : "secondary"} outline={!grouped} className="my-0 ml-auto"
+            onClick={() => setByCode((v) => !v)} title="Suma las líneas del mismo código aunque sean de distinto color"
+          >
+            {grouped ? "✓ " : ""}Unir colores por código
+          </Button>
+        )}
       </div>
 
       {showFilters && (
@@ -336,7 +393,10 @@ function OrderDetail({ order, todayYmd }) {
       {f.active && f.lines.length > 0 && (
         <div className="d-flex flex-wrap align-items-center" style={{ gap: "4px 12px", marginBottom: 6, fontSize: 12 }}>
           <div style={{ flex: "1 1 200px", minWidth: 160, maxWidth: 360 }}><StageBar stages={f.stages} height={12} showNumbers={false} /></div>
-          <span><strong>{fmtInt(f.stages.done)}</strong> de {fmtInt(f.stages.units)} pzas terminadas ({pctOf(f.stages.done, f.stages.units)}%) en lo filtrado</span>
+          <span>
+            <strong>{fmtInt(f.stages.done)}</strong> de {fmtInt(f.stages.units)} pzas terminadas ({pctOf(f.stages.done, f.stages.units)}%) ·{" "}
+            <strong style={{ color: "#b91c1c" }}>faltan {fmtInt(missingUnits(f.stages))}</strong> en lo filtrado
+          </span>
         </div>
       )}
 
@@ -346,7 +406,12 @@ function OrderDetail({ order, todayYmd }) {
           <Button size="sm" color="link" className="my-0 p-0" onClick={clear}>Quitar filtro</Button>
         </div>
       ) : (
-        <LinesTable lines={f.lines} scroll={f.lines.length > SCROLL_FROM} />
+        <LinesTable
+          lines={rows}
+          scroll={rows.length > SCROLL_FROM}
+          totals={rows.length > 1 ? f.stages : null}
+          totalLabel={f.active ? `Total de lo filtrado (${fmtInt(f.lines.length)} líneas)` : `Total de la orden (${fmtInt(f.lines.length)} líneas)`}
+        />
       )}
 
       <div style={{ ...SECTION_TITLE, margin: "12px 0 4px" }}>

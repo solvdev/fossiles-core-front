@@ -5,7 +5,10 @@ import {
   elapsedLabel,
   exportOrderProgressExcel,
   filterOrderLines,
+  groupLinesByCode,
+  hasRepeatedCodes,
   lineColorsIn,
+  missingUnits,
   stagesText,
   timeLabel,
 } from "../orderProgressReport";
@@ -160,5 +163,17 @@ describe("filterOrderLines", () => {
 
   it("lista los colores sin repetir", () => {
     expect(lineColorsIn(order.lines)).toEqual(["CAFE", "NEGRO"]);
+  });
+
+  it("une las líneas del mismo código sumando etapas y colores", () => {
+    expect(hasRepeatedCodes(order.lines)).toBe(true);
+    expect(hasRepeatedCodes([order.lines[0], order.lines[2]])).toBe(false);
+    const g = groupLinesByCode(order.lines);
+    expect(g.map((x) => x.productCode)).toEqual(["B-7", "TT-4"]);
+    expect(g[0].colors).toEqual(["CAFE", "NEGRO"]);
+    expect(g[0].lineCount).toBe(2);
+    expect(g[0].stages.units).toBe(18);
+    expect(g[0].stages.done).toBe(12);
+    expect(missingUnits(g[0].stages)).toBe(6);
   });
 });
