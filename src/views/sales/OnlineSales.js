@@ -807,15 +807,17 @@ function OnlineSales() {
           const sourceMap = {};
           const leatherOkMap = {};
           const leatherSummaryMap = {};
+          const linesMap = {};
           (preview?.rows || []).forEach((r) => {
             const sid = String(r.saleId);
+            linesMap[sid] = Array.isArray(r.lines) ? r.lines : [];
             map[sid] = Boolean(r.canFulfillFromInventory);
             sourceMap[sid] = r.inventorySource || "";
             leatherOkMap[sid] = r.leatherOkForOpl !== false;
             leatherSummaryMap[sid] = Array.isArray(r.leatherSummary) ? r.leatherSummary : [];
           });
           setFulfillmentPreview({
-            bodegaPtFound: preview?.bodegaPtFound !== false, map, sourceMap, leatherOkMap, leatherSummaryMap
+            bodegaPtFound: preview?.bodegaPtFound !== false, map, sourceMap, leatherOkMap, leatherSummaryMap, linesMap
           });
         }
       } catch (e) {
@@ -1020,6 +1022,41 @@ function OnlineSales() {
     if (!saleNeedsProduction(sale)) return true;
     const v = (fulfillmentPreview?.leatherOkMap || {})[String(sale.id)];
     return v !== false;
+  };
+
+  // Detalle de stock por línea (talla) que calcula el servidor; se empareja por id de línea y, si no hay, por posición.
+  const saleLineInfo = (sale, it, idx) => {
+    const lines = (fulfillmentPreview?.linesMap || {})[String(sale.id)] || [];
+    if (it?.id != null) {
+      const byId = lines.find((l) => l.saleItemId === it.id);
+      if (byId) return byId;
+    }
+    return lines[idx] || null;
+  };
+
+  const renderSaleLineStock = (info) => {
+    if (!info) return null;
+    const dev = Number(info.stockDevoluciones || 0);
+    const pt = Number(info.stockBodegaPt || 0);
+    const stockTxt = `Devoluciones ${dev} · PT ${pt}`;
+    if (info.issue === "SIN_TALLA") {
+      return <div style={{ color: "#c62828" }}>Falta la talla: sin ella no se encuentra stock</div>;
+    }
+    if (info.issue === "TALLA_SIN_STOCK") {
+      return <div style={{ color: "#c62828" }}>Sin stock en esta talla ({stockTxt})</div>;
+    }
+    if (info.issue === "STOCK_INSUFICIENTE") {
+      return (
+        <div style={{ color: "#c62828" }}>
+          Stock {dev + pt} de {info.quantityInSale} pedidos de esta talla ({stockTxt})
+        </div>
+      );
+    }
+    return (
+      <div style={{ color: info.competes ? "#e65100" : "#2e7d32" }}>
+        {info.competes ? "Compite con otra venta por esta talla" : "Hay stock"} ({stockTxt})
+      </div>
+    );
   };
 
   const saleLeatherSummaryLines = (sale) =>
@@ -4002,21 +4039,22 @@ function OnlineSales() {
                           </td>
                           <td>{sale.customerName}</td>
                           <td style={{ fontSize: 11 }}>
-                            {(sale.items && sale.items.length > 0) ? sale.items.slice(0, 2).map((it, i) => (
-                              <div key={i}>
+                            {(sale.items && sale.items.length > 0) ? sale.items.map((it, i) => (
+                              <div key={i} style={{ marginBottom: 4 }}>
                                 <strong>{it.productCode}</strong> {it.productName}
                                 {it.colorName && <span className="text-muted"> · {it.colorName}</span>}
-                                {(it.quantity && it.quantity > 1) && <span className="text-primary font-weight-bold"> x{it.quantity}</span>}
+                                {it.size ? <span className="font-weight-bold"> · Talla {it.size}</span> : null}
+                                <span className="text-primary font-weight-bold"> x{it.quantity || 1}</span>
+                                {renderSaleLineStock(saleLineInfo(sale, it, i))}
                               </div>
                             )) : (
                               <div>
                                 <strong>{sale.productCode}</strong> {sale.productName}
                                 {sale.colorName && <span className="text-muted"> · {sale.colorName}</span>}
-                                {(sale.quantity && sale.quantity > 1) && <span className="text-primary font-weight-bold"> x{sale.quantity}</span>}
+                                {sale.size ? <span className="font-weight-bold"> · Talla {sale.size}</span> : null}
+                                <span className="text-primary font-weight-bold"> x{sale.quantity || 1}</span>
+                                {renderSaleLineStock(saleLineInfo(sale, null, 0))}
                               </div>
-                            )}
-                            {sale.items && sale.items.length > 2 && (
-                              <small className="text-muted">+{sale.items.length - 2} producto(s) más</small>
                             )}
                           </td>
                           <td>
