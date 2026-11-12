@@ -1,18 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import {
-  Alert,
-  Badge,
-  Button,
-  Card,
-  CardBody,
-  CardHeader,
-  CardTitle,
-  Col,
-  Input,
-  Label,
-  Row,
-  Table,
-} from "reactstrap";
+import { Alert, Button, Card, CardBody, CardHeader, CardTitle, Input, Table } from "reactstrap";
 import FilterableSelect from "components/distribution/FilterableSelect";
 import { getProductCategories } from "services/productCategoryService";
 import { getProducts } from "services/productService";
@@ -23,15 +10,20 @@ import {
   formatPromotionTierSummary,
   getPromoAudienceLabel,
 } from "utils/productAudienceHelper";
-import { formatCurrency } from "./posUtils";
+import { formatCurrency, isEntrecuerosPosMode } from "./posUtils";
+import PosExcelFilter from "./PosExcelFilter";
 import PosPromotionRuleBuilder from "./PosPromotionRuleBuilder";
 import PosPromotionSimulator from "./PosPromotionSimulator";
 import {
   RULES_TYPE,
   buildPromotionPayload,
+  collectRuleProductIds,
+  describeKioskScope,
   describePromotionRule,
   isDraftPromotion,
+  isEntrecuerosOnlyProduct,
   isRulesPromotion,
+  promoKioskIds,
 } from "./promotionRules";
 import "./PosPromotions.css";
 
@@ -164,7 +156,8 @@ function PosPromotionsTab({
     [categories]
   );
 
-  const productOptions = useMemo(
+  // Todos los productos activos; entrecuerosOnly = solo se venden en Entrecueros (ver isEntrecuerosOnlyProduct).
+  const allProductOptions = useMemo(
     () =>
       (products || [])
         .filter((p) => String(p.status || "ACTIVE").toUpperCase() !== "INACTIVE")
@@ -172,9 +165,30 @@ function PosPromotionsTab({
           value: String(p.id),
           label: `${p.code || ""} · ${p.name || ""}${Number(p.salePrice) > 0 ? ` · ${formatCurrency(p.salePrice)}` : ""}`,
           searchText: `${p.code || ""} ${p.name || ""}`,
+          entrecuerosOnly: isEntrecuerosOnlyProduct(p),
         })),
     [products]
   );
+
+  // ¿Hay algún kiosco Entrecueros entre los marcados? (sin marcar = todos)
+  const includesEntrecuerosKiosk = useMemo(() => {
+    const entrecuerosIds = new Set(
+      (kiosks || []).filter((k) => isEntrecuerosPosMode(k)).map((k) => String(k.kioskId))
+    );
+    if (entrecuerosIds.size === 0) return false;
+    const picked = promoKioskIds(promoForm);
+    return picked.length === 0 || picked.some((id) => entrecuerosIds.has(id));
+  }, [kiosks, promoForm]);
+
+  // Productos del constructor: sin los solo-Entrecueros si no hay kiosco Entrecueros marcado
+  // (los que ya están elegidos en la regla se conservan para no dejar chips huérfanos).
+  const productOptions = useMemo(() => {
+    if (includesEntrecuerosKiosk) return allProductOptions;
+    const inUse = collectRuleProductIds(promoForm.ruleConfig);
+    return allProductOptions.filter((o) => !o.entrecuerosOnly || inUse.has(o.value));
+  }, [allProductOptions, includesEntrecuerosKiosk, promoForm.ruleConfig]);
+
+  const hiddenEntrecuerosCount = allProductOptions.length - productOptions.length;
 
   const summary = useMemo(
     () => (isRules ? describePromotionRule(promoForm, { categoriesById, productsById, kioskNameById }) : []),
@@ -234,6 +248,7 @@ function PosPromotionsTab({
           ruleConfig: promo.ruleConfig,
           startDate: promo.startDate,
           endDate: promo.endDate,
+          kioskLocationIds: promo.kioskLocationIds,
           kioskLocationId: promo.kioskLocationId,
         },
         { categoriesById, productsById, kioskNameById }
@@ -247,96 +262,102 @@ function PosPromotionsTab({
   };
 
   return (
-    <Card className="kiosk-pos-block">
-      <CardHeader>
-        <CardTitle tag="h5">
-          {editingPromotionId ? "Editar promoción" : "Nueva promoción"}
-        </CardTitle>
-        <small className="text-muted">
-          Toda promoción nueva o editada queda en <strong>borrador</strong>: pruébala en el simulador y apruébala para
-          que el POS la use.
-        </small>
+    <Card className="kiosk-pos-block pr-root">
+      <CardHeader className="pr-head">
+        <div>
+          <CardTitle tag="h5" className="pr-head-title">
+            {editingPromotionId ? "Editar promoción" : "Nueva promoción"}
+            {editingPromotionId && <span className="pr-badge is-editing">Editando</span>}
+          </CardTitle>
+          <small className="pr-hint">
+            Toda promoción nueva o editada queda en <strong>borrador</strong>: pruébala en el simulador y apruébala para
+            que el POS la use.
+          </small>
+        </div>
       </CardHeader>
-      <CardBody>
-        <Row>
-          <Col md="4">
-            <Label className="kiosk-pos-label">Nombre</Label>
-            <Input
-              className="kiosk-pos-input-lg"
-              value={promoForm.name}
-              placeholder="Ej. Black Friday 2026"
-              onChange={(e) => onPromoFormChange({ name: e.target.value })}
-            />
-          </Col>
-          <Col md="4">
-            <Label className="kiosk-pos-label">Tipo</Label>
-            <FilterableSelect
-              value={promoForm.discountType}
-              onChange={(value) =>
-                onPromoFormChange({
-                  discountType: value || RULES_TYPE,
-                  tiers: value === "TIERED_PERCENT" ? [{ ...EMPTY_TIER }] : promoForm.tiers,
-                })
-              }
-              options={DISCOUNT_TYPE_OPTIONS}
-              placeholder="Buscar tipo..."
-              allowEmpty={false}
-              inputClassName="kiosk-pos-input-lg"
-            />
-          </Col>
-          <Col md="4">
-            <Label className="kiosk-pos-label">Kiosko (vacío = todos)</Label>
-            <FilterableSelect
-              value={promoForm.kioskLocationId}
-              onChange={(value) => onPromoFormChange({ kioskLocationId: value })}
-              options={kioskOptions}
-              placeholder="Buscar kiosko..."
-              emptyLabel="Todos"
-              inputClassName="kiosk-pos-input-lg"
-            />
-          </Col>
-          {!isTiered && !isRules && (
-            <Col md="4">
-              <Label className="kiosk-pos-label">Línea (vacío = todas)</Label>
+      <CardBody className="pr-body">
+        <section className="pr-general">
+          <div className="pr-grid">
+            <div className="pr-field pr-span-2">
+              <label className="pr-field-label">Nombre</label>
+              <Input
+                className="kiosk-pos-input-lg"
+                value={promoForm.name}
+                placeholder="Ej. Black Friday 2026"
+                onChange={(e) => onPromoFormChange({ name: e.target.value })}
+              />
+            </div>
+            <div className="pr-field pr-span-2">
+              <label className="pr-field-label">Tipo</label>
               <FilterableSelect
-                value={promoForm.audienceCategory}
-                onChange={(value) => onPromoFormChange({ audienceCategory: value })}
-                options={audienceOptions}
-                placeholder="Buscar línea..."
-                emptyLabel="Todas las líneas"
+                value={promoForm.discountType}
+                onChange={(value) =>
+                  onPromoFormChange({
+                    discountType: value || RULES_TYPE,
+                    tiers: value === "TIERED_PERCENT" ? [{ ...EMPTY_TIER }] : promoForm.tiers,
+                  })
+                }
+                options={DISCOUNT_TYPE_OPTIONS}
+                placeholder="Buscar tipo..."
+                allowEmpty={false}
                 inputClassName="kiosk-pos-input-lg"
               />
-            </Col>
-          )}
-          <Col md="3">
-            <Label className="kiosk-pos-label">Inicio</Label>
-            <Input
-              className="kiosk-pos-input-lg"
-              type="date"
-              value={promoForm.startDate}
-              onChange={(e) => onPromoFormChange({ startDate: e.target.value })}
+            </div>
+            <PosExcelFilter
+              label="Kioscos"
+              options={kioskOptions}
+              selected={promoForm.kioskLocationIds || []}
+              onChange={(kioskLocationIds) => onPromoFormChange({ kioskLocationIds })}
+              emptyMeansAll
+              allLabel="Todos los kioscos"
+              noun="kioscos"
+              searchPlaceholder="Buscar kiosco…"
+              hint={hiddenEntrecuerosCount > 0 ? `${hiddenEntrecuerosCount} productos solo de Entrecueros ocultos (marca un kiosco Entrecueros para verlos).` : undefined}
             />
-          </Col>
-          <Col md="3">
-            <Label className="kiosk-pos-label">Fin</Label>
-            <Input
-              className="kiosk-pos-input-lg"
-              type="date"
-              value={promoForm.endDate}
-              onChange={(e) => onPromoFormChange({ endDate: e.target.value })}
-            />
-          </Col>
-          <Col md="2" className="d-flex align-items-end">
-            <Label check className="ms-4 mb-2">
+            {!isTiered && !isRules && (
+              <div className="pr-field">
+                <label className="pr-field-label">Línea (vacío = todas)</label>
+                <FilterableSelect
+                  value={promoForm.audienceCategory}
+                  onChange={(value) => onPromoFormChange({ audienceCategory: value })}
+                  options={audienceOptions}
+                  placeholder="Buscar línea..."
+                  emptyLabel="Todas las líneas"
+                  inputClassName="kiosk-pos-input-lg"
+                />
+              </div>
+            )}
+            <div className="pr-field">
+              <label className="pr-field-label">Inicio</label>
               <Input
-                type="checkbox"
-                checked={Boolean(promoForm.active)}
-                onChange={(e) => onPromoFormChange({ active: e.target.checked })}
-              />{" "}
-              Activa
-            </Label>
-          </Col>
-        </Row>
+                className="kiosk-pos-input-lg"
+                type="date"
+                value={promoForm.startDate}
+                onChange={(e) => onPromoFormChange({ startDate: e.target.value })}
+              />
+            </div>
+            <div className="pr-field">
+              <label className="pr-field-label">Fin</label>
+              <Input
+                className="kiosk-pos-input-lg"
+                type="date"
+                value={promoForm.endDate}
+                onChange={(e) => onPromoFormChange({ endDate: e.target.value })}
+              />
+            </div>
+            <div className="pr-field pr-field-switch">
+              <label className="pr-switch">
+                <input
+                  type="checkbox"
+                  checked={Boolean(promoForm.active)}
+                  onChange={(e) => onPromoFormChange({ active: e.target.checked })}
+                />
+                <span className="pr-switch-track" aria-hidden="true" />
+                <span>{promoForm.active ? "Activa" : "Inactiva"}</span>
+              </label>
+            </div>
+          </div>
+        </section>
 
         {categoriesError && (
           <Alert color="warning" className="py-2 mt-2 mb-0">
@@ -358,53 +379,57 @@ function PosPromotionsTab({
             />
           </div>
         ) : (
-          <Row className="mt-2">
-            {isTiered ? (
-              <Col md="12">
-                <Alert color="light" className="py-2 mb-2">
-                  Cada fila define audiencia + categoría + %. Se aplica sola en caja cuando el producto cumple ambos
-                  criterios. Si hay varias promos vigentes, el sistema usa la que más beneficio da al cliente.
-                </Alert>
-                <Label className="kiosk-pos-label">Tiers — audiencia + categoría + descuento</Label>
-                {tiers.map((tier, index) => (
-                  <Row key={`promo-tier-row-${index}`} className="mb-2 align-items-end">
-                    <Col md="3">
-                      <Label className="kiosk-pos-label small mb-1">Audiencia</Label>
-                      <FilterableSelect
-                        value={tier.audienceCategory || "CABALLERO"}
-                        onChange={(value) => updateTier(index, { audienceCategory: value || "CABALLERO" })}
-                        options={tierAudienceOptions}
-                        placeholder="Audiencia..."
-                        allowEmpty={false}
-                        inputClassName="kiosk-pos-input-lg"
-                      />
-                    </Col>
-                    <Col md="4">
-                      <Label className="kiosk-pos-label small mb-1">Categoría de producto</Label>
-                      <FilterableSelect
-                        value={tier.categoryId ? String(tier.categoryId) : ""}
-                        onChange={(value) => updateTier(index, { categoryId: value || "" })}
-                        options={categoryOptions}
-                        placeholder={categoriesLoading ? "Cargando categorías..." : "Buscar categoría..."}
-                        emptyLabel="Seleccione categoría"
-                        allowEmpty={false}
-                        disabled={categoriesLoading || categoryOptions.length === 0}
-                        inputClassName="kiosk-pos-input-lg"
-                      />
-                    </Col>
-                    <Col md="3">
-                      <Label className="kiosk-pos-label small mb-1">Descuento %</Label>
-                      <Input
-                        className="kiosk-pos-input-lg"
-                        type="number"
-                        min="0"
-                        max="100"
-                        step="0.01"
-                        value={tier.discountValue || ""}
-                        onChange={(e) => updateTier(index, { discountValue: e.target.value })}
-                      />
-                    </Col>
-                    <Col md="2">
+          <section className="pr-block mt-3">
+            <header className="pr-block-head">
+              <span className="pr-step-number">1</span>
+              <div className="pr-block-title">Descuento</div>
+            </header>
+            <div className="pr-block-body">
+              {isTiered ? (
+                <>
+                  <Alert color="light" className="py-2 mb-2">
+                    Cada fila define audiencia + categoría + %. Se aplica sola en caja cuando el producto cumple ambos
+                    criterios. Si hay varias promos vigentes, el sistema usa la que más beneficio da al cliente.
+                  </Alert>
+                  <div className="pr-field-label">Tiers — audiencia + categoría + descuento</div>
+                  {tiers.map((tier, index) => (
+                    <div key={`promo-tier-row-${index}`} className="pr-tier-row pr-tier-row-wide">
+                      <div className="pr-field">
+                        <label className="pr-field-label">Audiencia</label>
+                        <FilterableSelect
+                          value={tier.audienceCategory || "CABALLERO"}
+                          onChange={(value) => updateTier(index, { audienceCategory: value || "CABALLERO" })}
+                          options={tierAudienceOptions}
+                          placeholder="Audiencia..."
+                          allowEmpty={false}
+                          inputClassName="kiosk-pos-input-lg"
+                        />
+                      </div>
+                      <div className="pr-field">
+                        <label className="pr-field-label">Categoría de producto</label>
+                        <FilterableSelect
+                          value={tier.categoryId ? String(tier.categoryId) : ""}
+                          onChange={(value) => updateTier(index, { categoryId: value || "" })}
+                          options={categoryOptions}
+                          placeholder={categoriesLoading ? "Cargando categorías..." : "Buscar categoría..."}
+                          emptyLabel="Seleccione categoría"
+                          allowEmpty={false}
+                          disabled={categoriesLoading || categoryOptions.length === 0}
+                          inputClassName="kiosk-pos-input-lg"
+                        />
+                      </div>
+                      <div className="pr-field">
+                        <label className="pr-field-label">Descuento %</label>
+                        <Input
+                          className="kiosk-pos-input-lg"
+                          type="number"
+                          min="0"
+                          max="100"
+                          step="0.01"
+                          value={tier.discountValue || ""}
+                          onChange={(e) => updateTier(index, { discountValue: e.target.value })}
+                        />
+                      </div>
                       <Button
                         color="danger"
                         outline
@@ -414,50 +439,52 @@ function PosPromotionsTab({
                       >
                         Quitar
                       </Button>
-                    </Col>
-                  </Row>
-                ))}
-                <Button color="secondary" outline className="kiosk-pos-btn-main" onClick={addTier}>
-                  Agregar tier
-                </Button>
-              </Col>
-            ) : isCombo ? (
-              <>
-                <Col md="3">
-                  <Label className="kiosk-pos-label">Lleva (uds)</Label>
-                  <Input
-                    className="kiosk-pos-input-lg"
-                    type="number"
-                    min="2"
-                    value={promoForm.comboBuyQty}
-                    onChange={(e) => onPromoFormChange({ comboBuyQty: e.target.value })}
-                  />
-                </Col>
-                <Col md="3">
-                  <Label className="kiosk-pos-label">Paga (uds)</Label>
-                  <Input
-                    className="kiosk-pos-input-lg"
-                    type="number"
-                    min="1"
-                    value={promoForm.comboPayQty}
-                    onChange={(e) => onPromoFormChange({ comboPayQty: e.target.value })}
-                  />
-                </Col>
-              </>
-            ) : (
-              <Col md="4">
-                <Label className="kiosk-pos-label">Valor descuento</Label>
-                <Input
-                  className="kiosk-pos-input-lg"
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={promoForm.discountValue}
-                  onChange={(e) => onPromoFormChange({ discountValue: e.target.value })}
-                />
-              </Col>
-            )}
-          </Row>
+                    </div>
+                  ))}
+                  <Button color="secondary" outline className="mt-2" onClick={addTier}>
+                    Agregar tier
+                  </Button>
+                </>
+              ) : isCombo ? (
+                <div className="pr-grid">
+                  <div className="pr-field">
+                    <label className="pr-field-label">Lleva (uds)</label>
+                    <Input
+                      className="kiosk-pos-input-lg"
+                      type="number"
+                      min="2"
+                      value={promoForm.comboBuyQty}
+                      onChange={(e) => onPromoFormChange({ comboBuyQty: e.target.value })}
+                    />
+                  </div>
+                  <div className="pr-field">
+                    <label className="pr-field-label">Paga (uds)</label>
+                    <Input
+                      className="kiosk-pos-input-lg"
+                      type="number"
+                      min="1"
+                      value={promoForm.comboPayQty}
+                      onChange={(e) => onPromoFormChange({ comboPayQty: e.target.value })}
+                    />
+                  </div>
+                </div>
+              ) : (
+                <div className="pr-grid">
+                  <div className="pr-field">
+                    <label className="pr-field-label">Valor descuento</label>
+                    <Input
+                      className="kiosk-pos-input-lg"
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={promoForm.discountValue}
+                      onChange={(e) => onPromoFormChange({ discountValue: e.target.value })}
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+          </section>
         )}
 
         {formError && (
@@ -465,7 +492,7 @@ function PosPromotionsTab({
             {formError}
           </Alert>
         )}
-        <div className="d-flex flex-wrap gap-2 mt-3">
+        <div className="pr-actions">
           <Button color="primary" className="kiosk-pos-btn-main" onClick={save} disabled={saving}>
             {saving ? "Guardando…" : editingPromotionId ? "Guardar cambios (queda en borrador)" : "Guardar como borrador"}
           </Button>
@@ -492,8 +519,9 @@ function PosPromotionsTab({
             <PosPromotionSimulator
               promotion={simPromotion}
               buildDraftPayload={buildDraftPayload}
+              draftKioskIds={promoKioskIds(promoForm)}
               kiosks={kiosks}
-              productOptions={productOptions}
+              allProductOptions={allProductOptions}
               onApprove={onApprovePromotion}
               approving={Boolean(simPromotion) && statusBusyId === simPromotion.id}
               onClose={() => {
@@ -504,22 +532,26 @@ function PosPromotionsTab({
           </div>
         )}
 
-        <Table responsive className="mt-4 pr-list">
-          <thead className="text-primary">
+        <div className="pr-list-head">
+          <h6 className="mb-0">Promociones registradas</h6>
+          <span className="pr-hint">{(promotions || []).length} en total</span>
+        </div>
+        <Table responsive className="pr-list">
+          <thead>
             <tr>
               <th>Nombre</th>
               <th>Tipo</th>
               <th>Regla</th>
-              <th>Kiosko</th>
+              <th>Kioscos</th>
               <th>Vigencia</th>
               <th>Estado</th>
-              <th style={{ minWidth: 260 }}>Acciones</th>
+              <th className="pr-col-actions">Acciones</th>
             </tr>
           </thead>
           <tbody>
             {(promotions || []).length === 0 ? (
               <tr>
-                <td colSpan={7} className="text-muted text-center">
+                <td colSpan={7} className="pr-empty">
                   No hay promociones registradas.
                 </td>
               </tr>
@@ -527,37 +559,36 @@ function PosPromotionsTab({
               (promotions || []).map((promo) => {
                 const draft = isDraftPromotion(promo);
                 const busy = statusBusyId === promo.id;
+                const vigencia = promoStatusLabel(promo);
                 return (
                   <tr key={`tbl-promo-${promo.id}`} className={editingPromotionId === promo.id ? "pr-row-editing" : ""}>
-                    <td>{promo.name}</td>
-                    <td>{typeLabel(promo)}</td>
-                    <td className="small" style={{ maxWidth: 380 }}>
+                    <td data-label="Nombre" className="pr-cell-name">
+                      <strong>{promo.name}</strong>
+                    </td>
+                    <td data-label="Tipo">{typeLabel(promo)}</td>
+                    <td data-label="Regla" className="pr-cell-rule">
                       {valueLabel(promo)}
                       {!isRulesPromotion(promo) && !String(promo.discountType || "").toUpperCase().includes("TIERED") && (
-                        <div className="text-muted">{getPromoAudienceLabel(promo.audienceCategory)}</div>
+                        <div className="pr-hint">{getPromoAudienceLabel(promo.audienceCategory)}</div>
                       )}
                     </td>
-                    <td>
-                      {promo.kioskLocationId
-                        ? kioskNameById[String(promo.kioskLocationId)] || promo.kioskLocationId
-                        : "Todos"}
+                    <td data-label="Kioscos">
+                      <span className={`pr-scope${promoKioskIds(promo).length ? " is-limited" : ""}`}>
+                        {describeKioskScope(promoKioskIds(promo), kioskNameById, { compact: true })}
+                      </span>
                     </td>
-                    <td className="small">
-                      {(promo.startDate || "-")} - {(promo.endDate || "-")}
+                    <td data-label="Vigencia" className="pr-cell-dates">
+                      {(promo.startDate || "—")} → {(promo.endDate || "—")}
                     </td>
-                    <td>
-                      {draft ? (
-                        <Badge color="warning" className="text-dark">Borrador</Badge>
-                      ) : (
-                        <Badge color="success">Aprobada</Badge>
-                      )}
-                      <div className="small text-muted">{promoStatusLabel(promo)}</div>
-                      {!draft && promo.approvedByName && (
-                        <div className="small text-muted">por {promo.approvedByName}</div>
-                      )}
+                    <td data-label="Estado">
+                      <span className={`pr-badge ${draft ? "is-draft" : "is-approved"}`}>
+                        {draft ? "Borrador" : "Aprobada"}
+                      </span>
+                      <span className={`pr-pill is-${vigencia.toLowerCase()}`}>{vigencia}</span>
+                      {!draft && promo.approvedByName && <div className="pr-hint">por {promo.approvedByName}</div>}
                     </td>
-                    <td>
-                      <div className="d-flex flex-wrap gap-1">
+                    <td data-label="Acciones">
+                      <div className="pr-row-actions">
                         <Button
                           color="info"
                           outline

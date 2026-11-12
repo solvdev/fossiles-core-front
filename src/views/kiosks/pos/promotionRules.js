@@ -291,7 +291,7 @@ export const EMPTY_PROMO_FORM = () => ({
   discountValue: "",
   comboBuyQty: "2",
   comboPayQty: "1",
-  kioskLocationId: "",
+  kioskLocationIds: [],
   audienceCategory: "",
   tiers: [{ audienceCategory: "CABALLERO", categoryId: "", discountValue: "" }],
   ruleConfig: emptyRuleConfig(),
@@ -299,6 +299,13 @@ export const EMPTY_PROMO_FORM = () => ({
   endDate: "",
   active: true,
 });
+
+/** Kioscos de una promoción (lista nueva o kiosco único viejo), como texto. Vacío = todos. */
+export const promoKioskIds = (promo) => {
+  const list = Array.isArray(promo?.kioskLocationIds) ? promo.kioskLocationIds : [];
+  const ids = list.length ? list : promo?.kioskLocationId ? [promo.kioskLocationId] : [];
+  return ids.map((id) => String(id));
+};
 
 export const promotionToForm = (promo) => ({
   ...EMPTY_PROMO_FORM(),
@@ -308,7 +315,7 @@ export const promotionToForm = (promo) => ({
   discountValue: promo?.discountValue ?? "",
   comboBuyQty: promo?.comboBuyQty != null ? String(promo.comboBuyQty) : "2",
   comboPayQty: promo?.comboPayQty != null ? String(promo.comboPayQty) : "1",
-  kioskLocationId: promo?.kioskLocationId ? String(promo.kioskLocationId) : "",
+  kioskLocationIds: promoKioskIds(promo),
   audienceCategory: promo?.audienceCategory || "",
   tiers: promo?.tiers?.length
     ? promo.tiers.map((t) => ({
@@ -332,7 +339,9 @@ export const buildPromotionPayload = (promoForm) => {
     startDate: promoForm.startDate || null,
     endDate: promoForm.endDate || null,
     active: Boolean(promoForm.active),
-    kioskLocationId: promoForm.kioskLocationId ? Number(promoForm.kioskLocationId) : null,
+    // Vacío = todos los kioscos (incluidos los nuevos).
+    kioskLocationIds: promoKioskIds(promoForm).map(Number).filter((id) => Number.isFinite(id) && id > 0),
+    kioskLocationId: null,
     audienceCategory: promoForm.audienceCategory || null,
   };
   if (promoForm.discountType === RULES_TYPE) {
@@ -374,6 +383,47 @@ const orText = (items) => {
   return `${clean.slice(0, -1).join(", ")} o ${clean[clean.length - 1]}`;
 };
 const ordinal = (n) => `${n}.ª`;
+
+/**
+ * Dónde aplica en palabras: "Todos los kioscos", "Todos los kioscos menos X", "Miraflores y Oakland".
+ * @param {string[]} ids   kioscos marcados (vacío = todos)
+ * @param {Object<string,string>} kioskNameById
+ * @param {{compact?: boolean}} [opts]  compact: recorta listas largas ("A, B y 3 más")
+ */
+export const describeKioskScope = (ids, kioskNameById = {}, { compact = false } = {}) => {
+  const allIds = Object.keys(kioskNameById);
+  const picked = (ids || []).map(String);
+  const nameOf = (id) => kioskNameById[String(id)] || `#${id}`;
+  if (picked.length === 0 || (allIds.length > 0 && allIds.every((id) => picked.includes(id)))) {
+    return "Todos los kioscos";
+  }
+  const missing = allIds.filter((id) => !picked.includes(id));
+  if (allIds.length > 3 && missing.length > 0 && missing.length <= 3 && missing.length < picked.length) {
+    return `Todos los kioscos menos ${listText(missing.map(nameOf))}`;
+  }
+  const names = picked.map(nameOf);
+  if (compact && names.length > 3) {
+    return `${names.slice(0, 2).join(", ")} y ${names.length - 2} más`;
+  }
+  return listText(names);
+};
+
+/** Productos que solo se venden en Entrecueros: habilitados allá y sin ningún precio de POS normal. */
+export const isEntrecuerosOnlyProduct = (product) =>
+  Boolean(product?.entrecuerosEnabled) &&
+  !["salePrice", "discountedPrice", "sellerPrice"].some((key) => Number(product?.[key]) > 0);
+
+/** Ids de productos usados en una regla (para no ocultar lo que ya está elegido). */
+export const collectRuleProductIds = (config) => {
+  const out = new Set();
+  const add = (f) => {
+    (f?.productIds || []).forEach((id) => out.add(String(id)));
+    (f?.excludeProductIds || []).forEach((id) => out.add(String(id)));
+  };
+  add(config?.filter);
+  add(config?.action?.buyFilter);
+  return out;
+};
 
 const describeFilter = (filter, { categoryName, productName }) => {
   const f = filter || {};
@@ -420,9 +470,7 @@ export const describePromotionRule = (promoForm, { categoriesById = {}, products
   if (c.timeFrom && c.timeTo) when.push(`de ${c.timeFrom} a ${c.timeTo}`);
   else if (c.timeFrom) when.push(`desde las ${c.timeFrom}`);
   else if (c.timeTo) when.push(`hasta las ${c.timeTo}`);
-  const kiosk = promoForm?.kioskLocationId
-    ? `en ${kioskNameById[String(promoForm.kioskLocationId)] || "un kiosco"}`
-    : "en todos los kioscos";
+  const kiosk = `en ${describeKioskScope(promoKioskIds(promoForm), kioskNameById).toLowerCase()}`;
   lines.push(`${when.length ? `${when.join(", ")}, ` : ""}${kiosk}.`.replace(/^./, (m) => m.toUpperCase()));
 
   const filterText = describeFilter(config.filter, { categoryName, productName });
