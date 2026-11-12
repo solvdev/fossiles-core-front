@@ -211,13 +211,17 @@ function KioskShipmentsTab({ locationId, locationName }) {
     });
   };
 
-  const doPdf = (list) => {
+  const doPdf = async (list) => {
     if (!list.length) return;
-    const ok = openKioskShipmentsPrintWindow(list, { kioskName: locationName, range });
-    if (!ok) {
-      showError("El navegador bloqueó la ventana. Permite las ventanas emergentes para este sitio e inténtalo de nuevo.");
-    } else if (list.length > 1) {
-      showSuccess(`Se preparó el documento de ${list.length} envíos. Elige «Guardar como PDF» o tu impresora.`);
+    try {
+      const ok = await openKioskShipmentsPrintWindow(list, { kioskName: locationName, range });
+      if (!ok) {
+        showError("El navegador bloqueó la ventana. Permite las ventanas emergentes para este sitio e inténtalo de nuevo.");
+      } else if (list.length > 1) {
+        showSuccess(`Se preparó el documento de ${list.length} envíos. Elige «Guardar como PDF» o tu impresora.`);
+      }
+    } catch (err) {
+      showError(err?.message || "No se pudo preparar la impresión.");
     }
   };
 

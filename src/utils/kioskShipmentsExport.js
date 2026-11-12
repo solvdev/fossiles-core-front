@@ -3,6 +3,9 @@ import { boldFont, thinBorder } from "./kioskReportExcelStyle";
 import { formatDateGt, formatDateTimeGt, formatNowGt } from "./dateTimeHelper";
 import { escapeHtml } from "./shipmentPrintDocumentHtml";
 import { formatPackingItemLabel, getShipmentPackingItems } from "./shipmentPackingHelper";
+import { extractShipmentUserObservation } from "./shipmentNotesObservationHelper";
+import { getPublicFrontBaseUrl, buildPtDispatchDistributionUrl } from "./ptDispatchQr";
+import { PRINT_FONT_FAMILY, PRINT_PAPER_HEIGHT_MM, PRINT_PAPER_WIDTH_MM } from "./prepareShipmentsOrderHelper";
 
 /**
  * Pestaña «Envíos» de Kioscos: etiquetas de estado, filtros y exportación a PDF (ventana de impresión)
@@ -133,154 +136,188 @@ export const buildExportFileName = (shipments, kioskName, range, ext) => {
 };
 
 // ---------------------------------------------------------------------------
-// PDF (documento imprimible, un envío por hoja)
+// PDF: mismo documento que se imprime en Distribución > Preparar envíos
+// (hoja carta, Times New Roman en negrita, tabla Cod./Producto/Color/Cantidad/Medida/Precio/Total,
+// Observación y Vo. Bo. / Recibido).
 // ---------------------------------------------------------------------------
 
+const PAPER_WIDTH_MM = PRINT_PAPER_WIDTH_MM;
+const PAPER_HEIGHT_MM = PRINT_PAPER_HEIGHT_MM;
+const MARGIN_TOP_MM = 5;
+const MARGIN_RIGHT_MM = 3;
+const MARGIN_BOTTOM_MM = 3;
+const MARGIN_LEFT_MM = 3;
+const HARDWARE_SAFE_INSET_MM = 5;
+const CONTENT_WIDTH_MM = Math.max(90, PAPER_WIDTH_MM - MARGIN_LEFT_MM - MARGIN_RIGHT_MM - HARDWARE_SAFE_INSET_MM * 2);
+const SOURCE_ADDRESS = "Bodega Principal";
+
+const money = (amount) =>
+  `Q${num(amount).toLocaleString("es-GT", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+const currentUserName = () => {
+  try {
+    const raw = localStorage.getItem("user");
+    if (!raw) return "Usuario";
+    const user = JSON.parse(raw);
+    return user?.fullName || user?.name || user?.username || user?.email || "Usuario";
+  } catch (_e) {
+    return "Usuario";
+  }
+};
+
+/** Filas de la tabla del documento: productos (con TALLA en el nombre) y luego el material de empaque. */
+export const buildPrintRows = (shipment) => {
+  const productRows = shipmentLines(shipment)
+    .map((l) => {
+      const qty = num(l.quantity);
+      const unit = num(l.unitPrice);
+      const size = String(l.size || "").trim().toUpperCase();
+      return {
+        code: l.productCode || "-",
+        name: `${l.productName || "-"}${size ? ` TALLA ${size}` : ""}`,
+        brand: String(l.brandName || "").trim(),
+        color: l.colorName || "-",
+        quantity: qty,
+        uom: l.uomName || l.unitName || "Unidad",
+        unitPrice: unit > 0 ? unit : 0,
+        total: unit > 0 ? qty * unit : 0,
+      };
+    })
+    .filter((r) => r.quantity > 0);
+  const packingRows = getShipmentPackingItems(shipment)
+    .map((p) => {
+      const qty = num(p.quantity);
+      const unit = num(p.unitPrice);
+      return {
+        code: p.materialSku || `SUM-${p.materialId}`,
+        name: p.materialName || "Empaque",
+        brand: "",
+        color: "-",
+        quantity: qty,
+        uom: "Unidad",
+        unitPrice: unit > 0 ? unit : 0,
+        total: unit > 0 ? qty * unit : 0,
+      };
+    })
+    .filter((r) => r.quantity > 0);
+  return [...productRows, ...packingRows];
+};
+
 const PRINT_STYLES = `
+  @page { size: ${PAPER_WIDTH_MM}mm ${PAPER_HEIGHT_MM}mm; margin: 0; }
   * { box-sizing: border-box; }
-  body { font-family: Arial, Helvetica, sans-serif; font-size: 12px; color: #1f2937; margin: 0; }
-  .doc { padding: 22px 26px; page-break-after: always; }
-  .doc:last-child { page-break-after: auto; }
-  .head { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 3px solid #111827; padding-bottom: 10px; margin-bottom: 14px; }
-  .brand { font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: #6b7280; font-weight: 700; }
-  .title { font-size: 22px; font-weight: 800; margin: 2px 0 0; }
-  .pill { display: inline-block; border: 1.5px solid #111827; border-radius: 999px; padding: 3px 12px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; }
-  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px 16px; margin-bottom: 16px; }
-  .cell .k { font-size: 9.5px; text-transform: uppercase; letter-spacing: 0.06em; color: #6b7280; font-weight: 700; }
-  .cell .v { font-size: 13px; font-weight: 600; margin-top: 1px; }
-  table.lines { width: 100%; border-collapse: collapse; }
-  table.lines th { background: #e5e7eb; text-align: left; font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em; padding: 6px 7px; border: 1px solid #9ca3af; }
-  table.lines td { padding: 6px 7px; border: 1px solid #d1d5db; vertical-align: top; }
-  table.lines tbody tr:nth-child(even) td { background: #f9fafb; }
-  table.lines .n { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
-  table.lines .c { text-align: center; }
-  table.lines tfoot td { font-weight: 800; background: #f3f4f6; border-top: 2px solid #111827; }
-  .muted { color: #6b7280; font-size: 10.5px; }
-  .diff-neg { color: #b91c1c; font-weight: 700; }
-  .diff-pos { color: #047857; font-weight: 700; }
-  h3 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; margin: 16px 0 6px; color: #374151; }
-  .box { border: 1px solid #d1d5db; border-radius: 4px; padding: 8px 10px; background: #fafafa; white-space: pre-wrap; }
-  ul.pack { margin: 0; padding-left: 18px; }
-  .sign { display: flex; gap: 28px; margin-top: 46px; }
-  .sign div { flex: 1; border-top: 1px solid #111827; padding-top: 4px; text-align: center; font-size: 10.5px; color: #374151; }
-  .foot { margin-top: 14px; font-size: 9.5px; color: #9ca3af; text-align: right; }
-  .summary-table { width: 100%; border-collapse: collapse; margin-top: 8px; }
-  .summary-table th { background: #e5e7eb; text-align: left; font-size: 10px; text-transform: uppercase; padding: 6px 7px; border: 1px solid #9ca3af; }
-  .summary-table td { padding: 6px 7px; border: 1px solid #d1d5db; }
-  .summary-table .n { text-align: right; }
-  .summary-table tfoot td { font-weight: 800; background: #f3f4f6; border-top: 2px solid #111827; }
-  @page { size: letter; margin: 10mm; }
-  @media print { .doc { padding: 0; } }
+  html, body { width: ${PAPER_WIDTH_MM}mm; }
+  body {
+    font-family: ${PRINT_FONT_FAMILY};
+    font-size: 11.5px;
+    font-weight: 700;
+    color: #111;
+    margin: 0;
+    padding: ${MARGIN_TOP_MM}mm ${MARGIN_RIGHT_MM + HARDWARE_SAFE_INSET_MM}mm ${MARGIN_BOTTOM_MM}mm ${MARGIN_LEFT_MM + HARDWARE_SAFE_INSET_MM}mm;
+    text-rendering: geometricPrecision;
+  }
+  table, th, td, strong, span, div { font-family: ${PRINT_FONT_FAMILY}; font-weight: 700; }
+  .doc { width: ${CONTENT_WIDTH_MM}mm; min-height: auto; margin: 0 auto 2mm auto; break-inside: avoid-page; page-break-inside: avoid; }
+  .doc-header { display: flex; flex-direction: row; align-items: flex-start; justify-content: space-between; gap: 3mm; width: 100%; margin-bottom: 1mm; }
+  .doc-header-main { flex: 1 1 auto; min-width: 0; }
+  .doc-header-qr { flex: 0 0 22mm; text-align: center; align-self: flex-start; padding-top: 1px; }
+  .doc-header-qr img { width: 18mm; height: 18mm; display: block; margin: 0 auto; }
+  .doc-header-qr-caption { font-size: 6.5px; margin-top: 1px; font-weight: 700; line-height: 1.05; max-width: 22mm; }
+  .doc + .doc { break-before: page; page-break-before: always; }
+  table { border-collapse: collapse; width: 100%; }
+  .meta, .grid { table-layout: fixed; }
+  .meta td { border: 0.25mm solid #111; padding: 3px 4px; vertical-align: top; line-height: 1.1; overflow-wrap: anywhere; }
+  .grid th, .grid td { border: 0.25mm solid #111; padding: 3px 4px; line-height: 1.1; overflow-wrap: anywhere; }
+  .grid thead th { text-align: left; background: #fff; font-weight: 700; }
+  .grid th:nth-child(1), .grid td:nth-child(1) { width: 12%; }
+  .grid th:nth-child(2), .grid td:nth-child(2) { width: 23%; }
+  .grid:not(.grid-with-brand) th:nth-child(3), .grid:not(.grid-with-brand) td:nth-child(3) { width: 12%; }
+  .grid:not(.grid-with-brand) th:nth-child(4), .grid:not(.grid-with-brand) td:nth-child(4) { width: 10%; }
+  .grid:not(.grid-with-brand) th:nth-child(5), .grid:not(.grid-with-brand) td:nth-child(5) { width: 14%; }
+  .grid:not(.grid-with-brand) th:nth-child(6), .grid:not(.grid-with-brand) td:nth-child(6) { width: 15%; }
+  .grid:not(.grid-with-brand) th:nth-child(7), .grid:not(.grid-with-brand) td:nth-child(7) { width: 15%; }
+  .grid.grid-with-brand th:nth-child(3), .grid.grid-with-brand td:nth-child(3) { width: 11%; }
+  .grid.grid-with-brand th:nth-child(4), .grid.grid-with-brand td:nth-child(4) { width: 10%; }
+  .grid.grid-with-brand th:nth-child(5), .grid.grid-with-brand td:nth-child(5) { width: 9%; }
+  .grid.grid-with-brand th:nth-child(6), .grid.grid-with-brand td:nth-child(6) { width: 12%; }
+  .grid.grid-with-brand th:nth-child(7), .grid.grid-with-brand td:nth-child(7) { width: 13%; }
+  .grid.grid-with-brand th:nth-child(8), .grid.grid-with-brand td:nth-child(8) { width: 13%; }
+  .numeric { text-align: right; white-space: nowrap; }
+  .empty { text-align: center; color: #666; font-style: italic; }
+  .total-row td { background: #fff; }
+  .footer-meta { margin-top: 2px; }
 `;
 
-const cell = (label, value) =>
-  `<div class="cell"><div class="k">${escapeHtml(label)}</div><div class="v">${escapeHtml(value || "—")}</div></div>`;
+const shipmentDocHtml = (shipment, { qrDataUrl = "", printedBy = "" } = {}) => {
+  const rows = buildPrintRows(shipment);
+  const showBrand = rows.some((r) => r.brand);
+  const cols = showBrand ? 8 : 7;
+  const totalQty = rows.reduce((s, r) => s + r.quantity, 0);
+  const totalAmount = rows.reduce((s, r) => s + r.total, 0);
+  const observation = extractShipmentUserObservation(shipment.notes) || "-";
+  const origin = shipment.distributionNumber || shipment.productionOrderCode || "—";
 
-const diffCell = (line) => {
-  const d = line.quantityDifference != null ? num(line.quantityDifference) : num(line.quantityReceived) - num(line.quantity);
-  if (!d) return "0";
-  return `<span class="${d < 0 ? "diff-neg" : "diff-pos"}">${d > 0 ? "+" : ""}${d}</span>`;
-};
-
-const shipmentDocHtml = (shipment, { kioskName, generatedAt }) => {
-  const lines = shipmentLines(shipment);
-  const hasReceipt = shipmentHasReceipt(shipment);
-  const status = shipmentStatusMeta(shipment.status);
-  const packing = getShipmentPackingItems(shipment);
-
-  const rows = lines
-    .map((l, i) => {
-      const variant = lineVariantLabel(l);
-      return `<tr>
-        <td class="c">${i + 1}</td>
-        <td>${escapeHtml(l.productCode || "")}</td>
-        <td>${escapeHtml(l.productName || "")}${variant ? `<div class="muted">${escapeHtml(variant)}</div>` : ""}${
-          l.receivedLineNotes ? `<div class="muted">Nota: ${escapeHtml(l.receivedLineNotes)}</div>` : ""
-        }</td>
-        <td>${escapeHtml(l.colorName || "—")}</td>
-        <td class="c">${escapeHtml(l.size || "—")}</td>
-        <td class="n"><strong>${num(l.quantity)}</strong></td>
-        ${hasReceipt ? `<td class="n">${l.quantityReceived != null ? num(l.quantityReceived) : "—"}</td><td class="n">${l.quantityReceived != null ? diffCell(l) : "—"}</td>` : ""}
-      </tr>`;
-    })
-    .join("");
-
-  const totalCols = hasReceipt
-    ? `<td class="n">${shipmentPieces(shipment)}</td><td class="n">${shipmentReceivedPieces(shipment)}</td><td></td>`
-    : `<td class="n">${shipmentPieces(shipment)}</td>`;
-
-  const packHtml = packing.length
-    ? `<h3>Material de empaque</h3><ul class="pack">${packing
-        .map((p) => `<li>${escapeHtml(formatPackingItemLabel(p))} — <strong>${num(p.quantity)}</strong></li>`)
-        .join("")}</ul>`
-    : "";
-
-  const notes = String(shipment.notes || "").trim();
-  const recvNotes = String(shipment.receivedNotes || "").trim();
-
-  return `<section class="doc">
-    <div class="head">
-      <div>
-        <div class="brand">Fossiles · Envío a kiosko</div>
-        <div class="title">${escapeHtml(shipment.shipmentNumber || `#${shipment.id}`)}</div>
-      </div>
-      <div class="pill">${escapeHtml(status.label)}</div>
-    </div>
-    <div class="grid">
-      ${cell("Kiosko", shipment.locationName || kioskName)}
-      ${cell("Fecha de envío", shipment.sentAt ? formatDateTimeGt(shipment.sentAt) : "Aún no enviado")}
-      ${cell("Fecha de recepción", shipment.receivedAt ? formatDateTimeGt(shipment.receivedAt) : "Pendiente")}
-      ${cell("Creado", shipment.createdAt ? formatDateTimeGt(shipment.createdAt) : "")}
-      ${cell("Creado por", shipment.createdByName)}
-      ${cell("Origen", shipmentOriginLabel(shipment))}
-    </div>
-    <table class="lines">
-      <thead><tr>
-        <th class="c" style="width:28px">#</th><th style="width:90px">Código</th><th>Producto</th><th style="width:100px">Color</th><th class="c" style="width:50px">Talla</th>
-        <th class="n" style="width:62px">Enviado</th>${hasReceipt ? `<th class="n" style="width:62px">Recibido</th><th class="n" style="width:62px">Dif.</th>` : ""}
-      </tr></thead>
-      <tbody>${rows || `<tr><td colspan="${hasReceipt ? 8 : 6}" class="c muted">Sin líneas</td></tr>`}</tbody>
-      <tfoot><tr><td colspan="5">Total · ${lines.length} línea${lines.length === 1 ? "" : "s"}</td>${totalCols}</tr></tfoot>
-    </table>
-    ${packHtml}
-    ${notes ? `<h3>Observaciones</h3><div class="box">${escapeHtml(notes)}</div>` : ""}
-    ${recvNotes ? `<h3>Notas de recepción</h3><div class="box">${escapeHtml(recvNotes)}</div>` : ""}
-    <div class="sign"><div>Despachó</div><div>Transportista</div><div>Recibió (kiosko)</div></div>
-    <div class="foot">Generado ${escapeHtml(generatedAt)}</div>
-  </section>`;
-};
-
-/** Hoja de resumen al inicio cuando se imprimen varios envíos a la vez. */
-const summaryDocHtml = (shipments, { kioskName, rangeLabel, generatedAt }) => {
-  const rows = shipments
+  const bodyRows = rows
     .map(
-      (s) => `<tr>
-        <td><strong>${escapeHtml(s.shipmentNumber || s.id)}</strong></td>
-        <td>${escapeHtml(formatDateGt(shipmentDate(s)))}</td>
-        <td>${escapeHtml(shipmentStatusMeta(s.status).label)}</td>
-        <td class="n">${shipmentLines(s).length}</td>
-        <td class="n">${shipmentPieces(s)}</td>
+      (r) => `<tr>
+        <td>${escapeHtml(r.code)}</td>
+        <td>${escapeHtml(r.name)}</td>
+        ${showBrand ? `<td>${escapeHtml(r.brand || "—")}</td>` : ""}
+        <td>${escapeHtml(r.color)}</td>
+        <td class="numeric">${r.quantity}</td>
+        <td>${escapeHtml(r.uom)}</td>
+        <td class="numeric">${r.unitPrice > 0 ? money(r.unitPrice) : "-"}</td>
+        <td class="numeric">${r.total > 0 ? money(r.total) : "-"}</td>
       </tr>`
     )
     .join("");
-  const totalPieces = shipments.reduce((sum, s) => sum + shipmentPieces(s), 0);
+
+  const metaRows = `
+    <tr>
+      <td colspan="3"><strong>Direccion Envio:</strong> ${escapeHtml(SOURCE_ADDRESS)}</td>
+      <td colspan="2"><strong>Fecha:</strong> ${escapeHtml(formatDateGt(shipmentDate(shipment)))}</td>
+    </tr>
+    <tr>
+      <td colspan="3"><strong>Direccion Recibido:</strong> ${escapeHtml(shipment.locationName || "-")} ${shipment.locationCode ? `(${escapeHtml(shipment.locationCode)})` : ""}</td>
+      <td colspan="2"><strong>Envio No:</strong> ${escapeHtml(shipment.shipmentNumber || shipment.id)}</td>
+    </tr>
+    <tr>
+      <td colspan="3"><strong>Creado por:</strong> ${escapeHtml(shipment.createdByName || "—")}</td>
+      <td colspan="2"><strong>Distribucion:</strong> ${escapeHtml(origin)}</td>
+    </tr>
+    <tr>
+      <td colspan="5"><strong>Generado por:</strong> ${escapeHtml(printedBy)}</td>
+    </tr>`;
+
+  const header = qrDataUrl
+    ? `<div class="doc-header">
+        <div class="doc-header-main"><table class="meta">${metaRows}</table></div>
+        <div class="doc-header-qr">
+          <img src="${String(qrDataUrl).replace(/"/g, "&quot;")}" alt="QR" />
+          <div class="doc-header-qr-caption">Escanear en app Bodega PT — distribución</div>
+        </div>
+      </div>`
+    : `<table class="meta">${metaRows}</table>`;
+
   return `<section class="doc">
-    <div class="head">
-      <div>
-        <div class="brand">Fossiles · Envíos a kiosko</div>
-        <div class="title">${escapeHtml(kioskName || "Kiosko")}</div>
-      </div>
-      <div class="pill">${shipments.length} envío${shipments.length === 1 ? "" : "s"}</div>
-    </div>
-    <div class="grid">
-      ${cell("Período", rangeLabel)}
-      ${cell("Piezas enviadas", String(totalPieces))}
-      ${cell("Generado", generatedAt)}
-    </div>
-    <table class="summary-table">
-      <thead><tr><th>Envío</th><th>Fecha</th><th>Estado</th><th class="n">Líneas</th><th class="n">Piezas</th></tr></thead>
-      <tbody>${rows}</tbody>
-      <tfoot><tr><td colspan="3">Total</td><td class="n">${shipments.reduce((s, x) => s + shipmentLines(x).length, 0)}</td><td class="n">${totalPieces}</td></tr></tfoot>
+    ${header}
+    <table class="grid${showBrand ? " grid-with-brand" : ""}">
+      <thead><tr>
+        <th>Cod.</th><th>Producto</th>${showBrand ? "<th>Marca</th>" : ""}<th>Color</th><th>Cantidad</th><th>Medida</th><th>Precio</th><th>Total</th>
+      </tr></thead>
+      <tbody>
+        ${bodyRows || `<tr><td colspan="${cols}" class="empty">Sin productos</td></tr>`}
+        <tr class="total-row">
+          <td colspan="${showBrand ? 4 : 3}"><strong>Total</strong></td>
+          <td class="numeric"><strong>${totalQty}</strong></td>
+          <td></td><td></td>
+          <td class="numeric"><strong>${totalAmount > 0 ? money(totalAmount) : "-"}</strong></td>
+        </tr>
+      </tbody>
+    </table>
+    <table class="meta footer-meta">
+      <tr><td colspan="5"><strong>Observacion:</strong> ${escapeHtml(observation)}</td></tr>
+      <tr><td colspan="2"><strong>Vo. Bo.:</strong></td><td colspan="3"><strong>Recibido:</strong></td></tr>
     </table>
   </section>`;
 };
@@ -291,16 +328,36 @@ export const rangeText = (range) => {
   return `${f(range.from)} al ${f(range.to)}`;
 };
 
-export const buildKioskShipmentsPrintHtml = (shipments, { kioskName = "", range = null } = {}) => {
+/** QR de la distribución (misma liga que imprime Preparar envíos); vacío si no hay distribución o falla. */
+const distributionQr = async (shipment, cache) => {
+  const id = shipment?.distributionId;
+  if (!id) return "";
+  if (cache.has(id)) return cache.get(id);
+  let dataUrl = "";
+  try {
+    const base = getPublicFrontBaseUrl();
+    if (base) {
+      const { default: QRCode } = await import("qrcode");
+      dataUrl = await QRCode.toDataURL(buildPtDispatchDistributionUrl(base, id), { width: 120, margin: 1 });
+    }
+  } catch (_e) {
+    /* sin QR si falla */
+  }
+  cache.set(id, dataUrl);
+  return dataUrl;
+};
+
+export const buildKioskShipmentsPrintHtml = async (shipments, { kioskName = "" } = {}) => {
   const list = (shipments || []).filter(Boolean);
-  const generatedAt = formatNowGt();
-  const rangeLabel = rangeText(range);
-  const docs = list.map((s) => shipmentDocHtml(s, { kioskName, generatedAt })).join("");
-  const summary = list.length > 1 ? summaryDocHtml(list, { kioskName, rangeLabel, generatedAt }) : "";
-  const title =
-    list.length === 1
-      ? `Envío ${list[0].shipmentNumber || ""} · ${kioskName}`
-      : `Envíos · ${kioskName}`;
+  const printedBy = currentUserName();
+  const cache = new Map();
+  const docs = [];
+  for (const s of list) {
+    // eslint-disable-next-line no-await-in-loop
+    const qrDataUrl = await distributionQr(s, cache);
+    docs.push(shipmentDocHtml(s, { qrDataUrl, printedBy }));
+  }
+  const title = list.length === 1 ? `Envio ${list[0].shipmentNumber || ""}` : `Envios ${kioskName}`;
   return `<!DOCTYPE html>
 <html lang="es">
 <head>
@@ -308,30 +365,37 @@ export const buildKioskShipmentsPrintHtml = (shipments, { kioskName = "", range 
   <title>${escapeHtml(title)}</title>
   <style>${PRINT_STYLES}</style>
 </head>
-<body>${summary}${docs}</body>
+<body>${docs.join("")}</body>
 </html>`;
 };
 
 /**
  * Abre el documento en una pestaña nueva y lanza el diálogo de impresión
  * (ahí mismo se elige «Guardar como PDF»). Devuelve false si el navegador bloqueó la ventana.
+ * La ventana se abre antes de armar el HTML para no perder el permiso del clic.
  */
-export const openKioskShipmentsPrintWindow = (shipments, opts = {}) => {
-  const html = buildKioskShipmentsPrintHtml(shipments, opts);
+export const openKioskShipmentsPrintWindow = async (shipments, opts = {}) => {
   const win = window.open("", "_blank");
   if (!win) return false;
-  win.document.open();
-  win.document.write(html);
-  win.document.close();
-  win.focus();
-  setTimeout(() => {
-    try {
-      win.print();
-    } catch (_e) {
-      /* el usuario puede imprimir con Ctrl+P */
-    }
-  }, 300);
-  return true;
+  win.document.write('<!DOCTYPE html><html><body style="font-family:Arial;padding:24px">Preparando documento…</body></html>');
+  try {
+    const html = await buildKioskShipmentsPrintHtml(shipments, opts);
+    win.document.open();
+    win.document.write(html);
+    win.document.close();
+    win.focus();
+    setTimeout(() => {
+      try {
+        win.print();
+      } catch (_e) {
+        /* el usuario puede imprimir con Ctrl+P */
+      }
+    }, 300);
+    return true;
+  } catch (err) {
+    win.close();
+    throw err;
+  }
 };
 
 // ---------------------------------------------------------------------------
