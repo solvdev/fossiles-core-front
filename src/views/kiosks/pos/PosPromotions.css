@@ -1,113 +1,323 @@
-/* Promociones dinámicas: constructor por bloques y simulador (prefijo .pr-) */
+/* Pestaña PROMOS del POS: formulario, constructor por bloques, filtros estilo Excel, simulador y lista (prefijo .pr-) */
 
-.pr-builder {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
+.pr-root {
+  --pr-accent: var(--pos-primary, #1d9e75);
+  --pr-accent-soft: var(--pos-primary-soft, #e1f5ee);
+  --pr-border: #e3e7ee;
+  --pr-border-strong: #cdd4de;
+  --pr-text: #1f2937;
+  --pr-muted: #6b7280;
+  --pr-surface: #ffffff;
+  --pr-surface-soft: #f7f9fb;
+  --pr-radius: 12px;
+  --pr-radius-sm: 8px;
+  --pr-warn-bg: #fff4d6;
+  --pr-warn-text: #8a5a00;
+  --pr-ok-bg: #dff5e8;
+  --pr-ok-text: #146c43;
+  --pr-info-bg: #e7f1ff;
+  --pr-info-text: #1d5fb4;
 }
 
-.pr-block,
-.pr-sim {
-  border: 1px solid #e3e6ec;
-  border-radius: 10px;
-  padding: 12px 14px;
-  background: #fff;
+/* ---------------------------------------------------------------- cabecera y cuerpo */
+
+.pr-head {
+  border-bottom: 1px solid var(--pr-border);
 }
 
-.pr-block-title {
-  font-weight: 600;
-  font-size: 14px;
-  margin-bottom: 8px;
+.pr-head-title {
   display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 2px;
+}
+
+.pr-body {
+  padding-top: 16px;
+}
+
+.pr-general {
+  border: 1px solid var(--pr-border);
+  border-radius: var(--pr-radius);
+  background: var(--pr-surface-soft);
+  padding: 16px;
+}
+
+/* ---------------------------------------------------------------- rejilla y campos */
+
+.pr-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: 14px 16px;
+  align-items: start;
+}
+
+.pr-span-2 {
+  grid-column: span 2;
+}
+
+.pr-field {
+  min-width: 0;
+}
+
+.pr-field-label {
+  display: block;
+  margin: 0 0 4px;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: #374151;
+  letter-spacing: 0.01em;
+}
+
+.pr-hint {
+  font-size: 12px;
+  line-height: 1.35;
+  color: var(--pr-muted);
+}
+
+.pr-field > .pr-hint,
+.pr-xl > .pr-hint {
+  display: block;
+  margin-top: 4px;
+}
+
+.pr-field-switch {
+  display: flex;
+  align-items: flex-end;
+  min-height: 44px;
+}
+
+.pr-range {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
   align-items: center;
   gap: 8px;
 }
 
+.pr-range > span {
+  color: var(--pr-muted);
+  font-size: 13px;
+}
+
+.pr-link {
+  border: 0;
+  background: transparent;
+  padding: 4px 2px;
+  font-size: 12.5px;
+  color: var(--pr-muted);
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.pr-link.is-strong {
+  color: var(--pr-accent);
+  font-weight: 700;
+  text-decoration: none;
+}
+
+/* ---------------------------------------------------------------- interruptor Activa */
+
+.pr-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 8px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.pr-switch input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.pr-switch-track {
+  position: relative;
+  width: 44px;
+  height: 26px;
+  border-radius: 999px;
+  background: #c4cbd6;
+  transition: background 0.15s;
+  flex: 0 0 auto;
+}
+
+.pr-switch-track::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+  transition: transform 0.15s;
+}
+
+.pr-switch input:checked + .pr-switch-track {
+  background: var(--pr-accent);
+}
+
+.pr-switch input:checked + .pr-switch-track::after {
+  transform: translateX(18px);
+}
+
+.pr-switch input:focus-visible + .pr-switch-track {
+  outline: 2px solid var(--pr-accent);
+  outline-offset: 2px;
+}
+
+/* ---------------------------------------------------------------- bloques del constructor */
+
+.pr-builder {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.pr-block,
+.pr-sim {
+  border: 1px solid var(--pr-border);
+  border-radius: var(--pr-radius);
+  background: var(--pr-surface);
+}
+
+.pr-block-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--pr-border);
+  background: var(--pr-surface-soft);
+  border-radius: var(--pr-radius) var(--pr-radius) 0 0;
+}
+
+.pr-step-number {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--pr-accent);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.pr-block-title {
+  font-weight: 700;
+  font-size: 15px;
+  color: var(--pr-text);
+}
+
+.pr-block-sub {
+  font-size: 12px;
+  color: var(--pr-muted);
+}
+
+.pr-block-body {
+  padding: 16px;
+}
+
 .pr-subblock {
-  border-left: 3px solid #cfd8e3;
-  padding-left: 10px;
+  border-left: 3px solid var(--pr-accent);
+  padding: 4px 0 4px 14px;
+  background: transparent;
 }
 
 .pr-subblock-title {
-  font-weight: 600;
-  font-size: 13px;
+  font-weight: 700;
+  font-size: 13.5px;
 }
+
+/* ---------------------------------------------------------------- chips (días, formas de pago) */
 
 .pr-chips {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 8px;
 }
 
 .pr-chip {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  border: 1px solid #cfd4dc;
-  background: #f7f8fa;
-  color: #34495e;
+  justify-content: center;
+  min-height: 40px;
+  min-width: 52px;
+  border: 1px solid var(--pr-border-strong);
+  background: var(--pr-surface);
+  color: #374151;
   border-radius: 999px;
-  padding: 4px 10px;
-  font-size: 13px;
+  padding: 6px 14px;
+  font-size: 14px;
   line-height: 1.2;
   cursor: pointer;
+  transition: background 0.12s, border-color 0.12s;
+}
+
+.pr-chip:hover {
+  border-color: var(--pr-accent);
 }
 
 .pr-chip.is-on {
-  background: #1d8cf8;
-  border-color: #1d8cf8;
+  background: var(--pr-accent);
+  border-color: var(--pr-accent);
   color: #fff;
+  font-weight: 600;
 }
 
-.pr-chip-x {
-  border: 0;
-  background: transparent;
-  color: inherit;
-  font-size: 15px;
-  line-height: 1;
-  padding: 0 0 0 2px;
-  cursor: pointer;
-}
+/* ---------------------------------------------------------------- plantillas */
 
 .pr-templates {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-  gap: 8px;
-  margin-bottom: 6px;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: 10px;
 }
 
 .pr-template {
   text-align: left;
-  border: 1px solid #dfe3ea;
-  background: #fafbfc;
-  border-radius: 8px;
-  padding: 8px 10px;
+  border: 1px solid var(--pr-border);
+  background: var(--pr-surface);
+  border-radius: var(--pr-radius-sm);
+  padding: 10px 12px;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 3px;
   cursor: pointer;
+  transition: border-color 0.12s, background 0.12s;
 }
 
 .pr-template strong {
-  font-size: 13px;
-  color: #2c3e50;
+  font-size: 13.5px;
+  color: var(--pr-text);
 }
 
 .pr-template span {
   font-size: 12px;
-  color: #6c757d;
+  line-height: 1.35;
+  color: var(--pr-muted);
 }
 
-.pr-template:hover,
-.pr-template.is-on {
-  border-color: #1d8cf8;
-  background: #eef6ff;
+.pr-template:hover {
+  border-color: var(--pr-accent);
 }
+
+.pr-template.is-on {
+  border-color: var(--pr-accent);
+  background: var(--pr-accent-soft);
+  box-shadow: inset 0 0 0 1px var(--pr-accent);
+}
+
+/* ---------------------------------------------------------------- posiciones y escalones */
 
 .pr-positions {
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
+  gap: 12px;
   align-items: flex-end;
 }
 
@@ -118,32 +328,342 @@
 .pr-position-label {
   display: block;
   font-size: 12px;
-  color: #6c757d;
-  margin-bottom: 2px;
+  color: var(--pr-muted);
+  margin-bottom: 3px;
 }
 
+.pr-position-actions {
+  display: flex;
+  gap: 6px;
+  align-items: flex-end;
+  min-height: 44px;
+}
+
+.pr-tier-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.pr-tier-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)) auto;
+  gap: 12px;
+  align-items: end;
+  padding: 10px 12px;
+  border: 1px solid var(--pr-border);
+  border-radius: var(--pr-radius-sm);
+  background: var(--pr-surface-soft);
+}
+
+.pr-tier-row-wide {
+  margin-top: 8px;
+}
+
+/* ---------------------------------------------------------------- resumen en palabras */
+
 .pr-summary {
-  border-radius: 10px;
-  padding: 10px 14px;
-  background: #f1f8f3;
-  border: 1px solid #cfe8d6;
+  border-radius: var(--pr-radius);
+  padding: 14px 16px;
+  background: var(--pr-accent-soft);
+  border: 1px solid #b7e4d2;
 }
 
 .pr-summary-title {
-  font-weight: 600;
-  font-size: 13px;
-  margin-bottom: 4px;
+  font-weight: 700;
+  font-size: 13.5px;
+  margin-bottom: 6px;
+  color: #0f5c44;
 }
 
 .pr-summary ul {
   margin: 0;
   padding-left: 18px;
-  font-size: 13px;
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--pr-text);
 }
 
+/* ---------------------------------------------------------------- filtro estilo Excel */
+
+.pr-xl {
+  position: relative;
+  min-width: 0;
+}
+
+.pr-xl-trigger {
+  width: 100%;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border: 1px solid var(--pos-border, rgba(0, 0, 0, 0.16));
+  border-radius: var(--pos-radius-sm, 8px);
+  background: var(--pr-surface);
+  color: #111827;
+  font-size: 1rem;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+}
+
+.pr-xl-trigger:hover:not(:disabled) {
+  border-color: var(--pr-accent);
+}
+
+.pr-xl-trigger:disabled {
+  background: #f1f3f6;
+  color: var(--pr-muted);
+  cursor: not-allowed;
+}
+
+.pr-xl-trigger.is-filtered {
+  border-color: var(--pr-accent);
+  background: var(--pr-accent-soft);
+}
+
+.pr-xl.is-open .pr-xl-trigger {
+  border-color: var(--pr-accent);
+  box-shadow: 0 0 0 3px rgba(29, 158, 117, 0.18);
+}
+
+.pr-xl-summary {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pr-xl-counter {
+  flex: 0 0 auto;
+  font-size: 12px;
+  font-weight: 700;
+  color: #0f5c44;
+  background: rgba(29, 158, 117, 0.14);
+  border-radius: 999px;
+  padding: 2px 9px;
+}
+
+.pr-xl-trigger:not(.is-filtered) .pr-xl-counter {
+  color: var(--pr-muted);
+  background: #eef1f5;
+}
+
+.pr-xl-caret {
+  flex: 0 0 auto;
+  color: var(--pr-muted);
+  font-size: 12px;
+}
+
+.pr-xl-panel {
+  position: absolute;
+  z-index: 40;
+  top: calc(100% + 4px);
+  left: 0;
+  width: max(100%, 280px);
+  max-width: min(420px, calc(100vw - 32px));
+  background: var(--pr-surface);
+  border: 1px solid var(--pr-border-strong);
+  border-radius: var(--pr-radius);
+  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.18);
+  padding: 10px;
+}
+
+.pr-xl-search {
+  width: 100%;
+  min-height: 40px;
+  padding: 6px 10px;
+  border: 1px solid var(--pr-border-strong);
+  border-radius: var(--pr-radius-sm);
+  font-size: 14px;
+  margin-bottom: 8px;
+}
+
+.pr-xl-search:focus {
+  outline: none;
+  border-color: var(--pr-accent);
+  box-shadow: 0 0 0 3px rgba(29, 158, 117, 0.18);
+}
+
+.pr-xl-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 40px;
+  margin: 0;
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 14px;
+  color: var(--pr-text);
+  cursor: pointer;
+}
+
+.pr-xl-row:hover {
+  background: var(--pr-surface-soft);
+}
+
+.pr-xl-row input[type="checkbox"] {
+  position: static;
+  opacity: 1;
+  visibility: visible;
+  margin: 0;
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  accent-color: var(--pr-accent);
+  cursor: pointer;
+}
+
+.pr-xl-all {
+  font-weight: 700;
+  border-bottom: 1px solid var(--pr-border);
+  border-radius: 6px 6px 0 0;
+  margin-bottom: 2px;
+}
+
+.pr-xl-count {
+  margin-left: auto;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--pr-muted);
+}
+
+.pr-xl-list {
+  max-height: 240px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.pr-xl-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  line-height: 1.3;
+}
+
+.pr-xl-text small {
+  display: block;
+  color: var(--pr-muted);
+}
+
+.pr-xl-empty {
+  padding: 10px 8px;
+  font-size: 13px;
+  color: var(--pr-muted);
+}
+
+.pr-xl-notice {
+  margin-top: 6px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: var(--pr-warn-bg);
+  color: var(--pr-warn-text);
+  font-size: 12.5px;
+}
+
+.pr-xl-foot {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--pr-border);
+}
+
+/* ---------------------------------------------------------------- insignias y estados */
+
+.pr-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.3;
+  letter-spacing: 0.01em;
+}
+
+.pr-badge.is-draft {
+  background: var(--pr-warn-bg);
+  color: var(--pr-warn-text);
+}
+
+.pr-badge.is-approved {
+  background: var(--pr-ok-bg);
+  color: var(--pr-ok-text);
+}
+
+.pr-badge.is-editing {
+  background: var(--pr-info-bg);
+  color: var(--pr-info-text);
+}
+
+.pr-badge.is-muted {
+  background: #eceff3;
+  color: #4b5563;
+}
+
+.pr-pill {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  font-size: 11.5px;
+  font-weight: 600;
+  background: #eef1f5;
+  color: #4b5563;
+}
+
+.pr-pill.is-vigente {
+  background: var(--pr-ok-bg);
+  color: var(--pr-ok-text);
+}
+
+.pr-pill.is-programada {
+  background: var(--pr-info-bg);
+  color: var(--pr-info-text);
+}
+
+.pr-scope {
+  display: inline-block;
+  padding: 2px 9px;
+  border-radius: 6px;
+  font-size: 12.5px;
+  background: #eef1f5;
+  color: #374151;
+}
+
+.pr-scope.is-limited {
+  background: var(--pr-info-bg);
+  color: var(--pr-info-text);
+}
+
+/* ---------------------------------------------------------------- barra de acciones */
+
+.pr-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--pr-border);
+}
+
+.pr-sim .pr-actions {
+  margin-top: 12px;
+  padding-top: 0;
+  border-top: 0;
+}
+
+/* ---------------------------------------------------------------- simulador */
+
 .pr-sim {
-  border-color: #b9dcf7;
-  background: #f8fbff;
+  padding: 16px;
+  border-color: #b7e4d2;
+  background: linear-gradient(180deg, #f4fbf8 0%, #ffffff 120px);
 }
 
 .pr-sim-head {
@@ -153,9 +673,42 @@
   gap: 8px;
 }
 
-.pr-sim-badge {
-  font-size: 13px;
-  padding: 6px 10px;
+.pr-sim-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--pr-text);
+}
+
+.pr-cart {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.pr-cart-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 90px 130px auto;
+  gap: 10px;
+  align-items: center;
+}
+
+.pr-sim-verdict {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+
+.pr-sim-table th {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--pr-muted);
+  border-bottom: 1px solid var(--pr-border);
 }
 
 .pr-sim-table td {
@@ -171,24 +724,211 @@
   flex-direction: column;
   align-items: flex-end;
   gap: 2px;
+  margin-top: 6px;
 }
 
-.pr-sim-totals > div:not(.small) {
+.pr-sim-totals > div:not(.pr-sim-note) {
   display: flex;
   gap: 16px;
-  min-width: 240px;
+  min-width: 260px;
   justify-content: space-between;
 }
 
 .pr-sim-total {
   font-size: 18px;
-  border-top: 1px solid #dfe3ea;
-  padding-top: 4px;
+  border-top: 1px solid var(--pr-border-strong);
+  padding-top: 6px;
+  margin-top: 4px;
+}
+
+.pr-sim-note {
+  text-align: right;
+  max-width: 520px;
+}
+
+/* ---------------------------------------------------------------- lista de promociones */
+
+.pr-list-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 28px;
+  padding-bottom: 8px;
+  border-bottom: 2px solid var(--pr-border);
+}
+
+.pr-list {
+  margin-bottom: 0;
+}
+
+.pr-list thead th {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--pr-muted);
+  font-weight: 700;
+  white-space: nowrap;
+  border-bottom: 1px solid var(--pr-border);
+}
+
+.pr-list tbody td {
+  vertical-align: top;
+  padding: 12px 8px;
+  font-size: 13.5px;
+  border-top: 1px solid var(--pr-border);
+}
+
+.pr-cell-rule {
+  max-width: 380px;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.pr-cell-dates {
+  white-space: nowrap;
+  font-size: 13px;
+}
+
+.pr-col-actions {
+  min-width: 260px;
+}
+
+.pr-row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
 }
 
 .pr-row-editing {
   background: #fff8e1;
 }
+
+.pr-empty {
+  text-align: center;
+  padding: 24px 8px !important;
+  color: var(--pr-muted);
+}
+
+/* ---------------------------------------------------------------- pantallas medianas y móvil */
+
+@media (max-width: 991.98px) {
+  .pr-col-actions {
+    min-width: 0;
+  }
+}
+
+@media (max-width: 767.98px) {
+  .pr-body {
+    padding: 12px;
+  }
+
+  .pr-general,
+  .pr-sim {
+    padding: 12px;
+  }
+
+  .pr-block-head,
+  .pr-block-body {
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+
+  .pr-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .pr-span-2 {
+    grid-column: auto;
+  }
+
+  .pr-xl-panel {
+    width: 100%;
+    max-width: none;
+  }
+
+  .pr-cart-row {
+    grid-template-columns: minmax(0, 1fr) 80px;
+  }
+
+  .pr-cart-product {
+    grid-column: 1 / -1;
+  }
+
+  .pr-actions > .btn {
+    flex: 1 1 100%;
+  }
+
+  .pr-sim-totals {
+    align-items: stretch;
+  }
+
+  .pr-sim-note {
+    text-align: left;
+  }
+
+  /* Lista de promociones como tarjetas */
+  .pr-list thead {
+    display: none;
+  }
+
+  .pr-list,
+  .pr-list tbody,
+  .pr-list tr,
+  .pr-list td {
+    display: block;
+    width: 100%;
+  }
+
+  .pr-list tbody tr {
+    margin-bottom: 12px;
+    border: 1px solid var(--pr-border);
+    border-radius: var(--pr-radius);
+    padding: 6px 12px;
+    background: var(--pr-surface);
+  }
+
+  .pr-list tbody td {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 12px;
+    border-top: 0;
+    padding: 6px 0;
+    text-align: right;
+    max-width: none;
+  }
+
+  .pr-list tbody td::before {
+    content: attr(data-label);
+    flex: 0 0 84px;
+    text-align: left;
+    font-size: 11.5px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--pr-muted);
+    padding-top: 2px;
+  }
+
+  .pr-list tbody td > * {
+    min-width: 0;
+  }
+
+  .pr-list .pr-cell-name {
+    font-size: 15px;
+  }
+
+  .pr-list .pr-empty::before {
+    content: none;
+  }
+
+  .pr-row-actions {
+    justify-content: flex-end;
+  }
+}
+
+/* ---------------------------------------------------------------- avisos del POS (usados fuera de esta pestaña) */
 
 .pos-line-promo-note {
   display: block;

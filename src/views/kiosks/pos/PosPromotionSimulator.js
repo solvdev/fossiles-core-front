@@ -1,10 +1,10 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Alert, Badge, Button, Col, Input, Label, Row, Spinner, Table } from "reactstrap";
+import { Alert, Button, Input, Spinner, Table } from "reactstrap";
 import FilterableSelect from "components/distribution/FilterableSelect";
 import { simulateKioskPromotion } from "services/kioskPosService";
 import { getTodayYmdGuatemala } from "utils/dateTimeHelper";
-import { formatCurrency } from "./posUtils";
-import { PAYMENT_OPTIONS, isDraftPromotion } from "./promotionRules";
+import { formatCurrency, isEntrecuerosPosMode } from "./posUtils";
+import { PAYMENT_OPTIONS, isDraftPromotion, promoKioskIds } from "./promotionRules";
 
 let rowSeq = 0;
 const newRow = (productId = "", quantity = 1) => ({ key: `sim-${++rowSeq}`, productId, quantity, unitPrice: "" });
@@ -16,12 +16,16 @@ const newRow = (productId = "", quantity = 1) => ({ key: `sim-${++rowSeq}`, prod
  *
  * @param {object}   props.promotion        promoción guardada a simular (o null)
  * @param {function} props.buildDraftPayload devuelve el payload del formulario (cuando no hay promoción guardada)
+ * @param {string[]} props.draftKioskIds     kioscos marcados en el formulario (para el kiosco inicial del borrador)
+ * @param {object[]} props.allProductOptions productos con `entrecuerosOnly`; los solo-Entrecueros se ocultan
+ *                                           si el kiosco elegido en el simulador no es Entrecueros
  */
 function PosPromotionSimulator({
   promotion,
   buildDraftPayload,
   kiosks,
-  productOptions,
+  draftKioskIds,
+  allProductOptions,
   onApprove,
   approving,
   onClose,
@@ -36,20 +40,40 @@ function PosPromotionSimulator({
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  // Al cambiar de promoción: su kiosco y una fecha dentro de su vigencia.
+  // Al cambiar de promoción: su primer kiosco y una fecha dentro de su vigencia.
   useEffect(() => {
     setResult(null);
     setError("");
     if (!promotion) return;
-    setKioskId(promotion.kioskLocationId ? String(promotion.kioskLocationId) : "");
+    setKioskId(promoKioskIds(promotion)[0] || "");
     if (promotion.startDate && promotion.startDate > today) setDate(promotion.startDate);
     else setDate(today);
   }, [promotion, today]);
 
-  const kioskOptions = useMemo(
-    () => (kiosks || []).map((k) => ({ value: String(k.kioskId), label: k.kioskName || k.kioskCode })),
-    [kiosks]
+  // Lo que se arma sin guardar: empieza en el primer kiosco marcado (si no hay uno ya elegido).
+  const draftFirstKiosk = (draftKioskIds || [])[0] || "";
+  useEffect(() => {
+    if (!promotion && draftFirstKiosk) setKioskId((prev) => prev || draftFirstKiosk);
+  }, [promotion, draftFirstKiosk]);
+
+  // Kioscos de la promoción (o los marcados en el formulario); sin restricción = todos.
+  const kioskOptions = useMemo(() => {
+    const scope = promotion ? promoKioskIds(promotion) : draftKioskIds || [];
+    return (kiosks || [])
+      .filter((k) => scope.length === 0 || scope.includes(String(k.kioskId)))
+      .map((k) => ({ value: String(k.kioskId), label: k.kioskName || k.kioskCode }));
+  }, [kiosks, promotion, draftKioskIds]);
+
+  // Productos solo de Entrecueros: solo si el kiosco del simulador es Entrecueros.
+  const simKioskIsEntrecueros = useMemo(
+    () => (kiosks || []).some((k) => String(k.kioskId) === String(kioskId) && isEntrecuerosPosMode(k)),
+    [kiosks, kioskId]
   );
+  const productOptions = useMemo(() => {
+    if (simKioskIsEntrecueros) return allProductOptions || [];
+    const inCart = new Set(rows.map((r) => String(r.productId)).filter(Boolean));
+    return (allProductOptions || []).filter((o) => !o.entrecuerosOnly || inCart.has(o.value));
+  }, [allProductOptions, simKioskIsEntrecueros, rows]);
 
   const updateRow = (key, patch) => setRows((prev) => prev.map((r) => (r.key === key ? { ...r, ...patch } : r)));
 
@@ -97,10 +121,15 @@ function PosPromotionSimulator({
     <div className="pr-sim">
       <div className="pr-sim-head">
         <div>
-          <div className="pr-block-title mb-0">
+          <div className="pr-sim-title">
             Simulador {promotion ? <>· <strong>{promotion.name}</strong></> : "· lo que estás armando (sin guardar)"}
+            {promotion && (
+              <span className={`pr-badge ${isDraftPromotion(promotion) ? "is-draft" : "is-approved"}`}>
+                {isDraftPromotion(promotion) ? "Borrador" : "Aprobada"}
+              </span>
+            )}
           </div>
-          <small className="text-muted">
+          <small className="pr-hint">
             Usa productos y precios reales de producción. No vende, no factura y no mueve inventario.
           </small>
         </div>
@@ -111,9 +140,9 @@ function PosPromotionSimulator({
         )}
       </div>
 
-      <Row className="mt-2">
-        <Col md="3">
-          <Label className="kiosk-pos-label small mb-1">Kiosco</Label>
+      <div className="pr-grid mt-2">
+        <div className="pr-field">
+          <label className="pr-field-label">Kiosco</label>
           <FilterableSelect
             value={kioskId}
             onChange={(value) => setKioskId(value || "")}
@@ -121,17 +150,17 @@ function PosPromotionSimulator({
             emptyLabel="Sin kiosco"
             inputClassName="kiosk-pos-input-lg"
           />
-        </Col>
-        <Col md="3">
-          <Label className="kiosk-pos-label small mb-1">Fecha</Label>
+        </div>
+        <div className="pr-field">
+          <label className="pr-field-label">Fecha</label>
           <Input className="kiosk-pos-input-lg" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
-        </Col>
-        <Col md="2">
-          <Label className="kiosk-pos-label small mb-1">Hora (vacío = ahora)</Label>
+        </div>
+        <div className="pr-field">
+          <label className="pr-field-label">Hora (vacío = ahora)</label>
           <Input className="kiosk-pos-input-lg" type="time" value={time} onChange={(e) => setTime(e.target.value)} />
-        </Col>
-        <Col md="4">
-          <Label className="kiosk-pos-label small mb-1">Paga con</Label>
+        </div>
+        <div className="pr-field">
+          <label className="pr-field-label">Paga con</label>
           <Input
             type="select"
             className="kiosk-pos-input-lg"
@@ -144,46 +173,44 @@ function PosPromotionSimulator({
               </option>
             ))}
           </Input>
-        </Col>
-      </Row>
+        </div>
+      </div>
 
-      <Label className="kiosk-pos-label small mb-1 mt-3">Carrito de prueba</Label>
-      {rows.map((row) => (
-        <Row key={row.key} className="align-items-end mb-1">
-          <Col md="6">
-            <FilterableSelect
-              value={row.productId ? String(row.productId) : ""}
-              onChange={(value) => updateRow(row.key, { productId: value || "" })}
-              options={productOptions}
-              placeholder="Buscar producto…"
-              emptyLabel="Elige producto"
-              inputClassName="kiosk-pos-input-lg"
-            />
-          </Col>
-          <Col md="2">
+      <div className="pr-field-label mt-3">Carrito de prueba</div>
+      <div className="pr-cart">
+        {rows.map((row) => (
+          <div key={row.key} className="pr-cart-row">
+            <div className="pr-cart-product">
+              <FilterableSelect
+                value={row.productId ? String(row.productId) : ""}
+                onChange={(value) => updateRow(row.key, { productId: value || "" })}
+                options={productOptions}
+                placeholder="Buscar producto…"
+                emptyLabel="Elige producto"
+                inputClassName="kiosk-pos-input-lg"
+              />
+            </div>
             <Input
-              className="kiosk-pos-input-lg"
+              className="kiosk-pos-input-lg pr-cart-qty"
               type="number"
               min="1"
               step="1"
               value={row.quantity}
               title="Cantidad"
+              aria-label="Cantidad"
               onChange={(e) => updateRow(row.key, { quantity: e.target.value })}
             />
-          </Col>
-          <Col md="2">
             <Input
-              className="kiosk-pos-input-lg"
+              className="kiosk-pos-input-lg pr-cart-price"
               type="number"
               min="0"
               step="0.01"
               value={row.unitPrice}
               placeholder="Precio POS"
               title="Vacío = precio POS del catálogo"
+              aria-label="Precio por pieza"
               onChange={(e) => updateRow(row.key, { unitPrice: e.target.value })}
             />
-          </Col>
-          <Col md="2">
             <Button
               color="danger"
               outline
@@ -193,10 +220,15 @@ function PosPromotionSimulator({
             >
               Quitar
             </Button>
-          </Col>
-        </Row>
-      ))}
-      <div className="d-flex flex-wrap gap-2 mt-2">
+          </div>
+        ))}
+      </div>
+      {!simKioskIsEntrecueros && (allProductOptions || []).some((o) => o.entrecuerosOnly) && (
+        <small className="pr-hint d-block mt-1">
+          Los productos solo de Entrecueros se ocultan: elige un kiosco Entrecueros para verlos.
+        </small>
+      )}
+      <div className="pr-actions mt-2">
         <Button size="sm" color="secondary" outline onClick={() => setRows((prev) => [...prev, newRow()])}>
           + producto
         </Button>
@@ -224,14 +256,12 @@ function PosPromotionSimulator({
 
       {result && (
         <div className="mt-3">
-          <div className="d-flex flex-wrap align-items-center gap-2 mb-2">
-            {result.applies ? (
-              <Badge color="success" className="pr-sim-badge">Aplica</Badge>
-            ) : (
-              <Badge color="secondary" className="pr-sim-badge">No aplica</Badge>
-            )}
+          <div className="pr-sim-verdict">
+            <span className={`pr-badge ${result.applies ? "is-approved" : "is-muted"}`}>
+              {result.applies ? "Aplica" : "No aplica"}
+            </span>
             {(result.reasons || []).map((reason, i) => (
-              <span key={`r-${i}`} className="text-muted small">
+              <span key={`r-${i}`} className="pr-hint">
                 {reason}
               </span>
             ))}
@@ -242,7 +272,7 @@ function PosPromotionSimulator({
             </Alert>
           ))}
           <Table responsive size="sm" className="mt-2 pr-sim-table">
-            <thead className="text-primary">
+            <thead>
               <tr>
                 <th>Producto</th>
                 <th className="text-end">Precio</th>
@@ -258,7 +288,7 @@ function PosPromotionSimulator({
                 <tr key={`l-${line.index}`} className={line.discountAmount > 0 ? "pr-sim-hit" : ""}>
                   <td>
                     <div>{line.productCode} · {line.productName}</div>
-                    <small className="text-muted">
+                    <small className="pr-hint">
                       {[line.categoryName, line.audience, line.size ? `T.${line.size}` : null].filter(Boolean).join(" · ")}
                       {line.eligible === false ? " · empaque (sin descuento)" : ""}
                     </small>
@@ -288,7 +318,7 @@ function PosPromotionSimulator({
               <span>Total a cobrar</span>
               <strong>{formatCurrency(result.totalAmount)}</strong>
             </div>
-            <div className="text-muted small">
+            <div className="pr-hint pr-sim-note">
               Hoy el POS daría −{formatCurrency(result.currentDiscountAmount)}
               {result.currentPromotionName ? ` (${result.currentPromotionName})` : " (sin promoción)"} con las promociones
               aprobadas. Si hay varias, gana la que da más.
