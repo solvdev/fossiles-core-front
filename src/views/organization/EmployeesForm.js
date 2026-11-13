@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import "assets/css/payroll-ui.css";
 import {
   Button,
   Label,
@@ -54,6 +55,8 @@ function EmployeesForm({ employeeId, isOpen, toggle, onSuccess }) {
     bonification: "",
     nit: "",
     igssAffiliation: "",
+    igssEnabled: true,
+    irtraEnabled: true,
     terminationDate: "",
     departmentId: "",
     costCenterId: "",
@@ -122,6 +125,8 @@ function EmployeesForm({ employeeId, isOpen, toggle, onSuccess }) {
         bonification: employee.bonification ?? "",
         nit: employee.nit || "",
         igssAffiliation: employee.igssAffiliation || "",
+        igssEnabled: employee.igssEnabled !== false,
+        irtraEnabled: employee.irtraEnabled !== false,
         terminationDate: employee.terminationDate ? employee.terminationDate.split("T")[0] : "",
         departmentId: employee.departmentId || "",
         costCenterId: employee.costCenterId || "",
@@ -160,6 +165,8 @@ function EmployeesForm({ employeeId, isOpen, toggle, onSuccess }) {
       bonification: "",
       nit: "",
       igssAffiliation: "",
+      igssEnabled: true,
+      irtraEnabled: true,
       terminationDate: "",
       departmentId: "",
       costCenterId: "",
@@ -235,6 +242,9 @@ function EmployeesForm({ employeeId, isOpen, toggle, onSuccess }) {
         clearTerminationDate: Boolean(employeeId) && !salaryLocked && !formData.terminationDate && loaded.terminationDate !== "",
         nit: formData.nit.trim(),
         igssAffiliation: formData.igssAffiliation.trim(),
+        // Sin acceso a la planilla van vacíos y el backend conserva los actuales.
+        igssEnabled: salaryLocked ? null : formData.igssEnabled,
+        irtraEnabled: salaryLocked ? null : formData.irtraEnabled,
         terminationDate: salaryLocked ? null : formData.terminationDate || null,
         departmentId: formData.departmentId ? Number(formData.departmentId) : null,
         costCenterId: formData.costCenterId ? Number(formData.costCenterId) : null,
@@ -456,6 +466,23 @@ function EmployeesForm({ employeeId, isOpen, toggle, onSuccess }) {
                   placeholder={salaryLocked ? salaryPlaceholder : "250.00 si se deja vacío"}
                 />
               </FormGroup>
+            </Col>
+          </Row>
+
+          <Row>
+            <Col md="6">
+              <label className="pl-switch">
+                <input type="checkbox" checked={formData.igssEnabled} disabled={salaryLocked}
+                  onChange={(e) => setFormData({ ...formData, igssEnabled: e.target.checked })} />
+                <span>Goza IGSS <small>Se le descuenta la cuota laboral y se paga la patronal. Quite la marca si no está afiliado.</small></span>
+              </label>
+            </Col>
+            <Col md="6">
+              <label className="pl-switch">
+                <input type="checkbox" checked={formData.irtraEnabled} disabled={salaryLocked}
+                  onChange={(e) => setFormData({ ...formData, irtraEnabled: e.target.checked })} />
+                <span>Lleva IRTRA e INTECAP <small>Cuota patronal; no se le descuenta nada. Quite la marca si no corresponde.</small></span>
+              </label>
             </Col>
           </Row>
 
