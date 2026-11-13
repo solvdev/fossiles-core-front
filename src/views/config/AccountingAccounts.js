@@ -16,7 +16,6 @@ import {
   ModalHeader,
   ModalBody,
   ModalFooter,
-  Badge,
 } from "reactstrap";
 import { getSystemConfigs, getSystemConfigByKey, updateSystemConfig, createSystemConfig, deleteSystemConfig } from "services/systemConfigService";
 import ConfirmModal from "components/ConfirmModal/ConfirmModal";
@@ -51,7 +50,19 @@ const ACCOUNTING_CONFIGS = [
     label: "Compras en Tránsito",
     defaultValue: "1.1.3.02",
     description: "Cuenta contable para Compras en Tránsito"
-  }
+  },
+  // Planilla y compras de colaborador.
+  { key: "accounting.payroll.salaries_plant.account", label: "Planilla: mano de obra directa", defaultValue: "5.1.2.01", description: "Sueldo de la planta de producción" },
+  { key: "accounting.payroll.salaries_admin.account", label: "Planilla: sueldos de administración", defaultValue: "6.1.1.01", description: "Sueldo de administración y kioscos" },
+  { key: "accounting.payroll.bonification.account", label: "Planilla: bonificación incentivo", defaultValue: "6.1.1.02", description: "Bonificación incentivo de la planilla" },
+  { key: "accounting.payroll.employer_contributions.account", label: "Planilla: cuota patronal", defaultValue: "6.1.1.03", description: "IGSS patronal, IRTRA e INTECAP" },
+  { key: "accounting.payroll.igss_payable.account", label: "Planilla: IGSS por pagar", defaultValue: "2.1.3.01", description: "Cuotas laboral y patronal por enterar al IGSS" },
+  { key: "accounting.payroll.isr_payable.account", label: "Planilla: ISR retenido", defaultValue: "2.1.3.02", description: "ISR de asalariados por enterar a la SAT" },
+  { key: "accounting.payroll.other_deductions.account", label: "Planilla: otras deducciones", defaultValue: "2.1.3.03", description: "Otras deducciones por pagar" },
+  { key: "accounting.payroll.employee_receivable.account", label: "Planilla: cuentas por cobrar a colaboradores", defaultValue: "1.1.2.05", description: "Compras de colaborador pendientes de descontar o pagar" },
+  { key: "accounting.payroll.employee_sales.account", label: "Planilla: ventas a colaboradores", defaultValue: "4.1.1.03", description: "Compras de colaborador al 50 % aprobadas" },
+  { key: "accounting.payroll.bank.account", label: "Planilla: bancos", defaultValue: "1.1.1.02", description: "Líquido pagado con cheque o transferencia" },
+  { key: "accounting.payroll.cash.account", label: "Planilla: caja", defaultValue: "1.1.1.01", description: "Líquido pagado en efectivo" }
 ];
 
 function AccountingAccounts() {
@@ -79,49 +90,44 @@ function AccountingAccounts() {
       setLoading(true);
       const accountsData = {};
       
-      // Cargar cuentas predefinidas
+      // Una sola consulta: las cuentas que aún no se han guardado usan su código por defecto.
+      let allConfigs = [];
+      try {
+        allConfigs = (await getSystemConfigs()) || [];
+      } catch (err) {
+        console.error("Error al cargar cuentas contables:", err);
+      }
+      const savedByKey = new Map(allConfigs.map((config) => [config.configKey, config]));
+
+      // Cuentas predefinidas
       for (const config of ACCOUNTING_CONFIGS) {
-        try {
-          const configData = await getSystemConfigByKey(config.key);
-          accountsData[config.key] = {
-            value: configData?.configValue || config.defaultValue,
-            description: configData?.description || config.description,
-            label: config.label,
-            isPredefined: true
-          };
-        } catch (err) {
-          accountsData[config.key] = {
-            value: config.defaultValue,
-            description: config.description,
-            label: config.label,
-            isPredefined: true
-          };
-        }
+        const configData = savedByKey.get(config.key);
+        accountsData[config.key] = {
+          value: configData?.configValue || config.defaultValue,
+          description: configData?.description || config.description,
+          label: config.label,
+          isPredefined: true
+        };
       }
 
-      // Cargar todas las configuraciones y filtrar las de accounting personalizadas
-      try {
-        const allConfigs = await getSystemConfigs();
-        const custom = allConfigs
-          .filter(config => 
-            config.configKey.startsWith("accounting.") && 
-            !ACCOUNTING_CONFIGS.some(predef => predef.key === config.configKey)
-          )
-          .map(config => ({
-            key: config.configKey,
-            label: config.configKey.replace("accounting.", "").replace(".account", "").replace(/_/g, " ").replace(/\b\w/g, l => l.toUpperCase()),
-            value: config.configValue || "",
-            description: config.description || "",
-            isPredefined: false
-          }));
-        
-        custom.forEach(acc => {
-          accountsData[acc.key] = acc;
-        });
-        setCustomAccounts(custom);
-      } catch (err) {
-        console.error("Error al cargar cuentas personalizadas:", err);
-      }
+      // Cuentas personalizadas: las demás configuraciones de accounting
+      const custom = allConfigs
+        .filter(config =>
+          config.configKey.startsWith("accounting.") &&
+          !ACCOUNTING_CONFIGS.some(predef => predef.key === config.configKey)
+        )
+        .map(config => ({
+          key: config.configKey,
+          label: config.configKey.replace("accounting.", "").replace(".account", "").replace(/_/g, " ").replace(/\b\w/g, l => l.toUpperCase()),
+          value: config.configValue || "",
+          description: config.description || "",
+          isPredefined: false
+        }));
+
+      custom.forEach(acc => {
+        accountsData[acc.key] = acc;
+      });
+      setCustomAccounts(custom);
       
       setAccounts(accountsData);
     } catch (err) {
@@ -295,10 +301,10 @@ function AccountingAccounts() {
                   {allAccounts.map((account) => (
                     <tr key={account.key}>
                       <td>
-                        <strong>{account.label}</strong>
-                        {account.isPredefined && (
-                          <Badge color="info" className="ms-2">Predefinida</Badge>
-                        )}
+                        <div className="d-flex flex-wrap align-items-center gap-1">
+                          <strong>{account.label}</strong>
+                          {account.isPredefined && <span className="fossiles-etiqueta">Predefinida</span>}
+                        </div>
                       </td>
                       <td>
                         <Input

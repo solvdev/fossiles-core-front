@@ -16,7 +16,7 @@
 */
 import React from "react";
 import classnames from "classnames";
-import { useLocation, useNavigate, Link } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import {
   Button,
   Collapse,
@@ -191,7 +191,7 @@ function AdminNavbar(props) {
                     className="btn-round my-auto mx-2 d-flex align-items-center"
                     onClick={() => setBroadcastModalOpen(true)}
                     title="Emitir alerta global o aviso de reinicio a todos los usuarios"
-                    style={{ fontWeight: 600, fontSize: "12px", padding: "6px 14px" }}
+                    style={{ fontWeight: 600, fontSize: "12px", padding: "6px 14px", whiteSpace: "nowrap" }}
                   >
                     <i className="nc-icon nc-sound-wave mr-1" />
                     <span>Aviso de Reinicio</span>
@@ -258,14 +258,6 @@ function AdminNavbar(props) {
                   aria-labelledby="navbarUserMenuLink"
                   right
                 >
-                  <DropdownItem
-                    tag={Link}
-                    to="/admin/user-profile"
-                  >
-                    <i className="nc-icon nc-single-02 mr-2" />
-                    Mi Perfil
-                  </DropdownItem>
-                  <DropdownItem divider />
                   <DropdownItem
                     href="#pablo"
                     onClick={(e) => {

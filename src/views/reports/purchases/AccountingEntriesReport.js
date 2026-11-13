@@ -105,7 +105,12 @@ function AccountingEntriesReport() {
                   <option value="">Todos</option>
                   <option value="PURCHASE_ORDER">Orden de Compra</option>
                   <option value="MATERIAL_RECEIPT">Recepción</option>
+                  <option value="MATERIAL_RECEIPT_ADJUSTMENT">Ajuste de recepción</option>
                   <option value="PURCHASE_ORDER_CANCELLATION">Cancelación</option>
+                  <option value="PAYROLL">Planilla</option>
+                  <option value="EMPLOYEE_CHARGE">Compra de colaborador</option>
+                  <option value="EMPLOYEE_CHARGE_PAYMENT">Pago de compra de colaborador</option>
+                  <option value="EMPLOYEE_CHARGE_CANCELLATION">Anulación de compra de colaborador</option>
                 </Input>
               </FormGroup>
             </Col>

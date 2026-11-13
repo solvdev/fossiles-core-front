@@ -177,3 +177,289 @@
 @media (prefers-reduced-motion: reduce) {
   .fossiles-flash > td { animation: none; }
 }
+
+/* ------------------------------------------------------------------------- */
+/* Estado como pastilla de color                                               */
+/*                                                                            */
+/* badge-secondary del template es transparente con letra blanca: un estado   */
+/* en gris no se veia.                                                        */
+/* ------------------------------------------------------------------------- */
+.fossiles-estado {
+  display: inline-block;
+  border-radius: 999px;
+  padding: 3px 10px;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
+.fossiles-estado--borrador { background: #fff4e5; color: #9a5800; }
+.fossiles-estado--aprobada { background: #e6f5fa; color: #13708f; }
+.fossiles-estado--pagada { background: #e8f6ee; color: #1d7a3b; }
+.fossiles-estado--anulada { background: #fdecec; color: #b03a2e; }
+
+/* Acceso a un registro desde una tabla: se ve como algo que se abre. */
+.fossiles-acceso {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid #e3e3e3;
+  background: #fff;
+  border-radius: 999px;
+  padding: 3px 8px 3px 12px;
+  font-weight: 600;
+  color: #3c3c3c;
+  cursor: pointer;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.fossiles-acceso:hover,
+.fossiles-acceso:focus-visible {
+  border-color: #51bcda;
+  box-shadow: 0 2px 8px rgba(81, 188, 218, 0.28);
+  outline: none;
+}
+
+.fossiles-acceso__flecha {
+  opacity: 0.45;
+  transition: transform 0.15s ease, opacity 0.15s ease;
+}
+
+.fossiles-acceso:hover .fossiles-acceso__flecha {
+  transform: translateX(2px);
+  opacity: 1;
+}
+
+/* ------------------------------------------------------------------------- */
+/* Planilla: pasos, siguiente paso y resumen                                  */
+/* ------------------------------------------------------------------------- */
+.fossiles-pasos {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.fossiles-paso {
+  border-radius: 999px;
+  padding: 3px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  background: #f2f2f2;
+  color: #a0a0a0;
+}
+
+.fossiles-paso--hecho { background: #e8f6ee; color: #1d7a3b; }
+.fossiles-paso--actual { background: #51bcda; color: #fff; }
+.fossiles-paso--anulada { background: #fdecec; color: #b03a2e; }
+
+.fossiles-siguiente {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  border-left: 4px solid #51bcda;
+  border-radius: 8px;
+  padding: 12px 16px;
+  margin-bottom: 16px;
+  background: #e6f5fa;
+}
+
+.fossiles-siguiente--aviso { background: #fff4e5; border-color: #ff9500; }
+.fossiles-siguiente--alerta { background: #fdecec; border-color: #ef8157; }
+.fossiles-siguiente--listo { background: #e8f6ee; border-color: #6bd098; }
+.fossiles-siguiente--neutro { background: #f5f5f5; border-color: #c4c4c4; }
+
+.fossiles-siguiente__titulo {
+  font-weight: 700;
+  margin-bottom: 2px;
+}
+
+.fossiles-resumen {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.fossiles-resumen__dato {
+  background: #fafafa;
+  border: 1px solid #eee;
+  border-radius: 8px;
+  padding: 8px 12px;
+}
+
+.fossiles-resumen__etiqueta {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: #9a9a9a;
+}
+
+.fossiles-resumen__valor {
+  font-size: 18px;
+  font-weight: 700;
+}
+
+/* Tabla mientras se recalcula: queda visible pero atenuada, con el aviso encima. */
+.fossiles-recalculando {
+  position: relative;
+}
+
+.fossiles-recalculando__capa {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 2;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding-top: 48px;
+  background: rgba(255, 255, 255, 0.7);
+  font-weight: 600;
+}
+
+/* ------------------------------------------------------------------------- */
+/* Botones de accion con el nombre al pasar el cursor                          */
+/*                                                                            */
+/* Varias acciones de una fila usaban el mismo icono; el nombre se despliega  */
+/* al pasar el cursor o con el teclado para que no se confundan.              */
+/* ------------------------------------------------------------------------- */
+.btn.fossiles-accion {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.btn.fossiles-accion .fossiles-accion__nombre {
+  display: inline-block;
+  max-width: 0;
+  margin-left: 0;
+  opacity: 0;
+  transition: max-width 0.25s ease, margin-left 0.25s ease, opacity 0.2s ease;
+}
+
+.btn.fossiles-accion:hover .fossiles-accion__nombre,
+.btn.fossiles-accion:focus-visible .fossiles-accion__nombre {
+  max-width: 110px;
+  margin-left: 6px;
+  opacity: 1;
+}
+
+/* Detalle que se abre dentro de la lista, debajo de su fila o tarjeta. */
+.fossiles-detalle-fila > td {
+  background: #f8fbff;
+  border-top: none !important;
+}
+
+@keyframes fossilesResalte {
+  from { box-shadow: 0 0 0 3px rgba(81, 188, 218, 0.55); }
+  to { box-shadow: 0 0 0 0 rgba(81, 188, 218, 0); }
+}
+
+.fossiles-resalte {
+  animation: fossilesResalte 1.8s ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fossiles-resalte,
+  .fossiles-acceso,
+  .fossiles-acceso__flecha,
+  .btn.fossiles-accion .fossiles-accion__nombre { animation: none; transition: none; }
+}
+
+/* ------------------------------------------------------------------------- */
+/* Pestañas sin el contenedor del template                                     */
+/*                                                                            */
+/* La flecha de la pestaña activa del template se apoya en la linea de        */
+/* .nav-tabs-navigation; sin ese contenedor quedaba encima del texto. Aqui    */
+/* se cambia por una linea bajo la pestaña activa.                            */
+/* ------------------------------------------------------------------------- */
+:not(.nav-tabs-wrapper) > .nav-tabs {
+  border-bottom: 1px solid #e8e8e8;
+}
+
+:not(.nav-tabs-wrapper) > .nav-tabs .nav-item .nav-link {
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+
+:not(.nav-tabs-wrapper) > .nav-tabs .nav-item .nav-link:hover {
+  border-bottom-color: #d4eef5;
+}
+
+:not(.nav-tabs-wrapper) > .nav-tabs .nav-item .nav-link.active,
+:not(.nav-tabs-wrapper) > .nav-tabs .nav-item .nav-link.active:hover,
+:not(.nav-tabs-wrapper) > .nav-tabs .nav-item .nav-link.active:focus {
+  border-bottom: 2px solid #51bcda;
+  font-weight: 600;
+}
+
+:not(.nav-tabs-wrapper) > .nav-tabs .nav-item .nav-link.active::before,
+:not(.nav-tabs-wrapper) > .nav-tabs .nav-item .nav-link.active::after,
+:not(.nav-tabs-wrapper) > .nav-tabs .nav-item .nav-link.active:hover::before,
+:not(.nav-tabs-wrapper) > .nav-tabs .nav-item .nav-link.active:hover::after,
+:not(.nav-tabs-wrapper) > .nav-tabs .nav-item .nav-link.active:focus::before,
+:not(.nav-tabs-wrapper) > .nav-tabs .nav-item .nav-link.active:focus::after {
+  display: none;
+}
+
+/* Etiqueta discreta junto a un nombre (por ejemplo, una cuenta predefinida). */
+.fossiles-etiqueta {
+  display: inline-block;
+  vertical-align: middle;
+  border-radius: 999px;
+  padding: 1px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.5;
+  background: #eef3f6;
+  color: #5f7480;
+  white-space: nowrap;
+}
+
+/* ------------------------------------------------------------------------- */
+/* Clases de Bootstrap 5 usadas en algunas pantallas                          */
+/*                                                                            */
+/* El proyecto usa Bootstrap 4.6, donde no existen: sin esto no alineaban,    */
+/* no ponian negrita ni separaban.                                            */
+/* ------------------------------------------------------------------------- */
+.text-end { text-align: right !important; }
+.text-start { text-align: left !important; }
+.fw-normal { font-weight: 400 !important; }
+.fw-semibold { font-weight: 600 !important; }
+.fw-bold { font-weight: 700 !important; }
+.ms-1 { margin-left: 0.25rem !important; }
+.ms-2 { margin-left: 0.5rem !important; }
+.ms-3 { margin-left: 1rem !important; }
+.me-1 { margin-right: 0.25rem !important; }
+.me-2 { margin-right: 0.5rem !important; }
+.me-3 { margin-right: 1rem !important; }
+.ps-2 { padding-left: 0.5rem !important; }
+.pe-2 { padding-right: 0.5rem !important; }
+.gap-1 { gap: 0.25rem !important; }
+.gap-2 { gap: 0.5rem !important; }
+.row.g-2 { margin-left: -0.25rem; margin-right: -0.25rem; }
+.row.g-2 > [class*="col"] { padding-left: 0.25rem; padding-right: 0.25rem; }
+
+/* Casilla dentro de .form-check sin el .form-check-sign del template: el template oculta la casilla
+   nativa y sin ese span no se veia nada. En ese caso se muestra la nativa. */
+.form-check .form-check-label:not(:has(.form-check-sign)) > input[type="checkbox"],
+.form-check:not(:has(.form-check-sign)) > input[type="checkbox"] {
+  opacity: 1;
+  visibility: visible;
+}
+
+.form-check .form-check-label:not(:has(.form-check-sign)) > input[type="checkbox"] {
+  left: 12px;
+  top: 50%;
+  margin: 0;
+  transform: translateY(-50%);
+}
