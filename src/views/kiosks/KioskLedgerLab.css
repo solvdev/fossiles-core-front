@@ -1,0 +1,996 @@
+/* Kiosk Ledger Lab — herramienta interna de cirugía de kiosco_stock / kiosco_movement */
+
+.kll,
+.kll-modal {
+  --kll-ink: #0f172a;
+  --kll-ink-2: #334155;
+  --kll-muted: #64748b;
+  --kll-line: #e2e8f0;
+  --kll-line-2: #cbd5e1;
+  --kll-bg: #f8fafc;
+  --kll-card: #ffffff;
+  --kll-brand: #1e3a8a;
+  --kll-brand-2: #2563eb;
+  --kll-brand-soft: #eff6ff;
+  --kll-ok: #15803d;
+  --kll-ok-soft: #dcfce7;
+  --kll-warn: #b45309;
+  --kll-warn-soft: #fef3c7;
+  --kll-bad: #b91c1c;
+  --kll-bad-soft: #fee2e2;
+  --kll-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.86rem;
+  color: var(--kll-ink);
+}
+
+.kll * {
+  box-sizing: border-box;
+}
+
+/* ───────── Encabezado ───────── */
+.kll-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.kll-title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.kll-title-icon {
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #1e3a8a, #2563eb);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.2rem;
+  box-shadow: 0 6px 16px rgba(37, 99, 235, 0.28);
+}
+
+.kll-title h4 {
+  margin: 0;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+}
+
+.kll-title small {
+  color: var(--kll-muted);
+}
+
+.kll-lock {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 8px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--kll-warn-soft);
+  color: var(--kll-warn);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  vertical-align: middle;
+}
+
+.kll-head-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.kll .btn {
+  border-radius: 8px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+  font-size: 0.82rem;
+  padding: 6px 12px;
+  margin: 0;
+}
+
+.kll .btn.btn-sm {
+  padding: 5px 10px;
+}
+
+.kll .dropdown-menu {
+  border: 1px solid var(--kll-line);
+  border-radius: 10px;
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.14);
+  padding: 6px;
+  min-width: 270px;
+}
+
+.kll .dropdown-item {
+  border-radius: 7px;
+  padding: 8px 10px;
+  font-size: 0.82rem;
+  color: var(--kll-ink-2);
+  white-space: normal;
+}
+
+.kll .dropdown-item small {
+  display: block;
+  color: var(--kll-muted);
+  font-size: 0.72rem;
+  line-height: 1.3;
+}
+
+.kll .dropdown-item:hover,
+.kll .dropdown-item:focus {
+  background: var(--kll-brand-soft);
+  color: var(--kll-brand);
+}
+
+.kll .dropdown-item.kll-danger-item,
+.kll .dropdown-item.kll-danger-item small {
+  color: var(--kll-bad);
+}
+
+.kll .dropdown-item.kll-danger-item:hover {
+  background: var(--kll-bad-soft);
+}
+
+.kll .dropdown-item.disabled,
+.kll .dropdown-item:disabled {
+  opacity: 0.45;
+}
+
+/* ───────── Tarjetas ───────── */
+.kll-card {
+  background: var(--kll-card);
+  border: 1px solid var(--kll-line);
+  border-radius: 14px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+  margin-bottom: 14px;
+  overflow: hidden;
+}
+
+.kll-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--kll-line);
+  background: var(--kll-bg);
+  min-height: 46px;
+}
+
+.kll-card-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+  color: var(--kll-ink);
+  min-width: 0;
+}
+
+.kll-card-title .kll-sub {
+  font-weight: 500;
+  color: var(--kll-muted);
+  font-size: 0.78rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.kll-count {
+  display: inline-block;
+  min-width: 24px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--kll-brand-soft);
+  color: var(--kll-brand);
+  font-size: 0.74rem;
+  font-weight: 700;
+  text-align: center;
+}
+
+/* ───────── Filtros ───────── */
+.kll-filters {
+  padding: 14px;
+}
+
+.kll-field {
+  margin-bottom: 0;
+}
+
+.kll-label {
+  display: block;
+  margin: 0 0 4px;
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--kll-muted);
+}
+
+.kll .form-control,
+.kll select.form-control {
+  border: 1px solid var(--kll-line-2);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--kll-ink);
+  height: auto;
+  padding: 6px 10px;
+  font-size: 0.84rem;
+  transition: border-color 0.12s, box-shadow 0.12s;
+}
+
+.kll .form-control:focus {
+  border-color: var(--kll-brand-2);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.14);
+}
+
+.kll .form-control:disabled {
+  background: var(--kll-bg);
+}
+
+.kll textarea.form-control {
+  resize: vertical;
+}
+
+.kll-seg {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 3px;
+  background: var(--kll-bg);
+  border: 1px solid var(--kll-line);
+  border-radius: 10px;
+}
+
+.kll-seg button {
+  border: 0;
+  background: transparent;
+  color: var(--kll-ink-2);
+  padding: 4px 11px;
+  border-radius: 7px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+
+.kll-seg button:hover {
+  background: #fff;
+  color: var(--kll-brand);
+}
+
+.kll-seg button.active {
+  background: var(--kll-brand);
+  color: #fff;
+  box-shadow: 0 2px 6px rgba(30, 58, 138, 0.3);
+}
+
+.kll-filter-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.kll-link {
+  border: 0;
+  background: none;
+  padding: 0;
+  color: var(--kll-brand-2);
+  font-weight: 600;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.kll-link:hover {
+  color: var(--kll-brand);
+  text-decoration: underline;
+}
+
+.kll-link .kll-count {
+  margin-left: 6px;
+}
+
+.kll-advanced {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--kll-line-2);
+}
+
+.kll-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 100%;
+  padding-top: 18px;
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--kll-ink-2);
+  user-select: none;
+}
+
+.kll-check input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  cursor: pointer;
+  accent-color: var(--kll-brand-2);
+}
+
+/* ───────── Zona de trabajo ───────── */
+.kll-scroll {
+  overflow: auto;
+}
+
+.kll-scroll.stocks {
+  max-height: 52vh;
+}
+
+.kll-scroll.moves {
+  max-height: 72vh;
+}
+
+.kll-table {
+  width: 100%;
+  margin: 0;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.kll-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: #f1f5f9;
+  color: var(--kll-muted);
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 8px 10px;
+  border: 0;
+  border-bottom: 1px solid var(--kll-line-2);
+  white-space: nowrap;
+}
+
+.kll-table tbody td {
+  padding: 8px 10px;
+  border: 0;
+  border-bottom: 1px solid var(--kll-line);
+  vertical-align: middle;
+  color: var(--kll-ink-2);
+  font-size: 0.82rem;
+}
+
+.kll-table tbody tr:hover td {
+  background: #f8fafc;
+}
+
+.kll-table tbody tr.selected td {
+  background: var(--kll-brand-soft);
+}
+
+.kll-table tbody tr.selected td:first-child {
+  box-shadow: inset 3px 0 0 var(--kll-brand-2);
+}
+
+.kll-table tbody tr.clickable {
+  cursor: pointer;
+}
+
+.kll-table .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.kll-table input[type="checkbox"] {
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  cursor: pointer;
+  accent-color: var(--kll-brand-2);
+  position: static;
+}
+
+.kll-mono {
+  font-family: var(--kll-mono);
+  font-size: 0.76rem;
+}
+
+.kll-muted {
+  color: var(--kll-muted);
+}
+
+.kll-prod {
+  font-weight: 700;
+  color: var(--kll-ink);
+  line-height: 1.2;
+}
+
+.kll-prod-sub {
+  color: var(--kll-muted);
+  font-size: 0.72rem;
+  line-height: 1.2;
+  max-width: 190px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.kll-qty {
+  font-weight: 800;
+  font-size: 0.95rem;
+  color: var(--kll-ink);
+}
+
+.kll-qty.zero {
+  color: var(--kll-line-2);
+}
+
+.kll-qty.neg {
+  color: var(--kll-bad);
+}
+
+/* Etiquetas PARA */
+.kll-para {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  background: #e2e8f0;
+  color: #334155;
+}
+
+.kll-para.nino {
+  background: #e0f2fe;
+  color: #0369a1;
+}
+
+.kll-para.dama {
+  background: #fce7f3;
+  color: #be185d;
+}
+
+.kll-para.viejo {
+  background: #f3e8ff;
+  color: #7e22ce;
+}
+
+/* Minichips de tallas dentro de la tabla */
+.kll-mini-sizes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  max-width: 190px;
+}
+
+.kll-mini-sizes span {
+  padding: 0 5px;
+  border-radius: 5px;
+  background: #f1f5f9;
+  border: 1px solid var(--kll-line);
+  font-size: 0.68rem;
+  line-height: 1.5;
+  color: var(--kll-ink-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.kll-mini-sizes b {
+  color: var(--kll-brand);
+  font-weight: 700;
+}
+
+.kll-mini-sizes em {
+  font-style: normal;
+  color: var(--kll-muted);
+  font-size: 0.68rem;
+}
+
+/* Barra de acciones sobre filas marcadas */
+.kll-bulk {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px 12px;
+  background: #1e293b;
+  color: #fff;
+}
+
+.kll-bulk strong {
+  margin-right: 4px;
+  font-size: 0.8rem;
+}
+
+.kll-bulk .btn {
+  font-size: 0.74rem;
+  padding: 3px 9px;
+}
+
+.kll-bulk .kll-bulk-sep {
+  width: 1px;
+  height: 18px;
+  background: rgba(255, 255, 255, 0.25);
+  margin: 0 4px;
+}
+
+.kll-bulk .kll-bulk-clear {
+  margin-left: auto;
+  color: #cbd5e1;
+}
+
+/* ───────── Panel PARA por talla ───────── */
+.kll-para-panel {
+  padding: 12px 14px 14px;
+  background: linear-gradient(180deg, #f0fdf4, #fff);
+  border-bottom: 1px solid var(--kll-line);
+}
+
+.kll-para-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.kll-para-name {
+  font-weight: 800;
+  font-size: 0.95rem;
+  line-height: 1.2;
+}
+
+.kll-para-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+  font-size: 0.76rem;
+  color: var(--kll-muted);
+}
+
+.kll-size-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.kll-size-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  border: 1px solid var(--kll-line-2);
+  background: #fff;
+  color: var(--kll-ink-2);
+  border-radius: 9px;
+  padding: 4px 10px;
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: border-color 0.12s, background 0.12s, transform 0.08s;
+}
+
+.kll-size-chip b {
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.kll-size-chip span {
+  font-size: 0.7rem;
+  color: var(--kll-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.kll-size-chip:hover {
+  border-color: var(--kll-ok);
+}
+
+.kll-size-chip:active {
+  transform: scale(0.97);
+}
+
+.kll-size-chip.on {
+  background: var(--kll-ok);
+  border-color: var(--kll-ok);
+  color: #fff;
+}
+
+.kll-size-chip.on span {
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.kll-para-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.kll-para-controls .kll-spacer {
+  flex: 1;
+}
+
+.kll-guide {
+  padding: 14px;
+  background: linear-gradient(180deg, #eff6ff, #fff);
+  border-bottom: 1px solid var(--kll-line);
+}
+
+.kll-guide-title {
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+
+.kll-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.kll-steps li {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  color: var(--kll-ink-2);
+  line-height: 1.35;
+}
+
+.kll-steps li i {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--kll-brand-2);
+  color: #fff;
+  font-style: normal;
+  font-size: 0.72rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.kll-guide-note {
+  margin-top: 10px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--kll-warn-soft);
+  color: #78350f;
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+
+/* ───────── Movimientos ───────── */
+.kll-type {
+  position: relative;
+  display: inline-block;
+}
+
+.kll-type select {
+  appearance: none;
+  -webkit-appearance: none;
+  border: 0;
+  border-radius: 999px;
+  padding: 3px 24px 3px 10px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  cursor: pointer;
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+  background-size: 8px;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6'><path fill='none' stroke='%23475569' stroke-width='1.6' d='M1 1l4 4 4-4'/></svg>");
+  min-width: 118px;
+}
+
+.kll-type select:focus {
+  outline: 2px solid rgba(37, 99, 235, 0.4);
+  outline-offset: 1px;
+}
+
+.kll-type select:disabled {
+  opacity: 0.55;
+  cursor: progress;
+}
+
+.kll-type.in select { background-color: var(--kll-ok-soft); color: var(--kll-ok); }
+.kll-type.sale select { background-color: #dbeafe; color: #1d4ed8; }
+.kll-type.out select { background-color: var(--kll-warn-soft); color: var(--kll-warn); }
+.kll-type.bad select { background-color: var(--kll-bad-soft); color: var(--kll-bad); }
+.kll-type.adj select { background-color: #e2e8f0; color: #334155; }
+
+.kll-flag {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 6px;
+  border-radius: 5px;
+  background: #1e293b;
+  color: #fff;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  vertical-align: middle;
+}
+
+.kll-flow {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.kll-flow .arrow {
+  color: var(--kll-line-2);
+}
+
+.kll-flow b {
+  color: var(--kll-ink);
+}
+
+.kll-delta {
+  display: inline-block;
+  min-width: 34px;
+  padding: 0 6px;
+  border-radius: 5px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.kll-delta.up { background: var(--kll-ok-soft); color: var(--kll-ok); }
+.kll-delta.down { background: var(--kll-bad-soft); color: var(--kll-bad); }
+.kll-delta.flat { background: #f1f5f9; color: var(--kll-muted); }
+
+.kll-size-tag {
+  display: inline-block;
+  min-width: 28px;
+  padding: 0 7px;
+  border-radius: 6px;
+  background: #f1f5f9;
+  border: 1px solid var(--kll-line-2);
+  font-weight: 700;
+  text-align: center;
+  color: var(--kll-ink);
+}
+
+.kll-ref {
+  line-height: 1.25;
+}
+
+.kll-ref-type {
+  display: inline-block;
+  margin-top: 2px;
+  padding: 0 6px;
+  border-radius: 5px;
+  background: #f1f5f9;
+  color: var(--kll-muted);
+  font-size: 0.64rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.kll-reason {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--kll-muted);
+}
+
+.kll-row-actions {
+  display: flex;
+  gap: 4px;
+  justify-content: flex-end;
+  opacity: 0.35;
+  transition: opacity 0.12s;
+}
+
+.kll-table tbody tr:hover .kll-row-actions,
+.kll-row-actions:focus-within {
+  opacity: 1;
+}
+
+.kll-icon-btn {
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--kll-line-2);
+  background: #fff;
+  border-radius: 8px;
+  color: var(--kll-ink-2);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 0.8rem;
+  padding: 0;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+
+.kll-icon-btn:hover {
+  background: var(--kll-brand-soft);
+  border-color: var(--kll-brand-2);
+  color: var(--kll-brand);
+}
+
+.kll-icon-btn.danger:hover {
+  background: var(--kll-bad-soft);
+  border-color: var(--kll-bad);
+  color: var(--kll-bad);
+}
+
+.kll-icon-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.kll-scope {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 4px 2px 10px;
+  border-radius: 999px;
+  background: var(--kll-brand-soft);
+  color: var(--kll-brand);
+  font-size: 0.74rem;
+  font-weight: 700;
+}
+
+.kll-scope button {
+  border: 0;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: rgba(30, 58, 138, 0.12);
+  color: var(--kll-brand);
+  line-height: 1;
+  font-size: 0.8rem;
+  cursor: pointer;
+  padding: 0;
+}
+
+.kll-scope button:hover {
+  background: var(--kll-brand);
+  color: #fff;
+}
+
+/* ───────── Vacíos / carga ───────── */
+.kll-empty {
+  padding: 36px 16px;
+  text-align: center;
+  color: var(--kll-muted);
+}
+
+.kll-empty .kll-empty-icon {
+  width: 46px;
+  height: 46px;
+  margin: 0 auto 10px;
+  border-radius: 50%;
+  background: #f1f5f9;
+  color: #94a3b8;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.2rem;
+}
+
+.kll-empty strong {
+  display: block;
+  color: var(--kll-ink-2);
+  margin-bottom: 2px;
+}
+
+.kll-loading {
+  position: relative;
+}
+
+.kll-loading::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: rgba(255, 255, 255, 0.55);
+  pointer-events: none;
+}
+
+/* ───────── Modales ───────── */
+.kll-modal .modal-content {
+  border: 0;
+  border-radius: 16px;
+  overflow: hidden;
+  box-shadow: 0 24px 60px rgba(15, 23, 42, 0.28);
+}
+
+.kll-modal .modal-header {
+  background: var(--kll-bg);
+  border-bottom: 1px solid var(--kll-line);
+  padding: 14px 20px;
+}
+
+.kll-modal .modal-title {
+  font-weight: 700;
+  color: var(--kll-ink);
+}
+
+.kll-modal .modal-body {
+  padding: 16px 20px;
+}
+
+.kll-modal .modal-footer {
+  border-top: 1px solid var(--kll-line);
+  background: var(--kll-bg);
+  padding: 12px 20px;
+}
+
+.kll-section {
+  margin: 0 0 8px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--kll-line);
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--kll-brand);
+}
+
+.kll-section:not(:first-child) {
+  margin-top: 16px;
+}
+
+.kll-modal .row > [class*="col-"] {
+  margin-bottom: 10px;
+}
+
+.kll-callout {
+  display: flex;
+  gap: 10px;
+  padding: 10px 12px;
+  margin-bottom: 14px;
+  border-radius: 10px;
+  background: var(--kll-warn-soft);
+  color: #78350f;
+  font-size: 0.8rem;
+  line-height: 1.4;
+}
+
+.kll-hint {
+  display: block;
+  margin-top: 2px;
+  font-size: 0.7rem;
+  color: var(--kll-muted);
+}
+
+@media (max-width: 767px) {
+  .kll-scroll.stocks,
+  .kll-scroll.moves {
+    max-height: 60vh;
+  }
+
+  .kll-head-actions {
+    width: 100%;
+  }
+}
+
+.kll-link:disabled {
+  color: var(--kll-line-2);
+  cursor: default;
+  text-decoration: none;
+}
