@@ -135,6 +135,12 @@ export const getEmployeeCharges = async (filters = {}) => {
   return parseJson(response, "No se pudieron cargar los cargos a colaboradores.");
 };
 
+/**
+ * Cargo manual (descuadre, faltante de caja, daño u otro).
+ * body: { employeeId, concept, amount, reason, reference?, chargedOn?, employeeAuthorized, authorizationNote?, installmentAmount? }
+ */
+export const createEmployeeCharge = (body) => post("/charges", body, "No se pudo registrar el cargo.");
+
 /** settlementMethod: DESCUENTO, TRANSFERENCIA o EFECTIVO. */
 export const decideEmployeeCharge = (id, settlementMethod) =>
   post(`/charges/${id}/settlement`, { settlementMethod }, "No se pudo guardar la decisión.");

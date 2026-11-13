@@ -41,8 +41,10 @@ import {
   fmtDate,
   fmtLong,
   fmtShort,
+  SECTIONS,
   people,
   q,
+  sectionOf,
   sum,
   todayIso,
 } from "./payrollUi";
@@ -89,14 +91,14 @@ const needsAccount = (line) => line.paymentMethod === "TRANSFERENCIA BANCARIA" &
 const maskAccount = (account) => (account ? `•••• ${String(account).slice(-4)}` : "");
 
 function exportRunToExcel(run) {
-  const header = ["Colaborador", "Puesto", "Vinculación", "Forma de pago", "Cuenta", "Salario mensual", "Días",
+  const header = ["Colaborador", "Puesto", "Sección", "Vinculación", "Forma de pago", "Cuenta", "Salario mensual", "Días",
     "Sueldo", "Bonificación", "IGSS laboral", "ISR", "Compras colaborador", "Otras deducciones", "Líquido",
     "IGSS patronal", "IRTRA", "INTECAP", "Cheque"];
   const keys = ["monthlySalary", "daysPaid", "baseSalary", "bonification", "igssEmployee", "isr", "opiDiscount",
     "otherDeductions", "netPay", "igssEmployer", "irtra", "intecap"];
-  const rows = run.lines.map((line) => [line.employeeName, line.position || "", line.employmentType,
+  const rows = run.lines.map((line) => [line.employeeName, line.position || "", SECTIONS[sectionOf(run.payGroup, line.kiosk)], line.employmentType,
     line.paymentMethod || "", line.bankAccount || "", ...keys.map((key) => Number(line[key]) || 0), line.chequeNumber || ""]);
-  const totals = ["TOTAL", "", "", "", "", ...keys.map((key) => (key === "monthlySalary" || key === "daysPaid" ? "" : sum(run.lines, key))), ""];
+  const totals = ["TOTAL", "", "", "", "", "", ...keys.map((key) => (key === "monthlySalary" || key === "daysPaid" ? "" : sum(run.lines, key))), ""];
   const title = [`Planilla ${GROUP_LABELS[run.payGroup] || run.payGroup}, pago ${fmtDate(run.payDate)}, período ${fmtDate(run.periodStart)} al ${fmtDate(run.periodEnd)}, estado ${run.status}`];
   const sheet = XLSX.utils.aoa_to_sheet([title, [], header, ...rows, totals]);
   sheet["!cols"] = header.map((_, i) => ({ wch: i === 0 ? 34 : 14 }));
@@ -170,9 +172,11 @@ function PayrollRuns() {
   const [changedLineIds, setChangedLineIds] = useState(() => new Set());
   const [lineSearch, setLineSearch] = useState("");
   const [payFilter, setPayFilter] = useState("ALL");
+  const [section, setSection] = useState("ALL");
   const [showColumns, setShowColumns] = useState(false);
   const [voucherId, setVoucherId] = useState(null);
   const [runFilter, setRunFilter] = useState("ALL");
+  const [showMissed, setShowMissed] = useState(false);
   const [confirm, setConfirm] = useState(null);
   const [chequeForm, setChequeForm] = useState(null);
   const [annulReason, setAnnulReason] = useState(null);
@@ -226,6 +230,7 @@ function PayrollRuns() {
     setResult(null);
     setLineSearch("");
     setPayFilter("ALL");
+    setSection("ALL");
     setVoucherId(null);
     setChangedLineIds(new Set());
     setActiveTab("runs");
@@ -340,12 +345,19 @@ function PayrollRuns() {
   const visibleLines = useMemo(() => {
     const term = lineSearch.trim().toLowerCase();
     return lines.filter((line) => {
+      if (section !== "ALL" && sectionOf(selected.payGroup, line.kiosk) !== section) return false;
       const matchesFilter = payFilter === "ALL"
         || (payFilter === "WARN" ? !line.paymentMethod || needsAccount(line) : line.paymentMethod === payFilter);
       return matchesFilter && (!term || `${line.employeeName} ${line.position || ""}`.toLowerCase().includes(term));
     });
-  }, [lines, lineSearch, payFilter]);
+  }, [lines, lineSearch, payFilter, section, selected]);
   const printable = selected ? chequeLines(selected) : [];
+  const sectionCounts = lines.reduce((acc, line) => {
+    const key = sectionOf(selected.payGroup, line.kiosk);
+    acc[key] = (acc[key] || 0) + 1;
+    return acc;
+  }, {});
+  const hasSections = Boolean(selected) && selected.payGroup !== "PLANTA" && lines.length > 0;
   const missingCheques = lines.filter((line) => line.paymentMethod === "CHEQUE" && Number(line.netPay) > 0 && !line.chequeNumber).length;
   const withoutPaymentMethod = lines.filter((line) => !line.paymentMethod);
   const canChangePayDate = selected && ((selected.status === "BORRADOR" && canCreate) || (selected.status === "APROBADA" && canApprove));
@@ -575,30 +587,63 @@ function PayrollRuns() {
     </div>
   );
 
-  const calendar = !loading && otherDays.length > 0 && (
-    <section className="pl-card">
-      <div className="pl-card__head"><h5>Calendario de pagos</h5><span className="pl-sub">Fechas anteriores y siguientes</span></div>
-      <div className="pl-scroll mt-2">
-        <table className="pl-table">
-          <thead>
-            <tr><th>Grupo</th><th>Fecha programada</th><th>Se paga</th><th>Período</th><th>Planilla</th></tr>
-          </thead>
-          <tbody>
-            {otherDays.map((day) => (
-              <tr key={`${day.payGroup}-${day.scheduledDate}`}>
-                <td>{GROUP_LABELS[day.payGroup] || day.payGroup}</td>
-                <td>{fmtDate(day.scheduledDate)}</td>
-                <td>
-                  {fmtDate(day.payDate)}
-                  {day.payDate !== day.scheduledDate && <small className="text-muted"> (antes de la fecha programada)</small>}
-                </td>
-                <td>{fmtDate(day.periodStart)} al {fmtDate(day.periodEnd)}</td>
-                <td>{dayAccess(day)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+  /** Una fecha del calendario: cuándo se paga, qué período cubre y su planilla o el botón para prepararla. */
+  const dayRow = (day, past) => (
+    <li key={`${day.payGroup}-${day.scheduledDate}`} className={`pl-day${past ? " pl-day--past" : ""}`}>
+      <div className="pl-day__info">
+        <div className="pl-day__date">{fmtLong(day.payDate)}</div>
+        <div className="pl-sub">
+          Período {fmtShort(day.periodStart)} al {fmtShort(day.periodEnd)}
+          {day.payDate !== day.scheduledDate && <> · se adelanta del {fmtShort(day.scheduledDate)}</>}
+        </div>
       </div>
+      {day.runId ? dayAccess(day) : (canCreate && (
+        <Button color="primary" outline={!past} size="sm" className="m-0" disabled={busy} onClick={() => prepare(day)}>Preparar</Button>
+      ))}
+    </li>
+  );
+
+  // Cada grupo por su lado: lo que viene después de la tarjeta de arriba y, aparte, lo que quedó sin planilla.
+  const calendarGroups = ["PLANTA", "ADMINISTRACION"].map((group) => {
+    const days = otherDays.filter((day) => day.payGroup === group);
+    return {
+      group,
+      later: days.filter((day) => day.scheduledDate >= today),
+      missed: days.filter((day) => day.scheduledDate < today && !day.runId),
+    };
+  });
+  const totalMissed = calendarGroups.reduce((total, item) => total + item.missed.length, 0);
+  const calendar = !loading && calendarGroups.some((item) => item.later.length > 0 || item.missed.length > 0) && (
+    <section aria-label="Calendario de pagos">
+      <div className="pl-row mb-2">
+        <h5 className="mb-0" style={{ fontWeight: 700, fontSize: 15 }}>Calendario de pagos</h5>
+        <span className="pl-sub">Lo que viene después del próximo pago</span>
+      </div>
+      <div className="pl-cards2">
+        {calendarGroups.map(({ group, later }) => (
+          <div key={group} className="pl-card pl-calendar">
+            <div className="pl-calendar__head"><b>{GROUP_SHORT[group]}</b><span className="pl-sub">{group === "PLANTA" ? "Paga el 5 y el 20" : "Paga el 15 y fin de mes · incluye kioscos"}</span></div>
+            {later.length === 0 ? <p className="pl-sub px-3 py-3 mb-0">No hay más fechas por ahora.</p> : <ul className="pl-days">{later.map((day) => dayRow(day, false))}</ul>}
+          </div>
+        ))}
+      </div>
+      {totalMissed > 0 && (
+        <div className="mt-2">
+          <button type="button" className="pl-linkbtn" aria-expanded={showMissed} onClick={() => setShowMissed(!showMissed)}>
+            {showMissed ? "Ocultar" : "Ver"} fechas anteriores sin planilla ({totalMissed})
+          </button>
+          {showMissed && (
+            <div className="pl-cards2 mt-2">
+              {calendarGroups.filter((item) => item.missed.length > 0).map(({ group, missed }) => (
+                <div key={group} className="pl-card pl-calendar">
+                  <div className="pl-calendar__head"><b>{GROUP_SHORT[group]}</b><span className="pl-sub">Pasaron sin prepararse</span></div>
+                  <ul className="pl-days">{missed.map((day) => dayRow(day, true))}</ul>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </section>
   );
 
@@ -628,7 +673,7 @@ function PayrollRuns() {
               <tr key={item.id} className="pl-click" tabIndex={0} onClick={() => openRun(item.id)}
                 onKeyDown={(e) => { if (e.key === "Enter") openRun(item.id); }}>
                 <td><b>{item.id}</b></td>
-                <td>{GROUP_LABELS[item.payGroup] || item.payGroup}</td>
+                <td>{GROUP_SHORT[item.payGroup] || item.payGroup}</td>
                 <td>{fmtDate(item.payDate)}</td>
                 <td>{fmtDate(item.periodStart)} al {fmtDate(item.periodEnd)}</td>
                 <td><StatusPill status={item.status} /></td>
@@ -724,7 +769,7 @@ function PayrollRuns() {
                     <Avatar name={line.employeeName} />
                     <div>
                       <b>{line.employeeName}</b>
-                      <small>{line.position}{line.employmentType === "SERVICIOS" ? " · Servicios" : ""}</small>
+                      <small>{[line.position, line.departmentName].filter(Boolean).join(" · ")}{line.employmentType === "SERVICIOS" ? " · Servicios" : ""}</small>
                     </div>
                   </div>
                 </td>
@@ -784,7 +829,7 @@ function PayrollRuns() {
       isOpen
       onClose={() => setVoucherId(null)}
       title={voucherLine.employeeName}
-      subtitle={`${voucherLine.position || "Sin puesto"} · Planilla #${selected.id}`}
+      subtitle={`${[voucherLine.position || "Sin puesto", voucherLine.departmentName].filter(Boolean).join(" · ")} · Planilla #${selected.id}`}
       avatar={<Avatar name={voucherLine.employeeName} />}
       footer={(
         <>
@@ -947,6 +992,9 @@ function PayrollRuns() {
               {lines.filter((line) => line.employmentType === "PLANILLA").length} de planilla ·{" "}
               {lines.filter((line) => line.employmentType === "SERVICIOS").length} de servicios
             </div>
+            {hasSections && (
+              <div className="pl-sub">{sectionCounts.ADMINISTRACION || 0} de administración · {sectionCounts.KIOSCOS || 0} de kioscos</div>
+            )}
           </div>
           <div>
             <div className="pl-lbl">Cómo se paga</div>
@@ -989,6 +1037,13 @@ function PayrollRuns() {
             <Input bsSize="sm" placeholder="Buscar colaborador o puesto" aria-label="Buscar colaborador" value={lineSearch}
               onChange={(e) => setLineSearch(e.target.value)} />
           </div>
+          {hasSections && (
+            <div className="pl-seg" role="radiogroup" aria-label="Sección">
+              {[["ALL", "Todos", lines.length], ["ADMINISTRACION", SECTIONS.ADMINISTRACION, sectionCounts.ADMINISTRACION || 0], ["KIOSCOS", SECTIONS.KIOSCOS, sectionCounts.KIOSCOS || 0]].map(([key, label, count]) => (
+                <button key={key} type="button" role="radio" aria-checked={section === key} onClick={() => setSection(key)}>{label} · {count}</button>
+              ))}
+            </div>
+          )}
           <div className="pl-chips" role="group" aria-label="Filtrar por forma de pago">
             {PAY_FILTERS.map(([key, label]) => (
               <button key={key} type="button" className="pl-chip" aria-pressed={payFilter === key} onClick={() => setPayFilter(key)}>{label}</button>

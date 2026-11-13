@@ -20,18 +20,28 @@ const LABELS = {
 };
 
 const GROUPS = [
-  ["Cuotas de ley", ["IGSS_LABORAL_PCT", "IGSS_PATRONAL_PCT", "IRTRA_PCT", "INTECAP_PCT"]],
-  ["Bonificación", ["BONIFICACION_INCENTIVO_MENSUAL"]],
-  ["ISR en relación de dependencia", ["ISR_DEDUCCION_PERSONAL", "ISR_TRAMO_LIMITE", "ISR_TASA_TRAMO1_PCT", "ISR_TASA_TRAMO2_PCT", "ISR_CUOTA_FIJA_TRAMO2"]],
+  ["Cuotas de ley", "Porcentajes sobre el sueldo de cada planilla.",
+    ["IGSS_LABORAL_PCT", "IGSS_PATRONAL_PCT", "IRTRA_PCT", "INTECAP_PCT"]],
+  ["Bonificación", "Monto mensual cuando la ficha no indica otro.", ["BONIFICACION_INCENTIVO_MENSUAL"]],
+  ["ISR en relación de dependencia", "Tramos anuales; se reparten en cada quincena.",
+    ["ISR_DEDUCCION_PERSONAL", "ISR_TRAMO_LIMITE", "ISR_TASA_TRAMO1_PCT", "ISR_TASA_TRAMO2_PCT", "ISR_CUOTA_FIJA_TRAMO2"]],
 ];
 
 const isPercent = (code) => code.endsWith("_PCT");
-/** Nombre sin la unidad entre paréntesis: la unidad se ve en el valor. */
-const plainLabel = (code) => LABELS[code].replace(/\s*\((%|Q)\)$/, "").replace(/^ISR: /, "");
-const showValue = (code, value) => {
-  const text = Number(value).toLocaleString("en-US", { maximumFractionDigits: 4 });
-  return isPercent(code) ? `${text} %` : `Q ${text}`;
+/** Nombre sin la unidad entre paréntesis (la unidad se ve en el valor) y sin el prefijo del grupo, con mayúscula inicial. */
+const plainLabel = (code) => {
+  const name = LABELS[code].replace(/\s*\((%|Q)\)$/, "").replace(/^ISR: /, "");
+  return name.charAt(0).toUpperCase() + name.slice(1);
 };
+const formatNumber = (value) => Number(value).toLocaleString("en-US", { maximumFractionDigits: 4 });
+/** Valor con su unidad pequeña al lado: «4.83 %» o «Q 48,000». */
+function ParamValue({ code, value }) {
+  if (isPercent(code)) {
+    return <span className="pl-param__v pl-num">{formatNumber(value)}<span className="pl-param__unit">%</span></span>;
+  }
+  return <span className="pl-param__v pl-num"><span className="pl-param__unit pl-param__unit--pre">Q</span>{formatNumber(value)}</span>;
+}
+const showValue = (code, value) => (isPercent(code) ? `${formatNumber(value)} %` : `Q ${formatNumber(value)}`);
 
 const EMPTY_FORM = { code: "IGSS_LABORAL_PCT", value: "", effectiveFrom: "", description: "" };
 
@@ -122,9 +132,12 @@ function PayrollParameters() {
       </div>
 
       <div className="pl-params">
-        {GROUPS.map(([title, codes]) => (
-          <section key={title} className="pl-card">
-            <div className="pl-card__head"><h5>{title}</h5></div>
+        {GROUPS.map(([title, subtitle, codes]) => (
+          <section key={title} className="pl-card pl-params__group">
+            <div className="pl-params__head">
+              <h5>{title}</h5>
+              <span className="pl-sub">{subtitle}</span>
+            </div>
             {codes.map((code) => {
               const list = [...(byCode[code] || [])].sort((a, b) => String(b.effectiveFrom).localeCompare(String(a.effectiveFrom)));
               const current = list.find((row) => row.current) || list[0];
@@ -132,23 +145,27 @@ function PayrollParameters() {
               return (
                 <div key={code} className="pl-param">
                   <div className="pl-param__top">
-                    <div>
-                      <div>{plainLabel(code)}</div>
-                      <div className="pl-sub">
-                        {current ? <>Vigente desde {fmtDate(current.effectiveFrom)}{current.description ? ` · ${current.description}` : ""}</> : "Sin valor registrado"}
+                    <div className="pl-param__info">
+                      <div className="pl-param__name">{plainLabel(code)}</div>
+                      <div className="pl-param__since">
+                        {current ? `Vigente desde ${fmtDate(current.effectiveFrom)}` : "Sin valor registrado"}
                       </div>
+                      {current && current.description && (
+                        <div className="pl-param__note" title={current.description}>{current.description}</div>
+                      )}
                     </div>
-                    <div className="pl-row" style={{ flexWrap: "nowrap" }}>
-                      <span className="pl-param__v pl-num">{current ? showValue(code, current.value) : "—"}</span>
-                      {older.length > 0 && (
-                        <Button color="link" size="sm" className="m-0 p-1" aria-expanded={expanded.has(code)}
-                          aria-label={`Historial de ${plainLabel(code)}`} onClick={() => toggleHistory(code)}>
-                          <i className="nc-icon nc-time-alarm" />
+                    {current ? <ParamValue code={code} value={current.value} /> : <span className="pl-param__v">—</span>}
+                    <div className="pl-param__actions">
+                      {canEdit && (
+                        <Button color="secondary" outline size="sm" className="m-0" aria-label={`Cambiar ${plainLabel(code)}`}
+                          onClick={() => openForm(code)}>
+                          Cambiar
                         </Button>
                       )}
-                      {canEdit && (
-                        <Button color="link" size="sm" className="m-0 p-1" aria-label={`Cambiar ${plainLabel(code)}`} onClick={() => openForm(code)}>
-                          Cambiar
+                      {older.length > 0 && (
+                        <Button color="link" size="sm" className="m-0 p-1 text-muted" aria-expanded={expanded.has(code)}
+                          aria-label={`Historial de ${plainLabel(code)}`} title="Ver valores anteriores" onClick={() => toggleHistory(code)}>
+                          <i className="nc-icon nc-time-alarm" />
                         </Button>
                       )}
                     </div>

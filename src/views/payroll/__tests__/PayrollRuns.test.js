@@ -54,10 +54,17 @@ const draft = (overrides = {}) => ({
 
 const buttonNames = () => screen.getAllByRole("button").map((button) => button.textContent.trim());
 
+/** Fila del historial que empieza con ese número de planilla. */
+const historyRow = async (id) => waitFor(() => {
+  const found = screen.getAllByRole("row").find((row) => row.textContent.startsWith(String(id)));
+  expect(found).toBeTruthy();
+  return found;
+});
+
 async function openRun(run) {
   getPayrollRun.mockResolvedValue(run);
   render(<PayrollRuns />);
-  fireEvent.click(await screen.findByRole("button", { name: /#9/ }));
+  fireEvent.click(await historyRow(9));
   await screen.findByText(/Planilla #9/);
 }
 
@@ -69,7 +76,7 @@ beforeEach(() => {
     { payGroup: "ADMINISTRACION", scheduledDate: NEXT, payDate: NEXT_PAY, periodStart: NEXT_START,
       periodEnd: NEXT, runId: null, runStatus: null },
   ]);
-  getPayrollRuns.mockResolvedValue([]);
+  getPayrollRuns.mockResolvedValue([{ ...draft(), lines: undefined }]);
 });
 afterEach(cleanup);
 
@@ -171,14 +178,13 @@ test("al volver de Fichas recarga la lista y la planilla abierta, y Fichas no se
 
 test("si se abren dos planillas seguidas queda la última aunque la primera responda después", async () => {
   let answerFirst;
-  getPayrollRuns.mockResolvedValue([{ ...draft({ id: 10, payGroup: "ADMINISTRACION" }), lines: undefined }]);
+  getPayrollRuns.mockResolvedValue([{ ...draft(), lines: undefined }, { ...draft({ id: 10, payGroup: "ADMINISTRACION" }), lines: undefined }]);
   getPayrollRun.mockImplementation((id) => (id === 9
     ? new Promise((resolve) => { answerFirst = () => resolve(draft()); })
     : Promise.resolve(draft({ id: 10, payGroup: "ADMINISTRACION" }))));
   render(<PayrollRuns />);
-  fireEvent.click(await screen.findByRole("button", { name: /#9/ }));
-  const listRow = screen.getAllByRole("row").find((row) => row.textContent.startsWith("10"));
-  fireEvent.click(listRow);
+  fireEvent.click(await historyRow(9));
+  fireEvent.click(await historyRow(10));
   await screen.findByText(/Planilla #10/);
   await act(async () => { answerFirst(); });
   expect(screen.getByText(/Planilla #10/)).toBeInTheDocument();
@@ -187,12 +193,29 @@ test("si se abren dos planillas seguidas queda la última aunque la primera resp
 
 test("la planilla abierta ocupa la vista y Volver regresa al inicio", async () => {
   await openRun(draft());
-  expect(screen.queryByText("Fecha programada")).not.toBeInTheDocument();
-  expect(screen.queryByText("Todavía no hay planillas.")).not.toBeInTheDocument();
+  expect(screen.queryByText("Historial de planillas")).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: /Volver a planillas/ }));
-  expect(screen.getByText("Fecha programada")).toBeInTheDocument();
+  expect(screen.getByText("Historial de planillas")).toBeInTheDocument();
   expect(screen.queryByText(/Planilla #9/)).not.toBeInTheDocument();
-  expect(screen.getByText("Todavía no hay planillas.")).toBeInTheDocument();
+});
+
+test("el calendario separa los grupos y esconde las fechas que pasaron sin planilla", async () => {
+  getPayDays.mockResolvedValue([
+    { payGroup: "PLANTA", scheduledDate: shift(-40), payDate: shift(-40), periodStart: shift(-55), periodEnd: shift(-40), runId: null, runStatus: null },
+    { payGroup: "PLANTA", scheduledDate: shift(-20), payDate: shift(-20), periodStart: shift(-35), periodEnd: shift(-20), runId: 9, runStatus: "BORRADOR" },
+    { payGroup: "ADMINISTRACION", scheduledDate: NEXT, payDate: NEXT_PAY, periodStart: NEXT_START, periodEnd: NEXT, runId: null, runStatus: null },
+    { payGroup: "PLANTA", scheduledDate: shift(20), payDate: shift(20), periodStart: shift(6), periodEnd: shift(20), runId: null, runStatus: null },
+    { payGroup: "PLANTA", scheduledDate: shift(35), payDate: shift(35), periodStart: shift(21), periodEnd: shift(35), runId: null, runStatus: null },
+    { payGroup: "ADMINISTRACION", scheduledDate: shift(25), payDate: shift(25), periodStart: shift(10), periodEnd: shift(25), runId: null, runStatus: null },
+  ]);
+  render(<PayrollRuns />);
+  const calendar = await screen.findByRole("region", { name: "Calendario de pagos" });
+  expect(within(calendar).getAllByText("Paga el 5 y el 20")).toHaveLength(1);
+  expect(within(calendar).getAllByText("Paga el 15 y fin de mes · incluye kioscos")).toHaveLength(1);
+  // Una fecha futura por grupo; la del pasado sin planilla queda escondida hasta pedirla.
+  expect(within(calendar).getAllByRole("button", { name: "Preparar" })).toHaveLength(2);
+  fireEvent.click(within(calendar).getByRole("button", { name: "Ver fechas anteriores sin planilla (1)" }));
+  expect(within(calendar).getAllByRole("button", { name: "Preparar" })).toHaveLength(3);
 });
 
 test("el siguiente paso y los avisos llevan a Fichas con el filtro de la planilla", async () => {
@@ -266,4 +289,25 @@ test("el filtro de forma de pago y las columnas de detalle cambian la tabla", as
   fireEvent.click(screen.getByRole("button", { name: "Transferencia" }));
   expect(screen.queryByText("ANA PRUEBA")).not.toBeInTheDocument();
   expect(screen.getByText("BETO PRUEBA")).toBeInTheDocument();
+});
+
+test("una planilla de administración se puede ver por administración o por kioscos", async () => {
+  await openRun(draft({
+    payGroup: "ADMINISTRACION",
+    lines: [{ ...cheque, kiosk: false, departmentName: "Contabilidad" }, { ...transfer, kiosk: true, departmentName: "Kiosco Miraflores" }],
+  }));
+  expect(screen.getByText("1 de administración · 1 de kioscos")).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("radio", { name: "Kioscos · 1" }));
+  expect(screen.queryByText("ANA PRUEBA")).not.toBeInTheDocument();
+  expect(screen.getByText("BETO PRUEBA")).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("radio", { name: "Administración · 1" }));
+  expect(screen.getByText("ANA PRUEBA")).toBeInTheDocument();
+  expect(screen.queryByText("BETO PRUEBA")).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("radio", { name: "Todos · 2" }));
+  expect(screen.getByText("BETO PRUEBA")).toBeInTheDocument();
+});
+
+test("una planilla de planta no muestra la separación de kioscos", async () => {
+  await openRun(draft());
+  expect(screen.queryByRole("radiogroup", { name: "Sección" })).not.toBeInTheDocument();
 });

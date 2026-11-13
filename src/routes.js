@@ -1418,6 +1418,7 @@ const routes = [
         module: "CONTABILIDAD",
         permissions: {
           view: "PLANILLA.CARGOS.VER",
+          create: "PLANILLA.CARGOS.CREAR",
           edit: "PLANILLA.CARGOS.EDITAR",
         },
       },
