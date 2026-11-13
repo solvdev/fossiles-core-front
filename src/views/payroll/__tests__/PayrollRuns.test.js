@@ -15,6 +15,7 @@ import {
 } from "services/payrollService";
 
 jest.mock("services/payrollService");
+jest.mock("services/locationService");
 jest.mock("utils/notificationHelper");
 jest.mock("xlsx-js-style", () => ({ ...jest.requireActual("xlsx-js-style"), writeFile: jest.fn() }));
 
@@ -310,4 +311,21 @@ test("una planilla de administración se puede ver por administración o por kio
 test("una planilla de planta no muestra la separación de kioscos", async () => {
   await openRun(draft());
   expect(screen.queryByRole("radiogroup", { name: "Sección" })).not.toBeInTheDocument();
+});
+
+test("las horas extra suman al devengado y la ausencia se explica en el voucher", async () => {
+  await openRun(draft({
+    lines: [{ ...cheque, extraPay: 316.67, absenceDays: 3, vacationDays: 2, baseSalary: 1600, daysPaid: 12 }, transfer],
+  }));
+  // Devengado = sueldo 1,600 + bonificación 125 + extras 316.67
+  expect(within(screen.getByText("ANA PRUEBA").closest("tr")).getByText("2,041.67")).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: /columnas de detalle/ }));
+  expect(screen.getByRole("columnheader", { name: "Extras" })).toBeInTheDocument();
+  expect(within(screen.getByText("ANA PRUEBA").closest("tr")).getByText("316.67")).toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole("row", { name: /Ver voucher de ANA PRUEBA/ }));
+  const dialog = await screen.findByRole("dialog", { name: "ANA PRUEBA" });
+  expect(within(dialog).getByText("Horas extra y feriados trabajados")).toBeInTheDocument();
+  expect(within(dialog).getByText("3 días menos de sueldo")).toBeInTheDocument();
+  expect(within(dialog).getByText("2 días con goce")).toBeInTheDocument();
 });

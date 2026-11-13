@@ -3,10 +3,19 @@ import { Button, Input, Spinner } from "reactstrap";
 import SideDrawer from "components/SideDrawer/SideDrawer";
 import TablePagination, { usePagination } from "components/TablePagination/TablePagination";
 import { useAuth } from "contexts/AuthContext";
+import { getLocations } from "services/locationService";
 import { getPayrollProfiles, updatePayrollProfile } from "services/payrollService";
 import { showError, showSuccess } from "utils/notificationHelper";
 import { formatAmount } from "utils/payrollPrintHtml";
 import { Avatar, METHODS, SECTIONS, sectionOf } from "./payrollUi";
+
+/** Ubicaciones que son kioscos, igual que en Supervisoras y Kioscos. */
+const isKioskLocation = (location) => {
+  const categoria = String(location?.categoria || "").toUpperCase();
+  const name = String(location?.name || "").toUpperCase();
+  const code = String(location?.code || "").toUpperCase();
+  return categoria.includes("KIOS") || name.includes("KIOS") || code.startsWith("K");
+};
 
 const TYPE_LABELS = { PLANILLA: "Planilla", SERVICIOS: "Servicios" };
 const PAY_OPTIONS = [["CHEQUE", "Cheque"], ["TRANSFERENCIA BANCARIA", "Transferencia"], ["EFECTIVO", "Efectivo"]];
@@ -21,10 +30,16 @@ const toDraft = (profile) => ({
   terminationDate: profile.terminationDate || "",
   igssEnabled: profile.igssEnabled !== false,
   irtraEnabled: profile.irtraEnabled !== false,
+  kioskLocationId: profile.kioskLocationId != null ? String(profile.kioskLocationId) : "",
 });
 
 /** Lo que se manda al servidor al guardar una ficha: reemplaza todos sus datos de planilla. */
 const payloadOf = (profile, draft) => ({
+  // El kiosco solo se manda para el personal de kiosco: de él depende qué supervisora ve sus novedades.
+  ...(profile.kiosk ? {
+    kioskLocationId: draft.kioskLocationId ? Number(draft.kioskLocationId) : null,
+    clearKioskLocation: !draft.kioskLocationId && profile.kioskLocationId != null,
+  } : {}),
   employmentType: draft.employmentType,
   payGroup: draft.payGroup,
   paymentMethod: draft.paymentMethod,
@@ -83,6 +98,7 @@ function PayrollProfiles({ focus }) {
   const [saving, setSaving] = useState(false);
   const [selected, setSelected] = useState(() => new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
+  const [kiosks, setKiosks] = useState([]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -98,6 +114,22 @@ function PayrollProfiles({ focus }) {
   useEffect(() => {
     load();
   }, [load]);
+
+  // Los kioscos solo sirven para asignar a su personal; si no cargan, la ficha se edita igual.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const locations = (await getLocations()) || [];
+        if (!cancelled) setKiosks(locations.filter(isKioskLocation));
+      } catch (error) {
+        // sin lista de kioscos no se puede elegir, pero nada más se pierde
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Solo un enfoque nuevo cambia los filtros; los que mueve el usuario se respetan.
   const latestFocus = useRef(focus);
@@ -302,6 +334,9 @@ function PayrollProfiles({ focus }) {
                         <div>
                           <b>{profile.fullName}</b>
                           <small>{[profile.departmentName, profile.position].filter(Boolean).join(" · ") || "Sin departamento"}</small>
+                          {profile.kiosk && profile.kioskLocationId != null && (
+                            <small className="d-block">{(kiosks.find((k) => k.id === profile.kioskLocationId) || {}).name || "Kiosco asignado"}</small>
+                          )}
                         </div>
                       </div>
                     </td>
@@ -327,6 +362,7 @@ function PayrollProfiles({ focus }) {
                     </td>
                     <td>
                       {(profile.warnings || []).map((warning) => <span key={warning} className="pl-tag">{warning}</span>)}
+                      {profile.kiosk && profile.kioskLocationId == null && <span className="pl-tag">Sin kiosco asignado</span>}
                       {profile.status !== "active" && <span className="pl-tag pl-tag--bad">Inactivo</span>}
                       {profile.terminationDate && <span className="pl-tag pl-tag--info">Baja {profile.terminationDate}</span>}
                     </td>
@@ -410,6 +446,16 @@ function PayrollProfiles({ focus }) {
                 {errors.bonification ? <span className="pl-err">{errors.bonification}</span> : <small>Vacío usa el monto de ley.</small>}
               </div>
             </div>
+            {editing.kiosk && (
+              <div className="pl-field">
+                <label htmlFor="ficha-kiosco">Kiosco donde trabaja</label>
+                <Input id="ficha-kiosco" type="select" value={draft.kioskLocationId} onChange={(e) => setField("kioskLocationId", e.target.value)}>
+                  <option value="">Sin kiosco asignado</option>
+                  {kiosks.map((kiosk) => <option key={kiosk.id} value={kiosk.id}>{kiosk.name}</option>)}
+                </Input>
+                <small>La supervisora de ese kiosco ve a esta persona para registrar sus novedades.</small>
+              </div>
+            )}
             <div className="pl-field">
               <span className="pl-fl">Seguro social</span>
               <label className="pl-switch">
