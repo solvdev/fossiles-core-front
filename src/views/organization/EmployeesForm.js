@@ -17,8 +17,24 @@ import { getDepartments } from "services/departmentService";
 import { getCostCenters } from "services/costCenterService";
 import { getOperationalUnits } from "services/operationalUnitService";
 import { getUsers } from "services/userService";
+import { useAuth } from "contexts/AuthContext";
+
+const plain = (value) => String(value || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase();
+
+/** Misma regla que el backend: Producción (o un código con PRODUC) cobra el 5 y el 20; los demás, el 15 y a fin de mes. */
+const payGroupForDepartment = (department) =>
+  department && (plain(department.name).includes("PRODUCCI") || plain(department.code).includes("PRODUC"))
+    ? "PLANTA"
+    : "ADMINISTRACION";
+const NOTHING_LOADED = { bonification: "", terminationDate: "" };
 
 function EmployeesForm({ employeeId, isOpen, toggle, onSuccess }) {
+  const { hasPermission } = useAuth();
+  // Los salarios solo los ven y cambian administración y Contabilidad; al crear se pueden capturar. Al editar,
+  // quien no lleva la planilla tampoco cambia cuenta, forma de pago, vinculación, grupo ni fecha de baja.
+  const canSeeSalaries = ["PLANILLA.CORRIDAS.VER", "PLANILLA.CORRIDAS.CREAR", "PLANILLA.CORRIDAS.APROBAR"].some(hasPermission);
+  const salaryLocked = Boolean(employeeId) && !canSeeSalaries;
+  const salaryPlaceholder = salaryLocked ? "Solo administración y Contabilidad" : "0.00";
   const [formData, setFormData] = useState({
     firstName: "",
     lastName: "",
@@ -33,12 +49,20 @@ function EmployeesForm({ employeeId, isOpen, toggle, onSuccess }) {
     igssDeduction: "",
     quincenaBruta: "",
     quincenaNeta: "",
+    employmentType: "PLANILLA",
+    payGroup: "",
+    bonification: "",
+    nit: "",
+    igssAffiliation: "",
+    terminationDate: "",
     departmentId: "",
     costCenterId: "",
     operationalUnitId: "",
     userId: "",
     status: "active",
   });
+  // Lo que traía la ficha al abrirla: solo se borra a propósito lo que tenía valor.
+  const [loaded, setLoaded] = useState(NOTHING_LOADED);
   const [errors, setErrors] = useState({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -93,11 +117,21 @@ function EmployeesForm({ employeeId, isOpen, toggle, onSuccess }) {
         igssDeduction: employee.igssDeduction || "",
         quincenaBruta: employee.quincenaBruta || "",
         quincenaNeta: employee.quincenaNeta || "",
+        employmentType: employee.employmentType || "PLANILLA",
+        payGroup: employee.payGroup || "",
+        bonification: employee.bonification ?? "",
+        nit: employee.nit || "",
+        igssAffiliation: employee.igssAffiliation || "",
+        terminationDate: employee.terminationDate ? employee.terminationDate.split("T")[0] : "",
         departmentId: employee.departmentId || "",
         costCenterId: employee.costCenterId || "",
         operationalUnitId: employee.operationalUnitId || "",
         userId: employee.user ? employee.user.id : "",
         status: employee.status || "active",
+      });
+      setLoaded({
+        bonification: employee.bonification ?? "",
+        terminationDate: employee.terminationDate ? employee.terminationDate.split("T")[0] : "",
       });
     } catch (err) {
       setError(err.message || "Error al cargar el empleado");
@@ -121,12 +155,19 @@ function EmployeesForm({ employeeId, isOpen, toggle, onSuccess }) {
       igssDeduction: "",
       quincenaBruta: "",
       quincenaNeta: "",
+      employmentType: "PLANILLA",
+      payGroup: "",
+      bonification: "",
+      nit: "",
+      igssAffiliation: "",
+      terminationDate: "",
       departmentId: "",
       costCenterId: "",
       operationalUnitId: "",
       userId: "",
       status: "active",
     });
+    setLoaded(NOTHING_LOADED);
     setErrors({});
     setError("");
   };
@@ -169,6 +210,9 @@ function EmployeesForm({ employeeId, isOpen, toggle, onSuccess }) {
     try {
       setLoading(true);
       setError("");
+      const department = departments.find((d) => String(d.id) === String(formData.departmentId));
+      // "Según departamento" en una edición fija el grupo del departamento; vacío lo dejaría como estaba.
+      const payGroup = formData.payGroup || (employeeId ? payGroupForDepartment(department) : null);
       const submitData = {
         firstName: formData.firstName.trim(),
         lastName: formData.lastName.trim(),
@@ -178,11 +222,20 @@ function EmployeesForm({ employeeId, isOpen, toggle, onSuccess }) {
         hireDate: formData.hireDate,
         position: formData.position.trim() || null,
         salary: formData.salary ? parseFloat(formData.salary) : null,
-        bankAccount: formData.bankAccount.trim() || null,
-        paymentMethod: formData.paymentMethod.trim() || null,
+        // Sin acceso a la planilla, los datos de pago van vacíos y el backend conserva los actuales.
+        bankAccount: salaryLocked ? null : formData.bankAccount.trim() || null,
+        paymentMethod: salaryLocked ? null : formData.paymentMethod.trim() || null,
         igssDeduction: formData.igssDeduction ? parseFloat(formData.igssDeduction) : null,
         quincenaBruta: formData.quincenaBruta ? parseFloat(formData.quincenaBruta) : null,
         quincenaNeta: formData.quincenaNeta ? parseFloat(formData.quincenaNeta) : null,
+        employmentType: salaryLocked ? null : formData.employmentType || "PLANILLA",
+        payGroup: salaryLocked ? null : payGroup,
+        bonification: formData.bonification !== "" ? parseFloat(formData.bonification) : null,
+        clearBonification: Boolean(employeeId) && canSeeSalaries && formData.bonification === "" && loaded.bonification !== "",
+        clearTerminationDate: Boolean(employeeId) && !salaryLocked && !formData.terminationDate && loaded.terminationDate !== "",
+        nit: formData.nit.trim(),
+        igssAffiliation: formData.igssAffiliation.trim(),
+        terminationDate: salaryLocked ? null : formData.terminationDate || null,
         departmentId: formData.departmentId ? Number(formData.departmentId) : null,
         costCenterId: formData.costCenterId ? Number(formData.costCenterId) : null,
         operationalUnitId: formData.operationalUnitId ? Number(formData.operationalUnitId) : null,
@@ -312,9 +365,11 @@ function EmployeesForm({ employeeId, isOpen, toggle, onSuccess }) {
                 <Input
                   type="number"
                   step="0.01"
+                  min="0"
                   value={formData.salary}
+                  disabled={salaryLocked}
                   onChange={(e) => setFormData({ ...formData, salary: e.target.value })}
-                  placeholder="0.00"
+                  placeholder={salaryPlaceholder}
                 />
               </FormGroup>
             </Col>
@@ -326,7 +381,9 @@ function EmployeesForm({ employeeId, isOpen, toggle, onSuccess }) {
                 <Label>Número de Cuenta Bancaria</Label>
                 <Input
                   type="text"
+                  maxLength={50}
                   value={formData.bankAccount}
+                  disabled={salaryLocked}
                   onChange={(e) => setFormData({ ...formData, bankAccount: e.target.value })}
                   placeholder="Número de cuenta"
                 />
@@ -338,12 +395,102 @@ function EmployeesForm({ employeeId, isOpen, toggle, onSuccess }) {
                 <Input
                   type="select"
                   value={formData.paymentMethod}
+                  disabled={salaryLocked}
                   onChange={(e) => setFormData({ ...formData, paymentMethod: e.target.value })}
                 >
                   <option value="">Seleccione...</option>
                   <option value="TRANSFERENCIA BANCARIA">TRANSFERENCIA BANCARIA</option>
                   <option value="CHEQUE">CHEQUE</option>
+                  <option value="EFECTIVO">EFECTIVO</option>
                 </Input>
+              </FormGroup>
+            </Col>
+          </Row>
+
+          {salaryLocked && (
+            <p className="small text-muted">
+              La cuenta, la forma de pago, la vinculación, el grupo de pago y la fecha de baja solo los cambian
+              administración y Contabilidad.
+            </p>
+          )}
+          <Row>
+            <Col md="4">
+              <FormGroup>
+                <Label>Tipo de vinculación</Label>
+                <Input
+                  type="select"
+                  value={formData.employmentType}
+                  disabled={salaryLocked}
+                  onChange={(e) => setFormData({ ...formData, employmentType: e.target.value })}
+                >
+                  <option value="PLANILLA">PLANILLA (IGSS, ISR y bonificación)</option>
+                  <option value="SERVICIOS">SERVICIOS (sin retenciones)</option>
+                </Input>
+              </FormGroup>
+            </Col>
+            <Col md="4">
+              <FormGroup>
+                <Label>Grupo de pago</Label>
+                <Input
+                  type="select"
+                  value={formData.payGroup}
+                  disabled={salaryLocked}
+                  onChange={(e) => setFormData({ ...formData, payGroup: e.target.value })}
+                >
+                  <option value="">Según departamento</option>
+                  <option value="PLANTA">PLANTA (5 y 20)</option>
+                  <option value="ADMINISTRACION">ADMINISTRACIÓN Y KIOSCOS (15 y fin de mes)</option>
+                </Input>
+              </FormGroup>
+            </Col>
+            <Col md="4">
+              <FormGroup>
+                <Label>Bonificación incentivo mensual</Label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={formData.bonification}
+                  disabled={salaryLocked}
+                  onChange={(e) => setFormData({ ...formData, bonification: e.target.value })}
+                  placeholder={salaryLocked ? salaryPlaceholder : "250.00 si se deja vacío"}
+                />
+              </FormGroup>
+            </Col>
+          </Row>
+
+          <Row>
+            <Col md="4">
+              <FormGroup>
+                <Label>NIT</Label>
+                <Input
+                  type="text"
+                  maxLength={20}
+                  value={formData.nit}
+                  onChange={(e) => setFormData({ ...formData, nit: e.target.value })}
+                />
+              </FormGroup>
+            </Col>
+            <Col md="4">
+              <FormGroup>
+                <Label>Afiliación IGSS</Label>
+                <Input
+                  type="text"
+                  maxLength={30}
+                  value={formData.igssAffiliation}
+                  onChange={(e) => setFormData({ ...formData, igssAffiliation: e.target.value })}
+                />
+              </FormGroup>
+            </Col>
+            <Col md="4">
+              <FormGroup>
+                <Label>Fecha de baja</Label>
+                <Input
+                  type="date"
+                  value={formData.terminationDate}
+                  disabled={salaryLocked}
+                  onChange={(e) => setFormData({ ...formData, terminationDate: e.target.value })}
+                />
               </FormGroup>
             </Col>
           </Row>
@@ -356,8 +503,9 @@ function EmployeesForm({ employeeId, isOpen, toggle, onSuccess }) {
                   type="number"
                   step="0.01"
                   value={formData.igssDeduction}
+                  disabled={salaryLocked}
                   onChange={(e) => setFormData({ ...formData, igssDeduction: e.target.value })}
-                  placeholder="0.00"
+                  placeholder={salaryPlaceholder}
                 />
               </FormGroup>
             </Col>
@@ -368,8 +516,9 @@ function EmployeesForm({ employeeId, isOpen, toggle, onSuccess }) {
                   type="number"
                   step="0.01"
                   value={formData.quincenaBruta}
+                  disabled={salaryLocked}
                   onChange={(e) => setFormData({ ...formData, quincenaBruta: e.target.value })}
-                  placeholder="0.00"
+                  placeholder={salaryPlaceholder}
                 />
               </FormGroup>
             </Col>
@@ -380,8 +529,9 @@ function EmployeesForm({ employeeId, isOpen, toggle, onSuccess }) {
                   type="number"
                   step="0.01"
                   value={formData.quincenaNeta}
+                  disabled={salaryLocked}
                   onChange={(e) => setFormData({ ...formData, quincenaNeta: e.target.value })}
-                  placeholder="0.00"
+                  placeholder={salaryPlaceholder}
                 />
               </FormGroup>
             </Col>
@@ -394,7 +544,15 @@ function EmployeesForm({ employeeId, isOpen, toggle, onSuccess }) {
                 <Input
                   type="select"
                   value={formData.departmentId}
-                  onChange={(e) => setFormData({ ...formData, departmentId: e.target.value })}
+                  onChange={(e) => {
+                    const department = departments.find((d) => String(d.id) === e.target.value);
+                    // Quien no lleva la planilla cambia el departamento sin mover el grupo de pago.
+                    setFormData({
+                      ...formData,
+                      departmentId: e.target.value,
+                      payGroup: salaryLocked ? formData.payGroup : payGroupForDepartment(department),
+                    });
+                  }}
                   invalid={!!errors.departmentId}
                 >
                   <option value="">Seleccione...</option>

@@ -33,6 +33,12 @@ function ReceiptConfirmation() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [selectedShipmentId, setSelectedShipmentId] = useState(location.state?.shipmentId || null);
+  // Envío que llega elegido desde Envíos en tránsito; se avisa cuál es y si sigue pendiente.
+  const [arrival, setArrival] = useState(
+    location.state?.shipmentId
+      ? { id: location.state.shipmentId, number: location.state.shipmentNumber || `#${location.state.shipmentId}` }
+      : null
+  );
 
   useEffect(() => {
     loadPendingReceipts();
@@ -64,6 +70,7 @@ function ReceiptConfirmation() {
   };
 
   const filteredShipmentsForExport = useMemo(() => shipments, [shipments]);
+  const arrivalFound = Boolean(arrival) && shipments.some((shipment) => shipment.id === arrival.id);
 
   const exportCurrentList = () => {
     exportRowsToCsv("historial_recepciones", [
@@ -129,6 +136,15 @@ function ReceiptConfirmation() {
             </CardHeader>
             <CardBody>
               {error && <Alert color="danger">{error}</Alert>}
+              {arrival && !loading && (
+                <Alert color={arrivalFound ? "info" : "warning"} toggle={() => setArrival(null)}>
+                  {arrivalFound ? (
+                    <>Envío <strong>{arrival.number}</strong> listo para recibir: revise las cantidades y confirme.</>
+                  ) : (
+                    <>El envío <strong>{arrival.number}</strong> ya no está pendiente de recepción.</>
+                  )}
+                </Alert>
+              )}
 
               <ShipmentReceiptPanel
                 shipments={shipments}
@@ -136,6 +152,8 @@ function ReceiptConfirmation() {
                 showLocation
                 embedded
                 actionLabel="Recibir"
+                pageSize={10}
+                inlineDetail
                 allowReturnToWarehouse
                 selectedShipmentId={selectedShipmentId}
                 onSelectShipment={handleSelectShipment}

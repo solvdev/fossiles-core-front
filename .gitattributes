@@ -1,0 +1,2 @@
+# El hash fijado de esta tabla se calcula sobre los bytes con LF; en Windows no debe convertirse a CRLF.
+pricing/entrecueros-wholesale-cases.json text eol=lf

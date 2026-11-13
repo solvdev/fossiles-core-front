@@ -30,8 +30,16 @@ import { getCostCenters } from "services/costCenterService";
 import { getOperationalUnits } from "services/operationalUnitService";
 import { formatDateTimeGt } from "utils/dateTimeHelper";
 import EmployeesForm from "./EmployeesForm";
+import { useAuth } from "contexts/AuthContext";
+import TablePagination, { usePagination } from "components/TablePagination/TablePagination";
+
+const SALARY_PERMISSIONS = ["PLANILLA.CORRIDAS.VER", "PLANILLA.CORRIDAS.CREAR", "PLANILLA.CORRIDAS.APROBAR"];
 
 function EmployeesList() {
+  const { hasPermission } = useAuth();
+  // Los salarios solo los ven administración y Contabilidad.
+  const canSeeSalaries = SALARY_PERMISSIONS.some(hasPermission);
+  const salaryText = (value) => (canSeeSalaries ? formatCurrency(value) : "Reservado");
   const [employees, setEmployees] = useState([]);
   const [departments, setDepartments] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -244,6 +252,7 @@ function EmployeesList() {
 
     return filtered;
   }, [employees, filterName, filterDepartmentId, sortField, sortDirection, departments]);
+  const pagination = usePagination(filteredEmployees, 20);
 
   const handleClearFilters = () => {
     setFilterName("");
@@ -544,10 +553,11 @@ function EmployeesList() {
                   <p>No hay empleados registrados.</p>
                 </div>
               ) : (
+                <>
                 <Table responsive>
                   <thead className="text-primary">
                     <tr>
-                      <th 
+                      <th
                         style={{ cursor: "pointer", userSelect: "none" }}
                         onClick={() => handleSort("id")}
                       >
@@ -565,12 +575,14 @@ function EmployeesList() {
                       >
                         Puesto {getSortIcon("position")}
                       </th>
-                      <th 
-                        style={{ cursor: "pointer", userSelect: "none" }}
-                        onClick={() => handleSort("salary")}
-                      >
-                        Salario {getSortIcon("salary")}
-                      </th>
+                      {canSeeSalaries && (
+                        <th
+                          style={{ cursor: "pointer", userSelect: "none" }}
+                          onClick={() => handleSort("salary")}
+                        >
+                          Salario {getSortIcon("salary")}
+                        </th>
+                      )}
                     
                       <th 
                         style={{ cursor: "pointer", userSelect: "none" }}
@@ -588,57 +600,70 @@ function EmployeesList() {
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredEmployees.map((employee) => (
+                    {pagination.pageItems.map((employee) => (
                       <tr key={employee.id}>
                         <td>{employee.id}</td>
                         <td>{`${employee.firstName || ""} ${employee.lastName || ""}`.trim()}</td>
                         <td>{employee.position || "-"}</td>
-                        <td>{formatCurrency(employee.salary)}</td>
+                        {canSeeSalaries && <td>{formatCurrency(employee.salary)}</td>}
 
                         <td>{getDepartmentName(employee.departmentId)}</td>
                         <td>{getStatusBadge(employee.status)}</td>
-                        <td className="text-right">
-                          <Button 
-                            color="info" 
-                            size="sm" 
-                            onClick={() => handleView(employee.id)} 
-                            className="btn-round mr-1"
+                        {/* Cada acción con su ícono; el nombre se despliega al pasar el cursor (fossiles-accion). */}
+                        <td className="text-right text-nowrap">
+                          <Button
+                            color="info"
+                            size="sm"
+                            onClick={() => handleView(employee.id)}
+                            className="btn-round mr-1 fossiles-accion"
                             title="Ver detalles"
+                            aria-label="Ver detalles"
                           >
                             <i className="nc-icon nc-zoom-split" />
+                            <span className="fossiles-accion__nombre">Ver</span>
                           </Button>
-                          <Button 
-                            color="warning" 
-                            size="sm" 
-                            onClick={() => handleEdit(employee.id)} 
-                            className="btn-round mr-1"
+                          <Button
+                            color="warning"
+                            size="sm"
+                            onClick={() => handleEdit(employee.id)}
+                            className="btn-round mr-1 fossiles-accion"
                             title="Editar"
+                            aria-label="Editar"
                           >
                             <i className="nc-icon nc-ruler-pencil" />
+                            <span className="fossiles-accion__nombre">Editar</span>
                           </Button>
-                          <Button 
-                            color={employee.status === "active" ? "secondary" : "success"} 
-                            size="sm" 
-                            onClick={() => handleStatusChange(employee.id, employee.status)} 
-                            className="btn-round mr-1"
+                          <Button
+                            color={employee.status === "active" ? "secondary" : "success"}
+                            size="sm"
+                            onClick={() => handleStatusChange(employee.id, employee.status)}
+                            className="btn-round mr-1 fossiles-accion"
                             title={employee.status === "active" ? "Desactivar" : "Activar"}
+                            aria-label={employee.status === "active" ? "Desactivar" : "Activar"}
                           >
-                            <i className={`nc-icon nc-${employee.status === "active" ? "simple-remove" : "check-2"}`} />
+                            <i className={employee.status === "active" ? "fa fa-ban" : "nc-icon nc-check-2"} />
+                            <span className="fossiles-accion__nombre">
+                              {employee.status === "active" ? "Desactivar" : "Activar"}
+                            </span>
                           </Button>
-                          <Button 
-                            color="danger" 
-                            size="sm" 
-                            onClick={() => handleDelete(employee)} 
-                            className="btn-round"
+                          <Button
+                            color="danger"
+                            size="sm"
+                            onClick={() => handleDelete(employee)}
+                            className="btn-round fossiles-accion"
                             title="Eliminar"
+                            aria-label="Eliminar"
                           >
-                            <i className="nc-icon nc-simple-remove" />
+                            <i className="fa fa-trash" />
+                            <span className="fossiles-accion__nombre">Eliminar</span>
                           </Button>
                         </td>
                       </tr>
                     ))}
                   </tbody>
                 </Table>
+                <TablePagination pagination={pagination} />
+                </>
               )}
             </CardBody>
           </Card>
@@ -737,7 +762,7 @@ function EmployeesList() {
                     <Col md="6">
                       <FormGroup>
                         <Label><strong>Salario Mensual:</strong></Label>
-                        <p className="mb-2">{formatCurrency(employeeToView.salary)}</p>
+                        <p className="mb-2">{salaryText(employeeToView.salary)}</p>
                       </FormGroup>
                     </Col>
                     <Col md="4">
@@ -775,19 +800,19 @@ function EmployeesList() {
                     <Col md="6">
                       <FormGroup>
                         <Label><strong>Quincena Bruta:</strong></Label>
-                        <p className="mb-2">{formatCurrency(employeeToView.quincenaBruta)}</p>
+                        <p className="mb-2">{salaryText(employeeToView.quincenaBruta)}</p>
                       </FormGroup>
                     </Col>
                     <Col md="6">
                       <FormGroup>
                         <Label><strong>Deducción IGSS:</strong></Label>
-                        <p className="mb-2 text-danger">{formatCurrency(employeeToView.igssDeduction)}</p>
+                        <p className="mb-2 text-danger">{salaryText(employeeToView.igssDeduction)}</p>
                       </FormGroup>
                     </Col>
                     <Col md="6">
                       <FormGroup>
                         <Label><strong>Quincena Neta:</strong></Label>
-                        <p className="mb-2 text-success"><strong>{formatCurrency(employeeToView.quincenaNeta)}</strong></p>
+                        <p className="mb-2 text-success"><strong>{salaryText(employeeToView.quincenaNeta)}</strong></p>
                       </FormGroup>
                     </Col>
                     <Col md="6">

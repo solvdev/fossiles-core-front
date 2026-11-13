@@ -14,6 +14,7 @@ import {
   Spinner,
   Table,
 } from "reactstrap";
+import TablePagination, { usePagination } from "components/TablePagination/TablePagination";
 import { getShipmentsInTransit } from "services/productDistributionService";
 import { exportRowsToCsv, exportRowsToPdf } from "utils/reportExportHelper";
 import { formatDateTimeGt } from "utils/dateTimeHelper";
@@ -37,6 +38,50 @@ const STATUS_ES = {
 };
 
 const tStatus = (status) => STATUS_ES[status] || status || "-";
+
+/** Productos y empaques de un envío, debajo de su fila. */
+function ShipmentTransitDetail({ shipment }) {
+  const packingItems = getShipmentPackingItems(shipment);
+  const products = shipment.products || [];
+  return (
+    <Table responsive size="sm" className="mb-0 fossiles-resalte">
+      <thead>
+        <tr>
+          <th>Codigo</th>
+          <th>Producto</th>
+          <th>Color</th>
+          <th className="text-right">Cantidad enviada</th>
+        </tr>
+      </thead>
+      <tbody>
+        {products.map((p) => (
+          <tr key={p.id}>
+            <td><strong>{p.productCode || "-"}</strong></td>
+            <td>{p.productName || "-"}</td>
+            <td>{p.colorName || "-"}</td>
+            <td className="text-right">{Number(p.quantity || 0)}</td>
+          </tr>
+        ))}
+        {packingItems.map((item) => (
+          <tr key={`pack-${item.materialId}`}>
+            <td><strong>{item.materialSku || "SUM-"}</strong></td>
+            <td>
+              {item.materialName || formatPackingItemLabel(item)}
+              <Badge color="info" className="ml-2">Empaque</Badge>
+            </td>
+            <td>—</td>
+            <td className="text-right">{Number(item.quantity || 0)}</td>
+          </tr>
+        ))}
+        {products.length === 0 && packingItems.length === 0 ? (
+          <tr>
+            <td colSpan="4" className="text-muted">Sin productos ni empaques.</td>
+          </tr>
+        ) : null}
+      </tbody>
+    </Table>
+  );
+}
 
 function ShipmentsInTransit() {
   const navigate = useNavigate();
@@ -107,6 +152,7 @@ function ShipmentsInTransit() {
     });
   }, [shipments, search]);
 
+  const pagination = usePagination(filteredShipments, 20);
   const totalTransitShipments = filteredShipments.length;
   const totalTransitUnits = filteredShipments.reduce((sum, shipment) => (
     sum + (shipment.products || []).reduce((acc, p) => acc + Number(p.quantity || 0), 0)
@@ -183,106 +229,65 @@ function ShipmentsInTransit() {
                       </tr>
                     </thead>
                     <tbody>
-                      {filteredShipments.map((shipment) => {
+                      {pagination.pageItems.map((shipment) => {
                         const style = STATUS_STYLE[shipment.status] || { bg: "#e5e7eb", color: "#374151" };
                         const qty = (shipment.products || []).reduce((sum, p) => sum + Number(p.quantity || 0), 0);
                         const packingItems = getShipmentPackingItems(shipment);
                         const packingQty = shipmentPackingTotalQty(shipment);
+                        const expanded = expandedShipmentId === shipment.id;
                         return (
-                          <tr
-                            key={shipment.id}
-                            style={{ backgroundColor: expandedShipmentId === shipment.id ? "#f8fbff" : "transparent" }}
-                          >
-                            <td><strong>{shipment.shipmentNumber}</strong></td>
-                            <td>{shipment.locationName || "-"}</td>
-                            <td>{shipment.sentAt ? formatDateTimeGt(shipment.sentAt) : "-"}</td>
-                            <td>
-                              {(shipment.products?.length || 0)} prod. / {qty} und.
-                              {packingItems.length > 0 ? (
-                                <div className="small text-muted">
-                                  {packingItems.length} emp. SUM- / {packingQty} und.
-                                </div>
-                              ) : null}
-                            </td>
-                            <td>
-                              <span style={{ backgroundColor: style.bg, color: style.color, borderRadius: 999, padding: "4px 10px", fontWeight: 700, fontSize: 12 }}>
-                                {tStatus(shipment.status)}
-                              </span>
-                            </td>
-                            <td className="text-right">
-                              <Button
-                                size="sm"
-                                color={expandedShipmentId === shipment.id ? "primary" : "outline-primary"}
-                                onClick={() => setExpandedShipmentId(expandedShipmentId === shipment.id ? null : shipment.id)}
-                                className="mr-2"
-                              >
-                                {expandedShipmentId === shipment.id ? "Ocultar" : "Ver Detalle"}
-                              </Button>
-                              <Button
-                                size="sm"
-                                color="success"
-                                onClick={() => navigate("/admin/receipt-confirmation", { state: { shipmentId: shipment.id } })}
-                              >
-                                Recibir
-                              </Button>
-                            </td>
-                          </tr>
+                          <React.Fragment key={shipment.id}>
+                            <tr style={{ backgroundColor: expanded ? "#f8fbff" : "transparent" }}>
+                              <td><strong>{shipment.shipmentNumber}</strong></td>
+                              <td>{shipment.locationName || "-"}</td>
+                              <td>{shipment.sentAt ? formatDateTimeGt(shipment.sentAt) : "-"}</td>
+                              <td>
+                                {(shipment.products?.length || 0)} prod. / {qty} und.
+                                {packingItems.length > 0 ? (
+                                  <div className="small text-muted">
+                                    {packingItems.length} emp. SUM- / {packingQty} und.
+                                  </div>
+                                ) : null}
+                              </td>
+                              <td>
+                                <span style={{ backgroundColor: style.bg, color: style.color, borderRadius: 999, padding: "4px 10px", fontWeight: 700, fontSize: 12 }}>
+                                  {tStatus(shipment.status)}
+                                </span>
+                              </td>
+                              <td className="text-right text-nowrap">
+                                <Button
+                                  size="sm"
+                                  color={expanded ? "primary" : "outline-primary"}
+                                  aria-expanded={expanded}
+                                  onClick={() => setExpandedShipmentId(expanded ? null : shipment.id)}
+                                  className="mr-2"
+                                >
+                                  {expanded ? "Ocultar" : "Ver Detalle"}
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  color="success"
+                                  onClick={() => navigate("/admin/receipt-confirmation", {
+                                    state: { shipmentId: shipment.id, shipmentNumber: shipment.shipmentNumber },
+                                  })}
+                                >
+                                  Recibir
+                                </Button>
+                              </td>
+                            </tr>
+                            {expanded && (
+                              <tr className="fossiles-detalle-fila">
+                                <td colSpan="6">
+                                  <ShipmentTransitDetail shipment={shipment} />
+                                </td>
+                              </tr>
+                            )}
+                          </React.Fragment>
                         );
                       })}
                     </tbody>
                   </Table>
-
-                  {expandedShipmentId && (() => {
-                    const expanded = filteredShipments.find((s) => s.id === expandedShipmentId) || {};
-                    const packingItems = getShipmentPackingItems(expanded);
-                    return (
-                    <Card className="mt-3" style={{ border: "1px solid #dbeafe" }}>
-                      <CardHeader style={{ backgroundColor: "#eff6ff" }}>
-                        <h6 className="mb-0">
-                          Detalle del envio {expanded.shipmentNumber}
-                        </h6>
-                      </CardHeader>
-                      <CardBody>
-                        <Table responsive size="sm" className="mb-0">
-                          <thead>
-                            <tr>
-                              <th>Codigo</th>
-                              <th>Producto</th>
-                              <th>Color</th>
-                              <th className="text-right">Cantidad enviada</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {(expanded.products || []).map((p) => (
-                              <tr key={p.id}>
-                                <td><strong>{p.productCode || "-"}</strong></td>
-                                <td>{p.productName || "-"}</td>
-                                <td>{p.colorName || "-"}</td>
-                                <td className="text-right">{Number(p.quantity || 0)}</td>
-                              </tr>
-                            ))}
-                            {packingItems.map((item) => (
-                              <tr key={`pack-${item.materialId}`}>
-                                <td><strong>{item.materialSku || "SUM-"}</strong></td>
-                                <td>
-                                  {item.materialName || formatPackingItemLabel(item)}
-                                  <Badge color="info" className="ml-2">Empaque</Badge>
-                                </td>
-                                <td>—</td>
-                                <td className="text-right">{Number(item.quantity || 0)}</td>
-                              </tr>
-                            ))}
-                            {(expanded.products || []).length === 0 && packingItems.length === 0 ? (
-                              <tr>
-                                <td colSpan="4" className="text-muted">Sin productos ni empaques.</td>
-                              </tr>
-                            ) : null}
-                          </tbody>
-                        </Table>
-                      </CardBody>
-                    </Card>
-                    );
-                  })()}
+                  <TablePagination pagination={pagination} />
                 </>
               )}
             </CardBody>

@@ -26,6 +26,7 @@ import Sidebar from "components/Sidebar/Sidebar.js";
 import FixedPlugin from "components/FixedPlugin/FixedPlugin.js";
 import ProtectedRoute from "components/ProtectedRoute.js";
 import DefaultLandingRedirect from "components/DefaultLandingRedirect.js";
+import PageNotFound from "components/PageNotFound.js";
 import SystemBroadcastBanner from "components/SystemAnnouncement/SystemBroadcastBanner.js";
 import { setNotificationRef } from "utils/notificationHelper";
 
@@ -156,6 +157,8 @@ function Admin(props) {
         <Routes>
           <Route index element={<DefaultLandingRedirect />} />
           {getRoutes(routes)}
+          {/* Ruta del panel que no existe: página no encontrada, con el menú y el pie en su lugar. */}
+          <Route path="*" element={<PageNotFound />} />
         </Routes>
         {
           // we don't want the Footer to be rendered on full screen maps page

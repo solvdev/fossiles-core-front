@@ -25,6 +25,8 @@ import {
   Table,
 } from "reactstrap";
 import classnames from "classnames";
+import ConfirmModal from "components/ConfirmModal/ConfirmModal";
+import TablePagination, { usePagination } from "components/TablePagination/TablePagination";
 import CreateStandaloneInternalShipmentModal from "components/distribution/CreateStandaloneInternalShipmentModal";
 import InternalShipmentRequestDetailModal from "components/distribution/InternalShipmentRequestDetailModal";
 import PrintSlipBookletModal from "components/distribution/PrintSlipBookletModal";
@@ -102,6 +104,8 @@ function AuthorizeShipments() {
   const [rejectTargetId, setRejectTargetId] = useState(null);
   const [rejectReason, setRejectReason] = useState("");
   const [detailRequestId, setDetailRequestId] = useState(null);
+  // Acción que espera confirmación en ConfirmModal: título, mensaje y la función que la ejecuta.
+  const [confirm, setConfirm] = useState(null);
   const [stockFilter, setStockFilter] = useState("");
 
   const loadExistingEnvi = useCallback(async () => {
@@ -141,6 +145,8 @@ function AuthorizeShipments() {
     loadRequests();
   }, [loadExistingEnvi, loadRequests]);
 
+  const enviPagination = usePagination(existingEnvi, 20);
+
   const requestByShipmentId = useMemo(() => {
     const map = new Map();
     requests.forEach((request) => {
@@ -165,6 +171,8 @@ function AuthorizeShipments() {
     () => (stockFilter ? requests.filter((req) => req.stockStatus === stockFilter) : requests),
     [requests, stockFilter]
   );
+  // La paginación va sobre lo que deja ver el filtro de stock.
+  const requestsPagination = usePagination(visibleRequests, 20);
 
   const approveRequest = async (request) => {
     if (!canApprove || !request?.id) return;
@@ -249,11 +257,13 @@ function AuthorizeShipments() {
       return;
     }
     if (!request?.id) return;
-    const ok = window.confirm(
-      `¿Generar OPI para reponer lo despachado en la solicitud #${request.id}?`
-    );
-    if (!ok) return;
-    await generateOpi(request);
+    setConfirm({
+      title: "Generar OPI",
+      message: `Se genera una OPI para reponer lo despachado en la solicitud #${request.id}.`,
+      confirmText: "Generar OPI",
+      tone: "warning",
+      action: () => generateOpi(request),
+    });
   };
 
   const handleGenerateOpiFromShipment = async (shipment) => {
@@ -262,10 +272,16 @@ function AuthorizeShipments() {
       return;
     }
     if (!shipment?.id) return;
-    const ok = window.confirm(
-      `¿Generar OPI para reponer lo despachado en ${shipment.shipmentNumber || "este ENVI"}?`
-    );
-    if (!ok) return;
+    setConfirm({
+      title: "Generar OPI",
+      message: `Se genera una OPI para reponer lo despachado en ${shipment.shipmentNumber || "este ENVI"}.`,
+      confirmText: "Generar OPI",
+      tone: "warning",
+      action: () => generateOpiFromShipment(shipment),
+    });
+  };
+
+  const generateOpiFromShipment = async (shipment) => {
     const requestId = shipment.internalShipmentRequestId
       || requestByShipmentId.get(Number(shipment.id))?.id;
     if (requestId) {
@@ -489,6 +505,7 @@ function AuthorizeShipments() {
                     : "No hay solicitudes pendientes de autorización."}
                 </div>
               ) : (
+                <>
                 <Table responsive hover>
                   <thead className="text-primary">
                     <tr>
@@ -505,7 +522,7 @@ function AuthorizeShipments() {
                     </tr>
                   </thead>
                   <tbody>
-                    {visibleRequests.map((req) => (
+                    {requestsPagination.pageItems.map((req) => (
                       <tr
                         key={req.id}
                         style={{
@@ -605,6 +622,8 @@ function AuthorizeShipments() {
                     ))}
                   </tbody>
                 </Table>
+                <TablePagination pagination={requestsPagination} />
+                </>
               )}
             </TabPane>
 
@@ -623,6 +642,7 @@ function AuthorizeShipments() {
               ) : existingEnvi.length === 0 ? (
                 <div className="text-center text-muted p-4">No hay envíos ENVI registrados.</div>
               ) : (
+                <>
                 <Table responsive hover>
                   <thead className="text-primary">
                     <tr>
@@ -635,7 +655,7 @@ function AuthorizeShipments() {
                     </tr>
                   </thead>
                   <tbody>
-                    {existingEnvi.map((shipment) => (
+                    {enviPagination.pageItems.map((shipment) => (
                         <tr key={shipment.id}>
                           <td>{shipment.shipmentNumber || shipment.id}</td>
                           <td>
@@ -688,6 +708,8 @@ function AuthorizeShipments() {
                     ))}
                   </tbody>
                 </Table>
+                <TablePagination pagination={enviPagination} />
+                </>
               )}
             </TabPane>
             )}
@@ -724,6 +746,17 @@ function AuthorizeShipments() {
           openRejectModal(id);
         }}
         actionId={actionId}
+      />
+
+      <ConfirmModal
+        isOpen={Boolean(confirm)}
+        toggle={() => setConfirm(null)}
+        title={confirm?.title}
+        message={confirm?.message}
+        detail={confirm?.detail}
+        tone={confirm?.tone}
+        confirmText={confirm?.confirmText}
+        onConfirm={() => confirm.action()}
       />
 
       <Modal isOpen={rejectOpen} toggle={() => setRejectOpen(false)}>

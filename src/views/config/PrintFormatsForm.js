@@ -25,6 +25,7 @@ import { showSuccess, showError } from "utils/notificationHelper";
 import classnames from "classnames";
 import PrintFormatBuilder from "components/PrintFormatBuilder/PrintFormatBuilder";
 import { uploadPDF, uploadDOCX, downloadFile } from "services/uploadService";
+import { sanitizePrintFormatHtml } from "utils/printFormatHtml";
 
 function PrintFormatsForm({ formatId, isOpen, toggle, onSuccess }) {
   const [formData, setFormData] = useState({
@@ -223,9 +224,9 @@ function PrintFormatsForm({ formatId, isOpen, toggle, onSuccess }) {
         templatePath: formData.templatePath.trim() || null,
         paperSize: formData.paperSize || null,
         margins: formData.margins.trim() || null,
-        header: formData.header.trim() || null,
-        footer: formData.footer.trim() || null,
-        body: formData.body.trim() || null,
+        header: sanitizePrintFormatHtml(formData.header.trim()) || "",
+        footer: sanitizePrintFormatHtml(formData.footer.trim()) || "",
+        body: sanitizePrintFormatHtml(formData.body.trim()) || "",
         logoPath: formData.logoPath.trim() || null,
         isDefault: formData.isDefault,
         description: formData.description.trim() || null,
@@ -262,9 +263,9 @@ function PrintFormatsForm({ formatId, isOpen, toggle, onSuccess }) {
         </style>
       </head>
       <body>
-        ${formData.header ? `<div class="header">${formData.header}</div>` : ''}
-        ${formData.body ? `<div class="body-content">${formData.body}</div>` : '<div class="body-content"><p>Contenido del cuerpo del documento...</p></div>'}
-        ${formData.footer ? `<div class="footer">${formData.footer}</div>` : ''}
+        ${formData.header ? `<div class="header">${sanitizePrintFormatHtml(formData.header)}</div>` : ''}
+        ${formData.body ? `<div class="body-content">${sanitizePrintFormatHtml(formData.body)}</div>` : '<div class="body-content"><p>Contenido del cuerpo del documento...</p></div>'}
+        ${formData.footer ? `<div class="footer">${sanitizePrintFormatHtml(formData.footer)}</div>` : ''}
       </body>
       </html>
     `;
@@ -784,7 +785,7 @@ function PrintFormatsForm({ formatId, isOpen, toggle, onSuccess }) {
                       overflow: "auto",
                     }}
                     dangerouslySetInnerHTML={{
-                      __html: `
+                      __html: sanitizePrintFormatHtml(`
                         <div class="header" style="border-bottom: 2px solid #333; padding-bottom: 10px; margin-bottom: 20px;">
                           ${formData.header || '<p style="color: #999;">Contenido del encabezado...</p>'}
                         </div>
@@ -794,7 +795,7 @@ function PrintFormatsForm({ formatId, isOpen, toggle, onSuccess }) {
                         <div class="footer" style="border-top: 2px solid #333; padding-top: 10px; margin-top: 20px;">
                           ${formData.footer || '<p style="color: #999;">Contenido del pie de página...</p>'}
                         </div>
-                      `,
+                      `),
                     }}
                   />
                   <small className="form-text text-muted mt-2">
