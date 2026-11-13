@@ -23,6 +23,7 @@ const charges = [
 
 const rowOf = (name) => screen.getByText(name).closest("tr");
 const rowButtons = (name) => within(rowOf(name)).queryAllByRole("button").map((button) => button.textContent.trim());
+const showAll = () => fireEvent.click(screen.getByRole("button", { name: /^Todos/ }));
 
 beforeEach(() => {
   mockGranted = new Set(["PLANILLA.CARGOS.VER", "PLANILLA.CARGOS.EDITAR"]);
@@ -30,22 +31,35 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 
+test("abre en lo que espera decisión y resume los montos", async () => {
+  render(<EmployeeCharges />);
+  await screen.findByText("BETO ADMIN");
+  expect(getEmployeeCharges).toHaveBeenCalledWith({});
+  expect(screen.queryByText("ANA PLANTA")).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: /^Por decidir/ })).toHaveAttribute("aria-pressed", "true");
+  const summary = screen.getByRole("region", { name: "Resumen de cargos" });
+  expect(within(summary).getByText("Esperan decisión")).toBeInTheDocument();
+  expect(within(summary).getByText("Q 100.00 sin definir cómo se cobra")).toBeInTheDocument();
+  expect(within(summary).getByText("Q 80.00")).toBeInTheDocument();
+});
+
 test("cada cargo ofrece solo las acciones que le corresponden", async () => {
   render(<EmployeeCharges />);
-  await screen.findByText("ANA PLANTA");
-  expect(getEmployeeCharges).toHaveBeenCalledWith({ status: "" });
-  expect(screen.getByText(/1 esperan decisión/)).toBeInTheDocument();
+  await screen.findByText("BETO ADMIN");
+  showAll();
 
-  expect(within(rowOf("ANA PLANTA")).queryByRole("combobox")).not.toBeInTheDocument();
+  expect(within(rowOf("ANA PLANTA")).queryByRole("radiogroup")).not.toBeInTheDocument();
   expect(within(rowOf("ANA PLANTA")).getByText("Descuento en planilla")).toBeInTheDocument();
   expect(rowButtons("ANA PLANTA")).toEqual(["Anular"]);
 
-  expect(within(rowOf("BETO ADMIN")).getByRole("combobox")).toHaveValue("");
+  const choices = within(rowOf("BETO ADMIN")).getAllByRole("radio");
+  expect(choices).toHaveLength(3);
+  choices.forEach((choice) => expect(choice).toHaveAttribute("aria-checked", "false"));
   expect(rowButtons("BETO ADMIN")).toEqual(["Anular"]);
   expect(rowButtons("CARLA ADMIN")).toContain("Pagado");
   expect(rowButtons("DORA ADMIN")).toEqual([]);
 
-  expect(within(rowOf("ELSA ADMIN")).queryByRole("combobox")).not.toBeInTheDocument();
+  expect(within(rowOf("ELSA ADMIN")).queryByRole("radiogroup")).not.toBeInTheDocument();
   expect(within(rowOf("ELSA ADMIN")).getByText(/80.00 en borrador/)).toBeInTheDocument();
   expect(rowButtons("ELSA ADMIN")).toEqual([]);
 });
@@ -56,12 +70,13 @@ test("Contabilidad decide la forma de pago y registra el pago con confirmación"
   render(<EmployeeCharges />);
   await screen.findByText("BETO ADMIN");
 
-  fireEvent.change(within(rowOf("BETO ADMIN")).getByRole("combobox"), { target: { value: "TRANSFERENCIA" } });
+  fireEvent.click(within(rowOf("BETO ADMIN")).getByRole("radio", { name: "Transferencia" }));
   await act(async () => {
     fireEvent.click(within(rowOf("BETO ADMIN")).getByRole("button", { name: "Guardar" }));
   });
   await waitFor(() => expect(decideEmployeeCharge).toHaveBeenCalledWith(2, "TRANSFERENCIA"));
 
+  showAll();
   fireEvent.click(within(rowOf("CARLA ADMIN")).getByRole("button", { name: "Pagado" }));
   const dialog = await screen.findByRole("dialog");
   await act(async () => { fireEvent.click(within(dialog).getByRole("button", { name: "Marcar pagado" })); });
@@ -78,24 +93,46 @@ test("planta solo descuenta, salvo quien ya salió, que puede pagar por transfer
   ]);
   render(<EmployeeCharges />);
   await screen.findByText("FABI PLANTA");
-  const options = (name) => Array.from(within(rowOf(name)).getByRole("combobox").options).map((o) => o.value);
-  expect(options("FABI PLANTA")).toEqual(["", "DESCUENTO"]);
-  expect(options("GABY PLANTA")).toEqual(["", "DESCUENTO", "TRANSFERENCIA", "EFECTIVO"]);
+  showAll();
+  const radio = (name, label) => within(rowOf(name)).getByRole("radio", { name: label });
+  expect(radio("FABI PLANTA", "Descuento en planilla")).toBeEnabled();
+  expect(radio("FABI PLANTA", "Transferencia")).toBeDisabled();
+  expect(radio("FABI PLANTA", "Efectivo")).toBeDisabled();
+  ["Descuento en planilla", "Transferencia", "Efectivo"].forEach((label) => expect(radio("GABY PLANTA", label)).toBeEnabled());
   expect(within(rowOf("GABY PLANTA")).getByText(/de baja/)).toBeInTheDocument();
 
-  fireEvent.change(within(rowOf("GABY PLANTA")).getByRole("combobox"), { target: { value: "EFECTIVO" } });
+  fireEvent.click(radio("GABY PLANTA", "Efectivo"));
   await act(async () => {
     fireEvent.click(within(rowOf("GABY PLANTA")).getByRole("button", { name: "Guardar" }));
   });
   await waitFor(() => expect(decideEmployeeCharge).toHaveBeenCalledWith(7, "EFECTIVO"));
 });
 
+test("varios cargos se deciden a la vez y los de planta se quedan en descuento", async () => {
+  decideEmployeeCharge.mockResolvedValue({});
+  getEmployeeCharges.mockResolvedValue([
+    { ...base, id: 2, employeeName: "BETO ADMIN", payGroup: "ADMINISTRACION", amount: 100, balance: 100, settlementMethod: null, status: "PENDIENTE" },
+    { ...base, id: 6, employeeName: "FABI PLANTA", payGroup: "PLANTA", employeeActive: true, amount: 90, balance: 90,
+      settlementMethod: null, status: "PENDIENTE" },
+  ]);
+  render(<EmployeeCharges />);
+  await screen.findByText("BETO ADMIN");
+  fireEvent.click(screen.getByRole("checkbox", { name: /Seleccionar todos/ }));
+  const bulk = await screen.findByRole("region", { name: "Acciones en lote" });
+  expect(within(bulk).getByText("2 seleccionados")).toBeInTheDocument();
+  await act(async () => { fireEvent.click(within(bulk).getByRole("button", { name: "Transferencia" })); });
+  await waitFor(() => expect(decideEmployeeCharge).toHaveBeenCalledTimes(1));
+  expect(decideEmployeeCharge).toHaveBeenCalledWith(2, "TRANSFERENCIA");
+});
+
 test("sin permiso de edición los cargos solo se consultan", async () => {
   mockGranted = new Set(["PLANILLA.CARGOS.VER"]);
   render(<EmployeeCharges />);
-  await screen.findByText("ANA PLANTA");
+  await screen.findByText("BETO ADMIN");
+  showAll();
   ["ANA PLANTA", "BETO ADMIN", "CARLA ADMIN", "ELSA ADMIN"].forEach((name) => {
     expect(rowButtons(name)).toEqual([]);
-    expect(within(rowOf(name)).queryByRole("combobox")).not.toBeInTheDocument();
+    expect(within(rowOf(name)).queryByRole("radiogroup")).not.toBeInTheDocument();
+    expect(within(rowOf(name)).queryByRole("checkbox")).not.toBeInTheDocument();
   });
 });
