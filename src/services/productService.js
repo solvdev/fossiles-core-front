@@ -263,3 +263,20 @@ export const importPriceTemplate = async (file, { apply = false } = {}) => {
   }
   return response.json();
 };
+
+/**
+ * Descuento de colaborador por producto. items: [{ productId, discountPercent }]; sin porcentaje, el producto vuelve
+ * al descuento general (50 %).
+ */
+export const setProductEmployeeDiscounts = async (items) => {
+  const response = await fetch(`${API_URL}/products/employee-discounts`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", ...getAuthHeader() },
+    body: JSON.stringify({ items }),
+  });
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({ message: "No se pudo guardar el descuento de colaborador" }));
+    throw new Error(errorData.message || "No se pudo guardar el descuento de colaborador");
+  }
+  return response.text();
+};

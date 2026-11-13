@@ -471,7 +471,7 @@ function CreateStandaloneInternalShipmentModal({ isOpen, toggle, onCreated }) {
                       onChange={(product) => onProductSelected(row.key, product)}
                       renderOptionExtra={(p) => {
                         const salePrice = Number(p?.salePrice ?? p?.price ?? 0);
-                        const displayPrice = computeInternalEnviUnitPrice(salePrice, getPricingMeta());
+                        const displayPrice = computeInternalEnviUnitPrice(salePrice, getPricingMeta(), p?.employeeDiscountPercent);
                         if (!(displayPrice > 0)) return null;
                         return (
                           <span style={{ float: "right", color: "#666" }}>

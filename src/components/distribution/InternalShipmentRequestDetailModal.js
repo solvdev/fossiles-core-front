@@ -132,7 +132,7 @@ function InternalShipmentRequestDetailModal({
   const linesWithPricing = useMemo(() => {
     if (!request?.lines) return [];
     return request.lines.map((line) => {
-      const unitPrice = computeInternalEnviUnitPrice(line.catalogPrice, priceMeta);
+      const unitPrice = computeInternalEnviUnitPrice(line.catalogPrice, priceMeta, line.employeeDiscountPercent);
       const qty = Number(line.quantity || 0);
       const subtotal = unitPrice != null ? unitPrice * qty : null;
       return { ...line, unitPrice, subtotal };
