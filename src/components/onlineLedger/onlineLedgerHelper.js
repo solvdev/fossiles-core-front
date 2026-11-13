@@ -60,7 +60,10 @@ export const carrierOf = (carrier) => {
   return { key: "none", label: c ? c.replace(/_/g, " ") : "Sin transporte" };
 };
 
-// ── Red social: solo el emoji ──
+// Listas para escribir en la hoja (el servidor reconoce estas palabras y también abreviaturas).
+export const CARRIER_OPTIONS = ["Motorista", "Forza", "Guatex"];
+
+// ── Red social: emoji + nombre ──
 const SOCIAL = {
   WHATSAPP: { icon: "💬", label: "WhatsApp" },
   FACEBOOK: { icon: "📘", label: "Facebook" },
@@ -68,11 +71,13 @@ const SOCIAL = {
   WEB: { icon: "🌐", label: "Página web" },
   TIKTOK: { icon: "🎵", label: "TikTok" },
 };
+export const SOCIAL_OPTIONS = Object.values(SOCIAL).map((s) => s.label);
 export const socialOf = (sn) => {
   const key = String(sn || "").toUpperCase().replace(/\s+/g, "_");
   if (SOCIAL[key]) return SOCIAL[key];
   if (key.includes("WEB")) return SOCIAL.WEB;
-  return { icon: key ? "•" : "", label: sn || "" };
+  const text = String(sn || "").replace(/_/g, " ").trim();
+  return { icon: "", label: text ? text.charAt(0).toUpperCase() + text.slice(1).toLowerCase() : "" };
 };
 
 const STATUS = {
@@ -85,6 +90,7 @@ const STATUS = {
   ANULADA: { label: "Anulado", tone: "void" },
   DEVOLUCION: { label: "Devolución", tone: "ret" },
 };
+export const STATUS_OPTIONS = ["Pendiente", "En producción", "Producido", "Enviado", "Entregado", "Cancelado", "Anulado", "Devolución"];
 export const statusOf = (status) =>
   STATUS[String(status || "").toUpperCase()] || { label: status || "—", tone: "wait" };
 
@@ -105,6 +111,7 @@ export const netOf = (row) =>
 
 /** Fecha de envío y forma de pago que se muestran cuando Contabilidad no ha anotado otra. */
 export const effectiveSentDate = (row) => row.sentDate || row.dispatchedDate || "";
+export const effectiveAuthorization = (row) => row.accountingAuthorization || row.paymentAuthorization || "";
 export const effectivePaymentForm = (row) => row.paymentForm || row.paymentMethodDisplay || "";
 
 /** Falta el envío real de una venta que sí salió (no anulada). */
@@ -187,7 +194,7 @@ export const matchesQuery = (row, query) => {
   if (!q) return true;
   const haystack = fold([
     row.customerName, row.phone, row.address, row.products, row.colors, row.shipmentNumber, row.guideNumber,
-    row.paymentAuthorization, row.salesperson, row.email, row.depositSlipNumber, row.accountingNote,
+    row.paymentAuthorization, row.accountingAuthorization, row.salesperson, row.email, row.depositSlipNumber, row.accountingNote,
   ].join(" | "));
   return q.split(/\s+/).every((word) => haystack.includes(word));
 };

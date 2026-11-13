@@ -54,6 +54,7 @@ import ProductPrices from "views/products/ProductPrices.js";
 import ProductionOrdersList from "views/production/ProductionOrdersList.js";
 import DailyProductionPlan from "views/production/DailyProductionPlan.js";
 import TasksByTable from "views/production/TasksByTable.js";
+import DeskHistory from "views/production/deskhistory/DeskHistory.js";
 import DayPlanner from "views/production/dayplanner/DayPlanner.js";
 import ProductionPhaseTrays from "views/production/ProductionPhaseTrays.js";
 import ProductionTraceability from "views/production/ProductionTraceability.js";
@@ -693,6 +694,17 @@ const routes = [
         name: "Tablero",
         mini: "CP",
         component: <TasksByTable />,
+        layout: "/admin",
+        module: "PRODUCCION",
+        permissions: {
+          view: "PRODUCCION.TAREAS_ESTACION.VER",
+        },
+      },
+      {
+        path: "/desk-history",
+        name: "Historial de mesas",
+        mini: "HM",
+        component: <DeskHistory />,
         layout: "/admin",
         module: "PRODUCCION",
         permissions: {

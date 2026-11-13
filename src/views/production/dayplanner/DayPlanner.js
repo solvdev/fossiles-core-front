@@ -11,6 +11,7 @@ import StepSelectOrders from "./StepSelectOrders";
 import StepBuildTasks from "./StepBuildTasks";
 import StepReview, { dayShort } from "./StepReview";
 import StepDone from "./StepDone";
+import MaquilaPanel from "./MaquilaPanel";
 import DieCutListPanel from "../dayboard/DieCutListPanel";
 import useCutAndLate from "../dayboard/useCutAndLate";
 
@@ -154,7 +155,12 @@ export default function DayPlanner() {
         <button type="button" role="tab" aria-selected={view === "cut"} aria-pressed={view === "cut"} onClick={() => setView("cut")}>
           Por troquelar{cutCount ? <span className="dp-count">{cutCount}</span> : null}
         </button>
+        <button type="button" role="tab" aria-selected={view === "maquila"} aria-pressed={view === "maquila"} onClick={() => setView("maquila")}>
+          Enviar a maquila
+        </button>
       </div>
+
+      {view === "maquila" && <MaquilaPanel planner={planner} />}
 
       {view === "cut" && (
         <DieCutListPanel

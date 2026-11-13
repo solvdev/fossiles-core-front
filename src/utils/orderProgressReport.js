@@ -154,6 +154,92 @@ export function buildProgressView(data, { orderType = "ALL", search = "", onlyWo
   return { orders, totals };
 }
 
+/** Colores distintos de las líneas de una OP, en orden alfabético. */
+export const lineColorsIn = (lines) =>
+  [...new Set((lines || []).map((l) => l.colorName).filter(Boolean))].sort((a, b) => a.localeCompare(b, "es"));
+
+/** Opciones del filtro de etapa dentro de una OP. */
+export const LINE_STAGE_FILTERS = [
+  { key: "ALL", label: "Todas las etapas" },
+  { key: "OPEN", label: "Sin terminar" },
+  ...STAGES.map((st) => ({ key: st.key, label: `Con piezas ${st.short}` })),
+];
+
+const lineMatchesStage = (stages, stage) => {
+  if (!stage || stage === "ALL") return true;
+  if (stage === "OPEN") return Number(stages?.units || 0) > Number(stages?.done || 0);
+  return Number(stages?.[stage] || 0) > 0;
+};
+
+const productMatches = (l, term, color) => {
+  if (color && color !== "ALL" && (l.colorName || "") !== color) return false;
+  if (!term) return true;
+  return [l.productCode, l.productName, l.colorName, l.brandName].filter(Boolean).join(" ").toLowerCase().includes(term);
+};
+
+/**
+ * Filtra las líneas (productos) de una OP abierta y las tareas que llevan esos productos.
+ * - search mira código, nombre, color y marca del producto.
+ * - color: nombre exacto del color o "ALL".
+ * - stage: "ALL", "OPEN" (con piezas sin terminar) o la clave de una etapa (con piezas en esa etapa).
+ * Las tareas solo se filtran por producto/color (la etapa es de la línea, no de la tarea).
+ */
+export function filterOrderLines(order, { search = "", color = "ALL", stage = "ALL" } = {}) {
+  const term = search.trim().toLowerCase();
+  const allLines = order?.lines || [];
+  const allTasks = order?.tasks || [];
+  const lines = allLines.filter((l) => productMatches(l, term, color) && lineMatchesStage(l.stages, stage));
+  const byProduct = term || (color && color !== "ALL");
+  const tasks = byProduct
+    ? allTasks.filter((t) => (term && String(t.code || "").toLowerCase().includes(term))
+      || (t.lines || []).some((tl) => productMatches(tl, term, color)))
+    : allTasks;
+  const stages = lines.reduce((acc, l) => addStages(acc, l.stages), { ...EMPTY_STAGES });
+  return {
+    lines, tasks, stages,
+    active: Boolean(byProduct || (stage && stage !== "ALL")),
+    totalLines: allLines.length,
+    totalTasks: allTasks.length,
+  };
+}
+
+/** Piezas que faltan por terminar (pedidas − terminadas). */
+export const missingUnits = (stages) => Math.max(0, Number(stages?.units || 0) - Number(stages?.done || 0));
+
+/** Cuántas líneas comparten código con otra (para saber si vale la pena unir por código). */
+export const hasRepeatedCodes = (lines) => {
+  const keys = (lines || []).map((l) => l.productCode || l.productName || `#${l.itemId}`);
+  return new Set(keys).size < keys.length;
+};
+
+/**
+ * Junta las líneas que tienen el mismo código de producto (p. ej. un Giorgio en varios colores)
+ * en una sola fila con las etapas sumadas. Respeta el orden de la primera aparición.
+ */
+export function groupLinesByCode(lines) {
+  const groups = new Map();
+  (lines || []).forEach((l) => {
+    const key = l.productCode || l.productName || `#${l.itemId}`;
+    let g = groups.get(key);
+    if (!g) {
+      g = {
+        itemId: `code:${key}`, productCode: l.productCode, productName: l.productName, brandName: l.brandName || "",
+        colorName: "", colors: [], lineCount: 0, receivedUnits: 0, extraUnits: 0, overAssignedUnits: 0,
+        stages: { ...EMPTY_STAGES },
+      };
+      groups.set(key, g);
+    }
+    g.lineCount += 1;
+    if (l.colorName && !g.colors.includes(l.colorName)) g.colors.push(l.colorName);
+    if (l.brandName && g.brandName && g.brandName !== l.brandName) g.brandName = "";
+    g.receivedUnits += Number(l.receivedUnits || 0);
+    g.extraUnits += Number(l.extraUnits || 0);
+    g.overAssignedUnits += Number(l.overAssignedUnits || 0);
+    addStages(g.stages, l.stages);
+  });
+  return [...groups.values()].map((g) => ({ ...g, colors: g.colors.sort((a, b) => a.localeCompare(b, "es")) }));
+}
+
 // ==================== Excel ====================
 
 const border = { style: "thin", color: { rgb: "D1D5DB" } };

@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Alert, Button, Card, CardBody, CardHeader, Col, Input, Row, Spinner, Table } from "reactstrap";
 import { getOrderProgress } from "services/productionProgressService";
 import {
+  LINE_STAGE_FILTERS,
   ORDER_STATUS_LABELS,
   ORDER_TYPE_LABELS,
   STAGES,
@@ -12,7 +13,12 @@ import {
   elapsedLabel,
   exportOrderProgressExcel,
   fmtDate,
+  filterOrderLines,
   fmtInt,
+  groupLinesByCode,
+  hasRepeatedCodes,
+  lineColorsIn,
+  missingUnits,
   orderTypesIn,
   pctOf,
   taskProductsText,
@@ -128,15 +134,31 @@ function WorkingNow({ task, todayYmd, now }) {
   );
 }
 
-function LinesTable({ lines }) {
-  return (
-    <Table responsive size="sm" className="mb-0" style={{ background: "#fff" }}>
+const STICKY_TH = { position: "sticky", top: 0, zIndex: 1, background: "#fff", boxShadow: "inset 0 -1px 0 #e5e7eb" };
+
+const STICKY_TF = { position: "sticky", bottom: 0, zIndex: 1, background: "#f3f4f6", boxShadow: "inset 0 1px 0 #d1d5db" };
+
+/** Productos de una OP. `totals` agrega al pie una fila con la suma de todo lo que se ve. */
+function LinesTable({ lines, scroll = false, totals = null, totalLabel = "Total" }) {
+  const th = scroll ? STICKY_TH : undefined;
+  const tf = { ...(scroll ? STICKY_TF : { background: "#f3f4f6" }), fontWeight: 700, borderTop: "2px solid #d1d5db" };
+  const missingCell = (stages, bold) => {
+    const n = missingUnits(stages);
+    return (
+      <td className="text-right" style={{ color: n > 0 ? "#b91c1c" : "#047857", fontWeight: bold ? 800 : 700 }}>
+        {fmtInt(n)}
+      </td>
+    );
+  };
+  const table = (
+    <Table responsive={!scroll} size="sm" className="mb-0" style={{ background: "#fff" }}>
       <thead>
         <tr style={HEAD_ROW}>
-          <th>Producto</th><th>Color</th>
-          <th className="text-right">Pedidas</th>
-          {STAGES.map((st) => <th key={st.key} className="text-right" style={{ color: st.text }}>{st.label}</th>)}
-          <th style={{ minWidth: 110 }}>Avance</th>
+          <th style={th}>Producto</th><th style={th}>Color</th>
+          <th className="text-right" style={th}>Pedidas</th>
+          {STAGES.map((st) => <th key={st.key} className="text-right" style={{ ...th, color: st.text }}>{st.label}</th>)}
+          <th className="text-right" style={{ ...th, color: "#b91c1c" }} title="Pedidas − terminadas">Faltan</th>
+          <th style={{ ...th, minWidth: 110 }}>Avance</th>
         </tr>
       </thead>
       <tbody>
@@ -150,13 +172,23 @@ function LinesTable({ lines }) {
                 <div style={{ fontSize: 11, color: "#b45309" }}>{fmtInt(l.overAssignedUnits)} pzas de más en tareas</div>
               )}
             </td>
-            <td style={{ whiteSpace: "nowrap" }}>{l.colorName || "—"}</td>
+            <td style={l.colors ? { fontSize: 12 } : { whiteSpace: "nowrap" }}>
+              {l.colors
+                ? (
+                  <>
+                    <strong>{l.colors.length > 1 ? `${l.colors.length} colores` : l.colors[0] || "—"}</strong>
+                    {l.colors.length > 1 && <div style={{ fontSize: 11, color: MUTED }}>{l.colors.join(", ")}</div>}
+                  </>
+                )
+                : (l.colorName || "—")}
+            </td>
             <td className="text-right"><strong>{fmtInt(l.stages?.units)}</strong></td>
             {STAGES.map((st) => (
               <td key={st.key} className="text-right" style={{ color: l.stages?.[st.key] ? st.text : "#d1d5db" }}>
                 {fmtInt(l.stages?.[st.key])}
               </td>
             ))}
+            {missingCell(l.stages)}
             <td style={{ verticalAlign: "middle" }}>
               <StageBar stages={l.stages} height={10} showNumbers={false} />
               {l.receivedUnits > 0 && <div style={{ fontSize: 11, color: MUTED }}>{fmtInt(l.receivedUnits)} recibidas en bodega</div>}
@@ -164,7 +196,31 @@ function LinesTable({ lines }) {
           </tr>
         ))}
       </tbody>
+      {totals && (
+        <tfoot>
+          <tr>
+            <td colSpan={2} style={tf}>{totalLabel}</td>
+            <td className="text-right" style={tf}>{fmtInt(totals.units)}</td>
+            {STAGES.map((st) => (
+              <td key={st.key} className="text-right" style={{ ...tf, color: totals[st.key] ? st.text : "#9ca3af" }}>{fmtInt(totals[st.key])}</td>
+            ))}
+            <td className="text-right" style={{ ...tf, color: missingUnits(totals) > 0 ? "#b91c1c" : "#047857", fontSize: 14 }}>
+              {fmtInt(missingUnits(totals))}
+            </td>
+            <td style={tf}>
+              <StageBar stages={totals} height={10} showNumbers={false} />
+              <div style={{ fontSize: 11, color: MUTED, fontWeight: 500 }}>{pctOf(totals.done, totals.units)}% terminado</div>
+            </td>
+          </tr>
+        </tfoot>
+      )}
     </Table>
+  );
+  if (!scroll) return table;
+  return (
+    <div style={{ maxHeight: 440, overflow: "auto", border: "1px solid #e5e7eb", borderRadius: 8 }}>
+      {table}
+    </div>
   );
 }
 
@@ -272,19 +328,96 @@ function OrderRow({ order, open, onToggle, todayYmd, now }) {
         )}
       </div>
 
-      {open && (
-        <div style={{ padding: "0 12px 12px 24px" }}>
-          <div style={{ fontSize: 12, fontWeight: 700, textTransform: "uppercase", color: MUTED, margin: "4px 0" }}>
-            Avance por producto · {fmtInt((order.lines || []).length)} líneas
-            {order.receivedUnits > 0 && <span style={{ textTransform: "none", fontWeight: 500 }}> · {fmtInt(order.receivedUnits)} pzas recibidas en bodega</span>}
-          </div>
-          <LinesTable lines={order.lines || []} />
-          <div style={{ fontSize: 12, fontWeight: 700, textTransform: "uppercase", color: MUTED, margin: "12px 0 4px" }}>
-            Tareas · {fmtInt(order.taskCount)}
-          </div>
-          <TasksTable tasks={order.tasks || []} todayYmd={todayYmd} />
+      {open && <OrderDetail order={order} todayYmd={todayYmd} />}
+    </div>
+  );
+}
+
+const SECTION_TITLE = { fontSize: 12, fontWeight: 700, textTransform: "uppercase", color: MUTED };
+/** A partir de cuántas líneas la tabla de productos tiene su propio scroll con encabezado fijo. */
+const SCROLL_FROM = 12;
+
+/** Productos y tareas de una OP abierta, con filtro por producto, color y etapa. */
+function OrderDetail({ order, todayYmd }) {
+  const [search, setSearch] = useState("");
+  const [color, setColor] = useState("ALL");
+  const [stage, setStage] = useState("ALL");
+  const colors = useMemo(() => lineColorsIn(order.lines), [order.lines]);
+  const f = useMemo(() => filterOrderLines(order, { search, color, stage }), [order, search, color, stage]);
+  const [byCode, setByCode] = useState(false);
+  const canGroup = useMemo(() => hasRepeatedCodes(order.lines), [order.lines]);
+  const grouped = byCode && canGroup;
+  const rows = useMemo(() => (grouped ? groupLinesByCode(f.lines) : f.lines), [grouped, f.lines]);
+  const showFilters = f.totalLines > 3 || f.totalTasks > 5;
+  const clear = () => { setSearch(""); setColor("ALL"); setStage("ALL"); };
+
+  return (
+    <div style={{ padding: "0 12px 12px 24px" }}>
+      <div className="d-flex flex-wrap align-items-center" style={{ gap: "4px 10px", margin: "4px 0 6px" }}>
+        <span style={SECTION_TITLE}>
+          Avance por producto · {f.active ? `${fmtInt(f.lines.length)} de ${fmtInt(f.totalLines)}` : fmtInt(f.totalLines)} líneas
+          {grouped && ` → ${fmtInt(rows.length)} códigos`}
+        </span>
+        {order.receivedUnits > 0 && <span style={{ fontSize: 12, color: MUTED }}>{fmtInt(order.receivedUnits)} pzas recibidas en bodega</span>}
+        {canGroup && (
+          <Button
+            size="sm" color={grouped ? "primary" : "secondary"} outline={!grouped} className="my-0 ml-auto"
+            onClick={() => setByCode((v) => !v)} title="Suma las líneas del mismo código aunque sean de distinto color"
+          >
+            {grouped ? "✓ " : ""}Unir colores por código
+          </Button>
+        )}
+      </div>
+
+      {showFilters && (
+        <div className="d-flex flex-wrap align-items-center" style={{ gap: 6, marginBottom: 8 }}>
+          <Input
+            bsSize="sm" type="search" value={search} onChange={(e) => setSearch(e.target.value)}
+            placeholder="Filtrar producto, código, marca o tarea…" style={{ flex: "1 1 220px", maxWidth: 320 }}
+          />
+          {colors.length > 1 && (
+            <Input bsSize="sm" type="select" value={color} onChange={(e) => setColor(e.target.value)} style={{ flex: "0 1 170px" }}>
+              <option value="ALL">Todos los colores ({fmtInt(colors.length)})</option>
+              {colors.map((c) => <option key={c} value={c}>{c}</option>)}
+            </Input>
+          )}
+          <Input bsSize="sm" type="select" value={stage} onChange={(e) => setStage(e.target.value)} style={{ flex: "0 1 190px" }}>
+            {LINE_STAGE_FILTERS.map((o) => <option key={o.key} value={o.key}>{o.label}</option>)}
+          </Input>
+          {f.active && (
+            <Button size="sm" color="link" className="my-0 px-1" onClick={clear}>Quitar filtro</Button>
+          )}
         </div>
       )}
+
+      {f.active && f.lines.length > 0 && (
+        <div className="d-flex flex-wrap align-items-center" style={{ gap: "4px 12px", marginBottom: 6, fontSize: 12 }}>
+          <div style={{ flex: "1 1 200px", minWidth: 160, maxWidth: 360 }}><StageBar stages={f.stages} height={12} showNumbers={false} /></div>
+          <span>
+            <strong>{fmtInt(f.stages.done)}</strong> de {fmtInt(f.stages.units)} pzas terminadas ({pctOf(f.stages.done, f.stages.units)}%) ·{" "}
+            <strong style={{ color: "#b91c1c" }}>faltan {fmtInt(missingUnits(f.stages))}</strong> en lo filtrado
+          </span>
+        </div>
+      )}
+
+      {f.lines.length === 0 ? (
+        <div style={{ fontSize: 13, color: MUTED, padding: "6px 0" }}>
+          Ningún producto coincide con el filtro.{" "}
+          <Button size="sm" color="link" className="my-0 p-0" onClick={clear}>Quitar filtro</Button>
+        </div>
+      ) : (
+        <LinesTable
+          lines={rows}
+          scroll={rows.length > SCROLL_FROM}
+          totals={rows.length > 1 ? f.stages : null}
+          totalLabel={f.active ? `Total de lo filtrado (${fmtInt(f.lines.length)} líneas)` : `Total de la orden (${fmtInt(f.lines.length)} líneas)`}
+        />
+      )}
+
+      <div style={{ ...SECTION_TITLE, margin: "12px 0 4px" }}>
+        Tareas · {f.tasks.length !== f.totalTasks ? `${fmtInt(f.tasks.length)} de ${fmtInt(f.totalTasks)} (con esos productos)` : fmtInt(order.taskCount)}
+      </div>
+      <TasksTable tasks={f.tasks} todayYmd={todayYmd} />
     </div>
   );
 }

@@ -1,24 +1,19 @@
 import React, { useEffect, useMemo, useState } from "react";
-import {
-  Alert,
-  Button,
-  FormGroup,
-  Input,
-  Label,
-  Modal,
-  ModalBody,
-  ModalFooter,
-  ModalHeader,
-  Spinner,
-  Table,
-} from "reactstrap";
+import { Modal, Spinner } from "reactstrap";
 import { issueTaxInvoiceNote } from "services/taxInvoiceService";
 import { showError, showSuccess } from "utils/notificationHelper";
 import { formatQuetzales } from "utils/taxInvoiceLabels";
+import { IconClose, IconInfo, IconLock } from "components/accounting/felUi";
+import "views/accounting/fel-ui.css";
 
 const NOTE_TYPES = {
   NCRE: "Nota de crédito",
   NDEB: "Nota de débito",
+};
+
+const REASON_SUGGESTIONS = {
+  NCRE: ["Devolución de mercadería", "Descuento o rebaja", "Error en el precio", "Error en la cantidad"],
+  NDEB: ["Recargo por pago tardío", "Aumento de precio", "Cargo adicional"],
 };
 
 const emptyLine = () => ({ description: "", quantity: "1", unitPrice: "" });
@@ -65,6 +60,7 @@ function TaxInvoiceNoteModal({ isOpen, onClose, invoice, onSuccess }) {
     (line) => line.description.trim() && Number(line.quantity) > 0 && Number(line.unitPrice) > 0
   );
   const canSubmit = !saving && reason.trim() && linesValid && total > 0 && !exceedsBalance;
+  const balanceAfter = documentType === "NCRE" ? balance - total : balance + total;
 
   const updateLine = (index, field, value) => {
     setLines((current) => current.map((line, i) => (i === index ? { ...line, [field]: value } : line)));
@@ -114,145 +110,262 @@ function TaxInvoiceNoteModal({ isOpen, onClose, invoice, onSuccess }) {
     }
   };
 
-  const label = `${invoice?.internalNumber || invoice?.id || "—"} · ${invoice?.felSerie || "—"}/${invoice?.felNumero || "—"}`;
+  const originLabel = invoice?.internalNumber || invoice?.id || "—";
+  const typeName = NOTE_TYPES[documentType];
 
   return (
-    <Modal isOpen={isOpen} toggle={onClose} centered size="lg">
-      <ModalHeader toggle={onClose}>Emitir nota de crédito/débito FEL</ModalHeader>
-      <ModalBody>
-        <p className="mb-1">
-          Factura origen <strong>{label}</strong>
-        </p>
-        <p className="text-muted small mb-3">
-          Receptor: {invoice?.customerName || "—"} (NIT {invoice?.customerTaxId || "—"}) · Total{" "}
-          {formatCurrency(originTotal)} · Saldo actual {formatCurrency(balance)}
-        </p>
+    <Modal
+      isOpen={isOpen}
+      toggle={saving ? undefined : onClose}
+      centered
+      size="lg"
+      modalClassName="fel-ui"
+    >
+      <div className="fel-modal__head">
+        <div>
+          <h2 className="fel-modal__title">Emitir nota sobre {originLabel}</h2>
+          <p className="fel-modal__sub">
+            Serie {invoice?.felSerie || "—"} · Número {invoice?.felNumero || "—"}
+          </p>
+        </div>
+        <button
+          type="button"
+          className="fel-icon-btn"
+          style={{ width: 44, height: 44, margin: "-6px -8px 0 0" }}
+          aria-label="Cerrar"
+          onClick={onClose}
+          disabled={saving}
+        >
+          <IconClose />
+        </button>
+      </div>
 
-        <FormGroup>
-          <Label>Tipo de nota</Label>
-          <Input
-            type="select"
-            value={documentType}
-            onChange={(e) => setDocumentType(e.target.value)}
-            disabled={saving}
-          >
-            <option value="NCRE">Nota de crédito (devolución, descuento, rebaja)</option>
-            <option value="NDEB">Nota de débito (recargo, aumento de precio)</option>
-          </Input>
-        </FormGroup>
+      <div className="fel-modal__body">
+        <div className="fel-origin-strip">
+          <div className="fel-origin-strip__wide">
+            <div className="fel-kv__label d-flex align-items-center" style={{ gap: 6 }}>
+              <IconLock /> Receptor (el mismo de la factura)
+            </div>
+            <div className="fel-kv__value" style={{ fontWeight: 500 }}>
+              {invoice?.customerName || "—"}
+              <span className="fel-muted" style={{ fontWeight: 400 }}> · NIT {invoice?.customerTaxId || "—"}</span>
+            </div>
+          </div>
+          <div>
+            <div className="fel-kv__label">Total de la factura</div>
+            <div className="fel-kv__value fel-num">{formatCurrency(originTotal)}</div>
+          </div>
+          <div>
+            <div className="fel-kv__label">Saldo disponible</div>
+            <div className="fel-kv__value fel-num" style={{ fontWeight: 600 }}>{formatCurrency(balance)}</div>
+          </div>
+        </div>
 
-        <FormGroup>
-          <Label>Motivo del ajuste (obligatorio, va al SAT)</Label>
-          <Input
+        <fieldset className="fel-radio-grid">
+          <legend className="fel-label" style={{ marginBottom: 8 }}>Tipo de nota</legend>
+          <label className={`fel-radio-card ${documentType === "NCRE" ? "is-selected" : ""}`}>
+            <input
+              type="radio"
+              name="fel-note-type"
+              checked={documentType === "NCRE"}
+              onChange={() => setDocumentType("NCRE")}
+              disabled={saving}
+            />
+            <span>
+              <span className="fel-radio-card__title">Nota de crédito</span>
+              <span className="fel-radio-card__text">Devolución, descuento o rebaja. Resta del saldo.</span>
+            </span>
+          </label>
+          <label className={`fel-radio-card ${documentType === "NDEB" ? "is-selected" : ""}`}>
+            <input
+              type="radio"
+              name="fel-note-type"
+              checked={documentType === "NDEB"}
+              onChange={() => setDocumentType("NDEB")}
+              disabled={saving}
+            />
+            <span>
+              <span className="fel-radio-card__title">Nota de débito</span>
+              <span className="fel-radio-card__text">Recargo o aumento de precio. Suma al saldo.</span>
+            </span>
+          </label>
+        </fieldset>
+
+        <div>
+          <div className="d-flex justify-content-between align-items-baseline" style={{ gap: 12, marginBottom: 6 }}>
+            <label className="fel-label mb-0" htmlFor="fel-note-reason">Motivo del ajuste</label>
+            <span className="fel-muted" style={{ fontSize: 12 }}>
+              Obligatorio · va al SAT · {reason.length}/255
+            </span>
+          </div>
+          <input
+            id="fel-note-reason"
             type="text"
+            className="fel-input"
             maxLength={255}
             placeholder="Ej. Devolución de mercadería"
             value={reason}
             onChange={(e) => setReason(e.target.value)}
             disabled={saving}
           />
-        </FormGroup>
-
-        <div className="d-flex justify-content-between align-items-center mb-2">
-          <Label className="mb-0">Líneas (precio con IVA incluido)</Label>
-          <div>
-            <Button color="link" size="sm" onClick={copyInvoiceLines} disabled={saving}>
-              Copiar líneas de la factura
-            </Button>
-            <Button
-              color="link"
-              size="sm"
-              onClick={() => setLines((current) => [...current, emptyLine()])}
-              disabled={saving}
-            >
-              + Agregar línea
-            </Button>
+          <div className="fel-chips" style={{ marginTop: 8 }}>
+            {REASON_SUGGESTIONS[documentType].map((text) => (
+              <button
+                key={text}
+                type="button"
+                className="fel-chip"
+                onClick={() => setReason(text)}
+                disabled={saving}
+              >
+                {text}
+              </button>
+            ))}
           </div>
         </div>
-        <Table size="sm" responsive className="mb-2">
-          <thead>
-            <tr>
-              <th>Descripción</th>
-              <th style={{ width: 90 }}>Cant.</th>
-              <th style={{ width: 120 }}>P. unit.</th>
-              <th style={{ width: 100 }} className="text-right">Total</th>
-              <th style={{ width: 40 }} />
-            </tr>
-          </thead>
-          <tbody>
-            {lines.map((line, index) => (
-              <tr key={index}>
-                <td>
-                  <Input
-                    bsSize="sm"
-                    value={line.description}
-                    onChange={(e) => updateLine(index, "description", e.target.value)}
-                    disabled={saving}
-                  />
-                </td>
-                <td>
-                  <Input
-                    bsSize="sm"
-                    type="number"
-                    min="0"
-                    step="1"
-                    value={line.quantity}
-                    onChange={(e) => updateLine(index, "quantity", e.target.value)}
-                    disabled={saving}
-                  />
-                </td>
-                <td>
-                  <Input
-                    bsSize="sm"
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={line.unitPrice}
-                    onChange={(e) => updateLine(index, "unitPrice", e.target.value)}
-                    disabled={saving}
-                  />
-                </td>
-                <td className="text-right align-middle">{formatCurrency(lineTotal(line))}</td>
-                <td className="align-middle">
-                  <Button
-                    close
-                    onClick={() => removeLine(index)}
-                    disabled={saving || lines.length === 1}
-                    aria-label="Quitar línea"
-                  />
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </Table>
-        <p className="text-right mb-3">
-          <strong>Total de la nota: {formatCurrency(total)}</strong>
-        </p>
-        {exceedsBalance && (
-          <Alert color="warning" className="py-2">
-            Una nota de crédito no puede pasar el saldo de la factura ({formatCurrency(creditLimit)}).
-          </Alert>
-        )}
 
-        <FormGroup className="mb-0">
-          <Label>Observaciones internas (opcional)</Label>
-          <Input
-            type="textarea"
+        <div>
+          <div className="d-flex flex-wrap justify-content-between align-items-center" style={{ gap: 8, marginBottom: 8 }}>
+            <div>
+              <span className="fel-label d-inline mb-0">Líneas</span>{" "}
+              <span className="fel-muted" style={{ fontSize: 12 }}>· precios con IVA incluido</span>
+            </div>
+            <div className="d-flex flex-wrap" style={{ gap: 4 }}>
+              <button type="button" className="fel-link-btn" onClick={copyInvoiceLines} disabled={saving}>
+                Copiar líneas de la factura
+              </button>
+              <button
+                type="button"
+                className="fel-link-btn"
+                onClick={() => setLines((current) => [...current, emptyLine()])}
+                disabled={saving}
+              >
+                + Agregar línea
+              </button>
+            </div>
+          </div>
+          <div className="fel-table-wrap">
+            <table className="fel-table fel-lines-table" style={{ minWidth: 560 }}>
+              <thead>
+                <tr>
+                  <th style={{ paddingLeft: 0 }}>Descripción</th>
+                  <th style={{ width: 90 }}>Cant.</th>
+                  <th style={{ width: 120 }}>P. unit.</th>
+                  <th style={{ width: 110 }} className="is-right">Total</th>
+                  <th style={{ width: 44, paddingRight: 0 }}><span className="fel-visually-hidden">Quitar</span></th>
+                </tr>
+              </thead>
+              <tbody>
+                {lines.map((line, index) => (
+                  <tr key={index}>
+                    <td style={{ paddingLeft: 0, borderBottom: 0 }}>
+                      <input
+                        className="fel-input"
+                        aria-label={`Descripción de la línea ${index + 1}`}
+                        value={line.description}
+                        onChange={(e) => updateLine(index, "description", e.target.value)}
+                        disabled={saving}
+                      />
+                    </td>
+                    <td style={{ borderBottom: 0 }}>
+                      <input
+                        className="fel-input"
+                        type="number"
+                        min="0"
+                        step="1"
+                        aria-label={`Cantidad de la línea ${index + 1}`}
+                        value={line.quantity}
+                        onChange={(e) => updateLine(index, "quantity", e.target.value)}
+                        disabled={saving}
+                      />
+                    </td>
+                    <td style={{ borderBottom: 0 }}>
+                      <input
+                        className="fel-input"
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        aria-label={`Precio unitario de la línea ${index + 1}`}
+                        value={line.unitPrice}
+                        onChange={(e) => updateLine(index, "unitPrice", e.target.value)}
+                        disabled={saving}
+                      />
+                    </td>
+                    <td className="is-right fel-num" style={{ fontWeight: 600, verticalAlign: "middle", borderBottom: 0 }}>
+                      {formatCurrency(lineTotal(line))}
+                    </td>
+                    <td style={{ paddingRight: 0, textAlign: "right", borderBottom: 0 }}>
+                      <button
+                        type="button"
+                        className="fel-icon-btn"
+                        aria-label={`Quitar la línea ${index + 1}`}
+                        onClick={() => removeLine(index)}
+                        disabled={saving || lines.length === 1}
+                      >
+                        <IconClose />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {exceedsBalance && (
+            <div className="fel-notice fel-notice--warn" style={{ marginTop: 12, marginBottom: 0 }} role="alert">
+              Una nota de crédito no puede pasar el saldo de la factura ({formatCurrency(creditLimit)}).
+            </div>
+          )}
+        </div>
+
+        <div>
+          <label className="fel-label" htmlFor="fel-note-obs">
+            Observaciones internas <small>(opcional, no van al SAT)</small>
+          </label>
+          <textarea
+            id="fel-note-obs"
+            className="fel-textarea"
             rows={2}
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
             disabled={saving}
           />
-        </FormGroup>
-      </ModalBody>
-      <ModalFooter>
-        <Button color="secondary" outline onClick={onClose} disabled={saving}>
-          Cancelar
-        </Button>
-        <Button color="primary" onClick={handleSubmit} disabled={!canSubmit}>
-          {saving ? <Spinner size="sm" /> : `Emitir ${NOTE_TYPES[documentType].toLowerCase()}`}
-        </Button>
-      </ModalFooter>
+        </div>
+
+        <div className="fel-notice" style={{ marginBottom: 0 }}>
+          <IconInfo />
+          <span>
+            Si la nota se emite más de 2 meses después de la factura, SAT exige la frase 9-22. Se agrega sola
+            cuando corresponde. Las facturas a consumidor final (CF) no admiten notas.
+          </span>
+        </div>
+      </div>
+
+      <div className="fel-modal__foot">
+        <div className="fel-modal__sums">
+          <div>
+            <div className="fel-kv__label">Total de la nota</div>
+            <div className="fel-modal__sum-value fel-num">
+              {documentType === "NCRE" ? "−" : "+"}{formatCurrency(total)}
+            </div>
+          </div>
+          <div>
+            <div className="fel-kv__label">Saldo de la factura después</div>
+            <div className="fel-modal__sum-value fel-num">
+              <span className="fel-muted" style={{ fontSize: 14, fontWeight: 500, textDecoration: "line-through" }}>
+                {formatCurrency(balance)}
+              </span>{" "}
+              {formatCurrency(Math.max(balanceAfter, 0))}
+            </div>
+          </div>
+        </div>
+        <div className="d-flex flex-wrap" style={{ gap: 10 }}>
+          <button type="button" className="fel-btn" onClick={onClose} disabled={saving}>
+            Cancelar
+          </button>
+          <button type="button" className="fel-btn fel-btn--primary" onClick={handleSubmit} disabled={!canSubmit}>
+            {saving ? <Spinner size="sm" /> : `Emitir ${typeName.toLowerCase()}`}
+          </button>
+        </div>
+      </div>
     </Modal>
   );
 }

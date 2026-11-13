@@ -10,6 +10,7 @@ import {
 const FAMILY_COLORS = {
   OPL: "primary",
   OPCK: "info",
+  OPI: "success",
   OPC: "dark",
   OPCF: "warning",
   OPCM: "secondary",
@@ -323,7 +324,7 @@ function CinchosDayBoard({
         className="small font-weight-bold text-muted mb-2 text-uppercase"
         style={{ letterSpacing: "0.04em" }}
       >
-        Mesa cinchos — cinchos y pulseras (OPL / OPCK / OPC)
+        Mesa cinchos — cinchos y pulseras (OPL / OPCK / OPI / OPC)
       </div>
       <Card
         className="m-0"

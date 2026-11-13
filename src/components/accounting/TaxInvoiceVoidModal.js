@@ -1,16 +1,10 @@
 import React, { useEffect, useState } from "react";
-import {
-  Button,
-  Input,
-  Modal,
-  ModalBody,
-  ModalFooter,
-  ModalHeader,
-  Spinner,
-} from "reactstrap";
+import { Modal, Spinner } from "reactstrap";
 import { voidTaxInvoice } from "services/taxInvoiceService";
 import { showError, showSuccess } from "utils/notificationHelper";
 import { taxInvoiceDocumentLabel } from "utils/taxInvoiceLabels";
+import { IconClose } from "components/accounting/felUi";
+import "views/accounting/fel-ui.css";
 
 function TaxInvoiceVoidModal({ isOpen, onClose, invoice, onSuccess }) {
   const [voidReason, setVoidReason] = useState("");
@@ -22,6 +16,8 @@ function TaxInvoiceVoidModal({ isOpen, onClose, invoice, onSuccess }) {
       setVoiding(false);
     }
   }, [isOpen, invoice?.id]);
+
+  const documentLabel = taxInvoiceDocumentLabel(invoice?.documentType);
 
   const handleVoid = async () => {
     if (!invoice?.id || !voidReason.trim()) {
@@ -41,44 +37,79 @@ function TaxInvoiceVoidModal({ isOpen, onClose, invoice, onSuccess }) {
     }
   };
 
-  const documentLabel = taxInvoiceDocumentLabel(invoice?.documentType);
   const label = invoice?.internalNumber || invoice?.felSerie
     ? `${invoice.internalNumber || "—"} · ${invoice.felSerie || "—"}/${invoice.felNumero || "—"}`
     : invoice?.id;
 
   return (
-    <Modal isOpen={isOpen} toggle={onClose} centered>
-      <ModalHeader toggle={onClose}>Anular {documentLabel.toLowerCase()} FEL</ModalHeader>
-      <ModalBody>
-        <p className="mb-2">
-          {documentLabel} <strong>{label || "—"}</strong>
-        </p>
-        {invoice?.felUuid && (
-          <p className="text-muted small mb-2">
-            UUID: {invoice.felUuid}
+    <Modal
+      isOpen={isOpen}
+      toggle={voiding ? undefined : onClose}
+      centered
+      modalClassName="fel-ui"
+    >
+      <div className="fel-modal__head">
+        <div>
+          <h2 className="fel-modal__title">Anular {documentLabel.toLowerCase()} FEL</h2>
+          <p className="fel-modal__sub">
+            {documentLabel} <strong>{label || "—"}</strong>
           </p>
-        )}
-        <p className="text-muted small mb-3">
-          Se enviará la anulación al certificador FEL (INFILE). El documento quedará en estado{" "}
-          <strong>Anulada</strong> (con motivo y UUID de anulación). Si necesitas reemitirla, usa{" "}
-          <strong>Firmar FEL</strong> desde el detalle.
-        </p>
-        <Input
-          type="text"
-          placeholder="Motivo de anulación (obligatorio)"
-          value={voidReason}
-          onChange={(e) => setVoidReason(e.target.value)}
+        </div>
+        <button
+          type="button"
+          className="fel-icon-btn"
+          style={{ width: 44, height: 44, margin: "-6px -8px 0 0" }}
+          aria-label="Cerrar"
+          onClick={onClose}
           disabled={voiding}
-        />
-      </ModalBody>
-      <ModalFooter>
-        <Button color="secondary" outline onClick={onClose} disabled={voiding}>
+        >
+          <IconClose />
+        </button>
+      </div>
+
+      <div className="fel-modal__body">
+        {invoice?.felUuid && (
+          <div>
+            <div className="fel-kv__label">UUID</div>
+            <div className="fel-mono" style={{ fontSize: 13, wordBreak: "break-all" }}>{invoice.felUuid}</div>
+          </div>
+        )}
+        <div className="fel-notice fel-notice--warn" style={{ marginBottom: 0 }}>
+          <span>
+            La anulación se envía al certificador FEL (INFILE) y no se puede deshacer. El documento queda
+            en <strong>Anulada</strong>, con su motivo y UUID de anulación. Si necesitas reemitirlo, usa{" "}
+            <strong>Firmar FEL</strong> desde el detalle. Una factura con notas vigentes solo se anula
+            después de anular sus notas.
+          </span>
+        </div>
+        <div>
+          <label className="fel-label" htmlFor="fel-void-reason">Motivo de anulación</label>
+          <input
+            id="fel-void-reason"
+            type="text"
+            className="fel-input"
+            placeholder="Obligatorio"
+            value={voidReason}
+            onChange={(e) => setVoidReason(e.target.value)}
+            disabled={voiding}
+          />
+        </div>
+      </div>
+
+      <div className="fel-modal__foot" style={{ justifyContent: "flex-end" }}>
+        <button type="button" className="fel-btn" onClick={onClose} disabled={voiding}>
           Cancelar
-        </Button>
-        <Button color="danger" onClick={handleVoid} disabled={voiding || !voidReason.trim()}>
+        </button>
+        <button
+          type="button"
+          className="fel-btn fel-btn--primary"
+          style={{ background: "var(--fel-danger)", borderColor: "var(--fel-danger)" }}
+          onClick={handleVoid}
+          disabled={voiding || !voidReason.trim()}
+        >
           {voiding ? <Spinner size="sm" /> : "Confirmar anulación"}
-        </Button>
-      </ModalFooter>
+        </button>
+      </div>
     </Modal>
   );
 }

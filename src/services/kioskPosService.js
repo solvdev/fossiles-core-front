@@ -368,6 +368,34 @@ export const estimateKioskPromotionDiscount = async (payload) => {
   return parseJson(response, "No se pudo estimar el descuento.");
 };
 
+/** Simulador: calcula una promoción (guardada, en borrador o sin guardar) sin vender. */
+export const simulateKioskPromotion = async (payload) => {
+  const response = await fetch(`${API_URL}/kiosk-pos/promotions/simulate`, {
+    method: "POST",
+    headers: headers(),
+    body: JSON.stringify(payload),
+  });
+  return parseJson(response, "No se pudo simular la promoción.");
+};
+
+/** Aprueba la promoción: desde ahora el POS la usa. */
+export const approveKioskPromotion = async (id) => {
+  const response = await fetch(`${API_URL}/kiosk-pos/promotions/${id}/approve`, {
+    method: "POST",
+    headers: headers(),
+  });
+  return parseJson(response, "No se pudo aprobar la promoción.");
+};
+
+/** Vuelve la promoción a borrador: el POS deja de usarla. */
+export const returnKioskPromotionToDraft = async (id) => {
+  const response = await fetch(`${API_URL}/kiosk-pos/promotions/${id}/draft`, {
+    method: "POST",
+    headers: headers(),
+  });
+  return parseJson(response, "No se pudo pasar la promoción a borrador.");
+};
+
 export const updateKioskPromotion = async (id, payload) => {
   const response = await fetch(`${API_URL}/kiosk-pos/promotions/${id}`, {
     method: "PUT",

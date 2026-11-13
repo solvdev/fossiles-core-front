@@ -4,6 +4,11 @@ import {
   deliveryLabel,
   elapsedLabel,
   exportOrderProgressExcel,
+  filterOrderLines,
+  groupLinesByCode,
+  hasRepeatedCodes,
+  lineColorsIn,
+  missingUnits,
   stagesText,
   timeLabel,
 } from "../orderProgressReport";
@@ -113,5 +118,62 @@ describe("exportOrderProgressExcel", () => {
     expect(tareas[0][3]).toBe("Tarea");
     expect(tareas[3][0]).toBe("");
     expect(tareas[2].slice(3, 8)).toEqual(["TK-2", "Por iniciar", "Falta cuero", "", 30]);
+  });
+});
+
+describe("filterOrderLines", () => {
+  const order = {
+    lines: [
+      { itemId: 1, productCode: "B-7", productName: "Billetera", colorName: "NEGRO", stages: stages(10, 10, 0, 0, 0) },
+      { itemId: 2, productCode: "B-7", productName: "Billetera", colorName: "CAFE", stages: stages(8, 2, 0, 3, 3) },
+      { itemId: 3, productCode: "TT-4", productName: "Tarjetero", colorName: "NEGRO", brandName: "Fossiles", stages: stages(5, 0, 0, 0, 0) },
+    ],
+    tasks: [
+      { taskId: 1, code: "TK-9", lines: [{ productCode: "B-7", colorName: "CAFE", quantity: 6 }] },
+      { taskId: 2, code: "TK-10", lines: [{ productCode: "TT-4", colorName: "NEGRO", quantity: 5 }] },
+    ],
+  };
+
+  it("sin filtros devuelve todo", () => {
+    const r = filterOrderLines(order);
+    expect(r.lines).toHaveLength(3);
+    expect(r.tasks).toHaveLength(2);
+    expect(r.active).toBe(false);
+    expect(r.stages.units).toBe(23);
+  });
+
+  it("filtra por texto, color y etapa y suma solo lo filtrado", () => {
+    expect(filterOrderLines(order, { search: "tarj" }).lines.map((l) => l.itemId)).toEqual([3]);
+    expect(filterOrderLines(order, { search: "fossiles" }).lines.map((l) => l.itemId)).toEqual([3]);
+    const negro = filterOrderLines(order, { color: "NEGRO" });
+    expect(negro.lines.map((l) => l.itemId)).toEqual([1, 3]);
+    expect(negro.tasks.map((t) => t.code)).toEqual(["TK-10"]);
+    expect(filterOrderLines(order, { stage: "OPEN" }).lines.map((l) => l.itemId)).toEqual([2, 3]);
+    const enMesa = filterOrderLines(order, { stage: "inProgress" });
+    expect(enMesa.lines.map((l) => l.itemId)).toEqual([2]);
+    expect(enMesa.tasks).toHaveLength(2);
+    expect(filterOrderLines(order, { search: "b-7", color: "CAFE" }).stages.units).toBe(8);
+  });
+
+  it("la búsqueda también encuentra tareas por código", () => {
+    const r = filterOrderLines(order, { search: "tk-10" });
+    expect(r.lines).toHaveLength(0);
+    expect(r.tasks.map((t) => t.code)).toEqual(["TK-10"]);
+  });
+
+  it("lista los colores sin repetir", () => {
+    expect(lineColorsIn(order.lines)).toEqual(["CAFE", "NEGRO"]);
+  });
+
+  it("une las líneas del mismo código sumando etapas y colores", () => {
+    expect(hasRepeatedCodes(order.lines)).toBe(true);
+    expect(hasRepeatedCodes([order.lines[0], order.lines[2]])).toBe(false);
+    const g = groupLinesByCode(order.lines);
+    expect(g.map((x) => x.productCode)).toEqual(["B-7", "TT-4"]);
+    expect(g[0].colors).toEqual(["CAFE", "NEGRO"]);
+    expect(g[0].lineCount).toBe(2);
+    expect(g[0].stages.units).toBe(18);
+    expect(g[0].stages.done).toBe(12);
+    expect(missingUnits(g[0].stages)).toBe(6);
   });
 });

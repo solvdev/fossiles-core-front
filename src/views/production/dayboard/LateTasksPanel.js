@@ -8,7 +8,7 @@ import UnfinishedTasks from "./UnfinishedTasks";
  *  - Empezadas y sin terminar: siguen en su mesa y arrastran al día siguiente.
  *  - Pendientes que no se hicieron: se reprograman a un día con cupo.
  */
-export default function LateTasksPanel({ late, numDesks, onChanged }) {
+export default function LateTasksPanel({ late, numDesks, specialDesks, onChanged }) {
   const { backlog, loadingBacklog, loadBacklog, unfinished, loadingUnfinished, loadUnfinished } = late;
   const total = backlog.length + unfinished.length;
   return (
@@ -31,6 +31,7 @@ export default function LateTasksPanel({ late, numDesks, onChanged }) {
         backlog={backlog}
         loading={loadingBacklog}
         numDesks={numDesks}
+        specialDesks={specialDesks}
         onReload={loadBacklog}
         onRescheduled={onChanged}
       />

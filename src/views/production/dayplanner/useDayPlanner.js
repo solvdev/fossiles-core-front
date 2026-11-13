@@ -176,10 +176,13 @@ export default function useDayPlanner() {
       getTasksByDate(date).catch(() => []),
     ]).then(([count, dayTasks]) => {
       if (cancelled) return;
+      const plantDesks = Number(count?.numDesks) || 0;
       const plannedHours = (Array.isArray(dayTasks) ? dayTasks : [])
         .filter((t) => t.status !== "CANCELLED")
+        // La mesa de maquila (número > mesas de planta) no ocupa cupo de la planta.
+        .filter((t) => !t.desk || Number(t.desk) <= plantDesks)
         .reduce((sum, t) => sum + getTaskBaseHours(t), 0);
-      setDayLoad({ numDesks: Number(count?.numDesks) || 0, plannedHours });
+      setDayLoad({ numDesks: plantDesks, plannedHours });
     }).catch(() => { if (!cancelled) setDayLoad(null); });
     return () => { cancelled = true; };
   }, [date, result]);
@@ -701,6 +704,7 @@ export default function useDayPlanner() {
       workDateYmd: ymd,
       deskSupervisorByDesk: supervisorMap(supRes),
       numDesksForLegend: countRes?.numDesks,
+      specialDesks: countRes?.specialDesks,
     });
   }, []);
 
