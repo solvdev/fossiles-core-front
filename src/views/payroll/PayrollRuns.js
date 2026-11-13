@@ -86,16 +86,16 @@ const initialTab = () => {
 
 const lineDeductions = (line) =>
   (Number(line.igssEmployee) || 0) + (Number(line.isr) || 0) + (Number(line.opiDiscount) || 0) + (Number(line.otherDeductions) || 0);
-const lineGross = (line) => (Number(line.baseSalary) || 0) + (Number(line.bonification) || 0);
+const lineGross = (line) => (Number(line.baseSalary) || 0) + (Number(line.bonification) || 0) + (Number(line.extraPay) || 0);
 const needsAccount = (line) => line.paymentMethod === "TRANSFERENCIA BANCARIA" && !line.bankAccount;
 const maskAccount = (account) => (account ? `•••• ${String(account).slice(-4)}` : "");
 
 function exportRunToExcel(run) {
   const header = ["Colaborador", "Puesto", "Sección", "Vinculación", "Forma de pago", "Cuenta", "Salario mensual", "Días",
     "Sueldo", "Bonificación", "IGSS laboral", "ISR", "Compras colaborador", "Otras deducciones", "Líquido",
-    "IGSS patronal", "IRTRA", "INTECAP", "Cheque"];
+    "IGSS patronal", "IRTRA", "INTECAP", "Horas extra y feriados", "Días de ausencia", "Días de vacaciones", "Cheque"];
   const keys = ["monthlySalary", "daysPaid", "baseSalary", "bonification", "igssEmployee", "isr", "opiDiscount",
-    "otherDeductions", "netPay", "igssEmployer", "irtra", "intecap"];
+    "otherDeductions", "netPay", "igssEmployer", "irtra", "intecap", "extraPay", "absenceDays", "vacationDays"];
   const rows = run.lines.map((line) => [line.employeeName, line.position || "", SECTIONS[sectionOf(run.payGroup, line.kiosk)], line.employmentType,
     line.paymentMethod || "", line.bankAccount || "", ...keys.map((key) => Number(line[key]) || 0), line.chequeNumber || ""]);
   const totals = ["TOTAL", "", "", "", "", "", ...keys.map((key) => (key === "monthlySalary" || key === "daysPaid" ? "" : sum(run.lines, key))), ""];
@@ -743,7 +743,7 @@ function PayrollRuns() {
               <th className="r">Días</th>
               {showColumns ? (
                 <>
-                  <th className="r">Sueldo</th><th className="r">Bonificación</th><th className="r">IGSS</th>
+                  <th className="r">Sueldo</th><th className="r">Bonificación</th><th className="r">Extras</th><th className="r">IGSS</th>
                   <th className="r">ISR</th><th className="r">Compras</th><th className="r">Otras</th>
                 </>
               ) : (
@@ -755,10 +755,10 @@ function PayrollRuns() {
           </thead>
           <tbody>
             {lines.length === 0 && (
-              <tr><td colSpan={showColumns ? 11 : 7} className="pl-empty">Sin colaboradores en este período.</td></tr>
+              <tr><td colSpan={showColumns ? 12 : 7} className="pl-empty">Sin colaboradores en este período.</td></tr>
             )}
             {lines.length > 0 && visibleLines.length === 0 && (
-              <tr><td colSpan={showColumns ? 11 : 7} className="pl-empty">Nadie coincide con el filtro.</td></tr>
+              <tr><td colSpan={showColumns ? 12 : 7} className="pl-empty">Nadie coincide con el filtro.</td></tr>
             )}
             {visibleLines.map((line) => (
               <tr key={line.id} className={`pl-click${changedLineIds.has(line.id) ? " pl-flash" : ""}`} tabIndex={0}
@@ -779,6 +779,7 @@ function PayrollRuns() {
                   <>
                     <td className="r pl-num">{amountOrDash(line.baseSalary)}</td>
                     <td className="r pl-num">{amountOrDash(line.bonification)}</td>
+                    <td className="r pl-num">{amountOrDash(line.extraPay)}</td>
                     <td className="r pl-num">{amountOrDash(line.igssEmployee)}</td>
                     <td className="r pl-num">{amountOrDash(line.isr)}</td>
                     <td className="r pl-num">{amountOrDash(line.opiDiscount)}</td>
@@ -803,6 +804,7 @@ function PayrollRuns() {
                   <>
                     <td className="r pl-num">{formatAmount(sum(visibleLines, "baseSalary"))}</td>
                     <td className="r pl-num">{formatAmount(sum(visibleLines, "bonification"))}</td>
+                    <td className="r pl-num">{formatAmount(sum(visibleLines, "extraPay"))}</td>
                     <td className="r pl-num">{formatAmount(sum(visibleLines, "igssEmployee"))}</td>
                     <td className="r pl-num">{formatAmount(sum(visibleLines, "isr"))}</td>
                     <td className="r pl-num">{formatAmount(sum(visibleLines, "opiDiscount"))}</td>
@@ -848,6 +850,7 @@ function PayrollRuns() {
         <div className="pl-sec">Devengado</div>
         <div><span>Sueldo ({Number(voucherLine.daysPaid)} días)</span><b>{q(voucherLine.baseSalary)}</b></div>
         <div><span>Bonificación incentivo</span><b>{q(voucherLine.bonification)}</b></div>
+        {Number(voucherLine.extraPay) > 0 && <div><span>Horas extra y feriados trabajados</span><b>{q(voucherLine.extraPay)}</b></div>}
         <div className="pl-sec">Deducciones</div>
         <div><span>IGSS laboral</span><b>− {q(voucherLine.igssEmployee)}</b></div>
         <div><span>ISR</span><b>− {q(voucherLine.isr)}</b></div>
@@ -856,6 +859,12 @@ function PayrollRuns() {
           <b>− {q(voucherLine.opiDiscount)}</b>
         </div>
         {Number(voucherLine.otherDeductions) > 0 && <div><span>Otras deducciones</span><b>− {q(voucherLine.otherDeductions)}</b></div>}
+        {Number(voucherLine.absenceDays) > 0 && (
+          <div><span>Ausencia sin goce</span><b>{Number(voucherLine.absenceDays)} {Number(voucherLine.absenceDays) === 1 ? "día" : "días"} menos de sueldo</b></div>
+        )}
+        {Number(voucherLine.vacationDays) > 0 && (
+          <div><span>Vacaciones en el período</span><b>{Number(voucherLine.vacationDays)} {Number(voucherLine.vacationDays) === 1 ? "día" : "días"} con goce</b></div>
+        )}
         <div className="pl-tot"><span>Líquido</span><span>{q(voucherLine.netPay)}</span></div>
       </div>
       <div className="pl-dl">

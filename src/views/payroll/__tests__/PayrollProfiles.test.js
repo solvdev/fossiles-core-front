@@ -3,9 +3,11 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import "@testing-library/jest-dom";
 import PayrollProfiles from "../PayrollProfiles";
 import { getPayrollProfiles, updatePayrollProfile } from "services/payrollService";
+import { getLocations } from "services/locationService";
 import { showError } from "utils/notificationHelper";
 
 jest.mock("services/payrollService");
+jest.mock("services/locationService");
 jest.mock("utils/notificationHelper");
 
 let mockGranted = new Set(["PLANILLA.CORRIDAS.VER", "PLANILLA.CORRIDAS.CREAR"]);
@@ -35,6 +37,7 @@ const openEditor = async (name) => {
 beforeEach(() => {
   mockGranted = new Set(["PLANILLA.CORRIDAS.VER", "PLANILLA.CORRIDAS.CREAR"]);
   getPayrollProfiles.mockResolvedValue([ana, beto, carla]);
+  getLocations.mockResolvedValue([]);
 });
 afterEach(cleanup);
 
@@ -53,6 +56,7 @@ test("la ficha se edita en un panel y se guarda completa", async () => {
   await waitFor(() => expect(updatePayrollProfile).toHaveBeenCalledWith(1, {
     employmentType: "PLANILLA", payGroup: "PLANTA", paymentMethod: "CHEQUE", bankAccount: null,
     salary: 4000, bonification: null, terminationDate: null, nit: "1234567", igssAffiliation: "999",
+    igssEnabled: true, irtraEnabled: true,
   }));
   expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
 });
@@ -153,4 +157,75 @@ test("las fichas se ven en tres secciones: planta, kioscos y administración", a
   fireEvent.change(screen.getByLabelText("Grupo"), { target: { value: "ADMIN_TODO" } });
   expect(screen.getByText("VERA KIOSCO")).toBeInTheDocument();
   expect(screen.queryByText("ANA PRUEBA")).not.toBeInTheDocument();
+});
+
+test("el seguro social se marca por persona y se ve en la lista", async () => {
+  getPayrollProfiles.mockResolvedValue([ana, { ...beto, igssEnabled: false, warnings: [] }]);
+  updatePayrollProfile.mockImplementation((id, body) => Promise.resolve({ ...ana, ...body }));
+  render(<PayrollProfiles />);
+  await screen.findByText("ANA PRUEBA");
+  expect(within(rowOf("ANA PRUEBA")).getByText("IGSS")).toBeInTheDocument();
+  expect(within(rowOf("BETO PRUEBA")).getByText("Sin IGSS")).toBeInTheDocument();
+
+  const dialog = await openEditor("ANA PRUEBA");
+  fireEvent.click(within(dialog).getByLabelText(/Lleva IRTRA e INTECAP/));
+  await act(async () => { fireEvent.click(within(dialog).getByRole("button", { name: "Guardar ficha" })); });
+  await waitFor(() => expect(updatePayrollProfile).toHaveBeenCalledWith(1, expect.objectContaining({ igssEnabled: true, irtraEnabled: false })));
+});
+
+test("el filtro de seguro muestra solo a quienes no gozan IGSS", async () => {
+  getPayrollProfiles.mockResolvedValue([ana, { ...beto, igssEnabled: false, warnings: [] }]);
+  render(<PayrollProfiles />);
+  await screen.findByText("ANA PRUEBA");
+  fireEvent.change(screen.getByLabelText("Seguro"), { target: { value: "SIN_IGSS" } });
+  expect(screen.queryByText("ANA PRUEBA")).not.toBeInTheDocument();
+  expect(screen.getByText("BETO PRUEBA")).toBeInTheDocument();
+});
+
+test("varias fichas se cambian de seguro a la vez", async () => {
+  getPayrollProfiles.mockResolvedValue([ana, { ...beto, warnings: [] }]);
+  updatePayrollProfile.mockImplementation((id, body) => Promise.resolve({ ...(id === 1 ? ana : beto), ...body, warnings: [] }));
+  render(<PayrollProfiles />);
+  await screen.findByText("ANA PRUEBA");
+  fireEvent.click(screen.getByLabelText("Seleccionar las fichas de la página"));
+  const bulk = await screen.findByRole("region", { name: "Acciones en lote" });
+  expect(within(bulk).getByText("2 seleccionados")).toBeInTheDocument();
+  await act(async () => { fireEvent.click(within(bulk).getByRole("button", { name: "No goza" })); });
+  await waitFor(() => expect(updatePayrollProfile).toHaveBeenCalledTimes(2));
+  expect(updatePayrollProfile).toHaveBeenCalledWith(1, expect.objectContaining({ igssEnabled: false, irtraEnabled: true }));
+  expect(updatePayrollProfile).toHaveBeenCalledWith(2, expect.objectContaining({ igssEnabled: false }));
+  await waitFor(() => expect(within(rowOf("ANA PRUEBA")).getByText("Sin IGSS")).toBeInTheDocument());
+  expect(screen.queryByRole("region", { name: "Acciones en lote" })).not.toBeInTheDocument();
+});
+
+describe("kiosco del personal de kiosco", () => {
+  const vera = { ...ana, id: 5, fullName: "VERA KIOSCO", payGroup: "ADMINISTRACION", departmentName: "Kiosco Miraflores", kiosk: true, kioskLocationId: null, warnings: [] };
+
+  beforeEach(() => {
+    getLocations.mockResolvedValue([{ id: 7, name: "Kiosco Miraflores", code: "KM" }, { id: 8, name: "Bodega", code: "B1" }]);
+  });
+
+  test("avisa quién no tiene kiosco y deja elegirlo con una lista solo de kioscos", async () => {
+    getPayrollProfiles.mockResolvedValue([ana, vera]);
+    updatePayrollProfile.mockImplementation((id, body) => Promise.resolve({ ...vera, ...body }));
+    render(<PayrollProfiles />);
+    await screen.findByText("VERA KIOSCO");
+    expect(within(rowOf("VERA KIOSCO")).getByText("Sin kiosco asignado")).toBeInTheDocument();
+    expect(within(rowOf("ANA PRUEBA")).queryByText("Sin kiosco asignado")).not.toBeInTheDocument();
+
+    const dialog = await openEditor("VERA KIOSCO");
+    const select = within(dialog).getByLabelText("Kiosco donde trabaja");
+    expect(Array.from(select.options).map((o) => o.textContent)).toEqual(["Sin kiosco asignado", "Kiosco Miraflores"]);
+    fireEvent.change(select, { target: { value: "7" } });
+    await act(async () => { fireEvent.click(within(dialog).getByRole("button", { name: "Guardar ficha" })); });
+    await waitFor(() => expect(updatePayrollProfile).toHaveBeenCalledWith(5, expect.objectContaining({ kioskLocationId: 7, clearKioskLocation: false })));
+  });
+
+  test("quien no es de kiosco no ve el campo ni manda el kiosco", async () => {
+    getPayrollProfiles.mockResolvedValue([ana]);
+    render(<PayrollProfiles />);
+    await screen.findByText("ANA PRUEBA");
+    const dialog = await openEditor("ANA PRUEBA");
+    expect(within(dialog).queryByLabelText("Kiosco donde trabaja")).not.toBeInTheDocument();
+  });
 });

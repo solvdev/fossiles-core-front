@@ -3,10 +3,19 @@ import { Button, Input, Spinner } from "reactstrap";
 import SideDrawer from "components/SideDrawer/SideDrawer";
 import TablePagination, { usePagination } from "components/TablePagination/TablePagination";
 import { useAuth } from "contexts/AuthContext";
+import { getLocations } from "services/locationService";
 import { getPayrollProfiles, updatePayrollProfile } from "services/payrollService";
 import { showError, showSuccess } from "utils/notificationHelper";
 import { formatAmount } from "utils/payrollPrintHtml";
 import { Avatar, METHODS, SECTIONS, sectionOf } from "./payrollUi";
+
+/** Ubicaciones que son kioscos, igual que en Supervisoras y Kioscos. */
+const isKioskLocation = (location) => {
+  const categoria = String(location?.categoria || "").toUpperCase();
+  const name = String(location?.name || "").toUpperCase();
+  const code = String(location?.code || "").toUpperCase();
+  return categoria.includes("KIOS") || name.includes("KIOS") || code.startsWith("K");
+};
 
 const TYPE_LABELS = { PLANILLA: "Planilla", SERVICIOS: "Servicios" };
 const PAY_OPTIONS = [["CHEQUE", "Cheque"], ["TRANSFERENCIA BANCARIA", "Transferencia"], ["EFECTIVO", "Efectivo"]];
@@ -19,10 +28,33 @@ const toDraft = (profile) => ({
   salary: profile.salary ?? "",
   bonification: profile.bonification ?? "",
   terminationDate: profile.terminationDate || "",
+  igssEnabled: profile.igssEnabled !== false,
+  irtraEnabled: profile.irtraEnabled !== false,
+  kioskLocationId: profile.kioskLocationId != null ? String(profile.kioskLocationId) : "",
+});
+
+/** Lo que se manda al servidor al guardar una ficha: reemplaza todos sus datos de planilla. */
+const payloadOf = (profile, draft) => ({
+  // El kiosco solo se manda para el personal de kiosco: de él depende qué supervisora ve sus novedades.
+  ...(profile.kiosk ? {
+    kioskLocationId: draft.kioskLocationId ? Number(draft.kioskLocationId) : null,
+    clearKioskLocation: !draft.kioskLocationId && profile.kioskLocationId != null,
+  } : {}),
+  employmentType: draft.employmentType,
+  payGroup: draft.payGroup,
+  paymentMethod: draft.paymentMethod,
+  bankAccount: String(draft.bankAccount || "").trim() || null,
+  salary: Number(draft.salary),
+  bonification: draft.bonification === "" ? null : Number(draft.bonification),
+  terminationDate: draft.terminationDate || null,
+  nit: profile.nit || null,
+  igssAffiliation: profile.igssAffiliation || null,
+  igssEnabled: draft.igssEnabled,
+  irtraEnabled: draft.irtraEnabled,
 });
 
 // group: sección que se muestra. ADMIN_TODO junta Administración y kioscos, que cobran en las mismas fechas.
-const NO_FILTERS = { group: "", search: "", onlyWarnings: false, includeInactive: false };
+const NO_FILTERS = { group: "", search: "", onlyWarnings: false, includeInactive: false, insurance: "" };
 const groupForFocus = (group) => (group === "ADMINISTRACION" ? "ADMIN_TODO" : group || "");
 const filtersFor = (focus) => (focus
   ? { ...NO_FILTERS, group: groupForFocus(focus.group), search: focus.search || "", onlyWarnings: Boolean(focus.onlyWarnings) }
@@ -64,6 +96,9 @@ function PayrollProfiles({ focus }) {
   const [draft, setDraft] = useState(null);
   const [errors, setErrors] = useState({});
   const [saving, setSaving] = useState(false);
+  const [selected, setSelected] = useState(() => new Set());
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [kiosks, setKiosks] = useState([]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -80,6 +115,22 @@ function PayrollProfiles({ focus }) {
     load();
   }, [load]);
 
+  // Los kioscos solo sirven para asignar a su personal; si no cargan, la ficha se edita igual.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const locations = (await getLocations()) || [];
+        if (!cancelled) setKiosks(locations.filter(isKioskLocation));
+      } catch (error) {
+        // sin lista de kioscos no se puede elegir, pero nada más se pierde
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   // Solo un enfoque nuevo cambia los filtros; los que mueve el usuario se respetan.
   const latestFocus = useRef(focus);
   latestFocus.current = focus;
@@ -94,6 +145,7 @@ function PayrollProfiles({ focus }) {
       (filters.includeInactive || p.status === "active") &&
       inGroup(p, filters.group) &&
       (!filters.onlyWarnings || (p.warnings || []).length > 0) &&
+      (!filters.insurance || (filters.insurance === "SIN_IGSS" ? p.igssEnabled === false : p.irtraEnabled === false)) &&
       (!search || `${p.fullName} ${p.departmentName || ""} ${p.position || ""}`.toLowerCase().includes(search)));
   }, [profiles, filters]);
   const pagination = usePagination(visible, 25);
@@ -136,17 +188,7 @@ function PayrollProfiles({ focus }) {
     if (Object.keys(found).length > 0) return;
     setSaving(true);
     try {
-      const saved = await updatePayrollProfile(editing.id, {
-        employmentType: draft.employmentType,
-        payGroup: draft.payGroup,
-        paymentMethod: draft.paymentMethod,
-        bankAccount: String(draft.bankAccount || "").trim() || null,
-        salary: Number(draft.salary),
-        bonification: draft.bonification === "" ? null : Number(draft.bonification),
-        terminationDate: draft.terminationDate || null,
-        nit: editing.nit || null,
-        igssAffiliation: editing.igssAffiliation || null,
-      });
+      const saved = await updatePayrollProfile(editing.id, payloadOf(editing, draft));
       setProfiles((current) => current.map((p) => (p.id === saved.id ? saved : p)));
       setEditing(null);
       setDraft(null);
@@ -155,6 +197,41 @@ function PayrollProfiles({ focus }) {
       showError(error.message);
     } finally {
       setSaving(false);
+    }
+  };
+
+  const toggleSelected = (id) =>
+    setSelected((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  const pageIds = pagination.pageItems.map((p) => p.id);
+  const allOnPageSelected = pageIds.length > 0 && pageIds.every((id) => selected.has(id));
+  const selectedProfiles = profiles.filter((p) => selected.has(p.id));
+
+  /** Cambia IGSS o IRTRA de varias fichas a la vez; cada una se guarda completa con lo suyo y solo cambia ese interruptor. */
+  const applyInsurance = async (patch) => {
+    setBulkBusy(true);
+    try {
+      const outcomes = await Promise.allSettled(selectedProfiles.map(async (profile) => {
+        const saved = await updatePayrollProfile(profile.id, payloadOf(profile, { ...toDraft(profile), ...patch }));
+        return saved;
+      }));
+      const saved = outcomes.filter((o) => o.status === "fulfilled").map((o) => o.value);
+      const failed = outcomes.filter((o) => o.status === "rejected");
+      if (saved.length > 0) {
+        const byId = new Map(saved.map((p) => [p.id, p]));
+        setProfiles((current) => current.map((p) => byId.get(p.id) || p));
+        showSuccess(saved.length === 1 ? "1 ficha actualizada." : `${saved.length} fichas actualizadas.`);
+      }
+      if (failed.length > 0) {
+        showError(`${failed.length === 1 ? "No se pudo guardar 1 ficha" : `No se pudieron guardar ${failed.length} fichas`}: ${failed[0].reason && failed[0].reason.message ? failed[0].reason.message : "revise sus datos."}`);
+      }
+      setSelected(new Set(failed.length > 0 ? selectedProfiles.filter((_, i) => outcomes[i].status === "rejected").map((p) => p.id) : []));
+    } finally {
+      setBulkBusy(false);
     }
   };
 
@@ -197,6 +274,12 @@ function PayrollProfiles({ focus }) {
             <option value="KIOSCOS">Kioscos</option>
             <option value="ADMINISTRACION">Administración (sin kioscos)</option>
           </Input>
+          <Input type="select" bsSize="sm" aria-label="Seguro" value={filters.insurance} style={{ width: "auto" }}
+            onChange={(e) => setFilters({ ...filters, insurance: e.target.value })}>
+            <option value="">Con o sin seguro</option>
+            <option value="SIN_IGSS">Sin IGSS</option>
+            <option value="SIN_IRTRA">Sin IRTRA e INTECAP</option>
+          </Input>
           <label className="pl-row mb-0" style={{ gap: 6, textTransform: "none", fontSize: 13, color: "#252422" }}>
             <input type="checkbox" checked={filters.includeInactive}
               onChange={(e) => setFilters({ ...filters, includeInactive: e.target.checked })} />
@@ -209,31 +292,51 @@ function PayrollProfiles({ focus }) {
           <table className="pl-table">
             <thead>
               <tr>
+                <th style={{ width: 36 }}>
+                  {canEdit && pageIds.length > 0 && (
+                    <input type="checkbox" aria-label="Seleccionar las fichas de la página" checked={allOnPageSelected}
+                      onChange={(e) => setSelected((current) => {
+                        const next = new Set(current);
+                        pageIds.forEach((id) => (e.target.checked ? next.add(id) : next.delete(id)));
+                        return next;
+                      })} />
+                  )}
+                </th>
                 <th>Colaborador</th>
                 <th>Grupo</th>
                 <th>Vinculación</th>
                 <th>Forma de pago</th>
                 <th className="r">Salario mensual</th>
                 <th className="r">Bonificación</th>
+                <th>Seguro</th>
                 <th>Avisos</th>
                 <th />
               </tr>
             </thead>
             <tbody>
               {visible.length === 0 && (
-                <tr><td colSpan="8" className="pl-empty">No hay fichas con esos filtros.</td></tr>
+                <tr><td colSpan="10" className="pl-empty">No hay fichas con esos filtros.</td></tr>
               )}
               {pagination.pageItems.map((profile) => {
                 const method = METHODS[profile.paymentMethod];
                 return (
                   <tr key={profile.id} className={canEdit ? "pl-click" : undefined} tabIndex={canEdit ? 0 : undefined}
                     onClick={() => openEditor(profile)} onKeyDown={(e) => { if (e.key === "Enter") openEditor(profile); }}>
+                    <td onClick={(e) => e.stopPropagation()}>
+                      {canEdit && (
+                        <input type="checkbox" aria-label={`Seleccionar a ${profile.fullName}`} checked={selected.has(profile.id)}
+                          onChange={() => toggleSelected(profile.id)} />
+                      )}
+                    </td>
                     <td>
                       <div className="pl-who">
                         <Avatar name={profile.fullName} />
                         <div>
                           <b>{profile.fullName}</b>
                           <small>{[profile.departmentName, profile.position].filter(Boolean).join(" · ") || "Sin departamento"}</small>
+                          {profile.kiosk && profile.kioskLocationId != null && (
+                            <small className="d-block">{(kiosks.find((k) => k.id === profile.kioskLocationId) || {}).name || "Kiosco asignado"}</small>
+                          )}
                         </div>
                       </div>
                     </td>
@@ -250,7 +353,16 @@ function PayrollProfiles({ focus }) {
                     <td className="r pl-num">{profile.salary != null ? formatAmount(profile.salary) : "—"}</td>
                     <td className="r pl-num">{profile.bonification != null ? formatAmount(profile.bonification) : <span className="pl-sub">Ley</span>}</td>
                     <td>
+                      <span className={`pl-tag ${profile.igssEnabled === false ? "pl-tag--off" : "pl-tag--ok"}`}>
+                        {profile.igssEnabled === false ? "Sin IGSS" : "IGSS"}
+                      </span>
+                      <span className={`pl-tag ${profile.irtraEnabled === false ? "pl-tag--off" : "pl-tag--ok"}`}>
+                        {profile.irtraEnabled === false ? "Sin IRTRA" : "IRTRA"}
+                      </span>
+                    </td>
+                    <td>
                       {(profile.warnings || []).map((warning) => <span key={warning} className="pl-tag">{warning}</span>)}
+                      {profile.kiosk && profile.kioskLocationId == null && <span className="pl-tag">Sin kiosco asignado</span>}
                       {profile.status !== "active" && <span className="pl-tag pl-tag--bad">Inactivo</span>}
                       {profile.terminationDate && <span className="pl-tag pl-tag--info">Baja {profile.terminationDate}</span>}
                     </td>
@@ -269,6 +381,19 @@ function PayrollProfiles({ focus }) {
           </table>
         </div>
         <div className="px-3 pb-2"><TablePagination pagination={pagination} /></div>
+        {canEdit && selectedProfiles.length > 0 && (
+          <div className="pl-bulk" role="region" aria-label="Acciones en lote">
+            <b>{selectedProfiles.length === 1 ? "1 seleccionado" : `${selectedProfiles.length} seleccionados`}</b>
+            <span className="pl-spacer" />
+            <span>IGSS:</span>
+            <Button size="sm" color="neutral" disabled={bulkBusy} onClick={() => applyInsurance({ igssEnabled: true })}>Sí goza</Button>
+            <Button size="sm" color="neutral" disabled={bulkBusy} onClick={() => applyInsurance({ igssEnabled: false })}>No goza</Button>
+            <span>IRTRA e INTECAP:</span>
+            <Button size="sm" color="neutral" disabled={bulkBusy} onClick={() => applyInsurance({ irtraEnabled: true })}>Sí lleva</Button>
+            <Button size="sm" color="neutral" disabled={bulkBusy} onClick={() => applyInsurance({ irtraEnabled: false })}>No lleva</Button>
+            <Button size="sm" color="link" className="text-white" disabled={bulkBusy} onClick={() => setSelected(new Set())}>Quitar selección</Button>
+          </div>
+        )}
       </section>
 
       <SideDrawer
@@ -320,6 +445,27 @@ function PayrollProfiles({ focus }) {
                   invalid={Boolean(errors.bonification)} onChange={(e) => setField("bonification", e.target.value)} />
                 {errors.bonification ? <span className="pl-err">{errors.bonification}</span> : <small>Vacío usa el monto de ley.</small>}
               </div>
+            </div>
+            {editing.kiosk && (
+              <div className="pl-field">
+                <label htmlFor="ficha-kiosco">Kiosco donde trabaja</label>
+                <Input id="ficha-kiosco" type="select" value={draft.kioskLocationId} onChange={(e) => setField("kioskLocationId", e.target.value)}>
+                  <option value="">Sin kiosco asignado</option>
+                  {kiosks.map((kiosk) => <option key={kiosk.id} value={kiosk.id}>{kiosk.name}</option>)}
+                </Input>
+                <small>La supervisora de ese kiosco ve a esta persona para registrar sus novedades.</small>
+              </div>
+            )}
+            <div className="pl-field">
+              <span className="pl-fl">Seguro social</span>
+              <label className="pl-switch">
+                <input type="checkbox" checked={draft.igssEnabled} onChange={(e) => setField("igssEnabled", e.target.checked)} />
+                <span>Goza IGSS <small>Se le descuenta la cuota laboral y se paga la patronal.</small></span>
+              </label>
+              <label className="pl-switch">
+                <input type="checkbox" checked={draft.irtraEnabled} onChange={(e) => setField("irtraEnabled", e.target.checked)} />
+                <span>Lleva IRTRA e INTECAP <small>Cuota patronal; no se le descuenta nada.</small></span>
+              </label>
             </div>
             <div className="pl-field">
               <label htmlFor="ficha-baja">Fecha de baja</label>
