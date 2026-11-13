@@ -10,7 +10,7 @@ import {
   openOpShipmentPrintWindow,
 } from "utils/productionOrderOpShipmentPrintHtml";
 
-export function buildOpiPrintRows(shipment, pricingMeta, saleRefById) {
+export function buildOpiPrintRows(shipment, pricingMeta, saleRefById, employeeDiscountById = {}) {
   const meta =
     pricingMeta && typeof pricingMeta === "object"
       ? pricingMeta
@@ -30,7 +30,7 @@ export function buildOpiPrintRows(shipment, pricingMeta, saleRefById) {
         const fromLine = Number(p.unitPrice || 0);
         refNum = Number.isFinite(fromLine) && fromLine > 0 ? fromLine : null;
       }
-      const display = refNum != null ? computeInternalEnviUnitPrice(refNum, meta) : null;
+      const display = refNum != null ? computeInternalEnviUnitPrice(refNum, meta, employeeDiscountById[pid]) : null;
       return {
         productCode: p.productCode || "",
         productName: p.productName || "",
@@ -47,16 +47,20 @@ export function buildOpiPrintRows(shipment, pricingMeta, saleRefById) {
 export async function printStandaloneEnviShipment(shipment) {
   const products = await getProducts();
   const saleRefById = {};
+  const employeeDiscountById = {};
   (products || []).forEach((p) => {
     const id = Number(p.id);
     const price = Number(p.salePrice ?? p.price ?? 0);
     if (Number.isFinite(id) && id > 0 && Number.isFinite(price) && price > 0) {
       saleRefById[id] = price;
     }
+    if (Number.isFinite(id) && id > 0 && p.employeeDiscountPercent != null) {
+      employeeDiscountById[id] = Number(p.employeeDiscountPercent);
+    }
   });
   const meta = parseStandaloneInternalMeta(shipment?.notes);
   const order = buildPseudoOrderFromStandaloneShipment(shipment);
-  const rows = buildOpiPrintRows(shipment, meta, saleRefById);
+  const rows = buildOpiPrintRows(shipment, meta, saleRefById, employeeDiscountById);
   const html = buildOpShipmentPrintDocumentHtml({
     order,
     shipment,
@@ -71,18 +75,22 @@ export async function printStandaloneEnviShipment(shipment) {
 export async function printInternalEnviShipment(shipment) {
   const products = await getProducts();
   const saleRefById = {};
+  const employeeDiscountById = {};
   (products || []).forEach((p) => {
     const id = Number(p.id);
     const price = Number(p.salePrice ?? p.price ?? 0);
     if (Number.isFinite(id) && id > 0 && Number.isFinite(price) && price > 0) {
       saleRefById[id] = price;
     }
+    if (Number.isFinite(id) && id > 0 && p.employeeDiscountPercent != null) {
+      employeeDiscountById[id] = Number(p.employeeDiscountPercent);
+    }
   });
 
   if (shipment?.productionOrderId) {
     const order = await getProductionOrderById(shipment.productionOrderId);
     const meta = { requestType: "PLANILLA", discountPercent: 50, applyHalfPrice: true };
-    const rows = buildOpiPrintRows(shipment, meta, saleRefById);
+    const rows = buildOpiPrintRows(shipment, meta, saleRefById, employeeDiscountById);
     const html = buildOpShipmentPrintDocumentHtml({
       order,
       shipment,

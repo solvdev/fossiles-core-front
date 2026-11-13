@@ -55,10 +55,20 @@ export function parseStandaloneInternalMeta(notes) {
   };
 }
 
-/** Precio unitario a cobrar según tipo de solicitud y descuento. */
-export function computeInternalEnviUnitPrice(catalogPrice, meta) {
+/**
+ * Precio unitario a cobrar según tipo de solicitud y descuento.
+ * `employeeDiscountPercent` es el descuento propio del producto para colaboradores: solo cuenta en compras de planilla;
+ * sin él se usa el 50 % general.
+ */
+export function computeInternalEnviUnitPrice(catalogPrice, meta, employeeDiscountPercent) {
   const ref = Number(catalogPrice);
   if (!Number.isFinite(ref) || ref <= 0) return null;
+
+  const own = employeeDiscountPercent == null || employeeDiscountPercent === "" ? NaN : Number(employeeDiscountPercent);
+  const isPurchase = !meta?.requestType || meta.requestType === "PLANILLA";
+  if (isPurchase && Number.isFinite(own) && own >= 0 && own <= 100) {
+    return ref * ((100 - own) / 100);
+  }
 
   if (meta?.discountAmount != null && Number(meta.discountAmount) >= 0) {
     return Number(meta.discountAmount);

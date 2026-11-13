@@ -485,7 +485,7 @@ const buildOpiShipmentFromOrder = (order) => {
   };
 };
 
-const buildOpiPrintRows = (shipment, pricingMeta, saleRefById) => {
+const buildOpiPrintRows = (shipment, pricingMeta, saleRefById, employeeDiscountById = {}) => {
   const meta =
     pricingMeta && typeof pricingMeta === "object"
       ? pricingMeta
@@ -505,7 +505,7 @@ const buildOpiPrintRows = (shipment, pricingMeta, saleRefById) => {
         const fromLine = Number(p.unitPrice || 0);
         refNum = Number.isFinite(fromLine) && fromLine > 0 ? fromLine : null;
       }
-      const display = refNum != null ? computeInternalEnviUnitPrice(refNum, meta) : null;
+      const display = refNum != null ? computeInternalEnviUnitPrice(refNum, meta, employeeDiscountById[pid]) : null;
       return {
         productCode: p.productCode || "",
         productName: p.productName || "",
@@ -758,6 +758,7 @@ function PrepareShipments() {
   const [productPriceById, setProductPriceById] = useState({});
   const [sellerPriceById, setSellerPriceById] = useState({});
   const [salePriceRefById, setSalePriceRefById] = useState({});
+  const [employeeDiscountById, setEmployeeDiscountById] = useState({});
   const [packingMaterials, setPackingMaterials] = useState([]);
   const [loadingPackingMaterials, setLoadingPackingMaterials] = useState(false);
   const [packingModalShipment, setPackingModalShipment] = useState(null);
@@ -1698,12 +1699,16 @@ function PrepareShipments() {
       const priceMap = {};
       const sellerMap = {};
       const saleRefMap = {};
+      const employeeDiscountMap = {};
       (products || []).forEach((product) => {
         const discounted = Number(product.discountedPrice);
         const regular = Number(product.salePrice);
         const seller = Number(product.sellerPrice);
         const saleOnly = !Number.isNaN(regular) && regular > 0 ? regular : 0;
         saleRefMap[product.id] = saleOnly;
+        if (product.employeeDiscountPercent != null) {
+          employeeDiscountMap[product.id] = Number(product.employeeDiscountPercent);
+        }
         if (!Number.isNaN(discounted) && discounted > 0) {
           priceMap[product.id] = discounted;
         } else if (!Number.isNaN(regular) && regular > 0) {
@@ -1718,11 +1723,13 @@ function PrepareShipments() {
       setProductPriceById(priceMap);
       setSellerPriceById(sellerMap);
       setSalePriceRefById(saleRefMap);
+      setEmployeeDiscountById(employeeDiscountMap);
     } catch (err) {
       console.error("Error loading product prices:", err);
       setProductPriceById({});
       setSellerPriceById({});
       setSalePriceRefById({});
+      setEmployeeDiscountById({});
     }
   };
 
@@ -2678,7 +2685,8 @@ function PrepareShipments() {
         const rows = buildOpiPrintRows(
           shipmentDoc,
           standaloneMeta || { requestType: "PLANILLA", discountPercent: 50 },
-          salePriceRefById
+          salePriceRefById,
+          employeeDiscountById
         );
         const html = buildOpShipmentPrintDocumentHtml({
           order,

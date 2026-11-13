@@ -19,6 +19,7 @@ import { getProducts, updateProduct, bulkApplyDiscounts, bulkRemoveDiscounts } f
 import { showError, showSuccess } from "utils/notificationHelper";
 import ConfirmModal from "components/ConfirmModal/ConfirmModal";
 import PriceTemplatePanel from "./PriceTemplatePanel";
+import EmployeeDiscountPanel from "./EmployeeDiscountPanel";
 
 function ProductPrices() {
   const [categories, setCategories] = useState([]);
@@ -350,6 +351,7 @@ function ProductPrices() {
               <Row className="mt-2">
                 <Col md="12">
                   <PriceTemplatePanel categories={categories} onApplied={loadData} />
+                  <EmployeeDiscountPanel products={filteredProducts} onSaved={loadData} />
                 </Col>
               </Row>
               {filterCategory !== "all" ? (
