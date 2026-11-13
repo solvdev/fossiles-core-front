@@ -27,6 +27,10 @@ const beto = {
 const carla = { ...ana, id: 3, fullName: "CARLA INACTIVA", status: "inactive" };
 
 const rowOf = (name) => screen.getByText(name).closest("tr");
+const openEditor = async (name) => {
+  fireEvent.click(screen.getByRole("button", { name: `Editar ficha de ${name}` }));
+  return screen.findByRole("dialog", { name });
+};
 
 beforeEach(() => {
   mockGranted = new Set(["PLANILLA.CORRIDAS.VER", "PLANILLA.CORRIDAS.CREAR"]);
@@ -34,85 +38,86 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 
-test("Guardar aparece solo si la fila cambió y manda la ficha completa", async () => {
+test("la ficha se edita en un panel y se guarda completa", async () => {
   updatePayrollProfile.mockResolvedValue({ ...ana, bonification: null });
   render(<PayrollProfiles />);
   await screen.findByText("ANA PRUEBA");
   expect(screen.queryByText("CARLA INACTIVA")).not.toBeInTheDocument();
-  expect(screen.queryByRole("button", { name: "Guardar" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
 
-  const [type] = within(rowOf("ANA PRUEBA")).getAllByRole("combobox");
-  fireEvent.change(type, { target: { value: "SERVICIOS" } });
-  expect(within(rowOf("ANA PRUEBA")).getByRole("button", { name: "Guardar" })).toBeInTheDocument();
-  fireEvent.change(type, { target: { value: "PLANILLA" } });
-  expect(screen.queryByRole("button", { name: "Guardar" })).not.toBeInTheDocument();
-
-  const [, bonification] = within(rowOf("ANA PRUEBA")).getAllByRole("spinbutton");
-  fireEvent.change(bonification, { target: { value: "" } });
+  const dialog = await openEditor("ANA PRUEBA");
+  fireEvent.change(within(dialog).getByLabelText(/Bonificación/), { target: { value: "" } });
   await act(async () => {
-    fireEvent.click(within(rowOf("ANA PRUEBA")).getByRole("button", { name: "Guardar" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Guardar ficha" }));
   });
   await waitFor(() => expect(updatePayrollProfile).toHaveBeenCalledWith(1, {
     employmentType: "PLANILLA", payGroup: "PLANTA", paymentMethod: "CHEQUE", bankAccount: null,
     salary: 4000, bonification: null, terminationDate: null, nit: "1234567", igssAffiliation: "999",
   }));
-  expect(screen.queryByRole("button", { name: "Guardar" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+});
+
+test("cambiar la vinculación se refleja en la lista al guardar", async () => {
+  updatePayrollProfile.mockImplementation((id, body) => Promise.resolve({ ...ana, employmentType: body.employmentType }));
+  render(<PayrollProfiles />);
+  await screen.findByText("ANA PRUEBA");
+  expect(within(rowOf("ANA PRUEBA")).getByText("Planilla")).toBeInTheDocument();
+
+  const dialog = await openEditor("ANA PRUEBA");
+  fireEvent.click(within(dialog).getByRole("radio", { name: "Servicios" }));
+  await act(async () => {
+    fireEvent.click(within(dialog).getByRole("button", { name: "Guardar ficha" }));
+  });
+  await waitFor(() => expect(within(rowOf("ANA PRUEBA")).getByText("Servicios")).toBeInTheDocument());
 });
 
 test("no guarda una ficha sin forma de pago", async () => {
+  getPayrollProfiles.mockResolvedValue([{ ...ana, paymentMethod: null, warnings: ["Sin forma de pago"] }]);
   render(<PayrollProfiles />);
   await screen.findByText("ANA PRUEBA");
-  const [, , method] = within(rowOf("ANA PRUEBA")).getAllByRole("combobox");
-  fireEvent.change(method, { target: { value: "" } });
+  const dialog = await openEditor("ANA PRUEBA");
   await act(async () => {
-    fireEvent.click(within(rowOf("ANA PRUEBA")).getByRole("button", { name: "Guardar" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Guardar ficha" }));
   });
+  expect(within(dialog).getByText("Indique la forma de pago.")).toBeInTheDocument();
   expect(updatePayrollProfile).not.toHaveBeenCalled();
+
+  fireEvent.click(within(dialog).getByRole("radio", { name: "Efectivo" }));
+  expect(within(dialog).queryByText("Indique la forma de pago.")).not.toBeInTheDocument();
 });
 
 test("no guarda una bonificación negativa", async () => {
   render(<PayrollProfiles />);
   await screen.findByText("ANA PRUEBA");
-  const [, bonification] = within(rowOf("ANA PRUEBA")).getAllByRole("spinbutton");
-  fireEvent.change(bonification, { target: { value: "-5" } });
+  const dialog = await openEditor("ANA PRUEBA");
+  fireEvent.change(within(dialog).getByLabelText(/Bonificación/), { target: { value: "-5" } });
   await act(async () => {
-    fireEvent.click(within(rowOf("ANA PRUEBA")).getByRole("button", { name: "Guardar" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Guardar ficha" }));
   });
-  expect(showError).toHaveBeenCalledWith("La bonificación no puede ser negativa.");
+  expect(within(dialog).getByText("La bonificación no puede ser negativa.")).toBeInTheDocument();
   expect(updatePayrollProfile).not.toHaveBeenCalled();
 });
 
-test("dos fichas guardadas a la vez conservan ambos resultados", async () => {
-  const answers = {};
-  updatePayrollProfile.mockImplementation((id, body) => new Promise((resolve) => {
-    answers[id] = () => resolve({ ...(id === 1 ? ana : beto), employmentType: body.employmentType });
-  }));
+test("si el servidor rechaza el guardado avisa y deja el panel abierto", async () => {
+  updatePayrollProfile.mockRejectedValue(new Error("No se pudo guardar la ficha."));
   render(<PayrollProfiles />);
   await screen.findByText("ANA PRUEBA");
-  ["ANA PRUEBA", "BETO PRUEBA"].forEach((name) => {
-    const [type] = within(rowOf(name)).getAllByRole("combobox");
-    fireEvent.change(type, { target: { value: "SERVICIOS" } });
+  const dialog = await openEditor("ANA PRUEBA");
+  await act(async () => {
+    fireEvent.click(within(dialog).getByRole("button", { name: "Guardar ficha" }));
   });
-  fireEvent.click(within(rowOf("ANA PRUEBA")).getByRole("button", { name: "Guardar" }));
-  fireEvent.click(within(rowOf("BETO PRUEBA")).getByRole("button", { name: "Guardar" }));
-  expect(within(rowOf("BETO PRUEBA")).getByRole("button", { name: "Guardar" })).toBeDisabled();
-
-  await act(async () => { answers[2](); });
-  expect(within(rowOf("ANA PRUEBA")).getByRole("button", { name: "Guardar" })).toBeDisabled();
-  await act(async () => { answers[1](); });
-  expect(screen.queryByRole("button", { name: "Guardar" })).not.toBeInTheDocument();
-  ["ANA PRUEBA", "BETO PRUEBA"].forEach((name) =>
-    expect(within(rowOf(name)).getAllByRole("combobox")[0]).toHaveValue("SERVICIOS"));
+  expect(showError).toHaveBeenCalledWith("No se pudo guardar la ficha.");
+  expect(screen.getByRole("dialog", { name: "ANA PRUEBA" })).toBeInTheDocument();
 });
 
 test("los filtros muestran solo las fichas con avisos o también las inactivas", async () => {
   render(<PayrollProfiles />);
   await screen.findByText("ANA PRUEBA");
   expect(screen.getByText("Transferencia sin número de cuenta")).toBeInTheDocument();
-  fireEvent.click(screen.getByLabelText(/Solo con avisos/));
+  fireEvent.click(screen.getByRole("button", { name: /Fichas con avisos/ }));
   expect(screen.queryByText("ANA PRUEBA")).not.toBeInTheDocument();
   expect(screen.getByText("BETO PRUEBA")).toBeInTheDocument();
-  fireEvent.click(screen.getByLabelText(/Solo con avisos/));
+  fireEvent.click(screen.getByRole("button", { name: /Fichas con avisos/ }));
   fireEvent.click(screen.getByLabelText(/Incluir inactivos/));
   expect(screen.getByText("CARLA INACTIVA")).toBeInTheDocument();
 });
@@ -121,7 +126,9 @@ test("sin permiso para preparar planillas las fichas son de solo lectura", async
   mockGranted = new Set(["PLANILLA.CORRIDAS.VER"]);
   render(<PayrollProfiles />);
   await screen.findByText("ANA PRUEBA");
-  expect(within(rowOf("ANA PRUEBA")).queryByRole("combobox")).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: /Editar ficha/ })).not.toBeInTheDocument();
+  fireEvent.click(rowOf("ANA PRUEBA"));
+  expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   expect(within(rowOf("ANA PRUEBA")).getByText("4,000.00")).toBeInTheDocument();
   expect(within(rowOf("BETO PRUEBA")).getByText("Ley")).toBeInTheDocument();
 });
