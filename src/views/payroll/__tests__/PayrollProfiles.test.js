@@ -53,6 +53,7 @@ test("la ficha se edita en un panel y se guarda completa", async () => {
   await waitFor(() => expect(updatePayrollProfile).toHaveBeenCalledWith(1, {
     employmentType: "PLANILLA", payGroup: "PLANTA", paymentMethod: "CHEQUE", bankAccount: null,
     salary: 4000, bonification: null, terminationDate: null, nit: "1234567", igssAffiliation: "999",
+    igssEnabled: true, irtraEnabled: true,
   }));
   expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
 });
@@ -153,4 +154,43 @@ test("las fichas se ven en tres secciones: planta, kioscos y administración", a
   fireEvent.change(screen.getByLabelText("Grupo"), { target: { value: "ADMIN_TODO" } });
   expect(screen.getByText("VERA KIOSCO")).toBeInTheDocument();
   expect(screen.queryByText("ANA PRUEBA")).not.toBeInTheDocument();
+});
+
+test("el seguro social se marca por persona y se ve en la lista", async () => {
+  getPayrollProfiles.mockResolvedValue([ana, { ...beto, igssEnabled: false, warnings: [] }]);
+  updatePayrollProfile.mockImplementation((id, body) => Promise.resolve({ ...ana, ...body }));
+  render(<PayrollProfiles />);
+  await screen.findByText("ANA PRUEBA");
+  expect(within(rowOf("ANA PRUEBA")).getByText("IGSS")).toBeInTheDocument();
+  expect(within(rowOf("BETO PRUEBA")).getByText("Sin IGSS")).toBeInTheDocument();
+
+  const dialog = await openEditor("ANA PRUEBA");
+  fireEvent.click(within(dialog).getByLabelText(/Lleva IRTRA e INTECAP/));
+  await act(async () => { fireEvent.click(within(dialog).getByRole("button", { name: "Guardar ficha" })); });
+  await waitFor(() => expect(updatePayrollProfile).toHaveBeenCalledWith(1, expect.objectContaining({ igssEnabled: true, irtraEnabled: false })));
+});
+
+test("el filtro de seguro muestra solo a quienes no gozan IGSS", async () => {
+  getPayrollProfiles.mockResolvedValue([ana, { ...beto, igssEnabled: false, warnings: [] }]);
+  render(<PayrollProfiles />);
+  await screen.findByText("ANA PRUEBA");
+  fireEvent.change(screen.getByLabelText("Seguro"), { target: { value: "SIN_IGSS" } });
+  expect(screen.queryByText("ANA PRUEBA")).not.toBeInTheDocument();
+  expect(screen.getByText("BETO PRUEBA")).toBeInTheDocument();
+});
+
+test("varias fichas se cambian de seguro a la vez", async () => {
+  getPayrollProfiles.mockResolvedValue([ana, { ...beto, warnings: [] }]);
+  updatePayrollProfile.mockImplementation((id, body) => Promise.resolve({ ...(id === 1 ? ana : beto), ...body, warnings: [] }));
+  render(<PayrollProfiles />);
+  await screen.findByText("ANA PRUEBA");
+  fireEvent.click(screen.getByLabelText("Seleccionar las fichas de la página"));
+  const bulk = await screen.findByRole("region", { name: "Acciones en lote" });
+  expect(within(bulk).getByText("2 seleccionados")).toBeInTheDocument();
+  await act(async () => { fireEvent.click(within(bulk).getByRole("button", { name: "No goza" })); });
+  await waitFor(() => expect(updatePayrollProfile).toHaveBeenCalledTimes(2));
+  expect(updatePayrollProfile).toHaveBeenCalledWith(1, expect.objectContaining({ igssEnabled: false, irtraEnabled: true }));
+  expect(updatePayrollProfile).toHaveBeenCalledWith(2, expect.objectContaining({ igssEnabled: false }));
+  await waitFor(() => expect(within(rowOf("ANA PRUEBA")).getByText("Sin IGSS")).toBeInTheDocument());
+  expect(screen.queryByRole("region", { name: "Acciones en lote" })).not.toBeInTheDocument();
 });
