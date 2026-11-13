@@ -3,6 +3,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import "@testing-library/jest-dom";
 import * as XLSX from "xlsx-js-style";
 import PayrollRuns from "../PayrollRuns";
+import { fmtDate } from "../payrollUi";
 import {
   approvePayrollRun,
   createPayrollRun,
@@ -23,6 +24,18 @@ jest.mock("contexts/AuthContext", () => ({
   useAuth: () => ({ hasPermission: (code) => mockGranted.has(code) }),
 }));
 
+/** Fecha ISO de hoy más `days`: las fechas de pago se arman desde hoy para que la prueba no dependa del calendario. */
+const shift = (days) => {
+  const date = new Date();
+  date.setDate(date.getDate() + days);
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+};
+const PAST = shift(-20);
+const NEXT = shift(5);
+const NEXT_PAY = shift(3);
+const NEXT_START = shift(-10);
+
 const cheque = {
   id: 1, employeeId: 11, employeeName: "ANA PRUEBA", position: "OPERARIO", employmentType: "PLANILLA",
   paymentMethod: "CHEQUE", bankAccount: null, monthlySalary: 4000, daysPaid: 15, baseSalary: 2000,
@@ -34,8 +47,8 @@ const transfer = {
   baseSalary: 1500, bonification: 0, igssEmployee: 0, netPay: 1500, igssEmployer: 0, irtra: 0, intecap: 0,
 };
 const draft = (overrides = {}) => ({
-  id: 9, payGroup: "PLANTA", scheduledDate: "2026-11-05", payDate: "2026-11-05", periodStart: "2026-10-16",
-  periodEnd: "2026-10-31", status: "BORRADOR", bankName: "BANCO G Y T CONTINENTAL", totalGross: 3625,
+  id: 9, payGroup: "PLANTA", scheduledDate: PAST, payDate: PAST, periodStart: shift(-35),
+  periodEnd: PAST, status: "BORRADOR", bankName: "BANCO G Y T CONTINENTAL", totalGross: 3625,
   totalDeductions: 96.6, totalNet: 3528.4, lines: [cheque, transfer], warnings: [], stale: false, ...overrides,
 });
 
@@ -51,36 +64,35 @@ async function openRun(run) {
 beforeEach(() => {
   mockGranted = new Set(ALL);
   getPayDays.mockResolvedValue([
-    { payGroup: "PLANTA", scheduledDate: "2026-11-05", payDate: "2026-11-05", periodStart: "2026-10-16",
-      periodEnd: "2026-10-31", runId: 9, runStatus: "BORRADOR" },
-    { payGroup: "ADMINISTRACION", scheduledDate: "2026-11-15", payDate: "2026-11-13", periodStart: "2026-11-01",
-      periodEnd: "2026-11-15", runId: null, runStatus: null },
+    { payGroup: "PLANTA", scheduledDate: PAST, payDate: PAST, periodStart: shift(-35),
+      periodEnd: PAST, runId: 9, runStatus: "BORRADOR" },
+    { payGroup: "ADMINISTRACION", scheduledDate: NEXT, payDate: NEXT_PAY, periodStart: NEXT_START,
+      periodEnd: NEXT, runId: null, runStatus: null },
   ]);
   getPayrollRuns.mockResolvedValue([]);
 });
 afterEach(cleanup);
 
-test("lista los días de pago del calendario y solo quien prepara ve Preparar", async () => {
+test("el próximo pago de cada grupo se ve en una tarjeta y solo quien prepara ve Preparar", async () => {
   createPayrollRun.mockResolvedValue(draft({ id: 10, payGroup: "ADMINISTRACION" }));
   render(<PayrollRuns />);
-  expect(await screen.findByText("13/11/2026")).toBeInTheDocument();
-  expect(screen.getByText("(antes de la fecha programada)")).toBeInTheDocument();
-  expect(screen.getByText("01/11/2026 al 15/11/2026")).toBeInTheDocument();
+  expect(await screen.findByText(/antes de la fecha programada/)).toBeInTheDocument();
+  expect(screen.getByRole("region", { name: "Próximo pago de Administración y kioscos" })).toBeInTheDocument();
   expect(getPayDays).toHaveBeenCalledWith();
 
   const prepare = screen.getAllByRole("button", { name: "Preparar" });
   expect(prepare).toHaveLength(1);
   fireEvent.click(prepare[0]);
   const dialog = await screen.findByRole("dialog");
-  expect(within(dialog).getByText(/período del 01\/11\/2026 al 15\/11\/2026/)).toBeInTheDocument();
+  expect(within(dialog).getByText(new RegExp(`período del ${fmtDate(NEXT_START)} al ${fmtDate(NEXT)}`))).toBeInTheDocument();
   await act(async () => { fireEvent.click(within(dialog).getByRole("button", { name: "Preparar" })); });
-  expect(createPayrollRun).toHaveBeenCalledWith({ payGroup: "ADMINISTRACION", scheduledDate: "2026-11-15" });
+  expect(createPayrollRun).toHaveBeenCalledWith({ payGroup: "ADMINISTRACION", scheduledDate: NEXT });
   expect(await screen.findByText(/Planilla #10/)).toBeInTheDocument();
 
   cleanup();
   mockGranted = new Set(["PLANILLA.CORRIDAS.VER"]);
   render(<PayrollRuns />);
-  await screen.findByText("13/11/2026");
+  await screen.findByText(/antes de la fecha programada/);
   expect(screen.queryByRole("button", { name: "Preparar" })).not.toBeInTheDocument();
 });
 
@@ -106,6 +118,7 @@ test("no ofrece aprobar un borrador desactualizado ni uno con alguien sin forma 
   cleanup();
   await openRun(draft({ lines: [cheque, { ...transfer, paymentMethod: null }] }));
   expect(screen.getByText("Sin forma de pago")).toBeInTheDocument();
+  expect(screen.getByText("1 pendiente bloquea")).toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "Aprobar" })).not.toBeInTheDocument();
 });
 
@@ -141,7 +154,7 @@ test("al volver de Fichas recarga la lista y la planilla abierta, y Fichas no se
   getPayrollProfiles.mockResolvedValue([]);
   await openRun(draft());
   expect(getPayrollRun).toHaveBeenCalledTimes(1);
-  const tab = (label) => screen.getByText(label, { selector: "a" });
+  const tab = (label) => screen.getByRole("tab", { name: label });
 
   fireEvent.click(tab("Fichas"));
   await waitFor(() => expect(getPayrollProfiles).toHaveBeenCalledTimes(1));
@@ -172,28 +185,24 @@ test("si se abren dos planillas seguidas queda la última aunque la primera resp
   expect(screen.queryByText(/Planilla #9/)).not.toBeInTheDocument();
 });
 
-test("la planilla abierta ocupa la vista y Volver regresa a los días de pago", async () => {
+test("la planilla abierta ocupa la vista y Volver regresa al inicio", async () => {
   await openRun(draft());
   expect(screen.queryByText("Fecha programada")).not.toBeInTheDocument();
   expect(screen.queryByText("Todavía no hay planillas.")).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: /Volver a planillas/ }));
   expect(screen.getByText("Fecha programada")).toBeInTheDocument();
   expect(screen.queryByText(/Planilla #9/)).not.toBeInTheDocument();
-
-  fireEvent.click(await screen.findByRole("button", { name: /#9/ }));
-  await screen.findByText(/Planilla #9/);
-  fireEvent.click(screen.getByRole("button", { name: "Cerrar planilla" }));
-  expect(screen.getByText("Fecha programada")).toBeInTheDocument();
+  expect(screen.getByText("Todavía no hay planillas.")).toBeInTheDocument();
 });
 
 test("el siguiente paso y los avisos llevan a Fichas con el filtro de la planilla", async () => {
   getPayrollProfiles.mockResolvedValue([]);
   await openRun(draft({ lines: [cheque, { ...transfer, paymentMethod: null }], warnings: ["Sin departamento en la ficha: 1"] }));
-  expect(screen.getByText("1 colaborador sin forma de pago")).toBeInTheDocument();
+  expect(screen.getAllByText("1 colaborador sin forma de pago").length).toBeGreaterThan(0);
   expect(screen.getByRole("button", { name: "Revisar en Fichas" })).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "Completar en Fichas" }));
   await waitFor(() => expect(getPayrollProfiles).toHaveBeenCalled());
-  expect(await screen.findByLabelText(/Solo con avisos/)).toBeChecked();
+  expect(await screen.findByRole("button", { name: /Fichas con avisos/ })).toHaveAttribute("aria-pressed", "true");
   expect(screen.getByDisplayValue("Planta")).toBeInTheDocument();
 });
 
@@ -217,7 +226,7 @@ test("una anulada ofrece preparar de nuevo la misma fecha", async () => {
   fireEvent.click(screen.getByRole("button", { name: "Preparar de nuevo" }));
   const dialog = await screen.findByRole("dialog");
   await act(async () => { fireEvent.click(within(dialog).getByRole("button", { name: "Preparar" })); });
-  expect(createPayrollRun).toHaveBeenCalledWith({ payGroup: "PLANTA", scheduledDate: "2026-11-05" });
+  expect(createPayrollRun).toHaveBeenCalledWith({ payGroup: "PLANTA", scheduledDate: PAST });
   expect(await screen.findByText(/Planilla #11/)).toBeInTheDocument();
 });
 
@@ -231,9 +240,30 @@ test("pagada: ya no se anula ni se cambia; se exporta con la hoja de transferenc
   fireEvent.click(screen.getByRole("button", { name: "Excel" }));
   expect(XLSX.writeFile).toHaveBeenCalledTimes(1);
   const [book, fileName] = XLSX.writeFile.mock.calls[0];
-  expect(fileName).toBe("planilla_planta_2026-11-05.xlsx");
+  expect(fileName).toBe(`planilla_planta_${PAST}.xlsx`);
   expect(book.SheetNames).toEqual(["Planilla", "Transferencias"]);
   const transfers = XLSX.utils.sheet_to_json(book.Sheets.Transferencias, { header: 1 });
   expect(transfers[1]).toEqual(["BETO PRUEBA", "SIN CUENTA", 1500]);
   expect(transfers[2]).toEqual(["TOTAL", "", 1500]);
+});
+
+test("pulsar un colaborador abre su voucher y Esc lo cierra", async () => {
+  await openRun(draft({ lines: [{ ...cheque, opiDiscount: 50 }, transfer] }));
+  fireEvent.click(screen.getByRole("row", { name: /Ver voucher de ANA PRUEBA/ }));
+  const dialog = await screen.findByRole("dialog", { name: "ANA PRUEBA" });
+  expect(within(dialog).getByText("Líquido a recibir")).toBeInTheDocument();
+  expect(within(dialog).getByText("Compras de colaborador", { exact: false })).toBeInTheDocument();
+  fireEvent.keyDown(document, { key: "Escape" });
+  expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+});
+
+test("el filtro de forma de pago y las columnas de detalle cambian la tabla", async () => {
+  await openRun(draft());
+  expect(screen.queryByRole("columnheader", { name: "IGSS" })).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: /columnas de detalle/ }));
+  expect(screen.getByRole("columnheader", { name: "IGSS" })).toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole("button", { name: "Transferencia" }));
+  expect(screen.queryByText("ANA PRUEBA")).not.toBeInTheDocument();
+  expect(screen.getByText("BETO PRUEBA")).toBeInTheDocument();
 });

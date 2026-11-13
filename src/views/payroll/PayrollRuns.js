@@ -1,29 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import {
-  Alert,
-  Button,
-  Card,
-  CardBody,
-  CardHeader,
-  CardTitle,
-  FormGroup,
-  Input,
-  Label,
-  Modal,
-  ModalBody,
-  ModalFooter,
-  ModalHeader,
-  Nav,
-  NavItem,
-  NavLink,
-  Spinner,
-  TabContent,
-  TabPane,
-  Table,
-} from "reactstrap";
-import classnames from "classnames";
+import { Alert, Button, FormGroup, Input, Label, Modal, ModalBody, ModalFooter, ModalHeader, Spinner } from "reactstrap";
 import * as XLSX from "xlsx-js-style";
 import ConfirmModal from "components/ConfirmModal/ConfirmModal";
+import SideDrawer from "components/SideDrawer/SideDrawer";
 import TablePagination, { usePagination } from "components/TablePagination/TablePagination";
 import { useAuth } from "contexts/AuthContext";
 import {
@@ -49,15 +28,32 @@ import {
 } from "utils/payrollPrintHtml";
 import PayrollParameters from "./PayrollParameters";
 import PayrollProfiles from "./PayrollProfiles";
+import PayrollShell from "./PayrollShell";
+import {
+  Avatar,
+  GROUP_LABELS,
+  GROUP_SHORT,
+  METHODS,
+  ModuleLink,
+  StatusPill,
+  amountOrDash,
+  daysUntil,
+  fmtDate,
+  fmtLong,
+  fmtShort,
+  people,
+  q,
+  sum,
+  todayIso,
+} from "./payrollUi";
 
-const GROUP_LABELS = {
-  PLANTA: "Planta (5 y 20)",
-  ADMINISTRACION: "Administración y kioscos (15 y fin de mes)",
-};
-const GROUP_SHORT = { PLANTA: "Planta", ADMINISTRACION: "Administración y kioscos" };
-const STATUS_LABELS = { BORRADOR: "Borrador", APROBADA: "Aprobada", PAGADA: "Pagada", ANULADA: "Anulada" };
 const STEPS = [["BORRADOR", "Borrador"], ["APROBADA", "Aprobada"], ["PAGADA", "Pagada"]];
-const TABS = [["runs", "Planillas"], ["profiles", "Fichas"], ["parameters", "Parámetros"]];
+const TAB_KEYS = ["runs", "profiles", "parameters"];
+const RUN_FILTERS = [
+  ["ALL", "Todas"], ["PLANTA", "Planta"], ["ADMINISTRACION", "Administración"], ["BORRADOR", "Borrador"],
+  ["PAGADA", "Pagadas"], ["ANULADA", "Anuladas"],
+];
+const PAY_FILTERS = [["ALL", "Todos"], ["CHEQUE", "Cheque"], ["TRANSFERENCIA BANCARIA", "Transferencia"], ["EFECTIVO", "Efectivo"], ["WARN", "Con aviso"]];
 
 // Avisos que se corrigen en Fichas (los demás solo informan).
 const PROFILE_WARNINGS = [
@@ -69,14 +65,6 @@ const PROFILE_WARNINGS = [
 ];
 const GROUP_REVIEW_WARNINGS = ["No estaban en la planilla anterior", "Cambiaron de cuenta o de forma de pago"];
 
-const fmtDate = (iso) => {
-  const [y, m, d] = String(iso || "").slice(0, 10).split("-");
-  return y && m && d ? `${d}/${m}/${y}` : "—";
-};
-const q = (value) => `Q ${formatAmount(value)}`;
-const sum = (lines, key) => lines.reduce((total, line) => total + (Number(line[key]) || 0), 0);
-const people = (count) => (count === 1 ? "1 colaborador" : `${count} colaboradores`);
-
 /** Fecha ISO tantos días antes, sin pasar por la zona horaria del navegador. */
 const isoDaysBefore = (iso, days) => {
   const [y, m, d] = String(iso).split("-").map(Number);
@@ -84,19 +72,21 @@ const isoDaysBefore = (iso, days) => {
   return date.toISOString().slice(0, 10);
 };
 
-const todayIso = () => {
-  const now = new Date();
-  const pad = (n) => String(n).padStart(2, "0");
-  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+/** Pestaña con la que se llegó (por ejemplo desde Cargos); si no hay, Planillas. */
+const initialTab = () => {
+  try {
+    const tab = window.history.state && window.history.state.usr && window.history.state.usr.tab;
+    return TAB_KEYS.includes(tab) ? tab : "runs";
+  } catch (error) {
+    return "runs";
+  }
 };
 
-function StatusPill({ status }) {
-  return (
-    <span className={`fossiles-estado fossiles-estado--${String(status || "").toLowerCase()}`}>
-      {STATUS_LABELS[status] || status}
-    </span>
-  );
-}
+const lineDeductions = (line) =>
+  (Number(line.igssEmployee) || 0) + (Number(line.isr) || 0) + (Number(line.opiDiscount) || 0) + (Number(line.otherDeductions) || 0);
+const lineGross = (line) => (Number(line.baseSalary) || 0) + (Number(line.bonification) || 0);
+const needsAccount = (line) => line.paymentMethod === "TRANSFERENCIA BANCARIA" && !line.bankAccount;
+const maskAccount = (account) => (account ? `•••• ${String(account).slice(-4)}` : "");
 
 function exportRunToExcel(run) {
   const header = ["Colaborador", "Puesto", "Vinculación", "Forma de pago", "Cuenta", "Salario mensual", "Días",
@@ -141,14 +131,35 @@ function compareRuns(before, after) {
   return { changedIds, removed };
 }
 
+function Steps({ status }) {
+  const current = STEPS.findIndex(([s]) => s === status);
+  return (
+    <div className="pl-steps" aria-label="Estado de la planilla">
+      {STEPS.map(([key, label], index) => {
+        const done = index < current || status === "PAGADA";
+        const cls = done ? "pl-step--hecho" : index === current ? "pl-step--actual" : "";
+        return (
+          <React.Fragment key={key}>
+            {index > 0 && <span className={`pl-step-line ${index <= current ? "pl-step-line--hecho" : ""}`} />}
+            <span className={`pl-step ${cls}`}>
+              <i>{done ? "✓" : index + 1}</i>
+              <span>{label}</span>
+            </span>
+          </React.Fragment>
+        );
+      })}
+    </div>
+  );
+}
+
 function PayrollRuns() {
   const { hasPermission } = useAuth();
   const canCreate = hasPermission("PLANILLA.CORRIDAS.CREAR");
   const canApprove = hasPermission("PLANILLA.CORRIDAS.APROBAR");
 
-  const [activeTab, setActiveTab] = useState("runs");
+  const [activeTab, setActiveTab] = useState(initialTab);
   // Fichas y Parámetros quedan montados después de abrirlos, para no perder lo que se estaba editando.
-  const [visitedTabs, setVisitedTabs] = useState(() => new Set(["runs"]));
+  const [visitedTabs, setVisitedTabs] = useState(() => new Set(["runs", initialTab()]));
   const [payDays, setPayDays] = useState([]);
   const [runs, setRuns] = useState([]);
   const [selected, setSelected] = useState(null);
@@ -158,6 +169,10 @@ function PayrollRuns() {
   const [result, setResult] = useState(null);
   const [changedLineIds, setChangedLineIds] = useState(() => new Set());
   const [lineSearch, setLineSearch] = useState("");
+  const [payFilter, setPayFilter] = useState("ALL");
+  const [showColumns, setShowColumns] = useState(false);
+  const [voucherId, setVoucherId] = useState(null);
+  const [runFilter, setRunFilter] = useState("ALL");
   const [confirm, setConfirm] = useState(null);
   const [chequeForm, setChequeForm] = useState(null);
   const [annulReason, setAnnulReason] = useState(null);
@@ -170,7 +185,11 @@ function PayrollRuns() {
   // Cada vez que se abre o se cierra una planilla la vista sube a su inicio, ya con el contenido nuevo pintado.
   const [scrollRequest, setScrollRequest] = useState(0);
 
-  const runsPagination = usePagination(runs, 10);
+  const filteredRuns = useMemo(
+    () => runs.filter((item) => runFilter === "ALL" || item.payGroup === runFilter || item.status === runFilter),
+    [runs, runFilter]
+  );
+  const runsPagination = usePagination(filteredRuns, 10);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -206,6 +225,8 @@ function PayrollRuns() {
     setSelected(detail);
     setResult(null);
     setLineSearch("");
+    setPayFilter("ALL");
+    setVoucherId(null);
     setChangedLineIds(new Set());
     setActiveTab("runs");
     scrollToTop();
@@ -228,6 +249,7 @@ function PayrollRuns() {
     latestRequest.current += 1;
     setSelected(null);
     setResult(null);
+    setVoucherId(null);
     scrollToTop();
   };
 
@@ -243,6 +265,7 @@ function PayrollRuns() {
   };
 
   const goToProfiles = (focus) => {
+    setVoucherId(null);
     setProfilesFocus({ ...focus, nonce: Date.now() });
     selectTab("profiles");
   };
@@ -316,15 +339,19 @@ function PayrollRuns() {
   const lines = useMemo(() => (selected && selected.lines) || [], [selected]);
   const visibleLines = useMemo(() => {
     const term = lineSearch.trim().toLowerCase();
-    return term ? lines.filter((line) => `${line.employeeName} ${line.position || ""}`.toLowerCase().includes(term)) : lines;
-  }, [lines, lineSearch]);
+    return lines.filter((line) => {
+      const matchesFilter = payFilter === "ALL"
+        || (payFilter === "WARN" ? !line.paymentMethod || needsAccount(line) : line.paymentMethod === payFilter);
+      return matchesFilter && (!term || `${line.employeeName} ${line.position || ""}`.toLowerCase().includes(term));
+    });
+  }, [lines, lineSearch, payFilter]);
   const printable = selected ? chequeLines(selected) : [];
   const missingCheques = lines.filter((line) => line.paymentMethod === "CHEQUE" && Number(line.netPay) > 0 && !line.chequeNumber).length;
-  const withoutPaymentMethod = lines.filter((line) => !line.paymentMethod).length;
+  const withoutPaymentMethod = lines.filter((line) => !line.paymentMethod);
   const canChangePayDate = selected && ((selected.status === "BORRADOR" && canCreate) || (selected.status === "APROBADA" && canApprove));
   // Vouchers y cheques solo de una planilla aprobada o pagada; una anulada conserva números que ya no valen.
   const canPrint = selected && (selected.status === "APROBADA" || selected.status === "PAGADA");
-  const byMethod = (method) => lines.filter((line) => line.paymentMethod === method).length;
+  const voucherLine = voucherId ? lines.find((line) => line.id === voucherId) : null;
 
   const printDocs = (builder) => {
     if (!openPayrollPrintWindow(builder(selected))) {
@@ -360,7 +387,7 @@ function PayrollRuns() {
     if (selected.status === "BORRADOR") {
       if (lines.length === 0) {
         return {
-          tone: "aviso",
+          tone: "aviso", icon: "nc-icon nc-alert-circle-i",
           title: "Nadie cobra en este período",
           text: "Revise en Fichas el grupo, el salario y las fechas de ingreso y baja; luego recalcule.",
           action: { key: "fichas", label: "Revisar fichas", onClick: () => goToProfiles({ group }) },
@@ -368,22 +395,22 @@ function PayrollRuns() {
       }
       if (selected.stale) {
         return {
-          tone: "alerta",
+          tone: "alerta", icon: "nc-icon nc-alert-circle-i",
           title: "Planilla desactualizada",
           text: "Cambiaron fichas, cargos o parámetros después del cálculo. Recalcule para poder aprobar.",
           action: canCreate ? { key: "recalcular", label: "Recalcular", onClick: recalc } : null,
         };
       }
-      if (withoutPaymentMethod > 0) {
+      if (withoutPaymentMethod.length > 0) {
         return {
-          tone: "aviso",
-          title: `${people(withoutPaymentMethod)} sin forma de pago`,
+          tone: "aviso", icon: "nc-icon nc-alert-circle-i",
+          title: `${people(withoutPaymentMethod.length)} sin forma de pago`,
           text: "Complételo en Fichas y recalcule para poder aprobar.",
           action: { key: "fichas", label: "Completar en Fichas", onClick: () => goToProfiles({ group, onlyWarnings: true }) },
         };
       }
       return {
-        tone: "info",
+        tone: "info", icon: "nc-icon nc-check-2",
         title: "Revise los montos y apruebe",
         text: canApprove
           ? "Al aprobar, los montos quedan fijos y se rebajan las compras de colaborador."
@@ -394,21 +421,21 @@ function PayrollRuns() {
     if (selected.status === "APROBADA") {
       if (missingCheques > 0) {
         return {
-          tone: "aviso",
+          tone: "aviso", icon: "nc-icon nc-single-copy-04",
           title: `Faltan ${missingCheques} números de cheque`,
           text: "Numérelos para imprimir los cheques y registrar el pago.",
           action: canApprove ? { key: "cheques", label: "Numerar cheques", onClick: openChequeForm } : null,
         };
       }
       return {
-        tone: "info",
+        tone: "info", icon: "nc-icon nc-check-2",
         title: "Lista para pagar",
         text: "Imprima vouchers y cheques, y registre el pago al entregarlos.",
         action: canApprove ? { key: "pagar", label: "Registrar pago", onClick: askPay } : null,
       };
     }
     if (selected.status === "PAGADA") {
-      return { tone: "listo", title: `Pagada el ${fmtDate(selected.paidAt)}`, text: "La partida contable quedó registrada." };
+      return { tone: "listo", icon: "nc-icon nc-check-2", title: `Pagada el ${fmtDate(selected.paidAt)}`, text: "La partida contable quedó registrada." };
     }
     const sameDay = payDays.find((day) => day.payGroup === selected.payGroup && day.scheduledDate === selected.scheduledDate);
     let action = null;
@@ -418,7 +445,7 @@ function PayrollRuns() {
       action = { key: "preparar", label: "Preparar de nuevo", onClick: () => prepare(sameDay || selected) };
     }
     return {
-      tone: "neutro",
+      tone: "neutro", icon: "nc-icon nc-simple-remove",
       title: "Anulada",
       text: selected.cancellationReason ? `Motivo: ${selected.cancellationReason}.` : "La fecha quedó libre para otra planilla.",
       action,
@@ -438,6 +465,49 @@ function PayrollRuns() {
     return null;
   };
 
+  /** Lo que se revisa antes del siguiente paso: lo que bloquea va marcado en rojo, lo demás solo informa. */
+  const checklist = (() => {
+    if (!selected || lines.length === 0) return [];
+    const items = [];
+    if (selected.status === "BORRADOR") {
+      items.push(withoutPaymentMethod.length > 0
+        ? {
+          kind: "block", text: `${people(withoutPaymentMethod.length)} sin forma de pago`,
+          detail: withoutPaymentMethod.map((line) => line.employeeName).join(", "),
+          action: { label: "Completar", onClick: () => goToProfiles({ group: selected.payGroup, onlyWarnings: true }) },
+        }
+        : { kind: "ok", text: "Todos tienen forma de pago" });
+      items.push(selected.stale
+        ? {
+          kind: "block", text: "Algo cambió después del cálculo",
+          detail: "Fichas, cargos o parámetros. Recalcule antes de aprobar.",
+          action: canCreate ? { label: "Recalcular", onClick: recalc } : null,
+        }
+        : { kind: "ok", text: "El cálculo está al día con fichas, cargos y parámetros" });
+      (selected.warnings || [])
+        .filter((warning) => !warning.startsWith("Sin forma de pago"))
+        .forEach((warning) => {
+          const action = warningAction(warning);
+          items.push({
+            kind: PROFILE_WARNINGS.some((prefix) => warning.startsWith(prefix)) ? "warn" : "info",
+            text: warning,
+            action,
+          });
+        });
+      const purchases = sum(lines, "opiDiscount");
+      if (purchases > 0) {
+        items.push({
+          kind: "info",
+          text: `Se rebajan ${q(purchases)} de compras de colaborador`,
+          detail: `${people(lines.filter((line) => Number(line.opiDiscount) > 0).length)} con descuento en esta planilla.`,
+          link: { to: "/admin/payroll/charges", label: "Ver cargos" },
+        });
+      }
+    }
+    return items;
+  })();
+  const blockers = checklist.filter((item) => item.kind === "block").length;
+
   const today = todayIso();
   const nextPayKeys = useMemo(() => {
     const keys = new Set();
@@ -447,96 +517,340 @@ function PayrollRuns() {
     });
     return keys;
   }, [payDays, today]);
+  const nextDays = payDays.filter((day) => nextPayKeys.has(`${day.payGroup}-${day.scheduledDate}`));
+  const otherDays = payDays.filter((day) => !nextPayKeys.has(`${day.payGroup}-${day.scheduledDate}`));
+  const runById = (id) => runs.find((item) => item.id === id);
 
-  const payDaysTable = loading ? (
-    <Spinner size="sm" />
+  const dayAccess = (day) => (day.runId ? (
+    <button type="button" className="fossiles-acceso" aria-label={`Abrir planilla #${day.runId}`} onClick={() => openRun(day.runId)}>
+      #{day.runId} <StatusPill status={day.runStatus} />
+      {openingId === day.runId ? <Spinner size="sm" /> : <i className="nc-icon nc-minimal-right fossiles-acceso__flecha" />}
+    </button>
   ) : (
-    <Table size="sm" responsive>
-      <thead>
-        <tr>
-          <th>Grupo</th>
-          <th>Fecha programada</th>
-          <th>Se paga</th>
-          <th>Período</th>
-          <th>Planilla</th>
-        </tr>
-      </thead>
-      <tbody>
-        {payDays.map((day) => {
-          const key = `${day.payGroup}-${day.scheduledDate}`;
-          return (
-            <tr key={key}>
-              <td>
-                {GROUP_LABELS[day.payGroup] || day.payGroup}
-                {nextPayKeys.has(key) && <span className="fossiles-estado fossiles-estado--aprobada ml-2">Próximo</span>}
-              </td>
-              <td>{fmtDate(day.scheduledDate)}</td>
-              <td>
-                {fmtDate(day.payDate)}
-                {day.payDate !== day.scheduledDate && <small className="text-muted"> (antes de la fecha programada)</small>}
-              </td>
-              <td>{fmtDate(day.periodStart)} al {fmtDate(day.periodEnd)}</td>
-              <td>
-                {day.runId ? (
-                  <button type="button" className="fossiles-acceso" aria-label={`Abrir planilla #${day.runId}`}
-                    onClick={() => openRun(day.runId)}>
-                    #{day.runId} <StatusPill status={day.runStatus} />
-                    {openingId === day.runId
-                      ? <Spinner size="sm" />
-                      : <i className="nc-icon nc-minimal-right fossiles-acceso__flecha" />}
-                  </button>
-                ) : (
-                  canCreate && (
-                    <Button color="primary" size="sm" disabled={busy} onClick={() => prepare(day)}>
-                      Preparar
-                    </Button>
-                  )
-                )}
-              </td>
+    canCreate && <Button color="primary" size="sm" disabled={busy} onClick={() => prepare(day)}>Preparar</Button>
+  ));
+
+  const nextPayCards = loading ? <Spinner size="sm" /> : (
+    <div className="pl-cards2">
+      {nextDays.map((day) => {
+        const left = daysUntil(day.payDate);
+        const when = left <= 0 ? (left === 0 ? "hoy" : `hace ${-left} días`) : left === 1 ? "mañana" : `en ${left} días`;
+        const info = day.runId ? runById(day.runId) : null;
+        return (
+          <section key={`${day.payGroup}-${day.scheduledDate}`} className="pl-card pl-nextpay" aria-label={`Próximo pago de ${GROUP_SHORT[day.payGroup]}`}>
+            <div className="pl-row">
+              <span className="pl-lbl">{GROUP_SHORT[day.payGroup]} · próximo pago</span>
+              <span className="pl-spacer" />
+              {day.runId ? <StatusPill status={day.runStatus} /> : <span className="pl-pill pl-pill--neutro">Sin preparar</span>}
+            </div>
+            <div>
+              <div className="pl-nextpay__when">{fmtLong(day.payDate)}</div>
+              <div className="pl-sub">
+                Pago {when}
+                {day.payDate !== day.scheduledDate && <span> · antes de la fecha programada ({fmtDate(day.scheduledDate)})</span>}
+              </div>
+            </div>
+            <div className="pl-facts">
+              <div><span className="pl-lbl">Período</span><b>{fmtShort(day.periodStart)} al {fmtShort(day.periodEnd)}</b></div>
+              <div>
+                <span className="pl-lbl">{info ? "Líquido" : "Borrador"}</span>
+                <b className="pl-num">{info ? q(info.totalNet) : "se prepara 3 días antes"}</b>
+              </div>
+            </div>
+            {day.runId && (
+              <Steps status={day.runStatus} />
+            )}
+            <div className="pl-row">
+              {day.runId ? (
+                <Button color="primary" className="m-0" aria-label={`Abrir planilla #${day.runId}`} onClick={() => openRun(day.runId)}>
+                  {openingId === day.runId ? <Spinner size="sm" /> : `Abrir planilla #${day.runId}`}
+                </Button>
+              ) : (
+                canCreate && <Button color="primary" className="m-0" disabled={busy} onClick={() => prepare(day)}>Preparar</Button>
+              )}
+            </div>
+          </section>
+        );
+      })}
+    </div>
+  );
+
+  const calendar = !loading && otherDays.length > 0 && (
+    <section className="pl-card">
+      <div className="pl-card__head"><h5>Calendario de pagos</h5><span className="pl-sub">Fechas anteriores y siguientes</span></div>
+      <div className="pl-scroll mt-2">
+        <table className="pl-table">
+          <thead>
+            <tr><th>Grupo</th><th>Fecha programada</th><th>Se paga</th><th>Período</th><th>Planilla</th></tr>
+          </thead>
+          <tbody>
+            {otherDays.map((day) => (
+              <tr key={`${day.payGroup}-${day.scheduledDate}`}>
+                <td>{GROUP_LABELS[day.payGroup] || day.payGroup}</td>
+                <td>{fmtDate(day.scheduledDate)}</td>
+                <td>
+                  {fmtDate(day.payDate)}
+                  {day.payDate !== day.scheduledDate && <small className="text-muted"> (antes de la fecha programada)</small>}
+                </td>
+                <td>{fmtDate(day.periodStart)} al {fmtDate(day.periodEnd)}</td>
+                <td>{dayAccess(day)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+
+  const history = (
+    <section className="pl-card">
+      <div className="pl-card__head">
+        <h5>Historial de planillas</h5>
+        <div className="pl-chips" role="group" aria-label="Filtrar planillas">
+          {RUN_FILTERS.map(([key, label]) => (
+            <button key={key} type="button" className="pl-chip" aria-pressed={runFilter === key} onClick={() => setRunFilter(key)}>{label}</button>
+          ))}
+        </div>
+      </div>
+      <div className="pl-scroll mt-2">
+        <table className="pl-table">
+          <thead>
+            <tr>
+              <th>#</th><th>Grupo</th><th>Se paga</th><th>Período</th><th>Estado</th>
+              <th className="r">Bruto</th><th className="r">Deducciones</th><th className="r">Líquido</th><th />
             </tr>
-          );
-        })}
-      </tbody>
-    </Table>
+          </thead>
+          <tbody>
+            {filteredRuns.length === 0 && (
+              <tr><td colSpan="9" className="pl-empty">{runs.length === 0 ? "Todavía no hay planillas." : "No hay planillas con ese filtro."}</td></tr>
+            )}
+            {runsPagination.pageItems.map((item) => (
+              <tr key={item.id} className="pl-click" tabIndex={0} onClick={() => openRun(item.id)}
+                onKeyDown={(e) => { if (e.key === "Enter") openRun(item.id); }}>
+                <td><b>{item.id}</b></td>
+                <td>{GROUP_LABELS[item.payGroup] || item.payGroup}</td>
+                <td>{fmtDate(item.payDate)}</td>
+                <td>{fmtDate(item.periodStart)} al {fmtDate(item.periodEnd)}</td>
+                <td><StatusPill status={item.status} /></td>
+                <td className="r pl-num">{formatAmount(item.totalGross)}</td>
+                <td className="r pl-num">{formatAmount(item.totalDeductions)}</td>
+                <td className="r pl-num"><b>{formatAmount(item.totalNet)}</b></td>
+                <td className="r">
+                  {openingId === item.id ? <Spinner size="sm" /> : (
+                    <span className="text-info small font-weight-bold">Abrir <i className="nc-icon nc-minimal-right" /></span>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div className="px-3 pb-2"><TablePagination pagination={runsPagination} /></div>
+    </section>
+  );
+
+  const byMethod = Object.keys(METHODS).map((method) => {
+    const group = lines.filter((line) => line.paymentMethod === method);
+    return { method, count: group.length, amount: sum(group, "netPay") };
+  });
+  const totalNet = sum(lines, "netPay") || 1;
+
+  const methodCell = (line) => {
+    if (!line.paymentMethod) {
+      return (
+        <>
+          <span className="pl-tag pl-tag--bad">Sin forma de pago</span>
+          <Button color="link" size="sm" className="p-0 ml-1 align-baseline"
+            onClick={(e) => { e.stopPropagation(); goToProfiles({ search: line.employeeName }); }}>
+            Completar
+          </Button>
+        </>
+      );
+    }
+    const method = METHODS[line.paymentMethod] || { label: line.paymentMethod, icon: "nc-icon nc-money-coins" };
+    return (
+      <span className="pl-pay">
+        <i className={method.icon} aria-hidden="true" />
+        <span>
+          {method.label}
+          {line.paymentMethod === "CHEQUE" && (
+            <><br /><small className="pl-num">{line.chequeNumber || "sin número"}</small></>
+          )}
+          {line.paymentMethod === "TRANSFERENCIA BANCARIA" && (
+            <><br /><small>{line.bankAccount ? maskAccount(line.bankAccount) : <span style={{ color: "#94550a" }}>sin cuenta</span>}</small></>
+          )}
+        </span>
+      </span>
+    );
+  };
+
+  const linesTable = (
+    <div className={recalculating ? "fossiles-recalculando" : undefined}>
+      {recalculating && (
+        <div className="fossiles-recalculando__capa"><Spinner size="sm" className="mr-2" />Recalculando…</div>
+      )}
+      <div className="pl-scroll">
+        <table className="pl-table">
+          <thead>
+            <tr>
+              <th>Colaborador</th>
+              <th>Pago</th>
+              <th className="r">Días</th>
+              {showColumns ? (
+                <>
+                  <th className="r">Sueldo</th><th className="r">Bonificación</th><th className="r">IGSS</th>
+                  <th className="r">ISR</th><th className="r">Compras</th><th className="r">Otras</th>
+                </>
+              ) : (
+                <><th className="r">Devengado</th><th className="r">Deducciones</th></>
+              )}
+              <th className="r">Líquido</th>
+              <th />
+            </tr>
+          </thead>
+          <tbody>
+            {lines.length === 0 && (
+              <tr><td colSpan={showColumns ? 11 : 7} className="pl-empty">Sin colaboradores en este período.</td></tr>
+            )}
+            {lines.length > 0 && visibleLines.length === 0 && (
+              <tr><td colSpan={showColumns ? 11 : 7} className="pl-empty">Nadie coincide con el filtro.</td></tr>
+            )}
+            {visibleLines.map((line) => (
+              <tr key={line.id} className={`pl-click${changedLineIds.has(line.id) ? " pl-flash" : ""}`} tabIndex={0}
+                aria-label={`Ver voucher de ${line.employeeName}`}
+                onClick={() => setVoucherId(line.id)} onKeyDown={(e) => { if (e.key === "Enter") setVoucherId(line.id); }}>
+                <td>
+                  <div className="pl-who">
+                    <Avatar name={line.employeeName} />
+                    <div>
+                      <b>{line.employeeName}</b>
+                      <small>{line.position}{line.employmentType === "SERVICIOS" ? " · Servicios" : ""}</small>
+                    </div>
+                  </div>
+                </td>
+                <td>{methodCell(line)}</td>
+                <td className="r pl-num">{Number(line.daysPaid)}</td>
+                {showColumns ? (
+                  <>
+                    <td className="r pl-num">{amountOrDash(line.baseSalary)}</td>
+                    <td className="r pl-num">{amountOrDash(line.bonification)}</td>
+                    <td className="r pl-num">{amountOrDash(line.igssEmployee)}</td>
+                    <td className="r pl-num">{amountOrDash(line.isr)}</td>
+                    <td className="r pl-num">{amountOrDash(line.opiDiscount)}</td>
+                    <td className="r pl-num">{amountOrDash(line.otherDeductions)}</td>
+                  </>
+                ) : (
+                  <>
+                    <td className="r pl-num">{formatAmount(lineGross(line))}</td>
+                    <td className="r pl-num">{amountOrDash(lineDeductions(line))}</td>
+                  </>
+                )}
+                <td className="r pl-num pl-net">{formatAmount(line.netPay)}</td>
+                <td className="r text-muted"><i className="nc-icon nc-minimal-right" aria-hidden="true" /></td>
+              </tr>
+            ))}
+          </tbody>
+          {lines.length > 0 && (
+            <tfoot>
+              <tr>
+                <td colSpan="3">Total ({visibleLines.length}{visibleLines.length !== lines.length ? ` de ${lines.length}` : ""})</td>
+                {showColumns ? (
+                  <>
+                    <td className="r pl-num">{formatAmount(sum(visibleLines, "baseSalary"))}</td>
+                    <td className="r pl-num">{formatAmount(sum(visibleLines, "bonification"))}</td>
+                    <td className="r pl-num">{formatAmount(sum(visibleLines, "igssEmployee"))}</td>
+                    <td className="r pl-num">{formatAmount(sum(visibleLines, "isr"))}</td>
+                    <td className="r pl-num">{formatAmount(sum(visibleLines, "opiDiscount"))}</td>
+                    <td className="r pl-num">{formatAmount(sum(visibleLines, "otherDeductions"))}</td>
+                  </>
+                ) : (
+                  <>
+                    <td className="r pl-num">{formatAmount(visibleLines.reduce((total, line) => total + lineGross(line), 0))}</td>
+                    <td className="r pl-num">{formatAmount(visibleLines.reduce((total, line) => total + lineDeductions(line), 0))}</td>
+                  </>
+                )}
+                <td className="r pl-num">{formatAmount(sum(visibleLines, "netPay"))}</td>
+                <td />
+              </tr>
+            </tfoot>
+          )}
+        </table>
+      </div>
+    </div>
+  );
+
+  const voucher = voucherLine && (
+    <SideDrawer
+      isOpen
+      onClose={() => setVoucherId(null)}
+      title={voucherLine.employeeName}
+      subtitle={`${voucherLine.position || "Sin puesto"} · Planilla #${selected.id}`}
+      avatar={<Avatar name={voucherLine.employeeName} />}
+      footer={(
+        <>
+          {selected.status === "BORRADOR" && canCreate && (
+            <Button color="secondary" outline onClick={() => goToProfiles({ search: voucherLine.employeeName })}>Editar ficha</Button>
+          )}
+          <Button color="primary" onClick={() => setVoucherId(null)}>Listo</Button>
+        </>
+      )}
+    >
+      <div>
+        <div className="pl-lbl">Líquido a recibir</div>
+        <div className="pl-big pl-num">{q(voucherLine.netPay)}</div>
+      </div>
+      <div className="pl-dl pl-num">
+        <div className="pl-sec">Devengado</div>
+        <div><span>Sueldo ({Number(voucherLine.daysPaid)} días)</span><b>{q(voucherLine.baseSalary)}</b></div>
+        <div><span>Bonificación incentivo</span><b>{q(voucherLine.bonification)}</b></div>
+        <div className="pl-sec">Deducciones</div>
+        <div><span>IGSS laboral</span><b>− {q(voucherLine.igssEmployee)}</b></div>
+        <div><span>ISR</span><b>− {q(voucherLine.isr)}</b></div>
+        <div>
+          <span>Compras de colaborador {Number(voucherLine.opiDiscount) > 0 && <ModuleLink to="/admin/payroll/charges">ver cargos</ModuleLink>}</span>
+          <b>− {q(voucherLine.opiDiscount)}</b>
+        </div>
+        {Number(voucherLine.otherDeductions) > 0 && <div><span>Otras deducciones</span><b>− {q(voucherLine.otherDeductions)}</b></div>}
+        <div className="pl-tot"><span>Líquido</span><span>{q(voucherLine.netPay)}</span></div>
+      </div>
+      <div className="pl-dl">
+        <div className="pl-sec">Pago</div>
+        <div><span>Forma de pago</span><b>{voucherLine.paymentMethod ? (METHODS[voucherLine.paymentMethod] || {}).label || voucherLine.paymentMethod : "Sin definir"}</b></div>
+        {voucherLine.paymentMethod === "CHEQUE" && <div><span>Cheque</span><b className="pl-num">{voucherLine.chequeNumber || "Sin número"}</b></div>}
+        {voucherLine.paymentMethod === "TRANSFERENCIA BANCARIA" && (
+          <div><span>Cuenta</span><b className="pl-num">{voucherLine.bankAccount ? maskAccount(voucherLine.bankAccount) : "Sin cuenta"}</b></div>
+        )}
+      </div>
+    </SideDrawer>
   );
 
   const runDetail = selected && (
     <>
-      <div className="d-flex justify-content-between align-items-center mb-2">
+      <div className="mb-2">
         <Button color="link" className="p-0 text-muted" onClick={closeRun}>
           <i className="nc-icon nc-minimal-left mr-1" /> Volver a planillas
         </Button>
-        <Button close aria-label="Cerrar planilla" onClick={closeRun} />
       </div>
       <div className="d-flex flex-wrap justify-content-between align-items-start mb-3" style={{ gap: 12 }}>
         <div>
-          <CardTitle tag="h5" className="mb-1">
+          <h5 className="mb-1" style={{ fontWeight: 700 }}>
             Planilla #{selected.id} · {GROUP_LABELS[selected.payGroup] || selected.payGroup}{" "}
             <StatusPill status={selected.status} />
-          </CardTitle>
+          </h5>
           <small className="text-muted">
-            Pago {fmtDate(selected.payDate)} · período {fmtDate(selected.periodStart)} al {fmtDate(selected.periodEnd)}
+            Pago {fmtLong(selected.payDate)} · período {fmtShort(selected.periodStart)} al {fmtShort(selected.periodEnd)}
             {selected.bankName ? ` · ${selected.bankName}` : ""}
           </small>
         </div>
-        <div className="fossiles-pasos" aria-label="Estado de la planilla">
-          {selected.status === "ANULADA" ? (
-            <span className="fossiles-paso fossiles-paso--anulada">Anulada</span>
-          ) : STEPS.map(([status, label], index) => {
-            const current = STEPS.findIndex(([s]) => s === selected.status);
-            const finished = selected.status === "PAGADA";
-            const stepClass = index < current || finished ? "fossiles-paso--hecho"
-              : index === current ? "fossiles-paso--actual" : "";
-            return <span key={status} className={`fossiles-paso ${stepClass}`}>{label}</span>;
-          })}
-        </div>
+        {selected.status === "ANULADA" ? <span className="pl-pill pl-pill--anulada">Anulada</span> : <Steps status={selected.status} />}
       </div>
 
       {nextStep && (
-        <div className={`fossiles-siguiente${nextStep.tone === "info" ? "" : ` fossiles-siguiente--${nextStep.tone}`}`}>
-          <div>
-            <div className="fossiles-siguiente__titulo">{nextStep.title}</div>
-            <div className="small">{nextStep.text}</div>
+        <div className={`pl-next${nextStep.tone === "info" ? "" : ` pl-next--${nextStep.tone}`}`}>
+          <div className="pl-next__ico"><i className={nextStep.icon} aria-hidden="true" /></div>
+          <div className="pl-next__txt">
+            <b>{nextStep.title}</b>
+            <span>{nextStep.text}</span>
           </div>
           {nextStep.action && (
             <Button color={nextStep.tone === "alerta" ? "danger" : "primary"}
@@ -549,41 +863,42 @@ function PayrollRuns() {
         </div>
       )}
 
-      <div className="d-flex flex-wrap mb-3" style={{ gap: 6 }}>
+      <div className="pl-row mb-3">
         {selected.status === "BORRADOR" && canCreate && primaryKey !== "recalcular" && (
-          <Button size="sm" color="secondary" disabled={busy || recalculating} onClick={recalc}>
+          <Button size="sm" color="secondary" className="m-0" disabled={busy || recalculating} onClick={recalc}>
             {recalculating ? <><Spinner size="sm" className="mr-1" />Recalculando…</> : "Recalcular"}
           </Button>
         )}
         {selected.status === "APROBADA" && canApprove && primaryKey !== "cheques" && (
-          <Button size="sm" color="secondary" outline disabled={busy} onClick={openChequeForm}>
+          <Button size="sm" color="secondary" outline className="m-0" disabled={busy} onClick={openChequeForm}>
             Numerar cheques
           </Button>
         )}
         {canChangePayDate && (
-          <Button size="sm" color="secondary" outline disabled={busy} onClick={() => setPayDate(selected.payDate)}>
+          <Button size="sm" color="secondary" outline className="m-0" disabled={busy} onClick={() => setPayDate(selected.payDate)}>
             Fecha de pago
           </Button>
         )}
-        {(selected.status === "BORRADOR" || selected.status === "APROBADA") && canApprove && (
-          <Button size="sm" color="danger" outline disabled={busy} onClick={() => setAnnulReason("")}>
-            Anular
-          </Button>
-        )}
         {lines.length > 0 && (
-          <Button size="sm" color="default" outline onClick={() => exportRunToExcel(selected)}>
+          <Button size="sm" color="default" outline className="m-0" onClick={() => exportRunToExcel(selected)}>
             Excel
           </Button>
         )}
         {canPrint && printable.length > 0 && (
           <>
-            <Button size="sm" color="default" outline onClick={() => printDocs(buildPayrollVouchersHtml)}>
+            <Button size="sm" color="default" outline className="m-0" onClick={() => printDocs(buildPayrollVouchersHtml)}>
               Vouchers
             </Button>
-            <Button size="sm" color="default" outline onClick={() => printDocs(buildPayrollChequesHtml)}>
+            <Button size="sm" color="default" outline className="m-0" onClick={() => printDocs(buildPayrollChequesHtml)}>
               Cheques
             </Button>
           </>
+        )}
+        <span className="pl-spacer" />
+        {(selected.status === "BORRADOR" || selected.status === "APROBADA") && canApprove && (
+          <Button size="sm" color="danger" outline className="m-0" disabled={busy} onClick={() => setAnnulReason("")}>
+            Anular
+          </Button>
         )}
       </div>
 
@@ -592,222 +907,125 @@ function PayrollRuns() {
       )}
       {selected.notes && <p className="small text-muted mb-2">{selected.notes}</p>}
 
-      {(selected.warnings || []).length > 0 && (
-        <div className="mb-3">
-          <div className="small font-weight-bold mb-1">Avisos</div>
-          <ul className="small pl-3 mb-0">
-            {selected.warnings.map((warning) => {
-              const action = warningAction(warning);
-              return (
-                <li key={warning} className="mb-1">
-                  <span>{warning}</span>
-                  {action && (
-                    <Button color="link" size="sm" className="p-0 ml-2 align-baseline" onClick={action.onClick}>
-                      {action.label}
-                    </Button>
-                  )}
-                </li>
-              );
-            })}
+      {checklist.length > 0 && (
+        <section className="pl-card" aria-label="Revisión">
+          <div className="pl-card__head">
+            <h5>Antes de aprobar</h5>
+            <span className="pl-sub">
+              {blockers === 0 ? "Nada bloquea el siguiente paso" : blockers === 1 ? "1 pendiente bloquea" : `${blockers} pendientes bloquean`}
+            </span>
+          </div>
+          <ul className="pl-checks mt-2">
+            {checklist.map((item) => (
+              <li key={`${item.kind}-${item.text}`}>
+                <span className={`pl-mark pl-mark--${item.kind}`} aria-hidden="true">
+                  {item.kind === "ok" ? "✓" : item.kind === "info" ? "i" : "!"}
+                </span>
+                <div className="pl-checks__t">
+                  {item.text}
+                  {item.detail && <small>{item.detail}</small>}
+                </div>
+                {item.action && <Button size="sm" color="secondary" outline className="m-0" onClick={item.action.onClick}>{item.action.label}</Button>}
+                {item.link && <ModuleLink to={item.link.to}>{item.link.label}</ModuleLink>}
+              </li>
+            ))}
           </ul>
-        </div>
+        </section>
       )}
 
       {lines.length > 0 && (
-        <div className="fossiles-resumen">
-          <div className="fossiles-resumen__dato">
-            <div className="fossiles-resumen__etiqueta">Colaboradores</div>
-            <div className="fossiles-resumen__valor">{lines.length}</div>
+        <section className="pl-card pl-summary" aria-label="Resumen">
+          <div>
+            <div className="pl-lbl">Líquido a pagar</div>
+            <div className="pl-big pl-num">{q(selected.totalNet)}</div>
+            <div className="pl-sub pl-num">Bruto {q(selected.totalGross)} − deducciones {q(selected.totalDeductions)}</div>
           </div>
-          <div className="fossiles-resumen__dato">
-            <div className="fossiles-resumen__etiqueta">Bruto</div>
-            <div className="fossiles-resumen__valor">{q(selected.totalGross)}</div>
-          </div>
-          <div className="fossiles-resumen__dato">
-            <div className="fossiles-resumen__etiqueta">Deducciones</div>
-            <div className="fossiles-resumen__valor">{q(selected.totalDeductions)}</div>
-          </div>
-          <div className="fossiles-resumen__dato">
-            <div className="fossiles-resumen__etiqueta">Líquido</div>
-            <div className="fossiles-resumen__valor">{q(selected.totalNet)}</div>
-          </div>
-          <div className="fossiles-resumen__dato">
-            <div className="fossiles-resumen__etiqueta">Cheque · transferencia · efectivo</div>
-            <div className="fossiles-resumen__valor">
-              {byMethod("CHEQUE")} · {byMethod("TRANSFERENCIA BANCARIA")} · {byMethod("EFECTIVO")}
+          <div>
+            <div className="pl-lbl">Colaboradores</div>
+            <div className="pl-mid">{lines.length}</div>
+            <div className="pl-sub">
+              {lines.filter((line) => line.employmentType === "PLANILLA").length} de planilla ·{" "}
+              {lines.filter((line) => line.employmentType === "SERVICIOS").length} de servicios
             </div>
           </div>
-        </div>
+          <div>
+            <div className="pl-lbl">Cómo se paga</div>
+            <div className="pl-bar" role="img" aria-label="Reparto del líquido por forma de pago">
+              {byMethod.filter((item) => item.amount > 0).map((item) => (
+                <i key={item.method} style={{ width: `${(item.amount / totalNet) * 100}%`, background: METHODS[item.method].color }} />
+              ))}
+            </div>
+            <div className="pl-legend">
+              {byMethod.map((item) => (
+                <div key={item.method}>
+                  <span className="pl-dot" style={{ background: METHODS[item.method].color }} />
+                  {METHODS[item.method].label} · {item.count}
+                  <b className="pl-num">{q(item.amount)}</b>
+                </div>
+              ))}
+              {withoutPaymentMethod.length > 0 && (
+                <div>
+                  <span className="pl-dot" style={{ background: "#b03a2e" }} />
+                  Sin forma de pago · {withoutPaymentMethod.length}
+                  <b className="pl-num">{q(sum(withoutPaymentMethod, "netPay"))}</b>
+                </div>
+              )}
+            </div>
+          </div>
+          <div>
+            <div className="pl-lbl">Cuota patronal</div>
+            <div className="pl-mid pl-num">{q(sum(lines, "igssEmployer") + sum(lines, "irtra") + sum(lines, "intecap"))}</div>
+            <div className="pl-sub pl-num">
+              IGSS {q(sum(lines, "igssEmployer"))}<br />IRTRA {q(sum(lines, "irtra"))} · INTECAP {q(sum(lines, "intecap"))}
+            </div>
+          </div>
+        </section>
       )}
 
-      {lines.length > 0 && (
-        <Input bsSize="sm" className="mb-2" style={{ maxWidth: 320 }} placeholder="Buscar colaborador o puesto"
-          aria-label="Buscar colaborador" value={lineSearch} onChange={(e) => setLineSearch(e.target.value)} />
-      )}
-      <div className={recalculating ? "fossiles-recalculando" : undefined}>
-        {recalculating && (
-          <div className="fossiles-recalculando__capa"><Spinner size="sm" className="mr-2" />Recalculando…</div>
-        )}
-        <Table size="sm" responsive striped>
-          <thead>
-            <tr>
-              <th>Colaborador</th>
-              <th>Vinculación</th>
-              <th>Pago</th>
-              <th className="text-right">Días</th>
-              <th className="text-right">Sueldo</th>
-              <th className="text-right">Bonificación</th>
-              <th className="text-right">IGSS</th>
-              <th className="text-right">ISR</th>
-              <th className="text-right">Compras</th>
-              <th className="text-right">Líquido</th>
-              <th>Cheque</th>
-            </tr>
-          </thead>
-          <tbody>
-            {lines.length === 0 && (
-              <tr>
-                <td colSpan="11" className="text-muted">Sin colaboradores en este período.</td>
-              </tr>
-            )}
-            {lines.length > 0 && visibleLines.length === 0 && (
-              <tr>
-                <td colSpan="11" className="text-muted">Nadie coincide con la búsqueda.</td>
-              </tr>
-            )}
-            {visibleLines.map((line) => (
-              <tr key={line.id} className={changedLineIds.has(line.id) ? "fossiles-flash" : undefined}>
-                <td>
-                  {line.employeeName}
-                  {line.position && <div className="small text-muted">{line.position}</div>}
-                </td>
-                <td>{line.employmentType}</td>
-                <td>
-                  {line.paymentMethod || (
-                    <>
-                      <span className="text-danger">Sin forma de pago</span>
-                      <Button color="link" size="sm" className="p-0 ml-1 align-baseline"
-                        onClick={() => goToProfiles({ search: line.employeeName })}>
-                        Completar
-                      </Button>
-                    </>
-                  )}
-                </td>
-                <td className="text-right">{Number(line.daysPaid)}</td>
-                <td className="text-right">{formatAmount(line.baseSalary)}</td>
-                <td className="text-right">{formatAmount(line.bonification)}</td>
-                <td className="text-right">{formatAmount(line.igssEmployee)}</td>
-                <td className="text-right">{formatAmount(line.isr)}</td>
-                <td className="text-right">{formatAmount(line.opiDiscount)}</td>
-                <td className="text-right font-weight-bold">{formatAmount(line.netPay)}</td>
-                <td>{line.chequeNumber || ""}</td>
-              </tr>
+      <section className="pl-card">
+        <div className="pl-tools">
+          <div className="pl-search">
+            <i className="nc-icon nc-zoom-split" aria-hidden="true" />
+            <Input bsSize="sm" placeholder="Buscar colaborador o puesto" aria-label="Buscar colaborador" value={lineSearch}
+              onChange={(e) => setLineSearch(e.target.value)} />
+          </div>
+          <div className="pl-chips" role="group" aria-label="Filtrar por forma de pago">
+            {PAY_FILTERS.map(([key, label]) => (
+              <button key={key} type="button" className="pl-chip" aria-pressed={payFilter === key} onClick={() => setPayFilter(key)}>{label}</button>
             ))}
-          </tbody>
-          {lines.length > 0 && (
-            <tfoot>
-              <tr className="font-weight-bold">
-                <td colSpan="4">Total ({lines.length})</td>
-                <td className="text-right">{formatAmount(sum(lines, "baseSalary"))}</td>
-                <td className="text-right">{formatAmount(sum(lines, "bonification"))}</td>
-                <td className="text-right">{formatAmount(sum(lines, "igssEmployee"))}</td>
-                <td className="text-right">{formatAmount(sum(lines, "isr"))}</td>
-                <td className="text-right">{formatAmount(sum(lines, "opiDiscount"))}</td>
-                <td className="text-right">{formatAmount(sum(lines, "netPay"))}</td>
-                <td />
-              </tr>
-            </tfoot>
-          )}
-        </Table>
-      </div>
+          </div>
+          <span className="pl-spacer" />
+          <Button size="sm" color="secondary" outline className="m-0" aria-pressed={showColumns} onClick={() => setShowColumns(!showColumns)}>
+            {showColumns ? "Ocultar" : "Ver"} columnas de detalle
+          </Button>
+        </div>
+        {linesTable}
+      </section>
       {lines.length > 0 && (
-        <p className="small text-muted mb-0">
-          Cuota patronal: IGSS {q(sum(lines, "igssEmployer"))} · IRTRA {q(sum(lines, "irtra"))} · INTECAP{" "}
-          {q(sum(lines, "intecap"))}.
-        </p>
+        <p className="pl-sub mb-0">Pulse una fila para ver el voucher del colaborador.</p>
       )}
+      {voucher}
     </>
   );
 
+  const selectedTab = selected && activeTab === "runs" ? "runs" : activeTab;
+
   return (
-    <div className="content">
+    <PayrollShell active={selectedTab} onSelect={selectTab}>
       <div ref={topRef} />
-      <Card>
-        <CardHeader>
-          <CardTitle tag="h4" className="mb-0">Planilla quincenal</CardTitle>
-          <p className="text-muted small mb-0 mt-1">
+      {activeTab === "runs" && (selected ? runDetail : (
+        <>
+          {nextPayCards}
+          {history}
+          {calendar}
+          <p className="pl-sub">
             Planta: 5 y 20 · Administración y kioscos: 15 y fin de mes · Fin de semana o feriado: día hábil anterior ·
             El borrador se prepara solo 3 días antes del pago.
           </p>
-        </CardHeader>
-        <CardBody>
-          <Nav tabs className="mb-3">
-            {TABS.map(([tab, label]) => (
-              <NavItem key={tab}>
-                <NavLink className={classnames({ active: activeTab === tab })} style={{ cursor: "pointer" }}
-                  onClick={() => selectTab(tab)}>
-                  {label}
-                </NavLink>
-              </NavItem>
-            ))}
-          </Nav>
-          <TabContent activeTab={activeTab}>
-            <TabPane tabId="runs">{selected ? runDetail : payDaysTable}</TabPane>
-            <TabPane tabId="profiles">{visitedTabs.has("profiles") && <PayrollProfiles focus={profilesFocus} />}</TabPane>
-            <TabPane tabId="parameters">{visitedTabs.has("parameters") && <PayrollParameters />}</TabPane>
-          </TabContent>
-        </CardBody>
-      </Card>
-
-      {activeTab === "runs" && !selected && (
-        <Card>
-          <CardHeader>
-            <CardTitle tag="h5" className="mb-0">Planillas</CardTitle>
-          </CardHeader>
-          <CardBody>
-            <Table size="sm" responsive hover>
-              <thead>
-                <tr>
-                  <th>#</th>
-                  <th>Grupo</th>
-                  <th>Se paga</th>
-                  <th>Período</th>
-                  <th>Estado</th>
-                  <th className="text-right">Bruto</th>
-                  <th className="text-right">Deducciones</th>
-                  <th className="text-right">Líquido</th>
-                  <th />
-                </tr>
-              </thead>
-              <tbody>
-                {runs.length === 0 && (
-                  <tr>
-                    <td colSpan="9" className="text-muted">Todavía no hay planillas.</td>
-                  </tr>
-                )}
-                {runsPagination.pageItems.map((item) => (
-                  <tr key={item.id} style={{ cursor: "pointer" }} onClick={() => openRun(item.id)}>
-                    <td>{item.id}</td>
-                    <td>{GROUP_LABELS[item.payGroup] || item.payGroup}</td>
-                    <td>{fmtDate(item.payDate)}</td>
-                    <td>{fmtDate(item.periodStart)} al {fmtDate(item.periodEnd)}</td>
-                    <td><StatusPill status={item.status} /></td>
-                    <td className="text-right">{formatAmount(item.totalGross)}</td>
-                    <td className="text-right">{formatAmount(item.totalDeductions)}</td>
-                    <td className="text-right">{formatAmount(item.totalNet)}</td>
-                    <td className="text-right">
-                      {openingId === item.id ? <Spinner size="sm" /> : (
-                        <span className="text-info small font-weight-bold">Abrir <i className="nc-icon nc-minimal-right" /></span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </Table>
-            <TablePagination pagination={runsPagination} />
-          </CardBody>
-        </Card>
-      )}
+        </>
+      ))}
+      {visitedTabs.has("profiles") && <div hidden={activeTab !== "profiles"}><PayrollProfiles focus={profilesFocus} /></div>}
+      {visitedTabs.has("parameters") && <div hidden={activeTab !== "parameters"}><PayrollParameters /></div>}
 
       <ConfirmModal
         isOpen={Boolean(confirm)}
@@ -897,7 +1115,7 @@ function PayrollRuns() {
           </Button>
         </ModalFooter>
       </Modal>
-    </div>
+    </PayrollShell>
   );
 }
 
