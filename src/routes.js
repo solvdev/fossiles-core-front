@@ -119,6 +119,7 @@ import AccountingInvoiceDetail from "views/accounting/AccountingInvoiceDetail.js
 import KioskMovementsAccounting from "views/accounting/KioskMovementsAccounting.js";
 import PayrollRuns from "views/payroll/PayrollRuns.js";
 import EmployeeCharges from "views/payroll/EmployeeCharges.js";
+import PayrollIncidents from "views/payroll/PayrollIncidents.js";
 
 // Reportes
 import ProductionReports from "views/reports/ProductionReports.js";
@@ -1406,7 +1407,22 @@ const routes = [
         module: "CONTABILIDAD",
         permissions: {
           view: "PLANILLA.CARGOS.VER",
+          create: "PLANILLA.CARGOS.CREAR",
           edit: "PLANILLA.CARGOS.EDITAR",
+        },
+      },
+      {
+        // Supervisoras de kiosco, jefe de producción y Contabilidad registran las novedades de su sección.
+        path: "/payroll/incidents",
+        name: "Novedades de personal",
+        mini: "NP",
+        component: <PayrollIncidents />,
+        layout: "/admin",
+        module: "CONTABILIDAD",
+        permissions: {
+          plant: "PLANILLA.NOVEDADES.PLANTA",
+          kiosks: "PLANILLA.NOVEDADES.KIOSCOS",
+          administration: "PLANILLA.NOVEDADES.ADMINISTRACION",
         },
       },
     ],

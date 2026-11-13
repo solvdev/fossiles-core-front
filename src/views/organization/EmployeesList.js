@@ -17,6 +17,10 @@ import {
   Input,
   Label,
   FormGroup,
+  UncontrolledDropdown,
+  DropdownToggle,
+  DropdownMenu,
+  DropdownItem,
 } from "reactstrap";
 import { 
   getEmployees, 
@@ -32,6 +36,8 @@ import { formatDateTimeGt } from "utils/dateTimeHelper";
 import EmployeesForm from "./EmployeesForm";
 import { useAuth } from "contexts/AuthContext";
 import TablePagination, { usePagination } from "components/TablePagination/TablePagination";
+import { Avatar } from "views/payroll/payrollUi";
+import "assets/css/payroll-ui.css";
 
 const SALARY_PERMISSIONS = ["PLANILLA.CORRIDAS.VER", "PLANILLA.CORRIDAS.CREAR", "PLANILLA.CORRIDAS.APROBAR"];
 
@@ -51,6 +57,9 @@ function EmployeesList() {
   const [deleting, setDeleting] = useState(false);
   const [filterName, setFilterName] = useState("");
   const [filterDepartmentId, setFilterDepartmentId] = useState("");
+  // Por defecto solo los activos: los dados de baja estorban a quien busca a alguien.
+  const [filterStatus, setFilterStatus] = useState("active");
+  const [filterInsurance, setFilterInsurance] = useState("");
   const [viewDetailsModal, setViewDetailsModal] = useState(false);
   const [employeeToView, setEmployeeToView] = useState(null);
   const [bulkCreateModal, setBulkCreateModal] = useState(false);
@@ -195,7 +204,11 @@ function EmployeesList() {
         !filterDepartmentId ||
         (employee.departmentId && String(employee.departmentId) === filterDepartmentId);
 
-      return matchesName && matchesDepartment;
+      const matchesStatus = !filterStatus || employee.status === filterStatus;
+      const matchesInsurance = !filterInsurance
+        || (filterInsurance === "SIN_IGSS" ? employee.igssEnabled === false : employee.irtraEnabled === false);
+
+      return matchesName && matchesDepartment && matchesStatus && matchesInsurance;
     });
 
     // Aplicar ordenamiento
@@ -251,12 +264,14 @@ function EmployeesList() {
     }
 
     return filtered;
-  }, [employees, filterName, filterDepartmentId, sortField, sortDirection, departments]);
+  }, [employees, filterName, filterDepartmentId, filterStatus, filterInsurance, sortField, sortDirection, departments]);
   const pagination = usePagination(filteredEmployees, 20);
 
   const handleClearFilters = () => {
     setFilterName("");
     setFilterDepartmentId("");
+    setFilterStatus("active");
+    setFilterInsurance("");
   };
 
   const getDepartmentName = (departmentId) => {
@@ -480,195 +495,147 @@ function EmployeesList() {
     }
   };
 
+  const fullName = (employee) => `${employee.firstName || ""} ${employee.lastName || ""}`.trim();
+  const activeCount = employees.filter((e) => e.status === "active").length;
+  const withoutIgss = employees.filter((e) => e.status === "active" && e.igssEnabled === false).length;
+  const withoutIrtra = employees.filter((e) => e.status === "active" && e.irtraEnabled === false).length;
+  const statusChips = [["active", "Activos", activeCount], ["inactive", "Inactivos", employees.length - activeCount], ["", "Todos", employees.length]];
+  const tile = (value, label, count, pressed, onClick) => (
+    <button type="button" className="pl-tile" aria-pressed={pressed} onClick={onClick}>
+      <b className="pl-num">{count}</b>
+      <span>{label}</span>
+    </button>
+  );
+
   return (
-    <div className="content">
-      <Row>
-        <Col md="12">
-          <Card>
-            <CardHeader>
-              <Row>
-                <Col md="6">
-                  <CardTitle tag="h4">Empleados</CardTitle>
-                </Col>
-                <Col md="6" className="text-right">
-                  <Button
-                    color="success"
-                    onClick={handleBulkCreate}
-                    className="btn-round mr-2"
-                  >
-                    <i className="nc-icon nc-badge" /> Crear Múltiples Empleados
-                  </Button>
-                  <Button color="primary" onClick={handleNew} className="btn-round">
-                    <i className="nc-icon nc-simple-add" /> Nuevo Empleado
-                  </Button>
-                </Col>
-              </Row>
-            </CardHeader>
-            <CardBody>
-              {error && <Alert color="danger">{error}</Alert>}
-              
-              {/* Filtros */}
-              <Row className="mb-3">
-                <Col md="4">
-                  <FormGroup>
-                    <Label>Buscar por nombre, email o DPI</Label>
-                    <Input
-                      type="text"
-                      placeholder="Buscar..."
-                      value={filterName}
-                      onChange={(e) => setFilterName(e.target.value)}
-                    />
-                  </FormGroup>
-                </Col>
-                <Col md="4">
-                  <FormGroup>
-                    <Label>Departamento</Label>
-                    <Input
-                      type="select"
-                      value={filterDepartmentId}
-                      onChange={(e) => setFilterDepartmentId(e.target.value)}
-                    >
-                      <option value="">Todos</option>
-                      {departments.map((dept) => (
-                        <option key={dept.id} value={dept.id}>
-                          {dept.name}
-                        </option>
-                      ))}
-                    </Input>
-                  </FormGroup>
-                </Col>
-                <Col md="4" className="d-flex align-items-end">
-                  <Button color="secondary" onClick={handleClearFilters} size="sm">
-                    Limpiar Filtros
-                  </Button>
-                </Col>
-              </Row>
+    <div className="content pl">
+      <div className="pl-row mb-3" style={{ justifyContent: "space-between", alignItems: "flex-start" }}>
+        <div>
+          <h4 className="mb-1" style={{ fontWeight: 700 }}>Empleados</h4>
+          <p className="pl-sub mb-0" style={{ maxWidth: 640 }}>
+            Altas, bajas y datos de cada colaborador. El sueldo, la forma de pago y el seguro de la planilla también se
+            ajustan en Planilla, pestaña Fichas.
+          </p>
+        </div>
+        <div className="pl-row">
+          <Button color="secondary" outline className="m-0" onClick={handleBulkCreate}>Crear varios</Button>
+          <Button color="primary" className="m-0" onClick={handleNew}>Nuevo empleado</Button>
+        </div>
+      </div>
 
-              {loading ? (
-                <div className="text-center">
-                  <p>Cargando empleados...</p>
-                </div>
-              ) : filteredEmployees.length === 0 ? (
-                <div className="text-center">
-                  <p>No hay empleados registrados.</p>
-                </div>
-              ) : (
-                <>
-                <Table responsive>
-                  <thead className="text-primary">
-                    <tr>
-                      <th
-                        style={{ cursor: "pointer", userSelect: "none" }}
-                        onClick={() => handleSort("id")}
-                      >
-                        ID {getSortIcon("id")}
-                      </th>
-                      <th 
-                        style={{ cursor: "pointer", userSelect: "none" }}
-                        onClick={() => handleSort("name")}
-                      >
-                        Nombre Completo {getSortIcon("name")}
-                      </th>
-                      <th 
-                        style={{ cursor: "pointer", userSelect: "none" }}
-                        onClick={() => handleSort("position")}
-                      >
-                        Puesto {getSortIcon("position")}
-                      </th>
-                      {canSeeSalaries && (
-                        <th
-                          style={{ cursor: "pointer", userSelect: "none" }}
-                          onClick={() => handleSort("salary")}
-                        >
-                          Salario {getSortIcon("salary")}
-                        </th>
-                      )}
-                    
-                      <th 
-                        style={{ cursor: "pointer", userSelect: "none" }}
-                        onClick={() => handleSort("department")}
-                      >
-                        Departamento {getSortIcon("department")}
-                      </th>
-                      <th 
-                        style={{ cursor: "pointer", userSelect: "none" }}
-                        onClick={() => handleSort("status")}
-                      >
-                        Estado {getSortIcon("status")}
-                      </th>
-                      <th className="text-right">Acciones</th>
+      {error && <Alert color="danger" toggle={() => setError("")}>{error}</Alert>}
+
+      <div className="pl-tiles">
+        {tile("active", "Activos", activeCount, filterStatus === "active" && !filterInsurance, () => { setFilterStatus("active"); setFilterInsurance(""); })}
+        {tile("inactive", "Inactivos", employees.length - activeCount, filterStatus === "inactive", () => { setFilterStatus("inactive"); setFilterInsurance(""); })}
+        {tile("igss", "Sin IGSS", withoutIgss, filterInsurance === "SIN_IGSS", () => { setFilterStatus("active"); setFilterInsurance(filterInsurance === "SIN_IGSS" ? "" : "SIN_IGSS"); })}
+        {tile("irtra", "Sin IRTRA ni INTECAP", withoutIrtra, filterInsurance === "SIN_IRTRA", () => { setFilterStatus("active"); setFilterInsurance(filterInsurance === "SIN_IRTRA" ? "" : "SIN_IRTRA"); })}
+      </div>
+
+      <section className="pl-card">
+        <div className="pl-tools">
+          <div className="pl-search">
+            <i className="nc-icon nc-zoom-split" aria-hidden="true" />
+            <Input bsSize="sm" placeholder="Nombre, correo o DPI" aria-label="Buscar empleado" value={filterName}
+              onChange={(e) => setFilterName(e.target.value)} />
+          </div>
+          <Input type="select" bsSize="sm" aria-label="Departamento" value={filterDepartmentId} style={{ width: "auto" }}
+            onChange={(e) => setFilterDepartmentId(e.target.value)}>
+            <option value="">Todos los departamentos</option>
+            {departments.map((dept) => <option key={dept.id} value={dept.id}>{dept.name}</option>)}
+          </Input>
+          <div className="pl-chips" role="group" aria-label="Estado">
+            {statusChips.map(([value, label, count]) => (
+              <button key={label} type="button" className="pl-chip" aria-pressed={filterStatus === value} onClick={() => setFilterStatus(value)}>
+                {label} <em>{count}</em>
+              </button>
+            ))}
+          </div>
+          <span className="pl-spacer" />
+          {(filterName || filterDepartmentId || filterInsurance || filterStatus !== "active") && (
+            <button type="button" className="pl-linkbtn" onClick={handleClearFilters}>Limpiar filtros</button>
+          )}
+        </div>
+
+        {loading ? (
+          <div className="pl-empty">Cargando empleados…</div>
+        ) : filteredEmployees.length === 0 ? (
+          <div className="pl-empty">{employees.length === 0 ? "Todavía no hay empleados." : "Nadie coincide con esos filtros."}</div>
+        ) : (
+          <>
+            <div className="pl-scroll">
+              <table className="pl-table">
+                <thead>
+                  <tr>
+                    <th role="button" style={{ cursor: "pointer" }} onClick={() => handleSort("name")}>Colaborador {getSortIcon("name")}</th>
+                    <th role="button" style={{ cursor: "pointer" }} onClick={() => handleSort("department")}>Puesto y departamento {getSortIcon("department")}</th>
+                    <th role="button" style={{ cursor: "pointer" }} onClick={() => handleSort("status")}>Estado {getSortIcon("status")}</th>
+                    <th role="button" style={{ cursor: "pointer" }} onClick={() => handleSort("hireDate")}>Contratación {getSortIcon("hireDate")}</th>
+                    {canSeeSalaries && <th className="r" role="button" style={{ cursor: "pointer" }} onClick={() => handleSort("salary")}>Salario {getSortIcon("salary")}</th>}
+                    <th>Seguro</th>
+                    <th className="r">Acciones</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {pagination.pageItems.map((employee) => (
+                    <tr key={employee.id} className="pl-click" tabIndex={0} aria-label={`Ver detalles de ${fullName(employee)}`}
+                      onClick={() => handleView(employee.id)} onKeyDown={(e) => { if (e.key === "Enter") handleView(employee.id); }}>
+                      <td>
+                        <div className="pl-who">
+                          <Avatar name={fullName(employee)} />
+                          <div>
+                            <b>{fullName(employee)}</b>
+                            <small>{employee.email || employee.dpi || `#${employee.id}`}</small>
+                          </div>
+                        </div>
+                      </td>
+                      <td>
+                        {employee.position || "—"}
+                        <div className="pl-sub">{getDepartmentName(employee.departmentId)}</div>
+                      </td>
+                      <td>
+                        <span className={`pl-pill ${employee.status === "active" ? "pl-pill--pagada" : "pl-pill--neutro"}`}>
+                          {employee.status === "active" ? "Activo" : "Inactivo"}
+                        </span>
+                      </td>
+                      <td className="pl-num">{formatDate(employee.hireDate)}</td>
+                      {canSeeSalaries && <td className="r pl-num">{formatCurrency(employee.salary)}</td>}
+                      <td>
+                        <span className={`pl-tag ${employee.igssEnabled === false ? "pl-tag--off" : "pl-tag--ok"}`}>
+                          {employee.igssEnabled === false ? "Sin IGSS" : "IGSS"}
+                        </span>
+                        <span className={`pl-tag ${employee.irtraEnabled === false ? "pl-tag--off" : "pl-tag--ok"}`}>
+                          {employee.irtraEnabled === false ? "Sin IRTRA" : "IRTRA"}
+                        </span>
+                      </td>
+                      <td className="r text-nowrap" onClick={(e) => e.stopPropagation()}>
+                        <Button size="sm" color="secondary" outline className="m-0 mr-1" aria-label={`Editar a ${fullName(employee)}`}
+                          onClick={() => handleEdit(employee.id)}>
+                          <i className="nc-icon nc-ruler-pencil" /> Editar
+                        </Button>
+                        <UncontrolledDropdown className="d-inline-block">
+                          <DropdownToggle size="sm" color="secondary" outline className="m-0" aria-label={`Más acciones de ${fullName(employee)}`}>
+                            <i className="nc-icon nc-minimal-down" />
+                          </DropdownToggle>
+                          <DropdownMenu right>
+                            <DropdownItem onClick={() => handleView(employee.id)}>Ver detalles</DropdownItem>
+                            <DropdownItem onClick={() => handleStatusChange(employee.id, employee.status)}>
+                              {employee.status === "active" ? "Desactivar (dar de baja)" : "Activar"}
+                            </DropdownItem>
+                            <DropdownItem divider />
+                            <DropdownItem className="text-danger" onClick={() => handleDelete(employee)}>Eliminar…</DropdownItem>
+                          </DropdownMenu>
+                        </UncontrolledDropdown>
+                      </td>
                     </tr>
-                  </thead>
-                  <tbody>
-                    {pagination.pageItems.map((employee) => (
-                      <tr key={employee.id}>
-                        <td>{employee.id}</td>
-                        <td>{`${employee.firstName || ""} ${employee.lastName || ""}`.trim()}</td>
-                        <td>{employee.position || "-"}</td>
-                        {canSeeSalaries && <td>{formatCurrency(employee.salary)}</td>}
-
-                        <td>{getDepartmentName(employee.departmentId)}</td>
-                        <td>{getStatusBadge(employee.status)}</td>
-                        {/* Cada acción con su ícono; el nombre se despliega al pasar el cursor (fossiles-accion). */}
-                        <td className="text-right text-nowrap">
-                          <Button
-                            color="info"
-                            size="sm"
-                            onClick={() => handleView(employee.id)}
-                            className="btn-round mr-1 fossiles-accion"
-                            title="Ver detalles"
-                            aria-label="Ver detalles"
-                          >
-                            <i className="nc-icon nc-zoom-split" />
-                            <span className="fossiles-accion__nombre">Ver</span>
-                          </Button>
-                          <Button
-                            color="warning"
-                            size="sm"
-                            onClick={() => handleEdit(employee.id)}
-                            className="btn-round mr-1 fossiles-accion"
-                            title="Editar"
-                            aria-label="Editar"
-                          >
-                            <i className="nc-icon nc-ruler-pencil" />
-                            <span className="fossiles-accion__nombre">Editar</span>
-                          </Button>
-                          <Button
-                            color={employee.status === "active" ? "secondary" : "success"}
-                            size="sm"
-                            onClick={() => handleStatusChange(employee.id, employee.status)}
-                            className="btn-round mr-1 fossiles-accion"
-                            title={employee.status === "active" ? "Desactivar" : "Activar"}
-                            aria-label={employee.status === "active" ? "Desactivar" : "Activar"}
-                          >
-                            <i className={employee.status === "active" ? "fa fa-ban" : "nc-icon nc-check-2"} />
-                            <span className="fossiles-accion__nombre">
-                              {employee.status === "active" ? "Desactivar" : "Activar"}
-                            </span>
-                          </Button>
-                          <Button
-                            color="danger"
-                            size="sm"
-                            onClick={() => handleDelete(employee)}
-                            className="btn-round fossiles-accion"
-                            title="Eliminar"
-                            aria-label="Eliminar"
-                          >
-                            <i className="fa fa-trash" />
-                            <span className="fossiles-accion__nombre">Eliminar</span>
-                          </Button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </Table>
-                <TablePagination pagination={pagination} />
-                </>
-              )}
-            </CardBody>
-          </Card>
-        </Col>
-      </Row>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="px-3 pb-2"><TablePagination pagination={pagination} /></div>
+          </>
+        )}
+      </section>
 
       {/* Modal de detalles */}
       <Modal isOpen={viewDetailsModal} toggle={() => setViewDetailsModal(false)} size="xl">

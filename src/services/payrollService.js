@@ -135,6 +135,31 @@ export const getEmployeeCharges = async (filters = {}) => {
   return parseJson(response, "No se pudieron cargar los cargos a colaboradores.");
 };
 
+/**
+ * Cargo manual (descuadre, faltante de caja, daño u otro).
+ * body: { employeeId, concept, amount, reason, reference?, chargedOn?, employeeAuthorized, authorizationNote?, installmentAmount? }
+ */
+export const createEmployeeCharge = (body) => post("/charges", body, "No se pudo registrar el cargo.");
+
+/* ------------------------------ Novedades de personal ------------------------------ */
+
+/** A quién puede registrar el usuario, los feriados del año y los recargos vigentes. */
+export const getIncidentWorkspace = async (year) => {
+  const response = await fetch(`${BASE}/incidents/workspace${toQuery({ year })}`, { headers: jsonHeaders() });
+  return parseJson(response, "No se pudo cargar la vista de novedades.");
+};
+
+/** Novedades activas que tocan el rango, solo de las personas que el usuario puede ver. */
+export const getIncidents = async ({ from, to } = {}) => {
+  const response = await fetch(`${BASE}/incidents${toQuery({ from, to })}`, { headers: jsonHeaders() });
+  return parseJson(response, "No se pudieron cargar las novedades.");
+};
+
+/** body: { employeeIds, kind, dateFrom, dateTo?, hours?, hourlyRate?, note? } */
+export const createIncidents = (body) => post("/incidents", body, "No se pudo registrar la novedad.");
+
+export const cancelIncident = (id) => post(`/incidents/${id}/cancel`, undefined, "No se pudo anular la novedad.");
+
 /** settlementMethod: DESCUENTO, TRANSFERENCIA o EFECTIVO. */
 export const decideEmployeeCharge = (id, settlementMethod) =>
   post(`/charges/${id}/settlement`, { settlementMethod }, "No se pudo guardar la decisión.");

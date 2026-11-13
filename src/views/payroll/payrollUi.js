@@ -7,6 +7,9 @@ export const GROUP_LABELS = {
   ADMINISTRACION: "Administración y kioscos (15 y fin de mes)",
 };
 export const GROUP_SHORT = { PLANTA: "Planta", ADMINISTRACION: "Administración y kioscos" };
+/** Administración y kioscos cobran en las mismas fechas, pero se ven por separado: tres secciones en total. */
+export const SECTIONS = { PLANTA: "Planta", KIOSCOS: "Kioscos", ADMINISTRACION: "Administración" };
+export const sectionOf = (payGroup, kiosk) => (payGroup === "PLANTA" ? "PLANTA" : kiosk ? "KIOSCOS" : "ADMINISTRACION");
 export const STATUS_LABELS = { BORRADOR: "Borrador", APROBADA: "Aprobada", PAGADA: "Pagada", ANULADA: "Anulada" };
 
 /** Formas de pago tal como las manda el servidor, con su nombre corto, icono y color de gráfica. */
