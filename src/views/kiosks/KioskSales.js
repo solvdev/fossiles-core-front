@@ -302,7 +302,7 @@ function KioskSales() {
       const today = getTodayYmdGuatemala();
       const ctx = await getKioskPosContext(kioskLocationId, {});
       await loadReportData(kioskLocationId, startDate || today, endDate || today);
-      const promoRows = await getKioskPromotions(true, kioskLocationId);
+      const promoRows = await getKioskPromotions(true, kioskLocationId || ctx?.kioskId);
       setContext(ctx ? { ...ctx, inventory: filterVisibleKioskStockRows(ctx.inventory) } : null);
       if (ctx?.kioskId) setSelectedKioskId(String(ctx.kioskId));
       setPromotions(Array.isArray(promoRows) ? promoRows : []);
