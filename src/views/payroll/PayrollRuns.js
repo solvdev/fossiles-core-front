@@ -173,6 +173,7 @@ function PayrollRuns() {
   const [showColumns, setShowColumns] = useState(false);
   const [voucherId, setVoucherId] = useState(null);
   const [runFilter, setRunFilter] = useState("ALL");
+  const [showMissed, setShowMissed] = useState(false);
   const [confirm, setConfirm] = useState(null);
   const [chequeForm, setChequeForm] = useState(null);
   const [annulReason, setAnnulReason] = useState(null);
@@ -575,30 +576,63 @@ function PayrollRuns() {
     </div>
   );
 
-  const calendar = !loading && otherDays.length > 0 && (
-    <section className="pl-card">
-      <div className="pl-card__head"><h5>Calendario de pagos</h5><span className="pl-sub">Fechas anteriores y siguientes</span></div>
-      <div className="pl-scroll mt-2">
-        <table className="pl-table">
-          <thead>
-            <tr><th>Grupo</th><th>Fecha programada</th><th>Se paga</th><th>Período</th><th>Planilla</th></tr>
-          </thead>
-          <tbody>
-            {otherDays.map((day) => (
-              <tr key={`${day.payGroup}-${day.scheduledDate}`}>
-                <td>{GROUP_LABELS[day.payGroup] || day.payGroup}</td>
-                <td>{fmtDate(day.scheduledDate)}</td>
-                <td>
-                  {fmtDate(day.payDate)}
-                  {day.payDate !== day.scheduledDate && <small className="text-muted"> (antes de la fecha programada)</small>}
-                </td>
-                <td>{fmtDate(day.periodStart)} al {fmtDate(day.periodEnd)}</td>
-                <td>{dayAccess(day)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+  /** Una fecha del calendario: cuándo se paga, qué período cubre y su planilla o el botón para prepararla. */
+  const dayRow = (day, past) => (
+    <li key={`${day.payGroup}-${day.scheduledDate}`} className={`pl-day${past ? " pl-day--past" : ""}`}>
+      <div className="pl-day__info">
+        <div className="pl-day__date">{fmtLong(day.payDate)}</div>
+        <div className="pl-sub">
+          Período {fmtShort(day.periodStart)} al {fmtShort(day.periodEnd)}
+          {day.payDate !== day.scheduledDate && <> · se adelanta del {fmtShort(day.scheduledDate)}</>}
+        </div>
       </div>
+      {day.runId ? dayAccess(day) : (canCreate && (
+        <Button color="primary" outline={!past} size="sm" className="m-0" disabled={busy} onClick={() => prepare(day)}>Preparar</Button>
+      ))}
+    </li>
+  );
+
+  // Cada grupo por su lado: lo que viene después de la tarjeta de arriba y, aparte, lo que quedó sin planilla.
+  const calendarGroups = ["PLANTA", "ADMINISTRACION"].map((group) => {
+    const days = otherDays.filter((day) => day.payGroup === group);
+    return {
+      group,
+      later: days.filter((day) => day.scheduledDate >= today),
+      missed: days.filter((day) => day.scheduledDate < today && !day.runId),
+    };
+  });
+  const totalMissed = calendarGroups.reduce((total, item) => total + item.missed.length, 0);
+  const calendar = !loading && calendarGroups.some((item) => item.later.length > 0 || item.missed.length > 0) && (
+    <section aria-label="Calendario de pagos">
+      <div className="pl-row mb-2">
+        <h5 className="mb-0" style={{ fontWeight: 700, fontSize: 15 }}>Calendario de pagos</h5>
+        <span className="pl-sub">Lo que viene después del próximo pago</span>
+      </div>
+      <div className="pl-cards2">
+        {calendarGroups.map(({ group, later }) => (
+          <div key={group} className="pl-card pl-calendar">
+            <div className="pl-calendar__head"><b>{GROUP_SHORT[group]}</b><span className="pl-sub">{group === "PLANTA" ? "Paga el 5 y el 20" : "Paga el 15 y fin de mes"}</span></div>
+            {later.length === 0 ? <p className="pl-sub px-3 py-3 mb-0">No hay más fechas por ahora.</p> : <ul className="pl-days">{later.map((day) => dayRow(day, false))}</ul>}
+          </div>
+        ))}
+      </div>
+      {totalMissed > 0 && (
+        <div className="mt-2">
+          <button type="button" className="pl-linkbtn" aria-expanded={showMissed} onClick={() => setShowMissed(!showMissed)}>
+            {showMissed ? "Ocultar" : "Ver"} fechas anteriores sin planilla ({totalMissed})
+          </button>
+          {showMissed && (
+            <div className="pl-cards2 mt-2">
+              {calendarGroups.filter((item) => item.missed.length > 0).map(({ group, missed }) => (
+                <div key={group} className="pl-card pl-calendar">
+                  <div className="pl-calendar__head"><b>{GROUP_SHORT[group]}</b><span className="pl-sub">Pasaron sin prepararse</span></div>
+                  <ul className="pl-days">{missed.map((day) => dayRow(day, true))}</ul>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </section>
   );
 
@@ -628,7 +662,7 @@ function PayrollRuns() {
               <tr key={item.id} className="pl-click" tabIndex={0} onClick={() => openRun(item.id)}
                 onKeyDown={(e) => { if (e.key === "Enter") openRun(item.id); }}>
                 <td><b>{item.id}</b></td>
-                <td>{GROUP_LABELS[item.payGroup] || item.payGroup}</td>
+                <td>{GROUP_SHORT[item.payGroup] || item.payGroup}</td>
                 <td>{fmtDate(item.payDate)}</td>
                 <td>{fmtDate(item.periodStart)} al {fmtDate(item.periodEnd)}</td>
                 <td><StatusPill status={item.status} /></td>
