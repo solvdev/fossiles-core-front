@@ -6,9 +6,8 @@ import { useAuth } from "contexts/AuthContext";
 import { getPayrollProfiles, updatePayrollProfile } from "services/payrollService";
 import { showError, showSuccess } from "utils/notificationHelper";
 import { formatAmount } from "utils/payrollPrintHtml";
-import { Avatar, METHODS } from "./payrollUi";
+import { Avatar, METHODS, SECTIONS, sectionOf } from "./payrollUi";
 
-const GROUP_LABELS = { PLANTA: "Planta", ADMINISTRACION: "Administración" };
 const TYPE_LABELS = { PLANILLA: "Planilla", SERVICIOS: "Servicios" };
 const PAY_OPTIONS = [["CHEQUE", "Cheque"], ["TRANSFERENCIA BANCARIA", "Transferencia"], ["EFECTIVO", "Efectivo"]];
 
@@ -22,10 +21,17 @@ const toDraft = (profile) => ({
   terminationDate: profile.terminationDate || "",
 });
 
-const NO_FILTERS = { group: "", type: "", search: "", onlyWarnings: false, includeInactive: false };
+// group: sección que se muestra. ADMIN_TODO junta Administración y kioscos, que cobran en las mismas fechas.
+const NO_FILTERS = { group: "", search: "", onlyWarnings: false, includeInactive: false };
+const groupForFocus = (group) => (group === "ADMINISTRACION" ? "ADMIN_TODO" : group || "");
 const filtersFor = (focus) => (focus
-  ? { ...NO_FILTERS, group: focus.group || "", search: focus.search || "", onlyWarnings: Boolean(focus.onlyWarnings) }
+  ? { ...NO_FILTERS, group: groupForFocus(focus.group), search: focus.search || "", onlyWarnings: Boolean(focus.onlyWarnings) }
   : NO_FILTERS);
+const inGroup = (profile, group) => {
+  if (!group) return true;
+  const section = sectionOf(profile.payGroup, profile.kiosk);
+  return group === "ADMIN_TODO" ? section !== "PLANTA" : section === group;
+};
 
 /** Un grupo de botones donde se elige una sola opción. */
 function Segmented({ label, value, options, onChange }) {
@@ -86,8 +92,7 @@ function PayrollProfiles({ focus }) {
     const search = filters.search.trim().toLowerCase();
     return profiles.filter((p) =>
       (filters.includeInactive || p.status === "active") &&
-      (!filters.group || p.payGroup === filters.group) &&
-      (!filters.type || p.employmentType === filters.type) &&
+      inGroup(p, filters.group) &&
       (!filters.onlyWarnings || (p.warnings || []).length > 0) &&
       (!search || `${p.fullName} ${p.departmentName || ""} ${p.position || ""}`.toLowerCase().includes(search)));
   }, [profiles, filters]);
@@ -95,12 +100,13 @@ function PayrollProfiles({ focus }) {
 
   const summary = useMemo(() => {
     const active = profiles.filter((p) => p.status === "active");
-    const count = (group, type) => active.filter((p) => p.payGroup === group && p.employmentType === type).length;
+    const count = (section, type) => active.filter((p) => sectionOf(p.payGroup, p.kiosk) === section
+      && (!type || p.employmentType === type)).length;
+    const bySection = (section) => ({ total: count(section), planilla: count(section, "PLANILLA"), servicios: count(section, "SERVICIOS") });
     return {
-      plantPlanilla: count("PLANTA", "PLANILLA"),
-      plantServicios: count("PLANTA", "SERVICIOS"),
-      adminPlanilla: count("ADMINISTRACION", "PLANILLA"),
-      adminServicios: count("ADMINISTRACION", "SERVICIOS"),
+      PLANTA: bySection("PLANTA"),
+      KIOSCOS: bySection("KIOSCOS"),
+      ADMINISTRACION: bySection("ADMINISTRACION"),
       withWarnings: active.filter((p) => (p.warnings || []).length > 0).length,
     };
   }, [profiles]);
@@ -154,22 +160,21 @@ function PayrollProfiles({ focus }) {
 
   if (loading) return <Spinner size="sm" />;
 
-  const tile = (group, type, label, count) => (
-    <button type="button" className="pl-tile" aria-pressed={filters.group === group && filters.type === type}
-      onClick={() => setFilters(filters.group === group && filters.type === type
-        ? { ...filters, group: "", type: "" } : { ...filters, group, type, onlyWarnings: false })}>
-      <b className="pl-num">{count}</b>
-      <span>{label}</span>
+  const tile = (section) => (
+    <button type="button" className="pl-tile" aria-pressed={filters.group === section}
+      onClick={() => setFilters(filters.group === section ? { ...filters, group: "" } : { ...filters, group: section, onlyWarnings: false })}>
+      <b className="pl-num">{summary[section].total}</b>
+      <span>{SECTIONS[section]}</span>
+      <small className="d-block pl-sub">{summary[section].planilla} de planilla · {summary[section].servicios} de servicios</small>
     </button>
   );
 
   return (
     <>
       <div className="pl-tiles">
-        {tile("PLANTA", "PLANILLA", "Planta · planilla", summary.plantPlanilla)}
-        {tile("PLANTA", "SERVICIOS", "Planta · servicios", summary.plantServicios)}
-        {tile("ADMINISTRACION", "PLANILLA", "Administración · planilla", summary.adminPlanilla)}
-        {tile("ADMINISTRACION", "SERVICIOS", "Administración · servicios", summary.adminServicios)}
+        {tile("PLANTA")}
+        {tile("KIOSCOS")}
+        {tile("ADMINISTRACION")}
         <button type="button" className="pl-tile pl-tile--warn" aria-pressed={filters.onlyWarnings}
           onClick={() => setFilters({ ...filters, onlyWarnings: !filters.onlyWarnings })}>
           <b className="pl-num">{summary.withWarnings}</b>
@@ -188,7 +193,9 @@ function PayrollProfiles({ focus }) {
             onChange={(e) => setFilters({ ...filters, group: e.target.value })}>
             <option value="">Todos los grupos</option>
             <option value="PLANTA">Planta</option>
-            <option value="ADMINISTRACION">Administración y kioscos</option>
+            <option value="ADMIN_TODO">Administración y kioscos (juntos)</option>
+            <option value="KIOSCOS">Kioscos</option>
+            <option value="ADMINISTRACION">Administración (sin kioscos)</option>
           </Input>
           <label className="pl-row mb-0" style={{ gap: 6, textTransform: "none", fontSize: 13, color: "#252422" }}>
             <input type="checkbox" checked={filters.includeInactive}
@@ -230,7 +237,7 @@ function PayrollProfiles({ focus }) {
                         </div>
                       </div>
                     </td>
-                    <td>{GROUP_LABELS[profile.payGroup] || profile.payGroup}</td>
+                    <td>{SECTIONS[sectionOf(profile.payGroup, profile.kiosk)]}</td>
                     <td>{TYPE_LABELS[profile.employmentType] || profile.employmentType}</td>
                     <td>
                       {method ? (

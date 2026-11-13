@@ -211,7 +211,7 @@ test("el calendario separa los grupos y esconde las fechas que pasaron sin plani
   render(<PayrollRuns />);
   const calendar = await screen.findByRole("region", { name: "Calendario de pagos" });
   expect(within(calendar).getAllByText("Paga el 5 y el 20")).toHaveLength(1);
-  expect(within(calendar).getAllByText("Paga el 15 y fin de mes")).toHaveLength(1);
+  expect(within(calendar).getAllByText("Paga el 15 y fin de mes · incluye kioscos")).toHaveLength(1);
   // Una fecha futura por grupo; la del pasado sin planilla queda escondida hasta pedirla.
   expect(within(calendar).getAllByRole("button", { name: "Preparar" })).toHaveLength(2);
   fireEvent.click(within(calendar).getByRole("button", { name: "Ver fechas anteriores sin planilla (1)" }));
@@ -289,4 +289,25 @@ test("el filtro de forma de pago y las columnas de detalle cambian la tabla", as
   fireEvent.click(screen.getByRole("button", { name: "Transferencia" }));
   expect(screen.queryByText("ANA PRUEBA")).not.toBeInTheDocument();
   expect(screen.getByText("BETO PRUEBA")).toBeInTheDocument();
+});
+
+test("una planilla de administración se puede ver por administración o por kioscos", async () => {
+  await openRun(draft({
+    payGroup: "ADMINISTRACION",
+    lines: [{ ...cheque, kiosk: false, departmentName: "Contabilidad" }, { ...transfer, kiosk: true, departmentName: "Kiosco Miraflores" }],
+  }));
+  expect(screen.getByText("1 de administración · 1 de kioscos")).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("radio", { name: "Kioscos · 1" }));
+  expect(screen.queryByText("ANA PRUEBA")).not.toBeInTheDocument();
+  expect(screen.getByText("BETO PRUEBA")).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("radio", { name: "Administración · 1" }));
+  expect(screen.getByText("ANA PRUEBA")).toBeInTheDocument();
+  expect(screen.queryByText("BETO PRUEBA")).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("radio", { name: "Todos · 2" }));
+  expect(screen.getByText("BETO PRUEBA")).toBeInTheDocument();
+});
+
+test("una planilla de planta no muestra la separación de kioscos", async () => {
+  await openRun(draft());
+  expect(screen.queryByRole("radiogroup", { name: "Sección" })).not.toBeInTheDocument();
 });

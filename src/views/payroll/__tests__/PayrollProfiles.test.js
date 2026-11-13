@@ -132,3 +132,25 @@ test("sin permiso para preparar planillas las fichas son de solo lectura", async
   expect(within(rowOf("ANA PRUEBA")).getByText("4,000.00")).toBeInTheDocument();
   expect(within(rowOf("BETO PRUEBA")).getByText("Ley")).toBeInTheDocument();
 });
+
+test("las fichas se ven en tres secciones: planta, kioscos y administración", async () => {
+  const vera = { ...ana, id: 5, fullName: "VERA KIOSCO", payGroup: "ADMINISTRACION", departmentName: "Kiosco Miraflores", kiosk: true };
+  getPayrollProfiles.mockResolvedValue([ana, { ...beto, warnings: [] }, vera]);
+  render(<PayrollProfiles />);
+  await screen.findByText("ANA PRUEBA");
+  expect(within(rowOf("VERA KIOSCO")).getByText("Kioscos")).toBeInTheDocument();
+  expect(within(rowOf("BETO PRUEBA")).getByText("Administración")).toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole("button", { name: /^1\s*Kioscos/ }));
+  expect(screen.getByText("VERA KIOSCO")).toBeInTheDocument();
+  expect(screen.queryByText("ANA PRUEBA")).not.toBeInTheDocument();
+  expect(screen.queryByText("BETO PRUEBA")).not.toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole("button", { name: /^1\s*Kioscos/ }));
+  fireEvent.change(screen.getByLabelText("Grupo"), { target: { value: "ADMINISTRACION" } });
+  expect(screen.getByText("BETO PRUEBA")).toBeInTheDocument();
+  expect(screen.queryByText("VERA KIOSCO")).not.toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText("Grupo"), { target: { value: "ADMIN_TODO" } });
+  expect(screen.getByText("VERA KIOSCO")).toBeInTheDocument();
+  expect(screen.queryByText("ANA PRUEBA")).not.toBeInTheDocument();
+});
