@@ -2,7 +2,13 @@ import React from "react";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import EmployeeCharges from "../EmployeeCharges";
-import { decideEmployeeCharge, getEmployeeCharges, markEmployeeChargePaid } from "services/payrollService";
+import {
+  createEmployeeCharge,
+  decideEmployeeCharge,
+  getEmployeeCharges,
+  getPayrollProfiles,
+  markEmployeeChargePaid,
+} from "services/payrollService";
 
 jest.mock("services/payrollService");
 jest.mock("utils/notificationHelper");
@@ -134,5 +140,71 @@ test("sin permiso de edición los cargos solo se consultan", async () => {
     expect(rowButtons(name)).toEqual([]);
     expect(within(rowOf(name)).queryByRole("radiogroup")).not.toBeInTheDocument();
     expect(within(rowOf(name)).queryByRole("checkbox")).not.toBeInTheDocument();
+  });
+});
+
+describe("cargo manual", () => {
+  const profiles = [
+    { id: 21, fullName: "ANA PLANTA", payGroup: "PLANTA", status: "active" },
+    { id: 22, fullName: "BETO KIOSCO", payGroup: "ADMINISTRACION", status: "active" },
+    { id: 23, fullName: "CARLA BAJA", payGroup: "ADMINISTRACION", status: "inactive" },
+  ];
+  const openForm = async () => {
+    mockGranted = new Set(["PLANILLA.CARGOS.VER", "PLANILLA.CARGOS.EDITAR", "PLANILLA.CARGOS.CREAR"]);
+    getPayrollProfiles.mockResolvedValue(profiles);
+    render(<EmployeeCharges />);
+    await screen.findByText("BETO ADMIN");
+    fireEvent.click(screen.getByRole("button", { name: "Nuevo cargo" }));
+    const dialog = await screen.findByRole("dialog", { name: "Nuevo cargo a un colaborador" });
+    await within(dialog).findByRole("option", { name: /BETO KIOSCO/ });
+    return dialog;
+  };
+
+  test("solo quien tiene el permiso ve el botón", async () => {
+    render(<EmployeeCharges />);
+    await screen.findByText("BETO ADMIN");
+    expect(screen.queryByRole("button", { name: "Nuevo cargo" })).not.toBeInTheDocument();
+  });
+
+  test("ofrece solo colaboradores activos y no registra sin aceptación, motivo ni monto", async () => {
+    const dialog = await openForm();
+    expect(within(dialog).queryByRole("option", { name: /CARLA BAJA/ })).not.toBeInTheDocument();
+    await act(async () => { fireEvent.click(within(dialog).getByRole("button", { name: "Registrar cargo" })); });
+    expect(within(dialog).getByText("Elija al colaborador.")).toBeInTheDocument();
+    expect(within(dialog).getByText("Indique un monto mayor que cero.")).toBeInTheDocument();
+    expect(within(dialog).getByText("Escriba qué pasó y cómo se calculó el monto.")).toBeInTheDocument();
+    expect(within(dialog).getByText("Confirme que el colaborador aceptó el cargo.")).toBeInTheDocument();
+    expect(createEmployeeCharge).not.toHaveBeenCalled();
+  });
+
+  test("registra el cargo con cuota y la aceptación del colaborador", async () => {
+    createEmployeeCharge.mockResolvedValue({});
+    const dialog = await openForm();
+    fireEvent.change(within(dialog).getByLabelText("Colaborador"), { target: { value: "22" } });
+    fireEvent.click(within(dialog).getByRole("radio", { name: "Faltante de caja" }));
+    fireEvent.change(within(dialog).getByLabelText(/Monto/), { target: { value: "300" } });
+    fireEvent.change(within(dialog).getByLabelText("Motivo"), { target: { value: "Faltaron Q300 en el cierre" } });
+    fireEvent.click(within(dialog).getByLabelText("Cobrar en cuotas"));
+    fireEvent.change(within(dialog).getByLabelText("Cuota por quincena"), { target: { value: "100" } });
+    expect(within(dialog).getByText(/3 quincenas/)).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByLabelText("El colaborador aceptó este cargo"));
+    fireEvent.change(within(dialog).getByLabelText("Dónde está la constancia"), { target: { value: "Carta firmada" } });
+    await act(async () => { fireEvent.click(within(dialog).getByRole("button", { name: "Registrar cargo" })); });
+    await waitFor(() => expect(createEmployeeCharge).toHaveBeenCalledWith(expect.objectContaining({
+      employeeId: 22, concept: "FALTANTE_CAJA", amount: 300, reason: "Faltaron Q300 en el cierre", reference: null,
+      employeeAuthorized: true, authorizationNote: "Carta firmada", installmentAmount: 100,
+    })));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(getEmployeeCharges).toHaveBeenCalledTimes(2);
+  });
+
+  test("una cuota mayor que el monto se rechaza", async () => {
+    const dialog = await openForm();
+    fireEvent.change(within(dialog).getByLabelText(/Monto/), { target: { value: "100" } });
+    fireEvent.click(within(dialog).getByLabelText("Cobrar en cuotas"));
+    fireEvent.change(within(dialog).getByLabelText("Cuota por quincena"), { target: { value: "150" } });
+    await act(async () => { fireEvent.click(within(dialog).getByRole("button", { name: "Registrar cargo" })); });
+    expect(within(dialog).getByText("La cuota no puede ser mayor que el monto.")).toBeInTheDocument();
+    expect(createEmployeeCharge).not.toHaveBeenCalled();
   });
 });

@@ -1,11 +1,14 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Button, Input, Spinner } from "reactstrap";
 import ConfirmModal from "components/ConfirmModal/ConfirmModal";
+import SideDrawer from "components/SideDrawer/SideDrawer";
 import { useAuth } from "contexts/AuthContext";
 import {
   cancelEmployeeCharge,
+  createEmployeeCharge,
   decideEmployeeCharge,
   getEmployeeCharges,
+  getPayrollProfiles,
   markEmployeeChargePaid,
 } from "services/payrollService";
 import { showError, showSuccess } from "utils/notificationHelper";
@@ -18,6 +21,24 @@ const SETTLEMENT_LABELS = { DESCUENTO: "Descuento en planilla", TRANSFERENCIA: "
 const SETTLEMENT_SHORT = { DESCUENTO: "Descuento", TRANSFERENCIA: "Transferencia", EFECTIVO: "Efectivo" };
 const STATUS_LABELS = { PENDIENTE: "Pendiente", PARCIAL: "Parcial", PAGADO: "Pagado", ANULADO: "Anulado" };
 const FILTERS = [["DECIDIR", "Por decidir"], ["ABIERTOS", "Abiertos"], ["PAGADO", "Pagados"], ["ANULADO", "Anulados"], ["TODOS", "Todos"]];
+
+const CONCEPTS = [
+  ["DESCUADRE_INVENTARIO", "Descuadre de inventario"],
+  ["FALTANTE_CAJA", "Faltante de caja"],
+  ["DANO", "Daño de producto o equipo"],
+  ["OTRO", "Otro"],
+];
+const CONCEPT_LABELS = Object.fromEntries(CONCEPTS);
+
+const todayIso = () => {
+  const now = new Date();
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+};
+const emptyForm = () => ({
+  employeeId: "", employeeSearch: "", concept: "DESCUADRE_INVENTARIO", amount: "", reason: "", reference: "",
+  chargedOn: todayIso(), inInstallments: false, installmentAmount: "", authorized: false, authorizationNote: "",
+});
 
 const isOpen = (charge) => charge.status === "PENDIENTE" || charge.status === "PARCIAL";
 const awaitsDecision = (charge) => isOpen(charge) && !charge.settlementMethod;
@@ -49,6 +70,11 @@ function EmployeeCharges() {
   const [bulkBusy, setBulkBusy] = useState(false);
   const [confirm, setConfirm] = useState(null);
   const [firstLoad, setFirstLoad] = useState(true);
+  const canCreate = hasPermission("PLANILLA.CARGOS.CREAR");
+  const [form, setForm] = useState(null);
+  const [errors, setErrors] = useState({});
+  const [saving, setSaving] = useState(false);
+  const [profiles, setProfiles] = useState(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -82,6 +108,71 @@ function EmployeeCharges() {
       showError(error.message);
     } finally {
       setBusyId(null);
+    }
+  };
+
+  const openForm = async () => {
+    setForm(emptyForm());
+    setErrors({});
+    if (profiles === null) {
+      try {
+        setProfiles(((await getPayrollProfiles()) || []).filter((p) => p.status === "active"));
+      } catch (error) {
+        setProfiles([]);
+        showError(error.message);
+      }
+    }
+  };
+  const closeForm = () => {
+    if (!saving) setForm(null);
+  };
+  const setField = (key, value) => {
+    setForm((current) => ({ ...current, [key]: value }));
+    setErrors((current) => ({ ...current, [key]: "" }));
+  };
+
+  const matchingProfiles = useMemo(() => {
+    const term = form ? form.employeeSearch.trim().toLowerCase() : "";
+    return (profiles || []).filter((p) => !term || p.fullName.toLowerCase().includes(term));
+  }, [profiles, form]);
+
+  const submitCharge = async () => {
+    const found = {};
+    const amount = Number(form.amount);
+    if (!form.employeeId) found.employeeId = "Elija al colaborador.";
+    if (!(amount > 0)) found.amount = "Indique un monto mayor que cero.";
+    if (!form.reason.trim()) found.reason = "Escriba qué pasó y cómo se calculó el monto.";
+    if (form.chargedOn > todayIso()) found.chargedOn = "La fecha no puede ser futura.";
+    if (form.inInstallments) {
+      const installment = Number(form.installmentAmount);
+      if (!(installment > 0)) found.installmentAmount = "Indique la cuota por quincena.";
+      else if (amount > 0 && installment > amount) found.installmentAmount = "La cuota no puede ser mayor que el monto.";
+    }
+    if (!form.authorized) found.authorized = "Confirme que el colaborador aceptó el cargo.";
+    setErrors(found);
+    if (Object.keys(found).length > 0) return;
+    setSaving(true);
+    try {
+      await createEmployeeCharge({
+        employeeId: Number(form.employeeId),
+        concept: form.concept,
+        amount,
+        reason: form.reason.trim(),
+        reference: form.reference.trim() || null,
+        chargedOn: form.chargedOn || null,
+        employeeAuthorized: true,
+        authorizationNote: form.authorizationNote.trim() || null,
+        installmentAmount: form.inInstallments ? Number(form.installmentAmount) : null,
+      });
+      showSuccess("Cargo registrado.");
+      setForm(null);
+      setFilter("ABIERTOS");
+      setSelection(new Set());
+      await load();
+    } catch (error) {
+      showError(error.message);
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -181,6 +272,9 @@ function EmployeeCharges() {
             <Input bsSize="sm" placeholder="Buscar colaborador o descripción" aria-label="Buscar cargo" value={search}
               onChange={(e) => setSearch(e.target.value)} />
           </div>
+          {canCreate && (
+            <Button size="sm" color="primary" className="m-0" onClick={openForm}>Nuevo cargo</Button>
+          )}
         </div>
 
         {loading ? (
@@ -242,7 +336,16 @@ function EmployeeCharges() {
                             </div>
                           </div>
                         </td>
-                        <td style={{ minWidth: 180 }}>{charge.description}</td>
+                        <td style={{ minWidth: 180 }}>
+                          {charge.description}
+                          {charge.sourceType === "MANUAL" && (
+                            <div className="pl-sub" style={{ fontSize: 12 }}>
+                              <span className="pl-tag pl-tag--info">{CONCEPT_LABELS[charge.concept] || "Manual"}</span>
+                              {charge.reference && <span>{charge.reference}</span>}
+                              {charge.installmentAmount != null && <span> · cuota {q(charge.installmentAmount)} por quincena</span>}
+                            </div>
+                          )}
+                        </td>
                         <td className="r pl-num">{formatAmount(charge.amount)}</td>
                         <td className="r pl-num">
                           <b>{amountOrDash(charge.balance)}</b>
@@ -330,6 +433,104 @@ function EmployeeCharges() {
         Compras de colaborador al 50 %. Planta se descuenta en planilla. En administración Contabilidad decide cómo se
         cobra. Quien ya salió puede saldar lo pendiente por transferencia o en efectivo. Los kioscos no tienen compras.
       </p>
+
+      <SideDrawer
+        isOpen={Boolean(form)}
+        onClose={closeForm}
+        title="Nuevo cargo a un colaborador"
+        subtitle="Descuadres, faltantes de caja, daños u otros cobros."
+        footer={(
+          <>
+            <Button color="secondary" outline disabled={saving} onClick={closeForm}>Cancelar</Button>
+            <Button color="primary" disabled={saving} onClick={submitCharge}>{saving ? "Registrando…" : "Registrar cargo"}</Button>
+          </>
+        )}
+      >
+        {form && (
+          <>
+            <div className="pl-field">
+              <label htmlFor="cargo-colaborador">Colaborador</label>
+              <Input id="cargo-buscar" aria-label="Buscar colaborador" bsSize="sm" placeholder="Buscar por nombre" value={form.employeeSearch}
+                onChange={(e) => setField("employeeSearch", e.target.value)} />
+              <Input id="cargo-colaborador" type="select" invalid={Boolean(errors.employeeId)} value={form.employeeId}
+                onChange={(e) => setField("employeeId", e.target.value)}>
+                <option value="">{profiles === null ? "Cargando…" : "Elija al colaborador"}</option>
+                {matchingProfiles.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.fullName} · {p.payGroup === "PLANTA" ? "Planta" : "Administración"}
+                  </option>
+                ))}
+              </Input>
+              {errors.employeeId && <span className="pl-err">{errors.employeeId}</span>}
+            </div>
+            <div className="pl-field">
+              <span className="pl-fl">Concepto</span>
+              <div className="pl-seg" role="radiogroup" aria-label="Concepto">
+                {CONCEPTS.map(([value, label]) => (
+                  <button key={value} type="button" role="radio" aria-checked={form.concept === value}
+                    onClick={() => setField("concept", value)}>
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="pl-two">
+              <div className="pl-field">
+                <label htmlFor="cargo-monto">Monto (Q)</label>
+                <Input id="cargo-monto" type="number" min="0" step="0.01" className="pl-num" value={form.amount}
+                  invalid={Boolean(errors.amount)} onChange={(e) => setField("amount", e.target.value)} />
+                {errors.amount && <span className="pl-err">{errors.amount}</span>}
+              </div>
+              <div className="pl-field">
+                <label htmlFor="cargo-fecha">Fecha del cargo</label>
+                <Input id="cargo-fecha" type="date" max={todayIso()} value={form.chargedOn}
+                  invalid={Boolean(errors.chargedOn)} onChange={(e) => setField("chargedOn", e.target.value)} />
+                {errors.chargedOn && <span className="pl-err">{errors.chargedOn}</span>}
+              </div>
+            </div>
+            <div className="pl-field">
+              <label htmlFor="cargo-motivo">Motivo</label>
+              <Input id="cargo-motivo" type="textarea" rows={3} maxLength={500} value={form.reason}
+                placeholder="Qué pasó y cómo se calculó el monto" invalid={Boolean(errors.reason)}
+                onChange={(e) => setField("reason", e.target.value)} />
+              {errors.reason && <span className="pl-err">{errors.reason}</span>}
+            </div>
+            <div className="pl-field">
+              <label htmlFor="cargo-referencia">Referencia</label>
+              <Input id="cargo-referencia" maxLength={100} value={form.reference} placeholder="Kiosco, conteo o documento"
+                onChange={(e) => setField("reference", e.target.value)} />
+            </div>
+            <div className="pl-field">
+              <label className="pl-row" style={{ gap: 8, fontWeight: 600 }}>
+                <input type="checkbox" checked={form.inInstallments} onChange={(e) => setField("inInstallments", e.target.checked)} />
+                Cobrar en cuotas
+              </label>
+              {form.inInstallments && (
+                <>
+                  <Input id="cargo-cuota" aria-label="Cuota por quincena" type="number" min="0" step="0.01" className="pl-num"
+                    placeholder="Cuota por quincena (Q)" value={form.installmentAmount} invalid={Boolean(errors.installmentAmount)}
+                    onChange={(e) => setField("installmentAmount", e.target.value)} />
+                  {errors.installmentAmount && <span className="pl-err">{errors.installmentAmount}</span>}
+                  {Number(form.amount) > 0 && Number(form.installmentAmount) > 0 && Number(form.installmentAmount) <= Number(form.amount) && (
+                    <small>Se descuenta en {Math.ceil(Number(form.amount) / Number(form.installmentAmount))} quincenas, como máximo la cuota en cada planilla.</small>
+                  )}
+                </>
+              )}
+            </div>
+            <div className="pl-field">
+              <label className="pl-row" style={{ gap: 8, fontWeight: 600, alignItems: "flex-start" }}>
+                <input type="checkbox" checked={form.authorized} onChange={(e) => setField("authorized", e.target.checked)} style={{ marginTop: 3 }} />
+                <span>El colaborador aceptó este cargo</span>
+              </label>
+              {errors.authorized && <span className="pl-err">{errors.authorized}</span>}
+              <Input id="cargo-constancia" aria-label="Dónde está la constancia" maxLength={200} value={form.authorizationNote}
+                placeholder="Dónde está la constancia (carta firmada, quién la guarda)"
+                onChange={(e) => setField("authorizationNote", e.target.value)} />
+              <small>Sin la aceptación del colaborador no se registra. Planta se descuenta en planilla; en administración Contabilidad decide después cómo se cobra.</small>
+            </div>
+          </>
+        )}
+      </SideDrawer>
 
       <ConfirmModal
         isOpen={Boolean(confirm)}
