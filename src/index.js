@@ -47,7 +47,9 @@ function AppRoutes() {
   const [isValid, setIsValid] = useState(false);
   const location = useLocation();
   const { user: authUser } = useAuth();
-  const showSupportWidget = isValid && location.pathname.startsWith("/admin");
+  // El botón flotante de Soporte está oculto. Para volver a mostrarlo: REACT_APP_SHOW_SUPPORT_WIDGET=true y volver a compilar.
+  const supportWidgetEnabled = process.env.REACT_APP_SHOW_SUPPORT_WIDGET === "true";
+  const showSupportWidget = supportWidgetEnabled && isValid && location.pathname.startsWith("/admin");
 
   useEffect(() => {
     const checkAuth = async () => {
