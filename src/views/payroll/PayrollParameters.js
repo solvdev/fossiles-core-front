@@ -17,6 +17,9 @@ const LABELS = {
   ISR_TASA_TRAMO1_PCT: "ISR: tasa del primer tramo (%)",
   ISR_TASA_TRAMO2_PCT: "ISR: tasa del excedente (%)",
   ISR_CUOTA_FIJA_TRAMO2: "ISR: cuota fija del segundo tramo (Q)",
+  HORA_EXTRA_FACTOR: "Hora extra: recargo (veces el valor de la hora)",
+  FERIADO_TRABAJADO_FACTOR: "Feriado trabajado: recargo (veces el valor de la hora)",
+  JORNADA_HORAS: "Horas de la jornada diaria",
 };
 
 const GROUPS = [
@@ -25,9 +28,13 @@ const GROUPS = [
   ["Bonificación", "Monto mensual cuando la ficha no indica otro.", ["BONIFICACION_INCENTIVO_MENSUAL"]],
   ["ISR en relación de dependencia", "Tramos anuales; se reparten en cada quincena.",
     ["ISR_DEDUCCION_PERSONAL", "ISR_TRAMO_LIMITE", "ISR_TASA_TRAMO1_PCT", "ISR_TASA_TRAMO2_PCT", "ISR_CUOTA_FIJA_TRAMO2"]],
+  ["Horas extra y feriados", "Valor de la hora = sueldo mensual ÷ 30 ÷ horas de la jornada.",
+    ["HORA_EXTRA_FACTOR", "FERIADO_TRABAJADO_FACTOR", "JORNADA_HORAS"]],
 ];
 
 const isPercent = (code) => code.endsWith("_PCT");
+const isFactor = (code) => code.endsWith("_FACTOR");
+const isHours = (code) => code === "JORNADA_HORAS";
 /** Nombre sin la unidad entre paréntesis (la unidad se ve en el valor) y sin el prefijo del grupo, con mayúscula inicial. */
 const plainLabel = (code) => {
   const name = LABELS[code].replace(/\s*\((%|Q)\)$/, "").replace(/^ISR: /, "");
@@ -36,12 +43,22 @@ const plainLabel = (code) => {
 const formatNumber = (value) => Number(value).toLocaleString("en-US", { maximumFractionDigits: 4 });
 /** Valor con su unidad pequeña al lado: «4.83 %» o «Q 48,000». */
 function ParamValue({ code, value }) {
+  if (isFactor(code)) {
+    return <span className="pl-param__v pl-num"><span className="pl-param__unit pl-param__unit--pre">×</span>{formatNumber(value)}</span>;
+  }
+  if (isHours(code)) {
+    return <span className="pl-param__v pl-num">{formatNumber(value)}<span className="pl-param__unit">h</span></span>;
+  }
   if (isPercent(code)) {
     return <span className="pl-param__v pl-num">{formatNumber(value)}<span className="pl-param__unit">%</span></span>;
   }
   return <span className="pl-param__v pl-num"><span className="pl-param__unit pl-param__unit--pre">Q</span>{formatNumber(value)}</span>;
 }
-const showValue = (code, value) => (isPercent(code) ? `${formatNumber(value)} %` : `Q ${formatNumber(value)}`);
+const showValue = (code, value) => {
+  if (isFactor(code)) return `×${formatNumber(value)}`;
+  if (isHours(code)) return `${formatNumber(value)} h`;
+  return isPercent(code) ? `${formatNumber(value)} %` : `Q ${formatNumber(value)}`;
+};
 
 const EMPTY_FORM = { code: "IGSS_LABORAL_PCT", value: "", effectiveFrom: "", description: "" };
 
@@ -102,6 +119,8 @@ function PayrollParameters() {
     if (form.value === "") found.value = "Indique el valor.";
     else if (!(Number(form.value) >= 0)) found.value = "El valor no puede ser negativo.";
     else if (isPercent(form.code) && Number(form.value) > 100) found.value = "Un porcentaje no puede pasar de 100.";
+    else if (isFactor(form.code) && Number(form.value) <= 0) found.value = "El recargo debe ser mayor que cero (1.5 paga una vez y media).";
+    else if (isHours(form.code) && (Number(form.value) <= 0 || Number(form.value) > 24)) found.value = "La jornada debe estar entre 1 y 24 horas.";
     if (!form.effectiveFrom) found.effectiveFrom = "Indique desde qué fecha rige.";
     setErrors(found);
     if (Object.keys(found).length > 0) return;

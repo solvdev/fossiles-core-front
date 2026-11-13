@@ -9,14 +9,18 @@ export const PAYROLL_TABS = [
   { key: "runs", label: "Planillas", to: "/admin/payroll", permission: "PLANILLA.CORRIDAS.VER" },
   { key: "profiles", label: "Fichas", to: "/admin/payroll", permission: "PLANILLA.CORRIDAS.VER" },
   { key: "parameters", label: "Parámetros", to: "/admin/payroll", permission: "PLANILLA.CORRIDAS.VER" },
-  { key: "charges", label: "Cargos a colaboradores", to: "/admin/payroll/charges", permission: "PLANILLA.CARGOS.VER" },
+  { key: "charges", label: "Cargos a colaboradores", to: "/admin/payroll/charges", permission: "PLANILLA.CARGOS.VER", route: true },
+  {
+    key: "incidents", label: "Novedades", to: "/admin/payroll/incidents", route: true,
+    permissions: ["PLANILLA.NOVEDADES.PLANTA", "PLANILLA.NOVEDADES.KIOSCOS", "PLANILLA.NOVEDADES.ADMINISTRACION"],
+  },
 ];
 
 /**
  * Encabezado común de Planilla y de Cargos a colaboradores.
  * `active` es la pestaña abierta; `onSelect(key)` cambia de pestaña cuando es de la misma pantalla.
  */
-function PayrollShell({ active, onSelect, chargesToDecide, children }) {
+function PayrollShell({ active, onSelect, chargesToDecide, title = "Planilla", subtitle, children }) {
   const { hasPermission } = useAuth();
   const inRouter = useInRouterContext();
   const canSeeCharges = hasPermission("PLANILLA.CARGOS.VER");
@@ -42,19 +46,19 @@ function PayrollShell({ active, onSelect, chargesToDecide, children }) {
   }, [chargesToDecide, canSeeCharges]);
 
   const count = chargesToDecide !== undefined ? chargesToDecide : pending;
-  const tabs = PAYROLL_TABS.filter((tab) => hasPermission(tab.permission));
+  const tabs = PAYROLL_TABS.filter((tab) => (tab.permissions || [tab.permission]).some((code) => hasPermission(code)));
 
   return (
     <div className="content pl">
       <div className="pl-head">
-        <h4>Planilla</h4>
-        <p className="pl-sub mb-0">Pagos quincenales, fichas, parámetros de ley y compras de colaboradores.</p>
+        <h4>{title}</h4>
+        <p className="pl-sub mb-0">{subtitle || "Pagos quincenales, fichas, parámetros de ley, compras de colaboradores y novedades del personal."}</p>
       </div>
       <nav className="pl-tabs" role="tablist" aria-label="Secciones de planilla">
         {tabs.map((tab) => {
           const selected = tab.key === active;
           const badge = tab.key === "charges" && count > 0 ? <span className="pl-count">{count} por decidir</span> : null;
-          const inside = tab.key !== "charges" && onSelect;
+          const inside = !tab.route && onSelect;
           if (inside) {
             return (
               <button key={tab.key} type="button" role="tab" className="pl-tab" aria-selected={selected} onClick={() => onSelect(tab.key)}>
