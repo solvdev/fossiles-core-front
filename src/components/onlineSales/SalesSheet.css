@@ -153,6 +153,7 @@ body.ss-resizing, body.ss-resizing * { cursor: col-resize !important; user-selec
 .ss-table tbody td.clamp > .txt, .ss-table tbody td.clamp > .ss-prod { display: -webkit-box; -webkit-box-orient: vertical;
   -webkit-line-clamp: 2; overflow: hidden; line-height: 1.3; word-break: break-word; }
 .ss-table tbody tr.is-wrap td { white-space: normal; height: auto; }
+.ss-table tbody td.clamp > .ss-prod.all { -webkit-line-clamp: unset; display: block; overflow: visible; }
 .ss-table tbody tr.is-wrap td.clamp > .txt, .ss-table tbody tr.is-wrap td.clamp > .ss-prod { -webkit-line-clamp: unset; display: block; }
 .ss-table tbody td.ed { cursor: cell; }
 
@@ -262,26 +263,3 @@ body.ss-resizing, body.ss-resizing * { cursor: col-resize !important; user-selec
   .ss-sum { margin-left: 0; }
   .ss-drop { right: auto; left: 0; }
 }
-
-/* ── Productos de la venta: «+N» y ventanita con el listado ── */
-.ss-prodm { display: flex; align-items: center; gap: 6px; min-width: 0; }
-.ss-prodm .ln { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.ss-prodm .more { flex: none; height: 20px; padding: 0 8px; border: 1px solid #bcd0f5; border-radius: 10px; background: #eef4ff;
-  color: #1d4ed8; font-size: 11px; font-weight: 700; line-height: 1; cursor: pointer; }
-.ss-prodm .more:hover { background: #dbe7ff; }
-.ss-pm-back { position: fixed; inset: 0; z-index: 1070; background: rgba(17, 24, 39, .45); display: flex; align-items: center;
-  justify-content: center; padding: 16px; cursor: default; }
-.ss-pm { background: #fff; border-radius: 10px; width: 600px; max-width: 100%; max-height: calc(100vh - 48px); display: flex;
-  flex-direction: column; box-shadow: 0 16px 48px rgba(17, 24, 39, .3); color: var(--ss-text); font-size: 13px; }
-.ss-pm header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 14px 16px 10px;
-  border-bottom: 1px solid #ebedf0; }
-.ss-pm header strong { display: block; font-size: 14px; }
-.ss-pm header span { font-size: 12px; color: var(--ss-muted); }
-.ss-pm .x { border: 0; background: none; color: #9ca3af; font-size: 22px; line-height: 1; cursor: pointer; }
-.ss-pm .body { overflow: auto; padding: 6px 16px 14px; }
-.ss-pm table { width: 100%; border-collapse: collapse; }
-.ss-pm th { padding: 6px 8px; border-bottom: 1px solid #dfe3e8; color: #5e6877; font-size: 10.5px; font-weight: 700;
-  text-transform: uppercase; letter-spacing: .04em; text-align: left; }
-.ss-pm td { padding: 7px 8px; border-bottom: 1px solid #ebedf0; vertical-align: top; }
-.ss-pm td.n { width: 32px; color: #9ca3af; font-variant-numeric: tabular-nums; }
-.ss-pm th.q, .ss-pm td.q { text-align: right; font-variant-numeric: tabular-nums; }

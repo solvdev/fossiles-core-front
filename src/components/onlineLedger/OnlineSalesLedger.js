@@ -1,5 +1,4 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import ReactDOM from "react-dom";
 import { Spinner } from "reactstrap";
 import {
   getOnlineSalesLedger, updateOnlineSaleLedger, bulkUpdateOnlineSaleLedger, downloadOnlineSalesLedgerExcel,
@@ -57,67 +56,11 @@ const Social = ({ value }) => {
 /** Parte «a, b | c; d» en sus elementos (la coma solo separa si le sigue un espacio, para no romper «1,5 m»). */
 const splitList = (v) => String(v || "").split(/\r?\n|\s*\|\s*|\s*;\s*|,\s+/).map((x) => x.trim()).filter(Boolean);
 
-/** Listado completo de artículos de una venta en una ventanita. */
-const ProductsModal = ({ row, items, onClose }) => {
-  useEffect(() => {
-    const onKey = (e) => { if (e.key === "Escape") { e.stopPropagation(); onClose(); } };
-    document.addEventListener("keydown", onKey, true);
-    return () => document.removeEventListener("keydown", onKey, true);
-  }, [onClose]);
-  const colors = splitList(row.colors);
-  const sizes = splitList(row.sizes);
-  const perItem = (list) => (list.length === items.length ? list : null);
-  const colorsBy = perItem(colors);
-  const sizesBy = perItem(sizes);
-  const stop = (e) => e.stopPropagation();
-  return ReactDOM.createPortal(
-    <div className="ol-pm-back" onMouseDown={(e) => { stop(e); if (e.target === e.currentTarget) onClose(); }}
-      onClick={stop} onDoubleClick={stop} onKeyDown={stop}>
-      <div className="ol-pm" role="dialog" aria-modal="true" aria-label="Artículos de la venta">
-        <header>
-          <div>
-            <h6>Artículos de la venta</h6>
-            <span>{row.customerName || "Sin cliente"} · {items.length} {items.length === 1 ? "artículo" : "artículos"}</span>
-          </div>
-          <button type="button" className="x" onClick={onClose} aria-label="Cerrar">×</button>
-        </header>
-        <div className="body">
-          <table>
-            <thead><tr><th>#</th><th>Producto</th>{colorsBy && <th>Color</th>}{sizesBy && <th>Talla</th>}</tr></thead>
-            <tbody>
-              {items.map((it, i) => (
-                <tr key={i}>
-                  <td className="n">{i + 1}</td>
-                  <td>{it}</td>
-                  {colorsBy && <td>{colorsBy[i]}</td>}
-                  {sizesBy && <td>{sizesBy[i]}</td>}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {!colorsBy && colors.length > 0 && <p><b>Colores:</b> {row.colors}</p>}
-          {!sizesBy && sizes.length > 0 && <p><b>Tallas:</b> {row.sizes}</p>}
-        </div>
-      </div>
-    </div>,
-    document.body
-  );
-};
-
-/** Celda de artículos: el primero y «+N» que abre el listado completo cuando la venta lleva varios. */
+/** Celda de artículos: todos, uno por línea; la fila se agranda según cuántos sean. */
 const ProductsCell = ({ row }) => {
-  const [open, setOpen] = useState(false);
   const items = useMemo(() => splitList(row.products), [row.products]);
-  const close = useCallback(() => setOpen(false), []);
   if (items.length < 2) return <>{row.products || ""}</>;
-  return (
-    <span className="ol-prod">
-      <span className="t">{items[0]}</span>
-      <button type="button" className="more" onClick={() => setOpen(true)}
-        title={`Ver los ${items.length} artículos`} aria-label={`Ver los ${items.length} artículos`}>+{items.length - 1}</button>
-      {open && <ProductsModal row={row} items={items} onClose={close} />}
-    </span>
-  );
+  return <span className="ol-prod">{items.map((it, i) => <span key={i} className="ln">{it}</span>)}</span>;
 };
 
 const has = (v) => v !== null && v !== undefined && v !== "";
