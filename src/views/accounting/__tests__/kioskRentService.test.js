@@ -88,11 +88,30 @@ test("crear / actualizar / desactivar otra renta usa /kiosk-rents/others", async
   expect(req.url).toMatch(/\/kiosk-rents\/others\/12$/);
 });
 
-test("un 409 de duplicado sube el mensaje del back", async () => {
-  global.fetch.mockResolvedValue(
-    fail(409, { message: "Ya existe una renta activa con esa categoría y nombre." })
+test("POST 201 y PUT 200 devuelven la fila; DELETE 204 no tiene cuerpo", async () => {
+  const row = { rentId: 12, rentType: "OTHER", name: "Oficina central", monthlyRent: 1500 };
+  global.fetch.mockResolvedValueOnce(ok(row, 201));
+  await expect(createOtherRent({ name: "Oficina central" })).resolves.toEqual(row);
+
+  global.fetch.mockResolvedValueOnce(ok(row, 200));
+  await expect(saveOtherRent(12, { name: "Oficina central" })).resolves.toEqual(row);
+
+  global.fetch.mockResolvedValueOnce({ ok: true, status: 204, json: () => Promise.reject(new Error("no body")) });
+  await expect(deactivateOtherRent(12)).resolves.toBeNull();
+});
+
+test("409 duplicado y 400 de validación suben el message en español", async () => {
+  global.fetch.mockResolvedValueOnce(
+    fail(409, { status: 409, error: "Conflict", message: "Ya existe una renta activa con esa categoría y nombre." })
   );
   await expect(createOtherRent({ name: "Oficina", category: "OFICINA" })).rejects.toThrow(
     "Ya existe una renta activa con esa categoría y nombre."
+  );
+
+  global.fetch.mockResolvedValueOnce(
+    fail(400, { status: 400, error: "Bad Request", message: "El día de pago debe estar entre 1 y 31." })
+  );
+  await expect(saveOtherRent(12, { name: "Oficina", paymentDay: 40 })).rejects.toThrow(
+    "El día de pago debe estar entre 1 y 31."
   );
 });

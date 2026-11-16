@@ -43,8 +43,6 @@ export const typeBadgeLabel = (row) => (isOtherRent(row) ? TYPE_LABEL[row.catego
 
 export const typeBadgeKey = (row) => (isOtherRent(row) ? row.category || "OTRO" : "KIOSK");
 
-export const monthlyAmountOf = (row) => (row?.monthlyRent != null ? row.monthlyRent : row?.monthlyAmount ?? null);
-
 export const matchesTypeFilter = (row, typeFilter) => {
   if (!typeFilter || typeFilter === "ALL") return true;
   return rentTypeOf(row) === typeFilter;
@@ -55,7 +53,7 @@ export const otherFormFromRow = (row) => ({
   category: OTHER_CATEGORIES.some((c) => c.key === row?.category) ? row.category : "OFICINA",
   description: row?.description || "",
   landlordName: row?.landlordName || "",
-  monthlyAmount: monthlyAmountOf(row) ?? "",
+  monthlyAmount: row?.monthlyRent ?? "",
   paymentDay: row?.paymentDay || "",
   contractStart: row?.contractStart || "",
   contractEnd: row?.contractEnd || "",

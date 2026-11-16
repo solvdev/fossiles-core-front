@@ -63,7 +63,6 @@ const other = {
   description: "Zona 10",
   landlordName: "Inmobiliaria Sol",
   monthlyRent: 1500,
-  monthlyAmount: 1500,
   paymentDay: 5,
   contractStart: "2026-02-01",
   contractEnd: "2027-01-31",
@@ -86,7 +85,8 @@ const payload = {
     totalAnnualRent: 48000,
     kiosksTotal: 2,
     kiosksWithRent: 1,
-    otherRentsTotal: 1500,
+    otherRentsTotal: 1,
+    otherMonthlyRent: 1500,
     paymentsNext7Days: 1,
     paymentsNext7DaysAmount: 2500,
     countByStatus: { VIGENTE: 2, SIN_CARGAR: 1 },
@@ -97,9 +97,9 @@ const rowOf = (name) => screen.getByText(name).closest("tr");
 
 beforeEach(() => {
   getKioskRents.mockResolvedValue(payload);
-  createOtherRent.mockResolvedValue(payload);
-  saveOtherRent.mockResolvedValue(payload);
-  deactivateOtherRent.mockResolvedValue(payload);
+  createOtherRent.mockResolvedValue({ ...other, rentId: 20, name: "Bodega norte" });
+  saveOtherRent.mockResolvedValue(other);
+  deactivateOtherRent.mockResolvedValue(null);
   saveKioskRent.mockResolvedValue(payload);
 });
 
@@ -115,7 +115,9 @@ test("lista kioscos y otras rentas con badge de tipo", async () => {
   expect(within(rowOf("Kiosco Centro")).getAllByText("Kiosco").length).toBeGreaterThan(0);
   expect(within(rowOf("Oficina central")).getAllByText("Oficina").length).toBeGreaterThan(0);
   expect(within(rowOf("Oficina central")).queryByText("K4")).not.toBeInTheDocument();
-  expect(screen.getByText("Otras rentas")).toBeInTheDocument();
+  const otherCard = screen.getByText("Otras rentas").closest(".krn-card");
+  expect(within(otherCard).getByText("1")).toBeInTheDocument();
+  expect(within(otherCard).getByText(/1[.,\u00a0\s]?500/)).toBeInTheDocument();
   expect(within(rowOf("Oficina central")).getByText(/1[.,\u00a0\s]?500/)).toBeInTheDocument();
 });
 
@@ -167,6 +169,7 @@ test("Agregar renta valida y manda el payload de create", async () => {
     contractEnd: "2027-03-01",
     note: "sin depósito",
   });
+  expect(getKioskRents).toHaveBeenCalledTimes(2);
   expect(saveKioskRent).not.toHaveBeenCalled();
 });
 
@@ -188,6 +191,7 @@ test("editar otra renta usa PUT por rentId y un 409 se ve en el modal", async ()
     paymentDay: 5,
   });
   expect(screen.getByRole("alert")).toHaveTextContent("Ya existe una renta activa con esa categoría y nombre.");
+  expect(getKioskRents).toHaveBeenCalledTimes(1);
 });
 
 test("Desactivar pide confirmación y llama DELETE", async () => {
@@ -199,6 +203,7 @@ test("Desactivar pide confirmación y llama DELETE", async () => {
     fireEvent.click(screen.getByRole("button", { name: "Desactivar" }));
   });
   await waitFor(() => expect(deactivateOtherRent).toHaveBeenCalledWith(12));
+  expect(getKioskRents).toHaveBeenCalledTimes(2);
   confirm.mockRestore();
 });
 

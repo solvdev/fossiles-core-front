@@ -4,7 +4,6 @@ import {
   importRowCaption,
   isOtherRent,
   matchesTypeFilter,
-  monthlyAmountOf,
   otherFormFromRow,
   rentTypeOf,
   rowKey,
@@ -69,15 +68,14 @@ test("una fila sin rentType se trata como kiosco", () => {
   expect(matchesTypeFilter(other, "OTHER")).toBe(true);
 });
 
-test("monthlyAmountOf prefiere monthlyRent y otherFormFromRow rellena el modal", () => {
-  expect(monthlyAmountOf({ monthlyRent: 800, monthlyAmount: 1 })).toBe(800);
-  expect(monthlyAmountOf({ monthlyAmount: 1200 })).toBe(1200);
+test("otherFormFromRow toma el monto de monthlyRent (monthlyAmount solo va en el POST/PUT)", () => {
   const form = otherFormFromRow({
     name: "Oficina",
     category: "OFICINA",
     description: "X",
     landlordName: "Ana",
-    monthlyAmount: 900,
+    monthlyRent: 900,
+    monthlyAmount: 1,
     paymentDay: 5,
     contractStart: "2026-02-01",
     contractEnd: "2027-02-01",
@@ -85,6 +83,7 @@ test("monthlyAmountOf prefiere monthlyRent y otherFormFromRow rellena el modal",
   });
   expect(form.monthlyAmount).toBe(900);
   expect(form.category).toBe("OFICINA");
+  expect(otherFormFromRow({ name: "X", category: "OTRO" }).monthlyAmount).toBe("");
 });
 
 test("el import muestra tipo e ID cuando el back los manda", () => {

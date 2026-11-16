@@ -22,7 +22,6 @@ import {
   importTypeLabel,
   isOtherRent,
   matchesTypeFilter,
-  monthlyAmountOf,
   otherFormFromRow,
   rowKey,
   typeBadgeKey,
@@ -250,11 +249,9 @@ export default function KioskRents() {
     try {
       const payload = buildOtherRentPayload(otherForm);
       const isNew = otherEditing === "new";
-      const result = isNew
-        ? await createOtherRent(payload)
-        : await saveOtherRent(otherEditing.rentId, payload);
-      if (result && Array.isArray(result.rows)) setData(result);
-      else await load();
+      if (isNew) await createOtherRent(payload);
+      else await saveOtherRent(otherEditing.rentId, payload);
+      await load();
       showSuccess(isNew ? `Renta «${payload.name}» creada.` : `Renta «${payload.name}» guardada.`);
       setOtherEditing(null);
     } catch (e) {
@@ -269,9 +266,8 @@ export default function KioskRents() {
     if (!window.confirm(`¿Desactivar la renta «${otherEditing.name}»? Dejará de aparecer en la lista.`)) return;
     setSaving(true);
     try {
-      const result = await deactivateOtherRent(otherEditing.rentId);
-      if (result && Array.isArray(result.rows)) setData(result);
-      else await load();
+      await deactivateOtherRent(otherEditing.rentId);
+      await load();
       showSuccess(`Se desactivó «${otherEditing.name}».`);
       setOtherEditing(null);
     } catch (e) {
@@ -356,8 +352,8 @@ export default function KioskRents() {
     },
     {
       label: "Otras rentas",
-      value: fmtMoney(summary.otherRentsTotal ?? 0),
-      hint: `${typeCounts.OTHER} ${typeCounts.OTHER === 1 ? "renta" : "rentas"} de oficina, bodega u otras`,
+      value: String(summary.otherRentsTotal ?? 0),
+      hint: `${fmtMoney(summary.otherMonthlyRent ?? 0)} al mes`,
     },
     {
       label: "Pagos en 7 días",
@@ -478,7 +474,6 @@ export default function KioskRents() {
               <tbody>
                 {rows.map((r) => {
                   const other = isOtherRent(r);
-                  const amount = monthlyAmountOf(r);
                   return (
                     <tr key={rowKey(r)}>
                       <td>
@@ -490,7 +485,7 @@ export default function KioskRents() {
                       </td>
                       <td className={r.landlordName ? "" : "krn-missing"}>{r.landlordName || "Falta indicar"}</td>
                       <td className="krn-num">
-                        {fmtMoney(amount)}
+                        {fmtMoney(r.monthlyRent)}
                         {!other && r.monthlyRent === null && <div className="krn-sub">Falta en Finanzas</div>}
                       </td>
                       <td>
@@ -547,7 +542,7 @@ export default function KioskRents() {
                 <tr className="krn-total">
                   <td>Total de rentas</td>
                   <td />
-                  <td className="krn-sub">{summary.kiosksWithRent} de {summary.kiosksTotal} kioscos · {typeCounts.OTHER} otras</td>
+                  <td className="krn-sub">{summary.kiosksWithRent} de {summary.kiosksTotal} kioscos · {summary.otherRentsTotal ?? 0} otras</td>
                   <td className="krn-num">{fmtMoney(summary.totalMonthlyRent)}</td>
                   <td colSpan={4} className="krn-sub" style={{ textAlign: "left" }}>
                     por mes · {fmtMoney(summary.totalAnnualRent)} al año

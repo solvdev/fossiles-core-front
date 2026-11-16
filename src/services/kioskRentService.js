@@ -50,7 +50,7 @@ export const clearKioskRent = async (locationId) => {
   return parseJson(response, "No se pudieron quitar los datos de la renta.");
 };
 
-/** body: { name, description, category, landlordName, monthlyAmount, paymentDay, contractStart, contractEnd, note }. */
+/** body: { name, description, category, landlordName, monthlyAmount, paymentDay, contractStart, contractEnd, note }. 201 + fila. */
 export const createOtherRent = async (body) => {
   const response = await fetch(`${BASE}/others`, {
     method: "POST",
@@ -60,7 +60,7 @@ export const createOtherRent = async (body) => {
   return parseJson(response, "No se pudo crear la renta.");
 };
 
-/** Igual que create; actualiza por rentId. */
+/** Igual que create; actualiza por rentId. 200 + fila. */
 export const saveOtherRent = async (rentId, body) => {
   const response = await fetch(`${BASE}/others/${rentId}`, {
     method: "PUT",
@@ -70,7 +70,7 @@ export const saveOtherRent = async (rentId, body) => {
   return parseJson(response, "No se pudo guardar la renta.");
 };
 
-/** Baja lógica (active=false). */
+/** Baja lógica (active=false). 204 sin cuerpo. */
 export const deactivateOtherRent = async (rentId) => {
   const response = await fetch(`${BASE}/others/${rentId}`, { method: "DELETE", headers: getAuthHeader() });
   return parseJson(response, "No se pudo desactivar la renta.");
