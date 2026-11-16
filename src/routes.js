@@ -118,6 +118,7 @@ import AccountingInvoices from "views/accounting/AccountingInvoices.js";
 import AccountingInvoiceForm from "views/accounting/AccountingInvoiceForm.js";
 import AccountingInvoiceDetail from "views/accounting/AccountingInvoiceDetail.js";
 import KioskMovementsAccounting from "views/accounting/KioskMovementsAccounting.js";
+import KioskCountCalendar from "views/accounting/KioskCountCalendar.js";
 import PayrollRuns from "views/payroll/PayrollRuns.js";
 import EmployeeCharges from "views/payroll/EmployeeCharges.js";
 import PayrollIncidents from "views/payroll/PayrollIncidents.js";
@@ -1383,6 +1384,18 @@ const routes = [
           view: "CONTABILIDAD.FACTURAS.VER",
           create: "CONTABILIDAD.FACTURAS.CREAR",
           edit: "CONTABILIDAD.FACTURAS.CERTIFICAR",
+        },
+      },
+      {
+        path: "/accounting/count-calendar",
+        name: "Calendario",
+        mini: "CA",
+        component: <KioskCountCalendar />,
+        layout: "/admin",
+        module: "CONTABILIDAD",
+        permissions: {
+          view: "CONTABILIDAD.CALENDARIO.VER",
+          edit: "CONTABILIDAD.CALENDARIO.GENERAR",
         },
       },
       {

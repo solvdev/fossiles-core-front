@@ -1,0 +1,229 @@
+/* Calendario de conteos físicos (Contabilidad > Calendario) */
+
+.kcc {
+  --kcc-ink: #0f172a;
+  --kcc-muted: #64748b;
+  --kcc-line: #e2e8f0;
+  --kcc-bg: #f8fafc;
+  --kcc-card: #ffffff;
+  --kcc-brand: #1e3a8a;
+  --kcc-brand-2: #2563eb;
+  --kcc-warn-bg: #fffbeb;
+  --kcc-warn-line: #fcd34d;
+  color: var(--kcc-ink);
+  font-size: 0.88rem;
+}
+.kcc * { box-sizing: border-box; }
+
+/* Colores por región: una sola variable --c por clase (también dentro de los modales) */
+.kcc-r-METROPOLITANA { --c: #2563eb; }
+.kcc-r-CENTRAL { --c: #7c3aed; }
+.kcc-r-OCCIDENTE { --c: #059669; }
+.kcc-r-SUR { --c: #d97706; }
+.kcc-r-ORIENTE { --c: #db2777; }
+.kcc-r-NORTE { --c: #0891b2; }
+
+/* Encabezado */
+.kcc-head { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-bottom: 14px; }
+.kcc-title { display: flex; align-items: center; gap: 12px; }
+.kcc-title-icon {
+  width: 42px; height: 42px; border-radius: 12px; color: #fff; font-size: 1.2rem;
+  background: linear-gradient(135deg, #1e3a8a, #2563eb);
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 6px 16px rgba(37, 99, 235, 0.28);
+}
+.kcc-title h4 { margin: 0; font-size: 1.15rem; font-weight: 700; }
+.kcc-title p { margin: 2px 0 0; color: var(--kcc-muted); }
+.kcc-secret {
+  font-size: 0.78rem; font-weight: 600; color: #92400e; background: #fef3c7;
+  border: 1px solid var(--kcc-warn-line); border-radius: 999px; padding: 4px 12px;
+}
+
+/* Barra de herramientas */
+.kcc-toolbar {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 12px 18px; padding: 10px 14px; margin-bottom: 12px;
+  background: var(--kcc-card); border: 1px solid var(--kcc-line); border-radius: 12px;
+}
+.kcc-toolbar-right { margin-left: auto; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.kcc-month { display: flex; align-items: center; gap: 8px; }
+.kcc-month strong { font-size: 1.05rem; min-width: 140px; text-align: center; }
+.kcc-icon-btn {
+  width: 32px; height: 32px; border-radius: 8px; border: 1px solid var(--kcc-line); background: #fff;
+  font-size: 1.2rem; line-height: 1; cursor: pointer; color: var(--kcc-ink);
+}
+.kcc-icon-btn:hover { background: var(--kcc-bg); }
+.kcc-link { background: none; border: 0; padding: 0; color: var(--kcc-brand-2); font-weight: 600; cursor: pointer; font-size: 0.82rem; }
+.kcc-link:hover { text-decoration: underline; }
+.kcc-danger-link, .kcc-danger-link:hover { color: #b91c1c !important; }
+
+/* Selector segmentado */
+.kcc-seg { display: inline-flex; background: #f1f5f9; border-radius: 10px; padding: 3px; gap: 2px; }
+.kcc-seg button {
+  border: 0; background: transparent; padding: 6px 12px; border-radius: 8px; font-weight: 600;
+  color: var(--kcc-muted); cursor: pointer; display: inline-flex; align-items: center; gap: 6px; font-size: 0.82rem;
+}
+.kcc-seg button small { background: #e2e8f0; border-radius: 999px; padding: 0 6px; font-size: 0.7rem; }
+.kcc-seg button.on { background: #fff; color: var(--kcc-ink); box-shadow: 0 1px 3px rgba(15, 23, 42, 0.15); }
+.kcc-seg.full { display: flex; }
+.kcc-seg.full button { flex: 1; justify-content: center; }
+.kcc-dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+.kcc-sup-0 { background: #1e3a8a; color: #fff; }
+.kcc-sup-1 { background: #be123c; color: #fff; }
+.kcc-sup-2 { background: #0f766e; color: #fff; }
+.kcc-sup-3 { background: #6d28d9; color: #fff; }
+
+/* Avisos */
+.kcc-alert { border-radius: 10px; padding: 10px 14px; margin-bottom: 10px; border: 1px solid; }
+.kcc-alert ul { margin: 6px 0 0; padding-left: 18px; }
+.kcc-alert-warn { background: var(--kcc-warn-bg); border-color: var(--kcc-warn-line); color: #78350f; }
+.kcc-alert-info { background: #eff6ff; border-color: #bfdbfe; color: #1e3a8a; }
+
+/* Resumen */
+.kcc-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-bottom: 10px; }
+.kcc-stats div { background: var(--kcc-card); border: 1px solid var(--kcc-line); border-radius: 12px; padding: 10px 14px; }
+.kcc-stats strong { display: block; font-size: 1.4rem; line-height: 1.1; }
+.kcc-stats span { color: var(--kcc-muted); font-size: 0.78rem; }
+
+/* Leyenda de regiones (también filtra) */
+.kcc-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 10px; }
+.kcc-legend-item {
+  display: inline-flex; align-items: center; gap: 7px; background: #fff; border: 1px solid var(--kcc-line);
+  border-radius: 999px; padding: 4px 12px 4px 8px; cursor: pointer; font-weight: 600; font-size: 0.8rem; color: var(--kcc-ink);
+}
+.kcc-legend-item.on { border-color: var(--c); background: color-mix(in srgb, var(--c) 12%, #fff); }
+.kcc-legend-item.dim { opacity: 0.45; }
+.kcc-swatch { width: 10px; height: 10px; border-radius: 3px; background: var(--c); display: inline-block; flex: none; }
+.kcc-legend-rules { margin-left: auto; }
+
+/* Cuadrícula (lunes a viernes) */
+.kcc-grid {
+  display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 1px; background: var(--kcc-line);
+  border: 1px solid var(--kcc-line); border-radius: 12px; overflow: hidden;
+}
+.kcc-dow { background: #f1f5f9; padding: 8px 10px; font-weight: 700; font-size: 0.75rem; letter-spacing: 0.04em; text-transform: uppercase; color: var(--kcc-muted); }
+.kcc-cell { background: #fff; min-height: 112px; padding: 6px; display: flex; flex-direction: column; gap: 4px; }
+.kcc-cell.is-out { background: #f8fafc; }
+.kcc-cell.is-off { background: repeating-linear-gradient(135deg, #f8fafc, #f8fafc 8px, #f1f5f9 8px, #f1f5f9 16px); }
+.kcc-cell.is-today { box-shadow: inset 0 0 0 2px var(--kcc-brand-2); }
+.kcc-day { display: flex; align-items: baseline; gap: 6px; font-weight: 700; color: var(--kcc-ink); }
+.kcc-cell.is-today .kcc-dn { background: var(--kcc-brand-2); color: #fff; border-radius: 999px; padding: 0 7px; }
+.kcc-day-name { display: none; color: var(--kcc-muted); font-weight: 500; text-transform: capitalize; }
+.kcc-off { font-size: 0.72rem; color: var(--kcc-muted); font-style: italic; }
+
+/* Visita dentro del día */
+.kcc-chip {
+  text-align: left; border: 1px solid color-mix(in srgb, var(--c) 35%, #fff); border-left: 4px solid var(--c);
+  background: color-mix(in srgb, var(--c) 10%, #fff); border-radius: 8px; padding: 4px 7px; cursor: pointer;
+  display: flex; flex-direction: column; gap: 1px; color: var(--kcc-ink); width: 100%;
+}
+.kcc-chip:hover { background: color-mix(in srgb, var(--c) 20%, #fff); }
+.kcc-chip:focus-visible { outline: 2px solid var(--kcc-brand-2); outline-offset: 1px; }
+.kcc-chip-name { font-weight: 700; font-size: 0.78rem; line-height: 1.2; }
+.kcc-chip-meta { display: flex; align-items: center; gap: 6px; font-size: 0.68rem; color: var(--kcc-muted); min-height: 14px; }
+.kcc-chip.is-done { opacity: 0.6; }
+.kcc-chip.is-done .kcc-chip-name { text-decoration: line-through; }
+.kcc-chip-meta .kcc-sup { margin-left: auto; border-radius: 999px; padding: 0 6px; font-size: 0.64rem; font-weight: 700; }
+
+/* Lista / ruta */
+.kcc-list { background: #fff; border: 1px solid var(--kcc-line); border-radius: 12px; overflow-x: auto; }
+.kcc-list table { width: 100%; border-collapse: collapse; }
+.kcc-list th { text-align: left; padding: 10px 12px; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--kcc-muted); background: #f8fafc; border-bottom: 1px solid var(--kcc-line); }
+.kcc-list td { padding: 9px 12px; border-bottom: 1px solid #f1f5f9; vertical-align: middle; }
+.kcc-list tbody tr { cursor: pointer; }
+.kcc-list tbody tr:hover { background: #f8fafc; }
+.kcc-list tr.is-done td { color: var(--kcc-muted); }
+.kcc-list strong { text-transform: capitalize; }
+.kcc-nowrap { white-space: nowrap; }
+.kcc-tag { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; font-size: 0.78rem; }
+.kcc-status { font-size: 0.76rem; font-weight: 700; color: #92400e; background: #fef3c7; border-radius: 999px; padding: 2px 9px; white-space: nowrap; }
+.kcc-status.ok { color: #166534; background: #dcfce7; }
+.kcc-muted { color: var(--kcc-muted); }
+
+/* Estados vacíos y carga */
+.kcc-center { display: flex; justify-content: center; padding: 60px 0; }
+.kcc-empty { text-align: center; background: #fff; border: 1px dashed #cbd5e1; border-radius: 14px; padding: 48px 24px; }
+.kcc-empty-icon { font-size: 2.4rem; margin-bottom: 6px; }
+.kcc-empty h5 { font-weight: 700; margin-bottom: 8px; }
+.kcc-empty p { max-width: 520px; margin: 0 auto 16px; color: var(--kcc-muted); }
+
+/* Modales */
+.kcc-modal .modal-title { width: 100%; }
+.kcc-modal-title { font-size: 1.15rem; font-weight: 700; margin-top: 4px; }
+.kcc-modal-lead { font-weight: 700; margin-bottom: 8px; }
+.kcc-check { display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px; border: 1px solid var(--kcc-line); border-radius: 10px; margin-bottom: 8px; cursor: pointer; }
+.kcc-check input { margin-top: 4px; }
+.kcc-check small { display: block; color: var(--kcc-muted); }
+.kcc-rules { margin: 12px 0 0; padding-left: 18px; color: #334155; }
+.kcc-rules li { margin-bottom: 4px; }
+.kcc-rules.plain { padding-left: 0; list-style: none; }
+.kcc-rules.plain li { padding: 8px 0; border-bottom: 1px solid #f1f5f9; }
+.kcc-facts { margin: 0 0 14px; display: grid; gap: 8px; }
+.kcc-facts div { display: grid; grid-template-columns: 130px 1fr; gap: 10px; }
+.kcc-facts dt { color: var(--kcc-muted); font-weight: 600; }
+.kcc-facts dd { margin: 0; text-transform: none; }
+.kcc-field { display: block; margin-bottom: 12px; font-weight: 700; }
+.kcc-field small { display: block; color: var(--kcc-muted); font-weight: 400; margin-top: 3px; }
+.kcc-modal-foot { align-items: center; }
+.kcc-spacer { flex: 1; }
+.kcc-days { list-style: none; padding: 0; margin: 0 0 14px; }
+.kcc-days li { display: flex; justify-content: space-between; gap: 10px; padding: 8px 0; border-bottom: 1px solid #f1f5f9; }
+.kcc-add-day { display: grid; grid-template-columns: 150px 1fr auto; gap: 8px; }
+
+/* Responsive: la cuadrícula se vuelve una agenda vertical */
+@media (max-width: 860px) {
+  .kcc-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .kcc-toolbar-right { margin-left: 0; }
+  .kcc-grid { grid-template-columns: 1fr; border: 0; background: transparent; gap: 8px; }
+  .kcc-dow, .kcc-cell.is-out, .kcc-cell.is-empty { display: none; }
+  .kcc-cell { min-height: 0; border: 1px solid var(--kcc-line); border-radius: 10px; }
+  .kcc-day-name { display: inline; }
+  .kcc-add-day { grid-template-columns: 1fr; }
+  .kcc-facts div { grid-template-columns: 1fr; gap: 0; }
+}
+
+/* ───────── Semanas ───────── */
+.kcc-week-title { display: flex; flex-direction: column; align-items: center; min-width: 210px; line-height: 1.2; }
+.kcc-week-title strong { font-size: 1.02rem; }
+.kcc-week-title small { color: var(--kcc-muted); }
+
+.kcc-weekstate {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px;
+  padding: 10px 14px; margin-bottom: 10px; border-radius: 12px; border: 1px solid var(--kcc-line); background: var(--kcc-card);
+  border-left: 5px solid #94a3b8;
+}
+.kcc-weekstate.is-all { border-left-color: #16a34a; }
+.kcc-weekstate.is-some { border-left-color: #d97706; }
+.kcc-weekstate strong { display: block; }
+.kcc-weekstate span { color: var(--kcc-muted); font-size: 0.82rem; }
+.kcc-weekstate-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+
+.kcc-weekbar {
+  grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  border: 0; background: var(--kcc-soft, #f1f5f9); padding: 7px 12px; text-align: left; cursor: pointer; color: var(--kcc-ink);
+  border-top: 1px solid var(--kcc-line);
+}
+.kcc-weekbar.is-selected { background: #dbeafe; box-shadow: inset 4px 0 0 var(--kcc-brand-2); }
+.kcc-wstate { font-size: 0.74rem; font-weight: 700; border-radius: 999px; padding: 1px 10px; background: #e2e8f0; color: #475569; }
+.kcc-wstate.is-all { background: #dcfce7; color: #166534; }
+.kcc-wstate.is-some { background: #fef3c7; color: #92400e; }
+.kcc-cell.is-pending { background: #fafbfd; }
+.kcc-day-out { color: var(--kcc-muted); font-weight: 500; }
+
+/* ───────── Modo edición ───────── */
+.kcc-alert-edit { background: #eff6ff; border-color: #93c5fd; color: #1e3a8a; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; }
+.kcc-alert-edit .kcc-add-btn { margin-left: auto; }
+.kcc-chip.is-draggable { cursor: grab; }
+.kcc-chip.is-draggable:active { cursor: grabbing; }
+.kcc-cell.is-drop { box-shadow: inset 0 0 0 2px var(--kcc-brand-2); background: #eff6ff; }
+.kcc-add {
+  margin-left: auto; width: 22px; height: 22px; border-radius: 6px; border: 1px dashed #94a3b8; background: transparent;
+  color: var(--kcc-brand-2); font-weight: 700; line-height: 1; cursor: pointer;
+}
+.kcc-add:hover { background: #eff6ff; border-color: var(--kcc-brand-2); }
+
+/* Revisita: se ve distinta de la visita regular */
+.kcc-chip.is-revisit { border-style: dashed; border-left-style: solid; }
+.kcc-revisit-tag { font-weight: 700; color: #92400e; background: #fef3c7; border-radius: 999px; padding: 0 7px; font-size: 0.68rem; }
+
+.kcc-check.is-disabled { opacity: 0.55; cursor: not-allowed; }
+.kcc-warn-text { color: #b45309 !important; }
