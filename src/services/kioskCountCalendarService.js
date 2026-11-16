@@ -41,3 +41,25 @@ export const addCountBlockedDay = (date, reason) =>
 
 export const removeCountBlockedDay = (date) =>
   apiRequest(`/blocked-days?date=${encodeURIComponent(date)}`, { method: "DELETE" });
+
+// ───────── Carga del Excel de contabilidad y liquidación semanal ─────────
+
+/** Vista previa de la carga: qué se entendió del Excel, qué no tiene kiosco y qué fechas difieren del sistema. */
+export const previewCountImport = (rows) => apiRequest("/import/preview", { method: "POST", body: { rows } });
+
+export const applyCountImport = (rows) => apiRequest("/import/apply", { method: "POST", body: { rows } });
+
+export const getLiquidationWeek = (week, supervisorUserId) => {
+  const params = new URLSearchParams();
+  if (week) params.append("week", week);
+  if (supervisorUserId) params.append("supervisorUserId", String(supervisorUserId));
+  const suffix = params.toString() ? `?${params.toString()}` : "";
+  return apiRequest(`/liquidations${suffix}`);
+};
+
+/** Llena los días libres de la semana con los conteos que aún no tienen fecha de liquidación. */
+export const generateLiquidationWeek = ({ weekStart, supervisorUserIds }) =>
+  apiRequest("/liquidations/generate", { method: "POST", body: { weekStart, supervisorUserIds } });
+
+export const updateLiquidation = (id, changes) =>
+  apiRequest(`/liquidations/${id}`, { method: "PATCH", body: changes });

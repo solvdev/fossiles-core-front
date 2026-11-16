@@ -22,51 +22,27 @@ import {
 } from "services/kioskCountCalendarService";
 import { getTodayYmdGuatemala } from "utils/dateTimeHelper";
 import { downloadKioskCountCalendarExcel } from "utils/kioskCountCalendarExport";
+import {
+  MONTH_NAMES,
+  addDays,
+  formatLong,
+  formatShort,
+  key,
+  mondayOf,
+  monthOfWeek,
+  monthTitle,
+  ymd,
+  weekRange,
+} from "utils/kioskCountDateHelper";
 import { showError, showSuccess } from "utils/notificationHelper";
+import KioskCountImportModal from "components/accounting/KioskCountImportModal";
+import KioskLiquidationTab from "components/accounting/KioskLiquidationTab";
 import "./KioskCountCalendar.css";
 
 const REGION_ORDER = ["METROPOLITANA", "CENTRAL", "OCCIDENTE", "SUR", "ORIENTE", "NORTE"];
 const WEEKDAYS = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes"];
-const MONTH_NAMES = [
-  "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
-  "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre",
-];
 const STATUS_LABEL = { PLANNED: "Pendiente", DONE: "Hecha", CANCELLED: "Cancelada" };
 
-const pad = (n) => String(n).padStart(2, "0");
-const ymd = (y, m, d) => `${y}-${pad(m)}-${pad(d)}`;
-const parseYmd = (value) => {
-  const [y, m, d] = String(value).slice(0, 10).split("-").map(Number);
-  return new Date(y, m - 1, d);
-};
-const toYmd = (date) => ymd(date.getFullYear(), date.getMonth() + 1, date.getDate());
-const addDays = (value, n) => {
-  const date = parseYmd(value);
-  date.setDate(date.getDate() + n);
-  return toYmd(date);
-};
-const mondayOf = (value) => addDays(value, -((parseYmd(value).getDay() + 6) % 7));
-/** El mes de una semana es el de su jueves (así cada semana pertenece a un solo mes). */
-const monthOfWeek = (weekStart) => addDays(weekStart, 3).slice(0, 7);
-const monthTitle = (month) => {
-  const [y, m] = month.split("-").map(Number);
-  return `${MONTH_NAMES[m - 1]} ${y}`;
-};
-const formatShort = (value) =>
-  value ? parseYmd(value).toLocaleDateString("es-GT", { day: "numeric", month: "short" }) : "—";
-const formatLong = (value) =>
-  value
-    ? parseYmd(value).toLocaleDateString("es-GT", { weekday: "long", day: "numeric", month: "long" })
-    : "—";
-const weekRange = (weekStart) => {
-  const a = parseYmd(weekStart);
-  const b = parseYmd(addDays(weekStart, 4));
-  const sameMonth = a.getMonth() === b.getMonth();
-  const mb = b.toLocaleDateString("es-GT", { month: "long" });
-  return sameMonth
-    ? `${a.getDate()} al ${b.getDate()} de ${mb}`
-    : `${a.getDate()} de ${a.toLocaleDateString("es-GT", { month: "long" })} al ${b.getDate()} de ${mb}`;
-};
 const initials = (name) =>
   String(name || "?")
     .split(/\s+/)
@@ -74,7 +50,6 @@ const initials = (name) =>
     .slice(0, 2)
     .map((part) => part[0].toUpperCase())
     .join("");
-const key = (value) => String(value).slice(0, 10);
 
 function gapText(visit) {
   if (visit.gapDays == null) return "Sin conteo anterior registrado";
@@ -99,6 +74,9 @@ export default function KioskCountCalendar() {
   const [showRules, setShowRules] = useState(false);
   const [showDays, setShowDays] = useState(false);
   const [dragOver, setDragOver] = useState(null);
+  const [section, setSection] = useState("visits");
+  const [showImport, setShowImport] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -144,10 +122,18 @@ export default function KioskCountCalendar() {
   }, [allVisits, supervisorId, regionFilter]);
 
   const weekEnd = addDays(weekStart, 4);
+  const weekLast = addDays(weekStart, 6);
   const weekVisits = useMemo(
-    () => visits.filter((v) => key(v.visitDate) >= weekStart && key(v.visitDate) <= weekEnd),
-    [visits, weekStart, weekEnd]
+    () => visits.filter((v) => key(v.visitDate) >= weekStart && key(v.visitDate) <= weekLast),
+    [visits, weekStart, weekLast]
   );
+  // Fines de semana: el calendario generado es de lunes a viernes, pero a mano se puede mandar a sábado o domingo.
+  const hasWeekendVisits = useMemo(
+    () => allVisits.some((v) => [0, 6].includes(new Date(`${key(v.visitDate)}T12:00:00`).getDay())),
+    [allVisits]
+  );
+  const showWeekend = editMode || hasWeekendVisits;
+  const dayNames = showWeekend ? [...WEEKDAYS, "Sábado", "Domingo"] : WEEKDAYS;
   const visitsByDate = useMemo(() => {
     const map = {};
     visits.forEach((v) => {
@@ -324,7 +310,7 @@ export default function KioskCountCalendar() {
 
   /** Celdas de una semana (lunes a viernes). */
   const weekCells = (ws, generated) =>
-    WEEKDAYS.map((_, i) => {
+    dayNames.map((_, i) => {
       const date = addDays(ws, i);
       const items = visitsByDate[date] || [];
       const off = nonWorking[date];
@@ -410,6 +396,15 @@ export default function KioskCountCalendar() {
           </span>
         </header>
 
+        <div className="kcc-tabs" role="tablist" aria-label="Sección">
+          <button type="button" role="tab" aria-selected={section === "visits"} className={section === "visits" ? "on" : ""} onClick={() => setSection("visits")}>
+            Visitas de conteo
+          </button>
+          <button type="button" role="tab" aria-selected={section === "liquidation"} className={section === "liquidation" ? "on" : ""} onClick={() => setSection("liquidation")}>
+            Liquidación semanal
+          </button>
+        </div>
+
         <div className="kcc-toolbar">
           <div className="kcc-month">
             <button type="button" className="kcc-icon-btn" onClick={() => goToWeek(addDays(weekStart, -7))} aria-label="Semana anterior">
@@ -449,6 +444,13 @@ export default function KioskCountCalendar() {
           </div>
 
           <div className="kcc-toolbar-right">
+            {canGenerate && (
+              <Button color="secondary" outline size="sm" onClick={() => setShowImport(true)}>
+                Cargar Excel
+              </Button>
+            )}
+            {section === "visits" && (
+              <>
             <div className="kcc-seg" role="group" aria-label="Vista">
               <button type="button" className={view === "list" ? "on" : ""} onClick={() => setView("list")}>
                 Ruta
@@ -476,12 +478,14 @@ export default function KioskCountCalendar() {
                 </Button>
               </>
             )}
+              </>
+            )}
           </div>
         </div>
 
-        {editMode && (
+        {section === "visits" && editMode && (
           <div className="kcc-alert kcc-alert-edit" role="status">
-            <strong>Modo edición.</strong> Arrastra una visita a otro día (solo días hábiles y dentro del mismo mes), usa
+            <strong>Modo edición.</strong> Arrastra una visita a otro día de su mismo mes (también sábado o domingo si hace falta), usa
             <strong> +</strong> en un día para agregar una visita, o toca una visita para quitarla o programar una
             revisita. Lo que muevas a mano queda fijo.
             <Button color="primary" size="sm" className="kcc-add-btn" onClick={() => setAddDraft({ date: null })}>
@@ -490,7 +494,7 @@ export default function KioskCountCalendar() {
           </div>
         )}
 
-        {warnings.length > 0 && (
+        {section === "visits" && warnings.length > 0 && (
           <div className="kcc-alert kcc-alert-warn" role="alert">
             <strong>Revisa esto:</strong>
             <ul>
@@ -500,14 +504,16 @@ export default function KioskCountCalendar() {
             </ul>
           </div>
         )}
-        {data?.unassignedKiosks?.length > 0 && (
+        {section === "visits" && data?.unassignedKiosks?.length > 0 && (
           <div className="kcc-alert kcc-alert-info">
             Kioscos activos <strong>sin supervisora asignada</strong> (no entran al calendario):{" "}
             {data.unassignedKiosks.join(", ")}.
           </div>
         )}
 
-        {loading ? (
+        {section === "liquidation" ? (
+          <KioskLiquidationTab weekStart={weekStart} supervisorId={supervisorId} today={today} refreshKey={refreshKey} />
+        ) : loading ? (
           <div className="kcc-center">
             <Spinner color="primary" />
           </div>
@@ -679,8 +685,13 @@ export default function KioskCountCalendar() {
                 </div>
               )
             ) : (
-              <div className="kcc-grid" role="grid" aria-label={`Calendario de ${monthTitle(month)}`}>
-                {WEEKDAYS.map((d) => (
+              <div
+                className="kcc-grid"
+                style={{ "--kcc-cols": dayNames.length }}
+                role="grid"
+                aria-label={`Calendario de ${monthTitle(month)}`}
+              >
+                {dayNames.map((d) => (
                   <div key={d} className="kcc-dow" role="columnheader">
                     {d}
                   </div>
@@ -699,6 +710,17 @@ export default function KioskCountCalendar() {
           </>
         )}
       </div>
+
+      {showImport && (
+        <KioskCountImportModal
+          onClose={() => setShowImport(false)}
+          onDone={() => {
+            setShowImport(false);
+            setRefreshKey((k) => k + 1);
+            load();
+          }}
+        />
+      )}
 
       {selected && (
         <VisitModal
