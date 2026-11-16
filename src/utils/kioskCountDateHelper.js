@@ -50,3 +50,10 @@ export const weekRange = (weekStart, lastDay = 4) => {
 /** «lun», «mar», «mié»… para acompañar una fecha numérica (ancho fijo, no cambia de lugar). */
 export const weekdayShort = (value) =>
   value ? ["dom", "lun", "mar", "mié", "jue", "vie", "sáb"][parseYmd(value).getDay()] : "";
+
+/** «28/12 – 01/01»: siempre de la misma longitud, para que el título de la semana no cambie de ancho. */
+export const weekRangeShort = (weekStart, lastDay = 4) => {
+  const [, m1, d1] = weekStart.split("-");
+  const [, m2, d2] = addDays(weekStart, lastDay).split("-");
+  return `${d1}/${m1} – ${d2}/${m2}`;
+};

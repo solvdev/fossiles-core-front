@@ -182,7 +182,9 @@
 }
 
 /* ───────── Semanas ───────── */
-.kcc-week-title { display: flex; flex-direction: column; align-items: center; min-width: 210px; line-height: 1.2; }
+.kcc-month { flex: none; }
+.kcc-week-title { display: flex; flex-direction: column; align-items: center; width: min(250px, 55vw); flex: none; line-height: 1.2; }
+.kcc-week-title strong, .kcc-week-title small { max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
 .kcc-week-title strong { font-size: 1.02rem; }
 .kcc-week-title small { color: var(--kcc-muted); }
 

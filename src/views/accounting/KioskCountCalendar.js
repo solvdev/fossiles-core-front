@@ -35,6 +35,7 @@ import {
   ymd,
   weekdayShort,
   weekRange,
+  weekRangeShort,
 } from "utils/kioskCountDateHelper";
 import { showError, showSuccess } from "utils/notificationHelper";
 import KioskCountImportModal from "components/accounting/KioskCountImportModal";
@@ -413,7 +414,7 @@ export default function KioskCountCalendar() {
               ‹
             </button>
             <div className="kcc-week-title">
-              <strong>Semana del {weekRange(weekStart)}</strong>
+              <strong>Semana {weekRangeShort(weekStart)}</strong>
               <small>
                 {monthTitle(month)} ·{" "}
                 {loading ? "…" : weekStatus === "all" ? "Generada" : weekStatus === "some" ? "Generada en parte" : "Sin generar"}
