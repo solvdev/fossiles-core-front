@@ -2,16 +2,20 @@ import { getAuthHeader } from "./authService";
 
 /**
  * Contabilidad > Rentas. Base: /api/kiosk-rents.
- * Por kiosco: arrendador, día de pago y contrato. El monto de la renta lo calcula el back desde Finanzas (ALQUILER).
+ * Kioscos: arrendador, día de pago y contrato. El monto lo calcula el back desde Finanzas (ALQUILER).
+ * Otras (oficina, bodega, otro): CRUD en /others; el monto viaja en monthlyAmount. Sin pagos ni historial.
  */
 
 const API_URL = process.env.REACT_APP_API_URL || "http://localhost:8080/api";
 const BASE = `${API_URL}/kiosk-rents`;
 
 const parseJson = async (response, fallbackMessage) => {
-  if (response.ok) return response.json();
+  if (response.ok) {
+    if (response.status === 204) return null;
+    return response.json().catch(() => null);
+  }
   const errorData = await response.json().catch(() => ({}));
-  throw new Error(errorData.message || fallbackMessage);
+  throw new Error(errorData.message || errorData.error || errorData.detail || fallbackMessage);
 };
 
 const saveBlob = (blob, filename) => {
@@ -44,6 +48,32 @@ export const saveKioskRent = async (locationId, body) => {
 export const clearKioskRent = async (locationId) => {
   const response = await fetch(`${BASE}/${locationId}`, { method: "DELETE", headers: getAuthHeader() });
   return parseJson(response, "No se pudieron quitar los datos de la renta.");
+};
+
+/** body: { name, description, category, landlordName, monthlyAmount, paymentDay, contractStart, contractEnd, note }. */
+export const createOtherRent = async (body) => {
+  const response = await fetch(`${BASE}/others`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...getAuthHeader() },
+    body: JSON.stringify(body),
+  });
+  return parseJson(response, "No se pudo crear la renta.");
+};
+
+/** Igual que create; actualiza por rentId. */
+export const saveOtherRent = async (rentId, body) => {
+  const response = await fetch(`${BASE}/others/${rentId}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", ...getAuthHeader() },
+    body: JSON.stringify(body),
+  });
+  return parseJson(response, "No se pudo guardar la renta.");
+};
+
+/** Baja lógica (active=false). */
+export const deactivateOtherRent = async (rentId) => {
+  const response = await fetch(`${BASE}/others/${rentId}`, { method: "DELETE", headers: getAuthHeader() });
+  return parseJson(response, "No se pudo desactivar la renta.");
 };
 
 export const downloadKioskRentTemplate = async () => {
