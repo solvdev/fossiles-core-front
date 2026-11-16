@@ -2620,15 +2620,15 @@ function KioskInventoryCountReport({ locationId, internalMode = false }) {
                 )}
               </div>
               {!internalMode && (
-                <label className="kc-switch" title="Mostrar u ocultar las columnas del Kardex del sistema">
-                  <input
-                    type="checkbox"
-                    checked={showKardex}
-                    onChange={() => setShowKardex((v) => !v)}
-                  />
-                  <span className="kc-switch-track" aria-hidden="true" />
-                  Kardex
-                </label>
+                <button
+                  type="button"
+                  className={`kc-btn kc-btn--ghost${showKardex ? "" : " is-pressed"}`}
+                  onClick={() => setShowKardex((v) => !v)}
+                  aria-pressed={!showKardex}
+                  title="Mostrar u ocultar las columnas del Kardex del sistema"
+                >
+                  {showKardex ? "Ocultar Kardex" : "Mostrar Kardex"}
+                </button>
               )}
             </div>
           </div>
@@ -3030,7 +3030,7 @@ function KioskInventoryCountReport({ locationId, internalMode = false }) {
                   <>
                     <li>Observaciones: solo en filas con sobrante o faltante.</li>
                     <li>Haz clic en el nombre de categoría para colapsar/expandir.</li>
-                    {!tableShowKardex && <li>Kardex oculto en pantalla — actívalo con el interruptor &quot;Kardex&quot; (Excel/PDF oficiales lo incluyen).</li>}
+                    {!tableShowKardex && <li>Kardex oculto en pantalla — actívalo con &quot;Mostrar Kardex&quot; (Excel/PDF oficiales lo incluyen).</li>}
                     {entreCueros ? (
                       <li>Cada fila es una variante (marca o Niño/Dama). No hay herraje N/V.</li>
                     ) : (

@@ -1,15 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import {
-  Badge,
-  Button,
-  Col,
-  FormGroup,
-  Input,
-  Label,
-  Row,
-  Spinner,
-  Table,
-} from "reactstrap";
+import { Button, Col, Input, Row, Spinner } from "reactstrap";
 import { ColorSelector, ProductSelector } from "components/catalog/FilterableCatalogSelectors";
 import { FilterableSelect } from "components/distribution/FilterableSelect";
 import { getColors } from "services/colorService";
@@ -26,6 +16,7 @@ import {
   canEditKioskLedger,
   getKioscoMovementTypeLabel,
   KIOSCO_MOVEMENT_TYPE_LABELS,
+  KIOSCO_MOVEMENT_TYPE_TONE,
   normalizeKioscoMovementType,
 } from "utils/kioskMovementHelper";
 import { showError, showSuccess } from "utils/notificationHelper";
@@ -38,6 +29,8 @@ import {
   normalizeCinchoAudience,
 } from "utils/productCinchoHelper";
 import { ProductBrandBadge, ProductBrandFilterChip } from "components/catalog/ProductBrandBadge";
+import "views/kiosks/KioskLedgerLab.css";
+import "./KioskMovementsAccounting.css";
 
 function CardPaymentDetail({
   auth,
@@ -53,7 +46,7 @@ function CardPaymentDetail({
 }) {
   const hasCard1 = auth || last4 || brand || voucherAmount != null;
   const hasCard2 = auth2 || last4_2 || brand2 || voucherAmount2 != null;
-  if (!hasCard1 && !hasCard2) return "—";
+  if (!hasCard1 && !hasCard2) return null;
   const fmt = (b, l, a, voucher, diff) => {
     const parts = [b, l ? `****${l}` : null, a ? `Auth: ${a}` : null];
     if (voucher != null && voucher !== "") {
@@ -70,13 +63,9 @@ function CardPaymentDetail({
     return parts.filter(Boolean).join(" · ");
   };
   return (
-    <div style={{ fontSize: "0.78rem", lineHeight: 1.4 }}>
+    <div className="kma-card-detail">
       {hasCard1 && <div>{fmt(brand, last4, auth, voucherAmount, voucherDiff)}</div>}
-      {hasCard2 && (
-        <div className="text-muted">
-          {fmt(brand2, last4_2, auth2, voucherAmount2, voucherDiff2)}
-        </div>
-      )}
+      {hasCard2 && <div>{fmt(brand2, last4_2, auth2, voucherAmount2, voucherDiff2)}</div>}
     </div>
   );
 }
@@ -90,20 +79,38 @@ const MOVEMENT_TYPE_OPTIONS = [
   })),
 ];
 
-const TYPE_BADGE = {
-  ENTRADA: "success",
-  TRASLADO_ENTRADA: "success",
-  VENTA: "primary",
-  DEVOLUCION_CLIENTE: "info",
-  DEVOLUCION_A_CLIENTE: "warning",
-  SALIDA: "warning",
-  DEVOLUCION_DEPOSITO: "info",
-  TRASLADO_SALIDA: "warning",
-  MERMA: "danger",
-  AJUSTE: "dark",
-  ANULACION: "danger",
-  CAMBIO: "warning",
-};
+function deltaOf(before, after) {
+  if (before == null || after == null) return null;
+  const b = Number(before);
+  const a = Number(after);
+  if (!Number.isFinite(b) || !Number.isFinite(a)) return null;
+  return a - b;
+}
+
+function sortedSizeEntries(stock) {
+  if (!stock?.tallas || typeof stock.tallas !== "object") return [];
+  return Object.entries(stock.tallas)
+    .filter(([, v]) => Number(v) > 0)
+    .sort((a, b) => Number(a[0]) - Number(b[0])
+      || String(a[0]).localeCompare(String(b[0]), "es", { numeric: true }));
+}
+
+const formatMoney = (value) =>
+  `Q ${Number(value).toLocaleString("es-GT", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+function FieldLabel({ children }) {
+  return <span className="kll-label">{children}</span>;
+}
+
+function EmptyState({ icon, title, text }) {
+  return (
+    <div className="kll-empty">
+      <div className="kll-empty-icon"><i className={`nc-icon ${icon}`} /></div>
+      <strong>{title}</strong>
+      <span>{text}</span>
+    </div>
+  );
+}
 
 const INITIAL_FILTERS = {
   locationId: "",
@@ -357,382 +364,498 @@ export default function KioskMovementsAccounting() {
     }
   }, [visibleStocks, selectedStockId, loadMovements]);
 
+  const busy = loadingStocks || loadingMovements;
+  const movementTotals = useMemo(() => {
+    let entran = 0;
+    let salen = 0;
+    movements.forEach((m) => {
+      const d = deltaOf(m.stockAntes, m.stockDespues);
+      if (d == null) return;
+      if (d > 0) entran += d;
+      else salen += -d;
+    });
+    return { entran, salen };
+  }, [movements]);
+  const hasAnyFilter = Boolean(
+    filters.locationId || filters.productId || filters.colorId || filters.type
+    || filters.from || filters.to || filters.referenceTerm || filters.sizeKey || variantFilter
+  );
+  const consultOnEnter = (e) => {
+    if (e.key === "Enter" && !busy) {
+      e.preventDefault();
+      void handleConsultar();
+    }
+  };
+  const clearSelectedStock = () => {
+    setSelectedStockId(null);
+    loadMovements({ stockId: null });
+  };
+  const selectedSizeEntries = sortedSizeEntries(selectedStock);
+
   return (
-    <div className="content" style={{ fontSize: "0.85rem" }}>
-      <h4 className="mb-1">Movimientos de Kioscos</h4>
-      <p className="text-muted small mb-3">
-        Consulta por producto, color y talla. El ingreso de un cambio (con o sin diferencia) sale en
-        Compra del conteo. El egreso va a Venta solo si hay diferencia a cobrar; sin diferencia o
-        con saldo a favor del cliente, a Salida.
-        {canEdit
-          ? " El select de tipo guarda y recalcula stock."
-          : " Solo lectura (pide corrección de tipo a quien edita el ledger)."}
-      </p>
-
-      <Row className="g-2 mb-2 align-items-end">
-        <Col md={3}>
-          <Label className="mb-1 small fw-semibold">Kiosko</Label>
-          <FilterableSelect
-            options={kioskOptions}
-            value={String(filters.locationId)}
-            onChange={(v) => {
-              setFilter("locationId", v || "");
-              setSelectedStockId(null);
-              setVariantFilter("");
-              setStocks([]);
-              setMovements([]);
-            }}
-            placeholder="Selecciona kiosko…"
-          />
-        </Col>
-        <Col md={3}>
-          <Label className="mb-1 small fw-semibold">Producto</Label>
-          <ProductSelector
-            products={products}
-            value={filters.productId || null}
-            onChange={(product) => {
-              setFilter("productId", product?.id != null ? String(product.id) : "");
-              setSelectedStockId(null);
-            }}
-            placeholder="Buscar producto…"
-          />
-        </Col>
-        <Col md={2}>
-          <Label className="mb-1 small fw-semibold">Color</Label>
-          <ColorSelector
-            colors={colors}
-            value={filters.colorId || null}
-            onChange={(color) => {
-              setFilter("colorId", color?.id != null ? String(color.id) : "");
-              setSelectedStockId(null);
-            }}
-            placeholder="Buscar color…"
-          />
-        </Col>
-        <Col md={2}>
-          <Label className="mb-1 small fw-semibold">Tipo</Label>
-          <FilterableSelect
-            options={MOVEMENT_TYPE_OPTIONS}
-            value={filters.type}
-            onChange={(v) => setFilter("type", v)}
-            placeholder="Tipo…"
-          />
-        </Col>
-        <Col md={1}>
-          <FormGroup className="mb-0">
-            <Label className="mb-1 small fw-semibold">Desde</Label>
-            <Input
-              type="date"
-              bsSize="sm"
-              value={filters.from}
-              onChange={(e) => setFilter("from", e.target.value)}
-            />
-          </FormGroup>
-        </Col>
-        <Col md={1}>
-          <FormGroup className="mb-0">
-            <Label className="mb-1 small fw-semibold">Hasta</Label>
-            <Input
-              type="date"
-              bsSize="sm"
-              value={filters.to}
-              onChange={(e) => setFilter("to", e.target.value)}
-            />
-          </FormGroup>
-        </Col>
-      </Row>
-
-      <Row className="g-2 mb-3 align-items-end">
-        <Col md={3}>
-          <FormGroup className="mb-0">
-            <Label className="mb-1 small fw-semibold">Boleta / factura / venta</Label>
-            <Input
-              type="text"
-              bsSize="sm"
-              placeholder="Nº boleta, factura o venta…"
-              value={filters.referenceTerm}
-              onChange={(e) => setFilter("referenceTerm", e.target.value)}
-            />
-          </FormGroup>
-        </Col>
-        <Col md={1}>
-          <FormGroup className="mb-0">
-            <Label className="mb-1 small fw-semibold">Talla</Label>
-            <Input
-              type="text"
-              bsSize="sm"
-              placeholder="Ej. 32"
-              value={filters.sizeKey}
-              onChange={(e) => setFilter("sizeKey", e.target.value)}
-            />
-          </FormGroup>
-        </Col>
-        <Col md={3} className="d-flex gap-2">
-          <Button
-            color="primary"
-            size="sm"
-            onClick={handleConsultar}
-            disabled={loadingStocks || loadingMovements}
-          >
-            {loadingStocks || loadingMovements ? <Spinner size="sm" /> : "Consultar"}
-          </Button>
-          <Button color="secondary" size="sm" outline onClick={handleClear}>
-            Limpiar
-          </Button>
+    <div className="content kll kma">
+      {/* ───────── Encabezado ───────── */}
+      <div className="kll-head">
+        <div className="kll-title">
+          <div className="kll-title-icon"><i className="nc-icon nc-paper" /></div>
+          <div>
+            <h4>
+              Movimientos de Kioscos
+              {canEdit ? (
+                <span className="kll-lock">edición de tipo</span>
+              ) : (
+                <span className="kma-readonly">solo consulta</span>
+              )}
+            </h4>
+            <small>Kardex por producto, color y talla</small>
+          </div>
+        </div>
+        <div className="kll-head-actions">
           <Button
             color="secondary"
-            size="sm"
             outline
+            size="sm"
             onClick={() => {
               loadStocks();
               loadMovements();
             }}
-            disabled={!filters.locationId || loadingStocks || loadingMovements}
+            disabled={!filters.locationId || busy}
           >
-            Refrescar
+            <i className="nc-icon nc-refresh-69 mr-1" /> Refrescar
           </Button>
-        </Col>
-      </Row>
+        </div>
+      </div>
 
-      {entreCueros && stocks.length > 0 && variantFilterOptions.length > 0 && (
-        <Row className="mb-3">
-          <Col md={12}>
-            <Label className="mb-1 small fw-semibold">Variante / marca</Label>
-            <div className="d-flex flex-wrap" style={{ gap: 6 }}>
-              <ProductBrandFilterChip
-                label="Todas"
-                active={!variantFilter}
-                onClick={() => setVariantFilter("")}
+      <div className="kma-note">
+        <i className="nc-icon nc-alert-circle-i" aria-hidden="true" />
+        <div>
+          El ingreso de un cambio (con o sin diferencia) sale en <b>Compra</b> del conteo. El egreso va a{" "}
+          <b>Venta</b> solo si hay diferencia a cobrar; sin diferencia o con saldo a favor del cliente, a{" "}
+          <b>Salida</b>.
+          {canEdit
+            ? " El select de tipo guarda y recalcula stock."
+            : " Solo lectura (pide corrección de tipo a quien edita el ledger)."}
+        </div>
+      </div>
+
+      {/* ───────── Filtros ───────── */}
+      <div className="kll-card">
+        <div className="kll-filters">
+          <Row className="align-items-end">
+            <Col lg={4} md={12} className="mb-2">
+              <FieldLabel>Kiosko</FieldLabel>
+              <FilterableSelect
+                options={kioskOptions}
+                value={String(filters.locationId)}
+                onChange={(v) => {
+                  setFilter("locationId", v || "");
+                  setSelectedStockId(null);
+                  setVariantFilter("");
+                  setStocks([]);
+                  setMovements([]);
+                }}
+                placeholder="Selecciona kiosko…"
               />
-              {variantFilterOptions.map((opt) => (
-                <ProductBrandFilterChip
-                  key={opt.value}
-                  value={opt.value}
-                  label={opt.label}
-                  active={variantFilter === opt.value}
-                  onClick={() =>
-                    setVariantFilter((prev) => (prev === opt.value ? "" : opt.value))
-                  }
-                />
-              ))}
-            </div>
-          </Col>
-        </Row>
-      )}
+            </Col>
+            <Col lg={4} md={6} className="mb-2">
+              <FieldLabel>Producto</FieldLabel>
+              <ProductSelector
+                products={products}
+                value={filters.productId || null}
+                onChange={(product) => {
+                  setFilter("productId", product?.id != null ? String(product.id) : "");
+                  setSelectedStockId(null);
+                }}
+                placeholder="Buscar producto…"
+              />
+            </Col>
+            <Col lg={4} md={6} className="mb-2">
+              <FieldLabel>Color</FieldLabel>
+              <ColorSelector
+                colors={colors}
+                value={filters.colorId || null}
+                onChange={(color) => {
+                  setFilter("colorId", color?.id != null ? String(color.id) : "");
+                  setSelectedStockId(null);
+                }}
+                placeholder="Buscar color…"
+              />
+            </Col>
+          </Row>
+          <Row className="align-items-end">
+            <Col lg={3} md={6} className="mb-2">
+              <FieldLabel>Tipo de movimiento</FieldLabel>
+              <FilterableSelect
+                options={MOVEMENT_TYPE_OPTIONS}
+                value={filters.type}
+                onChange={(v) => setFilter("type", v)}
+                placeholder="Tipo…"
+              />
+            </Col>
+            <Col lg={2} md={3} xs={6} className="mb-2">
+              <FieldLabel>Desde</FieldLabel>
+              <Input
+                type="date"
+                bsSize="sm"
+                value={filters.from}
+                onChange={(e) => setFilter("from", e.target.value)}
+              />
+            </Col>
+            <Col lg={2} md={3} xs={6} className="mb-2">
+              <FieldLabel>Hasta</FieldLabel>
+              <Input
+                type="date"
+                bsSize="sm"
+                value={filters.to}
+                onChange={(e) => setFilter("to", e.target.value)}
+              />
+            </Col>
+            <Col lg={3} md={8} className="mb-2">
+              <FieldLabel>Boleta / factura / venta</FieldLabel>
+              <Input
+                type="text"
+                bsSize="sm"
+                placeholder="Nº boleta, factura o venta…"
+                value={filters.referenceTerm}
+                onChange={(e) => setFilter("referenceTerm", e.target.value)}
+                onKeyDown={consultOnEnter}
+              />
+            </Col>
+            <Col lg={2} md={4} className="mb-2">
+              <FieldLabel>Talla</FieldLabel>
+              <Input
+                type="text"
+                bsSize="sm"
+                placeholder="Ej. 32"
+                value={filters.sizeKey}
+                onChange={(e) => setFilter("sizeKey", e.target.value)}
+                onKeyDown={consultOnEnter}
+              />
+            </Col>
+          </Row>
 
-      <Row>
-        <Col md={4} style={{ maxHeight: "70vh", overflow: "auto" }}>
-          <div className="d-flex justify-content-between align-items-center mb-1">
-            <strong>
-              Inventario ({visibleStocks.length}
-              {variantFilter && visibleStocks.length !== stocks.length ? ` de ${stocks.length}` : ""})
-            </strong>
-            {loadingStocks && <Spinner size="sm" />}
-          </div>
-          <Table size="sm" hover bordered responsive className="mb-0">
-            <thead>
-              <tr>
-                <th>Producto</th>
-                <th>Color</th>
-                <th>Cant.</th>
-                <th>Tallas</th>
-              </tr>
-            </thead>
-            <tbody>
-              {visibleStocks.map((s) => (
-                <tr
-                  key={s.id}
-                  style={{
-                    cursor: "pointer",
-                    background:
-                      String(selectedStockId) === String(s.id)
-                        ? "rgba(54,162,235,0.15)"
-                        : undefined,
-                  }}
-                  onClick={() => {
-                    setSelectedStockId(s.id);
-                    loadMovements({ stockId: s.id });
-                  }}
-                >
-                  <td>
-                    <div>
-                      <span className="font-weight-bold">{s.codigoProducto}</span>
-                      {" "}
-                      <small className="text-muted">{s.producto}</small>
-                      <ProductBrandBadge value={s.herraje} entreCueros={entreCueros} />
-                    </div>
-                  </td>
-                  <td>{s.color || "—"}</td>
-                  <td>{s.cantidad}</td>
-                  <td>
-                    <small>{sizesSummary(s)}</small>
-                  </td>
-                </tr>
-              ))}
-              {!loadingStocks && visibleStocks.length === 0 && (
-                <tr>
-                  <td colSpan={4} className="text-muted text-center">
-                    {filters.locationId
-                      ? variantFilter
-                        ? "Ninguna fila coincide con esa marca o variante."
-                        : "Sin filas. Pulsa Consultar."
-                      : "Selecciona un kiosko."}
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </Table>
-          {selectedStock && (
-            <div className="mt-2 p-2 border rounded bg-light">
-              <div>
-                <strong>{selectedStock.codigoProducto}</strong>
-                {" · "}
-                {selectedStock.color || "sin color"}
-                {" "}
-                <ProductBrandBadge value={selectedStock.herraje} entreCueros={entreCueros} />
-              </div>
-              <div>
-                Stock actual: {selectedStock.cantidad}
-                {selectedStock.minimo != null ? ` · Mín. ${selectedStock.minimo}` : ""}
-              </div>
-              <div>
-                <small>Tallas: {sizesSummary(selectedStock)}</small>
+          {entreCueros && stocks.length > 0 && variantFilterOptions.length > 0 && (
+            <div className="kma-variants">
+              <FieldLabel>Variante / marca</FieldLabel>
+              <div className="d-flex flex-wrap" style={{ gap: 6 }}>
+                <ProductBrandFilterChip
+                  label="Todas"
+                  active={!variantFilter}
+                  onClick={() => setVariantFilter("")}
+                />
+                {variantFilterOptions.map((opt) => (
+                  <ProductBrandFilterChip
+                    key={opt.value}
+                    value={opt.value}
+                    label={opt.label}
+                    active={variantFilter === opt.value}
+                    onClick={() =>
+                      setVariantFilter((prev) => (prev === opt.value ? "" : opt.value))
+                    }
+                  />
+                ))}
               </div>
             </div>
           )}
+
+          <div className="kll-filter-foot kma-filter-foot">
+            <div className="kma-filter-actions">
+              <Button color="primary" size="sm" onClick={handleConsultar} disabled={busy}>
+                {busy ? <Spinner size="sm" /> : <><i className="nc-icon nc-zoom-split mr-1" /> Consultar</>}
+              </Button>
+              {hasAnyFilter && (
+                <button type="button" className="kll-link" onClick={handleClear}>
+                  Limpiar filtros
+                </button>
+              )}
+            </div>
+            <span className="kll-muted kma-hint">Enter en boleta o talla también consulta</span>
+          </div>
+        </div>
+      </div>
+
+      <Row>
+        {/* ───────── Inventario ───────── */}
+        <Col xl={4} lg={5}>
+          <div className="kll-card">
+            <div className="kll-card-head">
+              <div className="kll-card-title">
+                Inventario{" "}
+                <span className="kll-count">
+                  {visibleStocks.length}
+                  {variantFilter && visibleStocks.length !== stocks.length ? ` de ${stocks.length}` : ""}
+                </span>
+              </div>
+              {loadingStocks && <Spinner size="sm" color="primary" />}
+            </div>
+
+            {selectedStock && (
+              <div className="kll-para-panel kma-selected">
+                <div className="kll-para-head">
+                  <div>
+                    <div className="kll-para-name">
+                      {selectedStock.codigoProducto}
+                      {" "}
+                      <ProductBrandBadge value={selectedStock.herraje} entreCueros={entreCueros} />
+                    </div>
+                    <div className="kll-para-meta">
+                      <span>{selectedStock.producto}</span>
+                      <span>· {selectedStock.color || "sin color"}</span>
+                    </div>
+                  </div>
+                  <div className="kma-stock-now">
+                    <span className="kll-label">Stock actual</span>
+                    <b>{selectedStock.cantidad}</b>
+                    {selectedStock.minimo != null && (
+                      <small className="kll-muted">Mín. {selectedStock.minimo}</small>
+                    )}
+                  </div>
+                </div>
+                {selectedSizeEntries.length > 0 ? (
+                  <div className="kll-size-chips">
+                    {selectedSizeEntries.map(([k, v]) => (
+                      <span key={k} className="kll-size-chip kma-static">
+                        <b>{k}</b>
+                        <span>×{v}</span>
+                      </span>
+                    ))}
+                  </div>
+                ) : (
+                  <span className="kll-muted">Tallas: {sizesSummary(selectedStock)}</span>
+                )}
+              </div>
+            )}
+
+            <div className={`kll-scroll stocks${loadingStocks ? " kll-loading" : ""}`}>
+              <table className="kll-table">
+                <thead>
+                  <tr>
+                    <th>Producto</th>
+                    <th>Color</th>
+                    <th className="num">Cant.</th>
+                    <th>Tallas</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {visibleStocks.map((s) => {
+                    const qty = Number(s.cantidad);
+                    const sizeEntries = sortedSizeEntries(s);
+                    return (
+                      <tr
+                        key={s.id}
+                        className={`clickable${String(selectedStockId) === String(s.id) ? " selected" : ""}`}
+                        onClick={() => {
+                          setSelectedStockId(s.id);
+                          loadMovements({ stockId: s.id });
+                        }}
+                      >
+                        <td>
+                          <div className="kll-prod">
+                            {s.codigoProducto}
+                            {" "}
+                            <ProductBrandBadge value={s.herraje} entreCueros={entreCueros} />
+                          </div>
+                          <div className="kll-prod-sub" title={s.producto}>{s.producto}</div>
+                        </td>
+                        <td>{s.color || <span className="kll-muted">—</span>}</td>
+                        <td className="num">
+                          <span className={`kll-qty${qty === 0 ? " zero" : ""}${qty < 0 ? " neg" : ""}`}>
+                            {s.cantidad}
+                          </span>
+                        </td>
+                        <td>
+                          {sizeEntries.length > 0 ? (
+                            <div className="kll-mini-sizes" title={sizesSummary(s)}>
+                              {sizeEntries.slice(0, 6).map(([k, v]) => (
+                                <span key={k}><b>{k}</b>×{v}</span>
+                              ))}
+                              {sizeEntries.length > 6 && <em>+{sizeEntries.length - 6}</em>}
+                            </div>
+                          ) : (
+                            <span className="kll-muted">—</span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+              {!loadingStocks && visibleStocks.length === 0 && (
+                <EmptyState
+                  icon="nc-tag"
+                  title={filters.locationId ? "Sin filas" : "Elige un kiosko"}
+                  text={filters.locationId
+                    ? variantFilter
+                      ? "Ninguna fila coincide con esa marca o variante."
+                      : "Pulsa Consultar para cargar el inventario."
+                    : "Selecciona un kiosko para ver su inventario."}
+                />
+              )}
+            </div>
+          </div>
         </Col>
 
-        <Col md={8} style={{ maxHeight: "70vh", overflow: "auto" }}>
-          <div className="d-flex justify-content-between align-items-center mb-1">
-            <strong>
-              Movimientos ({movements.length})
-              {selectedStock
-                ? ` · ${selectedStock.codigoProducto} / ${selectedStock.color || "sin color"}`
-                : filters.locationId
-                  ? " · kiosko completo (o filtra con producto/color)"
-                  : ""}
-            </strong>
-            {loadingMovements && <Spinner size="sm" />}
-          </div>
-          <div style={{ overflowX: "auto" }}>
-            <Table size="sm" hover bordered responsive className="mb-0" style={{ fontSize: "0.8rem" }}>
-              <thead className="table-light sticky-top">
-                <tr>
-                  <th>Fecha</th>
-                  <th>Tipo</th>
-                  <th className="text-end">Cant.</th>
-                  <th>Talla</th>
-                  <th className="text-end">Antes</th>
-                  <th className="text-end">Después</th>
-                  <th className="text-end">Antes talla</th>
-                  <th className="text-end">Después talla</th>
-                  <th>Ref. / boleta / factura</th>
-                  <th className="text-end">Total</th>
-                  <th>Pago</th>
-                  <th>Motivo</th>
-                  <th>Usuario</th>
-                </tr>
-              </thead>
-              <tbody>
-                {movements.map((m) => (
-                  <tr key={m.id}>
-                    <td style={{ whiteSpace: "nowrap" }}>
-                      <small>{formatDateTimeGt(m.fecha)}</small>
-                    </td>
-                    <td>
-                      {canEdit ? (
-                        <Input
-                          type="select"
-                          bsSize="sm"
-                          value={normalizeKioscoMovementType(m.tipoMovimiento)}
-                          disabled={savingTypeId === m.id}
-                          onChange={(e) => void handleTypeChange(m, e.target.value)}
-                          style={{ minWidth: 150, fontSize: "0.75rem" }}
-                        >
-                          {Object.entries(KIOSCO_MOVEMENT_TYPE_LABELS).map(([value, label]) => (
-                            <option key={value} value={value}>{label}</option>
-                          ))}
-                        </Input>
-                      ) : (
-                        <Badge color={TYPE_BADGE[normalizeKioscoMovementType(m.tipoMovimiento)] || "secondary"} pill>
-                          {getKioscoMovementTypeLabel(m.tipoMovimiento, {
-                            stockBefore: m.stockAntes,
-                            stockAfter: m.stockDespues,
-                          })}
-                        </Badge>
-                      )}
-                    </td>
-                    <td className="text-end fw-semibold">{m.cantidad ?? "—"}</td>
-                    <td>{m.talla || "—"}</td>
-                    <td className="text-end text-muted">{m.stockAntes ?? "—"}</td>
-                    <td className="text-end text-muted">{m.stockDespues ?? "—"}</td>
-                    <td className="text-end">
-                      {m.talla ? (m.stockAntesTalla != null ? m.stockAntesTalla : "—") : "—"}
-                    </td>
-                    <td className="text-end">
-                      {m.talla ? (m.stockDespuesTalla != null ? m.stockDespuesTalla : "—") : "—"}
-                    </td>
-                    <td>
-                      <div>
-                        <small>
-                          {m.resumenReferencia
-                            || m.numeroInternoFactura
-                            || m.boletaFisica
-                            || m.referencia
-                            || "—"}
-                        </small>
-                      </div>
-                      {m.numeroInternoFactura && (
-                        <div>
-                          <small className="fw-semibold">{m.numeroInternoFactura}</small>
-                        </div>
-                      )}
-                      {m.boletaFisica && (
-                        <Badge color="light" className="text-dark">
-                          Boleta {m.boletaFisica}
-                        </Badge>
-                      )}
-                      {m.tipoReferencia && (
-                        <Badge color="light" className="text-dark ms-1">
-                          {m.tipoReferencia}
-                        </Badge>
-                      )}
-                    </td>
-                    <td className="text-end">
-                      {m.totalVenta != null ? `Q ${Number(m.totalVenta).toFixed(2)}` : "—"}
-                    </td>
-                    <td>
-                      <div>{m.formaPago || "—"}</div>
-                      <CardPaymentDetail
-                        auth={m.cardAuthNumber}
-                        last4={m.cardLast4}
-                        brand={m.cardBrand}
-                        voucherAmount={m.cardVoucherAmount}
-                        voucherDiff={m.cardVoucherDifference}
-                        auth2={m.card2AuthNumber}
-                        last4_2={m.card2Last4}
-                        brand2={m.card2Brand}
-                        voucherAmount2={m.card2VoucherAmount}
-                        voucherDiff2={m.card2VoucherDifference}
-                      />
-                    </td>
-                    <td>
-                      <small className="text-muted">{m.motivo || "—"}</small>
-                    </td>
-                    <td>{m.usuario || "—"}</td>
-                  </tr>
-                ))}
-                {!loadingMovements && movements.length === 0 && (
-                  <tr>
-                    <td colSpan={13} className="text-muted text-center py-3">
-                      {filters.locationId
-                        ? "Sin movimientos. Consulta o selecciona un producto/color a la izquierda."
-                        : "Selecciona un kiosko para comenzar."}
-                    </td>
-                  </tr>
+        {/* ───────── Movimientos ───────── */}
+        <Col xl={8} lg={7}>
+          <div className="kll-card">
+            <div className="kll-card-head">
+              <div className="kll-card-title">
+                Movimientos <span className="kll-count">{movements.length}</span>
+                {selectedStock ? (
+                  <span className="kll-scope">
+                    {selectedStock.codigoProducto} / {selectedStock.color || "sin color"}
+                    <button
+                      type="button"
+                      title="Ver todo el kiosko"
+                      aria-label="Quitar el producto seleccionado"
+                      onClick={clearSelectedStock}
+                    >
+                      ×
+                    </button>
+                  </span>
+                ) : (
+                  filters.locationId && <span className="kll-sub">kiosko completo · filtra o elige un producto</span>
                 )}
-              </tbody>
-            </Table>
+              </div>
+              <div className="kma-head-right">
+                {(movementTotals.entran > 0 || movementTotals.salen > 0) && (
+                  <span className="kma-totals" title="Unidades según stock antes → después">
+                    {movementTotals.entran > 0 && <span className="kll-delta up">+{movementTotals.entran}</span>}
+                    {movementTotals.salen > 0 && <span className="kll-delta down">−{movementTotals.salen}</span>}
+                  </span>
+                )}
+                {loadingMovements && <Spinner size="sm" color="primary" />}
+              </div>
+            </div>
+
+            <div className={`kll-scroll moves${loadingMovements ? " kll-loading" : ""}`}>
+              <table className="kll-table kma-moves">
+                <thead>
+                  <tr>
+                    <th>Fecha</th>
+                    <th>Tipo</th>
+                    <th className="num">Cant.</th>
+                    <th>Stock</th>
+                    <th>Talla</th>
+                    <th>Ref. / boleta / factura</th>
+                    <th className="num">Total</th>
+                    <th>Pago</th>
+                    <th>Motivo</th>
+                    <th>Usuario</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {movements.map((m) => {
+                    const type = normalizeKioscoMovementType(m.tipoMovimiento);
+                    const tone = KIOSCO_MOVEMENT_TYPE_TONE[type] || "adj";
+                    const stockDelta = deltaOf(m.stockAntes, m.stockDespues);
+                    const hasSizeFlow = m.talla && (m.stockAntesTalla != null || m.stockDespuesTalla != null);
+                    const refMain = m.resumenReferencia || m.numeroInternoFactura || m.boletaFisica || m.referencia;
+                    return (
+                      <tr key={m.id}>
+                        <td className="kma-date">
+                          <div>{formatDateTimeGt(m.fecha)}</div>
+                          <div className="kll-muted kll-mono">#{m.id}</div>
+                        </td>
+                        <td>
+                          {canEdit ? (
+                            <span className={`kll-type ${tone}`}>
+                              <select
+                                value={type}
+                                disabled={savingTypeId === m.id}
+                                onChange={(e) => void handleTypeChange(m, e.target.value)}
+                                aria-label={`Tipo del movimiento ${m.id}`}
+                              >
+                                {Object.entries(KIOSCO_MOVEMENT_TYPE_LABELS).map(([value, label]) => (
+                                  <option key={value} value={value}>{label}</option>
+                                ))}
+                              </select>
+                            </span>
+                          ) : (
+                            <span className={`kma-type ${tone}`}>
+                              {getKioscoMovementTypeLabel(m.tipoMovimiento, {
+                                stockBefore: m.stockAntes,
+                                stockAfter: m.stockDespues,
+                              })}
+                            </span>
+                          )}
+                        </td>
+                        <td className="num"><b>{m.cantidad ?? "—"}</b></td>
+                        <td>
+                          <span className="kll-flow">
+                            {m.stockAntes ?? "—"}
+                            <span className="arrow">→</span>
+                            <b>{m.stockDespues ?? "—"}</b>
+                            {stockDelta != null && (
+                              <span className={`kll-delta ${stockDelta > 0 ? "up" : stockDelta < 0 ? "down" : "flat"}`}>
+                                {stockDelta > 0 ? `+${stockDelta}` : stockDelta}
+                              </span>
+                            )}
+                          </span>
+                        </td>
+                        <td>
+                          {m.talla ? (
+                            <>
+                              <span className="kll-size-tag">{m.talla}</span>
+                              {hasSizeFlow && (
+                                <div className="kll-flow kll-muted kma-size-flow">
+                                  {m.stockAntesTalla ?? "—"}
+                                  <span className="arrow">→</span>
+                                  {m.stockDespuesTalla ?? "—"}
+                                </div>
+                              )}
+                            </>
+                          ) : (
+                            <span className="kll-muted">—</span>
+                          )}
+                        </td>
+                        <td>
+                          <div className="kll-ref">{refMain || <span className="kll-muted">—</span>}</div>
+                          {m.numeroInternoFactura && m.numeroInternoFactura !== refMain && (
+                            <div className="kll-mono kma-invoice">{m.numeroInternoFactura}</div>
+                          )}
+                          <div className="kma-ref-tags">
+                            {m.boletaFisica && <span className="kll-ref-type">Boleta {m.boletaFisica}</span>}
+                            {m.tipoReferencia && <span className="kll-ref-type">{m.tipoReferencia}</span>}
+                          </div>
+                        </td>
+                        <td className="num kma-money">
+                          {m.totalVenta != null ? formatMoney(m.totalVenta) : <span className="kll-muted">—</span>}
+                        </td>
+                        <td>
+                          <div className="kma-pay">{m.formaPago || <span className="kll-muted">—</span>}</div>
+                          <CardPaymentDetail
+                            auth={m.cardAuthNumber}
+                            last4={m.cardLast4}
+                            brand={m.cardBrand}
+                            voucherAmount={m.cardVoucherAmount}
+                            voucherDiff={m.cardVoucherDifference}
+                            auth2={m.card2AuthNumber}
+                            last4_2={m.card2Last4}
+                            brand2={m.card2Brand}
+                            voucherAmount2={m.card2VoucherAmount}
+                            voucherDiff2={m.card2VoucherDifference}
+                          />
+                        </td>
+                        <td>
+                          <div className="kll-reason" title={m.motivo || ""}>{m.motivo || "—"}</div>
+                        </td>
+                        <td>{m.usuario || <span className="kll-muted">—</span>}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+              {!loadingMovements && movements.length === 0 && (
+                <EmptyState
+                  icon="nc-paper"
+                  title="Sin movimientos"
+                  text={filters.locationId
+                    ? "Consulta o selecciona un producto/color a la izquierda."
+                    : "Selecciona un kiosko para comenzar."}
+                />
+              )}
+            </div>
           </div>
         </Col>
       </Row>

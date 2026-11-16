@@ -1,19 +1,19 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  Alert,
-  Badge,
   Button,
   Col,
-  FormGroup,
+  Collapse,
+  DropdownItem,
+  DropdownMenu,
+  DropdownToggle,
   Input,
-  Label,
   Modal,
   ModalBody,
   ModalFooter,
   ModalHeader,
   Row,
   Spinner,
-  Table,
+  UncontrolledDropdown,
 } from "reactstrap";
 import { FilterableSelect } from "components/distribution/FilterableSelect";
 import { useAuth } from "contexts/AuthContext";
@@ -31,6 +31,14 @@ import {
 } from "services/productLedgerLabService";
 import { formatDateTimeGt } from "utils/dateTimeHelper";
 import { showError, showSuccess } from "utils/notificationHelper";
+import {
+  movementDelta,
+  productMovementTypeLabel,
+  productMovementTypeTone,
+  sortedNonZeroSizeEntries,
+} from "utils/productMovementHelper";
+import "views/kiosks/KioskLedgerLab.css";
+import "views/accounting/KioskMovementsAccounting.css";
 
 const ALLOWED_USERNAME = "eramirez";
 
@@ -51,23 +59,54 @@ const MOVEMENT_TYPE_OPTIONS = [
   { value: "", label: "Todos los tipos", searchText: "todos" },
   ...PRODUCT_MOVEMENT_TYPES.map((value) => ({
     value,
-    label: value,
-    searchText: value,
+    label: productMovementTypeLabel(value),
+    searchText: `${productMovementTypeLabel(value)} ${value}`,
   })),
 ];
 
-const TYPE_BADGE = {
-  PRODUCTION_ENTRY: "success",
-  TRANSFER_IN: "success",
-  RETURN: "info",
-  ADJUSTMENT: "secondary",
-  TRANSFER_OUT: "warning",
-  SHIPMENT: "warning",
-  ONLINE_SALE_DISPATCH: "primary",
-  SALE_EXIT: "primary",
-  SHIPMENT_REVERSAL: "info",
-  ONLINE_SALE_DISPATCH_REVERSAL: "info",
+const EMPTY_FILTERS = {
+  locationId: "",
+  productTerm: "",
+  stockId: "",
+  type: "",
+  sizeLabel: "",
+  from: "",
+  to: "",
+  referenceTerm: "",
+  description: "",
+  movementId: "",
 };
+
+const ADVANCED_FILTER_KEYS = ["type", "sizeLabel", "from", "to", "movementId", "referenceTerm", "description"];
+
+function IconButton({ icon, title, onClick, disabled, danger }) {
+  return (
+    <button
+      type="button"
+      className={`kll-icon-btn${danger ? " danger" : ""}`}
+      title={title}
+      aria-label={title}
+      onClick={onClick}
+      disabled={disabled}
+    >
+      <i className={`nc-icon ${icon}`} />
+    </button>
+  );
+}
+
+function FieldLabel({ children }) {
+  return <span className="kll-label">{children}</span>;
+}
+
+function EmptyState({ icon, title, text }) {
+  return (
+    <div className="kll-empty">
+      <div className="kll-empty-icon"><i className={`nc-icon ${icon}`} /></div>
+      <strong>{title}</strong>
+      <span>{text}</span>
+    </div>
+  );
+}
 
 const EMPTY_MOVEMENT_FORM = {
   stockId: "",
@@ -167,18 +206,8 @@ export default function ProductLedgerLab() {
   const allowed = username === ALLOWED_USERNAME;
 
   const [locations, setLocations] = useState([]);
-  const [filters, setFilters] = useState({
-    locationId: "",
-    productTerm: "",
-    stockId: "",
-    type: "",
-    sizeLabel: "",
-    from: "",
-    to: "",
-    referenceTerm: "",
-    description: "",
-    movementId: "",
-  });
+  const [filters, setFilters] = useState(EMPTY_FILTERS);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
   const [stocks, setStocks] = useState([]);
   const [movements, setMovements] = useState([]);
   const [selectedStockId, setSelectedStockId] = useState(null);
@@ -214,6 +243,13 @@ export default function ProductLedgerLab() {
 
   const setFilter = (key, value) => {
     setFilters((prev) => ({ ...prev, [key]: value }));
+  };
+
+  const activeAdvancedCount = ADVANCED_FILTER_KEYS.filter((key) => Boolean(filters[key])).length;
+  const hasAnyFilter = Object.values(filters).some(Boolean);
+  const clearFilters = () => {
+    setFilters(EMPTY_FILTERS);
+    setSelectedStockId(null);
   };
 
   const loadStocks = useCallback(async () => {
@@ -443,368 +479,533 @@ export default function ProductLedgerLab() {
     return <AccessDenied />;
   }
 
+  const hasScope = Boolean(filters.locationId || filters.stockId);
+  const selectedSizeEntries = sortedNonZeroSizeEntries(selectedStock?.sizes);
+  const movementsScopeLabel = selectedStockId || filters.stockId
+    ? (selectedStock
+      ? `${selectedStock.productCode} / ${selectedStock.colorName || "sin color"}`
+      : "stock seleccionado")
+    : null;
+  const setFormField = (key) => (e) => setForm({ ...form, [key]: e.target.value });
+
   return (
-    <div className="content" style={{ fontSize: "0.85rem" }}>
-      <div className="d-flex align-items-center justify-content-between mb-2">
-        <div>
-          <h4 className="mb-0">Product Ledger Lab</h4>
-          <small className="text-muted">
-            Solo {ALLOWED_USERNAME} · cirugía product_inventory_kardex / product_inventory_location (PT + Devoluciones)
-          </small>
+    <div className="content kll kma">
+      {/* ───────── Encabezado ───────── */}
+      <div className="kll-head">
+        <div className="kll-title">
+          <div className="kll-title-icon"><i className="nc-icon nc-layout-11" /></div>
+          <div>
+            <h4>
+              Product Ledger Lab
+              <span className="kll-lock">solo {ALLOWED_USERNAME}</span>
+            </h4>
+            <small>Cirugía de product_inventory_kardex / product_inventory_location (PT + Devoluciones)</small>
+          </div>
         </div>
-        <div>
-          <Button color="secondary" size="sm" outline className="me-1" onClick={() => { loadStocks(); loadMovements(); }} disabled={saving}>
-            Refrescar
-          </Button>
-          <Button color="warning" size="sm" outline className="me-1" onClick={handleReplay} disabled={!selectedStockId || saving}>
-            Replay stock
-          </Button>
+        <div className="kll-head-actions">
           <Button
-            color="warning"
+            color="secondary"
+            outline
             size="sm"
-            className="me-1"
-            onClick={handleReplayAll}
-            disabled={!filters.locationId || saving}
-            title="Recalcula todos los stocks de la bodega seleccionada"
+            onClick={() => { loadStocks(); loadMovements(); }}
+            disabled={saving}
           >
-            Replay stock all
+            <i className="nc-icon nc-refresh-69 mr-1" /> Refrescar
           </Button>
-          <Button color="info" size="sm" outline className="me-1" onClick={openStockEditor} disabled={!selectedStock || saving}>
-            Editar stock
+          <UncontrolledDropdown>
+            <DropdownToggle color="warning" size="sm" caret disabled={saving}>
+              Replay
+            </DropdownToggle>
+            <DropdownMenu right>
+              <DropdownItem onClick={handleReplay} disabled={!selectedStockId}>
+                Stock seleccionado
+                <small>Recalcula quantity / sizes_data y before/after del stock marcado</small>
+              </DropdownItem>
+              <DropdownItem onClick={handleReplayAll} disabled={!filters.locationId}>
+                Toda la bodega
+                <small>Todos los stocks de la bodega seleccionada</small>
+              </DropdownItem>
+            </DropdownMenu>
+          </UncontrolledDropdown>
+          <Button color="info" outline size="sm" onClick={openStockEditor} disabled={!selectedStock || saving}>
+            <i className="nc-icon nc-ruler-pencil mr-1" /> Editar stock
           </Button>
           <Button color="primary" size="sm" onClick={openCreate} disabled={saving}>
-            + Movimiento
+            <i className="nc-icon nc-simple-add mr-1" /> Movimiento
           </Button>
         </div>
       </div>
 
-      <Alert color="warning" className="py-2 px-3 mb-2">
-        Mutaciones directas al ledger. Crear/editar/borrar movimiento hace <strong>Replay stock</strong> automático; el botón manual queda como recuperación.
-      </Alert>
+      <div className="kll-callout">
+        <i className="nc-icon nc-alert-circle-i" aria-hidden="true" />
+        <div>
+          Mutaciones directas al ledger. Crear/editar/borrar movimiento hace <strong>Replay stock</strong> automático;
+          el replay manual queda como recuperación.
+        </div>
+      </div>
 
-      <Row className="g-2 mb-2">
-        <Col md={3}>
-          <FilterableSelect
-            options={locationOptions}
-            value={filters.locationId}
-            onChange={(v) => {
-              setFilter("locationId", v || "");
-              setSelectedStockId(null);
-            }}
-            placeholder="Bodega"
-          />
-        </Col>
-        <Col md={2}>
-          <Input
-            bsSize="sm"
-            placeholder="Producto / código"
-            value={filters.productTerm}
-            onChange={(e) => setFilter("productTerm", e.target.value)}
-          />
-        </Col>
-        <Col md={1}>
-          <Input
-            bsSize="sm"
-            placeholder="stockId"
-            value={filters.stockId}
-            onChange={(e) => setFilter("stockId", e.target.value)}
-          />
-        </Col>
-        <Col md={2}>
-          <FilterableSelect
-            options={MOVEMENT_TYPE_OPTIONS}
-            value={filters.type}
-            onChange={(v) => setFilter("type", v || "")}
-            placeholder="Tipo"
-          />
-        </Col>
-        <Col md={1}>
-          <Input
-            bsSize="sm"
-            placeholder="Talla"
-            value={filters.sizeLabel}
-            onChange={(e) => setFilter("sizeLabel", e.target.value)}
-          />
-        </Col>
-        <Col md={1}>
-          <Input
-            bsSize="sm"
-            type="date"
-            value={filters.from}
-            onChange={(e) => setFilter("from", e.target.value)}
-          />
-        </Col>
-        <Col md={1}>
-          <Input
-            bsSize="sm"
-            type="date"
-            value={filters.to}
-            onChange={(e) => setFilter("to", e.target.value)}
-          />
-        </Col>
-        <Col md={1}>
-          <Input
-            bsSize="sm"
-            placeholder="movId"
-            value={filters.movementId}
-            onChange={(e) => setFilter("movementId", e.target.value)}
-          />
-        </Col>
-      </Row>
-      <Row className="g-2 mb-3">
-        <Col md={3}>
-          <Input
-            bsSize="sm"
-            placeholder="Ref / número"
-            value={filters.referenceTerm}
-            onChange={(e) => setFilter("referenceTerm", e.target.value)}
-          />
-        </Col>
-        <Col md={3}>
-          <Input
-            bsSize="sm"
-            placeholder="Description contains"
-            value={filters.description}
-            onChange={(e) => setFilter("description", e.target.value)}
-          />
-        </Col>
-      </Row>
+      {/* ───────── Filtros ───────── */}
+      <div className="kll-card">
+        <div className="kll-filters">
+          <Row className="align-items-end">
+            <Col lg={5} md={6} className="mb-2">
+              <FieldLabel>Bodega</FieldLabel>
+              <FilterableSelect
+                options={locationOptions}
+                value={filters.locationId}
+                onChange={(v) => {
+                  setFilter("locationId", v || "");
+                  setSelectedStockId(null);
+                }}
+                placeholder="Bodega"
+              />
+            </Col>
+            <Col lg={5} md={6} className="mb-2">
+              <FieldLabel>Producto / código</FieldLabel>
+              <Input
+                bsSize="sm"
+                placeholder="Buscar producto"
+                value={filters.productTerm}
+                onChange={(e) => setFilter("productTerm", e.target.value)}
+              />
+            </Col>
+            <Col lg={2} md={4} className="mb-2">
+              <FieldLabel>Stock ID</FieldLabel>
+              <Input
+                bsSize="sm"
+                placeholder="#"
+                value={filters.stockId}
+                onChange={(e) => setFilter("stockId", e.target.value)}
+              />
+            </Col>
+          </Row>
+
+          <Collapse isOpen={advancedOpen}>
+            <div className="kll-advanced">
+              <Row>
+                <Col lg={3} md={6} className="mb-2">
+                  <FieldLabel>Tipo de movimiento</FieldLabel>
+                  <FilterableSelect
+                    options={MOVEMENT_TYPE_OPTIONS}
+                    value={filters.type}
+                    onChange={(v) => setFilter("type", v || "")}
+                    placeholder="Todos los tipos"
+                  />
+                </Col>
+                <Col lg={2} md={3} xs={6} className="mb-2">
+                  <FieldLabel>Talla</FieldLabel>
+                  <Input
+                    bsSize="sm"
+                    placeholder="38"
+                    value={filters.sizeLabel}
+                    onChange={(e) => setFilter("sizeLabel", e.target.value)}
+                  />
+                </Col>
+                <Col lg={2} md={3} xs={6} className="mb-2">
+                  <FieldLabel>Desde</FieldLabel>
+                  <Input
+                    bsSize="sm"
+                    type="date"
+                    value={filters.from}
+                    onChange={(e) => setFilter("from", e.target.value)}
+                  />
+                </Col>
+                <Col lg={2} md={3} xs={6} className="mb-2">
+                  <FieldLabel>Hasta</FieldLabel>
+                  <Input
+                    bsSize="sm"
+                    type="date"
+                    value={filters.to}
+                    onChange={(e) => setFilter("to", e.target.value)}
+                  />
+                </Col>
+                <Col lg={3} md={3} xs={6} className="mb-2">
+                  <FieldLabel>Mov. ID</FieldLabel>
+                  <Input
+                    bsSize="sm"
+                    placeholder="#"
+                    value={filters.movementId}
+                    onChange={(e) => setFilter("movementId", e.target.value)}
+                  />
+                </Col>
+                <Col lg={6} md={6} className="mb-2">
+                  <FieldLabel>Referencia / número</FieldLabel>
+                  <Input
+                    bsSize="sm"
+                    placeholder="OP, envío, venta…"
+                    value={filters.referenceTerm}
+                    onChange={(e) => setFilter("referenceTerm", e.target.value)}
+                  />
+                </Col>
+                <Col lg={6} md={6} className="mb-2">
+                  <FieldLabel>Descripción contiene</FieldLabel>
+                  <Input
+                    bsSize="sm"
+                    placeholder="Texto de la descripción"
+                    value={filters.description}
+                    onChange={(e) => setFilter("description", e.target.value)}
+                  />
+                </Col>
+              </Row>
+            </div>
+          </Collapse>
+
+          <div className="kll-filter-foot">
+            <button type="button" className="kll-link" onClick={() => setAdvancedOpen((v) => !v)}>
+              {advancedOpen ? "Ocultar filtros avanzados" : "Más filtros"}
+              {activeAdvancedCount > 0 && <span className="kll-count">{activeAdvancedCount}</span>}
+            </button>
+            {hasAnyFilter && (
+              <button type="button" className="kll-link" onClick={clearFilters}>
+                Limpiar filtros
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
 
       <Row>
-        <Col md={4} style={{ maxHeight: "70vh", overflow: "auto" }}>
-          <div className="d-flex justify-content-between align-items-center mb-1">
-            <strong>Stock ({stocks.length})</strong>
-            {loadingStocks && <Spinner size="sm" />}
-          </div>
-          <Table size="sm" hover bordered responsive className="mb-0">
-            <thead>
-              <tr>
-                <th>Producto</th>
-                <th>Color</th>
-                <th>Qty</th>
-                <th>Tallas</th>
-              </tr>
-            </thead>
-            <tbody>
-              {stocks.map((s) => (
-                <tr
-                  key={s.id}
-                  style={{
-                    cursor: "pointer",
-                    background: String(selectedStockId) === String(s.id) ? "rgba(54,162,235,0.15)" : undefined,
-                  }}
-                  onClick={() => {
-                    setSelectedStockId(s.id);
-                    loadMovements({ stockId: s.id });
-                  }}
-                >
-                  <td>
-                    <div>{s.productCode}</div>
-                    <small className="text-muted">{s.productName}</small>
-                  </td>
-                  <td>{s.colorName || "—"}</td>
-                  <td>{s.quantity}</td>
-                  <td><small>{sizesSummary(s)}</small></td>
-                </tr>
-              ))}
-              {!loadingStocks && stocks.length === 0 && (
-                <tr>
-                  <td colSpan={4} className="text-muted text-center">
-                    Elige bodega o stockId
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </Table>
-          {selectedStock && (
-            <div className="mt-2 p-2 border rounded bg-light">
-              <div>
-                <strong>{selectedStock.productCode}</strong>
-                {" · "}
-                {selectedStock.colorName || "sin color"}
-                {" · loc "}
-                {selectedStock.locationId}
+        {/* ───────── Stock ───────── */}
+        <Col xl={4} lg={5}>
+          <div className="kll-card">
+            <div className="kll-card-head">
+              <div className="kll-card-title">
+                Stock <span className="kll-count">{stocks.length}</span>
               </div>
-              <div>qty={selectedStock.quantity} min={selectedStock.min}</div>
-              <div><small>sizes_data: {selectedStock.sizesData || "null"}</small></div>
+              {loadingStocks && <Spinner size="sm" color="primary" />}
             </div>
-          )}
+
+            {selectedStock && (
+              <div className="kll-para-panel kma-selected">
+                <div className="kll-para-head">
+                  <div>
+                    <div className="kll-para-name">{selectedStock.productCode}</div>
+                    <div className="kll-para-meta">
+                      <span className="kll-mono">#{selectedStock.id}</span>
+                      <span>{selectedStock.colorName || "sin color"}</span>
+                      <span>· loc {selectedStock.locationId}</span>
+                    </div>
+                  </div>
+                  <div className="kma-stock-now">
+                    <span className="kll-label">qty</span>
+                    <b>{selectedStock.quantity}</b>
+                    <small className="kll-muted">min {selectedStock.min ?? "—"}</small>
+                  </div>
+                </div>
+                {selectedSizeEntries.length > 0 && (
+                  <div className="kll-size-chips mb-2">
+                    {selectedSizeEntries.map(([k, v]) => (
+                      <span key={k} className={`kll-size-chip kma-static${Number(v) < 0 ? " kma-neg" : ""}`}>
+                        <b>{k}</b>
+                        <span>×{v}</span>
+                      </span>
+                    ))}
+                  </div>
+                )}
+                <div className="kll-mono kma-raw" title="sizes_data">
+                  sizes_data: {selectedStock.sizesData || "null"}
+                </div>
+              </div>
+            )}
+
+            <div className={`kll-scroll stocks${loadingStocks ? " kll-loading" : ""}`}>
+              <table className="kll-table">
+                <thead>
+                  <tr>
+                    <th>Producto</th>
+                    <th>Color</th>
+                    <th className="num">Qty</th>
+                    <th>Tallas</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {stocks.map((s) => {
+                    const qty = Number(s.quantity);
+                    const sizeEntries = sortedNonZeroSizeEntries(s.sizes);
+                    return (
+                      <tr
+                        key={s.id}
+                        className={`clickable${String(selectedStockId) === String(s.id) ? " selected" : ""}`}
+                        onClick={() => {
+                          setSelectedStockId(s.id);
+                          loadMovements({ stockId: s.id });
+                        }}
+                      >
+                        <td>
+                          <div className="kll-prod">{s.productCode}</div>
+                          <div className="kll-prod-sub" title={s.productName}>{s.productName}</div>
+                        </td>
+                        <td>{s.colorName || <span className="kll-muted">—</span>}</td>
+                        <td className="num">
+                          <span className={`kll-qty${qty === 0 ? " zero" : ""}${qty < 0 ? " neg" : ""}`}>
+                            {s.quantity}
+                          </span>
+                        </td>
+                        <td>
+                          {sizeEntries.length > 0 ? (
+                            <div className="kll-mini-sizes" title={sizesSummary(s)}>
+                              {sizeEntries.slice(0, 6).map(([k, v]) => (
+                                <span key={k} className={Number(v) < 0 ? "kma-neg" : undefined}><b>{k}</b>×{v}</span>
+                              ))}
+                              {sizeEntries.length > 6 && <em>+{sizeEntries.length - 6}</em>}
+                            </div>
+                          ) : (
+                            <span className="kll-muted">—</span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+              {!loadingStocks && stocks.length === 0 && (
+                <EmptyState
+                  icon="nc-tag"
+                  title={hasScope ? "Sin stock con esos filtros" : "Elige una bodega"}
+                  text={hasScope
+                    ? "Prueba quitando el filtro de producto."
+                    : "Selecciona una bodega (o escribe un stock ID) para ver sus filas."}
+                />
+              )}
+            </div>
+          </div>
         </Col>
 
-        <Col md={8} style={{ maxHeight: "70vh", overflow: "auto" }}>
-          <div className="d-flex justify-content-between align-items-center mb-1">
-            <strong>
-              Movimientos ({movements.length})
-              {selectedStockId || filters.stockId
-                ? ` · solo ${selectedStock
-                  ? `${selectedStock.productCode} / ${selectedStock.colorName || "sin color"}`
-                  : "stock seleccionado"}`
-                : filters.locationId
-                  ? " · toda la bodega"
-                  : ""}
-            </strong>
-            {loadingMovements && <Spinner size="sm" />}
-          </div>
-          <Table size="sm" hover bordered responsive className="mb-0">
-            <thead>
-              <tr>
-                <th>ID</th>
-                <th>Fecha</th>
-                <th>Tipo</th>
-                <th>Qty</th>
-                <th>Talla</th>
-                <th>Before</th>
-                <th>After</th>
-                <th>Before talla</th>
-                <th>After talla</th>
-                <th>Usuario</th>
-                <th>userId</th>
-                <th>Ref</th>
-                <th>Desc</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {movements.map((m) => {
-                const type = m.movementType || "";
-                return (
-                  <tr key={m.id}>
-                    <td><small>{m.id}</small></td>
-                    <td><small>{formatDateTimeGt(m.movementDate || m.createdAt)}</small></td>
-                    <td>
-                      <Badge color={TYPE_BADGE[type] || "light"}>{type || "—"}</Badge>
-                    </td>
-                    <td>{m.quantity}</td>
-                    <td>{m.sizeLabel || "—"}</td>
-                    <td>{m.quantityBefore}</td>
-                    <td>{m.quantityAfter}</td>
-                    <td>
-                      {m.sizeLabel
-                        ? (m.sizeStockBefore != null ? m.sizeStockBefore : "—")
-                        : "—"}
-                    </td>
-                    <td>
-                      {m.sizeLabel
-                        ? (m.sizeStockAfter != null ? m.sizeStockAfter : "—")
-                        : "—"}
-                    </td>
-                    <td><small>{m.username || "—"}</small></td>
-                    <td><small>{m.createdBy != null ? m.createdBy : "—"}</small></td>
-                    <td>
-                      <div>
-                        <small>
-                          {m.referenceNumber || (m.referenceId != null ? `#${m.referenceId}` : "—")}
-                        </small>
-                      </div>
-                      {m.referenceType && (
-                        <Badge color="light" className="text-dark">{m.referenceType}</Badge>
-                      )}
-                      <div><small className="text-muted">stock {m.stockId}</small></div>
-                    </td>
-                    <td><small>{m.description || "—"}</small></td>
-                    <td className="text-nowrap">
-                      <Button color="link" size="sm" className="p-0 me-2" onClick={() => openEdit(m)}>
-                        Edit
-                      </Button>
-                      <Button color="link" size="sm" className="p-0 text-danger" onClick={() => handleDeleteMovement(m)}>
-                        Del
-                      </Button>
-                    </td>
+        {/* ───────── Movimientos ───────── */}
+        <Col xl={8} lg={7}>
+          <div className="kll-card">
+            <div className="kll-card-head">
+              <div className="kll-card-title">
+                Movimientos <span className="kll-count">{movements.length}</span>
+                {movementsScopeLabel ? (
+                  <span className="kll-scope">
+                    {movementsScopeLabel}
+                    {selectedStockId && (
+                      <button
+                        type="button"
+                        title="Ver toda la bodega"
+                        aria-label="Quitar el stock seleccionado"
+                        onClick={() => setSelectedStockId(null)}
+                      >
+                        ×
+                      </button>
+                    )}
+                  </span>
+                ) : (
+                  filters.locationId && <span className="kll-sub">toda la bodega</span>
+                )}
+              </div>
+              {loadingMovements && <Spinner size="sm" color="primary" />}
+            </div>
+
+            <div className={`kll-scroll moves${loadingMovements ? " kll-loading" : ""}`}>
+              <table className="kll-table kma-lab-moves">
+                <thead>
+                  <tr>
+                    <th>Mov.</th>
+                    <th>Tipo</th>
+                    <th className="num">Qty</th>
+                    <th>Stock</th>
+                    <th>Talla</th>
+                    <th>Usuario</th>
+                    <th>Referencia</th>
+                    <th>Descripción</th>
+                    <th aria-label="Acciones" />
                   </tr>
-                );
-              })}
+                </thead>
+                <tbody>
+                  {movements.map((m) => {
+                    const type = m.movementType || "";
+                    const stockDelta = movementDelta(m.quantityBefore, m.quantityAfter);
+                    const hasSizeFlow = m.sizeLabel && (m.sizeStockBefore != null || m.sizeStockAfter != null);
+                    return (
+                      <tr key={m.id}>
+                        <td>
+                          <div className="kll-mono"><b>#{m.id}</b></div>
+                          <div className="kll-muted kma-small">
+                            {formatDateTimeGt(m.movementDate || m.createdAt)}
+                          </div>
+                        </td>
+                        <td>
+                          <span className={`kma-type ${productMovementTypeTone(type)}`}>
+                            {productMovementTypeLabel(type)}
+                          </span>
+                          {type && <div className="kll-muted kll-mono kma-code">{type}</div>}
+                        </td>
+                        <td className="num"><b>{m.quantity}</b></td>
+                        <td>
+                          <span className="kll-flow">
+                            {m.quantityBefore ?? "—"}
+                            <span className="arrow">→</span>
+                            <b>{m.quantityAfter ?? "—"}</b>
+                            {stockDelta != null && (
+                              <span className={`kll-delta ${stockDelta > 0 ? "up" : stockDelta < 0 ? "down" : "flat"}`}>
+                                {stockDelta > 0 ? `+${stockDelta}` : stockDelta}
+                              </span>
+                            )}
+                          </span>
+                        </td>
+                        <td>
+                          {m.sizeLabel ? (
+                            <>
+                              <span className="kll-size-tag">{m.sizeLabel}</span>
+                              {hasSizeFlow && (
+                                <div className="kll-flow kll-muted kma-size-flow">
+                                  {m.sizeStockBefore ?? "—"}
+                                  <span className="arrow">→</span>
+                                  {m.sizeStockAfter ?? "—"}
+                                </div>
+                              )}
+                            </>
+                          ) : (
+                            <span className="kll-muted">—</span>
+                          )}
+                        </td>
+                        <td>
+                          <div>{m.username || <span className="kll-muted">—</span>}</div>
+                          {m.createdBy != null && (
+                            <div className="kll-muted kll-mono">#{m.createdBy}</div>
+                          )}
+                        </td>
+                        <td>
+                          <div className="kll-ref">
+                            {m.referenceNumber || (m.referenceId != null ? `#${m.referenceId}` : "—")}
+                          </div>
+                          {m.referenceType && <span className="kll-ref-type">{m.referenceType}</span>}
+                          <div className="kll-muted kll-mono" title="stock_id">stock {m.stockId}</div>
+                        </td>
+                        <td>
+                          <div className="kll-reason" title={m.description || ""}>{m.description || "—"}</div>
+                        </td>
+                        <td>
+                          <div className="kll-row-actions">
+                            <IconButton icon="nc-ruler-pencil" title="Editar movimiento" onClick={() => openEdit(m)} />
+                            <IconButton
+                              icon="nc-simple-remove"
+                              title="Eliminar movimiento"
+                              danger
+                              onClick={() => handleDeleteMovement(m)}
+                            />
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
               {!loadingMovements && movements.length === 0 && (
-                <tr>
-                  <td colSpan={14} className="text-muted text-center">
-                    Sin movimientos
-                  </td>
-                </tr>
+                <EmptyState
+                  icon="nc-paper"
+                  title="Sin movimientos"
+                  text={hasScope || selectedStockId || filters.movementId
+                    ? "No hay movimientos con la selección y filtros actuales."
+                    : "Elige una bodega o un stock para ver su historial."}
+                />
               )}
-            </tbody>
-          </Table>
+            </div>
+          </div>
         </Col>
       </Row>
 
-      <Modal isOpen={editorOpen} toggle={() => !saving && setEditorOpen(false)} size="lg">
+      {/* ───────── Modal: movimiento ───────── */}
+      <Modal
+        isOpen={editorOpen}
+        toggle={() => !saving && setEditorOpen(false)}
+        size="lg"
+        className="kll kll-modal"
+      >
         <ModalHeader toggle={() => !saving && setEditorOpen(false)}>
           {editingId ? `Editar movimiento #${editingId}` : "Crear movimiento"}
         </ModalHeader>
         <ModalBody>
-          <Row className="g-2">
+          <div className="kll-section">Movimiento</div>
+          <Row>
             <Col md={4}>
-              <Label>stockId</Label>
-              <Input bsSize="sm" value={form.stockId} onChange={(e) => setForm({ ...form, stockId: e.target.value })} />
+              <FieldLabel>stockId</FieldLabel>
+              <Input bsSize="sm" value={form.stockId} onChange={setFormField("stockId")} />
             </Col>
             <Col md={4}>
-              <Label>movementType</Label>
+              <FieldLabel>movementType</FieldLabel>
               <Input
                 bsSize="sm"
                 list="product-ledger-lab-types"
                 value={form.movementType}
-                onChange={(e) => setForm({ ...form, movementType: e.target.value })}
+                onChange={setFormField("movementType")}
               />
               <datalist id="product-ledger-lab-types">
                 {PRODUCT_MOVEMENT_TYPES.map((t) => (
-                  <option key={t} value={t} />
+                  <option key={t} value={t}>{productMovementTypeLabel(t)}</option>
                 ))}
               </datalist>
             </Col>
             <Col md={4}>
-              <Label>quantity (firmada)</Label>
-              <Input bsSize="sm" value={form.quantity} onChange={(e) => setForm({ ...form, quantity: e.target.value })} />
+              <FieldLabel>quantity (firmada)</FieldLabel>
+              <Input bsSize="sm" value={form.quantity} onChange={setFormField("quantity")} />
+            </Col>
+          </Row>
+
+          <div className="kll-section">Cantidades</div>
+          <Row>
+            <Col md={3}>
+              <FieldLabel>sizeLabel</FieldLabel>
+              <Input bsSize="sm" value={form.sizeLabel} onChange={setFormField("sizeLabel")} />
             </Col>
             <Col md={3}>
-              <Label>sizeLabel</Label>
-              <Input bsSize="sm" value={form.sizeLabel} onChange={(e) => setForm({ ...form, sizeLabel: e.target.value })} />
+              <FieldLabel>quantityBefore</FieldLabel>
+              <Input bsSize="sm" value={form.quantityBefore} onChange={setFormField("quantityBefore")} />
             </Col>
             <Col md={3}>
-              <Label>quantityBefore</Label>
-              <Input bsSize="sm" value={form.quantityBefore} onChange={(e) => setForm({ ...form, quantityBefore: e.target.value })} />
+              <FieldLabel>quantityAfter</FieldLabel>
+              <Input bsSize="sm" value={form.quantityAfter} onChange={setFormField("quantityAfter")} />
             </Col>
             <Col md={3}>
-              <Label>quantityAfter</Label>
-              <Input bsSize="sm" value={form.quantityAfter} onChange={(e) => setForm({ ...form, quantityAfter: e.target.value })} />
+              <FieldLabel>createdBy</FieldLabel>
+              <Input bsSize="sm" value={form.createdBy} onChange={setFormField("createdBy")} />
+            </Col>
+          </Row>
+
+          <div className="kll-section">Referencia</div>
+          <Row>
+            <Col md={3}>
+              <FieldLabel>referenceType</FieldLabel>
+              <Input bsSize="sm" value={form.referenceType} onChange={setFormField("referenceType")} />
             </Col>
             <Col md={3}>
-              <Label>createdBy</Label>
-              <Input bsSize="sm" value={form.createdBy} onChange={(e) => setForm({ ...form, createdBy: e.target.value })} />
+              <FieldLabel>referenceId</FieldLabel>
+              <Input bsSize="sm" value={form.referenceId} onChange={setFormField("referenceId")} />
             </Col>
             <Col md={3}>
-              <Label>referenceType</Label>
-              <Input bsSize="sm" value={form.referenceType} onChange={(e) => setForm({ ...form, referenceType: e.target.value })} />
+              <FieldLabel>referenceNumber</FieldLabel>
+              <Input bsSize="sm" value={form.referenceNumber} onChange={setFormField("referenceNumber")} />
             </Col>
             <Col md={3}>
-              <Label>referenceId</Label>
-              <Input bsSize="sm" value={form.referenceId} onChange={(e) => setForm({ ...form, referenceId: e.target.value })} />
+              <FieldLabel>referenceLineId</FieldLabel>
+              <Input bsSize="sm" value={form.referenceLineId} onChange={setFormField("referenceLineId")} />
             </Col>
-            <Col md={3}>
-              <Label>referenceNumber</Label>
-              <Input bsSize="sm" value={form.referenceNumber} onChange={(e) => setForm({ ...form, referenceNumber: e.target.value })} />
-            </Col>
-            <Col md={3}>
-              <Label>referenceLineId</Label>
-              <Input bsSize="sm" value={form.referenceLineId} onChange={(e) => setForm({ ...form, referenceLineId: e.target.value })} />
-            </Col>
-            <Col md={3}>
-              <Label>movementDate</Label>
+          </Row>
+
+          <div className="kll-section">Fecha, costo y descripción</div>
+          <Row>
+            <Col md={4}>
+              <FieldLabel>movementDate</FieldLabel>
               <Input
                 bsSize="sm"
                 type="datetime-local"
                 value={form.movementDate}
-                onChange={(e) => setForm({ ...form, movementDate: e.target.value })}
+                onChange={setFormField("movementDate")}
               />
             </Col>
-            <Col md={3}>
-              <Label>unitCost</Label>
-              <Input bsSize="sm" value={form.unitCost} onChange={(e) => setForm({ ...form, unitCost: e.target.value })} />
+            <Col md={4}>
+              <FieldLabel>unitCost</FieldLabel>
+              <Input bsSize="sm" value={form.unitCost} onChange={setFormField("unitCost")} />
             </Col>
-            <Col md={3}>
-              <Label>totalCost</Label>
-              <Input bsSize="sm" value={form.totalCost} onChange={(e) => setForm({ ...form, totalCost: e.target.value })} />
+            <Col md={4}>
+              <FieldLabel>totalCost</FieldLabel>
+              <Input bsSize="sm" value={form.totalCost} onChange={setFormField("totalCost")} />
             </Col>
             <Col md={12}>
-              <Label>description</Label>
-              <Input bsSize="sm" type="textarea" rows={2} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
+              <FieldLabel>description</FieldLabel>
+              <Input bsSize="sm" type="textarea" rows={2} value={form.description} onChange={setFormField("description")} />
             </Col>
           </Row>
         </ModalBody>
@@ -818,29 +1019,45 @@ export default function ProductLedgerLab() {
         </ModalFooter>
       </Modal>
 
-      <Modal isOpen={stockEditorOpen} toggle={() => !saving && setStockEditorOpen(false)}>
+      {/* ───────── Modal: stock ───────── */}
+      <Modal
+        isOpen={stockEditorOpen}
+        toggle={() => !saving && setStockEditorOpen(false)}
+        className="kll kll-modal"
+      >
         <ModalHeader toggle={() => !saving && setStockEditorOpen(false)}>
           Editar stock #{selectedStockId}
         </ModalHeader>
         <ModalBody>
-          <FormGroup>
-            <Label>quantity</Label>
-            <Input bsSize="sm" value={stockForm.quantity} onChange={(e) => setStockForm({ ...stockForm, quantity: e.target.value })} />
-          </FormGroup>
-          <FormGroup>
-            <Label>min</Label>
-            <Input bsSize="sm" value={stockForm.min} onChange={(e) => setStockForm({ ...stockForm, min: e.target.value })} />
-          </FormGroup>
-          <FormGroup>
-            <Label>sizesData (JSON)</Label>
-            <Input
-              bsSize="sm"
-              type="textarea"
-              rows={4}
-              value={stockForm.sizesData}
-              onChange={(e) => setStockForm({ ...stockForm, sizesData: e.target.value })}
-            />
-          </FormGroup>
+          {selectedStock && (
+            <div className="kll-callout">
+              <i className="nc-icon nc-alert-circle-i" aria-hidden="true" />
+              <div>
+                {selectedStock.productCode} · {selectedStock.colorName || "sin color"} · loc {selectedStock.locationId}
+              </div>
+            </div>
+          )}
+          <Row>
+            <Col md={6}>
+              <FieldLabel>quantity</FieldLabel>
+              <Input bsSize="sm" value={stockForm.quantity} onChange={(e) => setStockForm({ ...stockForm, quantity: e.target.value })} />
+            </Col>
+            <Col md={6}>
+              <FieldLabel>min</FieldLabel>
+              <Input bsSize="sm" value={stockForm.min} onChange={(e) => setStockForm({ ...stockForm, min: e.target.value })} />
+            </Col>
+            <Col md={12}>
+              <FieldLabel>sizesData (JSON)</FieldLabel>
+              <Input
+                bsSize="sm"
+                type="textarea"
+                rows={4}
+                className="kll-mono"
+                value={stockForm.sizesData}
+                onChange={(e) => setStockForm({ ...stockForm, sizesData: e.target.value })}
+              />
+            </Col>
+          </Row>
         </ModalBody>
         <ModalFooter>
           <Button color="secondary" outline onClick={() => setStockEditorOpen(false)} disabled={saving}>

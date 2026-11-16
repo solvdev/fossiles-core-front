@@ -1,15 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import {
-  Badge,
-  Button,
-  Col,
-  FormGroup,
-  Input,
-  Label,
-  Row,
-  Spinner,
-  Table,
-} from "reactstrap";
+import { Button, Col, Input, Row, Spinner } from "reactstrap";
 import { ColorSelector, ProductSelector } from "components/catalog/FilterableCatalogSelectors";
 import { FilterableSelect } from "components/distribution/FilterableSelect";
 import { getColors } from "services/colorService";
@@ -27,38 +17,15 @@ import {
   openProductInventoryExistingPrintWindow,
   exportExistingProductInventoryExcel,
 } from "utils/productInventoryExistingPrintHtml";
-
-const PRODUCT_MOVEMENT_TYPE_LABELS = {
-  PRODUCTION_ENTRY: "Entrada por Producción",
-  SALE_EXIT: "Salida por Venta",
-  TRANSFER_IN: "Transferencia Entrada",
-  TRANSFER_OUT: "Transferencia Salida",
-  ADJUSTMENT: "Ajuste",
-  RETURN: "Devolución",
-  ONLINE_SALE_DISPATCH: "Despacho venta online",
-  ONLINE_SALE_DISPATCH_REVERSAL: "Anulación despacho online",
-  ONLINE_SALE_PREPARE: "Preparación venta online",
-  ONLINE_SALE_PREPARE_REVERSAL: "Anulación preparación online",
-  ONLINE_SALE_RETURN: "Devolución venta online",
-  SHIPMENT: "Envío",
-  SHIPMENT_REVERSAL: "Anulación envío",
-};
-
-const TYPE_BADGE = {
-  PRODUCTION_ENTRY: "success",
-  TRANSFER_IN: "success",
-  RETURN: "info",
-  ADJUSTMENT: "secondary",
-  TRANSFER_OUT: "warning",
-  SHIPMENT: "warning",
-  SHIPMENT_REVERSAL: "info",
-  ONLINE_SALE_DISPATCH: "primary",
-  ONLINE_SALE_DISPATCH_REVERSAL: "info",
-  ONLINE_SALE_PREPARE: "primary",
-  ONLINE_SALE_PREPARE_REVERSAL: "info",
-  ONLINE_SALE_RETURN: "info",
-  SALE_EXIT: "danger",
-};
+import {
+  movementDelta,
+  PRODUCT_MOVEMENT_TYPE_LABELS,
+  productMovementTypeLabel,
+  productMovementTypeTone,
+  sortedNonZeroSizeEntries,
+} from "utils/productMovementHelper";
+import "views/kiosks/KioskLedgerLab.css";
+import "views/accounting/KioskMovementsAccounting.css";
 
 const MOVEMENT_TYPE_OPTIONS = [
   { value: "", label: "Todos los tipos", searchText: "todos" },
@@ -92,9 +59,18 @@ function sizesSummary(stock) {
   return "—";
 }
 
-function movementTypeLabel(type) {
-  if (!type) return "—";
-  return PRODUCT_MOVEMENT_TYPE_LABELS[type] || type;
+function FieldLabel({ children }) {
+  return <span className="kll-label">{children}</span>;
+}
+
+function EmptyState({ icon, title, text }) {
+  return (
+    <div className="kll-empty">
+      <div className="kll-empty-icon"><i className={`nc-icon ${icon}`} /></div>
+      <strong>{title}</strong>
+      <span>{text}</span>
+    </div>
+  );
 }
 
 function isDevolucionesLocation(loc) {
@@ -320,332 +296,430 @@ export default function ProductMovementsAccounting() {
     [stocks, selectedStockId]
   );
 
+  const busy = loadingStocks || loadingMovements;
+  const exporting = printingInventory || exportingExcel;
+  const movementTotals = useMemo(() => {
+    let entran = 0;
+    let salen = 0;
+    movements.forEach((m) => {
+      const d = movementDelta(m.quantityBefore, m.quantityAfter);
+      if (d == null) return;
+      if (d > 0) entran += d;
+      else salen += -d;
+    });
+    return { entran, salen };
+  }, [movements]);
+  const hasAnyFilter = Boolean(
+    filters.locationId || filters.productId || filters.colorId || filters.type
+    || filters.from || filters.to || filters.referenceTerm || filters.sizeLabel
+  );
+  const consultOnEnter = (e) => {
+    if (e.key === "Enter" && !busy) {
+      e.preventDefault();
+      void handleConsultar();
+    }
+  };
+  const clearSelectedStock = () => {
+    setSelectedStockId(null);
+    loadMovements({ stockId: null });
+  };
+  const selectedSizeEntries = sortedNonZeroSizeEntries(selectedStock?.sizes);
+
   return (
-    <div className="content" style={{ fontSize: "0.85rem" }}>
-      <h4 className="mb-1">Inventario Productos</h4>
-      <p className="text-muted small mb-3">
-        Consulta detallada por producto, color y talla (solo lectura). Elige Bodega PT o
-        Devoluciones, filtra y haz clic en una fila de inventario para ver su kardex.
-      </p>
-
-      <Row className="g-2 mb-2 align-items-end">
-        <Col md={3}>
-          <Label className="mb-1 small fw-semibold">Bodega</Label>
-          <FilterableSelect
-            options={locationOptions}
-            value={String(filters.locationId)}
-            onChange={(v) => {
-              setFilter("locationId", v || "");
-              setSelectedStockId(null);
-              setStocks([]);
-              setMovements([]);
-            }}
-            placeholder="Selecciona bodega…"
-          />
-        </Col>
-        <Col md={3}>
-          <Label className="mb-1 small fw-semibold">Producto</Label>
-          <ProductSelector
-            products={products}
-            value={filters.productId || null}
-            onChange={(product) => {
-              setFilter("productId", product?.id != null ? String(product.id) : "");
-              setSelectedStockId(null);
-            }}
-            placeholder="Buscar producto…"
-          />
-        </Col>
-        <Col md={2}>
-          <Label className="mb-1 small fw-semibold">Color</Label>
-          <ColorSelector
-            colors={colors}
-            value={filters.colorId || null}
-            onChange={(color) => {
-              setFilter("colorId", color?.id != null ? String(color.id) : "");
-              setSelectedStockId(null);
-            }}
-            placeholder="Buscar color…"
-          />
-        </Col>
-        <Col md={2}>
-          <Label className="mb-1 small fw-semibold">Tipo</Label>
-          <FilterableSelect
-            options={MOVEMENT_TYPE_OPTIONS}
-            value={filters.type}
-            onChange={(v) => setFilter("type", v)}
-            placeholder="Tipo…"
-          />
-        </Col>
-        <Col md={1}>
-          <FormGroup className="mb-0">
-            <Label className="mb-1 small fw-semibold">Desde</Label>
-            <Input
-              type="date"
-              bsSize="sm"
-              value={filters.from}
-              onChange={(e) => setFilter("from", e.target.value)}
-            />
-          </FormGroup>
-        </Col>
-        <Col md={1}>
-          <FormGroup className="mb-0">
-            <Label className="mb-1 small fw-semibold">Hasta</Label>
-            <Input
-              type="date"
-              bsSize="sm"
-              value={filters.to}
-              onChange={(e) => setFilter("to", e.target.value)}
-            />
-          </FormGroup>
-        </Col>
-      </Row>
-
-      <Row className="g-2 mb-3 align-items-end">
-        <Col md={3}>
-          <FormGroup className="mb-0">
-            <Label className="mb-1 small fw-semibold">Referencia / número</Label>
-            <Input
-              type="text"
-              bsSize="sm"
-              placeholder="OP, envío, venta…"
-              value={filters.referenceTerm}
-              onChange={(e) => setFilter("referenceTerm", e.target.value)}
-            />
-          </FormGroup>
-        </Col>
-        <Col md={1}>
-          <FormGroup className="mb-0">
-            <Label className="mb-1 small fw-semibold">Talla</Label>
-            <Input
-              type="text"
-              bsSize="sm"
-              placeholder="Ej. 32"
-              value={filters.sizeLabel}
-              onChange={(e) => setFilter("sizeLabel", e.target.value)}
-            />
-          </FormGroup>
-        </Col>
-        <Col md={8} className="d-flex flex-wrap">
-          <Button
-            color="primary"
-            size="sm"
-            className="mr-2 mb-1"
-            onClick={handleConsultar}
-            disabled={loadingStocks || loadingMovements}
-          >
-            {loadingStocks || loadingMovements ? <Spinner size="sm" /> : "Consultar"}
-          </Button>
-          <Button color="secondary" size="sm" outline className="mr-2 mb-1" onClick={handleClear}>
-            Limpiar
-          </Button>
+    <div className="content kll kma">
+      {/* ───────── Encabezado ───────── */}
+      <div className="kll-head">
+        <div className="kll-title">
+          <div className="kll-title-icon"><i className="nc-icon nc-box" /></div>
+          <div>
+            <h4>
+              Inventario Productos
+              <span className="kma-readonly">solo consulta</span>
+            </h4>
+            <small>Kardex de Bodega PT y Devoluciones por producto, color y talla</small>
+          </div>
+        </div>
+        <div className="kll-head-actions">
           <Button
             color="secondary"
-            size="sm"
             outline
-            className="mr-2 mb-1"
+            size="sm"
             onClick={() => {
               loadStocks();
               loadMovements();
             }}
-            disabled={!filters.locationId || loadingStocks || loadingMovements}
+            disabled={!filters.locationId || busy}
           >
-            Refrescar
+            <i className="nc-icon nc-refresh-69 mr-1" /> Refrescar
           </Button>
           <Button
             color="secondary"
+            outline
             size="sm"
-            className="mr-2 mb-1"
             onClick={() => void handlePrintExistingInventory()}
-            disabled={!filters.locationId || printingInventory || exportingExcel}
-            title="Abre el PDF para imprimir o guardar"
+            disabled={!filters.locationId || exporting}
+            title="Abre el PDF del inventario existente para imprimir o guardar"
           >
-            {printingInventory ? (
-              <>
-                <Spinner size="sm" className="mr-1" />
-                PDF...
-              </>
-            ) : (
-              "PDF"
-            )}
+            {printingInventory ? <><Spinner size="sm" className="mr-1" /> PDF...</> : <><i className="nc-icon nc-paper mr-1" /> PDF</>}
           </Button>
           <Button
             color="success"
             size="sm"
-            className="mb-1"
             onClick={() => void handleExcelExistingInventory()}
-            disabled={!filters.locationId || printingInventory || exportingExcel}
+            disabled={!filters.locationId || exporting}
             title="Descarga el inventario existente en Excel"
           >
-            {exportingExcel ? (
-              <>
-                <Spinner size="sm" className="mr-1" />
-                Excel...
-              </>
-            ) : (
-              "Excel"
-            )}
+            {exportingExcel ? <><Spinner size="sm" className="mr-1" /> Excel...</> : <><i className="nc-icon nc-cloud-download-93 mr-1" /> Excel</>}
           </Button>
-        </Col>
-      </Row>
+        </div>
+      </div>
+
+      <div className="kma-note">
+        <i className="nc-icon nc-alert-circle-i" aria-hidden="true" />
+        <div>
+          Elige <b>Bodega PT</b> o <b>Devoluciones</b>, filtra y haz clic en una fila de inventario para ver su
+          kardex. PDF y Excel exportan el inventario existente (con stock) de la bodega elegida.
+        </div>
+      </div>
+
+      {/* ───────── Filtros ───────── */}
+      <div className="kll-card">
+        <div className="kll-filters">
+          <Row className="align-items-end">
+            <Col lg={4} md={12} className="mb-2">
+              <FieldLabel>Bodega</FieldLabel>
+              <FilterableSelect
+                options={locationOptions}
+                value={String(filters.locationId)}
+                onChange={(v) => {
+                  setFilter("locationId", v || "");
+                  setSelectedStockId(null);
+                  setStocks([]);
+                  setMovements([]);
+                }}
+                placeholder="Selecciona bodega…"
+              />
+            </Col>
+            <Col lg={4} md={6} className="mb-2">
+              <FieldLabel>Producto</FieldLabel>
+              <ProductSelector
+                products={products}
+                value={filters.productId || null}
+                onChange={(product) => {
+                  setFilter("productId", product?.id != null ? String(product.id) : "");
+                  setSelectedStockId(null);
+                }}
+                placeholder="Buscar producto…"
+              />
+            </Col>
+            <Col lg={4} md={6} className="mb-2">
+              <FieldLabel>Color</FieldLabel>
+              <ColorSelector
+                colors={colors}
+                value={filters.colorId || null}
+                onChange={(color) => {
+                  setFilter("colorId", color?.id != null ? String(color.id) : "");
+                  setSelectedStockId(null);
+                }}
+                placeholder="Buscar color…"
+              />
+            </Col>
+          </Row>
+          <Row className="align-items-end">
+            <Col lg={3} md={6} className="mb-2">
+              <FieldLabel>Tipo de movimiento</FieldLabel>
+              <FilterableSelect
+                options={MOVEMENT_TYPE_OPTIONS}
+                value={filters.type}
+                onChange={(v) => setFilter("type", v)}
+                placeholder="Tipo…"
+              />
+            </Col>
+            <Col lg={2} md={3} xs={6} className="mb-2">
+              <FieldLabel>Desde</FieldLabel>
+              <Input
+                type="date"
+                bsSize="sm"
+                value={filters.from}
+                onChange={(e) => setFilter("from", e.target.value)}
+              />
+            </Col>
+            <Col lg={2} md={3} xs={6} className="mb-2">
+              <FieldLabel>Hasta</FieldLabel>
+              <Input
+                type="date"
+                bsSize="sm"
+                value={filters.to}
+                onChange={(e) => setFilter("to", e.target.value)}
+              />
+            </Col>
+            <Col lg={3} md={8} className="mb-2">
+              <FieldLabel>Referencia / número</FieldLabel>
+              <Input
+                type="text"
+                bsSize="sm"
+                placeholder="OP, envío, venta…"
+                value={filters.referenceTerm}
+                onChange={(e) => setFilter("referenceTerm", e.target.value)}
+                onKeyDown={consultOnEnter}
+              />
+            </Col>
+            <Col lg={2} md={4} className="mb-2">
+              <FieldLabel>Talla</FieldLabel>
+              <Input
+                type="text"
+                bsSize="sm"
+                placeholder="Ej. 32"
+                value={filters.sizeLabel}
+                onChange={(e) => setFilter("sizeLabel", e.target.value)}
+                onKeyDown={consultOnEnter}
+              />
+            </Col>
+          </Row>
+
+          <div className="kll-filter-foot kma-filter-foot">
+            <div className="kma-filter-actions">
+              <Button color="primary" size="sm" onClick={handleConsultar} disabled={busy}>
+                {busy ? <Spinner size="sm" /> : <><i className="nc-icon nc-zoom-split mr-1" /> Consultar</>}
+              </Button>
+              {hasAnyFilter && (
+                <button type="button" className="kll-link" onClick={handleClear}>
+                  Limpiar filtros
+                </button>
+              )}
+            </div>
+            <span className="kll-muted kma-hint">Enter en referencia o talla también consulta</span>
+          </div>
+        </div>
+      </div>
 
       <Row>
-        <Col md={4} style={{ maxHeight: "70vh", overflow: "auto" }}>
-          <div className="d-flex justify-content-between align-items-center mb-1">
-            <strong>Inventario ({stocks.length})</strong>
-            {loadingStocks && <Spinner size="sm" />}
-          </div>
-          <Table size="sm" hover bordered responsive className="mb-0">
-            <thead>
-              <tr>
-                <th>Producto</th>
-                <th>Color</th>
-                <th>Cant.</th>
-                <th>Tallas</th>
-              </tr>
-            </thead>
-            <tbody>
-              {stocks.map((s) => (
-                <tr
-                  key={s.id}
-                  style={{
-                    cursor: "pointer",
-                    background:
-                      String(selectedStockId) === String(s.id)
-                        ? "rgba(54,162,235,0.15)"
-                        : undefined,
-                  }}
-                  onClick={() => {
-                    setSelectedStockId(s.id);
-                    loadMovements({ stockId: s.id });
-                  }}
-                >
-                  <td>
-                    <div className="fw-semibold">{s.productCode}</div>
-                    <small className="text-muted">{s.productName}</small>
-                  </td>
-                  <td>{s.colorName || "—"}</td>
-                  <td>{s.quantity}</td>
-                  <td>
-                    <small>{sizesSummary(s)}</small>
-                  </td>
-                </tr>
-              ))}
-              {!loadingStocks && stocks.length === 0 && (
-                <tr>
-                  <td colSpan={4} className="text-muted text-center">
-                    {filters.locationId
-                      ? "Sin filas. Pulsa Consultar."
-                      : "Selecciona una bodega."}
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </Table>
-          {selectedStock && (
-            <div className="mt-2 p-2 border rounded bg-light">
-              <div>
-                <strong>{selectedStock.productCode}</strong>
-                {" · "}
-                {selectedStock.colorName || "sin color"}
+        {/* ───────── Inventario ───────── */}
+        <Col xl={4} lg={5}>
+          <div className="kll-card">
+            <div className="kll-card-head">
+              <div className="kll-card-title">
+                Inventario <span className="kll-count">{stocks.length}</span>
+                {selectedLocation && (
+                  <span className="kll-sub">{selectedLocation.name || selectedLocation.code}</span>
+                )}
               </div>
-              <div>
-                Stock actual: {selectedStock.quantity}
-                {selectedStock.min != null ? ` · Mín. ${selectedStock.min}` : ""}
-              </div>
-              <div>
-                <small>Tallas: {sizesSummary(selectedStock)}</small>
-              </div>
+              {loadingStocks && <Spinner size="sm" color="primary" />}
             </div>
-          )}
+
+            {selectedStock && (
+              <div className="kll-para-panel kma-selected">
+                <div className="kll-para-head">
+                  <div>
+                    <div className="kll-para-name">{selectedStock.productCode}</div>
+                    <div className="kll-para-meta">
+                      <span>{selectedStock.productName}</span>
+                      <span>· {selectedStock.colorName || "sin color"}</span>
+                    </div>
+                  </div>
+                  <div className="kma-stock-now">
+                    <span className="kll-label">Stock actual</span>
+                    <b>{selectedStock.quantity}</b>
+                    {selectedStock.min != null && (
+                      <small className="kll-muted">Mín. {selectedStock.min}</small>
+                    )}
+                  </div>
+                </div>
+                {selectedSizeEntries.length > 0 ? (
+                  <div className="kll-size-chips">
+                    {selectedSizeEntries.map(([k, v]) => (
+                      <span key={k} className={`kll-size-chip kma-static${Number(v) < 0 ? " kma-neg" : ""}`}>
+                        <b>{k}</b>
+                        <span>×{v}</span>
+                      </span>
+                    ))}
+                  </div>
+                ) : (
+                  <span className="kll-muted">Tallas: {sizesSummary(selectedStock)}</span>
+                )}
+              </div>
+            )}
+
+            <div className={`kll-scroll stocks${loadingStocks ? " kll-loading" : ""}`}>
+              <table className="kll-table">
+                <thead>
+                  <tr>
+                    <th>Producto</th>
+                    <th>Color</th>
+                    <th className="num">Cant.</th>
+                    <th>Tallas</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {stocks.map((s) => {
+                    const qty = Number(s.quantity);
+                    const sizeEntries = sortedNonZeroSizeEntries(s.sizes);
+                    return (
+                      <tr
+                        key={s.id}
+                        className={`clickable${String(selectedStockId) === String(s.id) ? " selected" : ""}`}
+                        onClick={() => {
+                          setSelectedStockId(s.id);
+                          loadMovements({ stockId: s.id });
+                        }}
+                      >
+                        <td>
+                          <div className="kll-prod">{s.productCode}</div>
+                          <div className="kll-prod-sub" title={s.productName}>{s.productName}</div>
+                        </td>
+                        <td>{s.colorName || <span className="kll-muted">—</span>}</td>
+                        <td className="num">
+                          <span className={`kll-qty${qty === 0 ? " zero" : ""}${qty < 0 ? " neg" : ""}`}>
+                            {s.quantity}
+                          </span>
+                        </td>
+                        <td>
+                          {sizeEntries.length > 0 ? (
+                            <div className="kll-mini-sizes" title={sizesSummary(s)}>
+                              {sizeEntries.slice(0, 6).map(([k, v]) => (
+                                <span key={k} className={Number(v) < 0 ? "kma-neg" : undefined}><b>{k}</b>×{v}</span>
+                              ))}
+                              {sizeEntries.length > 6 && <em>+{sizeEntries.length - 6}</em>}
+                            </div>
+                          ) : (
+                            <span className="kll-muted">—</span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+              {!loadingStocks && stocks.length === 0 && (
+                <EmptyState
+                  icon="nc-tag"
+                  title={filters.locationId ? "Sin filas" : "Elige una bodega"}
+                  text={filters.locationId
+                    ? "Pulsa Consultar para cargar el inventario."
+                    : "Selecciona Bodega PT o Devoluciones para ver su inventario."}
+                />
+              )}
+            </div>
+          </div>
         </Col>
 
-        <Col md={8} style={{ maxHeight: "70vh", overflow: "auto" }}>
-          <div className="d-flex justify-content-between align-items-center mb-1">
-            <strong>
-              Movimientos ({movements.length})
-              {selectedStock
-                ? ` · ${selectedStock.productCode} / ${selectedStock.colorName || "sin color"}`
-                : filters.locationId
-                  ? " · bodega completa (o filtra con producto/color)"
-                  : ""}
-            </strong>
-            {loadingMovements && <Spinner size="sm" />}
-          </div>
-          <div style={{ overflowX: "auto" }}>
-            <Table size="sm" hover bordered responsive className="mb-0" style={{ fontSize: "0.8rem" }}>
-              <thead className="table-light sticky-top">
-                <tr>
-                  <th>Fecha</th>
-                  <th>Tipo</th>
-                  <th className="text-end">Cant.</th>
-                  <th>Talla</th>
-                  <th className="text-end">Antes</th>
-                  <th className="text-end">Después</th>
-                  <th className="text-end">Antes talla</th>
-                  <th className="text-end">Después talla</th>
-                  <th>Referencia</th>
-                  <th>Descripción</th>
-                  <th>Usuario</th>
-                </tr>
-              </thead>
-              <tbody>
-                {movements.map((m) => {
-                  const type = m.movementType || "";
-                  return (
-                    <tr key={m.id}>
-                      <td style={{ whiteSpace: "nowrap" }}>
-                        <small>{formatDateTimeGt(m.movementDate || m.createdAt)}</small>
-                      </td>
-                      <td>
-                        <Badge color={TYPE_BADGE[type] || "secondary"} pill>
-                          {movementTypeLabel(type)}
-                        </Badge>
-                      </td>
-                      <td className="text-end fw-semibold">{m.quantity ?? "—"}</td>
-                      <td>{m.sizeLabel || "—"}</td>
-                      <td className="text-end text-muted">{m.quantityBefore ?? "—"}</td>
-                      <td className="text-end text-muted">{m.quantityAfter ?? "—"}</td>
-                      <td className="text-end">
-                        {m.sizeLabel
-                          ? (m.sizeStockBefore != null ? m.sizeStockBefore : "—")
-                          : "—"}
-                      </td>
-                      <td className="text-end">
-                        {m.sizeLabel
-                          ? (m.sizeStockAfter != null ? m.sizeStockAfter : "—")
-                          : "—"}
-                      </td>
-                      <td>
-                        <div>
-                          <small>
-                            {m.referenceNumber
-                              || (m.referenceId != null ? `#${m.referenceId}` : "—")}
-                          </small>
-                        </div>
-                        {m.referenceType && (
-                          <Badge color="light" className="text-dark">
-                            {m.referenceType}
-                          </Badge>
-                        )}
-                      </td>
-                      <td>
-                        <small className="text-muted">{m.description || "—"}</small>
-                      </td>
-                      <td>{m.username || "—"}</td>
-                    </tr>
-                  );
-                })}
-                {!loadingMovements && movements.length === 0 && (
-                  <tr>
-                    <td colSpan={11} className="text-muted text-center py-3">
-                      {filters.locationId
-                        ? "Sin movimientos. Consulta o selecciona un producto/color a la izquierda."
-                        : "Selecciona una bodega para comenzar."}
-                    </td>
-                  </tr>
+        {/* ───────── Movimientos ───────── */}
+        <Col xl={8} lg={7}>
+          <div className="kll-card">
+            <div className="kll-card-head">
+              <div className="kll-card-title">
+                Movimientos <span className="kll-count">{movements.length}</span>
+                {selectedStock ? (
+                  <span className="kll-scope">
+                    {selectedStock.productCode} / {selectedStock.colorName || "sin color"}
+                    <button
+                      type="button"
+                      title="Ver toda la bodega"
+                      aria-label="Quitar el producto seleccionado"
+                      onClick={clearSelectedStock}
+                    >
+                      ×
+                    </button>
+                  </span>
+                ) : (
+                  filters.locationId && <span className="kll-sub">bodega completa · filtra o elige un producto</span>
                 )}
-              </tbody>
-            </Table>
+              </div>
+              <div className="kma-head-right">
+                {(movementTotals.entran > 0 || movementTotals.salen > 0) && (
+                  <span className="kma-totals" title="Unidades según stock antes → después">
+                    {movementTotals.entran > 0 && <span className="kll-delta up">+{movementTotals.entran}</span>}
+                    {movementTotals.salen > 0 && <span className="kll-delta down">−{movementTotals.salen}</span>}
+                  </span>
+                )}
+                {loadingMovements && <Spinner size="sm" color="primary" />}
+              </div>
+            </div>
+
+            <div className={`kll-scroll moves${loadingMovements ? " kll-loading" : ""}`}>
+              <table className="kll-table kma-moves">
+                <thead>
+                  <tr>
+                    <th>Fecha</th>
+                    <th>Tipo</th>
+                    <th className="num">Cant.</th>
+                    <th>Stock</th>
+                    <th>Talla</th>
+                    <th>Referencia</th>
+                    <th>Descripción</th>
+                    <th>Usuario</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {movements.map((m) => {
+                    const type = m.movementType || "";
+                    const stockDelta = movementDelta(m.quantityBefore, m.quantityAfter);
+                    const hasSizeFlow = m.sizeLabel && (m.sizeStockBefore != null || m.sizeStockAfter != null);
+                    return (
+                      <tr key={m.id}>
+                        <td className="kma-date">
+                          <div>{formatDateTimeGt(m.movementDate || m.createdAt)}</div>
+                          <div className="kll-muted kll-mono">#{m.id}</div>
+                        </td>
+                        <td>
+                          <span className={`kma-type ${productMovementTypeTone(type)}`} title={type || undefined}>
+                            {productMovementTypeLabel(type)}
+                          </span>
+                        </td>
+                        <td className="num"><b>{m.quantity ?? "—"}</b></td>
+                        <td>
+                          <span className="kll-flow">
+                            {m.quantityBefore ?? "—"}
+                            <span className="arrow">→</span>
+                            <b>{m.quantityAfter ?? "—"}</b>
+                            {stockDelta != null && (
+                              <span className={`kll-delta ${stockDelta > 0 ? "up" : stockDelta < 0 ? "down" : "flat"}`}>
+                                {stockDelta > 0 ? `+${stockDelta}` : stockDelta}
+                              </span>
+                            )}
+                          </span>
+                        </td>
+                        <td>
+                          {m.sizeLabel ? (
+                            <>
+                              <span className="kll-size-tag">{m.sizeLabel}</span>
+                              {hasSizeFlow && (
+                                <div className="kll-flow kll-muted kma-size-flow">
+                                  {m.sizeStockBefore ?? "—"}
+                                  <span className="arrow">→</span>
+                                  {m.sizeStockAfter ?? "—"}
+                                </div>
+                              )}
+                            </>
+                          ) : (
+                            <span className="kll-muted">—</span>
+                          )}
+                        </td>
+                        <td>
+                          <div className="kll-ref">
+                            {m.referenceNumber || (m.referenceId != null ? `#${m.referenceId}` : <span className="kll-muted">—</span>)}
+                          </div>
+                          {m.referenceType && <span className="kll-ref-type">{m.referenceType}</span>}
+                        </td>
+                        <td>
+                          <div className="kll-reason" title={m.description || ""}>{m.description || "—"}</div>
+                        </td>
+                        <td>{m.username || <span className="kll-muted">—</span>}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+              {!loadingMovements && movements.length === 0 && (
+                <EmptyState
+                  icon="nc-paper"
+                  title="Sin movimientos"
+                  text={filters.locationId
+                    ? "Consulta o selecciona un producto/color a la izquierda."
+                    : "Selecciona una bodega para comenzar."}
+                />
+              )}
+            </div>
           </div>
         </Col>
       </Row>
