@@ -1,5 +1,7 @@
-/* Movimientos de kioscos (contabilidad) — versión de consulta del Ledger Lab.
- * Reutiliza KioskLedgerLab.css (.kll-*) y solo agrega lo propio de esta vista. */
+/* Complemento de KioskLedgerLab.css (.kll-*) para las vistas de kardex:
+ * Movimientos de kioscos (contabilidad), Inventario Productos y Product Ledger Lab.
+ * Solo agrega lo que el Ledger Lab de kioscos no trae (tipo en modo lectura,
+ * nota informativa, panel de stock actual, detalle de pago, etc.). */
 
 .kma-readonly {
   display: inline-flex;
@@ -99,6 +101,13 @@
   background: #fff;
 }
 
+.kll-size-chip.kma-neg,
+.kll-mini-sizes span.kma-neg {
+  border-color: #fecaca;
+  background: var(--kll-bad-soft);
+  color: var(--kll-bad);
+}
+
 /* Movimientos */
 .kma-head-right {
   display: flex;
@@ -181,4 +190,46 @@
     align-items: flex-start;
     gap: 6px;
   }
+}
+
+/* Product Ledger Lab: datos técnicos en crudo */
+.kma-small {
+  font-size: 0.72rem;
+}
+
+.kma-code {
+  margin-top: 2px;
+  font-size: 0.64rem;
+}
+
+.kma-raw {
+  font-size: 0.7rem;
+  color: var(--kll-muted);
+  word-break: break-all;
+}
+
+.kll-callout .nc-icon {
+  margin-top: 2px;
+}
+
+.kma-small {
+  white-space: nowrap;
+}
+
+/* Acciones por fila siempre visibles aunque la tabla tenga scroll horizontal */
+.kma-lab-moves th:last-child,
+.kma-lab-moves td:last-child {
+  position: sticky;
+  right: 0;
+  background: #fff;
+  box-shadow: -6px 0 8px -6px rgba(15, 23, 42, 0.18);
+}
+
+.kma-lab-moves thead th:last-child {
+  z-index: 3;
+  background: #f1f5f9;
+}
+
+.kma-lab-moves tbody tr:hover td:last-child {
+  background: #f8fafc;
 }
