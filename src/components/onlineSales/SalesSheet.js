@@ -75,6 +75,84 @@ const itemText = (it) => [
   it.colorName, it.size,
 ].filter(Boolean).join(" · ") + (Number(it.quantity) > 1 ? ` ×${it.quantity}` : "");
 
+/** Listado completo de artículos de una venta en una ventanita. */
+function ProductsModal({ sale, items, onClose }) {
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === "Escape") { e.stopPropagation(); onClose(); } };
+    document.addEventListener("keydown", onKey, true);
+    return () => document.removeEventListener("keydown", onKey, true);
+  }, [onClose]);
+  const stop = (e) => e.stopPropagation();
+  const units = items.reduce((sum, it) => sum + (Number(it.quantity) || 1), 0);
+  return ReactDOM.createPortal(
+    <div className="ss-pm-back" onMouseDown={(e) => { stop(e); if (e.target === e.currentTarget) onClose(); }}
+      onClick={stop} onDoubleClick={stop} onKeyDown={stop}>
+      <div className="ss-pm" role="dialog" aria-modal="true" aria-label="Productos de la venta">
+        <header>
+          <div>
+            <strong>Productos de la venta</strong>
+            <span>{sale.customerName || "Sin cliente"} · {items.length} {items.length === 1 ? "producto" : "productos"} · {units} {units === 1 ? "unidad" : "unidades"}</span>
+          </div>
+          <button type="button" className="x" onClick={onClose} aria-label="Cerrar">×</button>
+        </header>
+        <div className="body">
+          <table>
+            <thead><tr><th>#</th><th>Producto</th><th>Color</th><th>Talla</th><th className="q">Cant.</th></tr></thead>
+            <tbody>
+              {items.map((it, i) => (
+                <tr key={i}>
+                  <td className="n">{i + 1}</td>
+                  <td><b>{[it.productCode, it.productName].filter(Boolean).join(" ") || "—"}</b></td>
+                  <td>{it.colorName || "—"}</td>
+                  <td>{it.size || "—"}</td>
+                  <td className="q">{Number(it.quantity) || 1}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>,
+    document.body
+  );
+}
+
+function ProductLine({ it }) {
+  return (
+    <div className="ln">
+      <strong>{[it.productCode, it.productName].filter(Boolean).join(" ") || "—"}</strong>
+      {(it.colorName || it.size || Number(it.quantity) > 1) && (
+        <span>
+          {[it.colorName, it.size].filter(Boolean).join(" · ")}
+          {Number(it.quantity) > 1 && <b> ×{it.quantity}</b>}
+        </span>
+      )}
+    </div>
+  );
+}
+
+/** Celda de productos: con varios, el primero y «+N» que abre el listado completo (con «Ajustar texto» se ven todos). */
+function ProductsCell({ sale, wrap }) {
+  const [open, setOpen] = useState(false);
+  const close = useCallback(() => setOpen(false), []);
+  const items = itemsOf(sale);
+  if (items.length < 2 || wrap) {
+    return (
+      <div className="ss-prod" title={items.map(itemText).join("\n")}>
+        {items.map((it, i) => <ProductLine key={i} it={it} />)}
+      </div>
+    );
+  }
+  return (
+    <div className="ss-prodm" title={items.map(itemText).join("\n")}>
+      <ProductLine it={items[0]} />
+      <button type="button" className="more" onClick={() => setOpen(true)}
+        aria-label={`Ver los ${items.length} productos`}>+{items.length - 1}</button>
+      {open && <ProductsModal sale={sale} items={items} onClose={close} />}
+    </div>
+  );
+}
+
 const firstName = (s) => (s ? String(s).trim().split(/\s+/)[0] : "");
 
 /** Tono de la fila (de Nombre a Autorización), como el Excel: pago pendiente, contra entrega o pagado. */
@@ -124,24 +202,7 @@ function buildColumns(amountsOf) {
       render: (s) => { const f = felOf(s); return <span className={`ss-fel ${f.tone}`} title={s.invoiceFelError || undefined}>{f.label}</span>; } },
     { id: "products", label: "Productos", width: 250, type: "text", tone: true, wrap: true,
       get: (s) => itemsOf(s).map(itemText).join(" | "), text: (s) => itemsOf(s).map(itemText).join(" | "),
-      render: (s) => {
-        const items = itemsOf(s);
-        return (
-          <div className="ss-prod" title={items.map(itemText).join("\n")}>
-            {items.map((it, i) => (
-              <div key={i} className="ln">
-                <strong>{[it.productCode, it.productName].filter(Boolean).join(" ") || "—"}</strong>
-                {(it.colorName || it.size || Number(it.quantity) > 1) && (
-                  <span>
-                    {[it.colorName, it.size].filter(Boolean).join(" · ")}
-                    {Number(it.quantity) > 1 && <b> ×{it.quantity}</b>}
-                  </span>
-                )}
-              </div>
-            ))}
-          </div>
-        );
-      } },
+      render: (s, wrap) => <ProductsCell sale={s} wrap={wrap} /> },
     { id: "totalAmount", label: "Total", width: 110, type: "money", tone: true, strong: true,
       get: (s) => totals(s).total, text: (s) => formatMoney(totals(s).total),
       render: (s) => {
@@ -483,7 +544,7 @@ const SheetRow = React.memo(function SheetRow({
               title="Clic para cambiar">{col.get(sale) ? "Sí" : "No"}</button>
           );
         } else if (col.render) {
-          content = col.render(sale);
+          content = col.render(sale, wrap);
         } else {
           const t = col.text(sale);
           content = col.wrap ? <span className="txt" title={t}>{t}</span> : t;
@@ -863,7 +924,7 @@ export default function SalesSheet({ sales, loading, onSaveCells, renderActions,
     const { r, c } = active;
     const k = e.key;
     const done = () => { e.preventDefault(); e.stopPropagation(); };
-    const pageRows = Math.max(1, Math.floor((wrapRef.current.clientHeight || 400) / 44) - 2);
+    const pageRows = Math.max(1, Math.floor(Math.min(wrapRef.current.clientHeight || 400, window.innerHeight) / 44) - 2);
 
     if (e.altKey && k === "ArrowDown") {
       done();
