@@ -85,7 +85,7 @@
 .ol-alert button { margin-left: auto; border: 0; background: none; font-weight: 700; color: inherit; cursor: pointer; }
 
 /* ── Hoja ── */
-.ol-sheet-wrap { background: #fff; border: 1px solid #e3e0d9; border-radius: 10px; overflow: auto; max-height: calc(100vh - 250px); min-height: 260px; }
+.ol-sheet-wrap { background: #fff; border: 1px solid #e3e0d9; border-radius: 10px; overflow-x: auto; overflow-y: hidden; min-height: 260px; }
 .ol-sheet { border-collapse: separate; border-spacing: 0; font-size: 12.5px; width: max-content; min-width: 100%; }
 .ol-sheet th, .ol-sheet td { border-bottom: 1px solid #ecebe6; border-right: 1px solid #f1f0ec; padding: 0 8px; height: 32px; white-space: nowrap; vertical-align: middle; }
 .ol-sheet thead th { position: sticky; z-index: 3; background: #faf9f6; color: #66615b; font-size: 11px; font-weight: 700; text-align: left; }
@@ -253,7 +253,6 @@ body.ol-resizing, body.ol-resizing * { cursor: col-resize !important; user-selec
 }
 @media (max-width: 767px) {
   .ol-sheet .stick.c1 { position: static; box-shadow: none; }
-  .ol-sheet-wrap { max-height: none; }
   .ol-head .end { margin-left: 0; }
 }
 
