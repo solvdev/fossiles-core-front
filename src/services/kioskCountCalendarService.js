@@ -63,3 +63,21 @@ export const generateLiquidationWeek = ({ weekStart, supervisorUserIds }) =>
 
 export const updateLiquidation = (id, changes) =>
   apiRequest(`/liquidations/${id}`, { method: "PATCH", body: changes });
+
+/**
+ * Fija a mano la fecha de liquidación de un conteo (y lo registra si el sistema no lo tiene). Si el sistema ya tiene
+ * ese conteo, manda la fecha del sistema. Sin liquidationDate solo se registra el conteo.
+ */
+export const fixLiquidationManually = ({
+  locationId,
+  countDate,
+  liquidationDate,
+  liquidationDays,
+  accountantUserIds,
+  note,
+  viewWeek,
+}) =>
+  apiRequest("/liquidations/manual", {
+    method: "POST",
+    body: { locationId, countDate, liquidationDate, liquidationDays, accountantUserIds, note, viewWeek },
+  });

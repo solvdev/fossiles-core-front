@@ -25,6 +25,7 @@ import { downloadKioskCountCalendarExcel } from "utils/kioskCountCalendarExport"
 import {
   MONTH_NAMES,
   addDays,
+  formatDmy,
   formatLong,
   formatShort,
   key,
@@ -32,6 +33,7 @@ import {
   monthOfWeek,
   monthTitle,
   ymd,
+  weekdayShort,
   weekRange,
 } from "utils/kioskCountDateHelper";
 import { showError, showSuccess } from "utils/notificationHelper";
@@ -512,7 +514,13 @@ export default function KioskCountCalendar() {
         )}
 
         {section === "liquidation" ? (
-          <KioskLiquidationTab weekStart={weekStart} supervisorId={supervisorId} today={today} refreshKey={refreshKey} />
+          <KioskLiquidationTab
+            weekStart={weekStart}
+            supervisorId={supervisorId}
+            today={today}
+            refreshKey={refreshKey}
+            kiosks={data?.kiosks || []}
+          />
         ) : loading ? (
           <div className="kcc-center">
             <Spinner color="primary" />
@@ -653,9 +661,12 @@ export default function KioskCountCalendar() {
                           const done = v.status === "DONE" || Boolean(v.countedOn);
                           return (
                             <tr key={v.id} onClick={() => setSelected(v)} className={done ? "is-done" : ""}>
-                              <td className="kcc-nowrap">
-                                <strong>{formatLong(v.visitDate)}</strong>
-                                {v.dayTotal > 1 && <small> · día {v.daySeq} de {v.dayTotal}</small>}
+                              <td className="kcc-datecell">
+                                <span className="kcc-dt">
+                                  <span className="kcc-wd">{weekdayShort(v.visitDate)}</span>
+                                  {formatDmy(v.visitDate)}
+                                </span>
+                                {v.dayTotal > 1 && <small>día {v.daySeq} de {v.dayTotal}</small>}
                               </td>
                               <td>
                                 {v.locationName}

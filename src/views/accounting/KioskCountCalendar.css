@@ -264,3 +264,22 @@
   .kcc-two { grid-template-columns: 1fr; }
   .kcc-grid[style] { grid-template-columns: 1fr; }
 }
+
+/* ───────── Fechas numéricas de ancho fijo: no cambian de lugar ───────── */
+.kcc-dt { display: inline-flex; align-items: baseline; gap: 6px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.kcc-dt .kcc-wd { display: inline-block; width: 2.4em; color: var(--kcc-muted); font-size: 0.74rem; font-weight: 600; text-transform: uppercase; }
+.kcc-list td.kcc-datecell { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.kcc-list td.kcc-datecell small { display: block; color: var(--kcc-muted); font-weight: 400; text-transform: none; }
+.kcc-src { font-size: 0.7rem; font-weight: 700; border-radius: 999px; padding: 1px 8px; background: #e2e8f0; color: #475569; }
+.kcc-src.sistema { background: #dbeafe; color: #1e40af; }
+.kcc-src.excel { background: #ede9fe; color: #5b21b6; }
+.kcc-src.manual { background: #fef3c7; color: #92400e; }
+.kcc-pending li { align-items: center; }
+.kcc-pending li .kcc-pend-main { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.kcc-pending li .kcc-pend-act { display: flex; align-items: center; gap: 6px; }
+.kcc-pending input[type="date"] { width: 150px; height: 30px; padding: 2px 6px; }
+.kcc-checks { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
+.kcc-checks label { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--kcc-line); border-radius: 999px; padding: 4px 12px; cursor: pointer; font-weight: 600; }
+.kcc-checks label.on { border-color: var(--kcc-brand-2); background: #eff6ff; }
+.kcc-acct-miss { color: #b45309; font-size: 0.78rem; }
+.kcc-pending .kcc-pending-list { columns: 1; }

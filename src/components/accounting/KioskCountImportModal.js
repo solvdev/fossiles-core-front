@@ -104,6 +104,12 @@ export default function KioskCountImportModal({ onClose, onDone }) {
                 {preview.unmatched.map((u) => `${u.name} (${u.rows})`).join(", ")}. Suelen ser kioscos cerrados.
               </div>
             )}
+            {preview.unmatchedAccountants?.length > 0 && (
+              <div className="kcc-alert kcc-alert-info">
+                <strong>Contabilidad sin usuario:</strong> {preview.unmatchedAccountants.join(", ")}. Se cargan como texto;
+                para asignarlos hay que darles un usuario con rol de contabilidad.
+              </div>
+            )}
             {preview.conflicts.length > 0 && (
               <div className="kcc-alert kcc-alert-warn">
                 <strong>{preview.conflicts.length} conteos con fecha distinta en el sistema.</strong> Manda el Excel:

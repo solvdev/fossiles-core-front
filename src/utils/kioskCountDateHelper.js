@@ -46,3 +46,7 @@ export const weekRange = (weekStart, lastDay = 4) => {
     ? `${a.getDate()} al ${b.getDate()} de ${mb}`
     : `${a.getDate()} de ${a.toLocaleDateString("es-GT", { month: "long" })} al ${b.getDate()} de ${mb}`;
 };
+
+/** «lun», «mar», «mié»… para acompañar una fecha numérica (ancho fijo, no cambia de lugar). */
+export const weekdayShort = (value) =>
+  value ? ["dom", "lun", "mar", "mié", "jue", "vie", "sáb"][parseYmd(value).getDay()] : "";

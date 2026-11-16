@@ -38,7 +38,7 @@ export function downloadLiquidationWeekExcel({ weekLabel, weekStart, groups }) {
         cell(row.locationName, { font: { ...base, bold: true } }),
         cell(formatDmy(row.periodFrom), center),
         cell(formatDmy(row.periodTo), center),
-        cell(row.accountant || ""),
+        cell(row.accountants?.length ? row.accountants.map((a) => a.name).join(" y ") : row.accountant || ""),
         cell(formatDmy(row.correctionsDue), center),
         cell(`${formatDmy(row.liquidationDate)}${days}`, center),
         cell(greenText(row)),
