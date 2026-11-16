@@ -229,6 +229,195 @@ test("un kiosco sin rentType sigue editándose por locationId", async () => {
   expect(createOtherRent).not.toHaveBeenCalled();
 });
 
+test("el formulario de otra renta no trae campos de kiosco ni pagos/historial", async () => {
+  render(<KioskRents />);
+  await screen.findByText("Kiosco Centro");
+  fireEvent.click(screen.getByRole("button", { name: "Agregar renta" }));
+  const dialog = screen.getByRole("dialog");
+  expect(within(dialog).getByRole("heading", { name: "Agregar renta" })).toBeInTheDocument();
+  expect(within(dialog).getByLabelText(/Nombre/)).toBeInTheDocument();
+  expect(within(dialog).getByLabelText(/Tipo \/ categoría/)).toHaveDisplayValue("Oficina");
+  expect(within(dialog).getByRole("option", { name: "Bodega" })).toBeInTheDocument();
+  expect(within(dialog).getByRole("option", { name: "Otro" })).toBeInTheDocument();
+  expect(within(dialog).queryByRole("option", { name: "Kiosco" })).not.toBeInTheDocument();
+  expect(within(dialog).getByLabelText(/Arrendante/)).toBeInTheDocument();
+  expect(within(dialog).getByLabelText(/Monto mensual/)).toBeInTheDocument();
+  expect(within(dialog).getByLabelText(/Inicio de contrato/)).toBeInTheDocument();
+  expect(within(dialog).getByLabelText(/Fin de contrato/)).toBeInTheDocument();
+  expect(within(dialog).queryByLabelText(/^Arrendador/)).not.toBeInTheDocument();
+  expect(within(dialog).queryByLabelText(/Contrato desde/)).not.toBeInTheDocument();
+  expect(within(dialog).queryByLabelText(/Contrato hasta/)).not.toBeInTheDocument();
+  expect(within(dialog).queryByText(/Se toma de Finanzas/)).not.toBeInTheDocument();
+  expect(within(dialog).queryByText(/Quitar datos del contrato/)).not.toBeInTheDocument();
+  expect(within(dialog).queryByRole("button", { name: "Desactivar" })).not.toBeInTheDocument();
+  expect(within(dialog).queryByText(/historial/i)).not.toBeInTheDocument();
+  expect(within(dialog).queryByRole("button", { name: /pagos/i })).not.toBeInTheDocument();
+  expect(within(dialog).queryByText(/código|location/i)).not.toBeInTheDocument();
+});
+
+test("Agregar renta valida monto, día de pago y fechas en el modal", async () => {
+  render(<KioskRents />);
+  await screen.findByText("Kiosco Centro");
+  fireEvent.click(screen.getByRole("button", { name: "Agregar renta" }));
+  fireEvent.change(screen.getByLabelText(/Nombre/), { target: { value: "Bodega norte" } });
+
+  fireEvent.click(screen.getByRole("button", { name: "Guardar" }));
+  expect(screen.getByRole("alert")).toHaveTextContent("Indique el monto mensual.");
+  expect(createOtherRent).not.toHaveBeenCalled();
+
+  fireEvent.change(screen.getByLabelText(/Monto mensual/), { target: { value: "-1" } });
+  fireEvent.click(screen.getByRole("button", { name: "Guardar" }));
+  expect(screen.getByRole("alert")).toHaveTextContent("Indique el monto mensual.");
+
+  fireEvent.change(screen.getByLabelText(/Monto mensual/), { target: { value: "800" } });
+  fireEvent.change(screen.getByLabelText(/Día de pago del mes/), { target: { value: "0" } });
+  fireEvent.click(screen.getByRole("button", { name: "Guardar" }));
+  expect(screen.getByRole("alert")).toHaveTextContent("El día de pago debe estar entre 1 y 31.");
+
+  fireEvent.change(screen.getByLabelText(/Día de pago del mes/), { target: { value: "32" } });
+  fireEvent.click(screen.getByRole("button", { name: "Guardar" }));
+  expect(screen.getByRole("alert")).toHaveTextContent("El día de pago debe estar entre 1 y 31.");
+
+  fireEvent.change(screen.getByLabelText(/Día de pago del mes/), { target: { value: "20" } });
+  fireEvent.click(screen.getByRole("button", { name: "Guardar" }));
+  expect(screen.getByRole("alert")).toHaveTextContent("Indique desde cuándo y hasta cuándo dura el contrato.");
+
+  fireEvent.change(screen.getByLabelText(/Inicio de contrato/), { target: { value: "2027-03-01" } });
+  fireEvent.change(screen.getByLabelText(/Fin de contrato/), { target: { value: "2026-03-01" } });
+  fireEvent.click(screen.getByRole("button", { name: "Guardar" }));
+  expect(screen.getByRole("alert")).toHaveTextContent("«Contrato hasta» no puede ser anterior a «Contrato desde».");
+  expect(createOtherRent).not.toHaveBeenCalled();
+  expect(saveKioskRent).not.toHaveBeenCalled();
+});
+
+test("otras rentas con campos nulos no rompen la lista ni muestran código de kiosco", async () => {
+  const sparse = {
+    rentType: "OTHER",
+    rentId: 44,
+    locationId: null,
+    code: null,
+    name: "Local sin datos",
+    category: "OTRO",
+    description: null,
+    landlordName: null,
+    monthlyRent: 900,
+    paymentDay: null,
+    contractStart: "2026-01-01",
+    contractEnd: null,
+    nextPaymentDate: null,
+    daysToNextPayment: null,
+    daysToContractEnd: null,
+    contractProgressPct: undefined,
+    status: "INCOMPLETO",
+    note: null,
+  };
+  getKioskRents.mockResolvedValue({ ...payload, rows: [...payload.rows, sparse] });
+  render(<KioskRents />);
+  await screen.findByText("Local sin datos");
+
+  const filled = rowOf("Oficina central");
+  expect(within(filled).getByText("Vigente")).toBeInTheDocument();
+  expect(within(filled).getByText(/Día 5 de cada mes/)).toBeInTheDocument();
+  expect(within(filled).queryByText(/^K\d+$/)).not.toBeInTheDocument();
+
+  const empty = rowOf("Local sin datos");
+  expect(within(empty).queryByText(/null|undefined/i)).not.toBeInTheDocument();
+  expect(within(empty).getByText("Falta indicar")).toBeInTheDocument();
+  expect(within(empty).getByText("Sin fechas de contrato")).toBeInTheDocument();
+  expect(within(empty).getByText("Sin día de pago")).toBeInTheDocument();
+  expect(within(empty).getByText("Incompleto")).toBeInTheDocument();
+  expect(within(empty).getAllByText("Otro").length).toBeGreaterThan(0);
+  expect(within(empty).queryByText("K4")).not.toBeInTheDocument();
+  expect(within(rowOf("Kiosco Centro")).getByText("K4")).toBeInTheDocument();
+});
+
+test("las tarjetas de resumen no mezclan conteos de kiosco con otras rentas", async () => {
+  render(<KioskRents />);
+  await screen.findByText("Kiosco Centro");
+
+  const monthCard = screen.getByText("Renta mensual total").closest(".krn-card");
+  expect(within(monthCard).getByText(/Q\s*4[.,\u00a0\s]?000/)).toBeInTheDocument();
+  expect(within(monthCard).getByText(/1 de 2 kioscos con renta en Finanzas/)).toBeInTheDocument();
+
+  const payCard = screen.getByText("Pagos en 7 días").closest(".krn-card");
+  expect(within(payCard).getByText(/1 renta/)).toBeInTheDocument();
+
+  expect(screen.getByText(/1 de 2 kioscos · 1 otras/)).toBeInTheDocument();
+  expect(screen.getByText(/48[.,\u00a0\s]?000/)).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: /Todas \(3\)/ })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: /Kioscos \(2\)/ })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: /Otras \(1\)/ })).toBeInTheDocument();
+});
+
+test("editar un kiosco con rentType KIOSK sigue usando el PUT de kiosco", async () => {
+  render(<KioskRents />);
+  await screen.findByText("Kiosco Centro");
+  fireEvent.click(within(rowOf("Kiosco Centro")).getByRole("button", { name: /Editar renta de Kiosco Centro/ }));
+  const dialog = screen.getByRole("dialog");
+  expect(within(dialog).getByLabelText(/Arrendador/)).toBeInTheDocument();
+  expect(within(dialog).getByLabelText(/Contrato desde/)).toBeInTheDocument();
+  expect(within(dialog).getByLabelText(/Contrato hasta/)).toBeInTheDocument();
+  expect(within(dialog).getByText(/Se toma de Finanzas/)).toBeInTheDocument();
+  expect(within(dialog).queryByLabelText(/^Nombre/)).not.toBeInTheDocument();
+  expect(within(dialog).queryByLabelText(/Tipo \/ categoría/)).not.toBeInTheDocument();
+  expect(within(dialog).queryByLabelText(/Monto mensual/)).not.toBeInTheDocument();
+  expect(within(dialog).queryByRole("button", { name: "Desactivar" })).not.toBeInTheDocument();
+
+  await act(async () => {
+    fireEvent.click(within(dialog).getByRole("button", { name: "Guardar" }));
+  });
+  await waitFor(() => expect(saveKioskRent).toHaveBeenCalledWith(4, {
+    landlordName: "Ana López",
+    paymentDay: 10,
+    contractStart: "2026-01-01",
+    contractEnd: "2026-12-31",
+    note: null,
+  }));
+  expect(createOtherRent).not.toHaveBeenCalled();
+  expect(saveOtherRent).not.toHaveBeenCalled();
+});
+
+test("guardar otra renta recarga el GET y cierra el modal", async () => {
+  render(<KioskRents />);
+  await screen.findByText("Oficina central");
+  fireEvent.click(within(rowOf("Oficina central")).getByRole("button", { name: /Editar renta Oficina central/ }));
+  fireEvent.change(screen.getByLabelText(/Descripción/), { target: { value: "Zona 4" } });
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Guardar" }));
+  });
+  await waitFor(() => expect(saveOtherRent).toHaveBeenCalledWith(12, expect.objectContaining({
+    name: "Oficina central",
+    description: "Zona 4",
+    category: "OFICINA",
+    monthlyAmount: 1500,
+    paymentDay: 5,
+  })));
+  expect(getKioskRents).toHaveBeenCalledTimes(2);
+  await waitFor(() => expect(screen.queryByLabelText(/Nombre/)).not.toBeInTheDocument());
+  expect(saveKioskRent).not.toHaveBeenCalled();
+});
+
+test("cancelar desactivar no llama DELETE", async () => {
+  const confirm = jest.spyOn(window, "confirm").mockReturnValue(false);
+  render(<KioskRents />);
+  await screen.findByText("Oficina central");
+  fireEvent.click(within(rowOf("Oficina central")).getByRole("button", { name: /Editar renta Oficina central/ }));
+  fireEvent.click(screen.getByRole("button", { name: "Desactivar" }));
+  expect(deactivateOtherRent).not.toHaveBeenCalled();
+  expect(getKioskRents).toHaveBeenCalledTimes(1);
+  expect(screen.getByLabelText(/Nombre/)).toBeInTheDocument();
+  confirm.mockRestore();
+});
+
+test("la búsqueda encuentra otras rentas por descripción", async () => {
+  render(<KioskRents />);
+  await screen.findByText("Kiosco Centro");
+  fireEvent.change(screen.getByLabelText(/Buscar kiosco, renta o arrendador/), { target: { value: "Zona 10" } });
+  expect(screen.getByText("Oficina central")).toBeInTheDocument();
+  expect(screen.queryByText("Kiosco Centro")).not.toBeInTheDocument();
+  expect(screen.queryByText("Kiosco Sur")).not.toBeInTheDocument();
+});
+
 test("la revisión de import muestra rentType y rentId en cambios y errores", async () => {
   importKioskRentTemplate.mockResolvedValue({
     applied: false,

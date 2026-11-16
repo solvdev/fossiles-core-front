@@ -2,11 +2,13 @@ import {
   buildOtherRentPayload,
   importChangeKey,
   importRowCaption,
+  importTypeLabel,
   isOtherRent,
   matchesTypeFilter,
   otherFormFromRow,
   rentTypeOf,
   rowKey,
+  typeBadgeKey,
   typeBadgeLabel,
   validateOtherRentForm,
 } from "../kioskRentsHelpers";
@@ -93,4 +95,48 @@ test("el import muestra tipo e ID cuando el back los manda", () => {
   expect(importRowCaption({ row: 2, name: "Centro", rentType: "KIOSK" })).toBe("Fila 2 · Centro · Kiosco");
   expect(importChangeKey({ locationId: 3 }, 0)).toBe("kiosk-3");
   expect(importChangeKey({ rentId: 8 }, 1)).toBe("other-8");
+});
+
+test("monto 0 es válido y una categoría desconocida se muestra como Otro", () => {
+  expect(validateOtherRentForm({ ...validForm, monthlyAmount: "0" })).toBeNull();
+  expect(buildOtherRentPayload({ ...validForm, monthlyAmount: "0" }).monthlyAmount).toBe(0);
+
+  const unknown = { rentType: "OTHER", rentId: 3, name: "Local X", category: "BODEGAX" };
+  expect(typeBadgeLabel(unknown)).toBe("Otro");
+  expect(typeBadgeKey(unknown)).toBe("BODEGAX");
+  expect(typeBadgeKey({ rentType: "OTHER", category: null })).toBe("OTRO");
+  expect(matchesTypeFilter(unknown, "ALL")).toBe(true);
+  expect(matchesTypeFilter(unknown, "KIOSK")).toBe(false);
+});
+
+test("otherFormFromRow e import toleran nulos en OTHER", () => {
+  const form = otherFormFromRow({
+    name: "Local X",
+    category: "OTRO",
+    description: null,
+    landlordName: undefined,
+    monthlyRent: 0,
+    paymentDay: null,
+    contractStart: "2026-01-01",
+    contractEnd: null,
+    note: null,
+  });
+  expect(form).toEqual({
+    name: "Local X",
+    category: "OTRO",
+    description: "",
+    landlordName: "",
+    monthlyAmount: 0,
+    paymentDay: "",
+    contractStart: "2026-01-01",
+    contractEnd: "",
+    note: "",
+  });
+
+  expect(importTypeLabel("OTHER")).toBe("Otra");
+  expect(importTypeLabel("KIOSK")).toBe("Kiosco");
+  expect(importTypeLabel(undefined)).toBeNull();
+  expect(importChangeKey({ rentType: "OTHER", row: 9 }, 2)).toBe("row-9");
+  expect(importChangeKey({ rentType: "OTHER" }, 4)).toBe("row-4");
+  expect(importRowCaption({ name: "Bodega nueva", rentType: "OTHER" })).toBe("Bodega nueva · Otra");
 });
