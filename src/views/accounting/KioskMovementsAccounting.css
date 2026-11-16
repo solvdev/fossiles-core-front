@@ -1,0 +1,184 @@
+/* Movimientos de kioscos (contabilidad) — versión de consulta del Ledger Lab.
+ * Reutiliza KioskLedgerLab.css (.kll-*) y solo agrega lo propio de esta vista. */
+
+.kma-readonly {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 8px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: #e2e8f0;
+  color: var(--kll-ink-2);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  vertical-align: middle;
+}
+
+.kma-note {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 10px 14px;
+  margin-bottom: 14px;
+  border: 1px solid #bfdbfe;
+  border-radius: 12px;
+  background: var(--kll-brand-soft);
+  color: var(--kll-ink-2);
+  font-size: 0.8rem;
+  line-height: 1.45;
+}
+
+.kma-note .nc-icon {
+  margin-top: 2px;
+  color: var(--kll-brand-2);
+  font-size: 0.95rem;
+}
+
+.kma-note b {
+  color: var(--kll-ink);
+}
+
+.kma-variants {
+  padding-top: 4px;
+  margin-bottom: 4px;
+}
+
+.kma-filter-foot {
+  justify-content: space-between;
+}
+
+.kma-filter-actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.kma-hint {
+  font-size: 0.72rem;
+}
+
+/* Stock seleccionado */
+.kma-selected .kll-para-name {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.kma-stock-now {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  line-height: 1.1;
+  white-space: nowrap;
+}
+
+.kma-stock-now .kll-label {
+  margin: 0;
+}
+
+.kma-stock-now b {
+  font-size: 1.35rem;
+  font-weight: 800;
+  color: var(--kll-ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.kma-stock-now small {
+  font-size: 0.7rem;
+}
+
+.kll-size-chip.kma-static {
+  cursor: default;
+}
+
+.kll-size-chip.kma-static:hover {
+  border-color: var(--kll-line-2);
+  background: #fff;
+}
+
+/* Movimientos */
+.kma-head-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.kma-totals {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.kma-type {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  white-space: nowrap;
+  background: #e2e8f0;
+  color: #334155;
+}
+
+.kma-type.in { background: var(--kll-ok-soft); color: var(--kll-ok); }
+.kma-type.sale { background: #dbeafe; color: #1d4ed8; }
+.kma-type.out { background: var(--kll-warn-soft); color: var(--kll-warn); }
+.kma-type.bad { background: var(--kll-bad-soft); color: var(--kll-bad); }
+.kma-type.adj { background: #e2e8f0; color: #334155; }
+
+.kma-moves td {
+  vertical-align: top;
+}
+
+.kma-date {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.kma-size-flow {
+  margin-top: 2px;
+  font-size: 0.72rem;
+}
+
+.kma-invoice {
+  font-weight: 700;
+  color: var(--kll-ink);
+}
+
+.kma-ref-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.kma-ref-tags:empty {
+  display: none;
+}
+
+.kma-money {
+  white-space: nowrap;
+  font-weight: 700;
+  color: var(--kll-ink);
+}
+
+.kma-pay {
+  font-weight: 600;
+  color: var(--kll-ink);
+}
+
+.kma-card-detail {
+  font-size: 0.72rem;
+  line-height: 1.35;
+  color: var(--kll-muted);
+  min-width: 150px;
+}
+
+@media (max-width: 767px) {
+  .kma-filter-foot {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+  }
+}

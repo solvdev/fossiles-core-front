@@ -40,6 +40,7 @@ import {
   accountingMovementToLabUpdate,
   getKioscoMovementTypeLabel,
   KIOSCO_MOVEMENT_TYPE_LABELS,
+  KIOSCO_MOVEMENT_TYPE_TONE,
   normalizeKioscoMovementType,
 } from "utils/kioskMovementHelper";
 import { showError, showSuccess } from "utils/notificationHelper";
@@ -89,22 +90,6 @@ const PARA_FILTER_OPTIONS = [
   { value: "DAMA", label: "Dama" },
   { value: "VIEJO", label: "Viejo" },
 ];
-
-// Tono visual de cada tipo de movimiento (entra / venta / sale / problema / ajuste).
-const TYPE_TONE = {
-  ENTRADA: "in",
-  TRASLADO_ENTRADA: "in",
-  DEVOLUCION_CLIENTE: "in",
-  DEVOLUCION_DEPOSITO: "in",
-  VENTA: "sale",
-  SALIDA: "out",
-  TRASLADO_SALIDA: "out",
-  DEVOLUCION_A_CLIENTE: "out",
-  CAMBIO: "out",
-  MERMA: "bad",
-  ANULACION: "bad",
-  AJUSTE: "adj",
-};
 
 const ADVANCED_FILTER_KEYS = [
   "type",
@@ -1363,7 +1348,7 @@ export default function KioskLedgerLab() {
                 <tbody>
                   {movements.map((m) => {
                     const type = normalizeKioscoMovementType(m.movementType);
-                    const tone = TYPE_TONE[type] || "adj";
+                    const tone = KIOSCO_MOVEMENT_TYPE_TONE[type] || "adj";
                     const stockDelta = deltaOf(m.stockBefore, m.stockAfter);
                     const hasSizeFlow = m.sizeKey && (m.sizeStockBefore != null || m.sizeStockAfter != null);
                     return (

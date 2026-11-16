@@ -13,6 +13,25 @@ export const KIOSCO_MOVEMENT_TYPE_LABELS = {
   CAMBIO: "Cambio",
 };
 
+/**
+ * Tono visual de cada tipo de movimiento (entra / venta / sale / problema / ajuste).
+ * Compartido por Ledger Lab y Movimientos de kioscos (contabilidad).
+ */
+export const KIOSCO_MOVEMENT_TYPE_TONE = {
+  ENTRADA: "in",
+  TRASLADO_ENTRADA: "in",
+  DEVOLUCION_CLIENTE: "in",
+  DEVOLUCION_DEPOSITO: "in",
+  VENTA: "sale",
+  SALIDA: "out",
+  TRASLADO_SALIDA: "out",
+  DEVOLUCION_A_CLIENTE: "out",
+  CAMBIO: "out",
+  MERMA: "bad",
+  ANULACION: "bad",
+  AJUSTE: "adj",
+};
+
 export const normalizeKioscoMovementType = (type) => {
   if (type == null || type === "") return "";
   if (typeof type === "string") return type;
