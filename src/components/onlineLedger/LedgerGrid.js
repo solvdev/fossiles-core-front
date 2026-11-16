@@ -575,7 +575,7 @@ export default function LedgerGrid({
   }, [range, rows, columns, editing, collect, rangeCells, onChanges, onMessage, maxR, maxC]);
 
   // ── teclado ──
-  const pageRows = () => Math.max(1, Math.floor((wrapRef.current?.clientHeight || 400) / ROW_H) - 3);
+  const pageRows = () => Math.max(1, Math.floor(Math.min(wrapRef.current?.clientHeight || 400, window.innerHeight) / ROW_H) - 3);
 
   const onKeyDown = (e) => {
     if (editing || e.target !== wrapRef.current) return;
