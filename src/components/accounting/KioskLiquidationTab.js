@@ -8,9 +8,10 @@ import {
 } from "services/kioskCountCalendarService";
 import { addDays, formatDmy, key, weekdayShort, weekRange } from "utils/kioskCountDateHelper";
 import { downloadLiquidationWeekExcel } from "utils/kioskLiquidationExport";
+import { countLink, countState } from "utils/kioskLiquidationState";
 import { showError, showSuccess } from "utils/notificationHelper";
 
-const SOURCE_LABEL = { SISTEMA: "Sistema", EXCEL: "Excel", MANUAL: "Manual" };
+const SOURCE_LABEL = { SISTEMA: "Conteo del sistema", CALENDARIO: "Visita hecha", MANUAL: "Manual" };
 
 /** Fecha numérica de ancho fijo («lun 16/11/2026»): las fechas escritas con letras cambiaban de lugar. */
 function DateCell({ value }) {
@@ -34,15 +35,46 @@ function GreenCell({ row }) {
 }
 
 function AccountantCell({ row }) {
-  if (row.accountants?.length) return <>{row.accountants.map((a) => a.name).join(" y ")}</>;
-  if (row.accountant) {
-    return (
+  let assigned = <span className="kcc-muted">Sin asignar</span>;
+  if (row.accountants?.length) assigned = <>{row.accountants.map((a) => a.name).join(" y ")}</>;
+  else if (row.accountant) {
+    assigned = (
       <span className="kcc-acct-miss" title="Ese nombre del Excel no tiene un usuario de contabilidad">
         {row.accountant} · sin usuario
       </span>
     );
   }
-  return <span className="kcc-muted">Sin asignar</span>;
+  return (
+    <>
+      {assigned}
+      {(row.reviewedBy || row.closedBy) && (
+        <small className="kcc-sub" title="Datos del conteo físico">
+          {row.reviewedBy && `Revisó ${row.reviewedBy}`}
+          {row.reviewedBy && row.closedBy && row.reviewedBy !== row.closedBy ? " · " : ""}
+          {row.closedBy && row.closedBy !== row.reviewedBy && `Cerró ${row.closedBy}`}
+        </small>
+      )}
+    </>
+  );
+}
+
+/** Estado que viene del conteo físico, con enlace para abrirlo. */
+function StateCell({ row }) {
+  const state = countState(row);
+  const link = countLink(row);
+  return (
+    <>
+      <span className={`kcc-status kcc-st-${state.tone}`} title={state.hint}>
+        {state.label}
+      </span>
+      {row.closedAt && <small className="kcc-sub">{formatDmy(row.closedAt)}</small>}
+      {link && (
+        <a className="kcc-sub kcc-link-a" href={link} onClick={(e) => e.stopPropagation()}>
+          Abrir conteo
+        </a>
+      )}
+    </>
+  );
 }
 
 /**
@@ -188,7 +220,8 @@ export default function KioskLiquidationTab({ weekStart, supervisorId, today, re
           <strong>Liquidar de la semana del {weekRange(weekStart)}</strong>
           <span>
             La liquidación es la revisión de contabilidad de cada conteo: si salió bien, depósitos, cambios y facturas
-            verdes. Se hace unos 30 días después de la visita, un kiosco por día.
+            verdes. Al día siguiente del conteo mandan el reporte y contabilidad empieza a revisar; queda liquidada cuando
+            cierra el conteo físico. Un kiosco por día.
           </span>
         </div>
         <div className="kcc-weekstate-actions">
@@ -234,7 +267,7 @@ export default function KioskLiquidationTab({ weekStart, supervisorId, today, re
                 <li key={id}>
                   <span className="kcc-pend-main">
                     <strong className="kcc-plain">{p.locationName}</strong>
-                    <span className={`kcc-src ${String(p.source).toLowerCase()}`} title="De dónde viene la fecha del conteo">
+                    <span className={`kcc-src ${String(p.source).toLowerCase()}`} title="De dónde sale este conteo">
                       {SOURCE_LABEL[p.source] || p.source}
                     </span>
                   </span>
@@ -281,9 +314,9 @@ export default function KioskLiquidationTab({ weekStart, supervisorId, today, re
             })}
           </ul>
           <small className="kcc-muted">
-            «Llenar la semana» los va poniendo del más viejo al más reciente, uno por día, y deja pasar 14 días antes de
-            liquidar un conteo. Con «Fijar fecha» eliges tú el día. La fecha del conteo es la del sistema; solo si no la
-            tiene se usa la del Excel o la que registres a mano.
+            Nacen de las visitas hechas del calendario. «Llenar la semana» los va poniendo del más viejo al más
+            reciente, uno por día, desde el día siguiente al conteo. Con «Fijar fecha» eliges tú el día. Si el sistema ya
+            tiene el conteo, manda su fecha.
           </small>
         </div>
       )}
@@ -308,7 +341,7 @@ export default function KioskLiquidationTab({ weekStart, supervisorId, today, re
                     <th>Entrega de correcciones</th>
                     <th>Fecha de liquidación</th>
                     <th>Facturas verdes</th>
-                    <th>Estado</th>
+                    <th>Conteo</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -337,9 +370,7 @@ export default function KioskLiquidationTab({ weekStart, supervisorId, today, re
                         <GreenCell row={row} />
                       </td>
                       <td>
-                        <span className={`kcc-status ${row.status === "LIQUIDATED" ? "ok" : ""}`}>
-                          {row.status === "LIQUIDATED" ? "Liquidada" : "Pendiente"}
-                        </span>
+                        <StateCell row={row} />
                       </td>
                     </tr>
                   ))}
@@ -420,7 +451,7 @@ function LiquidationModal({ row, reviewers, canEdit, busy, onClose, onSave }) {
 
   const save = () => {
     const changes = {};
-    if (status !== row.status) changes.status = status;
+    if (!row.countId && status !== row.status) changes.status = status;
     const original = row.areasToFix == null ? "" : String(row.areasToFix);
     if (areas !== original) {
       if (areas === "") changes.clearAreas = true;
@@ -444,26 +475,68 @@ function LiquidationModal({ row, reviewers, canEdit, busy, onClose, onSave }) {
         </small>
       </ModalHeader>
       <ModalBody>
-        <div className="kcc-field">
-          Estado
-          <div className="kcc-seg full" role="group" aria-label="Estado de la liquidación">
-            <button type="button" className={status === "PENDING" ? "on" : ""} disabled={!canEdit} onClick={() => setStatus("PENDING")}>
-              Pendiente
-            </button>
-            <button type="button" className={status === "LIQUIDATED" ? "on" : ""} disabled={!canEdit} onClick={() => setStatus("LIQUIDATED")}>
-              Liquidada
-            </button>
+        {row.countId ? (
+          <div className="kcc-countbox">
+            <div>
+              <strong>Conteo físico</strong>
+              <span className={`kcc-status kcc-st-${countState(row).tone}`}>{countState(row).label}</span>
+            </div>
+            <small>
+              {countState(row).hint} El estado lo define el conteo: la liquidación queda hecha cuando contabilidad lo cierra.
+            </small>
+            <dl>
+              {row.reviewedBy && (
+                <div>
+                  <dt>Revisó</dt>
+                  <dd>
+                    {row.reviewedBy}
+                    {row.reviewedAt ? ` · ${formatDmy(row.reviewedAt)}` : ""}
+                  </dd>
+                </div>
+              )}
+              {row.closedBy && (
+                <div>
+                  <dt>Cerró</dt>
+                  <dd>
+                    {row.closedBy}
+                    {row.closedAt ? ` · ${formatDmy(row.closedAt)}` : ""}
+                  </dd>
+                </div>
+              )}
+              {row.countObservations && (
+                <div>
+                  <dt>Observaciones del conteo</dt>
+                  <dd>{row.countObservations}</dd>
+                </div>
+              )}
+            </dl>
+            <a href={countLink(row)} className="kcc-link-a">
+              Abrir conteo físico
+            </a>
           </div>
-        </div>
+        ) : (
+          <div className="kcc-field">
+            Estado
+            <div className="kcc-seg full" role="group" aria-label="Estado de la liquidación">
+              <button type="button" className={status === "PENDING" ? "on" : ""} disabled={!canEdit} onClick={() => setStatus("PENDING")}>
+                Pendiente
+              </button>
+              <button type="button" className={status === "LIQUIDATED" ? "on" : ""} disabled={!canEdit} onClick={() => setStatus("LIQUIDATED")}>
+                Liquidada
+              </button>
+            </div>
+            <small>Esta liquidación no tiene conteo físico en el sistema (viene del Excel anterior).</small>
+          </div>
+        )}
         <div className="kcc-field">
-          Contabilidad (quién revisa)
+          Contabilidad asignada
           <ReviewerChecks reviewers={reviewers} ids={accountantIds} disabled={!canEdit} onChange={setAccountantIds} />
           {!originalIds.length && row.accountant && (
             <small className="kcc-acct-miss">
               En el Excel decía «{row.accountant}», pero no tiene un usuario de contabilidad: elige a quién corresponde.
             </small>
           )}
-          <small>Solo usuarios de contabilidad. Puede revisar más de una persona.</small>
+          <small>Quién le toca revisarla. Quién revisó y cerró de verdad sale del conteo.</small>
         </div>
         <label className="kcc-field">
           Facturas verdes: áreas por corregir
@@ -492,7 +565,7 @@ function LiquidationModal({ row, reviewers, canEdit, busy, onClose, onSave }) {
           <small>Entrecueros y Celajes llevan 2 días.</small>
         </label>
         <label className="kcc-field">
-          Nota
+          Nota de liquidación
           <Input type="textarea" rows={2} maxLength={500} value={note} disabled={!canEdit} onChange={(e) => setNote(e.target.value)} placeholder="Depósitos, cambios, diferencias…" />
         </label>
       </ModalBody>

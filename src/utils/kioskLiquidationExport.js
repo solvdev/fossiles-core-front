@@ -1,5 +1,6 @@
 import * as XLSX from "xlsx-js-style";
 import { formatDmy } from "utils/kioskCountDateHelper";
+import { countState } from "utils/kioskLiquidationState";
 
 const base = { name: "Calibri", sz: 10, color: { rgb: "000000" } };
 const border = { style: "thin", color: { rgb: "CBD5E1" } };
@@ -30,7 +31,7 @@ export function downloadLiquidationWeekExcel({ weekLabel, weekStart, groups }) {
   groups.forEach((group) => {
     aoa.push([]);
     aoa.push([{ v: `LIQUIDAR DE LA SEMANA · ${group.supervisorName.toUpperCase()}`, t: "s", s: { font: { ...base, bold: true, sz: 11 } } }]);
-    aoa.push(["No.", "Kiosco", "Período del", "Período al", "Contabilidad", "Entrega de correcciones", "Fecha de liquidación", "Facturas verdes", "Estado"].map(head));
+    aoa.push(["No.", "Kiosco", "Período del", "Período al", "Contabilidad", "Entrega de correcciones", "Fecha de liquidación", "Facturas verdes", "Conteo"].map(head));
     group.rows.forEach((row, i) => {
       const days = row.liquidationDays > 1 ? ` (${row.liquidationDays} días)` : "";
       aoa.push([
@@ -42,7 +43,7 @@ export function downloadLiquidationWeekExcel({ weekLabel, weekStart, groups }) {
         cell(formatDmy(row.correctionsDue), center),
         cell(`${formatDmy(row.liquidationDate)}${days}`, center),
         cell(greenText(row)),
-        cell(row.status === "LIQUIDATED" ? "Liquidada" : "Pendiente", center),
+        cell(countState(row).label, center),
       ]);
     });
     if (!group.rows.length) aoa.push([cell("Sin liquidaciones esta semana"), ...Array(8).fill(cell(""))]);
