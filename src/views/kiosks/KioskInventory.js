@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import {
   Alert,
   Badge,
@@ -110,6 +111,9 @@ const INITIAL_FORM = {
 };
 
 function KioskInventory() {
+  const [searchParams] = useSearchParams();
+  const deepLocation = searchParams.get("location");
+  const deepCount = searchParams.get("count");
   const [locations, setLocations] = useState([]);
   const [products, setProducts] = useState([]);
   const [colors, setColors] = useState([]);
@@ -148,6 +152,13 @@ function KioskInventory() {
   const [lookupColorId, setLookupColorId] = useState("");
   const [lookupRows, setLookupRows] = useState([]);
   const [lookupLoading, setLookupLoading] = useState(false);
+
+  // Enlace directo desde Contabilidad > Calendario > Liquidación: abre el conteo físico de ese kiosco.
+  useEffect(() => {
+    if (!deepLocation || !locations.length) return;
+    setSelectedLocation(String(deepLocation));
+    setActiveTab("CONTEO");
+  }, [deepLocation, locations]);
 
   const kiosks = useMemo(
     () =>
@@ -1953,7 +1964,7 @@ function KioskInventory() {
               )}
 
               {activeTab === "CONTEO" && (
-                <KioskInventoryCountReport locationId={selectedLocation} />
+                <KioskInventoryCountReport locationId={selectedLocation} initialCountId={deepCount} />
               )}
 
               {activeTab === "INVENTARIO_INICIAL" && (

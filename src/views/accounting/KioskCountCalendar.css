@@ -285,3 +285,20 @@
 .kcc-checks label.on { border-color: var(--kcc-brand-2); background: #eff6ff; }
 .kcc-acct-miss { color: #b45309; font-size: 0.78rem; }
 .kcc-pending .kcc-pending-list { columns: 1; }
+
+/* ───────── Estado que viene del conteo físico ───────── */
+.kcc-status.kcc-st-ok { color: #166534; background: #dcfce7; }
+.kcc-status.kcc-st-warn { color: #92400e; background: #fef3c7; }
+.kcc-status.kcc-st-info { color: #1e40af; background: #dbeafe; }
+.kcc-status.kcc-st-none { color: #475569; background: #e2e8f0; }
+.kcc-sub { display: block; color: var(--kcc-muted); font-size: 0.74rem; font-weight: 400; margin-top: 2px; }
+.kcc-link-a { color: var(--kcc-brand-2); font-weight: 600; font-size: 0.78rem; text-decoration: none; }
+.kcc-link-a:hover { text-decoration: underline; }
+.kcc-src.calendario { background: #dcfce7; color: #166534; }
+.kcc-countbox { border: 1px solid var(--kcc-line); border-radius: 12px; padding: 12px 14px; margin-bottom: 12px; background: #f8fafc; }
+.kcc-countbox > div:first-child { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.kcc-countbox small { display: block; color: var(--kcc-muted); margin: 4px 0 8px; }
+.kcc-countbox dl { margin: 0 0 8px; display: grid; gap: 4px; }
+.kcc-countbox dl div { display: grid; grid-template-columns: 110px 1fr; gap: 8px; }
+.kcc-countbox dt { color: var(--kcc-muted); font-weight: 600; }
+.kcc-countbox dd { margin: 0; }

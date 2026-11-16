@@ -1118,7 +1118,7 @@ function CategoryGroup({
 }
 
 // ─── Componente principal ─────────────────────────────────────────────────────
-function KioskInventoryCountReport({ locationId, internalMode = false }) {
+function KioskInventoryCountReport({ locationId, internalMode = false, initialCountId = null }) {
   const compact = useCompactLayout(640);
   const entreCueros = isEntreCuerosLocation(locationId);
   const [from, setFrom] = useState("");
@@ -1448,6 +1448,14 @@ function KioskInventoryCountReport({ locationId, internalMode = false }) {
       setLoading(false);
     }
   };
+
+  // Enlace directo a un conteo (desde Liquidación): se carga una sola vez.
+  const initialCountLoadedRef = useRef(false);
+  useEffect(() => {
+    if (!initialCountId || !locationId || initialCountLoadedRef.current) return;
+    initialCountLoadedRef.current = true;
+    handleLoadSession(initialCountId);
+  }, [initialCountId, locationId, handleLoadSession]);
 
   const resolvePrincipalForSubcount = () => {
     const parentReport = report?.reportType === "SUBCONTEO" ? principalReport : report;
