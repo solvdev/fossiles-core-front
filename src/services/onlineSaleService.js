@@ -492,6 +492,30 @@ export const deleteOnlineLedgerPeriod = async (id) => {
   if (!response.ok) throw await ledgerError(response, 'No se pudo borrar el periodo');
 };
 
+// ── Revisiones: listado con avance, detalle y bitácora de lo que se hizo ──
+
+export const getOnlineLedgerReviews = async () => {
+  const response = await fetch(`${API_URL}/online-sales-ledger/reviews`, { headers: headers() });
+  if (!response.ok) throw await ledgerError(response, 'No se pudo cargar el listado de revisiones');
+  return response.json();
+};
+
+export const getOnlineLedgerReviewDetail = async (id) => {
+  const response = await fetch(`${API_URL}/online-sales-ledger/reviews/${id}`, { headers: headers() });
+  if (!response.ok) throw await ledgerError(response, 'No se pudo cargar la revisión');
+  return response.json();
+};
+
+/** kind: edits | locks | period | (vacío = todo). */
+export const getOnlineLedgerReviewLog = async (id, { kind = '', q = '', page = 0, size = 50 } = {}) => {
+  const params = new URLSearchParams({ page: String(page), size: String(size) });
+  if (kind) params.set('kind', kind);
+  if (q) params.set('q', q);
+  const response = await fetch(`${API_URL}/online-sales-ledger/reviews/${id}/log?${params}`, { headers: headers() });
+  if (!response.ok) throw await ledgerError(response, 'No se pudo cargar la bitácora de la revisión');
+  return response.json();
+};
+
 /** Descarga el Excel del periodo (Ventas, Comisiones, Moto, Faltantes). */
 export const downloadOnlineSalesLedgerExcel = async (from, to) => {
   const response = await fetch(

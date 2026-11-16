@@ -1,9 +1,10 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useMemo, useState } from "react";
 import { Spinner } from "reactstrap";
 import {
-  getOnlineLedgerPeriods, openOnlineLedgerPeriod, closeOnlineLedgerPeriod, reopenOnlineLedgerPeriod, deleteOnlineLedgerPeriod,
+  openOnlineLedgerPeriod, closeOnlineLedgerPeriod, reopenOnlineLedgerPeriod, deleteOnlineLedgerPeriod,
 } from "../../services/onlineSaleService";
 import { formatDay, periodLabel, isPendingReview, isVoided, carrierOf } from "./onlineLedgerHelper";
+import ReviewsPanel from "./ReviewsPanel";
 
 /**
  * Revisión por periodo: se abre un rango o un mes (obligatorio para editar), Contabilidad lo revisa y al terminar lo cierra. Al cerrar se
@@ -27,37 +28,6 @@ const progressOf = (rows) => {
     motoOpen: live.filter((r) => carrierOf(r.carrier).key === "moto" && !r.liquidationDate).length,
   };
 };
-
-function PeriodsList({ onPick, onClose }) {
-  const ref = useRef(null);
-  const [items, setItems] = useState(null);
-  const [error, setError] = useState("");
-  useEffect(() => {
-    getOnlineLedgerPeriods().then(setItems).catch((e) => setError(e.message));
-  }, []);
-  useEffect(() => {
-    const onDown = (e) => { if (ref.current && !ref.current.contains(e.target)) onClose(); };
-    const onKey = (e) => { if (e.key === "Escape") onClose(); };
-    document.addEventListener("mousedown", onDown);
-    document.addEventListener("keydown", onKey);
-    return () => { document.removeEventListener("mousedown", onDown); document.removeEventListener("keydown", onKey); };
-  }, [onClose]);
-  useEffect(() => { if (items) ref.current?.querySelector("button")?.focus(); }, [items]);
-  return (
-    <div className="ol-menu ol-periods-menu" ref={ref} role="dialog" aria-label="Periodos de revisión">
-      {error && <div className="ol-alert err">{error}</div>}
-      {!items && !error && <Spinner size="sm" color="info" />}
-      {items && items.length === 0 && <p className="ol-note mb-0">Todavía no se ha abierto ningún periodo de revisión.</p>}
-      {items && items.map((p) => (
-        <button type="button" key={p.id} className="ol-period-item" onClick={() => onPick(p)}>
-          <span className={`ol-pst ${p.status === "CLOSED" ? "closed" : "open"}`}>{p.status === "CLOSED" ? "🔒 Cerrado" : "Abierto"}</span>
-          <b>{p.label}</b>
-          <small>{p.status === "CLOSED" ? `cerró ${p.closedByName || ""} ${when(p.closedAt)}` : `abrió ${p.openedByName || ""} ${when(p.openedAt)}`}</small>
-        </button>
-      ))}
-    </div>
-  );
-}
 
 export default function ReviewPeriodsBar({
   from, to, rows, periods, canManage, canReopen, historyMode, onChanged, onGoTo, onError, onNotice,
@@ -178,8 +148,8 @@ export default function ReviewPeriodsBar({
         </>
       )}
       <span className="end ol-menu-anchor">
-        <button type="button" className="ol-btn quiet sm" onClick={() => setShowList((v) => !v)} aria-expanded={showList}>Periodos ▾</button>
-        {showList && <PeriodsList onClose={() => setShowList(false)} onPick={(p) => { setShowList(false); onGoTo(p); }} />}
+        <button type="button" className="ol-btn quiet sm" onClick={() => setShowList((v) => !v)} aria-expanded={showList} title="Listado de revisiones abiertas y cerradas, y qué se hizo en cada una">Revisiones ▾</button>
+        {showList && <ReviewsPanel onClose={() => setShowList(false)} onGoTo={onGoTo} />}
       </span>
     </div>
   );
