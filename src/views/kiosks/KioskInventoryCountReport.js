@@ -1,9 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
-  Badge,
   Button,
-  ButtonGroup,
   Col,
   FormGroup,
   Input,
@@ -154,13 +152,83 @@ function useCompactLayout(maxWidth = 640) {
 const DIFF_ALERT_THRESHOLD = 3;
 
 function conteoStatusMeta(status, internalMode = false) {
-  if (internalMode && status === "SAVED") return { label: "Guardado", color: "success" };
+  if (internalMode && status === "SAVED") return { label: "Guardado", color: "success", tone: "ok" };
   // Paper Dashboard no define badge-secondary (fondo transparente + texto blanco).
-  if (status === "CERRADO") return { label: "🔒 Cerrado", color: "default" };
-  if (status === "REVISADO") return { label: "✓ Revisado", color: "success" };
-  if (status === "CONTADO") return { label: "✓ Contado", color: "info" };
-  return { label: "Borrador", color: "warning" };
+  if (status === "CERRADO") return { label: "Cerrado", color: "default", tone: "closed" };
+  if (status === "REVISADO") return { label: "Revisado", color: "success", tone: "ok" };
+  if (status === "CONTADO") return { label: "Contado", color: "info", tone: "info" };
+  return { label: "Borrador", color: "warning", tone: "draft" };
 }
+
+function StatusPill({ status, internalMode = false, large = false }) {
+  const meta = conteoStatusMeta(status, internalMode);
+  return (
+    <span className={`kc-status kc-status--${meta.tone}${large ? " is-large" : ""}`}>
+      <span className="kc-status-dot" aria-hidden="true" />
+      {meta.label}
+    </span>
+  );
+}
+
+const WORKFLOW_STEPS = [
+  { key: "DRAFT", label: "Conteo", hint: "Borrador editable" },
+  { key: "CONTADO", label: "Contado", hint: "Vitrinas bloqueadas" },
+  { key: "REVISADO", label: "Revisado", hint: "Supervisor" },
+  { key: "CERRADO", label: "Cerrado", hint: "Solo lectura" },
+];
+
+/** Línea de tiempo del ciclo del conteo (solo visual). */
+function WorkflowStepper({ status }) {
+  const currentIdx = Math.max(0, WORKFLOW_STEPS.findIndex((step) => step.key === status));
+  return (
+    <ol className="kc-steps" aria-label="Etapas del conteo">
+      {WORKFLOW_STEPS.map((step, idx) => {
+        const state = idx < currentIdx || (idx === currentIdx && status === "CERRADO")
+          ? "is-done"
+          : idx === currentIdx ? "is-current" : "";
+        return (
+          <li key={step.key} className={state} aria-current={idx === currentIdx ? "step" : undefined}>
+            <span className="kc-step-dot">{state === "is-done" ? "✓" : idx + 1}</span>
+            <span className="kc-step-text">
+              <strong>{step.label}</strong>
+              <small>{step.hint}</small>
+            </span>
+          </li>
+        );
+      })}
+    </ol>
+  );
+}
+
+const NOTICE_ICONS = { info: "i", warn: "!", danger: "!", ok: "✓", muted: "i" };
+
+function Notice({ tone = "info", children, className = "" }) {
+  return (
+    <div className={`kc-notice kc-notice--${tone} ${className}`.trim()} role={tone === "danger" ? "alert" : undefined}>
+      <span className="kc-notice-icon" aria-hidden="true">{NOTICE_ICONS[tone] || "i"}</span>
+      <div className="kc-notice-body">{children}</div>
+    </div>
+  );
+}
+
+const initials = (name) =>
+  String(name || "?")
+    .trim()
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((part) => part.charAt(0).toUpperCase())
+    .join("") || "?";
+
+/** Enter / Shift+Enter: baja o sube a la misma ubicación de la fila siguiente/anterior. */
+const focusSiblingCountCell = (current, direction) => {
+  const root = current.closest(".kiosk-conteo");
+  const loc = current.getAttribute("data-loc");
+  if (!root || !loc) return;
+  const cells = Array.from(root.querySelectorAll(`input.kiosk-conteo-qty[data-loc="${loc}"]`))
+    .filter((el) => !el.disabled && !el.readOnly);
+  const next = cells[cells.indexOf(current) + direction];
+  if (next) next.focus();
+};
 
 const KARDEX_COLUMNS = [
   { key: "inventarioInicial", label: "Ini.", title: "Inventario Inicial" },
@@ -337,16 +405,18 @@ function qtyClassName(value, disabled) {
 }
 
 // ─── Celda de conteo editable ─────────────────────────────────────────────────
-function CountCell({ value, onChange, disabled, onOpen, readOnly }) {
+function CountCell({ value, onChange, disabled, onOpen, readOnly, locKey }) {
   const className = qtyClassName(value, disabled);
 
   if (readOnly && onOpen) {
     return (
       <button
         type="button"
-        className={className}
+        className={`${className} is-modal`}
         onClick={onOpen}
         disabled={disabled}
+        data-loc={locKey}
+        title={`Contar ${locKey || ""} por herraje NUEVO / VIEJO`.trim()}
       >
         {value ?? 0}
       </button>
@@ -367,6 +437,15 @@ function CountCell({ value, onChange, disabled, onOpen, readOnly }) {
         if (onOpen) onOpen();
       }}
       onClick={onOpen}
+      onKeyDown={(e) => {
+        if (e.key !== "Enter") return;
+        e.preventDefault();
+        focusSiblingCountCell(e.currentTarget, e.shiftKey ? -1 : 1);
+      }}
+      // Evita que la rueda del mouse cambie la cantidad por accidente al desplazarse.
+      onWheel={(e) => e.currentTarget.blur()}
+      data-loc={locKey}
+      aria-label={locKey ? `Cantidad en ${locKey}` : undefined}
       readOnly={readOnly}
       disabled={disabled}
     />
@@ -446,11 +525,11 @@ function HardwareSplitSummaryCell({ row, hardwareLocationCounts, useHardwareSpli
 // ─── Celda de observación (solo filas con diferencia) ─────────────────────────
 function ObservationCell({ value, onChange, disabled, show }) {
   if (!show) {
-    return <span style={{ color: "#d1d5db" }}>—</span>;
+    return <span className="kc-obs-empty">—</span>;
   }
   if (disabled) {
     return (
-      <span style={{ fontSize: 11, color: value ? "#374151" : "#9ca3af", whiteSpace: "pre-wrap" }}>
+      <span className={`kc-obs-readonly${value ? "" : " is-empty"}`}>
         {value || "—"}
       </span>
     );
@@ -458,19 +537,11 @@ function ObservationCell({ value, onChange, disabled, show }) {
   return (
     <input
       type="text"
+      className={`kc-obs-input${value ? " has-value" : ""}`}
       value={value ?? ""}
       onChange={(e) => onChange(e.target.value)}
       placeholder="Motivo / nota"
-      style={{
-        width: "100%",
-        minWidth: OBS_COL_MIN_WIDTH - 8,
-        padding: "2px 6px",
-        fontSize: 11,
-        border: "1px solid #d1d5db",
-        borderRadius: 4,
-        background: value ? "#fffbeb" : "#fff",
-        boxSizing: "border-box",
-      }}
+      style={{ minWidth: OBS_COL_MIN_WIDTH - 8 }}
     />
   );
 }
@@ -564,8 +635,13 @@ function DataRow({
     hardwareSplitEnabled,
     entreCueros,
   });
+  const rowTone = vitrineOnlyView || diferencia === 0
+    ? ""
+    : Math.abs(diferencia) >= DIFF_ALERT_THRESHOLD
+      ? (diferencia > 0 ? " is-over" : " is-short")
+      : " is-minor";
   return (
-    <tr>
+    <tr className={`kc-row${rowTone}`}>
       <td className="kiosk-conteo-product">
         <ProductIdentity row={row} />
       </td>
@@ -618,6 +694,7 @@ function DataRow({
       {COUNT_LOCATION_KEYS.map((locKey) => (
         <td key={locKey} className="kiosk-conteo-loc" style={locColStyle}>
           <CountCell
+            locKey={locKey}
             value={counts[locKey]}
             onChange={(v) => onCountChange(locKey, v)}
             disabled={disabled || countLocationDisabled(locKey)}
@@ -693,7 +770,7 @@ function CountProductCard({
     : (resolveStockDimensionLabel(row.hardwareCondition) || null);
 
   return (
-    <article className={`kiosk-conteo-card${diferencia !== 0 ? " is-alert" : ""}`}>
+    <article className={`kiosk-conteo-card${diferencia !== 0 && !vitrineOnlyView ? " is-alert" : ""}`}>
       <div className="kiosk-conteo-card-title">
         <ProductIdentity row={row} />
       </div>
@@ -742,6 +819,7 @@ function CountProductCard({
           <label key={locKey} className="kiosk-conteo-vitrine">
             <span>{locKey}</span>
             <CountCell
+              locKey={locKey}
               value={counts[locKey]}
               onChange={(v) => onCountChange(locKey, v)}
               disabled={disabled || countLocationDisabled(locKey)}
@@ -761,7 +839,7 @@ function CountProductCard({
           <strong>{total}</strong>
         </div>
         {!vitrineOnlyView && (
-          <div className="kiosk-conteo-card-diff" style={{ color: diffColor(diferencia), background: diffAlertBackground(diferencia) || "#fee2e2" }}>
+          <div className="kiosk-conteo-card-diff" style={{ color: diffColor(diferencia), background: diffAlertBackground(diferencia) || "#f8fafc" }}>
             <label>Diferencia</label>
             <strong>{diffArrow ? `${diffArrow} ` : ""}{diffLabel}</strong>
           </div>
@@ -798,12 +876,12 @@ function CompactSummary({ label, row, vitrineOnlyView = false, dark = false }) {
 }
 
 // ─── Fila de subtotal / total ─────────────────────────────────────────────────
-function SummaryRow({ label, row, showKardex, kardexColumns, bg = "#f3f4f6", textColor = "#111", bold = false, vitrineOnlyView = false }) {
+function SummaryRow({ label, row, showKardex, kardexColumns, bg = "#f8fafc", textColor = "#0f172a", bold = false, vitrineOnlyView = false }) {
   const style = { background: bg, fontSize: 11, fontWeight: bold ? 700 : 600, color: textColor };
   const diffArrow = formatConteoDiffArrow(row.diferencia);
   const diffLabel = formatConteoDiffDisplay(row.diferencia ?? 0);
   return (
-    <tr style={style}>
+    <tr style={style} className={bold ? "kc-grand-row" : "kc-subtotal-row"}>
       <td colSpan={PRODUCT_INFO_COLS} style={style}>{label}</td>
       {showKardex && kardexColumns.map((col) => (
         <td key={col.key} className="text-right" style={style}>{row[col.key]}</td>
@@ -817,7 +895,7 @@ function SummaryRow({ label, row, showKardex, kardexColumns, bg = "#f3f4f6", tex
           <td style={{
             ...style,
             ...sumColStyle,
-            color: diffColor(row.diferencia ?? 0),
+            color: bold && Number(row.diferencia ?? 0) === 0 ? textColor : diffColor(row.diferencia ?? 0),
           }}>
             {diffArrow && <span style={{ marginRight: 2 }}>{diffArrow}</span>}
             {diffLabel}
@@ -829,57 +907,65 @@ function SummaryRow({ label, row, showKardex, kardexColumns, bg = "#f3f4f6", tex
   );
 }
 
-function DifferenceSummary({ totals, breakdown }) {
+function DifferenceSummary({ totals, breakdown, productCount = 0, vitrineOnlyView = false }) {
   if (!totals) return null;
   const net = breakdown.sobrante - breakdown.faltante;
+  const conDiferencia = breakdown.conSobrante + breakdown.conFaltante;
+  const plural = (n, word) => `${n} ${word}${n !== 1 ? "s" : ""}`;
   const cards = [
     {
-      label: "Total sobrante",
-      value: formatConteoDiffDisplay(breakdown.sobrante),
-      detail: `${breakdown.conSobrante} producto${breakdown.conSobrante !== 1 ? "s" : ""} con físico > sistema`,
-      border: "#bbf7d0",
-      background: "#f0fdf4",
-      labelColor: "#15803d",
-      valueColor: "#16a34a",
+      key: "productos",
+      label: "Productos visibles",
+      value: productCount,
+      detail: vitrineOnlyView
+        ? "Según filtros aplicados"
+        : conDiferencia > 0 ? `${plural(conDiferencia, "producto")} con diferencia` : "Sin diferencias",
+      tone: "neutral",
     },
     {
-      label: "Total faltante",
-      value: `−${breakdown.faltante}`,
-      detail: `${breakdown.conFaltante} producto${breakdown.conFaltante !== 1 ? "s" : ""} con físico < sistema`,
-      border: "#fecaca",
-      background: "#fef2f2",
-      labelColor: "#b91c1c",
-      valueColor: "#dc2626",
-    },
-    {
-      label: "Neto (Dif. general)",
-      value: formatConteoDiffDisplay(net),
-      detail: `Sobrante − faltante = ${formatConteoDiffDisplay(net)}`,
-      border: "#e5e7eb",
-      background: "#f9fafb",
-      labelColor: "#4b5563",
-      valueColor: diffColor(totals.diferencia ?? 0),
+      key: "fisico",
+      label: "Total físico",
+      value: totals.total ?? 0,
+      detail: vitrineOnlyView ? "Suma de vitrinas, E y BO" : `Sistema: ${totals.inventarioFinal ?? 0}`,
+      tone: "brand",
     },
   ];
+  if (!vitrineOnlyView) {
+    cards.push(
+      {
+        key: "sobrante",
+        label: "Total sobrante",
+        value: formatConteoDiffDisplay(breakdown.sobrante),
+        detail: `${plural(breakdown.conSobrante, "producto")} con físico > sistema`,
+        tone: "ok",
+      },
+      {
+        key: "faltante",
+        label: "Total faltante",
+        value: `−${breakdown.faltante}`,
+        detail: `${plural(breakdown.conFaltante, "producto")} con físico < sistema`,
+        tone: "bad",
+      },
+      {
+        key: "neto",
+        label: "Neto (Dif. general)",
+        value: formatConteoDiffDisplay(net),
+        detail: `Sobrante − faltante = ${formatConteoDiffDisplay(net)}`,
+        tone: net === 0 ? "neutral" : net > 0 ? "ok" : "bad",
+        valueColor: diffColor(totals.diferencia ?? 0),
+      }
+    );
+  }
 
   return (
-    <div className="mb-3" style={{ display: "flex", flexWrap: "wrap", gap: 12, alignItems: "stretch" }}>
+    <div className="kc-kpis">
       {cards.map((card) => (
-        <div
-          key={card.label}
-          style={{
-            flex: "1 1 200px",
-            border: `1px solid ${card.border}`,
-            background: card.background,
-            borderRadius: 8,
-            padding: "10px 14px",
-          }}
-        >
-          <div style={{ fontSize: 11, color: card.labelColor, fontWeight: 600 }}>{card.label}</div>
-          <div style={{ fontSize: 22, fontWeight: 700, color: card.valueColor, lineHeight: 1.2 }}>
+        <div key={card.key} className={`kc-kpi kc-kpi--${card.tone}`}>
+          <div className="kc-kpi-label">{card.label}</div>
+          <div className="kc-kpi-value" style={card.valueColor ? { color: card.valueColor } : undefined}>
             {card.value}
           </div>
-          <div style={{ fontSize: 11, color: "#6b7280" }}>{card.detail}</div>
+          <div className="kc-kpi-detail">{card.detail}</div>
         </div>
       ))}
     </div>
@@ -888,44 +974,19 @@ function DifferenceSummary({ totals, breakdown }) {
 
 function ColorLegendChip({ item }) {
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 150 }}>
-      <span style={{ fontSize: 11, color: "#374151", fontWeight: 600, flex: 1 }}>{item.label}</span>
-      <span
-        title={item.label}
-        style={{
-          width: 28,
-          height: 16,
-          borderRadius: 3,
-          border: "1px solid #9ca3af",
-          background: hexCss(item.color),
-          flexShrink: 0,
-        }}
-      />
+    <div className="kc-legend-chip">
+      <span className="kc-legend-swatch" title={item.label} style={{ background: hexCss(item.color) }} />
+      <span>{item.label}</span>
     </div>
   );
 }
 
 function ConteoColorLegend() {
   return (
-    <div
-      style={{
-        display: "flex",
-        flexWrap: "wrap",
-        gap: "8px 20px",
-        marginLeft: "auto",
-        alignItems: "flex-start",
-      }}
-    >
-      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-        {CONTEO_COLOR_LEGEND_LEFT.map((item) => (
-          <ColorLegendChip key={item.label} item={item} />
-        ))}
-      </div>
-      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-        {CONTEO_COLOR_LEGEND_RIGHT.map((item) => (
-          <ColorLegendChip key={item.label} item={item} />
-        ))}
-      </div>
+    <div className="kc-legend-grid">
+      {[...CONTEO_COLOR_LEGEND_LEFT, ...CONTEO_COLOR_LEGEND_RIGHT].map((item) => (
+        <ColorLegendChip key={item.label} item={item} />
+      ))}
     </div>
   );
 }
@@ -989,14 +1050,19 @@ function CategoryGroup({
   if (compact) {
     return (
       <section className="kiosk-conteo-cat">
-        <button type="button" className="kiosk-conteo-cat-toggle" onClick={() => setCollapsed((v) => !v)}>
-          <span>{collapsed ? "▶" : "▼"}</span>
-          {category.categoryName}
-          <span>
+        <button
+          type="button"
+          className="kiosk-conteo-cat-toggle"
+          onClick={() => setCollapsed((v) => !v)}
+          aria-expanded={!collapsed}
+        >
+          <span className={`kc-chevron${collapsed ? " is-collapsed" : ""}`} aria-hidden="true">▾</span>
+          <strong className="kc-cat-name">{category.categoryName}</strong>
+          <span className="kc-count-pill">
             {category.rows.length} producto{category.rows.length !== 1 ? "s" : ""}
           </span>
           {hasDiff && !vitrineOnlyView && (
-            <Badge color="danger" style={{ fontSize: 10 }}>Diferencias</Badge>
+            <span className="kc-diff-pill">Diferencias</span>
           )}
         </button>
         {!collapsed && (
@@ -1016,21 +1082,23 @@ function CategoryGroup({
   return (
     <>
       <tr
-        style={{ background: "#e5e7eb", cursor: "pointer", userSelect: "none" }}
+        className="kc-cat-row"
         onClick={() => setCollapsed((v) => !v)}
+        aria-expanded={!collapsed}
       >
         <td
           colSpan={PRODUCT_INFO_COLS + (showKardex ? kardexColumns.length : 0) + COUNT_LOCATION_KEYS.length + trailingCols}
-          style={{ fontWeight: 700, fontSize: 12, padding: "5px 8px" }}
         >
-          <span style={{ marginRight: 6 }}>{collapsed ? "▶" : "▼"}</span>
-          {category.categoryName}
-          <span style={{ marginLeft: 8, fontWeight: 400, color: "#6b7280", fontSize: 11 }}>
-            {category.rows.length} producto{category.rows.length !== 1 ? "s" : ""}
+          <span className="kc-cat-row-inner">
+            <span className={`kc-chevron${collapsed ? " is-collapsed" : ""}`} aria-hidden="true">▾</span>
+            <strong className="kc-cat-name">{category.categoryName}</strong>
+            <span className="kc-count-pill">
+              {category.rows.length} producto{category.rows.length !== 1 ? "s" : ""}
+            </span>
+            {hasDiff && !vitrineOnlyView && (
+              <span className="kc-diff-pill">Diferencias</span>
+            )}
           </span>
-          {hasDiff && !vitrineOnlyView && (
-            <Badge color="danger" style={{ marginLeft: 8, fontSize: 10 }}>Diferencias</Badge>
-          )}
         </td>
       </tr>
       {!collapsed && (
@@ -1096,6 +1164,7 @@ function KioskInventoryCountReport({ locationId, internalMode = false }) {
   const [lastAutoSaveAt, setLastAutoSaveAt] = useState(null);
   const [remoteSyncNotice, setRemoteSyncNotice] = useState("");
   const [hardwareSplitEnabled, setHardwareSplitEnabled] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(null);
   const nvSplitEnabled = hardwareSplitEnabled && !entreCueros;
   const lastSyncSinceRef = useRef(null);
   const autoSavingRef = useRef(false);
@@ -2114,300 +2183,486 @@ function KioskInventoryCountReport({ locationId, internalMode = false }) {
   );
   const showDiffBanner = !internalMode && report?.status === "REVISADO" && alertRows.length > 0;
 
+  const dirtyRowCount = new Set([
+    ...Object.keys(editedCounts),
+    ...Object.keys(editedSizeCounts),
+    ...Object.keys(editedSizeCountsByLocation),
+    ...Object.keys(editedHardwareLocationCounts),
+    ...Object.keys(editedObservations),
+  ]).size;
+  const visibleProductCount = pendingRows.length;
+  const hasActiveFilters = Boolean(
+    searchQuery || productCategoryFilter || audienceFilter || cinchoFilter || variantFilter
+  );
+  const clearFilters = () => {
+    setSearchQuery("");
+    setProductCategoryFilter("");
+    setAudienceFilter("");
+    setCinchoFilter("");
+    setVariantFilter("");
+  };
+  const historyExpanded = historyOpen ?? !report;
+  const observationsDirty = String(sessionObservations || "") !== String(report?.observations || "");
+  const cutoffLabel = subcountAsOf
+    ? (fmtDt(toApiLocalDateTimeGuatemala(subcountAsOf)) || fmt(subcountAsOf))
+    : "corte";
+
   return (
     <div className={`kiosk-conteo${compact ? " is-compact" : ""}`}>
       {internalMode && (
-        <Alert color="info" className="mb-3" style={{ fontSize: 13 }}>
+        <Notice tone="info" className="mb-3">
           <strong>Mi conteo — control interno.</strong> Solo vitrinas y total físico; no compara con el sistema ni
           reemplaza el conteo oficial de supervisión. Puedes exportar a Excel cuando termines.
-        </Alert>
+        </Notice>
       )}
 
-      {!internalMode && (
-      <Row className="mb-3">
-        <Col md="4">
-          <FormGroup>
-            <Label>Desde (hora Guatemala)</Label>
-            <Input
-              type="datetime-local"
-              value={from}
-              onChange={(e) => setFrom(e.target.value)}
-            />
-          </FormGroup>
-        </Col>
-        <Col md="4">
-          <FormGroup>
-            <Label>Hasta (hora Guatemala)</Label>
-            <Input
-              type="datetime-local"
-              value={to}
-              onChange={(e) => setTo(e.target.value)}
-            />
-          </FormGroup>
-        </Col>
-        <Col md="4" className="d-flex align-items-end">
-          <Button color="primary" onClick={() => void handleOpen()} disabled={loading}>
-            {loading ? <><Spinner size="sm" className="mr-1" /> Abriendo...</> : "Abrir conteo"}
-          </Button>
-        </Col>
-      </Row>
-      )}
-
-      {/* ── Historial de sesiones ── */}
-      {locationId && (
-        <div style={{ marginBottom: 20 }}>
-          <div className="d-flex align-items-center justify-content-between mb-2">
-            <strong style={{ fontSize: 13 }}>
-              {internalMode ? "Historial de conteos internos" : "Sesiones de conteo existentes"}
-            </strong>
-            <div className="d-flex align-items-center" style={{ gap: 12 }}>
-              {!internalMode && (
-              <Button
-                color="link"
-                size="sm"
-                style={{ padding: 0, fontSize: 12 }}
-                onClick={handleOpenRecipients}
-              >
-                ✉ Destinatarios de alertas
-              </Button>
+      {/* ── Sesiones: nuevo conteo + historial ── */}
+      {(locationId || !internalMode) && (
+        <section className="kc-card kc-sessions">
+          <header className="kc-card-head">
+            <div className="kc-card-title">
+              <h6>{internalMode ? "Conteos internos" : "Sesiones de conteo"}</h6>
+              {locationId && !loadingHistorial && (
+                <span className="kc-count-pill">{historial.length}</span>
               )}
-              <Button
-                color="link"
-                size="sm"
-                style={{ padding: 0, fontSize: 12 }}
-                onClick={() => void loadHistorial(locationId)}
-                disabled={loadingHistorial}
-              >
-                {loadingHistorial ? <Spinner size="sm" /> : "↺ Actualizar"}
-              </Button>
             </div>
-          </div>
-          {loadingHistorial ? (
-            <div className="text-center py-2"><Spinner size="sm" /> Cargando historial...</div>
-          ) : historial.length === 0 ? (
-            <Alert color="light" className="border mb-0 kiosk-inv-hint-alert" style={{ fontSize: 12 }}>
-              {internalMode
-                ? "Aún no hay snapshots guardados. Usa «Guardar snapshot» cuando termines tu conteo del día."
-                : "No hay sesiones registradas para este kiosko. Crea la primera con el formulario de arriba."}
-            </Alert>
-          ) : (
-            <div className="kiosk-conteo-historial">
-              <Table size="sm" bordered style={{ fontSize: 12, marginBottom: 0 }}>
-                <thead style={{ background: "#f3f4f6" }}>
-                  <tr>
-                    <th>{internalMode ? "Fecha" : "Período"}</th>
-                    <th>Estado</th>
-                    <th>{internalMode ? "Encargada" : "Generado por"}</th>
-                    <th>{internalMode ? "Guardado el" : "Fecha creación"}</th>
-                    {!internalMode && <th>Revisado por</th>}
-                    <th>Observaciones</th>
-                    <th></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {historial.map((s) => {
-                    const isActive = report && report.id === s.id;
-                    const hasPendingDiff = !internalMode && s.status === "REVISADO" && (s.maxAbsDiff ?? 0) >= DIFF_ALERT_THRESHOLD;
-                    const sessionDate = internalMode ? s.countDate : null;
-                    return (
-                      <tr
-                        key={s.id}
-                        style={{
-                          background: isActive ? "#eff6ff" : undefined,
-                          boxShadow: hasPendingDiff ? "inset 3px 0 0 #f97316" : undefined,
-                        }}
-                      >
-                        <td style={{ whiteSpace: "nowrap", fontWeight: isActive ? 700 : 400 }}>
-                          {internalMode
-                            ? fmt(sessionDate || s.periodFrom)
-                            : <>{fmtPeriodRange(s.periodFromAt, s.periodToAt, s.periodFrom, s.periodTo)}</>}}
-                        </td>
-                        <td>
-                          <Badge
-                            color={conteoStatusMeta(s.status, internalMode).color}
-                            style={{ fontSize: 10 }}
-                          >
-                            {conteoStatusMeta(s.status, internalMode).label}
-                          </Badge>
-                          {hasPendingDiff && (
-                            <Badge color="danger" style={{ fontSize: 10, marginLeft: 4 }} title="Diferencia sin resolver">
-                              Dif. {s.maxAbsDiff}
-                            </Badge>
-                          )}
-                        </td>
-                        <td>{(internalMode ? s.createdByName : s.generatedByName) || "—"}</td>
-                        <td style={{ whiteSpace: "nowrap", color: "#6b7280" }}>
-                          {internalMode
-                            ? (s.savedAt ? fmtDt(s.savedAt) : "—")
-                            : (s.generatedAt ? fmtDt(s.generatedAt) : "—")}
-                        </td>
-                        {!internalMode && <td>{s.reviewedByName || "—"}</td>}
-                        <td style={{ maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "#6b7280" }} title={s.observations || s.notes || ""}>
-                          {s.observations || s.notes || "—"}
-                        </td>
-                        <td>
-                          <Button
-                            color={isActive ? "primary" : "secondary"}
-                            size="sm"
-                            outline={!isActive}
-                            onClick={() => !isActive && void handleLoadSession(s.id)}
-                            disabled={loading || isActive}
-                            style={{ whiteSpace: "nowrap" }}
-                          >
-                            {isActive ? "Abierto" : "Cargar"}
-                          </Button>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </Table>
+            <div className="kc-card-actions">
+              {!internalMode && locationId && (
+                <button type="button" className="kc-link" onClick={handleOpenRecipients}>
+                  ✉ Destinatarios de alertas
+                </button>
+              )}
+              {locationId && (
+                <button
+                  type="button"
+                  className="kc-link"
+                  onClick={() => void loadHistorial(locationId)}
+                  disabled={loadingHistorial}
+                >
+                  {loadingHistorial ? <Spinner size="sm" /> : "↺ Actualizar"}
+                </button>
+              )}
+              {locationId && historial.length > 0 && (
+                <button
+                  type="button"
+                  className="kc-link"
+                  onClick={() => setHistoryOpen(!historyExpanded)}
+                  aria-expanded={historyExpanded}
+                >
+                  {historyExpanded ? "Ocultar historial ▴" : "Ver historial ▾"}
+                </button>
+              )}
+            </div>
+          </header>
+
+          {!internalMode && (
+            <div className="kc-new-count">
+              <FormGroup className="mb-0">
+                <Label className="kc-label" for="kc-from">Desde (hora Guatemala)</Label>
+                <Input
+                  id="kc-from"
+                  type="datetime-local"
+                  value={from}
+                  onChange={(e) => setFrom(e.target.value)}
+                />
+              </FormGroup>
+              <FormGroup className="mb-0">
+                <Label className="kc-label" for="kc-to">Hasta (hora Guatemala)</Label>
+                <Input
+                  id="kc-to"
+                  type="datetime-local"
+                  value={to}
+                  onChange={(e) => setTo(e.target.value)}
+                />
+              </FormGroup>
+              <button
+                type="button"
+                className="kc-btn kc-btn--primary kc-new-count-btn"
+                onClick={() => void handleOpen()}
+                disabled={loading}
+              >
+                {loading ? <><Spinner size="sm" className="mr-1" /> Abriendo...</> : "＋ Abrir conteo"}
+              </button>
             </div>
           )}
-        </div>
+
+          {locationId && historyExpanded && (
+            loadingHistorial ? (
+              <div className="kc-empty-inline"><Spinner size="sm" /> Cargando historial...</div>
+            ) : historial.length === 0 ? (
+              <div className="kc-empty-inline">
+                {internalMode
+                  ? "Aún no hay snapshots guardados. Usa «Guardar snapshot» cuando termines tu conteo del día."
+                  : "No hay sesiones registradas para este kiosko. Crea la primera con el formulario de arriba."}
+              </div>
+            ) : (
+              <div className="kiosk-conteo-historial">
+                <table className="kc-history-table">
+                  <thead>
+                    <tr>
+                      <th>{internalMode ? "Fecha" : "Período"}</th>
+                      <th>Estado</th>
+                      <th>{internalMode ? "Encargada" : "Generado por"}</th>
+                      <th>{internalMode ? "Guardado el" : "Fecha creación"}</th>
+                      {!internalMode && <th>Revisado por</th>}
+                      <th>Observaciones</th>
+                      <th aria-label="Acciones" />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {historial.map((s) => {
+                      const isActive = report && report.id === s.id;
+                      const hasPendingDiff = !internalMode && s.status === "REVISADO" && (s.maxAbsDiff ?? 0) >= DIFF_ALERT_THRESHOLD;
+                      const sessionDate = internalMode ? s.countDate : null;
+                      return (
+                        <tr
+                          key={s.id}
+                          className={`${isActive ? "is-active" : ""}${hasPendingDiff ? " has-pending-diff" : ""}`}
+                        >
+                          <td className="kc-history-period">
+                            {internalMode
+                              ? fmt(sessionDate || s.periodFrom)
+                              : fmtPeriodRange(s.periodFromAt, s.periodToAt, s.periodFrom, s.periodTo)}
+                          </td>
+                          <td className="kc-nowrap">
+                            <StatusPill status={s.status} internalMode={internalMode} />
+                            {hasPendingDiff && (
+                              <span className="kc-diff-pill ml-1" title="Diferencia sin resolver">
+                                Dif. {s.maxAbsDiff}
+                              </span>
+                            )}
+                          </td>
+                          <td>{(internalMode ? s.createdByName : s.generatedByName) || "—"}</td>
+                          <td className="kc-nowrap kc-muted">
+                            {internalMode
+                              ? (s.savedAt ? fmtDt(s.savedAt) : "—")
+                              : (s.generatedAt ? fmtDt(s.generatedAt) : "—")}
+                          </td>
+                          {!internalMode && <td>{s.reviewedByName || "—"}</td>}
+                          <td className="kc-history-obs kc-muted" title={s.observations || s.notes || ""}>
+                            {s.observations || s.notes || "—"}
+                          </td>
+                          <td className="text-right">
+                            {isActive ? (
+                              <span className="kc-open-tag">Abierto</span>
+                            ) : (
+                              <button
+                                type="button"
+                                className="kc-btn kc-btn--ghost kc-btn--sm"
+                                onClick={() => void handleLoadSession(s.id)}
+                                disabled={loading}
+                              >
+                                Cargar
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )
+          )}
+        </section>
       )}
 
       {!report ? (
-        <Alert color="light" className="border kiosk-inv-hint-alert">
-          {internalMode ? (
-            loading ? "Cargando conteo interno..." : "No se pudo cargar el conteo interno."
-          ) : locationId ? (
-            <>Selecciona fecha y hora Guatemala y presiona <strong>Abrir conteo</strong> para crear uno nuevo, o carga uno existente de arriba.</>
-          ) : (
-            <>Selecciona un <strong>kiosko</strong> arriba para ver y gestionar los conteos físicos.</>
-          )}
-        </Alert>
+        <div className="kc-empty">
+          <div className="kc-empty-icon" aria-hidden="true">▤</div>
+          <div>
+            {internalMode ? (
+              loading ? <><Spinner size="sm" className="mr-1" /> Cargando conteo interno...</> : "No se pudo cargar el conteo interno."
+            ) : locationId ? (
+              <>Selecciona fecha y hora Guatemala y presiona <strong>Abrir conteo</strong> para crear uno nuevo, o carga uno existente del historial.</>
+            ) : (
+              <>Selecciona un <strong>kiosko</strong> arriba para ver y gestionar los conteos físicos.</>
+            )}
+          </div>
+        </div>
       ) : (
         <>
-          {/* ── Cabecera informativa ── */}
-          <div className="kiosk-conteo-header">
-            <div style={{ display: "flex", flexWrap: "wrap", gap: "8px 20px", alignItems: "center", flex: "1 1 280px" }}>
-              <Badge
-                color={statusMeta.color}
-                style={{ fontSize: 11, padding: "4px 8px" }}
-              >
-                {statusMeta.label}
-              </Badge>
-              {internalMode ? (
-                <span style={{ fontSize: 12, color: "#374151" }}>
-                  Fecha <strong>{report.periodFrom ? fmt(report.periodFrom) : "—"}</strong>
-                </span>
-              ) : (
-                <>
-                  <span style={{ fontSize: 12, color: "#374151" }}>
-                    <strong>
-                      {fmtPeriodRange(
-                        report.periodFromAt,
-                        report.periodToAt,
-                        report.periodFrom,
-                        report.periodTo
-                      )}
-                    </strong>
-                    <span className="text-muted ml-1">(hora Guatemala)</span>
+          {/* ── Cabecera de la sesión ── */}
+          <section className="kc-card kc-session">
+            <div className="kc-session-main">
+              <div className="kc-session-title">
+                {isSubcountView ? (
+                  <span className="kc-status kc-status--info is-large">
+                    <span className="kc-status-dot" aria-hidden="true" />
+                    Subconteo
                   </span>
-                  {(report.status === "REVISADO" || isClosed) && (
-                    <span style={{ fontSize: 12, color: "#6b7280" }}>
-                      Revisado por <strong style={{ color: "#111" }}>{report.reviewedByName || "—"}</strong>
-                      {report.reviewedAt && <> el {fmtDt(report.reviewedAt)}</>}
-                    </span>
-                  )}
-                  {isClosed && (
-                    <span style={{ fontSize: 12, color: "#6b7280" }}>
-                      Cerrado por <strong style={{ color: "#111" }}>{report.closedByName || "—"}</strong>
-                      {report.closedAt && <> el {fmtDt(report.closedAt)}</>}
-                    </span>
-                  )}
-                </>
-              )}
-              <span style={{ fontSize: 12, color: "#6b7280" }}>
-                {internalMode ? "Encargada" : "Generado por"}{" "}
-                <strong style={{ color: "#111" }}>{report.generatedByName || "—"}</strong>
-                {report.generatedAt && <> el {fmtDt(report.generatedAt)}</>}
-              </span>
+                ) : (
+                  <StatusPill status={report.status} internalMode={internalMode} large />
+                )}
+                <h5>
+                  {internalMode
+                    ? <>Conteo del {report.periodFrom ? fmt(report.periodFrom) : "—"}</>
+                    : fmtPeriodRange(report.periodFromAt, report.periodToAt, report.periodFrom, report.periodTo)}
+                </h5>
+                {!internalMode && <span className="kc-muted kc-small">hora Guatemala</span>}
+              </div>
+              <div className="kc-session-meta">
+                <span>
+                  {internalMode ? "Encargada" : "Generado por"}{" "}
+                  <strong>{report.generatedByName || "—"}</strong>
+                  {report.generatedAt && <> · {fmtDt(report.generatedAt)}</>}
+                </span>
+                {!internalMode && (report.status === "REVISADO" || isClosed) && (
+                  <span>
+                    Revisado por <strong>{report.reviewedByName || "—"}</strong>
+                    {report.reviewedAt && <> · {fmtDt(report.reviewedAt)}</>}
+                  </span>
+                )}
+                {!internalMode && isClosed && (
+                  <span>
+                    Cerrado por <strong>{report.closedByName || "—"}</strong>
+                    {report.closedAt && <> · {fmtDt(report.closedAt)}</>}
+                  </span>
+                )}
+              </div>
             </div>
-            {!internalMode && <ConteoColorLegend />}
-          </div>
+            {!internalMode && !isSubcountView && <WorkflowStepper status={report.status} />}
+            {!internalMode && (
+              <details className="kc-legend">
+                <summary>Leyenda de colores</summary>
+                <ConteoColorLegend />
+              </details>
+            )}
+          </section>
 
           {!internalMode && isDraft && !isSubcountView && (
-            <Alert color="light" className="border mb-3 py-2" style={{ fontSize: 12 }}>
-              <div className="d-flex flex-wrap align-items-center" style={{ gap: 10 }}>
-                <strong style={{ color: "#374151" }}>Sesión en vivo</strong>
+            <div className="kc-live">
+              <div className="kc-live-left">
+                <span className="kc-live-dot" aria-hidden="true" />
+                <strong>Sesión en vivo</strong>
                 {liveParticipants.length > 0 ? (
-                  liveParticipants.map((p) => (
-                    <Badge
-                      key={p.userId}
-                      color={p.self ? "primary" : "secondary"}
-                      style={{ fontSize: 11 }}
-                    >
-                      {p.self ? "Tú" : (p.userName || "Usuario")}
-                    </Badge>
-                  ))
+                  <span className="kc-participants">
+                    {liveParticipants.map((p) => (
+                      <span key={p.userId} className={`kc-participant${p.self ? " is-self" : ""}`} title={p.userName || "Usuario"}>
+                        <span className="kc-avatar">{p.self ? "Tú" : initials(p.userName)}</span>
+                        {p.self ? "Tú" : (p.userName || "Usuario")}
+                      </span>
+                    ))}
+                  </span>
                 ) : (
-                  <span style={{ color: "#6b7280" }}>Conectando…</span>
+                  <span className="kc-muted">Conectando…</span>
                 )}
-                <span style={{ color: "#9ca3af" }}>|</span>
+              </div>
+              <div className="kc-live-right">
                 {autoSaveStatus === "saving" && (
-                  <span style={{ color: "#6b7280" }}>
+                  <span className="kc-save-state">
                     <Spinner size="sm" className="mr-1" /> Auto-guardando…
                   </span>
                 )}
                 {autoSaveStatus === "saved" && lastAutoSaveAt && (
-                  <span style={{ color: "#15803d" }}>
-                    Auto-guardado {formatDateTimeGt(lastAutoSaveAt)}
+                  <span className="kc-save-state is-ok">
+                    ✓ Auto-guardado {formatDateTimeGt(lastAutoSaveAt)}
                   </span>
                 )}
                 {autoSaveStatus === "error" && (
-                  <span style={{ color: "#b91c1c" }}>Error en auto-guardado — usa Guardar conteo</span>
+                  <span className="kc-save-state is-error">Error en auto-guardado — usa Guardar conteo</span>
                 )}
                 {autoSaveStatus === "idle" && (
-                  <span style={{ color: "#6b7280" }}>Auto-guardado cada 45 s</span>
+                  <span className="kc-save-state">Auto-guardado cada 45 s</span>
                 )}
               </div>
-              <div style={{ marginTop: 6, color: "#6b7280", fontSize: 11 }}>
+              <div className="kc-live-hint">
                 Dos personas pueden contar el mismo borrador: los cambios se sincronizan cada 30 s.
                 No editen la misma celda a la vez; divide vitrinas o categorías si puedes.
               </div>
-            </Alert>
+            </div>
           )}
 
           {remoteSyncNotice && (
-            <Alert color="info" className="py-2 mb-3" style={{ fontSize: 12 }}>
-              {remoteSyncNotice}
-            </Alert>
+            <Notice tone="info" className="mb-3">{remoteSyncNotice}</Notice>
           )}
 
-          {!internalMode && filteredCategories.length > 0 && (
-            <DifferenceSummary totals={filteredTotalGeneral} breakdown={diffBreakdown} />
+          {isSubcountView && (
+            <Notice tone="info" className="mb-3">
+              <div className="kc-notice-row">
+                <div>
+                  <strong>Subconteo al {fmtDt(report.asOfAt) || fmt(report.asOfDate)} (hora Guatemala).</strong>{" "}
+                  Kardex del {fmtDt(report.periodFromAt) || fmt(report.periodFrom)} al{" "}
+                  {fmtDt(report.asOfAt) || fmt(report.asOfDate)}. El conteo físico es el del conteo principal;
+                  la columna de inventario sistema refleja el saldo a esa fecha/hora.
+                  La diferencia es físico − sistema (+ sobrante, − faltante).
+                </div>
+                <div className="kc-notice-actions">
+                  {principalReport && (
+                    <button type="button" className="kc-btn kc-btn--ghost kc-btn--sm" onClick={handleBackToPrincipal}>
+                      ← Volver al conteo principal
+                    </button>
+                  )}
+                  <button type="button" className="kc-btn kc-btn--success kc-btn--sm" onClick={handleExportExcel}>
+                    ⬇ Excel inventario al {fmtDt(report.asOfAt) || fmt(report.asOfDate)}
+                  </button>
+                </div>
+              </div>
+            </Notice>
           )}
 
           {!internalMode && showDiffBanner && (
-            <Alert color="danger" className="mb-3" style={{ fontSize: 12 }}>
-              <strong>⚠ {alertRows.length} producto{alertRows.length !== 1 ? "s" : ""} con diferencia ≥ {DIFF_ALERT_THRESHOLD} unidades.</strong>{" "}
+            <Notice tone="danger" className="mb-3">
+              <strong>{alertRows.length} producto{alertRows.length !== 1 ? "s" : ""} con diferencia ≥ {DIFF_ALERT_THRESHOLD} unidades.</strong>{" "}
               Registra el ajuste manual (con motivo) en <strong>Inventario y movimientos</strong> antes de cerrar el conteo.
               Si no se resuelve en 2 días desde la revisión, se notificará automáticamente por correo a contabilidad y logística.
-            </Alert>
+            </Notice>
           )}
 
           {report.notes && !showReviewBox && !isSubcountView && (
-            <Alert color="warning" className="mb-3" style={{ fontSize: 12 }}>
+            <Notice tone="warn" className="mb-3">
               <strong>Áreas para corregir:</strong> {report.notes}
-            </Alert>
+            </Notice>
           )}
 
-          {!internalMode && !isSubcountView && (
-            <div
-              style={{
-                background: "#fffbeb",
-                border: "1px solid #fde68a",
-                borderRadius: 8,
-                padding: 12,
-                marginBottom: 14,
-              }}
-            >
+          {internalMode && report?.status === "SAVED" && (
+            <Notice tone="muted" className="mb-3">
+              Snapshot guardado — solo lectura. Abre el borrador de hoy para un nuevo conteo del día.
+            </Notice>
+          )}
+
+          {!internalMode && report.status === "CONTADO" && !isSubcountView && (
+            <Notice tone="info" className="mb-3">
+              Conteo físico terminado. Las vitrinas están bloqueadas; un supervisor puede marcarlo como revisado.
+            </Notice>
+          )}
+
+          {!internalMode && isClosed && !isSubcountView && (
+            <Notice tone="muted" className="mb-3">
+              Este conteo está cerrado y es de solo lectura. Puedes exportarlo, pero no editarlo.
+            </Notice>
+          )}
+
+          {filteredCategories.length > 0 && (
+            <DifferenceSummary
+              totals={filteredTotalGeneral}
+              breakdown={diffBreakdown}
+              productCount={visibleProductCount}
+              vitrineOnlyView={internalMode}
+            />
+          )}
+
+          {/* ── Barra de acciones ── */}
+          <div className="kc-toolbar kiosk-conteo-actions">
+            <div className="kc-toolbar-group">
+              {isSubcountView && principalReport && (
+                <button type="button" className="kc-btn kc-btn--ghost" onClick={handleBackToPrincipal}>
+                  ← Conteo principal
+                </button>
+              )}
+              {isDraft && !isSubcountView && (
+                <>
+                  <button
+                    type="button"
+                    className="kc-btn kc-btn--success"
+                    onClick={() => void handleSave()}
+                    disabled={saving || finalizing || savingSnapshot}
+                  >
+                    {saving ? <Spinner size="sm" /> : internalMode ? "💾 Guardar borrador" : "💾 Guardar conteo"}
+                  </button>
+                  {internalMode ? (
+                    <button
+                      type="button"
+                      className="kc-btn kc-btn--primary"
+                      onClick={() => void handleSaveInternalSnapshot()}
+                      disabled={saving || savingSnapshot || isCountLocked}
+                    >
+                      {savingSnapshot ? <Spinner size="sm" /> : "📌 Guardar snapshot del día"}
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      className="kc-btn kc-btn--warn"
+                      onClick={() => void handleFinalize()}
+                      disabled={saving || finalizing}
+                    >
+                      {finalizing ? <Spinner size="sm" /> : "✓ Terminar conteo físico"}
+                    </button>
+                  )}
+                  <span className={`kc-dirty${dirtyRowCount > 0 ? " is-dirty" : ""}`} aria-live="polite">
+                    {dirtyRowCount > 0
+                      ? `${dirtyRowCount} fila${dirtyRowCount !== 1 ? "s" : ""} sin guardar`
+                      : "Sin cambios pendientes"}
+                  </span>
+                </>
+              )}
+              {!internalMode && report.status === "CONTADO" && !isSubcountView && (
+                <button
+                  type="button"
+                  className={`kc-btn kc-btn--info${showReviewBox ? " is-pressed" : ""}`}
+                  onClick={() => setShowReviewBox((v) => !v)}
+                  disabled={saving}
+                  aria-expanded={showReviewBox}
+                >
+                  ✔ Marcar como revisado
+                </button>
+              )}
+              {!internalMode && report.status === "REVISADO" && !isSubcountView && (
+                <button
+                  type="button"
+                  className="kc-btn kc-btn--danger"
+                  onClick={() => void handleClose()}
+                  disabled={closing}
+                >
+                  {closing ? <Spinner size="sm" /> : "🔒 Cerrar conteo"}
+                </button>
+              )}
+            </div>
+            <div className="kc-toolbar-group kc-toolbar-group--end">
+              <div className="kc-segmented" role="group" aria-label="Exportar">
+                <button type="button" className="kc-btn kc-btn--ghost" onClick={handleExportExcel}>
+                  {internalMode ? "⬇ Excel conteo interno" : isSubcountView ? "⬇ Excel subconteo" : "⬇ Excel"}
+                </button>
+                {!internalMode && (
+                  <button type="button" className="kc-btn kc-btn--ghost" onClick={handleExportPdf}>
+                    🖨 PDF / Imprimir
+                  </button>
+                )}
+              </div>
+              {!internalMode && (
+                <label className="kc-switch" title="Mostrar u ocultar las columnas del Kardex del sistema">
+                  <input
+                    type="checkbox"
+                    checked={showKardex}
+                    onChange={() => setShowKardex((v) => !v)}
+                  />
+                  <span className="kc-switch-track" aria-hidden="true" />
+                  Kardex
+                </label>
+              )}
+            </div>
+          </div>
+
+          {/* ── Panel de revisión ── */}
+          {!internalMode && showReviewBox && (
+            <section className="kc-card kc-review">
               <FormGroup className="mb-2">
-                <Label style={{ fontWeight: 600, fontSize: 13 }}>
-                  Observaciones generales del conteo
-                </Label>
+                <Label className="kc-label" for="kc-review-notes">Notas / áreas para corregir</Label>
+                <Input
+                  id="kc-review-notes"
+                  type="textarea"
+                  rows={3}
+                  value={reviewNotes}
+                  onChange={(e) => setReviewNotes(e.target.value)}
+                />
+              </FormGroup>
+              <div className="kc-inline-actions">
+                <button type="button" className="kc-btn kc-btn--info" onClick={() => void handleReview()} disabled={saving}>
+                  {saving ? <Spinner size="sm" /> : "Confirmar revisión"}
+                </button>
+                <button type="button" className="kc-link" onClick={() => setShowReviewBox(false)}>Cancelar</button>
+              </div>
+            </section>
+          )}
+
+          {/* ── Observaciones + corte de inventario ── */}
+          {!internalMode && !isSubcountView && (
+            <div className="kc-panels">
+              <section className="kc-card kc-panel">
+                <header className="kc-panel-head">
+                  <h6>Observaciones generales</h6>
+                  {!isClosed && observationsDirty && <span className="kc-dirty is-dirty">Sin guardar</span>}
+                </header>
                 <Input
                   type="textarea"
                   rows={3}
@@ -2415,142 +2670,33 @@ function KioskInventoryCountReport({ locationId, internalMode = false }) {
                   disabled={isClosed}
                   onChange={(e) => setSessionObservations(e.target.value)}
                   placeholder="Ej. faltante en vitrina 3, producto dañado, conteo pendiente de BO…"
+                  aria-label="Observaciones generales del conteo"
                 />
-                <small className="text-muted">
-                  Se muestra en el encabezado del Excel/PDF. Editable hasta cerrar el conteo.
-                </small>
-              </FormGroup>
-              {!isClosed && (
-                <Button
-                  color="warning"
-                  outline
-                  size="sm"
-                  onClick={() => void handleSaveObservations()}
-                  disabled={savingObservations || String(sessionObservations || "") === String(report.observations || "")}
-                >
-                  {savingObservations ? <Spinner size="sm" /> : "Guardar observaciones"}
-                </Button>
-              )}
-            </div>
-          )}
-
-          {isSubcountView && (
-            <Alert color="info" className="mb-3" style={{ fontSize: 12 }}>
-              <div className="d-flex flex-wrap align-items-center justify-content-between" style={{ gap: 8 }}>
-                <div>
-                  <strong>Subconteo al {fmtDt(report.asOfAt) || fmt(report.asOfDate)} (hora Guatemala).</strong>{" "}
-                  Kardex del {fmtDt(report.periodFromAt) || fmt(report.periodFrom)} al{" "}
-                  {fmtDt(report.asOfAt) || fmt(report.asOfDate)}. El conteo físico es el del conteo principal;
-                  la columna de inventario sistema refleja el saldo a esa fecha/hora.
-                  la diferencia es físico − sistema (+ sobrante, − faltante).
-                  {principalReport && (
-                    <Button color="link" className="p-0 ml-2" style={{ fontSize: 12 }} onClick={handleBackToPrincipal}>
-                      Volver al conteo principal
-                    </Button>
+                <div className="kc-panel-foot">
+                  <small className="kc-muted">
+                    Se muestra en el encabezado del Excel/PDF. Editable hasta cerrar el conteo.
+                  </small>
+                  {!isClosed && (
+                    <button
+                      type="button"
+                      className="kc-btn kc-btn--ghost kc-btn--sm"
+                      onClick={() => void handleSaveObservations()}
+                      disabled={savingObservations || !observationsDirty}
+                    >
+                      {savingObservations ? <Spinner size="sm" /> : "Guardar observaciones"}
+                    </button>
                   )}
                 </div>
-                <Button color="success" size="sm" onClick={handleExportExcel}>
-                  ⬇ Excel inventario al {fmtDt(report.asOfAt) || fmt(report.asOfDate)}
-                </Button>
-              </div>
-            </Alert>
-          )}
+              </section>
 
-          {/* ── Filtros ── */}
-          <div className="kiosk-conteo-filters">
-            <FormGroup className="mb-0">
-              <Label style={{ fontSize: 12 }}>Categoría de producto</Label>
-              <FilterableSelect
-                options={productCategoryOptions}
-                value={productCategoryFilter}
-                onChange={setProductCategoryFilter}
-                placeholder="Todas las categorías..."
-              />
-            </FormGroup>
-            <FormGroup className="mb-0">
-              <Label style={{ fontSize: 12 }}>Buscar producto</Label>
-              <Input
-                type="search"
-                placeholder="Código o nombre..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-              />
-            </FormGroup>
-            <div>
-              <Label style={{ fontSize: 12 }}>Filtros</Label>
-              <div className="kiosk-conteo-filter-chips">
-                <Button
-                  size="sm"
-                  color={audienceFilter === "" ? "primary" : "light"}
-                  onClick={() => setAudienceFilter("")}
-                >
-                  Cat. SX: Todas
-                </Button>
-                {PRODUCT_AUDIENCE_OPTIONS.map((opt) => (
-                  <Button
-                    key={opt.value}
-                    size="sm"
-                    color={audienceFilter === opt.value ? "primary" : "light"}
-                    onClick={() => setAudienceFilter(opt.value)}
-                  >
-                    {opt.label}
-                  </Button>
-                ))}
-                <span className="kiosk-conteo-filter-sep" />
-                {CINCHO_FILTER_OPTIONS.map((opt) => (
-                  <Button
-                    key={opt.value || "all"}
-                    size="sm"
-                    color={cinchoFilter === opt.value ? "info" : "light"}
-                    onClick={() => setCinchoFilter(opt.value)}
-                  >
-                    {opt.label === "Todos" ? "Cinchos: Todos" : opt.label}
-                  </Button>
-                ))}
-                {entreCueros ? (
-                  <>
-                    <span className="kiosk-conteo-filter-sep" />
-                    {ENTRECUEROS_VARIANT_FILTERS.map((opt) => (
-                      <Button
-                        key={opt.value || "variant-all"}
-                        size="sm"
-                        color={variantFilter === opt.value ? "primary" : "light"}
-                        onClick={() => setVariantFilter(opt.value)}
-                      >
-                        {opt.value === "" ? "Variante: Todas" : opt.label}
-                      </Button>
-                    ))}
-                  </>
-                ) : null}
-                {!internalMode && !entreCueros && (
-                  <>
-                    <span className="kiosk-conteo-filter-sep" />
-                    <FormGroup check inline className="mb-0 ml-1">
-                      <Label check style={{ fontSize: 12, userSelect: "none", cursor: "pointer" }}>
-                        <Input
-                          type="checkbox"
-                          checked={hardwareSplitEnabled}
-                          onChange={(e) => setHardwareSplitEnabled(e.target.checked)}
-                          style={{ marginTop: 2 }}
-                        />
-                        {" "}Desglose herraje N/V
-                      </Label>
-                    </FormGroup>
-                  </>
-                )}
-              </div>
-            </div>
-          </div>
-
-          {/* ── Subconteo / inventario a fecha-hora ── */}
-          {!internalMode && !isSubcountView && report && (
-            <Row className="mb-3">
-              <Col md="5">
-                <FormGroup className="mb-0">
-                  <Label style={{ fontSize: 12 }}>
-                    Corte inventario sistema (hora Guatemala)
-                  </Label>
+              <section className="kc-card kc-panel">
+                <header className="kc-panel-head">
+                  <h6>Inventario sistema al corte</h6>
+                </header>
+                <FormGroup className="mb-2">
+                  <Label className="kc-label" for="kc-cutoff">Fecha y hora de corte (hora Guatemala)</Label>
                   <Input
+                    id="kc-cutoff"
                     type="datetime-local"
                     value={subcountAsOf}
                     min={
@@ -2563,177 +2709,170 @@ function KioskInventoryCountReport({ locationId, internalMode = false }) {
                     }
                     onChange={(e) => setSubcountAsOf(e.target.value)}
                   />
-                  <small className="text-muted d-block mt-1" style={{ fontSize: 11 }}>
+                  <small className="kc-muted d-block mt-1">
                     Saldo del sistema hasta la fecha y hora elegidas (entradas, ventas y demás movimientos).
                   </small>
                 </FormGroup>
-              </Col>
-              <Col md="7" className="d-flex align-items-end flex-wrap" style={{ gap: 8 }}>
-                <Button
-                  color="primary"
-                  size="sm"
-                  outline
-                  onClick={() => void handleViewSubconteo()}
-                  disabled={loadingSubcount || exportingCutoff || !subcountAsOf}
-                  title="Ver en pantalla el inventario sistema al corte elegido (hora Guatemala)"
-                >
-                  {loadingSubcount ? <Spinner size="sm" /> : "Ver subconteo al corte"}
-                </Button>
-                <ButtonGroup size="sm">
-                  <Button
-                    color="success"
-                    outline
-                    onClick={() => void handleExportCutoff("excel")}
+                <div className="kc-inline-actions">
+                  <button
+                    type="button"
+                    className="kc-btn kc-btn--ghost kc-btn--sm"
+                    onClick={() => void handleViewSubconteo()}
                     disabled={loadingSubcount || exportingCutoff || !subcountAsOf}
-                    title="Descargar Excel del inventario sistema al corte (hora Guatemala)"
+                    title="Ver en pantalla el inventario sistema al corte elegido (hora Guatemala)"
                   >
-                    {exportingCutoff
-                      ? <Spinner size="sm" />
-                      : `⬇ Excel al ${subcountAsOf ? (fmtDt(toApiLocalDateTimeGuatemala(subcountAsOf)) || fmt(subcountAsOf)) : "corte"}`}
-                  </Button>
-                  <Button
-                    color="success"
-                    outline
-                    onClick={() => void handleExportCutoff("pdf")}
-                    disabled={loadingSubcount || exportingCutoff || !subcountAsOf}
-                    title="Descargar PDF del inventario sistema al corte (hora Guatemala)"
-                  >
-                    {exportingCutoff
-                      ? <Spinner size="sm" />
-                      : `🖨 PDF al ${subcountAsOf ? (fmtDt(toApiLocalDateTimeGuatemala(subcountAsOf)) || fmt(subcountAsOf)) : "corte"}`}
-                  </Button>
-                </ButtonGroup>
-              </Col>
-            </Row>
-          )}
-
-          {/* ── Barra de acciones ── */}
-          <div className="kiosk-conteo-actions mb-3">
-                {isSubcountView && principalReport && (
-                  <Button color="secondary" size="sm" outline onClick={handleBackToPrincipal}>
-                    ← Conteo principal
-                  </Button>
-                )}
-                {isDraft && !isSubcountView && (
-                  <>
-                    <Button color="success" size="sm" onClick={() => void handleSave()} disabled={saving || finalizing || savingSnapshot}>
-                      {saving ? <Spinner size="sm" /> : internalMode ? "💾 Guardar borrador" : "💾 Guardar conteo"}
-                    </Button>
-                    {internalMode ? (
-                      <Button
-                        color="primary"
-                        size="sm"
-                        onClick={() => void handleSaveInternalSnapshot()}
-                        disabled={saving || savingSnapshot || isCountLocked}
-                      >
-                        {savingSnapshot ? <Spinner size="sm" /> : "📌 Guardar snapshot del día"}
-                      </Button>
-                    ) : (
-                    <Button
-                      color="warning"
-                      size="sm"
-                      onClick={() => void handleFinalize()}
-                      disabled={saving || finalizing}
+                    {loadingSubcount ? <Spinner size="sm" /> : "Ver subconteo al corte"}
+                  </button>
+                  <div className="kc-segmented" role="group" aria-label="Exportar al corte">
+                    <button
+                      type="button"
+                      className="kc-btn kc-btn--ghost kc-btn--sm"
+                      onClick={() => void handleExportCutoff("excel")}
+                      disabled={loadingSubcount || exportingCutoff || !subcountAsOf}
+                      title={`Descargar Excel del inventario sistema al ${cutoffLabel} (hora Guatemala)`}
                     >
-                      {finalizing ? <Spinner size="sm" /> : "✓ Terminar conteo físico"}
-                    </Button>
-                    )}
-                  </>
-                )}
-                {!internalMode && report.status === "CONTADO" && !isSubcountView && (
-                  <Button color="info" size="sm" outline onClick={() => setShowReviewBox((v) => !v)} disabled={saving}>
-                    ✔ Marcar como revisado
-                  </Button>
-                )}
-                {!internalMode && report.status === "REVISADO" && !isSubcountView && (
-                  <Button color="danger" size="sm" outline onClick={() => void handleClose()} disabled={closing}>
-                    {closing ? <Spinner size="sm" /> : "🔒 Cerrar conteo"}
-                  </Button>
-                )}
-                <ButtonGroup size="sm">
-                  <Button color="secondary" outline onClick={handleExportExcel}>
-                    {internalMode ? "⬇ Excel conteo interno" : isSubcountView ? "⬇ Excel subconteo" : "⬇ Excel"}
-                  </Button>
-                  {!internalMode && (
-                    <Button color="secondary" outline onClick={handleExportPdf}>
-                      🖨 PDF / Imprimir
-                    </Button>
-                  )}
-                </ButtonGroup>
-                {!internalMode && (
-                <Button
-                  color="light"
-                  size="sm"
-                  style={{ border: "1px solid #d1d5db" }}
-                  onClick={() => setShowKardex((v) => !v)}
-                  title="Mostrar u ocultar las columnas del Kardex del sistema"
-                >
-                  {showKardex ? "Ocultar Kardex" : "Mostrar Kardex"}
-                </Button>
-                )}
-              </div>
-
-          {internalMode && isDraft && (
-            <Row className="mb-3">
-              <Col md="6">
-                <FormGroup className="mb-0">
-                  <Label style={{ fontSize: 12 }}>Notas del snapshot (opcional)</Label>
-                  <Input
-                    type="textarea"
-                    rows={2}
-                    value={internalNotes}
-                    onChange={(e) => setInternalNotes(e.target.value)}
-                    placeholder="Ej. turno tarde, vitrina E revisada..."
-                  />
-                </FormGroup>
-              </Col>
-            </Row>
-          )}
-
-          {internalMode && report?.status === "SAVED" && (
-            <Alert color="secondary" className="mb-3" style={{ fontSize: 12 }}>
-              Snapshot guardado — solo lectura. Abre el borrador de hoy para un nuevo conteo del día.
-            </Alert>
-          )}
-
-          {!internalMode && report.status === "CONTADO" && (
-            <Alert color="info" className="mb-3" style={{ fontSize: 12 }}>
-              Conteo físico terminado. Las vitrinas están bloqueadas; un supervisor puede marcarlo como revisado.
-            </Alert>
-          )}
-
-          {!internalMode && isClosed && (
-            <Alert color="secondary" className="mb-3" style={{ fontSize: 12 }}>
-              Este conteo está cerrado y es de solo lectura. Puedes exportarlo, pero no editarlo.
-            </Alert>
-          )}
-
-          {/* ── Panel de revisión ── */}
-          {!internalMode && showReviewBox && (
-            <div style={{ background: "#f0f9ff", border: "1px solid #bae6fd", borderRadius: 8, padding: 14, marginBottom: 14 }}>
-              <FormGroup className="mb-2">
-                <Label style={{ fontWeight: 600, fontSize: 13 }}>Notas / áreas para corregir</Label>
-                <Input
-                  type="textarea"
-                  rows={3}
-                  value={reviewNotes}
-                  onChange={(e) => setReviewNotes(e.target.value)}
-                />
-              </FormGroup>
-              <Button color="info" size="sm" onClick={() => void handleReview()} disabled={saving}>
-                {saving ? <Spinner size="sm" /> : "Confirmar revisión"}
-              </Button>
-              <Button color="link" size="sm" onClick={() => setShowReviewBox(false)}>Cancelar</Button>
+                      {exportingCutoff ? <Spinner size="sm" /> : "⬇ Excel"}
+                    </button>
+                    <button
+                      type="button"
+                      className="kc-btn kc-btn--ghost kc-btn--sm"
+                      onClick={() => void handleExportCutoff("pdf")}
+                      disabled={loadingSubcount || exportingCutoff || !subcountAsOf}
+                      title={`Descargar PDF del inventario sistema al ${cutoffLabel} (hora Guatemala)`}
+                    >
+                      {exportingCutoff ? <Spinner size="sm" /> : "🖨 PDF"}
+                    </button>
+                  </div>
+                </div>
+              </section>
             </div>
           )}
+
+          {internalMode && isDraft && (
+            <section className="kc-card kc-panel kc-panel--narrow">
+              <FormGroup className="mb-0">
+                <Label className="kc-label" for="kc-internal-notes">Notas del snapshot (opcional)</Label>
+                <Input
+                  id="kc-internal-notes"
+                  type="textarea"
+                  rows={2}
+                  value={internalNotes}
+                  onChange={(e) => setInternalNotes(e.target.value)}
+                  placeholder="Ej. turno tarde, vitrina E revisada..."
+                />
+              </FormGroup>
+            </section>
+          )}
+
+          {/* ── Filtros ── */}
+          <section className="kc-filters kiosk-conteo-filters">
+            <div className="kc-filters-top">
+              <div className="kc-search">
+                <span className="kc-search-icon" aria-hidden="true">⌕</span>
+                <Input
+                  type="search"
+                  placeholder="Buscar por código o nombre..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  aria-label="Buscar producto"
+                />
+              </div>
+              <div className="kc-category-select">
+                <FilterableSelect
+                  options={productCategoryOptions}
+                  value={productCategoryFilter}
+                  onChange={setProductCategoryFilter}
+                  placeholder="Todas las categorías..."
+                />
+              </div>
+              <div className="kc-filters-meta">
+                <span className="kc-muted">
+                  {visibleProductCount} producto{visibleProductCount !== 1 ? "s" : ""}
+                </span>
+                {hasActiveFilters && (
+                  <button type="button" className="kc-link" onClick={clearFilters}>
+                    Limpiar filtros
+                  </button>
+                )}
+              </div>
+            </div>
+            <div className="kc-filters-chips kiosk-conteo-filter-chips">
+              <div className="kc-chip-group" role="group" aria-label="Categoría SX">
+                <span className="kc-chip-label">Cat. SX</span>
+                <button
+                  type="button"
+                  className={`kc-chip${audienceFilter === "" ? " is-active" : ""}`}
+                  aria-pressed={audienceFilter === ""}
+                  onClick={() => setAudienceFilter("")}
+                >
+                  Todas
+                </button>
+                {PRODUCT_AUDIENCE_OPTIONS.map((opt) => (
+                  <button
+                    type="button"
+                    key={opt.value}
+                    className={`kc-chip${audienceFilter === opt.value ? " is-active" : ""}`}
+                    aria-pressed={audienceFilter === opt.value}
+                    onClick={() => setAudienceFilter(opt.value)}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+              <div className="kc-chip-group" role="group" aria-label="Cinchos">
+                <span className="kc-chip-label">Cinchos</span>
+                {CINCHO_FILTER_OPTIONS.map((opt) => (
+                  <button
+                    type="button"
+                    key={opt.value || "all"}
+                    className={`kc-chip kc-chip--info${cinchoFilter === opt.value ? " is-active" : ""}`}
+                    aria-pressed={cinchoFilter === opt.value}
+                    onClick={() => setCinchoFilter(opt.value)}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+              {entreCueros ? (
+                <div className="kc-chip-group" role="group" aria-label="Variante">
+                  <span className="kc-chip-label">Variante</span>
+                  {ENTRECUEROS_VARIANT_FILTERS.map((opt) => (
+                    <button
+                      type="button"
+                      key={opt.value || "variant-all"}
+                      className={`kc-chip${variantFilter === opt.value ? " is-active" : ""}`}
+                      aria-pressed={variantFilter === opt.value}
+                      onClick={() => setVariantFilter(opt.value)}
+                    >
+                      {opt.value === "" ? "Todas" : opt.label}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+              {!internalMode && !entreCueros && (
+                <label className="kc-switch">
+                  <input
+                    type="checkbox"
+                    checked={hardwareSplitEnabled}
+                    onChange={(e) => setHardwareSplitEnabled(e.target.checked)}
+                  />
+                  <span className="kc-switch-track" aria-hidden="true" />
+                  Desglose herraje N/V
+                </label>
+              )}
+            </div>
+          </section>
 
           {/* ── Tabla principal ── */}
           {compact ? (
             <div className="kiosk-conteo-card-list">
               {filteredCategories.length === 0 ? (
-                <Alert color="light" className="border mb-0 kiosk-inv-hint-alert">
-                  No hay productos que coincidan con los filtros.
-                </Alert>
+                <div className="kc-empty kc-empty--compact">
+                  <div>No hay productos que coincidan con los filtros.</div>
+                  {hasActiveFilters && (
+                    <button type="button" className="kc-link" onClick={clearFilters}>Limpiar filtros</button>
+                  )}
+                </div>
               ) : (
                 filteredCategories.map((category) => (
                   <CategoryGroup
@@ -2774,20 +2913,20 @@ function KioskInventoryCountReport({ locationId, internalMode = false }) {
               <thead>
                 {/* Fila de grupos */}
                 <tr>
-                  <th colSpan={PRODUCT_INFO_COLS} className="kiosk-conteo-th" style={thStyle}>Producto</th>
+                  <th colSpan={PRODUCT_INFO_COLS} className="kiosk-conteo-th kc-th-group kc-th-group--product" style={thStyle}>Producto</th>
                   {tableShowKardex && (
-                    <th colSpan={kardexColumns.length} className="kiosk-conteo-th" style={{ ...thStyle, background: "#e0e7ff", textAlign: "center" }}>
+                    <th colSpan={kardexColumns.length} className="kiosk-conteo-th kc-th-group kc-th-group--kardex" style={thStyle}>
                       {isSubcountView ? "Kardex al corte" : "Kardex sistema"}
                     </th>
                   )}
-                  <th colSpan={COUNT_LOCATION_KEYS.length} className="kiosk-conteo-th" style={{ ...thStyle, background: "#dcfce7", textAlign: "center" }}>
+                  <th colSpan={COUNT_LOCATION_KEYS.length} className="kiosk-conteo-th kc-th-group kc-th-group--count" style={thStyle}>
                     Conteo físico por ubicación
                   </th>
-                  <th rowSpan={2} className="kiosk-conteo-th kiosk-conteo-sum" style={{ ...thStyle, ...sumColStyle, background: "#fef9c3", textAlign: "center", verticalAlign: "middle" }}>Total</th>
+                  <th rowSpan={2} className="kiosk-conteo-th kiosk-conteo-sum kc-th-group kc-th-group--total" style={{ ...thStyle, ...sumColStyle }}>Total</th>
                   {!internalMode && (
                     <>
-                      <th rowSpan={2} className="kiosk-conteo-th kiosk-conteo-sum" style={{ ...thStyle, ...sumColStyle, background: "#fee2e2", textAlign: "center", verticalAlign: "middle" }}>Dif.</th>
-                      <th rowSpan={2} className="kiosk-conteo-th kiosk-conteo-obs" style={{ ...thStyle, background: "#fffbeb", textAlign: "center", verticalAlign: "middle", minWidth: OBS_COL_MIN_WIDTH }}>Observaciones</th>
+                      <th rowSpan={2} className="kiosk-conteo-th kiosk-conteo-sum kc-th-group kc-th-group--diff" style={{ ...thStyle, ...sumColStyle }}>Dif.</th>
+                      <th rowSpan={2} className="kiosk-conteo-th kiosk-conteo-obs kc-th-group kc-th-group--obs" style={{ ...thStyle, minWidth: OBS_COL_MIN_WIDTH }}>Observaciones</th>
                     </>
                   )}
                 </tr>
@@ -2803,22 +2942,25 @@ function KioskInventoryCountReport({ locationId, internalMode = false }) {
                   >
                     {entreCueros ? "Variante" : "Herraje"}
                     {entreCueros ? null : (
-                      <div style={{ fontWeight: 400, fontSize: 9, color: "#6b7280" }}>N · V</div>
+                      <div className="kc-th-sub">N · V</div>
                     )}
                   </th>
                   {tableShowKardex && kardexColumns.map((col) => (
-                    <th key={col.key} className="kiosk-conteo-th kiosk-conteo-kardex" style={{ background: "#eef2ff" }} title={col.title}>{col.label}</th>
+                    <th key={col.key} className="kiosk-conteo-th kiosk-conteo-kardex kc-th-kardex" title={col.title}>{col.label}</th>
                   ))}
                   {COUNT_LOCATION_KEYS.map((k) => (
-                    <th key={k} className="kiosk-conteo-th kiosk-conteo-loc" style={{ background: "#f0fdf4" }}>{k}</th>
+                    <th key={k} className="kiosk-conteo-th kiosk-conteo-loc kc-th-loc">{k}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
                 {filteredCategories.length === 0 ? (
                   <tr>
-                    <td colSpan={totalCols} style={{ textAlign: "center", padding: 16, color: "#6b7280" }}>
+                    <td colSpan={totalCols} className="kc-table-empty">
                       No hay productos que coincidan con los filtros.
+                      {hasActiveFilters && (
+                        <button type="button" className="kc-link ml-2" onClick={clearFilters}>Limpiar filtros</button>
+                      )}
                     </td>
                   </tr>
                 ) : (
@@ -2852,7 +2994,7 @@ function KioskInventoryCountReport({ locationId, internalMode = false }) {
                     row={filteredTotalGeneral}
                     showKardex={tableShowKardex}
                     kardexColumns={kardexColumns}
-                    bg="#1f2937"
+                    bg="#0f172a"
                     textColor="#fff"
                     bold
                     vitrineOnlyView={internalMode}
@@ -2863,40 +3005,42 @@ function KioskInventoryCountReport({ locationId, internalMode = false }) {
           </div>
           )}
 
-          {/* ── Leyenda ── */}
+          {/* ── Leyenda / guía rápida ── */}
           <div className="kiosk-conteo-hint">
-            {internalMode ? (
-              <>
-                <span>Registra cuántas unidades hay en cada vitrina (V1–V7, E, BO).</span>
-                {entreCueros ? null : (
-                  <span>Al tocar una vitrina se abre el modal de herraje NUEVO/VIEJO.</span>
+            {!internalMode && (
+              <div className="kc-hint-legend">
+                <span><span className="kc-hint-sample">0</span> Sin diferencia</span>
+                <span><span className="kc-hint-sample is-over">n</span> Sobrante (físico &gt; sistema)</span>
+                <span><span className="kc-hint-sample is-short">▼ −n</span> Faltante (físico &lt; sistema)</span>
+                <span>Fondo de color solo si |diferencia| ≥ {DIFF_ALERT_THRESHOLD}</span>
+              </div>
+            )}
+            <details className="kc-help">
+              <summary>Guía rápida</summary>
+              <ul>
+                <li><kbd>Enter</kbd> baja a la misma ubicación del siguiente producto; <kbd>Shift</kbd>+<kbd>Enter</kbd> sube.</li>
+                {internalMode ? (
+                  <>
+                    <li>Registra cuántas unidades hay en cada vitrina (V1–V7, E, BO).</li>
+                    {entreCueros ? null : <li>Al tocar una vitrina se abre el modal de herraje NUEVO/VIEJO.</li>}
+                    <li>Los cinchos FOSS usan el modal de tallas; otros cinchos pueden contar por talla.</li>
+                    <li>Exporta a Excel para compartir o archivar el conteo del día.</li>
+                  </>
+                ) : (
+                  <>
+                    <li>Observaciones: solo en filas con sobrante o faltante.</li>
+                    <li>Haz clic en el nombre de categoría para colapsar/expandir.</li>
+                    {!tableShowKardex && <li>Kardex oculto en pantalla — actívalo con el interruptor &quot;Kardex&quot; (Excel/PDF oficiales lo incluyen).</li>}
+                    {entreCueros ? (
+                      <li>Cada fila es una variante (marca o Niño/Dama). No hay herraje N/V.</li>
+                    ) : (
+                      <li>Con el desglose N/V activo, al tocar una celda de vitrina (V1–V7, E, BO) se abre el modal herraje NUEVO/VIEJO.</li>
+                    )}
+                    <li>FOSS cinchos: una fila por talla y color — edite E (vitrina) y BO (bodega). Otros cinchos: edite E por talla.</li>
+                  </>
                 )}
-                <span>Los cinchos FOSS usan el modal de tallas; otros cinchos pueden contar por talla.</span>
-                <span>Exporta a Excel para compartir o archivar el conteo del día.</span>
-              </>
-            ) : (
-              <>
-            <span><span style={{ color: "#111827", fontWeight: 700 }}>0</span> Sin diferencia</span>
-            <span>
-              <span style={{ color: "#16a34a", fontWeight: 700, background: "#f0fdf4", padding: "1px 4px" }}>n</span>{" "}
-              Sobrante (físico &gt; sistema, número en verde)
-            </span>
-            <span>
-              <span style={{ color: "#dc2626", fontWeight: 700, background: "#fef2f2", padding: "1px 4px" }}>▼ −n</span>{" "}
-              Faltante (físico &lt; sistema)
-            </span>
-            <span>Fondo solo si |diferencia| ≥ {DIFF_ALERT_THRESHOLD}</span>
-            <span>Observaciones: solo en filas con sobrante o faltante</span>
-            <span>Haz clic en el nombre de categoría para colapsar/expandir</span>
-            {!tableShowKardex && <span>Kardex oculto en pantalla — actívalo con &quot;Mostrar Kardex&quot; (Excel/PDF oficiales lo incluyen)</span>}
-            {entreCueros ? (
-              <span>Cada fila es una variante (marca o Niño/Dama). No hay herraje N/V.</span>
-            ) : (
-              <span>Al tocar una celda de vitrina (V1–V7, E, BO) se abre el modal herraje NUEVO/VIEJO.</span>
-            )}
-            <span>FOSS cinchos: una fila por talla y color — edite E (vitrina) y BO (bodega). Otros cinchos: edite E por talla.</span>
-              </>
-            )}
+              </ul>
+            </details>
           </div>
         </>
       )}
