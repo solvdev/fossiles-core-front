@@ -2028,3 +2028,9 @@ button.kiosk-conteo-qty.is-modal.has-value {
 .kc-card-head:last-child {
   margin-bottom: 0;
 }
+
+.kiosk-conteo .kc-btn--ghost.is-pressed {
+  background: var(--kc-brand-soft);
+  border-color: #93c5fd;
+  color: var(--kc-brand);
+}
