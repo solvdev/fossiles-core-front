@@ -15,6 +15,8 @@ import {
 import {
   addCountBlockedDay,
   addCountVisit,
+  approveCountWeek,
+  discardCountDraft,
   generateCountWeek,
   getCountCalendar,
   removeCountBlockedDay,
@@ -44,7 +46,7 @@ import "./KioskCountCalendar.css";
 
 const REGION_ORDER = ["METROPOLITANA", "CENTRAL", "OCCIDENTE", "SUR", "ORIENTE", "NORTE"];
 const WEEKDAYS = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes"];
-const STATUS_LABEL = { PLANNED: "Pendiente", DONE: "Hecha", CANCELLED: "Cancelada" };
+const STATUS_LABEL = { DRAFT: "Borrador", PLANNED: "Pendiente", DONE: "Hecha", CANCELLED: "Cancelada" };
 
 const initials = (name) =>
   String(name || "?")
@@ -71,7 +73,7 @@ export default function KioskCountCalendar() {
   const [view, setView] = useState("list");
   const [editMode, setEditMode] = useState(false);
   const [selected, setSelected] = useState(null);
-  const [generateRedo, setGenerateRedo] = useState(null);
+  const [weekAction, setWeekAction] = useState(null);
   const [addDraft, setAddDraft] = useState(null);
   const [warnings, setWarnings] = useState([]);
   const [showRules, setShowRules] = useState(false);
@@ -135,8 +137,6 @@ export default function KioskCountCalendar() {
     () => allVisits.some((v) => [0, 6].includes(new Date(`${key(v.visitDate)}T12:00:00`).getDay())),
     [allVisits]
   );
-  const showWeekend = editMode || hasWeekendVisits;
-  const dayNames = showWeekend ? [...WEEKDAYS, "Sábado", "Domingo"] : WEEKDAYS;
   const visitsByDate = useMemo(() => {
     const map = {};
     visits.forEach((v) => {
@@ -161,31 +161,41 @@ export default function KioskCountCalendar() {
     [data, weekStart]
   );
   const generatedIds = useMemo(() => weekInfo?.generatedSupervisorIds || [], [weekInfo]);
-  const weekGeneratedFor = (supId) => generatedIds.includes(supId);
-  const relevantGenerated = relevantSupervisors.filter((s) => weekGeneratedFor(s.userId));
+  const draftIds = useMemo(() => weekInfo?.draftSupervisorIds || [], [weekInfo]);
+  const relevantGenerated = relevantSupervisors.filter((s) => generatedIds.includes(s.userId));
+  const relevantDraft = relevantSupervisors.filter((s) => draftIds.includes(s.userId));
+  // Estado de la semana: all = aprobada y lista, draft = borrador por aprobar, some = lista solo para algunas.
   const weekStatus =
     relevantSupervisors.length > 0 && relevantGenerated.length === relevantSupervisors.length
       ? "all"
-      : relevantGenerated.length > 0
-        ? "some"
-        : "none";
+      : relevantDraft.length > 0
+        ? "draft"
+        : relevantGenerated.length > 0
+          ? "some"
+          : "none";
+  const weekHasDraft = relevantDraft.length > 0;
+  // Un borrador se edita directamente; una semana aprobada se edita con «Editar calendario».
+  const editing = editMode || weekHasDraft;
+  const showWeekend = editing || hasWeekendVisits;
+  const dayNames = showWeekend ? [...WEEKDAYS, "Sábado", "Domingo"] : WEEKDAYS;
 
   // Qué se puede hacer con la semana elegida
   const nextWeeks = useMemo(() => data?.nextWeeks || [], [data]);
   const pendingHere = nextWeeks
-    .filter((n) => key(n.weekStart) === weekStart && relevantSupervisors.some((s) => s.userId === n.supervisorUserId))
+    .filter(
+      (n) =>
+        key(n.weekStart) === weekStart && !n.draft && relevantSupervisors.some((s) => s.userId === n.supervisorUserId)
+    )
     .map((n) => n.supervisorUserId);
   const earliestPending = nextWeeks
     .filter((n) => relevantSupervisors.some((s) => s.userId === n.supervisorUserId))
     .map((n) => key(n.weekStart))
     .sort()[0];
   const blockedBy =
-    pendingHere.length === 0 && weekStatus !== "all" && earliestPending && earliestPending < weekStart
+    pendingHere.length === 0 && !weekHasDraft && weekStatus !== "all" && earliestPending && earliestPending < weekStart
       ? earliestPending
       : null;
   const weekEndPast = weekEnd < today;
-  const canRedo =
-    canGenerate && weekInfo && !weekInfo.started && relevantGenerated.length > 0 && weekStart > today;
 
   const regionsPresent = useMemo(() => {
     const set = new Set(weekVisits.map((v) => v.region));
@@ -226,14 +236,27 @@ export default function KioskCountCalendar() {
     [data]
   );
 
-  const runGenerate = async (supIds, redo) => {
+  const WEEK_ACTION_DONE = {
+    propose: "Borrador propuesto: revísalo, edítalo y apruébalo.",
+    repropose: "Borrador propuesto de nuevo.",
+    approve: "Semana aprobada: el calendario quedó listo.",
+    discard: "Borrador descartado.",
+  };
+
+  const runWeekAction = async (mode, supIds) => {
     setBusy(true);
     try {
-      const result = await generateCountWeek({ weekStart, supervisorUserIds: supIds, redo, month });
+      const payload = { weekStart, supervisorUserIds: supIds, month };
+      const result =
+        mode === "approve"
+          ? await approveCountWeek(payload)
+          : mode === "discard"
+            ? await discardCountDraft(payload)
+            : await generateCountWeek({ ...payload, redo: mode === "repropose" });
       setData(result.calendar);
       setWarnings(result.warnings || []);
-      setGenerateRedo(null);
-      showSuccess(`Semana del ${weekRange(weekStart)} ${redo ? "repartida de nuevo" : "generada"}.`);
+      setWeekAction(null);
+      showSuccess(WEEK_ACTION_DONE[mode]);
     } catch (error) {
       showError(error.message);
     } finally {
@@ -255,12 +278,14 @@ export default function KioskCountCalendar() {
 
   const exportExcel = (scope) => {
     const supervisor = supervisors.find((s) => s.userId === supervisorId);
-    const list =
+    const base =
       scope === "week"
         ? weekVisits
         : visits.filter((v) => key(v.visitDate).slice(0, 7) === month);
+    // Solo el calendario aprobado se entrega: un borrador todavía puede cambiar.
+    const list = base.filter((v) => v.status !== "DRAFT");
     if (!list.length) {
-      showError("No hay visitas para descargar.");
+      showError(base.length ? "Es un borrador: apruébalo para poder descargarlo." : "No hay visitas para descargar.");
       return;
     }
     try {
@@ -277,12 +302,13 @@ export default function KioskCountCalendar() {
 
   const chip = (visit) => {
     const done = visit.status === "DONE" || Boolean(visit.countedOn);
-    const draggable = editMode && canGenerate;
+    const draggable = editing && canGenerate;
+    const isDraft = visit.status === "DRAFT";
     return (
       <button
         type="button"
         key={visit.id}
-        className={`kcc-chip kcc-r-${visit.region} ${done ? "is-done" : ""} ${visit.kind === "REVISIT" ? "is-revisit" : ""} ${draggable ? "is-draggable" : ""}`}
+        className={`kcc-chip kcc-r-${visit.region} ${done ? "is-done" : ""} ${visit.kind === "REVISIT" ? "is-revisit" : ""} ${isDraft ? "is-draft" : ""} ${draggable ? "is-draggable" : ""}`}
         onClick={() => setSelected(visit)}
         draggable={draggable}
         onDragStart={(e) => {
@@ -293,6 +319,7 @@ export default function KioskCountCalendar() {
       >
         <span className="kcc-chip-name">{visit.locationName}</span>
         <span className="kcc-chip-meta">
+          {isDraft && <span className="kcc-draft-tag">Borrador</span>}
           {visit.kind === "REVISIT" && <span className="kcc-revisit-tag">Revisita</span>}
           {visit.dayTotal > 1 && (
             <span>
@@ -319,7 +346,7 @@ export default function KioskCountCalendar() {
       const off = nonWorking[date];
       const isToday = date === today;
       const outOfMonth = date.slice(0, 7) !== month;
-      const dropOk = editMode && canGenerate && !off;
+      const dropOk = editing && canGenerate && !off;
       return (
         <div
           key={date}
@@ -344,7 +371,7 @@ export default function KioskCountCalendar() {
             <span className="kcc-dn">{Number(date.slice(8))}</span>
             {outOfMonth && <small className="kcc-day-out">{formatShort(date).split(" ")[1]}</small>}
             <small className="kcc-day-name">{formatLong(date).split(",")[0]}</small>
-            {editMode && canGenerate && !off && date >= today && (
+            {editing && canGenerate && !off && date >= today && (
               <button
                 type="button"
                 className="kcc-add"
@@ -365,7 +392,8 @@ export default function KioskCountCalendar() {
     const ws = key(w.weekStart);
     const relevant = relevantSupervisors;
     const gen = relevant.filter((s) => w.generatedSupervisorIds.includes(s.userId)).length;
-    const state = gen === relevant.length && relevant.length ? "all" : gen > 0 ? "some" : "none";
+    const dr = relevant.filter((s) => (w.draftSupervisorIds || []).includes(s.userId)).length;
+    const state = gen === relevant.length && relevant.length ? "all" : dr > 0 ? "draft" : gen > 0 ? "some" : "none";
     return (
       <button
         key={`b${ws}`}
@@ -375,7 +403,13 @@ export default function KioskCountCalendar() {
       >
         <strong>Semana del {weekRange(ws)}</strong>
         <span className={`kcc-wstate is-${state}`}>
-          {state === "all" ? "Generada" : state === "some" ? `Generada para ${gen} de ${relevant.length}` : "Sin generar"}
+          {state === "all"
+            ? "Generada"
+            : state === "draft"
+              ? "Borrador por aprobar"
+              : state === "some"
+                ? `Generada para ${gen} de ${relevant.length}`
+                : "Sin generar"}
         </span>
       </button>
     );
@@ -417,7 +451,15 @@ export default function KioskCountCalendar() {
               <strong>Semana {weekRangeShort(weekStart)}</strong>
               <small>
                 {monthTitle(month)} ·{" "}
-                {loading ? "…" : weekStatus === "all" ? "Generada" : weekStatus === "some" ? "Generada en parte" : "Sin generar"}
+                {loading
+                  ? "…"
+                  : weekStatus === "all"
+                    ? "Generada"
+                    : weekStatus === "draft"
+                      ? "Borrador por aprobar"
+                      : weekStatus === "some"
+                        ? "Generada en parte"
+                        : "Sin generar"}
               </small>
             </div>
             <button type="button" className="kcc-icon-btn" onClick={() => goToWeek(addDays(weekStart, 7))} aria-label="Semana siguiente">
@@ -564,18 +606,22 @@ export default function KioskCountCalendar() {
               <div>
                 <strong>
                   {weekStatus === "all"
-                    ? "Semana generada"
-                    : weekStatus === "some"
-                      ? "Semana generada solo para algunas supervisoras"
-                      : "Semana sin generar"}
+                    ? "Calendario listo"
+                    : weekStatus === "draft"
+                      ? "Borrador por aprobar"
+                      : weekStatus === "some"
+                        ? "Calendario listo solo para algunas supervisoras"
+                        : "Semana sin generar"}
                 </strong>
                 <span>
-                  {weekStatus !== "none" &&
-                    `Generada para: ${relevantGenerated.map((s) => s.name).join(", ")}. `}
+                  {weekHasDraft &&
+                    `Es una propuesta de ${relevantDraft.map((s) => s.name).join(", ")}: muévela, cambia kioscos, agrega o quita visitas. No queda como calendario listo hasta que la apruebes. `}
+                  {(weekStatus === "all" || weekStatus === "some") &&
+                    `Lista para: ${relevantGenerated.map((s) => s.name).join(", ")}. Para cambiar algo usa «Editar calendario». `}
                   {weekEndPast && weekStatus === "none" && "Esta semana ya pasó."}
-                  {blockedBy && `Primero genera la semana del ${weekRange(blockedBy)}: se generan en orden.`}
+                  {blockedBy && `Primero aprueba la semana del ${weekRange(blockedBy)}: se aprueban en orden.`}
                   {pendingHere.length > 0 && !weekEndPast &&
-                    "Se arma con lo que ya pasó antes: así las fechas no se repiten ni se dejan kioscos fuera."}
+                    "Se propone con lo que ya pasó antes, para que las fechas no se repitan ni queden kioscos fuera. Antes de que quede lista la revisas y la aprueban."}
                 </span>
               </div>
               <div className="kcc-weekstate-actions">
@@ -585,20 +631,38 @@ export default function KioskCountCalendar() {
                   </Button>
                 )}
                 {canGenerate && pendingHere.length > 0 && !weekEndPast && (
-                  <Button color="primary" size="sm" disabled={busy} onClick={() => setGenerateRedo({ redo: false, ids: pendingHere })}>
-                    Generar esta semana
+                  <Button color="primary" size="sm" disabled={busy} onClick={() => setWeekAction({ mode: "propose", ids: pendingHere })}>
+                    Proponer borrador
                   </Button>
                 )}
-                {canRedo && (
-                  <Button
-                    color="secondary"
-                    outline
-                    size="sm"
-                    disabled={busy}
-                    onClick={() => setGenerateRedo({ redo: true, ids: relevantGenerated.map((s) => s.userId) })}
-                  >
-                    Volver a repartir
-                  </Button>
+                {canGenerate && weekHasDraft && (
+                  <>
+                    <Button
+                      color="success"
+                      size="sm"
+                      disabled={busy}
+                      onClick={() => setWeekAction({ mode: "approve", ids: relevantDraft.map((s) => s.userId) })}
+                    >
+                      Aprobar y generar
+                    </Button>
+                    <Button
+                      color="secondary"
+                      outline
+                      size="sm"
+                      disabled={busy}
+                      onClick={() => setWeekAction({ mode: "repropose", ids: relevantDraft.map((s) => s.userId) })}
+                    >
+                      Volver a proponer
+                    </Button>
+                    <button
+                      type="button"
+                      className="kcc-link kcc-danger-link"
+                      disabled={busy}
+                      onClick={() => setWeekAction({ mode: "discard", ids: relevantDraft.map((s) => s.userId) })}
+                    >
+                      Descartar
+                    </button>
+                  </>
                 )}
               </div>
             </div>
@@ -633,12 +697,12 @@ export default function KioskCountCalendar() {
                   </h5>
                   <p>
                     {weekStatus === "none"
-                      ? "Cada semana se genera por separado, en orden, para que las fechas se decidan con lo que ya pasó."
+                      ? "Cada semana se propone por separado, en orden: primero un borrador que revisas y apruebas, y entonces queda el calendario listo."
                       : "Todos sus kioscos ya tienen la visita del mes o no quedó ninguna para esta semana."}
                   </p>
                   {canGenerate && pendingHere.length > 0 && !weekEndPast && (
-                    <Button color="primary" onClick={() => setGenerateRedo({ redo: false, ids: pendingHere })}>
-                      Generar esta semana
+                    <Button color="primary" onClick={() => setWeekAction({ mode: "propose", ids: pendingHere })}>
+                      Proponer borrador
                     </Button>
                   )}
                 </div>
@@ -685,8 +749,14 @@ export default function KioskCountCalendar() {
                                 {v.gapDays == null ? "—" : `${v.gapDays} días (${formatShort(v.lastCountDate)})`}
                               </td>
                               <td>
-                                <span className={`kcc-status ${done ? "ok" : ""}`}>
-                                  {done ? (v.countedOn ? `Contado ${formatShort(v.countedOn)}` : "Hecha") : "Pendiente"}
+                                <span className={`kcc-status ${done ? "ok" : v.status === "DRAFT" ? "kcc-st-warn" : ""}`}>
+                                  {v.status === "DRAFT"
+                                    ? "Borrador"
+                                    : done
+                                      ? v.countedOn
+                                        ? `Contado ${formatShort(v.countedOn)}`
+                                        : "Hecha"
+                                      : "Pendiente"}
                                 </span>
                               </td>
                             </tr>
@@ -713,7 +783,7 @@ export default function KioskCountCalendar() {
                   return (
                     <React.Fragment key={ws}>
                       {weekBanner(w)}
-                      {weekCells(ws, w.generatedSupervisorIds.length > 0)}
+                      {weekCells(ws, w.generatedSupervisorIds.length > 0 || (w.draftSupervisorIds || []).length > 0)}
                     </React.Fragment>
                   );
                 })}
@@ -739,7 +809,8 @@ export default function KioskCountCalendar() {
           visit={selected}
           month={month}
           canEdit={canGenerate}
-          editMode={editMode}
+          editMode={editing}
+          kiosks={(data?.kiosks || []).filter((k) => k.supervisorUserId === selected.supervisorUserId)}
           busy={busy}
           onClose={() => setSelected(null)}
           onRevisit={() => {
@@ -783,39 +854,77 @@ export default function KioskCountCalendar() {
         />
       )}
 
-      {generateRedo && (
-        <Modal isOpen toggle={() => setGenerateRedo(null)} centered className="kcc-modal">
-          <ModalHeader toggle={() => setGenerateRedo(null)}>
-            {generateRedo.redo ? "Volver a repartir" : "Generar"} semana del {weekRange(weekStart)}
+      {weekAction && (
+        <Modal isOpen toggle={() => setWeekAction(null)} centered className="kcc-modal">
+          <ModalHeader toggle={() => setWeekAction(null)}>
+            {{
+              propose: "Proponer borrador",
+              repropose: "Volver a proponer",
+              approve: "Aprobar y generar",
+              discard: "Descartar borrador",
+            }[weekAction.mode]}{" "}
+            · semana del {weekRange(weekStart)}
           </ModalHeader>
           <ModalBody>
             <GenerateChoices
               supervisors={supervisors}
-              ids={generateRedo.ids}
-              eligible={generateRedo.ids}
+              ids={weekAction.ids}
+              eligible={
+                weekAction.mode === "propose"
+                  ? pendingHere
+                  : relevantDraft.map((s) => s.userId)
+              }
               generatedIds={generatedIds}
-              onChange={(ids) => setGenerateRedo({ ...generateRedo, ids })}
+              onChange={(ids) => setWeekAction({ ...weekAction, ids })}
             />
             <ul className="kcc-rules">
-              <li>Solo se arma esta semana. Las siguientes se generan después, con lo que realmente pasó.</li>
-              <li>Una región seguida y fechas al azar: no repiten el día del mes anterior.</li>
-              {generateRedo.redo ? (
-                <li>Se vuelve a repartir lo pendiente; lo hecho y lo que moviste a mano se conserva.</li>
-              ) : (
-                <li>Una vez generada no se genera otra vez; para cambiar fechas usa «Editar calendario».</li>
+              {weekAction.mode === "propose" && (
+                <>
+                  <li>Se arma un <strong>borrador</strong> de esta semana: una región seguida y fechas al azar.</li>
+                  <li>No queda como calendario listo hasta que lo apruebes; antes puedes moverlo, cambiar kioscos y agregar o quitar visitas.</li>
+                  <li>Las siguientes semanas se proponen después, con lo que realmente pasó.</li>
+                </>
+              )}
+              {weekAction.mode === "repropose" && (
+                <>
+                  <li>Se descarta este borrador, <strong>con lo que hayas editado</strong>, y se propone otro nuevo.</li>
+                  <li>Se vuelven a elegir las fechas al azar.</li>
+                </>
+              )}
+              {weekAction.mode === "approve" && (
+                <>
+                  <li>Las visitas del borrador quedan como <strong>calendario listo</strong> de esa semana.</li>
+                  <li>Después se puede seguir editando con «Editar calendario» y marcar visitas como hechas.</li>
+                  <li>La siguiente semana se podrá proponer una vez aprobada esta.</li>
+                </>
+              )}
+              {weekAction.mode === "discard" && (
+                <>
+                  <li>Se borra el borrador y la semana vuelve a quedar sin generar.</li>
+                  <li>Nada de esto afecta semanas ya aprobadas.</li>
+                </>
               )}
             </ul>
           </ModalBody>
           <ModalFooter>
-            <Button color="secondary" outline onClick={() => setGenerateRedo(null)}>
+            <Button color="secondary" outline onClick={() => setWeekAction(null)}>
               Cancelar
             </Button>
             <Button
-              color="primary"
-              disabled={busy || generateRedo.ids.length === 0}
-              onClick={() => runGenerate(generateRedo.ids, generateRedo.redo)}
+              color={weekAction.mode === "approve" ? "success" : weekAction.mode === "discard" ? "danger" : "primary"}
+              disabled={busy || weekAction.ids.length === 0}
+              onClick={() => runWeekAction(weekAction.mode, weekAction.ids)}
             >
-              {busy ? <Spinner size="sm" /> : generateRedo.redo ? "Volver a repartir" : "Generar semana"}
+              {busy ? (
+                <Spinner size="sm" />
+              ) : (
+                {
+                  propose: "Proponer borrador",
+                  repropose: "Volver a proponer",
+                  approve: "Aprobar y generar",
+                  discard: "Descartar",
+                }[weekAction.mode]
+              )}
             </Button>
           </ModalFooter>
         </Modal>
@@ -898,18 +1007,25 @@ function GenerateChoices({ supervisors, ids, eligible, generatedIds, onChange })
   );
 }
 
-function VisitModal({ visit, month, canEdit, editMode, busy, onClose, onSave, onRevisit }) {
+function VisitModal({ visit, month, canEdit, editMode, kiosks, busy, onClose, onSave, onRevisit }) {
   const [date, setDate] = useState(key(visit.visitDate));
+  const [locationId, setLocationId] = useState(String(visit.locationId));
+  const isDraft = visit.status === "DRAFT";
   const [status, setStatus] = useState(visit.status);
   const [note, setNote] = useState(visit.note || "");
   const [confirmCancel, setConfirmCancel] = useState(false);
   const [y, m] = visit.visitDate.slice(0, 7).split("-").map(Number);
   const min = ymd(y, m, 1);
   const max = ymd(y, m, new Date(y, m, 0).getDate());
-  const changed = date !== key(visit.visitDate) || status !== visit.status || note !== (visit.note || "");
+  const changed =
+    date !== key(visit.visitDate) ||
+    status !== visit.status ||
+    note !== (visit.note || "") ||
+    locationId !== String(visit.locationId);
 
   const save = () => {
     const changes = {};
+    if (locationId !== String(visit.locationId)) changes.locationId = Number(locationId);
     if (date !== key(visit.visitDate)) changes.visitDate = date;
     if (status !== visit.status) changes.status = status;
     if (note !== (visit.note || "")) changes.note = note;
@@ -922,6 +1038,7 @@ function VisitModal({ visit, month, canEdit, editMode, busy, onClose, onSave, on
         <span className={`kcc-tag kcc-r-${visit.region}`}>
           <span className="kcc-swatch" />
           {visit.regionLabel}
+          {isDraft && <span className="kcc-draft-tag"> Borrador</span>}
           {visit.kind === "REVISIT" && <span className="kcc-revisit-tag"> · Revisita</span>}
         </span>
         <div className="kcc-modal-title">{visit.locationName}</div>
@@ -953,6 +1070,19 @@ function VisitModal({ visit, month, canEdit, editMode, busy, onClose, onSave, on
 
         {canEdit ? (
           <>
+            {editMode && visit.status !== "DONE" && kiosks && kiosks.length > 1 && (
+              <label className="kcc-field">
+                Kiosco
+                <Input type="select" value={locationId} onChange={(e) => setLocationId(e.target.value)}>
+                  {kiosks.map((k) => (
+                    <option key={k.locationId} value={k.locationId}>
+                      {k.name}
+                    </option>
+                  ))}
+                </Input>
+                <small>Cambia el kiosco de esta visita manteniendo el día. Solo kioscos de la misma supervisora.</small>
+              </label>
+            )}
             {editMode && (
               <label className="kcc-field">
                 Mover a otra fecha
@@ -960,17 +1090,27 @@ function VisitModal({ visit, month, canEdit, editMode, busy, onClose, onSave, on
                 <small>Solo días hábiles de {monthTitle(month === visit.visitDate.slice(0, 7) ? month : visit.visitDate.slice(0, 7))}. Al moverla queda fija (📌).</small>
               </label>
             )}
-            <div className="kcc-field">
-              Estado
-              <div className="kcc-seg full" role="group" aria-label="Estado de la visita">
-                <button type="button" className={status === "PLANNED" ? "on" : ""} onClick={() => setStatus("PLANNED")}>
-                  {STATUS_LABEL.PLANNED}
-                </button>
-                <button type="button" className={status === "DONE" ? "on" : ""} onClick={() => setStatus("DONE")}>
-                  {STATUS_LABEL.DONE}
-                </button>
+            {isDraft ? (
+              <div className="kcc-field">
+                Estado
+                <div>
+                  <span className="kcc-status kcc-st-warn">Borrador por aprobar</span>
+                </div>
+                <small>Aprueba la semana para poder marcar visitas como hechas.</small>
               </div>
-            </div>
+            ) : (
+              <div className="kcc-field">
+                Estado
+                <div className="kcc-seg full" role="group" aria-label="Estado de la visita">
+                  <button type="button" className={status === "PLANNED" ? "on" : ""} onClick={() => setStatus("PLANNED")}>
+                    {STATUS_LABEL.PLANNED}
+                  </button>
+                  <button type="button" className={status === "DONE" ? "on" : ""} onClick={() => setStatus("DONE")}>
+                    {STATUS_LABEL.DONE}
+                  </button>
+                </div>
+              </div>
+            )}
             <label className="kcc-field">
               Nota
               <Input
