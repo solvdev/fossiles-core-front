@@ -22,6 +22,7 @@ import NotificationAlert from "react-notification-alert";
 
 import AdminNavbar from "components/Navbars/AdminNavbar.js";
 import Footer from "components/Footer/Footer.js";
+import VersionFooter from "components/Footers/VersionFooter.js";
 import Sidebar from "components/Sidebar/Sidebar.js";
 import FixedPlugin from "components/FixedPlugin/FixedPlugin.js";
 import ProtectedRoute from "components/ProtectedRoute.js";
@@ -163,7 +164,10 @@ function Admin(props) {
         {
           // we don't want the Footer to be rendered on full screen maps page
           location.pathname.indexOf("full-screen-map") !== -1 ? null : (
-            <Footer fluid />
+            <>
+              <Footer fluid />
+              <VersionFooter />
+            </>
           )
         }
       </div>
