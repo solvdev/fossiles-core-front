@@ -100,6 +100,22 @@ export const buildSaleItemExportLines = (sale) => {
   const saleTotal = Number(sale?.totalAmount ?? saleSubtotal);
   const hasDiscount = saleSubtotal > 0 && Math.abs(saleSubtotal - saleTotal) > 0.004;
 
+  // Descuento real por línea (promociones escalonadas como Black Friday): si lo guardado por línea
+  // cuadra con el total de la venta, se usa tal cual en vez de repartir el descuento en proporción.
+  const lineDiscounts = items.map((row) => roundMoney(Math.max(0, Number(row?.discountAmount || 0))));
+  const hasLineDiscounts = lineDiscounts.some((amount) => amount > 0);
+  if (hasLineDiscounts) {
+    const netTotals = lineSubtotals.map((amount, index) => roundMoney(Math.max(0, amount - lineDiscounts[index])));
+    const netSum = netTotals.reduce((sum, amount) => sum + amount, 0);
+    if (Math.abs(netSum - saleTotal) <= 0.05) {
+      return items.map((item, index) => {
+        const qty = Number(item?.quantity || 0);
+        const lineTotal = netTotals[index];
+        return { item, qty, unit: qty > 0 ? roundMoney(lineTotal / qty) : lineTotal, lineTotal };
+      });
+    }
+  }
+
   const packagingIndexes = new Set();
   let packagingSubtotal = 0;
   items.forEach((item, index) => {
