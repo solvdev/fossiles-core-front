@@ -4,6 +4,7 @@ const {
   highestTag,
   nextRcNumber,
   nextVersion,
+  parseTag,
   planRelease,
   resolveBuildEnv,
 } = require("../../../scripts/compute-version");
@@ -33,6 +34,11 @@ describe("bumpTypeFromPr", () => {
     expect(bumpTypeFromPr({ labels: [], title: "feature: not conventional" })).toBe("patch");
     expect(bumpTypeFromPr({})).toBe("patch");
   });
+
+  test("major label wins when both major and minor labels are present", () => {
+    expect(bumpTypeFromPr({ labels: ["major", "minor"], title: "feat: x" })).toBe("major");
+    expect(bumpTypeFromPr({ labels: [{ name: "minor" }, { name: "major" }] })).toBe("major");
+  });
 });
 
 describe("bootstrap and nextVersion", () => {
@@ -47,10 +53,22 @@ describe("bootstrap and nextVersion", () => {
     expect(() => nextVersion(null, "patch")).toThrow(/merge count/);
   });
 
+  test("throws if bootstrap is needed but merge count is invalid", () => {
+    expect(() => nextVersion(null, "patch", Number.NaN)).toThrow(/merge count/);
+    expect(() => nextVersion(null, "patch", -1)).toThrow(/merge count/);
+    expect(() => nextVersion(null, "patch", "foo")).toThrow(/merge count/);
+  });
+
   test("ignores merge count when a final tag exists", () => {
     expect(nextVersion("v1.312.0", "patch", 313)).toBe("1.312.1");
     expect(nextVersion("1.312.0", "minor", 999)).toBe("1.313.0");
     expect(nextVersion("v1.312.0", "major", 313)).toBe("2.0.0");
+  });
+
+  test("minor resets patch and major resets minor and patch", () => {
+    expect(nextVersion("v1.312.4", "patch")).toBe("1.312.5");
+    expect(nextVersion("v1.312.4", "minor")).toBe("1.313.0");
+    expect(nextVersion("v1.312.4", "major")).toBe("2.0.0");
   });
 });
 
@@ -60,6 +78,24 @@ describe("highestFinalTag ignores rc", () => {
     expect(highestFinalTag(["v1.312.0", "v1.312.1-rc.9", "v1.311.5"])).toBe("v1.312.0");
     expect(highestFinalTag(["v1.312.1-rc.1", "v1.312.1-rc.2"])).toBeNull();
     expect(highestTag([])).toBeNull();
+  });
+
+  test("sorts patch numbers numerically rather than lexically", () => {
+    expect(highestFinalTag(["v1.312.9", "v1.312.10"])).toBe("v1.312.10");
+    expect(highestFinalTag(["v1.312.10", "v1.312.9", "v1.312.8"])).toBe("v1.312.10");
+  });
+
+  test("ignores malformed and non-semver tags", () => {
+    expect(parseTag("v1.2")).toBeNull();
+    expect(parseTag("vfoo")).toBeNull();
+    expect(parseTag("release-1")).toBeNull();
+    expect(highestFinalTag(["v1.2", "vfoo", "release-1", "v1.312.4"])).toBe("v1.312.4");
+    expect(planRelease({
+      branch: "main",
+      tags: ["v1.2", "vfoo", "release-1"],
+      bumpType: "patch",
+      bootstrapMinor: 313,
+    }).tag).toBe("v1.313.0");
   });
 });
 
@@ -184,6 +220,24 @@ describe("resolveBuildEnv", () => {
       });
       expect(result.version).toBe("dev");
       expect(result.commit).toBeTruthy();
+    } finally {
+      if (previousActions === undefined) delete process.env.GITHUB_ACTIONS;
+      else process.env.GITHUB_ACTIONS = previousActions;
+      if (previousVersion === undefined) delete process.env.REACT_APP_VERSION;
+      else process.env.REACT_APP_VERSION = previousVersion;
+    }
+  });
+
+  test("falls back to dev when the merge count cannot be determined during a CI build", async () => {
+    const previousActions = process.env.GITHUB_ACTIONS;
+    const previousVersion = process.env.REACT_APP_VERSION;
+    process.env.GITHUB_ACTIONS = "true";
+    delete process.env.REACT_APP_VERSION;
+    try {
+      const result = await resolveBuildEnv(async () => {
+        throw new Error("could not count merge commits for bootstrap version");
+      });
+      expect(result.version).toBe("dev");
     } finally {
       if (previousActions === undefined) delete process.env.GITHUB_ACTIONS;
       else process.env.GITHUB_ACTIONS = previousActions;
