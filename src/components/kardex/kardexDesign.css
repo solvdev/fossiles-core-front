@@ -1,0 +1,340 @@
+/* Kardex: tarjetas de totales, filtros en una barra y una fila por movimiento con entra / sale / saldo. */
+
+.kdx-page .card-title {
+  margin-bottom: 4px;
+}
+
+.kdx-embedded .kdx-card {
+  border: 0;
+  box-shadow: none;
+  margin-bottom: 0;
+}
+
+.kdx-embedded .card-body {
+  padding-left: 0;
+  padding-right: 0;
+}
+
+/* Barra de filtros */
+.kdx-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.kdx-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 140px;
+}
+
+.kdx-field > label {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #5f5a55;
+  margin: 0;
+}
+
+.kdx-field input,
+.kdx-field select {
+  height: 38px;
+  border: 1px solid #d9e1e8;
+  border-radius: 8px;
+  padding: 0 10px;
+  font-size: 0.88rem;
+  background: #fff;
+}
+
+.kdx-field input:focus,
+.kdx-field select:focus {
+  border-color: #0b6e71;
+  outline: none;
+}
+
+.kdx-grow {
+  flex: 1 1 260px;
+  max-width: 460px;
+}
+
+/* Etiqueta de dirección (entrada / salida / ajuste) */
+.kdx-dir {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 0.76rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.kdx-dir::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+/* Tabla */
+.kdx-table-wrap {
+  max-height: 70vh;
+  overflow: auto;
+  border: 1px solid #e6ecf1;
+  border-radius: 8px;
+}
+
+.kdx-embedded .kdx-table-wrap {
+  max-height: 58vh;
+}
+
+.kdx-table {
+  margin: 0;
+  width: 100%;
+  min-width: 860px;
+  table-layout: fixed;
+  font-size: 0.88rem;
+}
+
+.kdx-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: #f3f6f9;
+  border-bottom: 1px solid #d9e1e8;
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #4a4642;
+  white-space: nowrap;
+  padding: 10px 12px;
+}
+
+.kdx-table thead th button {
+  all: unset;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.kdx-table thead th button:focus-visible {
+  outline: 2px solid #0b6e71;
+  outline-offset: 2px;
+}
+
+.kdx-table tbody td {
+  vertical-align: top;
+  padding: 10px 12px;
+  border-top: 1px solid #eef2f5;
+}
+
+.kdx-table tbody tr.kdx-row:hover td {
+  background: #fafcfd;
+}
+
+.kdx-num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.kdx-in {
+  color: #047857;
+  font-weight: 700;
+}
+
+.kdx-out {
+  color: #b91c1c;
+  font-weight: 700;
+}
+
+.kdx-zero {
+  color: #c4c0bb;
+}
+
+.kdx-main {
+  font-weight: 600;
+  color: #2f2d2b;
+}
+
+.kdx-sub {
+  display: block;
+  font-size: 0.76rem;
+  color: #6b6560;
+  margin-top: 2px;
+  overflow-wrap: anywhere;
+}
+
+.kdx-ref {
+  font-weight: 700;
+  color: #3a3835;
+}
+
+.kdx-saldo {
+  font-weight: 700;
+  color: #2f2d2b;
+}
+
+.kdx-link {
+  all: unset;
+  cursor: pointer;
+  color: #0b6e71;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.kdx-link:hover {
+  text-decoration: underline;
+}
+
+.kdx-link:focus-visible {
+  outline: 2px solid #0b6e71;
+  outline-offset: 2px;
+}
+
+.kdx-chevron {
+  all: unset;
+  cursor: pointer;
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  color: #5f5a55;
+  font-size: 0.8rem;
+}
+
+.kdx-chevron:hover {
+  background: #eef2f5;
+}
+
+.kdx-chevron:focus-visible {
+  outline: 2px solid #0b6e71;
+  outline-offset: 1px;
+}
+
+.kdx-lots td {
+  background: #f7f9fb !important;
+  padding: 10px 12px 14px 24px !important;
+}
+
+.kdx-lots h6 {
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #5f5a55;
+  margin: 0 0 6px;
+}
+
+.kdx-lots table {
+  width: auto;
+  min-width: 380px;
+  font-size: 0.82rem;
+}
+
+.kdx-lots th {
+  font-weight: 600;
+  color: #6b6560;
+  padding: 2px 16px 2px 0;
+}
+
+.kdx-lots td {
+  padding: 2px 16px 2px 0;
+}
+
+/* Elige qué ver: pantalla de inicio sin datos */
+.kdx-start {
+  text-align: center;
+  padding: 36px 16px;
+  color: #5f5a55;
+}
+
+.kdx-start h5 {
+  color: #2f2d2b;
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+
+.kdx-quick {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+  margin-top: 14px;
+}
+
+.kdx-quick button {
+  border: 1px solid #d9e1e8;
+  background: #fff;
+  border-radius: 999px;
+  height: 36px;
+  padding: 0 16px;
+  font-weight: 600;
+  font-size: 0.86rem;
+  color: #4a4642;
+  cursor: pointer;
+}
+
+.kdx-quick button:hover {
+  background: #f3f6f9;
+}
+
+.kdx-quick button:focus-visible {
+  outline: 2px solid #0b6e71;
+  outline-offset: 2px;
+}
+
+.kdx-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  background: #eaf4f4;
+  border: 1px solid #cfe5e5;
+  border-radius: 8px;
+  padding: 8px 12px;
+  margin-bottom: 12px;
+  font-size: 0.86rem;
+  color: #0b5a5c;
+}
+
+@media (max-width: 991px) {
+  .kdx-field {
+    min-width: 46%;
+  }
+}
+
+/* Detalle de transferencia */
+.kdx-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px 24px;
+}
+
+.kdx-field-label {
+  display: block;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #5f5a55;
+  margin-bottom: 2px;
+}
+
+.kdx-field-value {
+  color: #2f2d2b;
+  font-size: 0.95rem;
+}
+
+@media (max-width: 575px) {
+  .kdx-detail-grid {
+    grid-template-columns: 1fr;
+  }
+}

@@ -1,29 +1,16 @@
-import React, { useCallback, useEffect, useState } from "react";
-import {
-  Alert,
-  Badge,
-  Button,
-  Card,
-  CardBody,
-  CardHeader,
-  CardTitle,
-  Col,
-  FormGroup,
-  Input,
-  Label,
-  Row,
-  Spinner,
-  Table,
-} from "reactstrap";
-import {
-  getProductKardexHistoricoFilters,
-  searchProductKardexHistorico,
-} from "services/productInventoryService";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { Alert, Button, Card, CardBody, CardHeader, CardTitle, Spinner } from "reactstrap";
+import Select from "react-select";
+import KardexTable from "components/kardex/KardexTable";
+import { getProductKardexHistoricoFilters, searchProductKardexHistorico } from "services/productInventoryService";
 import { getProducts } from "services/productService";
 import { getLocations } from "services/locationService";
-import { showError } from "utils/notificationHelper";
+import { exportKardexExcel } from "utils/kardexExport";
+import { fmtNum, movementLabel, normalizeKardexRows, summarizeKardex } from "utils/kardexModel";
 import { formatDateTimeGt } from "utils/dateTimeHelper";
-import { exportRowsToCsv } from "utils/reportExportHelper";
+import { showError } from "utils/notificationHelper";
+import "views/reports/reportsDesign.css";
+import "components/kardex/kardexDesign.css";
 
 const PAGE_SIZE = 50;
 
@@ -37,15 +24,21 @@ const EMPTY_FILTERS = {
   reference: "",
 };
 
-const formatQty = (value) => {
-  if (value === null || value === undefined) return "-";
-  const n = Number(value);
-  return Number.isInteger(n) ? String(n) : n.toFixed(3);
+const selectStyles = {
+  control: (base, state) => ({
+    ...base,
+    minHeight: 38,
+    borderRadius: 8,
+    borderColor: state.isFocused ? "#0b6e71" : "#d9e1e8",
+    boxShadow: "none",
+    "&:hover": { borderColor: "#0b6e71" },
+  }),
+  menu: (base) => ({ ...base, zIndex: 5 }),
 };
 
 /**
- * Kardex de producto archivado por limpiezas de inventario. Solo consulta: estos movimientos
- * ya no cuentan en los saldos actuales.
+ * Kardex histórico de producto: movimientos archivados al limpiar el inventario de bodega.
+ * Solo consulta; ya no cuentan en los saldos actuales. Se ve igual que los otros kardex.
  */
 function ProductKardexHistorico() {
   const [filters, setFilters] = useState(EMPTY_FILTERS);
@@ -53,6 +46,7 @@ function ProductKardexHistorico() {
   const [page, setPage] = useState(0);
   const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
   const [archives, setArchives] = useState([]);
   const [movementTypes, setMovementTypes] = useState([]);
   const [products, setProducts] = useState([]);
@@ -79,235 +73,249 @@ function ProductKardexHistorico() {
   const load = useCallback(async (activeFilters, pageNumber) => {
     try {
       setLoading(true);
-      const data = await searchProductKardexHistorico({ ...activeFilters, page: pageNumber, size: PAGE_SIZE });
-      setResult(data);
+      setError("");
+      setResult(await searchProductKardexHistorico({ ...activeFilters, page: pageNumber, size: PAGE_SIZE }));
     } catch (err) {
-      showError(err.message || "No se pudo consultar el kardex histórico.");
+      setError(err.message || "No se pudo consultar el kardex histórico.");
     } finally {
       setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    load(applied, page);
+    void load(applied, page);
   }, [applied, page, load]);
 
+  const setFilter = (key, value) => setFilters((prev) => ({ ...prev, [key]: value }));
   const applyFilters = () => {
     setPage(0);
     setApplied({ ...filters });
   };
-
   const clearFilters = () => {
     setFilters(EMPTY_FILTERS);
     setPage(0);
     setApplied(EMPTY_FILTERS);
   };
 
-  const setFilter = (key, value) => setFilters((prev) => ({ ...prev, [key]: value }));
+  const rows = useMemo(() => normalizeKardexRows(result?.content || []), [result]);
+  const pageSummary = useMemo(() => summarizeKardex(rows), [rows]);
+  const totalPages = result?.totalPages || 0;
+  const lastArchive = useMemo(
+    () => archives.reduce((a, b) => (!a || String(b.archivedAt) > String(a.archivedAt) ? b : a), null),
+    [archives]
+  );
+  const hasFilters = Object.values(applied).some(Boolean);
+
+  const productOptions = useMemo(
+    () => products.map((p) => ({ value: String(p.id), label: `${p.code || ""} — ${p.name || ""}`.replace(/^ — /, "") })),
+    [products]
+  );
+  const locationOptions = useMemo(
+    () => locations.map((l) => ({ value: String(l.id), label: l.name || l.code })),
+    [locations]
+  );
 
   const exportPage = () => {
-    exportRowsToCsv("kardex_historico", [
-      { label: "Fecha", value: (r) => formatDateTimeGt(r.movementDate) },
-      { label: "Ubicacion", value: (r) => r.locationName || r.locationCode || r.locationId },
-      { label: "Codigo", value: (r) => r.productCode || r.productId },
-      { label: "Producto", value: (r) => r.productName || "" },
-      { label: "Color", value: (r) => r.colorName || "" },
-      { label: "Talla", value: (r) => r.sizeLabel || "" },
-      { label: "Movimiento", value: (r) => r.movementType },
-      { label: "Cantidad", value: (r) => formatQty(r.quantity) },
-      { label: "Saldo antes", value: (r) => formatQty(r.quantityBefore) },
-      { label: "Saldo despues", value: (r) => formatQty(r.quantityAfter) },
-      { label: "Referencia", value: (r) => r.referenceNumber || "" },
-      { label: "Descripcion", value: (r) => r.description || "" },
-      { label: "Limpieza", value: (r) => r.archiveReference },
-    ], result?.content || []);
+    if (!rows.length) {
+      showError("No hay movimientos para exportar.");
+      return;
+    }
+    try {
+      exportKardexExcel({
+        fileName: "kardex_historico",
+        title: "Kardex histórico de producto terminado",
+        rows,
+        filtersLabel: `Página ${page + 1} de ${Math.max(totalPages, 1)}${hasFilters ? "  ·  Con filtros" : ""}`,
+        showItem: true,
+        itemLabel: "Producto",
+        showColor: true,
+        showLocation: true,
+        showValue: false,
+      });
+    } catch (err) {
+      showError(err.message || "No se pudo generar el Excel.");
+    }
   };
 
-  const rows = result?.content || [];
-  const totalPages = result?.totalPages || 0;
-
   return (
-    <div className="content">
-      <Row>
-        <Col md="12">
-          <Card>
-            <CardHeader>
-              <div className="d-flex justify-content-between align-items-start flex-wrap">
-                <div>
-                  <CardTitle tag="h4" className="mb-1">Kardex histórico de producto</CardTitle>
-                  <p className="text-muted mb-0">
-                    Movimientos archivados al limpiar el inventario de bodega. Solo consulta: ya no
-                    cuentan en los saldos actuales.
-                  </p>
-                </div>
-                <Button color="secondary" size="sm" onClick={exportPage} disabled={rows.length === 0}>
-                  <i className="nc-icon nc-cloud-download-93 mr-1" />
-                  CSV (página)
-                </Button>
-              </div>
-              {archives.length > 0 && (
-                <div className="mt-2">
-                  {archives.map((a) => (
-                    <Badge key={a.archiveReference} color="info" className="mr-2">
-                      {a.archiveReference} · {formatDateTimeGt(a.archivedAt)} · {a.movements} mov.
-                    </Badge>
-                  ))}
-                </div>
-              )}
-            </CardHeader>
-            <CardBody>
-              <Row>
-                <Col md="3">
-                  <FormGroup>
-                    <Label>Limpieza</Label>
-                    <Input type="select" value={filters.archiveReference}
-                      onChange={(e) => setFilter("archiveReference", e.target.value)}>
-                      <option value="">Todas</option>
-                      {archives.map((a) => (
-                        <option key={a.archiveReference} value={a.archiveReference}>{a.archiveReference}</option>
-                      ))}
-                    </Input>
-                  </FormGroup>
-                </Col>
-                <Col md="3">
-                  <FormGroup>
-                    <Label>Ubicación</Label>
-                    <Input type="select" value={filters.locationId}
-                      onChange={(e) => setFilter("locationId", e.target.value)}>
-                      <option value="">Todas</option>
-                      {locations.map((l) => (
-                        <option key={l.id} value={l.id}>{l.name || l.code}</option>
-                      ))}
-                    </Input>
-                  </FormGroup>
-                </Col>
-                <Col md="3">
-                  <FormGroup>
-                    <Label>Producto</Label>
-                    <Input type="select" value={filters.productId}
-                      onChange={(e) => setFilter("productId", e.target.value)}>
-                      <option value="">Todos</option>
-                      {products.map((p) => (
-                        <option key={p.id} value={p.id}>{p.code} - {p.name}</option>
-                      ))}
-                    </Input>
-                  </FormGroup>
-                </Col>
-                <Col md="3">
-                  <FormGroup>
-                    <Label>Tipo de movimiento</Label>
-                    <Input type="select" value={filters.movementType}
-                      onChange={(e) => setFilter("movementType", e.target.value)}>
-                      <option value="">Todos</option>
-                      {movementTypes.map((t) => (
-                        <option key={t} value={t}>{t}</option>
-                      ))}
-                    </Input>
-                  </FormGroup>
-                </Col>
-                <Col md="3">
-                  <FormGroup>
-                    <Label>Desde</Label>
-                    <Input type="date" value={filters.from} onChange={(e) => setFilter("from", e.target.value)} />
-                  </FormGroup>
-                </Col>
-                <Col md="3">
-                  <FormGroup>
-                    <Label>Hasta</Label>
-                    <Input type="date" value={filters.to} onChange={(e) => setFilter("to", e.target.value)} />
-                  </FormGroup>
-                </Col>
-                <Col md="3">
-                  <FormGroup>
-                    <Label>Documento / referencia</Label>
-                    <Input type="text" value={filters.reference} placeholder="Ej: ENV-00529"
-                      onChange={(e) => setFilter("reference", e.target.value)}
-                      onKeyDown={(e) => { if (e.key === "Enter") applyFilters(); }} />
-                  </FormGroup>
-                </Col>
-                <Col md="3" className="d-flex align-items-end">
-                  <FormGroup className="w-100">
-                    <Button color="primary" className="mr-2" onClick={applyFilters} disabled={loading}>Buscar</Button>
-                    <Button color="default" outline onClick={clearFilters} disabled={loading}>Limpiar</Button>
-                  </FormGroup>
-                </Col>
-              </Row>
+    <div className="content kdx-page">
+      <Card className="kdx-card">
+        <CardHeader>
+          <div className="d-flex justify-content-between align-items-start flex-wrap" style={{ gap: 12 }}>
+            <div>
+              <CardTitle tag="h4">Kardex histórico de producto terminado</CardTitle>
+              <p className="rpt-subtitle">
+                Movimientos archivados al limpiar el inventario de bodega. Solo consulta: ya no cuentan en los
+                saldos actuales.
+              </p>
+            </div>
+            <Button color="success" size="sm" onClick={exportPage} disabled={!rows.length}>
+              <i className="nc-icon nc-cloud-download-93 mr-1" />
+              Excel (esta página)
+            </Button>
+          </div>
+        </CardHeader>
+        <CardBody>
+          <div className="rpt-tiles rpt-tiles--4">
+            <div className="rpt-tile is-static" style={{ borderLeftColor: "#1f2937" }}>
+              <span className="rpt-tile-label" style={{ color: "#1f2937" }}>
+                Movimientos archivados
+              </span>
+              <span className="rpt-tile-value">{result ? fmtNum(result.totalElements) : "–"}</span>
+              <span className="rpt-tile-hint">{hasFilters ? "Con los filtros aplicados" : "En todas las limpiezas"}</span>
+            </div>
+            <div className="rpt-tile is-static" style={{ borderLeftColor: "#6b7280" }}>
+              <span className="rpt-tile-label" style={{ color: "#4b5563" }}>
+                Limpiezas
+              </span>
+              <span className="rpt-tile-value">{fmtNum(archives.length)}</span>
+              <span className="rpt-tile-hint">
+                {lastArchive ? `La última: ${formatDateTimeGt(lastArchive.archivedAt)}` : "Todavía no hay"}
+              </span>
+            </div>
+            <div className="rpt-tile is-static" style={{ borderLeftColor: "#047857" }}>
+              <span className="rpt-tile-label" style={{ color: "#047857" }}>
+                Entradas en esta página
+              </span>
+              <span className="rpt-tile-value">+{fmtNum(pageSummary.totalIn)}</span>
+              <span className="rpt-tile-hint">Unidades</span>
+            </div>
+            <div className="rpt-tile is-static" style={{ borderLeftColor: "#b91c1c" }}>
+              <span className="rpt-tile-label" style={{ color: "#b91c1c" }}>
+                Salidas en esta página
+              </span>
+              <span className="rpt-tile-value">−{fmtNum(pageSummary.totalOut)}</span>
+              <span className="rpt-tile-hint">Unidades</span>
+            </div>
+          </div>
 
-              {loading && !result ? (
-                <div className="text-center py-4"><Spinner color="primary" /></div>
-              ) : rows.length === 0 ? (
-                <Alert color="light" className="mb-0">
-                  {archives.length === 0
-                    ? "Todavía no hay movimientos archivados."
-                    : "No hay movimientos con estos filtros."}
-                </Alert>
-              ) : (
-                <>
-                  <div className="d-flex justify-content-between align-items-center mb-2">
-                    <small className="text-muted">
-                      {result.totalElements} movimiento(s) · página {page + 1} de {Math.max(totalPages, 1)}
-                    </small>
-                    {loading && <Spinner size="sm" color="primary" />}
-                  </div>
-                  <Table responsive size="sm" hover>
-                    <thead>
-                      <tr>
-                        <th>Fecha</th>
-                        <th>Ubicación</th>
-                        <th>Producto</th>
-                        <th>Color / talla</th>
-                        <th>Movimiento</th>
-                        <th className="text-right">Cantidad</th>
-                        <th className="text-right">Saldo antes</th>
-                        <th className="text-right">Saldo después</th>
-                        <th>Referencia</th>
-                        <th>Descripción</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {rows.map((r) => {
-                        const qty = Number(r.quantity || 0);
-                        return (
-                          <tr key={r.id}>
-                            <td className="text-nowrap">{formatDateTimeGt(r.movementDate)}</td>
-                            <td>{r.locationName || r.locationCode || r.locationId}</td>
-                            <td>
-                              <strong>{r.productCode || r.productId}</strong>
-                              <div className="small text-muted">{r.productName}</div>
-                            </td>
-                            <td>
-                              {r.colorName || "-"}
-                              {r.sizeLabel ? <Badge color="light" className="ml-1">T{r.sizeLabel}</Badge> : null}
-                            </td>
-                            <td><Badge color="secondary">{r.movementType}</Badge></td>
-                            <td className={`text-right ${qty < 0 ? "text-danger" : "text-success"}`}>
-                              {qty > 0 ? "+" : ""}{formatQty(r.quantity)}
-                            </td>
-                            <td className="text-right">{formatQty(r.quantityBefore)}</td>
-                            <td className="text-right">{formatQty(r.quantityAfter)}</td>
-                            <td className="text-nowrap">{r.referenceNumber || "-"}</td>
-                            <td className="small">{r.description || "-"}</td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </Table>
-                  <div className="d-flex justify-content-end">
-                    <Button size="sm" color="default" outline className="mr-2"
-                      disabled={loading || page === 0} onClick={() => setPage((p) => Math.max(p - 1, 0))}>
-                      Anterior
-                    </Button>
-                    <Button size="sm" color="default" outline
-                      disabled={loading || page + 1 >= totalPages} onClick={() => setPage((p) => p + 1)}>
-                      Siguiente
-                    </Button>
-                  </div>
-                </>
-              )}
-            </CardBody>
-          </Card>
-        </Col>
-      </Row>
+          <div className="kdx-filters">
+            <div className="kdx-field">
+              <label htmlFor="kh-archive">Limpieza</label>
+              <select id="kh-archive" value={filters.archiveReference} onChange={(e) => setFilter("archiveReference", e.target.value)}>
+                <option value="">Todas</option>
+                {archives.map((a) => (
+                  <option key={a.archiveReference} value={a.archiveReference}>
+                    {a.archiveReference} · {fmtNum(a.movements)} mov.
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="kdx-field kdx-grow">
+              <label htmlFor="kh-location">Ubicación</label>
+              <Select
+                inputId="kh-location"
+                isClearable
+                isSearchable
+                placeholder="Todas las ubicaciones"
+                options={locationOptions}
+                value={locationOptions.find((o) => o.value === String(filters.locationId)) || null}
+                onChange={(o) => setFilter("locationId", o ? o.value : "")}
+                styles={selectStyles}
+              />
+            </div>
+            <div className="kdx-field kdx-grow">
+              <label htmlFor="kh-product">Producto</label>
+              <Select
+                inputId="kh-product"
+                isClearable
+                isSearchable
+                placeholder="Todos los productos"
+                options={productOptions}
+                value={productOptions.find((o) => o.value === String(filters.productId)) || null}
+                onChange={(o) => setFilter("productId", o ? o.value : "")}
+                styles={selectStyles}
+              />
+            </div>
+          </div>
+          <div className="kdx-filters">
+            <div className="kdx-field">
+              <label htmlFor="kh-type">Tipo de movimiento</label>
+              <select id="kh-type" value={filters.movementType} onChange={(e) => setFilter("movementType", e.target.value)}>
+                <option value="">Todos</option>
+                {movementTypes.map((t) => (
+                  <option key={t} value={t}>
+                    {movementLabel(t)}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="kdx-field">
+              <label htmlFor="kh-from">Desde</label>
+              <input id="kh-from" type="date" value={filters.from} onChange={(e) => setFilter("from", e.target.value)} />
+            </div>
+            <div className="kdx-field">
+              <label htmlFor="kh-to">Hasta</label>
+              <input id="kh-to" type="date" value={filters.to} onChange={(e) => setFilter("to", e.target.value)} />
+            </div>
+            <div className="kdx-field kdx-grow">
+              <label htmlFor="kh-ref">Documento o referencia</label>
+              <input
+                id="kh-ref"
+                type="text"
+                placeholder="Ej: ENV-00529"
+                value={filters.reference}
+                onChange={(e) => setFilter("reference", e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") applyFilters();
+                }}
+              />
+            </div>
+            <Button color="primary" className="mb-1" onClick={applyFilters} disabled={loading}>
+              Buscar
+            </Button>
+            {(hasFilters || Object.values(filters).some(Boolean)) && (
+              <Button color="link" className="rpt-clear mb-2" onClick={clearFilters} disabled={loading}>
+                Quitar filtros
+              </Button>
+            )}
+          </div>
+
+          {error && (
+            <Alert color="danger" className="d-flex justify-content-between align-items-center">
+              <span>{error}</span>
+              <Button size="sm" color="danger" outline onClick={() => load(applied, page)}>
+                Reintentar
+              </Button>
+            </Alert>
+          )}
+
+          {!error && loading && !result ? (
+            <div className="rpt-empty">
+              <Spinner /> <div className="mt-2">Cargando movimientos…</div>
+            </div>
+          ) : !error && !rows.length ? (
+            <div className="rpt-empty">
+              {archives.length === 0 ? "Todavía no hay movimientos archivados." : "No hay movimientos con estos filtros."}
+            </div>
+          ) : !error ? (
+            <>
+              <KardexTable
+                rows={rows}
+                showItem
+                itemKind="product"
+                showName
+                showLocation
+                showValue={false}
+                dim={loading}
+              />
+              <div className="d-flex justify-content-between align-items-center flex-wrap mt-2" style={{ gap: 8 }}>
+                <span className="rpt-hint mb-0" aria-live="polite">
+                  Página {page + 1} de {Math.max(totalPages, 1)} · {fmtNum(result?.totalElements || 0)} movimientos
+                </span>
+                <div>
+                  <Button size="sm" color="secondary" outline className="mr-2" disabled={loading || page === 0} onClick={() => setPage((p) => Math.max(p - 1, 0))}>
+                    Anterior
+                  </Button>
+                  <Button size="sm" color="secondary" outline disabled={loading || page + 1 >= totalPages} onClick={() => setPage((p) => p + 1)}>
+                    Siguiente
+                  </Button>
+                </div>
+              </div>
+            </>
+          ) : null}
+        </CardBody>
+      </Card>
     </div>
   );
 }
