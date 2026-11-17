@@ -22,6 +22,8 @@ function SuppliersForm({ supplierId, isOpen, toggle, onSuccess }) {
     email: "",
     address: "",
     status: "active",
+    payeeName: "",
+    creditDays: "30",
   });
   const [errors, setErrors] = useState({});
   const [loading, setLoading] = useState(false);
@@ -48,6 +50,8 @@ function SuppliersForm({ supplierId, isOpen, toggle, onSuccess }) {
         email: supplier.email || "",
         address: supplier.address || "",
         status: supplier.status || "active",
+        payeeName: supplier.payeeName || "",
+        creditDays: String(supplier.creditDays ?? 30),
       });
     } catch (err) {
       setError(err.message || "Error al cargar el proveedor");
@@ -64,6 +68,8 @@ function SuppliersForm({ supplierId, isOpen, toggle, onSuccess }) {
       email: "",
       address: "",
       status: "active",
+      payeeName: "",
+      creditDays: "30",
     });
     setErrors({});
     setError("");
@@ -86,10 +92,12 @@ function SuppliersForm({ supplierId, isOpen, toggle, onSuccess }) {
     try {
       setLoading(true);
       setError("");
+      const days = Number(formData.creditDays);
+      const payload = { ...formData, creditDays: Number.isInteger(days) && days >= 0 ? days : 30 };
       if (supplierId) {
-        await updateSupplier(supplierId, formData);
+        await updateSupplier(supplierId, payload);
       } else {
-        await createSupplier(formData);
+        await createSupplier(payload);
       }
       onSuccess();
       toggle();
@@ -179,6 +187,32 @@ function SuppliersForm({ supplierId, isOpen, toggle, onSuccess }) {
               onChange={(e) => setFormData({ ...formData, address: e.target.value })}
             />
           </FormGroup>
+          <Row>
+            <Col md="8">
+              <FormGroup>
+                <Label>Nombre para el cheque</Label>
+                <Input
+                  type="text"
+                  maxLength={200}
+                  placeholder="Si es distinto del nombre comercial"
+                  value={formData.payeeName}
+                  onChange={(e) => setFormData({ ...formData, payeeName: e.target.value })}
+                />
+              </FormGroup>
+            </Col>
+            <Col md="4">
+              <FormGroup>
+                <Label>Días de crédito</Label>
+                <Input
+                  type="number"
+                  min="0"
+                  max="365"
+                  value={formData.creditDays}
+                  onChange={(e) => setFormData({ ...formData, creditDays: e.target.value })}
+                />
+              </FormGroup>
+            </Col>
+          </Row>
         </ModalBody>
         <ModalFooter>
           <Button color="secondary" onClick={toggle} disabled={loading}>

@@ -77,6 +77,9 @@ export const routePermissions = {
   '/admin/accounting/invoices': 'CONTABILIDAD.FACTURAS.VER',
   '/admin/accounting/invoices/new': 'CONTABILIDAD.FACTURAS.CREAR',
   '/admin/accounting/count-calendar': 'CONTABILIDAD.CALENDARIO.VER',
+  '/admin/accounting/payables': 'CONTABILIDAD.PAGOS_PROVEEDORES.VER',
+  '/admin/accounting/supplier-payments': 'CONTABILIDAD.PAGOS_PROVEEDORES.VER',
+  '/admin/accounting/payment-settings': 'CONTABILIDAD.PAGOS_PROVEEDORES.CONFIGURAR',
   '/admin/accounting/rents': 'CONTABILIDAD.RENTAS.VER',
   '/admin/customer-accounts': 'VENTAS.CUENTAS_COBRAR.VER',
 

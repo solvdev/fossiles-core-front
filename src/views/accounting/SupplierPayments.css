@@ -1,0 +1,134 @@
+/* Cuentas por pagar, pagos y cheques (Contabilidad) */
+
+/* Los modales cuelgan fuera de .spy: comparten las mismas variables. */
+.spy, .spy-drawer, .spy-review, .spy-modal {
+  --spy-ink: #252422;
+  --spy-muted: #66615b;
+  --spy-line: #e3e3e3;
+  --spy-brand: #0f7478;
+  --spy-brand-dark: #0a5558;
+  color: var(--spy-ink);
+  font-size: 0.9rem;
+}
+.spy *, .spy-drawer *, .spy-review *, .spy-modal * { box-sizing: border-box; }
+
+.spy-head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
+.spy-head h4 { margin: 0; font-size: 1.5rem; font-weight: 700; }
+.spy-head p { margin: 6px 0 0; color: var(--spy-muted); max-width: 640px; }
+.spy-head-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+
+.spy-btn {
+  min-height: 44px; padding: 0 18px; border-radius: 8px; font-weight: 600; cursor: pointer;
+  border: 1px solid var(--spy-brand); background: #fff; color: var(--spy-brand);
+}
+.spy-btn:hover { background: #eef8f8; }
+.spy-btn.primary { background: var(--spy-brand); color: #fff; }
+.spy-btn.primary:hover { background: var(--spy-brand-dark); }
+.spy-btn.plain { border-color: #cfcfca; color: var(--spy-ink); }
+.spy-btn.plain:hover { background: #f4f3ef; }
+.spy-btn:disabled { background: #c9c7c1; border-color: #c9c7c1; color: #4f4a45; cursor: not-allowed; }
+.spy-linkbtn { background: none; border: 0; min-height: 44px; padding: 0 6px; color: #9a3414; font-weight: 600; text-decoration: underline; cursor: pointer; }
+
+/* Tarjetas de resumen */
+.spy-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 16px; margin-bottom: 18px; }
+.spy-card { background: #fff; border-radius: 12px; padding: 16px 20px; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08); }
+.spy-card-label { font-size: 0.72rem; font-weight: 600; letter-spacing: 0.04em; color: var(--spy-muted); text-transform: uppercase; }
+.spy-card-value { font-size: 1.6rem; font-weight: 700; margin: 4px 0; }
+.spy-card-hint { font-size: 0.8rem; color: var(--spy-muted); }
+
+/* Tabla */
+.spy-panel { background: #fff; border-radius: 12px; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08); }
+.spy-tools { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; padding: 14px 20px; border-bottom: 1px solid var(--spy-line); }
+.spy-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.spy-chip {
+  min-height: 44px; padding: 0 16px; border-radius: 22px; font-size: 0.82rem; font-weight: 600; cursor: pointer;
+  border: 1px solid #cfcfca; background: #fff; color: var(--spy-ink);
+}
+.spy-chip.on { background: var(--spy-brand); border-color: var(--spy-brand); color: #fff; }
+.spy-search { min-height: 44px; min-width: 260px; border: 1px solid #cfcfca; border-radius: 8px; padding: 0 12px; background: #fff; }
+.spy-scroll { overflow-x: auto; }
+.spy-table { width: 100%; min-width: 1040px; border-collapse: collapse; }
+.spy-table th { padding: 12px; text-align: left; font-size: 0.72rem; font-weight: 600; letter-spacing: 0.04em; color: var(--spy-muted); }
+.spy-table td { padding: 14px 12px; border-top: 1px solid #eeeeea; vertical-align: top; }
+.spy-table th:first-child, .spy-table td:first-child { padding-left: 20px; }
+.spy-table th:last-child, .spy-table td:last-child { padding-right: 20px; text-align: right; }
+.spy-num { text-align: right !important; font-variant-numeric: tabular-nums; font-weight: 600; }
+.spy-name { font-weight: 600; }
+.spy-sub { font-size: 0.78rem; color: var(--spy-muted); }
+.spy-missing { color: #9a3414; }
+.spy-bar { height: 6px; border-radius: 3px; background: #e9e8e3; margin-top: 8px; overflow: hidden; min-width: 190px; }
+.spy-bar > div { height: 6px; }
+.spy-total td { border-top: 2px solid var(--spy-line); background: #faf9f6; font-weight: 700; }
+.spy-empty { padding: 36px 20px; text-align: center; color: var(--spy-muted); }
+
+/* Estados */
+.spy-badge { display: inline-block; padding: 5px 12px; border-radius: 14px; font-size: 0.75rem; font-weight: 600; }
+.spy-s-VIGENTE { background: #e0f4e8; color: #1b6b3a; }
+.spy-s-POR_VENCER, .spy-s-INCOMPLETO { background: #fff0cc; color: #6b4700; }
+.spy-s-VENCIDO { background: #fde3da; color: #9a3414; }
+.spy-s-SIN_CARGAR { background: #ecebe6; color: #4f4a45; }
+.spy-bar-VIGENTE > div { background: #2f9e5e; }
+.spy-bar-POR_VENCER > div, .spy-bar-INCOMPLETO > div { background: #d99a00; }
+.spy-bar-VENCIDO > div { background: #d9552b; }
+.spy-bar-SIN_CARGAR > div { background: #bdb9b2; }
+
+/* Panel lateral de edición */
+.spy-drawer.modal .modal-dialog { position: fixed; top: 0; right: 0; bottom: 0; margin: 0; width: 100%; max-width: 520px; transform: none !important; }
+.spy-drawer.modal .modal-content { height: 100%; border: 0; border-radius: 0; }
+.spy-drawer .modal-body { overflow-y: auto; }
+.spy-form { display: flex; flex-direction: column; gap: 18px; }
+.spy-field label { display: block; font-weight: 600; font-size: 0.84rem; margin-bottom: 6px; }
+.spy-field .form-control { min-height: 44px; border: 1px solid #8a857e; border-radius: 8px; color: var(--spy-ink); }
+.spy-field small { display: block; margin-top: 4px; color: var(--spy-muted); font-size: 0.76rem; }
+.spy-req { color: #9a3414; }
+.spy-rentbox { background: #f4f3ef; border-radius: 10px; padding: 12px 14px; display: flex; flex-wrap: wrap; gap: 8px 16px; justify-content: space-between; align-items: center; }
+.spy-rentbox strong { display: block; font-size: 1.25rem; font-variant-numeric: tabular-nums; }
+.spy-rentbox span { font-size: 0.76rem; color: var(--spy-muted); max-width: 240px; }
+.spy-preview { background: #fff8e6; border: 1px solid #f0d58a; border-radius: 10px; padding: 14px 16px; display: flex; flex-direction: column; gap: 6px; }
+.spy-preview-title { font-size: 0.72rem; font-weight: 600; letter-spacing: 0.05em; color: #6b4700; }
+.spy-foot { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; width: 100%; }
+
+/* Revisión de la plantilla */
+.spy-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin-bottom: 18px; }
+.spy-stat { border-radius: 10px; padding: 12px 14px; background: #ecebe6; }
+.spy-stat strong { display: block; font-size: 1.5rem; }
+.spy-stat span { font-size: 0.78rem; font-weight: 600; }
+.spy-stat.ok { background: #e0f4e8; color: #1b6b3a; }
+.spy-stat.bad { background: #fde3da; color: #9a3414; }
+.spy-errors { border: 1px solid #f0b8a4; background: #fff3ee; border-radius: 10px; padding: 14px 16px; margin-bottom: 18px; }
+.spy-errors ul { margin: 8px 0 0; padding-left: 20px; line-height: 1.6; }
+.spy-subtitle { font-size: 0.78rem; font-weight: 700; letter-spacing: 0.04em; color: var(--spy-muted); margin-bottom: 8px; text-transform: uppercase; }
+.spy-mini { width: 100%; min-width: 620px; border-collapse: collapse; }
+.spy-mini th { padding: 8px 12px; text-align: left; font-size: 0.72rem; color: var(--spy-muted); background: #faf9f6; }
+.spy-mini td { padding: 10px 12px; border-top: 1px solid #eeeeea; }
+.spy-tag { display: inline-block; padding: 4px 10px; border-radius: 12px; font-size: 0.74rem; font-weight: 600; }
+.spy-tag.new { background: #dff3f3; color: #0a5558; }
+.spy-tag.upd { background: #fff0cc; color: #6b4700; }
+
+/* Cuentas por pagar y pagos */
+.spy-check { width: 20px; height: 20px; accent-color: var(--spy-brand); }
+.spy-row-on { background: #eef8f8; }
+.spy-s-VENCIDA, .spy-s-ANULADO { background: #fde3da; color: #9a3414; }
+.spy-s-POR_VENCER, .spy-s-POR_IMPRIMIR { background: #fff0cc; color: #6b4700; }
+.spy-s-PARCIAL, .spy-s-IMPRESO { background: #dff3f3; color: #0a5558; }
+.spy-s-AL_DIA, .spy-s-PAGADO { background: #e0f4e8; color: #1b6b3a; }
+.spy-s-ANULADO { background: #ecebe6; color: #4f4a45; }
+.spy-paybar { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; padding: 16px 20px; border-top: 2px solid var(--spy-brand); background: #eef8f8; border-radius: 0 0 12px 12px; }
+.spy-orders { border: 1px solid var(--spy-line); border-radius: 10px; overflow: hidden; }
+.spy-order { display: grid; grid-template-columns: 1fr auto 160px; gap: 12px; align-items: center; padding: 12px 14px; }
+.spy-order + .spy-order { border-top: 1px solid #eeeeea; }
+.spy-methods { display: flex; flex-wrap: wrap; gap: 8px; }
+.spy-grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.spy-grid2 .full { grid-column: 1 / -1; }
+.spy-cards2 { display: flex; flex-direction: column; gap: 14px; }
+.spy-acc { background: #fff; border-radius: 12px; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08); padding: 18px 20px; display: flex; flex-direction: column; gap: 12px; }
+.spy-acc-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px 20px; font-size: 0.82rem; }
+.spy-acc-grid b { display: block; color: var(--spy-muted); font-size: 0.68rem; letter-spacing: 0.04em; text-transform: uppercase; }
+.spy-cheque { position: relative; border: 1px solid #8a857e; background-color: #fbfaf6; color: #111; overflow: hidden;
+  background-image: repeating-linear-gradient(90deg, rgba(15, 116, 120, 0.16) 0, rgba(15, 116, 120, 0.16) 1px, transparent 1px, transparent 10mm),
+    repeating-linear-gradient(0deg, rgba(15, 116, 120, 0.16) 0, rgba(15, 116, 120, 0.16) 1px, transparent 1px, transparent 10mm); }
+.spy-cheque > div { position: absolute; line-height: 1.15; }
+.spy-fields input[type="text"], .spy-fields input[type="number"], .spy-fields select { min-height: 44px; border: 1px solid #8a857e; border-radius: 8px; padding: 0 8px; width: 78px; }
+.spy-fields select { width: 110px; }
+.spy-fields td { padding: 8px 10px; border-top: 1px solid #eeeeea; vertical-align: middle; }
+.spy-fields th { padding: 10px; text-align: left; font-size: 0.7rem; color: var(--spy-muted); }

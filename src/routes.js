@@ -119,6 +119,9 @@ import AccountingInvoiceForm from "views/accounting/AccountingInvoiceForm.js";
 import AccountingInvoiceDetail from "views/accounting/AccountingInvoiceDetail.js";
 import KioskMovementsAccounting from "views/accounting/KioskMovementsAccounting.js";
 import KioskCountCalendar from "views/accounting/KioskCountCalendar.js";
+import SupplierPayables from "views/accounting/SupplierPayables.js";
+import SupplierPaymentsList from "views/accounting/SupplierPaymentsList.js";
+import PaymentSettings from "views/accounting/PaymentSettings.js";
 import KioskRents from "views/accounting/KioskRents.js";
 import PayrollRuns from "views/payroll/PayrollRuns.js";
 import EmployeeCharges from "views/payroll/EmployeeCharges.js";
@@ -1397,6 +1400,42 @@ const routes = [
         permissions: {
           view: "CONTABILIDAD.CALENDARIO.VER",
           edit: "CONTABILIDAD.CALENDARIO.GENERAR",
+        },
+      },
+      {
+        path: "/accounting/payables",
+        name: "Cuentas por pagar",
+        mini: "CP",
+        component: <SupplierPayables />,
+        layout: "/admin",
+        module: "CONTABILIDAD",
+        permissions: {
+          view: "CONTABILIDAD.PAGOS_PROVEEDORES.VER",
+          edit: "CONTABILIDAD.PAGOS_PROVEEDORES.PAGAR",
+        },
+      },
+      {
+        path: "/accounting/supplier-payments",
+        name: "Pagos a proveedores",
+        mini: "PP",
+        component: <SupplierPaymentsList />,
+        layout: "/admin",
+        module: "CONTABILIDAD",
+        permissions: {
+          view: "CONTABILIDAD.PAGOS_PROVEEDORES.VER",
+          edit: "CONTABILIDAD.PAGOS_PROVEEDORES.PAGAR",
+        },
+      },
+      {
+        path: "/accounting/payment-settings",
+        name: "Bancos y formas de pago",
+        mini: "BF",
+        component: <PaymentSettings />,
+        layout: "/admin",
+        module: "CONTABILIDAD",
+        permissions: {
+          view: "CONTABILIDAD.PAGOS_PROVEEDORES.CONFIGURAR",
+          edit: "CONTABILIDAD.PAGOS_PROVEEDORES.CONFIGURAR",
         },
       },
       {
