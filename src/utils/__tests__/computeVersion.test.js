@@ -6,6 +6,7 @@ const {
   nextRcNumber,
   nextVersion,
   planRelease,
+  resolveBuildEnv,
 } = require("../../../scripts/compute-version");
 
 describe("bumpTypeFromPr", () => {
@@ -139,5 +140,26 @@ describe("planRelease", () => {
       version: "1.312.1-rc.1",
       prerelease: true,
     });
+  });
+});
+
+describe("resolveBuildEnv", () => {
+  test("falls back to dev when computeRelease throws during a CI build", async () => {
+    const previousActions = process.env.GITHUB_ACTIONS;
+    const previousVersion = process.env.REACT_APP_VERSION;
+    process.env.GITHUB_ACTIONS = "true";
+    delete process.env.REACT_APP_VERSION;
+    try {
+      const result = await resolveBuildEnv(async () => {
+        throw new Error("GitHub API down");
+      });
+      expect(result.version).toBe("dev");
+      expect(result.commit).toBeTruthy();
+    } finally {
+      if (previousActions === undefined) delete process.env.GITHUB_ACTIONS;
+      else process.env.GITHUB_ACTIONS = previousActions;
+      if (previousVersion === undefined) delete process.env.REACT_APP_VERSION;
+      else process.env.REACT_APP_VERSION = previousVersion;
+    }
   });
 });

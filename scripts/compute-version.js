@@ -179,6 +179,17 @@ function listLocalTags() {
   return out.split("\n").map((line) => line.trim()).filter(Boolean);
 }
 
+function ensureTags() {
+  if (listLocalTags().length > 0) return;
+  try {
+    execFileSync("git", ["fetch", "--tags", "--force", "--quiet"], {
+      stdio: "ignore",
+    });
+  } catch {
+    // Shallow clones / missing remotes must not break the build.
+  }
+}
+
 function localTagsOnHead() {
   const out = execGit(["tag", "--points-at", "HEAD"]);
   if (!out) return [];
@@ -271,9 +282,7 @@ async function computeRelease() {
   const commit = gitShortSha(head);
   const branch = gitBranch();
 
-  if (process.env.GITHUB_ACTIONS) {
-    execGit(["fetch", "--tags", "--force", "origin"]);
-  }
+  ensureTags();
 
   const githubTags = await listGithubTags();
   const tags = [
@@ -313,14 +322,20 @@ function runBuild({ version, commit }) {
   process.exit(result.status === null ? 1 : result.status);
 }
 
-async function resolveBuildEnv() {
+async function resolveBuildEnv(compute = computeRelease) {
   const commit = process.env.REACT_APP_COMMIT || gitShortSha();
   if (process.env.REACT_APP_VERSION && String(process.env.REACT_APP_VERSION).trim()) {
     return { version: stripV(process.env.REACT_APP_VERSION), commit };
   }
   if (process.env.GITHUB_ACTIONS) {
-    const release = await computeRelease();
-    return { version: release.version, commit: release.commit || commit };
+    try {
+      const release = await compute();
+      return { version: release.version, commit: release.commit || commit };
+    } catch (error) {
+      const detail = error && error.message ? error.message : error;
+      log(`versioning: warning: ${detail}; falling back to dev`);
+      return { version: "dev", commit: commit || "unknown" };
+    }
   }
   return { version: "dev", commit: commit || "unknown" };
 }
@@ -348,6 +363,7 @@ module.exports = {
   planRelease,
   stripV,
   computeRelease,
+  resolveBuildEnv,
 };
 
 if (require.main === module) {
