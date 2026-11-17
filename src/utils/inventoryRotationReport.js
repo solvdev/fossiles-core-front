@@ -1,5 +1,21 @@
 import * as XLSX from "xlsx-js-style";
 import { formatNowGt } from "./dateTimeHelper";
+import {
+  buildTableSheet,
+  cell,
+  centerStyle,
+  headStyle,
+  metaStyle,
+  numStyle,
+  sectionStyle,
+  statusStyle,
+  textStyle,
+  tintedNumStyle,
+  titleStyle,
+  totalNum,
+  totalStyle,
+  wrapStyle,
+} from "./reportExcelKit";
 
 /**
  * Reporte de rotación y cobertura de inventario: estados, textos en palabras simples, filtros/orden y Excel.
@@ -175,46 +191,11 @@ export const thresholds = (data) => ({ shortDays: data?.shortDays ?? 5, slowDays
 
 // ==================== Excel ====================
 
-const line = { style: "thin", color: { rgb: "D1D5DB" } };
-const box = { top: line, right: line, bottom: line, left: line };
-const NAVY = "1F2937";
-
-const titleStyle = { font: { bold: true, sz: 16, color: { rgb: NAVY } } };
-const metaStyle = { font: { sz: 10, color: { rgb: "6B7280" } } };
-const sectionStyle = { font: { bold: true, sz: 12, color: { rgb: NAVY } } };
-const headStyle = {
-  font: { bold: true, color: { rgb: "FFFFFF" } },
-  fill: { fgColor: { rgb: NAVY } },
-  alignment: { horizontal: "center", vertical: "center", wrapText: true },
-  border: box,
-};
-const textStyle = { border: box, alignment: { vertical: "center" } };
-const wrapStyle = { border: box, alignment: { vertical: "center", wrapText: true } };
-const centerStyle = { border: box, alignment: { horizontal: "center", vertical: "center" } };
-const numStyle = (fmt) => ({ border: box, numFmt: fmt, alignment: { horizontal: "right", vertical: "center" } });
-const totalStyle = {
-  font: { bold: true },
-  fill: { fgColor: { rgb: "F3F4F6" } },
-  border: box,
-  alignment: { vertical: "center" },
-};
-const totalNum = (fmt) => ({ ...totalStyle, numFmt: fmt, alignment: { horizontal: "right", vertical: "center" } });
 const statusCell = (key) => {
   const m = statusMeta(key);
-  return {
-    font: { bold: true, color: { rgb: m.xlsText } },
-    fill: { fgColor: { rgb: m.xlsFill } },
-    border: box,
-    alignment: { horizontal: "center", vertical: "center" },
-  };
+  return statusStyle(m.xlsText, m.xlsFill);
 };
-const tintedNum = (key, fmt) => ({
-  ...numStyle(fmt),
-  fill: { fgColor: { rgb: statusMeta(key).xlsFill } },
-  font: { color: { rgb: statusMeta(key).xlsText } },
-});
-
-const cell = (v, s) => ({ v: v ?? "", t: typeof v === "number" ? "n" : "s", s });
+const tintedNum = (key, fmt) => tintedNumStyle(statusMeta(key).xlsText, statusMeta(key).xlsFill, fmt);
 
 function detailColumns(scope, data) {
   const isProducts = scope.key === "PRODUCTS";
@@ -289,36 +270,12 @@ function detailColumns(scope, data) {
 }
 
 function buildDetailSheet(scope, data, rows, subtitle) {
-  const cols = detailColumns(scope, data);
-  const headerRow = 3;
-  const aoa = [
-    [cell(`${scope.tab}: detalle`, titleStyle)],
-    [cell(subtitle, metaStyle)],
-    [],
-    cols.map((c) => cell(c.label, headStyle)),
-  ];
-  rows.forEach((r) => aoa.push(cols.map((c) => cell(c.get(r), c.style(r)))));
-  aoa.push(
-    cols.map((c, i) => {
-      if (i === 0) return cell("TOTAL", totalStyle);
-      if (c.total === "sum") {
-        const v = rows.reduce((acc, r) => acc + num(c.get(r)), 0);
-        return cell(v, totalNum(c.totalFmt || "#,##0.##"));
-      }
-      return cell("", totalStyle);
-    })
-  );
-  const ws = XLSX.utils.aoa_to_sheet(aoa);
-  ws["!cols"] = cols.map((c) => ({ wch: c.width }));
-  ws["!rows"] = [{ hpt: 24 }, {}, {}, { hpt: 34 }];
-  ws["!autofilter"] = {
-    ref: XLSX.utils.encode_range({ s: { r: headerRow, c: 0 }, e: { r: headerRow + rows.length, c: cols.length - 1 } }),
-  };
-  ws["!freeze"] = { xSplit: 2, ySplit: headerRow + 1 };
-  ws["!views"] = [{ state: "frozen", xSplit: 2, ySplit: headerRow + 1, showGridLines: false }];
-  ws["!pageSetup"] = { orientation: "landscape", fitToWidth: 1, fitToHeight: 0 };
-  ws["!margins"] = { left: 0.4, right: 0.4, top: 0.5, bottom: 0.5, header: 0.3, footer: 0.3 };
-  return ws;
+  return buildTableSheet({
+    title: `${scope.tab}: detalle`,
+    subtitle,
+    columns: detailColumns(scope, data),
+    rows,
+  });
 }
 
 function buildSummarySheet(scope, data, rows, subtitle) {

@@ -34,7 +34,7 @@ import {
   thresholds,
 } from "utils/inventoryRotationReport";
 import { showError } from "utils/notificationHelper";
-import "./InventoryRotationReport.css";
+import "./reportsDesign.css";
 
 const WINDOW_OPTIONS = [30, 60, 90];
 const PAGE_SIZE = 200;
@@ -91,16 +91,16 @@ function CoverageCell({ row, slowDays }) {
   const pct = days == null ? 0 : Math.max(4, Math.min(100, (days / slowDays) * 100));
   const text = row.status === "SIN_STOCK" ? "0 días" : coverageText(row);
   return (
-    <div className="rot-cover">
-      <div className="rot-cover-bar" aria-hidden="true">
+    <div className="rpt-cover">
+      <div className="rpt-cover-bar" aria-hidden="true">
         <span style={{ width: `${row.status === "SIN_STOCK" ? 0 : pct}%`, background: meta.color }} />
       </div>
-      <span className="rot-cover-text">{text}</span>
+      <span className="rpt-cover-text">{text}</span>
     </div>
   );
 }
 
-function InventoryRotationReport() {
+function InventoryRotationReport({ embedded = false }) {
   const [scopeKey, setScopeKey] = useState("PRODUCTS");
   const [windowDays, setWindowDays] = useState(30);
   const [data, setData] = useState(null);
@@ -223,7 +223,7 @@ function InventoryRotationReport() {
   };
 
   return (
-    <div className="content rot-page">
+    <div className={embedded ? "rpt-page" : "content rpt-page"}>
       <Row>
         <Col md="12">
           <Card>
@@ -231,18 +231,18 @@ function InventoryRotationReport() {
               <div className="d-flex flex-wrap justify-content-between align-items-start" style={{ gap: 12 }}>
                 <div>
                   <CardTitle tag="h4">Rotación y cobertura de inventario</CardTitle>
-                  <p className="rot-subtitle">
+                  <p className="rpt-subtitle">
                     {isProducts
                       ? "Cuánto alcanza lo que hay en los kioscos y qué producto no se está vendiendo."
                       : "Cuánto alcanza cada material al ritmo de consumo y cuál está parado."}
                   </p>
-                  <Button color="link" className="rot-how-btn mt-1" onClick={() => setShowRules((v) => !v)}>
+                  <Button color="link" className="rpt-how-btn mt-1" onClick={() => setShowRules((v) => !v)}>
                     {showRules ? "Ocultar cómo se lee" : "¿Cómo se lee este reporte?"}
                   </Button>
                 </div>
-                <div className="rot-controls">
-                  <span className="rot-label">Período</span>
-                  <div className="rot-segment" role="group" aria-label="Período analizado">
+                <div className="rpt-controls">
+                  <span className="rpt-label">Período</span>
+                  <div className="rpt-segment" role="group" aria-label="Período analizado">
                     {WINDOW_OPTIONS.map((d) => (
                       <button
                         key={d}
@@ -262,7 +262,7 @@ function InventoryRotationReport() {
                 </div>
               </div>
               <Collapse isOpen={showRules}>
-                <div className="rot-rules">
+                <div className="rpt-rules">
                   <dl>
                     <dt>Existencia</dt>
                     <dd>Lo que hay hoy{isProducts ? " sumando los kioscos elegidos" : " en bodega de materiales"}.</dd>
@@ -285,8 +285,8 @@ function InventoryRotationReport() {
               </Collapse>
             </CardHeader>
             <CardBody>
-              <div className="rot-toolbar">
-                <div className="rot-segment" role="group" aria-label="Qué inventario ver">
+              <div className="rpt-toolbar">
+                <div className="rpt-segment" role="group" aria-label="Qué inventario ver">
                   {Object.values(SCOPES).map((s) => (
                     <button
                       key={s.key}
@@ -326,7 +326,7 @@ function InventoryRotationReport() {
 
               {!error && (
                 <>
-                  <div className="rot-tiles">
+                  <div className="rpt-tiles">
                     {STATUS_ORDER.map((k) => {
                       const meta = statusMeta(k);
                       const active = statusFilter === k;
@@ -334,24 +334,24 @@ function InventoryRotationReport() {
                         <button
                           key={k}
                           type="button"
-                          className={`rot-tile${active ? " is-active" : ""}${counts[k] ? "" : " is-empty"}`}
+                          className={`rpt-tile${active ? " is-active" : ""}${counts[k] ? "" : " is-empty"}`}
                           style={{ borderLeftColor: meta.color }}
                           aria-pressed={active}
                           onClick={() => setStatusFilter(active ? "ALL" : k)}
                         >
-                          <span className="rot-tile-label" style={{ color: meta.color }}>
+                          <span className="rpt-tile-label" style={{ color: meta.color }}>
                             {meta.label}
                           </span>
-                          <span className="rot-tile-value">{loading && !data ? "–" : fmtInt(counts[k])}</span>
-                          <span className="rot-tile-hint">{data ? tileHint(k, data, t) : ""}</span>
+                          <span className="rpt-tile-value">{loading && !data ? "–" : fmtInt(counts[k])}</span>
+                          <span className="rpt-tile-hint">{data ? tileHint(k, data, t) : ""}</span>
                         </button>
                       );
                     })}
                   </div>
 
-                  <div className="rot-toolbar">
+                  <div className="rpt-toolbar">
                     <Input
-                      className="rot-search"
+                      className="rpt-search"
                       type="search"
                       bsSize="sm"
                       placeholder={isProducts ? "Buscar producto, código o color" : "Buscar material o código"}
@@ -360,11 +360,11 @@ function InventoryRotationReport() {
                       aria-label="Buscar"
                     />
                     {filtered && (
-                      <Button color="link" className="rot-clear" onClick={clearFilters}>
+                      <Button color="link" className="rpt-clear" onClick={clearFilters}>
                         Quitar filtros
                       </Button>
                     )}
-                    <span className="rot-count" aria-live="polite">
+                    <span className="rpt-count" aria-live="polite">
                       {loading ? (
                         <>
                           <Spinner size="sm" className="mr-1" /> Calculando…
@@ -380,11 +380,11 @@ function InventoryRotationReport() {
                   </div>
 
                   {loading && !data ? (
-                    <div className="rot-empty">
+                    <div className="rpt-empty">
                       <Spinner /> <div className="mt-2">Calculando rotación…</div>
                     </div>
                   ) : !shownRows.length ? (
-                    <div className="rot-empty">
+                    <div className="rpt-empty">
                       {filtered
                         ? "Ningún resultado con estos filtros."
                         : "No hay movimiento ni existencia en este período."}
@@ -398,8 +398,8 @@ function InventoryRotationReport() {
                     </div>
                   ) : (
                     <>
-                      <div className="rot-table-wrap" style={loading ? { opacity: 0.55 } : undefined}>
-                        <Table className="rot-table" hover={false}>
+                      <div className="rpt-table-wrap" style={loading ? { opacity: 0.55 } : undefined}>
+                        <Table className="rpt-table" hover={false}>
                           <colgroup>
                             {COL_WIDTHS.map((w, i) => (
                               <col key={i} style={{ width: w }} />
@@ -412,7 +412,7 @@ function InventoryRotationReport() {
                                 return (
                                   <th
                                     key={col.key}
-                                    className={col.numeric ? "rot-num" : ""}
+                                    className={col.numeric ? "rpt-num" : ""}
                                     aria-sort={active ? (sort.dir === "asc" ? "ascending" : "descending") : "none"}
                                   >
                                     <button type="button" onClick={() => toggleSort(col)}>
@@ -430,29 +430,29 @@ function InventoryRotationReport() {
                               return (
                                 <tr key={row.key} title={explainRow(row, scope, windowDays)}>
                                   <td>
-                                    <span className="rot-name">{row.name}</span>
+                                    <span className="rpt-name">{row.name}</span>
                                     {isProducts && row.hardware && row.hardware !== "NUEVO" && (
-                                      <span className="rot-chip-hardware">{row.hardware}</span>
+                                      <span className="rpt-chip-hardware">{row.hardware}</span>
                                     )}
-                                    <span className="rot-meta">
+                                    <span className="rpt-meta">
                                       {[row.code, row.variant, row.unit].filter(Boolean).join(" · ")}
                                       {isProducts && row.locationsWithStock > 0
                                         ? ` · en ${row.locationsWithStock} ${row.locationsWithStock === 1 ? "kiosco" : "kioscos"}`
                                         : ""}
                                     </span>
                                   </td>
-                                  <td className="rot-num">{fmtQty(row.stock)}</td>
-                                  <td className="rot-num">{fmtQty(row.moved)}</td>
-                                  <td className="rot-num">{fmtRate(row.dailyRate)}</td>
+                                  <td className="rpt-num">{fmtQty(row.stock)}</td>
+                                  <td className="rpt-num">{fmtQty(row.moved)}</td>
+                                  <td className="rpt-num">{fmtRate(row.dailyRate)}</td>
                                   <td>
                                     <CoverageCell row={row} slowDays={t.slowDays} />
                                   </td>
                                   <td>
-                                    <span className="rot-badge" style={{ color: meta.color, background: meta.bg }}>
+                                    <span className="rpt-badge" style={{ color: meta.color, background: meta.bg }}>
                                       {meta.label}
                                     </span>
                                   </td>
-                                  <td className="rot-num">{fmtDate(row.lastMovementDate)}</td>
+                                  <td className="rpt-num">{fmtDate(row.lastMovementDate)}</td>
                                 </tr>
                               );
                             })}

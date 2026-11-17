@@ -127,7 +127,6 @@ import PayrollIncidents from "views/payroll/PayrollIncidents.js";
 // Reportes
 import ProductionReports from "views/reports/ProductionReports.js";
 import InventoryReports from "views/reports/InventoryReports.js";
-import InventoryRotationReport from "views/reports/InventoryRotationReport.js";
 import SalesReports from "views/reports/SalesReports.js";
 import CostReports from "views/reports/CostReports.js";
 import KioskPerformance from "views/reports/KioskPerformance.js";
@@ -1490,17 +1489,6 @@ const routes = [
         name: "Inventarios",
         mini: "RI",
         component: <InventoryReports />,
-        layout: "/admin",
-        module: "REPORTES",
-        permissions: {
-          view: "REPORTES.INVENTARIOS.VER",
-        },
-      },
-      {
-        path: "/inventory-rotation-report",
-        name: "Rotación de inventario",
-        mini: "RR",
-        component: <InventoryRotationReport />,
         layout: "/admin",
         module: "REPORTES",
         permissions: {
