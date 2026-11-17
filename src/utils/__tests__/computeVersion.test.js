@@ -1,5 +1,4 @@
 const {
-  BOOTSTRAP_VERSION,
   bumpTypeFromPr,
   highestFinalTag,
   highestTag,
@@ -37,18 +36,21 @@ describe("bumpTypeFromPr", () => {
 });
 
 describe("bootstrap and nextVersion", () => {
-  test("bootstraps 1.312.0 when there is no final tag", () => {
-    expect(BOOTSTRAP_VERSION).toBe("1.312.0");
-    expect(nextVersion(null, "major")).toBe("1.312.0");
-    expect(nextVersion("", "minor")).toBe("1.312.0");
-    expect(nextVersion(undefined, "patch")).toBe("1.312.0");
-    expect(nextVersion("v1.312.1-rc.4", "patch")).toBe("1.312.0");
+  test("bootstraps 1.<N>.0 from the merge count when there is no final tag", () => {
+    expect(nextVersion(null, "major", 313)).toBe("1.313.0");
+    expect(nextVersion("", "minor", 313)).toBe("1.313.0");
+    expect(nextVersion(undefined, "patch", 313)).toBe("1.313.0");
+    expect(nextVersion("v1.312.1-rc.4", "patch", 313)).toBe("1.313.0");
   });
 
-  test("bumps from the latest final tag", () => {
-    expect(nextVersion("v1.312.0", "patch")).toBe("1.312.1");
-    expect(nextVersion("1.312.0", "minor")).toBe("1.313.0");
-    expect(nextVersion("v1.312.0", "major")).toBe("2.0.0");
+  test("throws if bootstrap is needed but merge count is missing", () => {
+    expect(() => nextVersion(null, "patch")).toThrow(/merge count/);
+  });
+
+  test("ignores merge count when a final tag exists", () => {
+    expect(nextVersion("v1.312.0", "patch", 313)).toBe("1.312.1");
+    expect(nextVersion("1.312.0", "minor", 999)).toBe("1.313.0");
+    expect(nextVersion("v1.312.0", "major", 313)).toBe("2.0.0");
   });
 });
 
@@ -74,29 +76,56 @@ describe("nextRcNumber", () => {
 });
 
 describe("planRelease", () => {
-  test("main with no tags bootstraps v1.312.0", () => {
-    expect(planRelease({ branch: "main", tags: [], bumpType: "patch" })).toEqual({
+  test("main with no tags bootstraps v1.<N>.0 from the merge count", () => {
+    expect(planRelease({
+      branch: "main",
+      tags: [],
+      bumpType: "patch",
+      bootstrapMinor: 313,
+    })).toEqual({
       skip: false,
-      version: "1.312.0",
-      tag: "v1.312.0",
+      version: "1.313.0",
+      tag: "v1.313.0",
       bump: "initial",
       prerelease: false,
     });
   });
 
-  test("release with no final tags creates v1.312.0-rc.1", () => {
-    expect(planRelease({ branch: "release", tags: [], bumpType: "patch" })).toEqual({
+  test("release with no final tags creates v1.<N>.0-rc.K", () => {
+    expect(planRelease({
+      branch: "release",
+      tags: [],
+      bumpType: "patch",
+      bootstrapMinor: 313,
+    })).toEqual({
       skip: false,
-      version: "1.312.0-rc.1",
-      tag: "v1.312.0-rc.1",
+      version: "1.313.0-rc.1",
+      tag: "v1.313.0-rc.1",
       bump: "initial",
       prerelease: true,
     });
     expect(planRelease({
       branch: "release",
-      tags: ["v1.312.0-rc.1"],
+      tags: ["v1.313.0-rc.1"],
       bumpType: "patch",
-    }).tag).toBe("v1.312.0-rc.2");
+      bootstrapMinor: 313,
+    }).tag).toBe("v1.313.0-rc.2");
+  });
+
+  test("tags present: merge count is ignored", () => {
+    const tags = ["v1.312.0", "v1.312.1-rc.1"];
+    expect(planRelease({
+      branch: "main",
+      tags,
+      bumpType: "patch",
+      bootstrapMinor: 313,
+    })).toEqual({
+      skip: false,
+      version: "1.312.1",
+      tag: "v1.312.1",
+      bump: "patch",
+      prerelease: false,
+    });
   });
 
   test("release increments rc for the next final version", () => {

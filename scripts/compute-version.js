@@ -5,7 +5,6 @@ const { execFileSync, spawnSync } = require("child_process");
 const fs = require("fs");
 const path = require("path");
 
-const BOOTSTRAP_VERSION = "1.312.0";
 const FEAT_TITLE = /^feat(\(|:|\s|$)/i;
 const FINAL_TAG = /^v?(\d+)\.(\d+)\.(\d+)$/i;
 const RC_TAG = /^v?(\d+)\.(\d+)\.(\d+)-rc\.(\d+)$/i;
@@ -81,9 +80,20 @@ function highestTag(tags) {
   return highestFinalTag(tags);
 }
 
-function nextVersion(latestFinalTag, bumpType) {
+function bootstrapVersion(bootstrapMinor) {
+  if (bootstrapMinor == null || bootstrapMinor === "") {
+    throw new Error("merge count is required to bootstrap the first version");
+  }
+  const minor = Number(bootstrapMinor);
+  if (!Number.isInteger(minor) || minor < 0) {
+    throw new Error("merge count is required to bootstrap the first version");
+  }
+  return `1.${minor}.0`;
+}
+
+function nextVersion(latestFinalTag, bumpType, bootstrapMinor) {
   const parsed = parseTag(latestFinalTag);
-  if (!parsed || parsed.kind !== "final") return BOOTSTRAP_VERSION;
+  if (!parsed || parsed.kind !== "final") return bootstrapVersion(bootstrapMinor);
   if (bumpType === "major") return formatSemver({ major: parsed.major + 1, minor: 0, patch: 0 });
   if (bumpType === "minor") return formatSemver({ major: parsed.major, minor: parsed.minor + 1, patch: 0 });
   return formatSemver({ major: parsed.major, minor: parsed.minor, patch: parsed.patch + 1 });
@@ -101,7 +111,7 @@ function nextRcNumber(tags, next) {
   return highest + 1;
 }
 
-function planRelease({ branch, tags = [], bumpType = "patch", headTags = [] } = {}) {
+function planRelease({ branch, tags = [], bumpType = "patch", headTags = [], bootstrapMinor } = {}) {
   const isReleaseBranch = branch === "release";
   const parsedHead = (headTags || []).map(parseTag).filter(Boolean);
   const matchingHead = parsedHead.filter((tag) => (isReleaseBranch ? tag.kind === "rc" : tag.kind === "final"));
@@ -123,7 +133,7 @@ function planRelease({ branch, tags = [], bumpType = "patch", headTags = [] } = 
   }
 
   const latestFinal = highestFinalTag(tags);
-  const next = nextVersion(latestFinal, bumpType);
+  const next = nextVersion(latestFinal, bumpType, bootstrapMinor);
   const bump = latestFinal ? bumpType : "initial";
 
   if (isReleaseBranch) {
@@ -188,6 +198,29 @@ function ensureTags() {
   } catch {
     // Shallow clones / missing remotes must not break the build.
   }
+}
+
+function isShallowRepo() {
+  return execGit(["rev-parse", "--is-shallow-repository"]) === "true";
+}
+
+function unshallowIfNeeded() {
+  if (!isShallowRepo()) return;
+  try {
+    execFileSync("git", ["fetch", "--unshallow", "--quiet"], {
+      stdio: "ignore",
+    });
+  } catch {
+    // Not shallow, missing remotes, or unshallow unsupported: ignore.
+  }
+}
+
+function mergeCount() {
+  const out = execGit(["rev-list", "--merges", "--count", "HEAD"]);
+  if (!/^\d+$/.test(out)) {
+    throw new Error("could not count merge commits for bootstrap version");
+  }
+  return Number(out);
 }
 
 function localTagsOnHead() {
@@ -297,11 +330,19 @@ async function computeRelease() {
       .filter((name) => parseTag(name)),
   ];
 
+  let bootstrapMinor;
+  if (!highestFinalTag(tags)) {
+    if (listLocalTags().length === 0) {
+      unshallowIfNeeded();
+    }
+    bootstrapMinor = mergeCount();
+  }
+
   const pr = await fetchAssociatedPr(head);
   const title = (pr && pr.title) || titleFromCommitMessage(gitCommitMessage());
   const labels = (pr && pr.labels) || [];
   const bumpType = bumpTypeFromPr({ labels, title });
-  const planned = planRelease({ branch, tags, bumpType, headTags });
+  const planned = planRelease({ branch, tags, bumpType, headTags, bootstrapMinor });
   return { ...planned, commit };
 }
 
@@ -352,7 +393,6 @@ async function main() {
 }
 
 module.exports = {
-  BOOTSTRAP_VERSION,
   bumpTypeFromPr,
   nextVersion,
   nextRcNumber,
