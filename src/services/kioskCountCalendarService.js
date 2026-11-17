@@ -25,10 +25,22 @@ export const getCountCalendar = (month, supervisorUserId) => {
   return apiRequest(suffix);
 };
 
-/** Genera UNA semana (cualquier día de esa semana) para las supervisoras indicadas. */
+/**
+ * Propone UNA semana (cualquier día de esa semana) como BORRADOR por aprobar. Con redo vuelve a proponer un borrador
+ * que ya existe.
+ */
 export const generateCountWeek = ({ weekStart, supervisorUserIds, redo = false, month }) =>
   apiRequest("/generate", { method: "POST", body: { weekStart, supervisorUserIds, redo, month } });
 
+/** Aprueba el borrador de la semana: el calendario de esa semana queda listo. */
+export const approveCountWeek = ({ weekStart, supervisorUserIds, month }) =>
+  apiRequest("/approve", { method: "POST", body: { weekStart, supervisorUserIds, month } });
+
+/** Descarta el borrador de la semana. */
+export const discardCountDraft = ({ weekStart, supervisorUserIds, month }) =>
+  apiRequest("/discard", { method: "POST", body: { weekStart, supervisorUserIds, month } });
+
+/** Cambios de una visita: visitDate, status, note o locationId (cambiar de kiosco). */
 export const updateCountVisit = (id, changes) =>
   apiRequest(`/visits/${id}`, { method: "PATCH", body: changes });
 

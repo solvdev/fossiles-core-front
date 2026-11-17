@@ -302,3 +302,13 @@
 .kcc-countbox dl div { display: grid; grid-template-columns: 110px 1fr; gap: 8px; }
 .kcc-countbox dt { color: var(--kcc-muted); font-weight: 600; }
 .kcc-countbox dd { margin: 0; }
+
+/* ───────── Borrador por aprobar ───────── */
+.kcc-weekstate.is-draft { border-left-color: #d97706; background: #fffbeb; border-color: #fcd34d; }
+.kcc-wstate.is-draft { background: #fef3c7; color: #92400e; }
+.kcc-weekbar.is-draft { background: #fffbeb; }
+.kcc-chip.is-draft {
+  border-style: dashed; border-left-style: solid;
+  background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--c) 8%, #fff), color-mix(in srgb, var(--c) 8%, #fff) 7px, color-mix(in srgb, var(--c) 16%, #fff) 7px, color-mix(in srgb, var(--c) 16%, #fff) 14px);
+}
+.kcc-draft-tag { font-weight: 700; color: #92400e; background: #fef3c7; border: 1px dashed #d97706; border-radius: 999px; padding: 0 7px; font-size: 0.68rem; }
