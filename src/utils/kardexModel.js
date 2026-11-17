@@ -37,6 +37,7 @@ export const MOVEMENT_TYPES = {
   ONLINE_SALE_RETURN: { label: "Devolución de venta en línea", dir: "IN" },
   SHIPMENT: { label: "Envío", dir: "OUT" },
   SHIPMENT_REVERSAL: { label: "Anulación de envío", dir: "IN" },
+  RESERVE_RELEASE: { label: "Entrega desde la reserva", dir: "OUT" },
 };
 
 const humanize = (type) => {

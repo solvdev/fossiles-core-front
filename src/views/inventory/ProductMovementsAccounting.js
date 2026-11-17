@@ -336,7 +336,11 @@ export default function ProductMovementsAccounting() {
               Inventario Productos
               <span className="kma-readonly">solo consulta</span>
             </h4>
-            <small>Kardex de Bodega PT y Devoluciones por producto, color y talla</small>
+            <small>
+              {selectedLocation?.code === "RESERVA_LF"
+                ? "Reserva de Luis Felipe: piezas ya vendidas que se entregan al cerrar la recepción en bodega. Solo consulta."
+                : "Kardex de Bodega PT, Devoluciones y la reserva de Luis Felipe por producto, color y talla"}
+            </small>
           </div>
         </div>
         <div className="kll-head-actions">
