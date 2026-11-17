@@ -14,15 +14,20 @@ import {
   exportOrderProgressExcel,
   fmtDate,
   filterOrderLines,
+  fmtHours,
   fmtInt,
   groupLinesByCode,
   hasRepeatedCodes,
   lineColorsIn,
+  lineMissingHours,
   missingUnits,
+  orderMissingHours,
   orderTypesIn,
   pctOf,
+  sumMissingHours,
   taskProductsText,
   timeLabel,
+  usesDefaultHours,
 } from "utils/orderProgressReport";
 import { formatDateTimeGt } from "utils/dateTimeHelper";
 
@@ -140,6 +145,7 @@ const STICKY_TF = { position: "sticky", bottom: 0, zIndex: 1, background: "#f3f4
 
 /** Productos de una OP. `totals` agrega al pie una fila con la suma de todo lo que se ve. */
 function LinesTable({ lines, scroll = false, totals = null, totalLabel = "Total" }) {
+  const totalLines = lines;
   const th = scroll ? STICKY_TH : undefined;
   const tf = { ...(scroll ? STICKY_TF : { background: "#f3f4f6" }), fontWeight: 700, borderTop: "2px solid #d1d5db" };
   const missingCell = (stages, bold) => {
@@ -150,6 +156,12 @@ function LinesTable({ lines, scroll = false, totals = null, totalLabel = "Total"
       </td>
     );
   };
+  const hoursCell = (line, bold) => (
+    <td className="text-right" style={{ color: "#92400e", fontWeight: bold ? 800 : 700, whiteSpace: "nowrap" }}
+      title={line.prdTimeDefault ? "El producto no tiene tiempo de producción cargado: se usó el valor por defecto" : undefined}>
+      {fmtHours(lineMissingHours(line))}{line.prdTimeDefault && missingUnits(line.stages) > 0 ? "*" : ""}
+    </td>
+  );
   const table = (
     <Table responsive={!scroll} size="sm" className="mb-0" style={{ background: "#fff" }}>
       <thead>
@@ -158,6 +170,7 @@ function LinesTable({ lines, scroll = false, totals = null, totalLabel = "Total"
           <th className="text-right" style={th}>Pedidas</th>
           {STAGES.map((st) => <th key={st.key} className="text-right" style={{ ...th, color: st.text }}>{st.label}</th>)}
           <th className="text-right" style={{ ...th, color: "#b91c1c" }} title="Pedidas − terminadas">Faltan</th>
+          <th className="text-right" style={{ ...th, color: "#92400e" }} title="Piezas que faltan × horas de producción de cada producto">Horas que faltan</th>
           <th style={{ ...th, minWidth: 110 }}>Avance</th>
         </tr>
       </thead>
@@ -189,6 +202,7 @@ function LinesTable({ lines, scroll = false, totals = null, totalLabel = "Total"
               </td>
             ))}
             {missingCell(l.stages)}
+            {hoursCell(l)}
             <td style={{ verticalAlign: "middle" }}>
               <StageBar stages={l.stages} height={10} showNumbers={false} />
               {l.receivedUnits > 0 && <div style={{ fontSize: 11, color: MUTED }}>{fmtInt(l.receivedUnits)} recibidas en bodega</div>}
@@ -206,6 +220,9 @@ function LinesTable({ lines, scroll = false, totals = null, totalLabel = "Total"
             ))}
             <td className="text-right" style={{ ...tf, color: missingUnits(totals) > 0 ? "#b91c1c" : "#047857", fontSize: 14 }}>
               {fmtInt(missingUnits(totals))}
+            </td>
+            <td className="text-right" style={{ ...tf, color: "#92400e", fontSize: 14, whiteSpace: "nowrap" }}>
+              {fmtHours(sumMissingHours(totalLines))}{usesDefaultHours(totalLines) ? "*" : ""}
             </td>
             <td style={tf}>
               <StageBar stages={totals} height={10} showNumbers={false} />
@@ -280,6 +297,7 @@ function OrderRow({ order, open, onToggle, todayYmd, now }) {
   const due = deliveryLabel(order);
   const working = (order.tasks || []).filter((t) => t.status === "IN_PROGRESS");
   const donePct = pctOf(s.done, s.units);
+  const missingH = orderMissingHours(order);
   return (
     <div style={{ borderTop: "1px solid #e5e7eb", background: open ? "#f9fafb" : "#fff" }}>
       <div
@@ -312,6 +330,15 @@ function OrderRow({ order, open, onToggle, todayYmd, now }) {
             <strong style={{ fontSize: 16 }}>{fmtInt(s.done)}</strong>
             <span style={{ color: MUTED }}> de {fmtInt(s.units)} pzas terminadas ({donePct}%)</span>
           </div>
+          {missingUnits(s) > 0 && (
+            <div
+              style={{ whiteSpace: "nowrap", fontSize: 13, color: "#92400e", background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 8, padding: "1px 8px" }}
+              title="Piezas que faltan × horas de producción de cada producto"
+            >
+              faltan <strong>{fmtInt(missingUnits(s))}</strong> pzas · <strong style={{ fontSize: 15 }}>{fmtHours(missingH)}</strong>
+              {usesDefaultHours(order.lines) ? "*" : ""}
+            </div>
+          )}
         </div>
         <div style={{ marginTop: 4 }}>
           <StageChips stages={s} />
@@ -396,6 +423,7 @@ function OrderDetail({ order, todayYmd }) {
           <span>
             <strong>{fmtInt(f.stages.done)}</strong> de {fmtInt(f.stages.units)} pzas terminadas ({pctOf(f.stages.done, f.stages.units)}%) ·{" "}
             <strong style={{ color: "#b91c1c" }}>faltan {fmtInt(missingUnits(f.stages))}</strong> en lo filtrado
+            {" "}(<strong style={{ color: "#92400e" }}>{fmtHours(sumMissingHours(f.lines))}</strong>)
           </span>
         </div>
       )}
@@ -412,6 +440,12 @@ function OrderDetail({ order, todayYmd }) {
           totals={rows.length > 1 ? f.stages : null}
           totalLabel={f.active ? `Total de lo filtrado (${fmtInt(f.lines.length)} líneas)` : `Total de la orden (${fmtInt(f.lines.length)} líneas)`}
         />
+      )}
+
+      {usesDefaultHours(f.lines) && (
+        <div style={{ fontSize: 11, color: MUTED, marginTop: 4 }}>
+          * Estos productos no tienen tiempo de producción cargado; se calculó con 0,1 h por pieza.
+        </div>
       )}
 
       <div style={{ ...SECTION_TITLE, margin: "12px 0 4px" }}>
@@ -562,6 +596,16 @@ export default function OrderProgressPanel() {
         </Col>
         <Col xl lg="4" sm="6" xs="6" className="mb-2">
           <Kpi label="Sin tarea" swatch={STAGES[4].color} value={fmtInt(st.noTask)} tone="#4b5563" hint="falta armar la tarea" />
+        </Col>
+        <Col xl lg="4" sm="6" xs="12" className="mb-2">
+          <Kpi
+            label="Horas que faltan"
+            value={fmtHours(t.missingHours).replace(" h", "")}
+            unit="h"
+            tone="#92400e"
+            bg="#fffbeb"
+            hint={`${fmtInt(missingUnits(st))} pzas sin terminar${t.lateOrders > 0 ? ` · ${fmtHours(t.lateMissingHours)} en OP atrasadas` : ""}${t.defaultHours ? " · *con horas por defecto" : ""}`}
+          />
         </Col>
         <Col xl lg="4" sm="6" xs="12" className="mb-2">
           <Kpi
