@@ -1,30 +1,33 @@
 /* Rotación y cobertura de inventario: tarjetas que filtran, barra de cobertura y tabla clara. */
 
-.rot-page .card-title {
+.rpt-page .card-title {
   margin-bottom: 4px;
 }
 
-.rot-subtitle {
+.rpt-subtitle {
   color: #5f5a55;
   font-size: 0.9rem;
   margin: 0;
 }
 
-.rot-how-btn {
+.rpt-how-btn {
   padding: 0;
-  font-size: 0.82rem;
-  color: #5f5a55;
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: 0;
+  color: #0b6e71;
   box-shadow: none !important;
 }
 
-.rot-how-btn:hover,
-.rot-how-btn:focus {
+.rpt-how-btn:hover,
+.rpt-how-btn:focus {
   color: #0b6e71;
   text-decoration: underline;
 }
 
 /* Pestañas y ventana de días como botones segmentados */
-.rot-segment {
+.rpt-segment {
   display: inline-flex;
   border: 1px solid #d9e1e8;
   border-radius: 8px;
@@ -32,10 +35,11 @@
   background: #fff;
 }
 
-.rot-segment button {
+.rpt-segment button {
   border: 0;
   background: transparent;
-  padding: 6px 14px;
+  height: 38px;
+  padding: 0 16px;
   font-size: 0.85rem;
   font-weight: 600;
   color: #5f5a55;
@@ -43,32 +47,32 @@
   transition: background 0.15s, color 0.15s;
 }
 
-.rot-segment button + button {
+.rpt-segment button + button {
   border-left: 1px solid #d9e1e8;
 }
 
-.rot-segment button:hover {
+.rpt-segment button:hover {
   background: #f3f6f9;
 }
 
-.rot-segment button.is-active {
+.rpt-segment button.is-active {
   background: #1f2937;
   color: #fff;
 }
 
-.rot-segment button:focus-visible {
+.rpt-segment button:focus-visible {
   outline: 2px solid #0b6e71;
   outline-offset: -2px;
 }
 
-.rot-controls {
+.rpt-controls {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 10px;
 }
 
-.rot-label {
+.rpt-label {
   font-size: 0.72rem;
   font-weight: 700;
   letter-spacing: 0.04em;
@@ -78,7 +82,7 @@
 }
 
 /* Cómo se lee */
-.rot-rules {
+.rpt-rules {
   background: #f7f9fb;
   border: 1px solid #e6ecf1;
   border-radius: 8px;
@@ -88,7 +92,7 @@
   margin-top: 10px;
 }
 
-.rot-rules dl {
+.rpt-rules dl {
   margin: 0;
   display: grid;
   grid-template-columns: max-content 1fr;
@@ -96,24 +100,24 @@
   align-items: baseline;
 }
 
-.rot-rules dt {
+.rpt-rules dt {
   font-weight: 700;
   color: #3a3835;
 }
 
-.rot-rules dd {
+.rpt-rules dd {
   margin: 0;
 }
 
 /* Tarjetas de estado (filtran la tabla) */
-.rot-tiles {
+.rpt-tiles {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 10px;
   margin: 4px 0 14px;
 }
 
-.rot-tile {
+.rpt-tile {
   text-align: left;
   background: #fff;
   border: 1px solid #e6ecf1;
@@ -124,25 +128,25 @@
   transition: box-shadow 0.15s, transform 0.15s, background 0.15s;
 }
 
-.rot-tile:hover {
+.rpt-tile:hover {
   box-shadow: 0 2px 8px rgba(31, 41, 55, 0.1);
   transform: translateY(-1px);
 }
 
-.rot-tile:focus-visible {
+.rpt-tile:focus-visible {
   outline: 2px solid #0b6e71;
   outline-offset: 2px;
 }
 
-.rot-tile.is-active {
+.rpt-tile.is-active {
   box-shadow: 0 0 0 2px #1f2937 inset;
 }
 
-.rot-tile.is-empty {
+.rpt-tile.is-empty {
   opacity: 0.55;
 }
 
-.rot-tile-label {
+.rpt-tile-label {
   display: block;
   font-size: 0.72rem;
   font-weight: 700;
@@ -150,7 +154,7 @@
   text-transform: uppercase;
 }
 
-.rot-tile-value {
+.rpt-tile-value {
   display: block;
   font-size: 1.7rem;
   font-weight: 700;
@@ -158,7 +162,7 @@
   color: #2f2d2b;
 }
 
-.rot-tile-hint {
+.rpt-tile-hint {
   display: block;
   font-size: 0.76rem;
   color: #5f5a55;
@@ -166,7 +170,7 @@
 }
 
 /* Barra de herramientas */
-.rot-toolbar {
+.rpt-toolbar {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -174,36 +178,39 @@
   margin-bottom: 10px;
 }
 
-.rot-search {
+.rpt-search {
   max-width: 320px;
 }
 
-.rot-count {
+.rpt-count {
   font-size: 0.82rem;
   color: #5f5a55;
   margin-left: auto;
 }
 
-.rot-clear {
+.rpt-clear {
   font-size: 0.82rem;
   padding: 0;
   box-shadow: none !important;
 }
 
 /* Tabla */
-.rot-table-wrap {
+.rpt-table-wrap {
   max-height: 68vh;
   overflow: auto;
   border: 1px solid #e6ecf1;
   border-radius: 8px;
 }
 
-.rot-table {
+.rpt-table {
   margin: 0;
   font-size: 0.88rem;
+  width: 100%;
+  min-width: 960px;
+  table-layout: fixed;
 }
 
-.rot-table thead th {
+.rpt-table thead th {
   position: sticky;
   top: 0;
   z-index: 2;
@@ -217,7 +224,7 @@
   padding: 10px 12px;
 }
 
-.rot-table thead th button {
+.rpt-table thead th button {
   all: unset;
   cursor: pointer;
   display: inline-flex;
@@ -225,47 +232,46 @@
   gap: 4px;
 }
 
-.rot-table thead th button:focus-visible {
+.rpt-table thead th button:focus-visible {
   outline: 2px solid #0b6e71;
   outline-offset: 2px;
 }
 
-.rot-table tbody td {
+.rpt-table tbody td {
   vertical-align: middle;
   padding: 9px 12px;
   border-top: 1px solid #eef2f5;
 }
 
-.rot-table tbody tr:hover td {
+.rpt-table tbody tr:hover td {
   background: #fafcfd;
 }
 
-.rot-num {
+.rpt-num {
   text-align: right;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 
-.rot-name {
+.rpt-name {
   font-weight: 600;
   color: #2f2d2b;
 }
 
-.rot-meta {
+.rpt-meta {
   display: block;
   font-size: 0.76rem;
   color: #6b6560;
 }
 
 /* Barra de cobertura: llena según cuántos días alcanza, topada en el umbral "lento" */
-.rot-cover {
+.rpt-cover {
   display: flex;
   align-items: center;
   gap: 10px;
-  min-width: 170px;
 }
 
-.rot-cover-bar {
+.rpt-cover-bar {
   flex: 1;
   height: 8px;
   border-radius: 999px;
@@ -273,14 +279,14 @@
   overflow: hidden;
 }
 
-.rot-cover-bar > span {
+.rpt-cover-bar > span {
   display: block;
   height: 100%;
   border-radius: 999px;
 }
 
-.rot-cover-text {
-  min-width: 78px;
+.rpt-cover-text {
+  min-width: 84px;
   text-align: right;
   font-variant-numeric: tabular-nums;
   font-weight: 600;
@@ -288,7 +294,7 @@
   white-space: nowrap;
 }
 
-.rot-badge {
+.rpt-badge {
   display: inline-block;
   padding: 3px 10px;
   border-radius: 999px;
@@ -297,7 +303,7 @@
   white-space: nowrap;
 }
 
-.rot-chip-hardware {
+.rpt-chip-hardware {
   display: inline-block;
   margin-left: 6px;
   padding: 0 6px;
@@ -309,18 +315,200 @@
   letter-spacing: 0.03em;
 }
 
-.rot-empty {
+.rpt-empty {
   padding: 40px 16px;
   text-align: center;
   color: #5f5a55;
 }
 
 @media (max-width: 991px) {
-  .rot-tiles {
+  .rpt-tiles {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .rot-count {
+  .rpt-count {
     margin-left: 0;
+  }
+}
+
+/* ---- Piezas compartidas por los reportes de inventario ---- */
+
+.rpt-tile.is-static {
+  cursor: default;
+}
+
+.rpt-tile.is-static:hover {
+  box-shadow: none;
+  transform: none;
+}
+
+.rpt-tiles--4 {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.rpt-section-title {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #5f5a55;
+  margin: 4px 0 8px;
+}
+
+.rpt-hint {
+  font-size: 0.8rem;
+  color: #6b6560;
+  margin: -6px 0 14px;
+}
+
+.rpt-table-wrap--short {
+  max-height: 260px;
+}
+
+.rpt-table--compact {
+  min-width: 0;
+  table-layout: auto;
+}
+
+.rpt-row-click {
+  cursor: pointer;
+}
+
+.rpt-row-click:focus-visible {
+  outline: 2px solid #0b6e71;
+  outline-offset: -2px;
+}
+
+.rpt-row-click.is-selected td {
+  background: #eaf4f4;
+}
+
+/* Nivel de un material: barra llena contra el máximo y rayita en el mínimo */
+.rpt-gauge {
+  position: relative;
+  height: 8px;
+  border-radius: 999px;
+  background: #eef2f5;
+  margin-bottom: 4px;
+}
+
+.rpt-gauge-fill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+}
+
+.rpt-gauge-min {
+  position: absolute;
+  top: -3px;
+  width: 2px;
+  height: 14px;
+  background: #1f2937;
+  border-radius: 1px;
+}
+
+/* Encabezado de la página con las cuatro pestañas */
+.rpt-hub-head {
+  margin-bottom: 14px;
+}
+
+.rpt-hub-head h3 {
+  margin: 0 0 2px;
+  font-weight: 700;
+  color: #2f2d2b;
+}
+
+.rpt-hub-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.rpt-hub-tab {
+  border: 1px solid #d9e1e8;
+  background: #fff;
+  border-radius: 999px;
+  height: 38px;
+  padding: 0 18px;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: #4a4642;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.rpt-hub-tab:hover {
+  background: #f3f6f9;
+}
+
+.rpt-hub-tab.is-active {
+  background: #1f2937;
+  border-color: #1f2937;
+  color: #fff;
+}
+
+.rpt-hub-tab:focus-visible {
+  outline: 2px solid #0b6e71;
+  outline-offset: 2px;
+}
+
+/* Tarjetas de Kardex */
+.rpt-link-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  margin-top: 6px;
+}
+
+.rpt-link-card {
+  display: block;
+  text-align: left;
+  width: 100%;
+  background: #fff;
+  border: 1px solid #e6ecf1;
+  border-top: 4px solid #1f2937;
+  border-radius: 10px;
+  padding: 16px 18px;
+  cursor: pointer;
+  transition: box-shadow 0.15s, transform 0.15s;
+}
+
+.rpt-link-card:hover {
+  box-shadow: 0 4px 14px rgba(31, 41, 55, 0.12);
+  transform: translateY(-2px);
+}
+
+.rpt-link-card:focus-visible {
+  outline: 2px solid #0b6e71;
+  outline-offset: 2px;
+}
+
+.rpt-link-card h5 {
+  margin: 0 0 6px;
+  font-weight: 700;
+  color: #2f2d2b;
+  font-size: 1.05rem;
+}
+
+.rpt-link-card p {
+  margin: 0 0 10px;
+  color: #5f5a55;
+  font-size: 0.88rem;
+}
+
+.rpt-link-card .rpt-link-go {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: #0b6e71;
+}
+
+@media (max-width: 991px) {
+  .rpt-tiles--4 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .rpt-link-grid {
+    grid-template-columns: 1fr;
   }
 }
