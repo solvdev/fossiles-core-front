@@ -147,6 +147,9 @@ export function buildProgressView(data, { orderType = "ALL", search = "", onlyWo
     orders: orders.length,
     lateOrders: orders.filter((o) => o.late).length,
     lateUnits: orders.filter((o) => o.late).reduce((s, o) => s + Number(o.stages?.units || 0) - Number(o.stages?.done || 0), 0),
+    missingHours: orders.reduce((s, o) => s + orderMissingHours(o), 0),
+    lateMissingHours: orders.filter((o) => o.late).reduce((s, o) => s + orderMissingHours(o), 0),
+    defaultHours: orders.some((o) => usesDefaultHours(o.lines)),
     ordersWorkingNow: orders.filter((o) => o.tasksInProgress > 0).length,
     tasksInProgress: inProgressTaskIds.size,
     stages,
@@ -206,6 +209,29 @@ export function filterOrderLines(order, { search = "", color = "ALL", stage = "A
 /** Piezas que faltan por terminar (pedidas − terminadas). */
 export const missingUnits = (stages) => Math.max(0, Number(stages?.units || 0) - Number(stages?.done || 0));
 
+/** Horas por pieza que usa el sistema cuando el producto no tiene tiempo de producción (igual que el back). */
+export const DEFAULT_PRD_HOURS = 0.1;
+
+export const fmtHours = (v) => {
+  const n = Number(v || 0);
+  return `${n.toLocaleString("es-GT", { minimumFractionDigits: 0, maximumFractionDigits: 1 })} h`;
+};
+
+/** Horas que faltan de una línea (o de una fila ya agrupada por código): piezas que faltan × horas por pieza. */
+export const lineMissingHours = (line) =>
+  line?.missingHours != null
+    ? Number(line.missingHours)
+    : missingUnits(line?.stages) * Number(line?.prdTimePerUnit ?? DEFAULT_PRD_HOURS);
+
+/** Suma de horas que faltan de varias líneas. */
+export const sumMissingHours = (lines) => (lines || []).reduce((s, l) => s + lineMissingHours(l), 0);
+
+/** Horas que faltan de toda una OP. */
+export const orderMissingHours = (order) => sumMissingHours(order?.lines);
+
+/** true si alguna línea usó las horas por defecto porque su producto no tiene tiempo cargado. */
+export const usesDefaultHours = (lines) => (lines || []).some((l) => l.prdTimeDefault && missingUnits(l.stages) > 0);
+
 /** Cuántas líneas comparten código con otra (para saber si vale la pena unir por código). */
 export const hasRepeatedCodes = (lines) => {
   const keys = (lines || []).map((l) => l.productCode || l.productName || `#${l.itemId}`);
@@ -225,11 +251,14 @@ export function groupLinesByCode(lines) {
       g = {
         itemId: `code:${key}`, productCode: l.productCode, productName: l.productName, brandName: l.brandName || "",
         colorName: "", colors: [], lineCount: 0, receivedUnits: 0, extraUnits: 0, overAssignedUnits: 0,
+        missingHours: 0, prdTimeDefault: false,
         stages: { ...EMPTY_STAGES },
       };
       groups.set(key, g);
     }
     g.lineCount += 1;
+    g.missingHours += lineMissingHours(l);
+    if (l.prdTimeDefault) g.prdTimeDefault = true;
     if (l.colorName && !g.colors.includes(l.colorName)) g.colors.push(l.colorName);
     if (l.brandName && g.brandName && g.brandName !== l.brandName) g.brandName = "";
     g.receivedUnits += Number(l.receivedUnits || 0);
@@ -254,16 +283,18 @@ const titleStyle = { font: { bold: true, sz: 14 } };
 const metaStyle = { font: { color: { rgb: "6B7280" }, sz: 10 } };
 const intStyle = { numFmt: "#,##0", border: cellBorder };
 const pctStyle = { numFmt: "0%", border: cellBorder };
+const decStyle = { numFmt: "#,##0.0", border: cellBorder };
 const textStyle = { border: cellBorder };
 const lateTextStyle = { ...textStyle, font: { bold: true, color: { rgb: "B91C1C" } }, fill: { fgColor: { rgb: "FEF2F2" } } };
 const boldTextStyle = { ...textStyle, font: { bold: true } };
 const totalStyle = { font: { bold: true }, fill: { fgColor: { rgb: "F3F4F6" } }, border: cellBorder };
 const totalIntStyle = { ...totalStyle, numFmt: "#,##0" };
 const totalPctStyle = { ...totalStyle, numFmt: "0%" };
+const totalDecStyle = { ...totalStyle, numFmt: "#,##0.0" };
 const stageHead = (rgb) => ({ ...headStyle, fill: { fgColor: { rgb } }, font: { bold: true, color: { rgb: "111827" } } });
 const stageCell = (rgb) => ({ ...intStyle, fill: { fgColor: { rgb } } });
 
-/** columns: [{ label, width, value(row), type: "text"|"int"|"pct", style?(row), head? }] */
+/** columns: [{ label, width, value(row), type: "text"|"int"|"dec"|"pct", style?(row), head? }] */
 function buildSheet(title, subtitle, columns, rows, totalRow) {
   const aoa = [
     [{ v: title, s: titleStyle }],
@@ -277,6 +308,7 @@ function buildSheet(title, subtitle, columns, rows, totalRow) {
       const custom = c.style ? c.style(r) : null;
       if (c.type === "int") return { v: Number(v || 0), t: "n", s: custom || intStyle };
       if (c.type === "pct") return { v: Number(v || 0), t: "n", s: custom || pctStyle };
+      if (c.type === "dec") return { v: Number(v || 0), t: "n", s: custom || decStyle };
       return { v: v ?? "", t: "s", s: custom || textStyle };
     }));
   });
@@ -286,6 +318,7 @@ function buildSheet(title, subtitle, columns, rows, totalRow) {
       if (v == null || v === "") return { v: "", s: totalStyle };
       if (c.type === "int") return { v: Number(v), t: "n", s: totalIntStyle };
       if (c.type === "pct") return { v: Number(v), t: "n", s: totalPctStyle };
+      if (c.type === "dec") return { v: Number(v), t: "n", s: totalDecStyle };
       return { v, t: "s", s: totalStyle };
     }));
   }
@@ -321,6 +354,8 @@ export function exportOrderProgressExcel(view, filtersLabel) {
     { label: "Piezas pedidas", width: 10, type: "int", value: (o) => o.stages?.units, style: () => ({ ...intStyle, font: { bold: true } }) },
     ...stageColumns((o) => o.stages),
     { label: "% terminado", width: 10, type: "pct", value: (o) => (o.stages?.units ? (o.stages.done || 0) / o.stages.units : 0) },
+    { label: "Faltan (pzas)", width: 9, type: "int", value: (o) => missingUnits(o.stages) },
+    { label: "Horas que faltan", width: 10, type: "dec", value: (o) => orderMissingHours(o), style: () => ({ ...decStyle, font: { bold: true } }) },
     { label: "Recibidas en bodega", width: 11, type: "int", value: (o) => o.receivedUnits },
     { label: "Tareas", width: 8, type: "int", value: (o) => o.taskCount },
     { label: "Tareas en mesa", width: 9, type: "int", value: (o) => o.tasksInProgress },
@@ -334,7 +369,7 @@ export function exportOrderProgressExcel(view, filtersLabel) {
   const stageTotals = STAGES.slice().reverse().map((st) => t[st.key]);
   XLSX.utils.book_append_sheet(wb, buildSheet("Avance por orden (piezas)", meta, orderCols, view.orders, [
     "TOTAL", `${fmtInt(view.totals.orders)} OP`, "", "", "", `${fmtInt(view.totals.lateOrders)} atrasadas`,
-    t.units, ...stageTotals, t.units ? t.done / t.units : 0,
+    t.units, ...stageTotals, t.units ? t.done / t.units : 0, missingUnits(t), view.totals.missingHours,
     view.orders.reduce((s, o) => s + Number(o.receivedUnits || 0), 0),
     view.orders.reduce((s, o) => s + Number(o.taskCount || 0), 0),
     view.totals.tasksInProgress, "",
@@ -374,11 +409,14 @@ export function exportOrderProgressExcel(view, filtersLabel) {
     { label: "Marca", width: 12, value: (r) => r.l.brandName || "" },
     { label: "Pedidas", width: 9, type: "int", value: (r) => r.l.stages?.units, style: () => ({ ...intStyle, font: { bold: true } }) },
     ...stageColumns((r) => r.l.stages),
+    { label: "Faltan (pzas)", width: 9, type: "int", value: (r) => missingUnits(r.l.stages) },
+    { label: "Horas por pieza", width: 9, type: "dec", value: (r) => r.l.prdTimePerUnit ?? DEFAULT_PRD_HOURS },
+    { label: "Horas que faltan", width: 10, type: "dec", value: (r) => lineMissingHours(r.l), style: () => ({ ...decStyle, font: { bold: true } }) },
     { label: "Recibidas en bodega", width: 11, type: "int", value: (r) => r.l.receivedUnits },
     { label: "Extras OPL", width: 9, type: "int", value: (r) => r.l.extraUnits },
   ];
   XLSX.utils.book_append_sheet(wb, buildSheet("Avance por línea de producto", meta, lineCols, lineRows, [
-    "TOTAL", "", "", "", "", "", "", t.units, ...stageTotals, "", "",
+    "TOTAL", "", "", "", "", "", "", t.units, ...stageTotals, missingUnits(t), "", view.totals.missingHours, "", "",
   ]), "Por producto");
 
   const stamp = new Date().toISOString().slice(0, 10);
