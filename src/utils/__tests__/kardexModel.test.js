@@ -55,6 +55,8 @@ describe("normalización", () => {
     expect(movementLabel("SHIPMENT")).toBe("Envío");
     expect(movementLabel("ENTRY")).toBe("Entrada");
     expect(movementLabel("TRANSFER_IN")).toBe("Transferencia: entra");
+    expect(movementLabel("RESERVE_RELEASE")).toBe("Entrega desde la reserva");
+    expect(normalizeKardexRow({ movementType: "RESERVE_RELEASE", quantity: 1 }).direction).toBe("OUT");
     expect(signedQty(-3)).toBe("−3");
     expect(signedQty(12)).toBe("+12");
   });
