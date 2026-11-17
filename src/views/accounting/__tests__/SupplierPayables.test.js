@@ -4,11 +4,12 @@ import "@testing-library/jest-dom";
 import { MemoryRouter } from "react-router-dom";
 import {
   createSupplierPayment,
+  generateRentPayables,
   getPayables,
   getPaymentConfig,
 } from "services/supplierPaymentService";
 import { getSuppliers } from "services/supplierService";
-import { showError } from "utils/notificationHelper";
+import { showError, showSuccess } from "utils/notificationHelper";
 import SupplierPayables from "../SupplierPayables";
 
 jest.mock("services/supplierPaymentService", () => ({
@@ -173,5 +174,139 @@ test("un 400 del pago muestra el message del backend", async () => {
   await screen.findByText("Qué se paga");
   fireEvent.click(screen.getByRole("button", { name: "Guardar pago" }));
   await waitFor(() => expect(showError).toHaveBeenCalledWith(MIX_MESSAGE));
+  expect(showSuccess).not.toHaveBeenCalled();
   expect(createSupplierPayment).toHaveBeenCalledTimes(1);
+});
+
+test("un error que no es 400 sigue yendo al toast de error, sin éxito", async () => {
+  createSupplierPayment.mockRejectedValueOnce(new Error("No se pudo registrar el pago."));
+  renderView();
+  await screen.findByText("OC-10");
+  fireEvent.click(screen.getByLabelText("Seleccionar OC-10"));
+  fireEvent.click(screen.getByRole("button", { name: "Pagar estas órdenes" }));
+  await screen.findByText("Qué se paga");
+  fireEvent.click(screen.getByRole("button", { name: "Guardar pago" }));
+  await waitFor(() => expect(showError).toHaveBeenCalledWith("No se pudo registrar el pago."));
+  expect(showSuccess).not.toHaveBeenCalled();
+});
+
+test("búsqueda y chips de estado filtran las filas de la pestaña activa", async () => {
+  const otherSupplier = {
+    ...supplierRow,
+    rowKey: "PO-11",
+    code: "OC-11",
+    supplierName: "Hilos GT",
+    payeeName: "Hilos GT",
+    payeeKey: "S-2",
+    orderId: 11,
+    status: "VENCIDA",
+    daysToDue: -4,
+    dueDate: "2026-11-13",
+  };
+  getPayables.mockImplementation((scope) => Promise.resolve(
+    scope === "RENTS" ? rentsPayload : payload([supplierRow, otherSupplier])
+  ));
+  renderView();
+  await screen.findByText("OC-10");
+  expect(screen.getByText("OC-11")).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: /Todas/ })).toHaveTextContent("Todas (2)");
+  expect(screen.getByRole("button", { name: /Vencidas/ })).toHaveTextContent("Vencidas (1)");
+  expect(screen.getByRole("button", { name: /Por vencer/ })).toHaveTextContent("Por vencer (1)");
+
+  fireEvent.click(screen.getByRole("button", { name: /Vencidas/ }));
+  expect(screen.queryByText("OC-10")).not.toBeInTheDocument();
+  expect(screen.getByText("OC-11")).toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole("button", { name: /Todas/ }));
+  fireEvent.change(screen.getByLabelText("Buscar proveedor u orden"), { target: { value: "Hilos" } });
+  expect(screen.queryByText("OC-10")).not.toBeInTheDocument();
+  expect(screen.getByText("OC-11")).toBeInTheDocument();
+
+  fireEvent.change(screen.getByLabelText("Buscar proveedor u orden"), { target: { value: "" } });
+  fireEvent.click(screen.getByRole("tab", { name: "Rentas" }));
+  await screen.findByText("RENTA-K4-2026-11");
+  expect(screen.getByRole("button", { name: /Todas/ })).toHaveTextContent("Todas (1)");
+  expect(screen.getByRole("button", { name: /Vencidas/ })).toHaveTextContent("Vencidas (1)");
+  expect(screen.getByRole("button", { name: /Por vencer/ })).toHaveTextContent("Por vencer (0)");
+  expect(screen.queryByText("OC-11")).not.toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole("button", { name: /Por vencer/ }));
+  expect(screen.queryByText("RENTA-K4-2026-11")).not.toBeInTheDocument();
+  expect(screen.getByText("No hay rentas por pagar con ese filtro.")).toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole("button", { name: /Todas/ }));
+  fireEvent.change(screen.getByLabelText("Buscar renta o beneficiario"), { target: { value: "Ana" } });
+  expect(screen.getByText("RENTA-K4-2026-11")).toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText("Buscar renta o beneficiario"), { target: { value: "Hilos" } });
+  expect(screen.queryByText("RENTA-K4-2026-11")).not.toBeInTheDocument();
+  expect(screen.getByText("No hay rentas por pagar con ese filtro.")).toBeInTheDocument();
+});
+
+test("VENCE pinta dueDate 2026-11-30 como día 30 bajo TZ UTC negativa, sin correr la fecha", async () => {
+  const prevTz = process.env.TZ;
+  process.env.TZ = "America/New_York";
+  getPayables.mockResolvedValue(payload([{ ...supplierRow, dueDate: "2026-11-30", daysToDue: 13 }]));
+  try {
+    renderView();
+    await screen.findByText("OC-10");
+    expect(screen.getByText("30 nov 2026")).toBeInTheDocument();
+    expect(screen.queryByText("29 nov 2026")).not.toBeInTheDocument();
+    expect(screen.getByText("Vence en 13 días")).toBeInTheDocument();
+  } finally {
+    process.env.TZ = prevTz;
+  }
+});
+
+test("el modal de generar rentas menciona otras rentas y manda solo el mes", async () => {
+  generateRentPayables.mockResolvedValue({ created: 1, createdTotal: 2500, alreadyExisting: 0, skipped: [] });
+  renderView();
+  await screen.findByText("OC-10");
+  fireEvent.click(screen.getByRole("button", { name: "Generar rentas del mes" }));
+  expect(screen.getByText(/kiosco con contrato y por las otras rentas/i)).toBeInTheDocument();
+  expect(screen.getByText(/vence el día de pago de ese mismo mes/i)).toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText("Mes"), { target: { value: "2026-12" } });
+  fireEvent.click(screen.getByRole("button", { name: "Generar" }));
+  await waitFor(() => {
+    expect(generateRentPayables).toHaveBeenCalledWith("2026-12");
+    expect(screen.getByText("RESULTADO")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Generar" })).toBeEnabled();
+  });
+  expect(generateRentPayables).toHaveBeenCalledTimes(1);
+});
+
+test("filas vacías muestran el vacío de la pestaña activa", async () => {
+  getPayables.mockResolvedValue(payload([]));
+  renderView();
+  expect(await screen.findByText("No hay órdenes por pagar con ese filtro.")).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: /Todas/ })).toHaveTextContent("Todas (0)");
+  expect(screen.queryByText("OC-10")).not.toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole("tab", { name: "Rentas" }));
+  expect(await screen.findByText("No hay rentas por pagar con ese filtro.")).toBeInTheDocument();
+  expect(screen.queryByText("No hay órdenes por pagar con ese filtro.")).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: /Todas/ })).toHaveTextContent("Todas (0)");
+});
+
+test("canPay=false oculta las acciones de pago en Proveedores y en Rentas", async () => {
+  getPayables.mockImplementation((scope) => Promise.resolve({
+    ...(scope === "RENTS" ? rentsPayload : suppliersPayload),
+    canPay: false,
+  }));
+  renderView();
+  await screen.findByText("OC-10");
+  expect(screen.queryByRole("button", { name: "Generar rentas del mes" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Nuevo documento por pagar" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Plantilla de saldos" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Subir saldos" })).not.toBeInTheDocument();
+  expect(screen.queryByLabelText("Seleccionar OC-10")).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: /Pagar estas/ })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Anular" })).not.toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole("tab", { name: "Rentas" }));
+  await screen.findByText("RENTA-K4-2026-11");
+  expect(screen.queryByRole("button", { name: "Generar rentas del mes" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Nuevo documento por pagar" })).not.toBeInTheDocument();
+  expect(screen.queryByLabelText("Seleccionar RENTA-K4-2026-11")).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: /Pagar estas/ })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Anular" })).not.toBeInTheDocument();
 });
