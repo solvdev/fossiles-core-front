@@ -39,6 +39,21 @@ import "./InventoryRotationReport.css";
 const WINDOW_OPTIONS = [30, 60, 90];
 const PAGE_SIZE = 200;
 
+/** Anchos de columna: el nombre manda y los números quedan juntos, sin huecos enormes. */
+const COL_WIDTHS = ["34%", "9%", "11%", "8%", "20%", "10%", "8%"];
+
+const selectStyles = {
+  control: (base, state) => ({
+    ...base,
+    minHeight: 38,
+    borderRadius: 8,
+    borderColor: state.isFocused ? "#0b6e71" : "#d9e1e8",
+    boxShadow: "none",
+    "&:hover": { borderColor: "#0b6e71" },
+  }),
+  menu: (base) => ({ ...base, zIndex: 5 }),
+};
+
 /** Columnas ordenables: clave de orden y sentido con el que arranca al primer clic. */
 const COLUMNS = (scope, windowDays) => [
   { key: "name", label: scope.itemLabel, defaultDir: "asc" },
@@ -292,6 +307,7 @@ function InventoryRotationReport() {
                       placeholder="Todos los kioscos"
                       noOptionsMessage={() => "Sin kioscos"}
                       options={kioskOptions}
+                      styles={selectStyles}
                       value={selectedKiosks}
                       onChange={(v) => setSelectedKiosks(v || [])}
                     />
@@ -384,6 +400,11 @@ function InventoryRotationReport() {
                     <>
                       <div className="rot-table-wrap" style={loading ? { opacity: 0.55 } : undefined}>
                         <Table className="rot-table" hover={false}>
+                          <colgroup>
+                            {COL_WIDTHS.map((w, i) => (
+                              <col key={i} style={{ width: w }} />
+                            ))}
+                          </colgroup>
                           <thead>
                             <tr>
                               {columns.map((col) => {
@@ -415,7 +436,7 @@ function InventoryRotationReport() {
                                     )}
                                     <span className="rot-meta">
                                       {[row.code, row.variant, row.unit].filter(Boolean).join(" · ")}
-                                      {isProducts && row.locationsWithStock != null
+                                      {isProducts && row.locationsWithStock > 0
                                         ? ` · en ${row.locationsWithStock} ${row.locationsWithStock === 1 ? "kiosco" : "kioscos"}`
                                         : ""}
                                     </span>

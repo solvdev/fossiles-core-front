@@ -12,8 +12,11 @@
 
 .rot-how-btn {
   padding: 0;
-  font-size: 0.82rem;
-  color: #5f5a55;
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: 0;
+  color: #0b6e71;
   box-shadow: none !important;
 }
 
@@ -35,7 +38,8 @@
 .rot-segment button {
   border: 0;
   background: transparent;
-  padding: 6px 14px;
+  height: 38px;
+  padding: 0 16px;
   font-size: 0.85rem;
   font-weight: 600;
   color: #5f5a55;
@@ -201,6 +205,9 @@
 .rot-table {
   margin: 0;
   font-size: 0.88rem;
+  width: 100%;
+  min-width: 960px;
+  table-layout: fixed;
 }
 
 .rot-table thead th {
@@ -262,7 +269,6 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  min-width: 170px;
 }
 
 .rot-cover-bar {
@@ -280,7 +286,7 @@
 }
 
 .rot-cover-text {
-  min-width: 78px;
+  min-width: 84px;
   text-align: right;
   font-variant-numeric: tabular-nums;
   font-weight: 600;
