@@ -22,7 +22,10 @@ const request = async (path, { method = "GET", body } = {}, fallback = "No se pu
   return response.json();
 };
 
-export const getPayables = () => request("/payables", {}, "No se pudieron cargar las cuentas por pagar.");
+export const getPayables = (scope) => {
+  const query = scope ? `?scope=${encodeURIComponent(scope)}` : "";
+  return request(`/payables${query}`, {}, "No se pudieron cargar las cuentas por pagar.");
+};
 
 export const getSupplierPayments = () => request("/payments", {}, "No se pudieron cargar los pagos.");
 
@@ -75,7 +78,7 @@ export const createPayableDocument = (body) =>
 export const voidPayableDocument = (id, reason) =>
   docRequest(`/${id}/void`, { method: "POST", body: { reason } }, "No se pudo anular el documento.");
 
-/** Genera las rentas de un mes («AAAA-MM») como documentos por pagar. Se puede repetir sin duplicar. */
+/** Genera las rentas de kioscos y otras rentas de un mes («AAAA-MM») como documentos por pagar. Se puede repetir sin duplicar. */
 export const generateRentPayables = (month) =>
   docRequest("/generate-rents", { method: "POST", body: { month } }, "No se pudieron generar las rentas.");
 
