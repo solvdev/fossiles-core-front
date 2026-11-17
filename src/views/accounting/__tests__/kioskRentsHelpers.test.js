@@ -1,0 +1,142 @@
+import {
+  buildOtherRentPayload,
+  importChangeKey,
+  importRowCaption,
+  importTypeLabel,
+  isOtherRent,
+  matchesTypeFilter,
+  otherFormFromRow,
+  rentTypeOf,
+  rowKey,
+  typeBadgeKey,
+  typeBadgeLabel,
+  validateOtherRentForm,
+} from "../kioskRentsHelpers";
+
+const validForm = {
+  name: " Oficina central ",
+  category: "OFICINA",
+  description: " piso 2 ",
+  landlordName: " Inmobiliaria ",
+  monthlyAmount: "1500.50",
+  paymentDay: "15",
+  contractStart: "2026-01-01",
+  contractEnd: "2026-12-31",
+  note: "  ",
+};
+
+test("validateOtherRentForm exige nombre, monto, día 1-31 y fechas coherentes", () => {
+  expect(validateOtherRentForm({ ...validForm, name: "  " })).toBe("Indique el nombre de la renta.");
+  expect(validateOtherRentForm({ ...validForm, category: "KIOSK" })).toBe("Indique el tipo de renta.");
+  expect(validateOtherRentForm({ ...validForm, monthlyAmount: "" })).toBe("Indique el monto mensual.");
+  expect(validateOtherRentForm({ ...validForm, monthlyAmount: "-1" })).toBe("Indique el monto mensual.");
+  expect(validateOtherRentForm({ ...validForm, paymentDay: "0" })).toBe("El día de pago debe estar entre 1 y 31.");
+  expect(validateOtherRentForm({ ...validForm, paymentDay: "32" })).toBe("El día de pago debe estar entre 1 y 31.");
+  expect(validateOtherRentForm({ ...validForm, paymentDay: "15.5" })).toBe("El día de pago debe estar entre 1 y 31.");
+  expect(validateOtherRentForm({ ...validForm, contractStart: "" })).toBe("Indique desde cuándo y hasta cuándo dura el contrato.");
+  expect(validateOtherRentForm({ ...validForm, contractEnd: "2025-12-01" })).toBe(
+    "«Contrato hasta» no puede ser anterior a «Contrato desde»."
+  );
+  expect(validateOtherRentForm(validForm)).toBeNull();
+});
+
+test("buildOtherRentPayload recorta textos y manda null en opcionales vacíos", () => {
+  expect(buildOtherRentPayload(validForm)).toEqual({
+    name: "Oficina central",
+    description: "piso 2",
+    category: "OFICINA",
+    landlordName: "Inmobiliaria",
+    monthlyAmount: 1500.5,
+    paymentDay: 15,
+    contractStart: "2026-01-01",
+    contractEnd: "2026-12-31",
+    note: null,
+  });
+});
+
+test("una fila sin rentType se trata como kiosco", () => {
+  const kiosk = { locationId: 4, name: "Centro", code: "K4" };
+  const other = { rentType: "OTHER", rentId: 9, name: "Bodega zona 4", category: "BODEGA" };
+  expect(rentTypeOf(kiosk)).toBe("KIOSK");
+  expect(isOtherRent(kiosk)).toBe(false);
+  expect(isOtherRent(other)).toBe(true);
+  expect(rowKey(kiosk)).toBe("kiosk-4");
+  expect(rowKey(other)).toBe("other-9");
+  expect(typeBadgeLabel(kiosk)).toBe("Kiosco");
+  expect(typeBadgeLabel(other)).toBe("Bodega");
+  expect(matchesTypeFilter(kiosk, "ALL")).toBe(true);
+  expect(matchesTypeFilter(kiosk, "KIOSK")).toBe(true);
+  expect(matchesTypeFilter(kiosk, "OTHER")).toBe(false);
+  expect(matchesTypeFilter(other, "OTHER")).toBe(true);
+});
+
+test("otherFormFromRow toma el monto de monthlyRent (monthlyAmount solo va en el POST/PUT)", () => {
+  const form = otherFormFromRow({
+    name: "Oficina",
+    category: "OFICINA",
+    description: "X",
+    landlordName: "Ana",
+    monthlyRent: 900,
+    monthlyAmount: 1,
+    paymentDay: 5,
+    contractStart: "2026-02-01",
+    contractEnd: "2027-02-01",
+    note: "n",
+  });
+  expect(form.monthlyAmount).toBe(900);
+  expect(form.category).toBe("OFICINA");
+  expect(otherFormFromRow({ name: "X", category: "OTRO" }).monthlyAmount).toBe("");
+});
+
+test("el import muestra tipo e ID cuando el back los manda", () => {
+  expect(importRowCaption({ row: 4, name: "Oficina", rentType: "OTHER", rentId: 12 })).toBe(
+    "Fila 4 · Oficina · Otra · ID 12"
+  );
+  expect(importRowCaption({ row: 2, name: "Centro", rentType: "KIOSK" })).toBe("Fila 2 · Centro · Kiosco");
+  expect(importChangeKey({ locationId: 3 }, 0)).toBe("kiosk-3");
+  expect(importChangeKey({ rentId: 8 }, 1)).toBe("other-8");
+});
+
+test("monto 0 es válido y una categoría desconocida se muestra como Otro", () => {
+  expect(validateOtherRentForm({ ...validForm, monthlyAmount: "0" })).toBeNull();
+  expect(buildOtherRentPayload({ ...validForm, monthlyAmount: "0" }).monthlyAmount).toBe(0);
+
+  const unknown = { rentType: "OTHER", rentId: 3, name: "Local X", category: "BODEGAX" };
+  expect(typeBadgeLabel(unknown)).toBe("Otro");
+  expect(typeBadgeKey(unknown)).toBe("BODEGAX");
+  expect(typeBadgeKey({ rentType: "OTHER", category: null })).toBe("OTRO");
+  expect(matchesTypeFilter(unknown, "ALL")).toBe(true);
+  expect(matchesTypeFilter(unknown, "KIOSK")).toBe(false);
+});
+
+test("otherFormFromRow e import toleran nulos en OTHER", () => {
+  const form = otherFormFromRow({
+    name: "Local X",
+    category: "OTRO",
+    description: null,
+    landlordName: undefined,
+    monthlyRent: 0,
+    paymentDay: null,
+    contractStart: "2026-01-01",
+    contractEnd: null,
+    note: null,
+  });
+  expect(form).toEqual({
+    name: "Local X",
+    category: "OTRO",
+    description: "",
+    landlordName: "",
+    monthlyAmount: 0,
+    paymentDay: "",
+    contractStart: "2026-01-01",
+    contractEnd: "",
+    note: "",
+  });
+
+  expect(importTypeLabel("OTHER")).toBe("Otra");
+  expect(importTypeLabel("KIOSK")).toBe("Kiosco");
+  expect(importTypeLabel(undefined)).toBeNull();
+  expect(importChangeKey({ rentType: "OTHER", row: 9 }, 2)).toBe("row-9");
+  expect(importChangeKey({ rentType: "OTHER" }, 4)).toBe("row-4");
+  expect(importRowCaption({ name: "Bodega nueva", rentType: "OTHER" })).toBe("Bodega nueva · Otra");
+});

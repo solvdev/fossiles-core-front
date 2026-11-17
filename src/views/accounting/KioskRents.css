@@ -28,6 +28,7 @@
 .krn-btn.plain:hover { background: #f4f3ef; }
 .krn-btn:disabled { background: #c9c7c1; border-color: #c9c7c1; color: #4f4a45; cursor: not-allowed; }
 .krn-linkbtn { background: none; border: 0; min-height: 44px; padding: 0 6px; color: #9a3414; font-weight: 600; text-decoration: underline; cursor: pointer; }
+.krn-linkbtn:disabled { color: #9a9a95; cursor: not-allowed; }
 
 /* Tarjetas de resumen */
 .krn-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 16px; margin-bottom: 18px; }
@@ -38,7 +39,8 @@
 
 /* Tabla */
 .krn-panel { background: #fff; border-radius: 12px; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08); }
-.krn-tools { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; padding: 14px 20px; border-bottom: 1px solid var(--krn-line); }
+.krn-tools { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-start; justify-content: space-between; padding: 14px 20px; border-bottom: 1px solid var(--krn-line); }
+.krn-filters { display: flex; flex-direction: column; gap: 8px; }
 .krn-chips { display: flex; flex-wrap: wrap; gap: 8px; }
 .krn-chip {
   min-height: 44px; padding: 0 16px; border-radius: 22px; font-size: 0.82rem; font-weight: 600; cursor: pointer;
@@ -47,7 +49,7 @@
 .krn-chip.on { background: var(--krn-brand); border-color: var(--krn-brand); color: #fff; }
 .krn-search { min-height: 44px; min-width: 260px; border: 1px solid #cfcfca; border-radius: 8px; padding: 0 12px; background: #fff; }
 .krn-scroll { overflow-x: auto; }
-.krn-table { width: 100%; min-width: 1040px; border-collapse: collapse; }
+.krn-table { width: 100%; min-width: 1140px; border-collapse: collapse; }
 .krn-table th { padding: 12px; text-align: left; font-size: 0.72rem; font-weight: 600; letter-spacing: 0.04em; color: var(--krn-muted); }
 .krn-table td { padding: 14px 12px; border-top: 1px solid #eeeeea; vertical-align: top; }
 .krn-table th:first-child, .krn-table td:first-child { padding-left: 20px; }
@@ -67,6 +69,10 @@
 .krn-s-POR_VENCER, .krn-s-INCOMPLETO { background: #fff0cc; color: #6b4700; }
 .krn-s-VENCIDO { background: #fde3da; color: #9a3414; }
 .krn-s-SIN_CARGAR { background: #ecebe6; color: #4f4a45; }
+.krn-t-KIOSK { background: #ecebe6; color: #4f4a45; }
+.krn-t-OFICINA { background: #dff3f3; color: #0a5558; }
+.krn-t-BODEGA { background: #e4e0f4; color: #3d348b; }
+.krn-t-OTRO { background: #fff0cc; color: #6b4700; }
 .krn-bar-VIGENTE > div { background: #2f9e5e; }
 .krn-bar-POR_VENCER > div, .krn-bar-INCOMPLETO > div { background: #d99a00; }
 .krn-bar-VENCIDO > div { background: #d9552b; }
