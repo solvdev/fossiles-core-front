@@ -27,6 +27,10 @@ const FILTERS = [
   { key: "PARCIAL", label: "Pago parcial" },
   { key: "AL_DIA", label: "Al día" },
 ];
+const SCOPES = [
+  { key: "SUPPLIERS", label: "Proveedores" },
+  { key: "RENTS", label: "Rentas" },
+];
 
 const fmtDate = (iso) => {
   if (!iso) return "—";
@@ -50,6 +54,7 @@ export default function SupplierPayables() {
   const [data, setData] = useState(null);
   const [config, setConfig] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [scope, setScope] = useState("SUPPLIERS");
   const [filter, setFilter] = useState("");
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState([]);
@@ -64,7 +69,7 @@ export default function SupplierPayables() {
 
   const load = useCallback(async () => {
     try {
-      const [payables, cfg] = await Promise.all([getPayables(), getPaymentConfig()]);
+      const [payables, cfg] = await Promise.all([getPayables(scope), getPaymentConfig()]);
       setData(payables);
       setConfig(cfg);
       getSuppliers().then((list) => setSuppliers(Array.isArray(list) ? list : [])).catch(() => setSuppliers([]));
@@ -73,7 +78,7 @@ export default function SupplierPayables() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [scope]);
 
   useEffect(() => {
     load();
@@ -91,11 +96,22 @@ export default function SupplierPayables() {
   const selectedSupplier = selectedRows[0];
   const selectedTotal = selectedRows.reduce((sum, r) => sum + Number(r.balance), 0);
 
+  const itemWord = (n) => (scope === "RENTS"
+    ? (n === 1 ? "renta" : "rentas")
+    : (n === 1 ? "orden" : "órdenes"));
+
+  const switchScope = (next) => {
+    if (next === scope) return;
+    setSelected([]);
+    setForm(null);
+    setScope(next);
+  };
+
   const toggle = (row) => {
     if (selected.includes(row.rowKey)) {
       setSelected(selected.filter((id) => id !== row.rowKey));
     } else if (selectedSupplier && selectedSupplier.payeeKey !== row.payeeKey) {
-      showError("Solo se pueden juntar órdenes de un mismo proveedor en un pago.");
+      showError(`Solo se pueden juntar ${itemWord(2)} de un mismo proveedor en un pago.`);
     } else {
       setSelected([...selected, row.rowKey]);
     }
@@ -190,7 +206,7 @@ export default function SupplierPayables() {
     const supplier = suppliers.find((x) => String(x.name || "").trim().toLowerCase() === docForm.payee.trim().toLowerCase());
     setBusy(true);
     try {
-      setData(await createPayableDocument({
+      await createPayableDocument({
         supplierId: supplier ? supplier.id : null,
         payeeName: docForm.payee.trim(),
         concept: docForm.concept.trim(),
@@ -198,7 +214,8 @@ export default function SupplierPayables() {
         issueDate: docForm.issueDate,
         dueDate: docForm.dueDate,
         amount: Number(amount.toFixed(2)),
-      }));
+      });
+      setData(await getPayables(scope));
       showSuccess("Documento por pagar guardado.");
       setDocForm(null);
     } catch (e) {
@@ -214,8 +231,9 @@ export default function SupplierPayables() {
     if (!reason.trim()) return showError("Indique el motivo de la anulación.");
     setBusy(true);
     try {
-      setData(await voidPayableDocument(row.documentId, reason.trim()));
+      await voidPayableDocument(row.documentId, reason.trim());
       setSelected((cur) => cur.filter((key) => key !== row.rowKey));
+      setData(await getPayables(scope));
       showSuccess("Documento anulado.");
     } catch (e) {
       showError(e.message);
@@ -230,7 +248,7 @@ export default function SupplierPayables() {
     try {
       const result = await generateRentPayables(rentForm.month);
       setRentForm({ ...rentForm, result });
-      setData(await getPayables());
+      setData(await getPayables(scope));
     } catch (e) {
       showError(e.message);
     } finally {
@@ -262,7 +280,7 @@ export default function SupplierPayables() {
       }
       showSuccess(`Se cargaron ${result.changes.length} saldos por ${fmtMoney(result.total)}.`);
       setReview(null);
-      setData(await getPayables());
+      setData(await getPayables(scope));
     } catch (e) {
       showError(e.message);
     } finally {
@@ -278,11 +296,18 @@ export default function SupplierPayables() {
   }
 
   const { summary } = data;
+  const rowCount = (data.rows || []).length;
   const counts = (data.rows || []).reduce((acc, r) => ({ ...acc, [r.status]: (acc[r.status] || 0) + 1 }), {});
   const cards = [
-    { label: "Por pagar en total", value: fmtMoney(summary.totalBalance), hint: `${summary.orderCount} órdenes de ${summary.supplierCount} proveedores` },
-    { label: "Vencido", value: fmtMoney(summary.overdueAmount), hint: `${summary.overdueCount} órdenes pasadas de su fecha`, color: "#9a3414" },
-    { label: "Vence en 7 días", value: fmtMoney(summary.dueIn7DaysAmount), hint: `${summary.dueIn7DaysCount} órdenes`, color: "#6b4700" },
+    {
+      label: "Por pagar en total",
+      value: fmtMoney(summary.totalBalance),
+      hint: scope === "RENTS"
+        ? `${rowCount} ${itemWord(rowCount)}`
+        : `${summary.orderCount} órdenes de ${summary.supplierCount} proveedores`,
+    },
+    { label: "Vencido", value: fmtMoney(summary.overdueAmount), hint: `${summary.overdueCount} ${itemWord(2)} pasadas de su fecha`, color: "#9a3414" },
+    { label: "Vence en 7 días", value: fmtMoney(summary.dueIn7DaysAmount), hint: `${summary.dueIn7DaysCount} ${itemWord(summary.dueIn7DaysCount)}`, color: "#6b4700" },
     { label: "Pagado este mes", value: fmtMoney(summary.paidThisMonth), hint: `${summary.paymentsThisMonth} pagos emitidos`, color: "#1b6b3a" },
   ];
 
@@ -293,8 +318,9 @@ export default function SupplierPayables() {
           <div>
             <h4>Cuentas por pagar</h4>
             <p>
-              Lo que se le debe a cada proveedor por las órdenes de compra ya recibidas (desde el {fmtDate(config.payablesStartDate)}).
-              Marque las órdenes de un mismo proveedor y págueles juntas con un solo cheque o transferencia.
+              Lo que se le debe a proveedores y por rentas (desde el {fmtDate(config.payablesStartDate)}).
+              En Proveedores están las órdenes, documentos y saldos; en Rentas, las de kioscos y otras rentas.
+              Marque las de un mismo proveedor y págueles juntas con un solo cheque o transferencia.
             </p>
           </div>
           <div className="spy-head-actions">
@@ -317,6 +343,15 @@ export default function SupplierPayables() {
           </div>
         </div>
 
+        <div className="spy-tabs" role="tablist" aria-label="Alcance de cuentas por pagar">
+          {SCOPES.map((s) => (
+            <button type="button" key={s.key} role="tab" aria-selected={scope === s.key}
+              className={scope === s.key ? "on" : ""} onClick={() => switchScope(s.key)}>
+              {s.label}
+            </button>
+          ))}
+        </div>
+
         <div className="spy-cards">
           {cards.map((c) => (
             <div className="spy-card" key={c.label}>
@@ -332,11 +367,13 @@ export default function SupplierPayables() {
             <div className="spy-chips" role="group" aria-label="Filtrar">
               {FILTERS.map((f) => (
                 <button type="button" key={f.key} className={`spy-chip ${filter === f.key ? "on" : ""}`} onClick={() => setFilter(f.key)}>
-                  {f.label} ({f.key ? counts[f.key] || 0 : summary.orderCount})
+                  {f.label} ({f.key ? counts[f.key] || 0 : rowCount})
                 </button>
               ))}
             </div>
-            <input type="search" className="spy-search" placeholder="Buscar proveedor u orden" aria-label="Buscar proveedor u orden"
+            <input type="search" className="spy-search"
+              placeholder={scope === "RENTS" ? "Buscar renta o beneficiario" : "Buscar proveedor u orden"}
+              aria-label={scope === "RENTS" ? "Buscar renta o beneficiario" : "Buscar proveedor u orden"}
               value={query} onChange={(e) => setQuery(e.target.value)} />
           </div>
 
@@ -382,7 +419,11 @@ export default function SupplierPayables() {
                     </td>
                   </tr>
                 ))}
-                {rows.length === 0 && <tr><td colSpan={9} className="spy-empty">No hay órdenes por pagar con ese filtro.</td></tr>}
+                {rows.length === 0 && (
+                  <tr><td colSpan={9} className="spy-empty">
+                    {scope === "RENTS" ? "No hay rentas por pagar con ese filtro." : "No hay órdenes por pagar con ese filtro."}
+                  </td></tr>
+                )}
               </tbody>
             </table>
           </div>
@@ -391,14 +432,14 @@ export default function SupplierPayables() {
             <div className="spy-paybar">
               <div>
                 <div style={{ fontWeight: 700 }}>
-                  {selectedRows.length} {selectedRows.length === 1 ? "orden" : "órdenes"} de {selectedSupplier.supplierName}
+                  {selectedRows.length} {itemWord(selectedRows.length)} de {selectedSupplier.supplierName}
                 </div>
                 <div className="spy-sub">
                   Total a pagar si se saldan completas: <b style={{ color: "#252422" }}>{fmtMoney(selectedTotal)}</b>.
-                  Solo se pueden juntar órdenes de un mismo proveedor.
+                  Solo se pueden juntar {itemWord(2)} de un mismo proveedor.
                 </div>
               </div>
-              <button type="button" className="spy-btn primary" onClick={openPayment}>Pagar estas órdenes</button>
+              <button type="button" className="spy-btn primary" onClick={openPayment}>Pagar estas {itemWord(2)}</button>
             </div>
           )}
         </div>
@@ -548,8 +589,8 @@ export default function SupplierPayables() {
           {rentForm && (
             <div className="spy-form">
               <div className="spy-sub">
-                Crea una cuenta por pagar por cada kiosco con contrato: el arrendador es el beneficiario, el monto sale de
-                Finanzas y vence el día de pago de Rentas. Se puede repetir sin duplicar.
+                Crea una cuenta por pagar por cada kiosco con contrato y por las otras rentas del mes: el arrendador es el
+                beneficiario, el monto sale de Finanzas y vence el día de pago de ese mismo mes. Se puede repetir sin duplicar.
               </div>
               <div className="spy-field">
                 <label htmlFor="rent-month">Mes</label>
