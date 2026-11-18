@@ -353,6 +353,48 @@
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
+.rpt-tiles--3 {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.rpt-filter-summary {
+  font-size: 0.82rem;
+  color: #5f5a55;
+  margin: 0 0 14px;
+}
+
+.rpt-chart-wrap {
+  margin: 4px 0 16px;
+}
+
+.rpt-chart {
+  height: 280px;
+  background: #fff;
+  border: 1px solid #e6ecf1;
+  border-radius: 8px;
+  padding: 12px 12px 8px;
+}
+
+.rpt-table--sales tbody tr:nth-child(even):not(.rpt-row-subtotal) td {
+  background: #f7f9fb;
+}
+
+.rpt-table--sales tbody tr:hover td {
+  background: #eef6f6;
+}
+
+.rpt-table--sales tbody tr.rpt-row-subtotal td {
+  background: #e8eef3;
+  font-weight: 700;
+  border-top: 1px solid #d9e1e8;
+}
+
+.rpt-table--sales tbody tr.rpt-row-subgroup td:first-child {
+  padding-left: 28px;
+  font-weight: 500;
+  color: #4a4642;
+}
+
 .rpt-section-title {
   font-size: 0.72rem;
   font-weight: 700;
@@ -513,6 +555,10 @@
 @media (max-width: 991px) {
   .rpt-tiles--4 {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .rpt-tiles--3 {
+    grid-template-columns: 1fr;
   }
 
   .rpt-link-grid {
