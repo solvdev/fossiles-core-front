@@ -22,7 +22,7 @@ import "./OnlineLedger.css";
  * - Moto: liquidación de lo que entrega el motorista.
  * Cada celda se guarda sola al salir de ella.
  * Bloqueo: una línea ya revisada se bloquea (una, las seleccionadas o todas las del filtro) y deja de admitir cambios;
- * el servidor también los rechaza. Desbloquear es solo de administradores.
+ * el servidor también los rechaza. Desbloquear lo puede hacer quien edita el libro (Administración y Contabilidad).
  */
 
 const PAGE_SIZES = [100, 250, 500, 0];
@@ -748,8 +748,8 @@ function OnlineSalesLedger() {
     if (row.locked) {
       applyLock([row], false, `¿Desbloquear la línea de ${row.customerName || "esta venta"}? Se podrá volver a modificar.`);
     } else {
-      // Quien no puede desbloquear confirma antes: un clic por error necesitaría a un administrador.
-      applyLock([row], true, meta.canUnlock ? "" : `¿Bloquear la línea de ${row.customerName || "esta venta"}? Ya no se podrá modificar; solo un administrador puede desbloquearla.`);
+      // Quien no puede desbloquear confirma antes: un clic por error no lo podría deshacer.
+      applyLock([row], true, meta.canUnlock ? "" : `¿Bloquear la línea de ${row.customerName || "esta venta"}? Ya no se podrá modificar mientras siga bloqueada.`);
     }
   }, [applyLock, meta.canUnlock]);
 
@@ -1102,7 +1102,7 @@ function OnlineSalesLedger() {
           <span className="sep" />
           <button type="button" className="ol-btn sm" disabled={locking || lockStats.locked === active.length}
             title="Bloquea todas las ventas que se ven con el periodo y los filtros actuales (todas las páginas)"
-            onClick={() => applyLock(active, true, `¿Bloquear las ${active.length - lockStats.locked} ventas sin bloquear de ${hasFilters || tab === "moto" ? "este filtro" : "este periodo"}? Ya no se podrán modificar; solo un administrador puede desbloquearlas.`)}>
+            onClick={() => applyLock(active, true, `¿Bloquear las ${active.length - lockStats.locked} ventas sin bloquear de ${hasFilters || tab === "moto" ? "este filtro" : "este periodo"}? Ya no se podrán modificar mientras sigan bloqueadas.`)}>
             {locking ? <Spinner size="sm" /> : null} Bloquear todas las del filtro ({active.length - lockStats.locked})
           </button>
           {canUnlock && lockStats.unlockable > 0 && (
@@ -1111,7 +1111,7 @@ function OnlineSalesLedger() {
               Desbloquear todas ({lockStats.unlockable})
             </button>
           )}
-          <span className="end">{lockStats.locked} de {active.length} bloqueadas{canUnlock ? "" : " · desbloquear: solo un administrador"}</span>
+          <span className="end">{lockStats.locked} de {active.length} bloqueadas{canUnlock ? "" : " · no puede desbloquear"}</span>
         </div>
       )}
 
