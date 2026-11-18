@@ -144,12 +144,19 @@ const consultar = async () => {
 
 const lastCall = () => getKioskSalesByCategory.mock.calls[getKioskSalesByCategory.mock.calls.length - 1][0];
 
-const selectKiosk = async (label) => {
+const openKioskMenu = () => {
   const input = screen.getByLabelText("Kioscos");
   fireEvent.focus(input);
   fireEvent.keyDown(input, { key: "ArrowDown", keyCode: 40, which: 40 });
+  return input;
+};
+
+const selectKiosk = async (label) => {
+  openKioskMenu();
   fireEvent.click(await screen.findByText(label, { selector: "div" }));
 };
+
+const menuHasKiosk = (text) => Boolean(screen.queryByText(text, { selector: "div" }));
 
 const categoryOrder = () =>
   [...screen.getByText("Categoría").closest("table").querySelectorAll("tbody tr")].map(
@@ -496,4 +503,123 @@ test("Excel incluye columna Subgrupo (vacía si subgroupLabel es null) y totals 
   expect(data[9]).toEqual(["Otros", "Sin clasificar", "-1", -2.5, -2.23]);
   expect(data[10]).toEqual(["Total general", "", "11", 111.51, 99.56]);
   expect(JSON.stringify(data)).not.toMatch(/totalWithIva|totalWithoutIva/);
+});
+
+const ENTRECUEROS_IDS = [10, 11, 12, 20];
+
+const mixedKiosks = [
+  { id: 1, name: "Kiosco Centro", code: "K1", categoria: "KIOSCO", posMode: "STANDARD" },
+  { id: 3, name: "Kiosco Norte", code: "K3", categoria: "KIOSCO" },
+  { id: 4, name: "Kiosco prueba POS", code: "K99", categoria: "KIOSCO", posMode: "STANDARD", posTestMode: true },
+  { id: 10, name: "Kiosco Maya", code: "K10", categoria: "KIOSCO", posMode: "ENTRECUEROS" },
+  { id: 11, name: "Kiosco Lago", code: "K11", categoria: "KIOSCO", posMode: "entrecueros" },
+  { id: 12, name: "Kiosco Puerto", code: "K12", categoria: "KIOSCO", posMode: " Entrecueros " },
+  { id: 20, name: "Kiosko ENTRECUEROS Oakland", code: "K20", categoria: "KIOSCO", posMode: "STANDARD" },
+];
+
+const kioskIdsFromLastCall = () => {
+  const params = lastCall();
+  if (!Object.prototype.hasOwnProperty.call(params, "kioskIds")) return [];
+  return String(params.kioskIds)
+    .split(",")
+    .map((id) => Number(id))
+    .filter((id) => Number.isFinite(id));
+};
+
+test("el selector oculta posMode ENTRECUEROS, entrecueros y ' Entrecueros ' (espacios)", async () => {
+  getLocations.mockResolvedValue([
+    { id: 1, name: "Kiosco Centro", code: "K1", categoria: "KIOSCO", posMode: "STANDARD" },
+    { id: 10, name: "Kiosco Maya", code: "K10", categoria: "KIOSCO", posMode: "ENTRECUEROS" },
+    { id: 11, name: "Kiosco Lago", code: "K11", categoria: "KIOSCO", posMode: "entrecueros" },
+    { id: 12, name: "Kiosco Puerto", code: "K12", categoria: "KIOSCO", posMode: " Entrecueros " },
+  ]);
+  render(<KioskSalesByCategoryReport />);
+  await waitFor(() => expect(getLocations).toHaveBeenCalled());
+
+  openKioskMenu();
+  expect(await screen.findByText("Kiosco Centro (K1)", { selector: "div" })).toBeInTheDocument();
+  expect(menuHasKiosk(/Kiosco Maya/)).toBe(false);
+  expect(menuHasKiosk(/Kiosco Lago/)).toBe(false);
+  expect(menuHasKiosk(/Kiosco Puerto/)).toBe(false);
+});
+
+test("el selector oculta un STANDARD llamado Kiosko ENTRECUEROS Oakland", async () => {
+  getLocations.mockResolvedValue([
+    { id: 1, name: "Kiosco Centro", code: "K1", categoria: "KIOSCO", posMode: "STANDARD" },
+    { id: 20, name: "Kiosko ENTRECUEROS Oakland", code: "K20", categoria: "KIOSCO", posMode: "STANDARD" },
+  ]);
+  render(<KioskSalesByCategoryReport />);
+  await waitFor(() => expect(getLocations).toHaveBeenCalled());
+
+  openKioskMenu();
+  expect(await screen.findByText("Kiosco Centro (K1)", { selector: "div" })).toBeInTheDocument();
+  expect(menuHasKiosk(/Kiosko ENTRECUEROS Oakland/i)).toBe(false);
+  expect(menuHasKiosk(/Oakland/)).toBe(false);
+});
+
+test("el selector conserva STANDARD y posMode ausente/null, y sigue ocultando posTestMode", async () => {
+  getLocations.mockResolvedValue([
+    { id: 1, name: "Kiosco Centro", code: "K1", categoria: "KIOSCO", posMode: "STANDARD" },
+    { id: 5, name: "Kiosco Sur", code: "K5", categoria: "KIOSCO", posMode: null },
+    { id: 6, name: "Kiosco Este", code: "K6", categoria: "KIOSCO" },
+    { id: 4, name: "Kiosco prueba POS", code: "K99", categoria: "KIOSCO", posMode: "STANDARD", posTestMode: true },
+    { id: 10, name: "Kiosco Maya", code: "K10", categoria: "KIOSCO", posMode: "ENTRECUEROS" },
+  ]);
+  render(<KioskSalesByCategoryReport />);
+  await waitFor(() => expect(getLocations).toHaveBeenCalled());
+
+  openKioskMenu();
+  expect(await screen.findByText("Kiosco Centro (K1)", { selector: "div" })).toBeInTheDocument();
+  expect(screen.getByText("Kiosco Sur (K5)", { selector: "div" })).toBeInTheDocument();
+  expect(screen.getByText("Kiosco Este (K6)", { selector: "div" })).toBeInTheDocument();
+  expect(menuHasKiosk(/Kiosco prueba POS/)).toBe(false);
+  expect(menuHasKiosk(/Kiosco Maya/)).toBe(false);
+});
+
+test("Consultar con todos omite kioskIds; una selección nunca incluye ids Entrecueros", async () => {
+  getLocations.mockResolvedValue(mixedKiosks);
+  render(<KioskSalesByCategoryReport />);
+  await waitFor(() => expect(getLocations).toHaveBeenCalled());
+
+  fireEvent.change(screen.getByLabelText("Mes"), { target: { value: "2026-02" } });
+  await consultar();
+  expect(lastCall()).not.toHaveProperty("kioskIds");
+  expect(kioskIdsFromLastCall()).not.toEqual(expect.arrayContaining(ENTRECUEROS_IDS));
+
+  await selectKiosk("Kiosco Centro (K1)");
+  await selectKiosk("Kiosco Norte (K3)");
+  await consultar();
+  expect(lastCall().kioskIds).toBe("1,3");
+  expect(kioskIdsFromLastCall()).not.toEqual(expect.arrayContaining(ENTRECUEROS_IDS));
+  ENTRECUEROS_IDS.forEach((id) => expect(String(lastCall().kioskIds).split(",")).not.toContain(String(id)));
+});
+
+test("tras cargar, las tarjetas no dicen Del servidor y muestran totals tal cual", async () => {
+  render(<KioskSalesByCategoryReport />);
+  await waitFor(() => expect(getLocations).toHaveBeenCalled());
+  await consultar();
+
+  expect(screen.queryByText("Del servidor")).not.toBeInTheDocument();
+  expect(screen.queryByText(/Del servidor/i)).not.toBeInTheDocument();
+  expect(document.querySelectorAll(".rpt-tile-hint")).toHaveLength(0);
+
+  expect(tileValue("Total con IVA")).toBe("Q 20.01");
+  expect(tileValue("Total sin IVA")).toBe("Q 17.86");
+  expect(tileValue("Unidades")).toBe("1.125");
+});
+
+test("un location con name null o ausente no rompe el filtro del selector", async () => {
+  getLocations.mockResolvedValue([
+    { id: 1, name: "Kiosco Centro", code: "K1", categoria: "KIOSCO", posMode: "STANDARD" },
+    { id: 30, name: null, code: "K30", categoria: "KIOSCO", posMode: "STANDARD" },
+    { id: 31, code: "K31", categoria: "KIOSCO" },
+    { id: 10, name: "Kiosco Maya", code: "K10", categoria: "KIOSCO", posMode: "ENTRECUEROS" },
+  ]);
+  render(<KioskSalesByCategoryReport />);
+  await waitFor(() => expect(getLocations).toHaveBeenCalled());
+
+  expect(screen.getByLabelText("Kioscos")).toBeInTheDocument();
+  openKioskMenu();
+  expect(await screen.findByText("Kiosco Centro (K1)", { selector: "div" })).toBeInTheDocument();
+  expect(menuHasKiosk(/Kiosco Maya/)).toBe(false);
 });
