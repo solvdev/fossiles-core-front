@@ -510,3 +510,35 @@ test("la exportación a Excel incluye la columna Subgrupo", async () => {
   expect(aoa[aoa.length - 1][0]).toBe("Total general");
   expect(aoa[aoa.length - 1][1]).toBe("");
 });
+
+test("el combo excluye kioscos Entrecueros por posMode, sin importar espacios ni mayúsculas", async () => {
+  getLocations.mockResolvedValue([
+    { id: 1, name: "Kiosco Centro", code: "K1", categoria: "KIOSCO", posMode: "STANDARD" },
+    { id: 2, name: "Kiosco Entre Uno", code: "K2", categoria: "KIOSCO", posMode: "ENTRECUEROS" },
+    { id: 3, name: "Kiosco Entre Dos", code: "K3", categoria: "KIOSCO", posMode: " entrecueros " },
+  ]);
+  render(<KioskSalesByCategoryReport />);
+  await waitFor(() => expect(getLocations).toHaveBeenCalled());
+
+  const input = screen.getByLabelText("Kioscos");
+  fireEvent.focus(input);
+  fireEvent.keyDown(input, { key: "ArrowDown", keyCode: 40, which: 40 });
+  expect(await screen.findByText("Kiosco Centro (K1)", { selector: "div" })).toBeInTheDocument();
+  expect(screen.queryByText(/Kiosco Entre Uno/)).not.toBeInTheDocument();
+  expect(screen.queryByText(/Kiosco Entre Dos/)).not.toBeInTheDocument();
+});
+
+test("el combo excluye un kiosko STANDARD cuyo nombre contiene Entrecueros", async () => {
+  getLocations.mockResolvedValue([
+    { id: 1, name: "Kiosco Centro", code: "K1", categoria: "KIOSCO", posMode: "STANDARD" },
+    { id: 2, name: "Kiosko Entrecueros", code: "K2", categoria: "KIOSCO", posMode: "STANDARD" },
+  ]);
+  render(<KioskSalesByCategoryReport />);
+  await waitFor(() => expect(getLocations).toHaveBeenCalled());
+
+  const input = screen.getByLabelText("Kioscos");
+  fireEvent.focus(input);
+  fireEvent.keyDown(input, { key: "ArrowDown", keyCode: 40, which: 40 });
+  expect(await screen.findByText("Kiosco Centro (K1)", { selector: "div" })).toBeInTheDocument();
+  expect(screen.queryByText(/Kiosko Entrecueros/)).not.toBeInTheDocument();
+});
