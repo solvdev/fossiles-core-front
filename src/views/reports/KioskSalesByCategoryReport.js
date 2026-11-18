@@ -143,14 +143,14 @@ function KioskSalesByCategoryReport() {
       ...(report.rows || []).map((row) => [
         categoryLabel(row),
         row.units,
-        row.totalWithIva,
-        row.totalWithoutIva,
+        row.totalAmount,
+        row.totalAmountNoIva,
       ]),
       [
         "Total general",
         report.totals?.units,
-        report.totals?.totalWithIva,
-        report.totals?.totalWithoutIva,
+        report.totals?.totalAmount,
+        report.totals?.totalAmountNoIva,
       ],
     ];
     const ws = XLSX.utils.aoa_to_sheet(rows);
@@ -318,8 +318,8 @@ function KioskSalesByCategoryReport() {
                           <tr key={row.categoryId != null ? row.categoryId : `uncat-${index}`}>
                             <td className="rpt-name">{categoryLabel(row)}</td>
                             <td className="rpt-num">{formatQty(row.units)}</td>
-                            <td className="rpt-num">{formatCurrency(row.totalWithIva)}</td>
-                            <td className="rpt-num">{formatCurrency(row.totalWithoutIva)}</td>
+                            <td className="rpt-num">{formatCurrency(row.totalAmount)}</td>
+                            <td className="rpt-num">{formatCurrency(row.totalAmountNoIva)}</td>
                           </tr>
                         ))
                       )}
@@ -329,8 +329,8 @@ function KioskSalesByCategoryReport() {
                         <tr>
                           <td>Total general</td>
                           <td className="rpt-num">{formatQty(totals.units)}</td>
-                          <td className="rpt-num">{formatCurrency(totals.totalWithIva)}</td>
-                          <td className="rpt-num">{formatCurrency(totals.totalWithoutIva)}</td>
+                          <td className="rpt-num">{formatCurrency(totals.totalAmount)}</td>
+                          <td className="rpt-num">{formatCurrency(totals.totalAmountNoIva)}</td>
                         </tr>
                       </tfoot>
                     )}

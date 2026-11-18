@@ -25,11 +25,11 @@ const mismatchedTotalsReport = {
   from: "2026-02-01",
   to: "2026-02-28",
   rows: [
-    { categoryId: 10, categoryName: "Bolsos", units: 2, totalWithIva: 10.0, totalWithoutIva: 8.93 },
-    { categoryId: 11, categoryName: "Billeteras", units: 1, totalWithIva: 10.0, totalWithoutIva: 8.93 },
-    { categoryId: null, categoryName: null, units: -3, totalWithIva: -50.0, totalWithoutIva: -44.64 },
+    { categoryId: 10, categoryName: "Bolsos", units: 2, totalAmount: 10.0, totalAmountNoIva: 8.93 },
+    { categoryId: 11, categoryName: "Billeteras", units: 1, totalAmount: 10.0, totalAmountNoIva: 8.93 },
+    { categoryId: null, categoryName: null, units: -3, totalAmount: -50.0, totalAmountNoIva: -44.64 },
   ],
-  totals: { units: 99, totalWithIva: 20.01, totalWithoutIva: 17.86 },
+  totals: { units: 99, totalAmount: 20.01, totalAmountNoIva: 17.86 },
 };
 
 const generate = async () => {

@@ -13,6 +13,8 @@ const toKioskIdsParam = (kioskIds) => {
  * Ventas de kioscos por categoría.
  * GET /reports/kiosk-sales-by-category?from=YYYY-MM-DD&to=YYYY-MM-DD&kioskIds=1,2,3
  * Omitir kioskIds = todos los kioscos. from/to inclusive (fechas de Guatemala).
+ * Respuesta: { from, to, rows: [{ categoryId, categoryName, units, totalAmount, totalAmountNoIva }],
+ * totals: { units, totalAmount, totalAmountNoIva } }. Filas ordenadas por totalAmount desc.
  */
 export const getKioskSalesByCategory = async ({ from, to, kioskIds } = {}) => {
   const params = new URLSearchParams();
