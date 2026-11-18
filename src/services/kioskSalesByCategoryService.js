@@ -16,6 +16,8 @@ const toKioskIdsParam = (kioskIds) => {
  * Respuesta: { from, to, rows: [{ categoryId, categoryName, subgroupCode, subgroupLabel,
  * units, totalAmount, totalAmountNoIva }], totals: { units, totalAmount, totalAmountNoIva } }.
  * Una fila por categoría+subgrupo, ordenadas por totalAmount desc. subgroup* puede faltar (backend viejo).
+ * subgroupCode p. ej. CABALLERO, DAMA, NINO, DAMA_CASUAL, DAMA_REVERSIBLE, CABALLERO_CASUAL,
+ * CABALLERO_REVERSIBLE, SIN_CLASIFICAR; subgroupLabel p. ej. 'Caballero', 'Dama reversible'.
  */
 export const getKioskSalesByCategory = async ({ from, to, kioskIds } = {}) => {
   const params = new URLSearchParams();

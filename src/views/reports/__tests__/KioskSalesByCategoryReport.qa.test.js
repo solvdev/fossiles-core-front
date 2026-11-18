@@ -89,8 +89,8 @@ const walletsBeltsReport = {
     {
       categoryId: 21,
       categoryName: "Cinturones",
-      subgroupCode: "DAMA_FORMAL",
-      subgroupLabel: "Dama formal",
+      subgroupCode: "DAMA_REVERSIBLE",
+      subgroupLabel: "Dama reversible",
       units: 1,
       totalAmount: 11,
       totalAmountNoIva: 9.82,
@@ -107,8 +107,8 @@ const walletsBeltsReport = {
     {
       categoryId: 21,
       categoryName: "Cinturones",
-      subgroupCode: "CABALLERO_FORMAL",
-      subgroupLabel: "Caballero formal",
+      subgroupCode: "CABALLERO_REVERSIBLE",
+      subgroupLabel: "Caballero reversible",
       units: 1,
       totalAmount: 13,
       totalAmountNoIva: 11.61,
@@ -406,7 +406,7 @@ test("subgrupo visible junto a la categoría; null pinta solo el nombre; Sin cla
 
   const cinturones = screen.getByText("Cinturones").closest("tr");
   expect(cinturones).toHaveAttribute("data-row-type", "category-subtotal");
-  ["Niño", "Dama casual", "Dama formal", "Caballero casual", "Caballero formal"].forEach((label) => {
+  ["Niño", "Dama casual", "Dama reversible", "Caballero casual", "Caballero reversible"].forEach((label) => {
     expect(screen.getByText(label).closest("tr")).toHaveAttribute("data-row-type", "subgroup");
   });
 
@@ -430,9 +430,9 @@ test("subgrupo visible junto a la categoría; null pinta solo el nombre; Sin cla
     "Cinturones",
     "Niño",
     "Dama casual",
-    "Dama formal",
+    "Dama reversible",
     "Caballero casual",
-    "Caballero formal",
+    "Caballero reversible",
     "Llaveros",
     "Otros",
     "Sin clasificar",
@@ -450,9 +450,9 @@ test("el gráfico agrupa por categoryId, apila por subgroupCode y conserva total
   expect(byLabel.Dama.data).toEqual([15, 0, 0, 0]);
   expect(byLabel.Niño.data).toEqual([0, 8, 0, 0]);
   expect(byLabel["Dama casual"].data).toEqual([0, 9, 0, 0]);
-  expect(byLabel["Dama formal"].data).toEqual([0, 11, 0, 0]);
+  expect(byLabel["Dama reversible"].data).toEqual([0, 11, 0, 0]);
   expect(byLabel["Caballero casual"].data).toEqual([0, 12, 0, 0]);
-  expect(byLabel["Caballero formal"].data).toEqual([0, 13, 0, 0]);
+  expect(byLabel["Caballero reversible"].data).toEqual([0, 13, 0, 0]);
   expect(byLabel["Sin subgrupo"].data).toEqual([0, 0, 6, 0]);
   expect(byLabel["Sin clasificar"].data).toEqual([0, 0, 0, -2.5]);
   chart.data.datasets.forEach((ds) => expect(ds.stack).toBe("sales"));
