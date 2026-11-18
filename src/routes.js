@@ -133,6 +133,7 @@ import InventoryReports from "views/reports/InventoryReports.js";
 import SalesReports from "views/reports/SalesReports.js";
 import CostReports from "views/reports/CostReports.js";
 import KioskPerformance from "views/reports/KioskPerformance.js";
+import KioskSalesByCategoryReport from "views/reports/KioskSalesByCategoryReport.js";
 import PurchaseReports from "views/reports/PurchaseReports.js";
 import PhaseGeneralReports from "views/reports/PhaseGeneralReports.js";
 import KioskFinancialsReports from "views/kiosks/finance/KioskFinancialsReports.js";
@@ -1565,6 +1566,17 @@ const routes = [
         module: "REPORTES",
         permissions: {
           view: "REPORTES.DESEMPENO_KIOSCOS.VER",
+        },
+      },
+      {
+        path: "/kiosk-sales-by-category",
+        name: "Ventas de kioscos",
+        mini: "VS",
+        component: <KioskSalesByCategoryReport />,
+        layout: "/admin",
+        module: "REPORTES",
+        permissions: {
+          view: "REPORTES.VENTAS.VER",
         },
       },
       {
