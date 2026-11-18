@@ -558,21 +558,18 @@ function KioskSalesByCategoryReport() {
                         Total con IVA
                       </span>
                       <span className="rpt-tile-value">{formatCurrency(totals?.totalAmount)}</span>
-                      <span className="rpt-tile-hint">Del servidor</span>
                     </div>
                     <div className="rpt-tile is-static" style={{ borderLeftColor: "#1f2937" }}>
                       <span className="rpt-tile-label" style={{ color: "#1f2937" }}>
                         Total sin IVA
                       </span>
                       <span className="rpt-tile-value">{formatCurrency(totals?.totalAmountNoIva)}</span>
-                      <span className="rpt-tile-hint">Del servidor</span>
                     </div>
                     <div className="rpt-tile is-static" style={{ borderLeftColor: "#c77d0a" }}>
                       <span className="rpt-tile-label" style={{ color: "#c77d0a" }}>
                         Unidades
                       </span>
                       <span className="rpt-tile-value">{formatUnits(totals?.units)}</span>
-                      <span className="rpt-tile-hint">Del servidor</span>
                     </div>
                   </div>
 
