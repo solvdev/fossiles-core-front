@@ -48,3 +48,14 @@ test("un 400 sube con el message del backend", async () => {
     "La fecha inicial no puede ser posterior a la fecha final"
   );
 });
+
+test("un 403 muestra que no hay acceso al reporte", async () => {
+  global.fetch.mockResolvedValue({
+    ok: false,
+    status: 403,
+    json: () => Promise.resolve({ message: "Forbidden" }),
+  });
+  await expect(getKioskSalesByCategory({ from: "2026-02-01", to: "2026-02-28" })).rejects.toThrow(
+    "No tienes acceso a este reporte."
+  );
+});

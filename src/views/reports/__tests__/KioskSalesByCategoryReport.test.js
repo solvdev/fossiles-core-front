@@ -3,6 +3,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import "@testing-library/jest-dom";
 import KioskSalesByCategoryReport, {
   daysInCalendarMonth,
+  formatUnits,
   monthToInclusiveRange,
 } from "../KioskSalesByCategoryReport";
 import { getKioskSalesByCategory } from "services/kioskSalesByCategoryService";
@@ -26,10 +27,10 @@ const mismatchedTotalsReport = {
   to: "2026-02-28",
   rows: [
     { categoryId: 10, categoryName: "Bolsos", units: 2, totalAmount: 10.0, totalAmountNoIva: 8.93 },
-    { categoryId: 11, categoryName: "Billeteras", units: 1, totalAmount: 10.0, totalAmountNoIva: 8.93 },
+    { categoryId: 11, categoryName: "Billeteras", units: 2.5, totalAmount: 10.0, totalAmountNoIva: 8.93 },
     { categoryId: null, categoryName: null, units: -3, totalAmount: -50.0, totalAmountNoIva: -44.64 },
   ],
-  totals: { units: 99, totalAmount: 20.01, totalAmountNoIva: 17.86 },
+  totals: { units: 1.125, totalAmount: 20.01, totalAmountNoIva: 17.86 },
 };
 
 const generate = async () => {
@@ -60,6 +61,14 @@ test("YYYY-MM a primer y último día sin Date local ni toISOString (feb y nov 2
   expect(daysInCalendarMonth(2026, 11)).toBe(30);
   expect(monthToInclusiveRange("2026-02")).toEqual({ from: "2026-02-01", to: "2026-02-28" });
   expect(monthToInclusiveRange("2026-11")).toEqual({ from: "2026-11-01", to: "2026-11-30" });
+});
+
+test("units muestra hasta 3 decimales sin ceros a la derecha", () => {
+  expect(formatUnits(5)).toBe("5");
+  expect(formatUnits(2.5)).toBe("2.5");
+  expect(formatUnits(1.125)).toBe("1.125");
+  expect(formatUnits(-3)).toBe("-3");
+  expect(formatUnits(-2.5)).toBe("-2.5");
 });
 
 test("modo Mes envía primer y último día de 2026-02 y 2026-11", async () => {
@@ -113,9 +122,10 @@ test("la fila Total general usa totals del backend, no la suma de filas; filas n
   expect(screen.getByText("Sin categoría")).toBeInTheDocument();
   expect(screen.getByText("Q -50.00")).toBeInTheDocument();
   expect(screen.getByText("-3")).toBeInTheDocument();
+  expect(screen.getByText("2.5")).toBeInTheDocument();
 
   const totalRow = screen.getByText("Total general").closest("tr");
-  expect(within(totalRow).getByText("99")).toBeInTheDocument();
+  expect(within(totalRow).getByText("1.125")).toBeInTheDocument();
   expect(within(totalRow).getByText("Q 20.01")).toBeInTheDocument();
   expect(within(totalRow).getByText("Q 17.86")).toBeInTheDocument();
   expect(within(totalRow).queryByText("Q 20.00")).not.toBeInTheDocument();
@@ -130,4 +140,14 @@ test("un 400 muestra el mensaje del backend", async () => {
 
   expect(await screen.findByText("El rango no puede superar 366 días")).toBeInTheDocument();
   expect(showError).toHaveBeenCalledWith("El rango no puede superar 366 días");
+});
+
+test("un 403 muestra que no hay acceso al reporte", async () => {
+  getKioskSalesByCategory.mockRejectedValueOnce(new Error("No tienes acceso a este reporte."));
+  render(<KioskSalesByCategoryReport />);
+  await waitFor(() => expect(getLocations).toHaveBeenCalled());
+  await generate();
+
+  expect(await screen.findByText("No tienes acceso a este reporte.")).toBeInTheDocument();
+  expect(showError).toHaveBeenCalledWith("No tienes acceso a este reporte.");
 });

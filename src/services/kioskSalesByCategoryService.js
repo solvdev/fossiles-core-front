@@ -32,6 +32,9 @@ export const getKioskSalesByCategory = async ({ from, to, kioskIds } = {}) => {
   });
 
   if (!response.ok) {
+    if (response.status === 403) {
+      throw new Error("No tienes acceso a este reporte.");
+    }
     const errorData = await response.json().catch(() => ({
       message: "No se pudo generar el reporte de ventas de kioscos",
     }));

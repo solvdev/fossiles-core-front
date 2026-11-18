@@ -18,7 +18,7 @@ import { getKioskSalesByCategory } from "services/kioskSalesByCategoryService";
 import { getLocations } from "services/locationService";
 import { getTodayYmdGuatemala } from "utils/dateTimeHelper";
 import { showError } from "utils/notificationHelper";
-import { formatCurrency, formatQty } from "views/kiosks/pos/posUtils";
+import { formatCurrency } from "views/kiosks/pos/posUtils";
 import * as XLSX from "xlsx";
 import "./reportsDesign.css";
 
@@ -64,6 +64,13 @@ export const categoryLabel = (row) => {
   const name = row?.categoryName;
   if (name != null && String(name).trim() !== "") return String(name);
   return UNCATEGORIZED;
+};
+
+/** NUMERIC(12,3): hasta 3 decimales, sin ceros a la derecha; conserva negativos. */
+export const formatUnits = (value) => {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return "0";
+  return String(Number(n.toFixed(3)));
 };
 
 const isKioskLocation = (location) => {
@@ -142,13 +149,13 @@ function KioskSalesByCategoryReport() {
       ["Categoría", "Unidades", "Total (con IVA) Q", "Total sin IVA Q"],
       ...(report.rows || []).map((row) => [
         categoryLabel(row),
-        row.units,
+        formatUnits(row.units),
         row.totalAmount,
         row.totalAmountNoIva,
       ]),
       [
         "Total general",
-        report.totals?.units,
+        formatUnits(report.totals?.units),
         report.totals?.totalAmount,
         report.totals?.totalAmountNoIva,
       ],
@@ -317,7 +324,7 @@ function KioskSalesByCategoryReport() {
                         rows.map((row, index) => (
                           <tr key={row.categoryId != null ? row.categoryId : `uncat-${index}`}>
                             <td className="rpt-name">{categoryLabel(row)}</td>
-                            <td className="rpt-num">{formatQty(row.units)}</td>
+                            <td className="rpt-num">{formatUnits(row.units)}</td>
                             <td className="rpt-num">{formatCurrency(row.totalAmount)}</td>
                             <td className="rpt-num">{formatCurrency(row.totalAmountNoIva)}</td>
                           </tr>
@@ -328,7 +335,7 @@ function KioskSalesByCategoryReport() {
                       <tfoot>
                         <tr>
                           <td>Total general</td>
-                          <td className="rpt-num">{formatQty(totals.units)}</td>
+                          <td className="rpt-num">{formatUnits(totals.units)}</td>
                           <td className="rpt-num">{formatCurrency(totals.totalAmount)}</td>
                           <td className="rpt-num">{formatCurrency(totals.totalAmountNoIva)}</td>
                         </tr>
