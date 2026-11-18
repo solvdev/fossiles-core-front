@@ -243,6 +243,7 @@ const isKioskLocation = (location) => {
 };
 
 const isEntrecuerosLocation = (location) =>
+  String(location?.name ?? "").toLowerCase().includes("entrecuer") ||
   String(location?.posMode ?? location?.pos_mode ?? "").trim().toUpperCase() === POS_MODE_ENTRECUEROS;
 
 const currentMonthValue = () => getTodayYmdGuatemala().slice(0, 7);

@@ -527,3 +527,18 @@ test("el combo excluye kioscos Entrecueros por posMode, sin importar espacios ni
   expect(screen.queryByText(/Kiosco Entre Uno/)).not.toBeInTheDocument();
   expect(screen.queryByText(/Kiosco Entre Dos/)).not.toBeInTheDocument();
 });
+
+test("el combo excluye un kiosko STANDARD cuyo nombre contiene Entrecueros", async () => {
+  getLocations.mockResolvedValue([
+    { id: 1, name: "Kiosco Centro", code: "K1", categoria: "KIOSCO", posMode: "STANDARD" },
+    { id: 2, name: "Kiosko Entrecueros", code: "K2", categoria: "KIOSCO", posMode: "STANDARD" },
+  ]);
+  render(<KioskSalesByCategoryReport />);
+  await waitFor(() => expect(getLocations).toHaveBeenCalled());
+
+  const input = screen.getByLabelText("Kioscos");
+  fireEvent.focus(input);
+  fireEvent.keyDown(input, { key: "ArrowDown", keyCode: 40, which: 40 });
+  expect(await screen.findByText("Kiosco Centro (K1)", { selector: "div" })).toBeInTheDocument();
+  expect(screen.queryByText(/Kiosko Entrecueros/)).not.toBeInTheDocument();
+});
