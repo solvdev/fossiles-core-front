@@ -243,6 +243,13 @@
   border-top: 1px solid #eef2f5;
 }
 
+.rpt-table tfoot td {
+  font-weight: 700;
+  background: #f3f6f9;
+  border-top: 2px solid #d9e1e8;
+  padding: 10px 12px;
+}
+
 .rpt-table tbody tr:hover td {
   background: #fafcfd;
 }
