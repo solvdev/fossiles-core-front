@@ -19,7 +19,7 @@ import { getKioskSalesByCategory } from "services/kioskSalesByCategoryService";
 import { getLocations } from "services/locationService";
 import { getTodayYmdGuatemala } from "utils/dateTimeHelper";
 import { showError } from "utils/notificationHelper";
-import { formatCurrency } from "views/kiosks/pos/posUtils";
+import { formatCurrency, POS_MODE_ENTRECUEROS } from "views/kiosks/pos/posUtils";
 import * as XLSX from "xlsx";
 import "./reportsDesign.css";
 
@@ -242,6 +242,9 @@ const isKioskLocation = (location) => {
   return text.includes("KIOS") || String(location?.code || "").toUpperCase().startsWith("K");
 };
 
+const isEntrecuerosLocation = (location) =>
+  String(location?.posMode ?? location?.pos_mode ?? "").trim().toUpperCase() === POS_MODE_ENTRECUEROS;
+
 const currentMonthValue = () => getTodayYmdGuatemala().slice(0, 7);
 
 const chartOptions = (stacked) => ({
@@ -319,7 +322,7 @@ function KioskSalesByCategoryReport() {
         if (cancelled) return;
         setKiosks(
           (locations || [])
-            .filter((location) => isKioskLocation(location) && !location.posTestMode)
+            .filter((location) => isKioskLocation(location) && !location.posTestMode && !isEntrecuerosLocation(location))
             .sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), "es"))
         );
       } catch (err) {
