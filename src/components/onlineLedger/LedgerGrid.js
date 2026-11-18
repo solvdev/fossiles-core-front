@@ -290,7 +290,7 @@ const GridRow = React.memo(function GridRow({
           )}
           {(locked || canLock) && (
             <button type="button" tabIndex={-1} className={`ol-lockbtn${locked ? " is-on" : ""}`} disabled={locked ? (!canUnlock || row.periodClosed) : !canLock}
-              title={locked && !canUnlock ? `${lockTitle(row)} · solo un administrador puede desbloquearla` : lockTitle(row)}
+              title={locked && !canUnlock ? `${lockTitle(row)} · no tiene permiso para desbloquearla` : lockTitle(row)}
               aria-label={locked ? "Línea bloqueada" : "Bloquear línea"} aria-pressed={locked} onClick={() => onToggleLock(row)}>🔒</button>
           )}
           <span>{n}</span>
