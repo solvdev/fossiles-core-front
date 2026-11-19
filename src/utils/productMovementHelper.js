@@ -13,6 +13,8 @@ export const PRODUCT_MOVEMENT_TYPE_LABELS = {
   ONLINE_SALE_RETURN: "Devolución venta online",
   SHIPMENT: "Envío",
   SHIPMENT_REVERSAL: "Anulación envío",
+  // La arma el servidor al juntar lo archivado por la limpieza de bodega: el saldo quedó en 0.
+  CORTE_INVENTARIO: "Corte de inventario",
 };
 
 /**
