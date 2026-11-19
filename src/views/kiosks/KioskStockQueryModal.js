@@ -3,6 +3,7 @@ import { Alert, Button, Modal, ModalBody, ModalHeader, Spinner } from "reactstra
 import { ProductSelector } from "components/catalog/FilterableCatalogSelectors";
 import ExcelStyleFilter from "components/inventory/ExcelStyleFilter";
 import { getKioscoStockReport } from "services/kioscoInventoryService";
+import { getKioskSites } from "services/kioskFinancialsService";
 import { getProductCategories } from "services/productCategoryService";
 import {
   KIOSK_GROUP_OPTIONS,
@@ -22,6 +23,9 @@ import {
 import { showError } from "utils/notificationHelper";
 import "./KioskStockQueryModal.css";
 
+/** Todos los kioscos reales (Entrecueros incluido); solo se dejan fuera los de prueba. */
+const includedKiosks = (kiosks) => (kiosks || []).filter((k) => !k.posTestMode);
+
 const fmt = (n) => Number(n || 0).toLocaleString("es-GT", { maximumFractionDigits: 0 });
 
 /**
@@ -31,6 +35,7 @@ const fmt = (n) => Number(n || 0).toLocaleString("es-GT", { maximumFractionDigit
 function KioskStockQueryModal({ isOpen, toggle, kiosks, products }) {
   const [apiRows, setApiRows] = useState(null);
   const [categories, setCategories] = useState([]);
+  const [sites, setSites] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -41,16 +46,24 @@ function KioskStockQueryModal({ isOpen, toggle, kiosks, products }) {
   const [groupKey, setGroupKey] = useState("kiosk");
   const [crossKey, setCrossKey] = useState("none");
   const [order, setOrder] = useState("desc");
-  const [kioskGroup, setKioskGroup] = useState("departamento");
+  const [kioskGroup, setKioskGroup] = useState("salesCategory");
   const requestId = useRef(0);
 
-  const kioskList = useMemo(
-    () => (kiosks || []).filter((k) => !k.posTestMode),
-    [kiosks]
-  );
+  // La categoría A/B/C de cada kiosco vive en el sitio de Finanzas (Costos por kiosco > Sitios).
+  const kioskList = useMemo(() => {
+    const categoryByLocation = new Map(
+      (sites || []).filter((s) => s.locationId != null).map((s) => [Number(s.locationId), s.salesCategory])
+    );
+    return includedKiosks(kiosks).map((k) => ({
+      ...k,
+      salesCategory: categoryByLocation.get(Number(k.id)) || "",
+    }));
+  }, [kiosks, sites]);
+
+  const kioskIdsKey = useMemo(() => includedKiosks(kiosks).map((k) => k.id).join(","), [kiosks]);
 
   const load = useCallback(async () => {
-    const ids = kioskList.map((k) => k.id);
+    const ids = kioskIdsKey ? kioskIdsKey.split(",").map(Number) : [];
     if (!ids.length) {
       setApiRows([]);
       return;
@@ -59,13 +72,15 @@ function KioskStockQueryModal({ isOpen, toggle, kiosks, products }) {
     setLoading(true);
     setError("");
     try {
-      const [rows, cats] = await Promise.all([
+      const [rows, cats, siteList] = await Promise.all([
         getKioscoStockReport(ids),
         getProductCategories().catch(() => []),
+        getKioskSites().catch(() => []),
       ]);
       if (id !== requestId.current) return;
       setApiRows(rows || []);
       setCategories(Array.isArray(cats) ? cats : []);
+      setSites(Array.isArray(siteList) ? siteList : []);
     } catch (err) {
       if (id !== requestId.current) return;
       setApiRows(null);
@@ -73,7 +88,7 @@ function KioskStockQueryModal({ isOpen, toggle, kiosks, products }) {
     } finally {
       if (id === requestId.current) setLoading(false);
     }
-  }, [kioskList]);
+  }, [kioskIdsKey]);
 
   useEffect(() => {
     if (isOpen) load();
@@ -235,8 +250,8 @@ function KioskStockQueryModal({ isOpen, toggle, kiosks, products }) {
             }
           />
           <ExcelStyleFilter
-            label="Categoría"
-            title="Filtrar categorías"
+            label="Categoría de producto"
+            title="Filtrar categorías de producto"
             items={categoryItems}
             value={categoryKeys}
             onChange={setCategoryKeys}
@@ -244,7 +259,7 @@ function KioskStockQueryModal({ isOpen, toggle, kiosks, products }) {
             noun="categorías"
             counts={categoryCounts}
             searchPlaceholder="Buscar categoría…"
-            width={230}
+            width={260}
             panelWidth={340}
           />
           <div className="ksq-product">
