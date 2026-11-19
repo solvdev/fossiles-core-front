@@ -1,0 +1,149 @@
+/* Tablero gerencial. Todo bajo .xdash para no tocar otras vistas. Paleta azul/naranja (se distinguen también en
+   claridad), números tabulares y tarjetas planas, como el prototipo aprobado. */
+
+.xdash {
+  --x-bg: #f3f5f9;
+  --x-card: #ffffff;
+  --x-line: #e1e6ee;
+  --x-line-2: #eef1f5;
+  --x-ink: #141b2d;
+  --x-ink-2: #3d4657;
+  --x-muted: #5b6576;
+  --x-blue: #2f64e0;
+  --x-blue-ink: #1d4ed8;
+  --x-blue-soft: #a8c1f5;
+  --x-orange: #d9631e;
+  --x-orange-ink: #b93e0a;
+  --x-navy: #16213a;
+  background: var(--x-bg);
+  color: var(--x-ink);
+  border-radius: 12px;
+  padding: 18px 20px 40px;
+  font-size: 14px;
+}
+.xdash *, .xdash *::before, .xdash *::after { box-sizing: border-box; }
+.xdash .num { font-variant-numeric: tabular-nums; }
+
+/* ---------- Cabecera ---------- */
+.xdash .x-head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 14px; }
+.xdash .x-title { margin: 0; font-size: 24px; font-weight: 700; color: var(--x-ink); }
+.xdash .x-sub { margin: 4px 0 0; font-size: 13.5px; color: var(--x-muted); }
+.xdash .x-filters { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.xdash .x-badge { padding: 7px 12px; border-radius: 8px; background: #e9edf4; font-size: 12.5px; color: var(--x-ink-2); }
+
+/* ---------- Páginas (pestañas tipo Power BI) ---------- */
+.xdash .x-pages { display: flex; flex-wrap: wrap; gap: 6px; padding: 6px; margin: 16px 0 18px; background: var(--x-navy); border-radius: 10px; }
+.xdash .x-page {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 1px; min-height: 48px; padding: 8px 14px;
+  border: 0; border-radius: 7px; background: transparent; color: #c7d0e2; font: inherit; text-align: left; cursor: pointer;
+  flex: 1 1 140px;
+}
+.xdash .x-page:hover { background: #22304f; color: #fff; }
+.xdash .x-page.on { background: #2c3d64; color: #fff; box-shadow: inset 0 -3px 0 #6e9bff; }
+.xdash .x-page .t { font-size: 14px; font-weight: 600; }
+.xdash .x-page .s { font-size: 11.5px; opacity: 0.85; }
+.xdash .x-page:focus-visible, .xdash .x-chip:focus-visible, .xdash .x-krow:focus-visible { outline: 2px solid #6e9bff; outline-offset: 2px; }
+
+/* ---------- Bloques ---------- */
+.xdash .x-stack { display: flex; flex-direction: column; gap: 18px; }
+.xdash .x-row { display: flex; flex-wrap: wrap; gap: 18px; }
+.xdash .x-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 18px; }
+.xdash .x-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; }
+.xdash .x-card { background: var(--x-card); border: 1px solid var(--x-line); border-radius: 10px; padding: 18px; min-width: 0; }
+.xdash .x-card.soft { background: #fafbfd; }
+.xdash .x-card h2 { margin: 0; font-size: 15px; font-weight: 600; color: var(--x-ink); }
+.xdash .x-hint { margin: 4px 0 0; font-size: 12.5px; color: var(--x-muted); line-height: 1.45; }
+.xdash .x-cardhead { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px; align-items: flex-start; }
+.xdash .x-cardhead > div:first-child { min-width: 0; flex: 1 1 260px; }
+.xdash .x-decide { margin-top: 14px; padding: 10px 12px; background: #f1f5fd; border-radius: 8px; font-size: 12.5px; color: #23345c; line-height: 1.45; }
+.xdash .x-decide b { color: var(--x-blue-ink); }
+.xdash .x-note { padding: 10px 14px; border-radius: 8px; background: #fff6e5; border: 1px solid #f3d49a; font-size: 12.5px; color: #6b4500; line-height: 1.45; }
+
+/* ---------- KPI ---------- */
+.xdash .x-kpi { background: var(--x-card); border: 1px solid var(--x-line); border-radius: 10px; padding: 14px 16px; min-width: 0; }
+.xdash .x-kpi-label { font-size: 11.5px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--x-muted); }
+.xdash .x-kpi-value { font-size: 26px; font-weight: 700; margin-top: 6px; color: var(--x-ink); font-variant-numeric: tabular-nums; line-height: 1.15; }
+.xdash .x-kpi-sub { font-size: 12.5px; color: var(--x-muted); margin-top: 4px; line-height: 1.4; }
+.xdash .up { color: var(--x-blue-ink); font-weight: 600; }
+.xdash .down { color: var(--x-orange-ink); font-weight: 600; }
+
+/* ---------- Botones ---------- */
+.xdash .x-chip {
+  min-height: 36px; padding: 6px 14px; border: 1px solid #cbd3e0; border-radius: 999px; background: #fff; color: #2a3448;
+  font: inherit; font-size: 13px; font-weight: 500; cursor: pointer; white-space: nowrap;
+}
+.xdash .x-chip:hover { border-color: #6e8bc9; }
+.xdash .x-chip.on { background: var(--x-blue-ink); border-color: var(--x-blue-ink); color: #fff; }
+.xdash .x-chip:disabled { opacity: 0.6; cursor: default; }
+.xdash .x-chips { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+
+/* ---------- Etiquetas ---------- */
+.xdash .x-tag { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; letter-spacing: 0.02em; }
+.xdash .x-tag.prod { background: #e6eeff; color: #1e40af; }
+.xdash .x-tag.inv { background: #ffebdd; color: #9a3412; }
+.xdash .x-tag.ven { background: #e5f3f1; color: #115e59; }
+.xdash .x-tag.fin { background: #f1e9fb; color: #5b2c91; }
+.xdash .x-pill { display: inline-block; min-width: 64px; text-align: center; padding: 3px 8px; border-radius: 6px; font-size: 12px; font-weight: 600; }
+.xdash .x-pill.ok { background: #e3ecff; color: #1e3a8a; }
+.xdash .x-pill.mid { background: #fff1d6; color: #7a4a00; }
+.xdash .x-pill.bad { background: #ffe4d4; color: #9a3412; }
+
+/* ---------- Barras ---------- */
+.xdash .x-track { height: 10px; background: #edf0f5; border-radius: 999px; overflow: hidden; display: flex; min-width: 0; }
+.xdash .x-track.thin { height: 7px; }
+.xdash .x-track.tall { height: 22px; border-radius: 6px; }
+.xdash .x-fill { height: 100%; background: var(--x-blue); }
+.xdash .x-fill2 { height: 100%; background: var(--x-blue-soft); }
+.xdash .x-fillo { height: 100%; background: var(--x-orange); }
+.xdash .x-cols { display: flex; gap: 6px; height: 170px; margin-top: 14px; }
+.xdash .x-col { flex: 1 1 0; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 6px; min-width: 0; height: 100%; }
+.xdash .x-bar { width: 70%; max-width: 44px; background: var(--x-blue); border-radius: 5px 5px 0 0; }
+.xdash .x-bar.cur { background: var(--x-blue-soft); }
+.xdash .x-cl { font-size: 11px; color: var(--x-muted); white-space: nowrap; }
+.xdash .x-cv { font-size: 11px; color: #2a3448; font-weight: 600; white-space: nowrap; }
+.xdash .x-legend { display: flex; flex-wrap: wrap; gap: 16px; margin-top: 10px; font-size: 12.5px; color: var(--x-ink-2); }
+.xdash .x-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.xdash .x-sw { width: 12px; height: 12px; border-radius: 3px; display: inline-block; flex: 0 0 auto; }
+
+/* ---------- Tablas en grilla ---------- */
+.xdash .x-scroll { overflow-x: auto; }
+.xdash .x-tr { display: grid; align-items: center; gap: 12px; padding: 9px 0; border-bottom: 1px solid var(--x-line-2); font-size: 13px; }
+.xdash .x-tr:last-child { border-bottom: 0; }
+.xdash .x-th { font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--x-muted); padding-bottom: 8px; border-bottom: 1px solid var(--x-line); }
+.xdash .r { text-align: right; }
+.xdash .b { font-weight: 600; }
+.xdash .muted { color: var(--x-muted); }
+.xdash .ell { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.xdash .x-barcell { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.xdash .x-barcell .x-track { flex: 1; }
+.xdash .x-barcell .v { width: 44px; text-align: right; }
+
+/* ---------- Alertas ---------- */
+.xdash .x-alert { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--x-line-2); font-size: 13px; }
+.xdash .x-alert:last-child { border-bottom: 0; }
+.xdash .x-alert-title { font-weight: 600; font-size: 13.5px; }
+.xdash .x-alert-detail { color: #4a5468; margin-top: 2px; line-height: 1.45; }
+.xdash .x-alert-action { color: var(--x-blue-ink); margin-top: 3px; font-weight: 600; }
+.xdash .x-alert-box { margin-top: 10px; padding: 12px 14px; border-radius: 8px; background: #f5f7fb; border: 1px solid var(--x-line); }
+
+/* ---------- Ranking de kioscos ---------- */
+.xdash .x-krow {
+  display: grid; grid-template-columns: 24px minmax(0, 1fr) 92px; align-items: center; gap: 10px; width: 100%; min-height: 44px;
+  padding: 6px 8px; border: 0; border-radius: 8px; background: transparent; font: inherit; font-size: 13px; color: var(--x-ink);
+  text-align: left; cursor: pointer;
+}
+.xdash .x-krow:hover { background: #f1f5fd; }
+.xdash .x-krow.on { background: #e3ecff; box-shadow: inset 0 0 0 1px #9db6ee; }
+.xdash .x-klist { margin-top: 8px; max-height: 560px; overflow-y: auto; padding-right: 4px; }
+.xdash .x-mini { padding: 10px 12px; border-radius: 8px; background: #f5f7fb; }
+.xdash .x-mini .v { font-size: 19px; font-weight: 700; margin-top: 4px; font-variant-numeric: tabular-nums; }
+
+.xdash .x-input { min-height: 40px; width: 120px; padding: 8px 10px; border: 1px solid #cbd3e0; border-radius: 8px; font: inherit; font-size: 14px; }
+.xdash .x-empty { padding: 14px 0; color: var(--x-muted); font-size: 13px; }
+.xdash .x-loading { padding: 60px 0; text-align: center; color: var(--x-muted); }
+
+@media (max-width: 575px) {
+  .xdash { padding: 14px 12px 32px; }
+  .xdash .x-alert { grid-template-columns: minmax(0, 1fr); gap: 6px; }
+  .xdash .x-kpi-value { font-size: 22px; }
+}
