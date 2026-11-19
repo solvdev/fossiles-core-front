@@ -5,7 +5,9 @@ import ExcelStyleFilter from "components/inventory/ExcelStyleFilter";
 import { getKioscoStockReport } from "services/kioscoInventoryService";
 import { getKioskSites } from "services/kioskFinancialsService";
 import { getProductCategories } from "services/productCategoryService";
+import { getProductAudienceLabel } from "utils/productAudienceHelper";
 import {
+  AUDIENCE_ITEMS,
   KIOSK_GROUP_OPTIONS,
   STOCK_DIMENSIONS,
   buildCategoryFilterItems,
@@ -41,6 +43,7 @@ function KioskStockQueryModal({ isOpen, toggle, kiosks, products }) {
 
   const [kioskKeys, setKioskKeys] = useState([]);
   const [categoryKeys, setCategoryKeys] = useState([]);
+  const [audienceKeys, setAudienceKeys] = useState([]);
   const [productId, setProductId] = useState("");
   const [color, setColor] = useState("");
   const [groupKey, setGroupKey] = useState("kiosk");
@@ -110,34 +113,68 @@ function KioskStockQueryModal({ isOpen, toggle, kiosks, products }) {
     [categories]
   );
   const productChoices = useMemo(() => {
-    if (!categoryKeys.length) return products || [];
-    const wanted = new Set(categoryKeys);
-    return (products || []).filter((p) => wanted.has(categoryNameById.get(Number(p.categoryId))));
-  }, [products, categoryKeys, categoryNameById]);
+    const wantedCats = categoryKeys.length ? new Set(categoryKeys) : null;
+    const wantedAud = audienceKeys.length ? new Set(audienceKeys) : null;
+    return (products || []).filter(
+      (p) =>
+        (!wantedCats || wantedCats.has(categoryNameById.get(Number(p.categoryId)))) &&
+        (!wantedAud || wantedAud.has(getProductAudienceLabel(p.audienceCategory)))
+    );
+  }, [products, categoryKeys, audienceKeys, categoryNameById]);
 
   const filtered = useMemo(
-    () => filterRecords(records, { kioskIds: kioskKeys, categories: categoryKeys, productCode, color }),
-    [records, kioskKeys, categoryKeys, productCode, color]
+    () =>
+      filterRecords(records, {
+        kioskIds: kioskKeys,
+        categories: categoryKeys,
+        audiences: audienceKeys,
+        productCode,
+        color,
+      }),
+    [records, kioskKeys, categoryKeys, audienceKeys, productCode, color]
   );
 
   const colorOptions = useMemo(() => {
-    const base = filterRecords(records, { kioskIds: kioskKeys, categories: categoryKeys, productCode });
+    const base = filterRecords(records, {
+      kioskIds: kioskKeys,
+      categories: categoryKeys,
+      audiences: audienceKeys,
+      productCode,
+    });
     return [...new Set(base.map((r) => r.color))].sort(natural);
-  }, [records, kioskKeys, categoryKeys, productCode]);
+  }, [records, kioskKeys, categoryKeys, audienceKeys, productCode]);
   const colorValue = colorOptions.includes(color) ? color : "";
 
   const kioskItems = useMemo(() => buildKioskFilterItems(kioskList, kioskGroup), [kioskList, kioskGroup]);
   const categoryItems = useMemo(() => buildCategoryFilterItems(records, categories), [records, categories]);
 
   const kioskCounts = useMemo(() => {
-    const base = filterRecords(records, { categories: categoryKeys, productCode, color: colorValue });
-    const sums = sumBy(base, (r) => String(r.locationId));
-    return sums;
-  }, [records, categoryKeys, productCode, colorValue]);
+    const base = filterRecords(records, {
+      categories: categoryKeys,
+      audiences: audienceKeys,
+      productCode,
+      color: colorValue,
+    });
+    return sumBy(base, (r) => String(r.locationId));
+  }, [records, categoryKeys, audienceKeys, productCode, colorValue]);
   const categoryCounts = useMemo(() => {
-    const base = filterRecords(records, { kioskIds: kioskKeys, productCode, color: colorValue });
+    const base = filterRecords(records, {
+      kioskIds: kioskKeys,
+      audiences: audienceKeys,
+      productCode,
+      color: colorValue,
+    });
     return sumBy(base, (r) => r.category);
-  }, [records, kioskKeys, productCode, colorValue]);
+  }, [records, kioskKeys, audienceKeys, productCode, colorValue]);
+  const audienceCounts = useMemo(() => {
+    const base = filterRecords(records, {
+      kioskIds: kioskKeys,
+      categories: categoryKeys,
+      productCode,
+      color: colorValue,
+    });
+    return sumBy(base, (r) => r.audience);
+  }, [records, kioskKeys, categoryKeys, productCode, colorValue]);
 
   const effectiveCross = crossKey === groupKey ? "none" : crossKey;
   const pivot = useMemo(
@@ -150,6 +187,7 @@ function KioskStockQueryModal({ isOpen, toggle, kiosks, products }) {
     stockQueryFiltersLabel({
       kioskLabels: kioskItems.filter((i) => kioskKeys.includes(i.key)).map((i) => i.label),
       categories: categoryKeys,
+      audiences: audienceKeys,
       productLabel: product ? `${product.code} · ${product.name}` : "",
       color: colorValue,
     });
@@ -175,17 +213,24 @@ function KioskStockQueryModal({ isOpen, toggle, kiosks, products }) {
   const clearFilters = () => {
     setKioskKeys([]);
     setCategoryKeys([]);
+    setAudienceKeys([]);
     setProductId("");
     setColor("");
   };
 
-  const hasFilters = kioskKeys.length > 0 || categoryKeys.length > 0 || Boolean(productId) || Boolean(colorValue);
+  const hasFilters =
+    kioskKeys.length > 0 ||
+    categoryKeys.length > 0 ||
+    audienceKeys.length > 0 ||
+    Boolean(productId) ||
+    Boolean(colorValue);
 
   const summaryText = (() => {
     const bits = [
       kioskKeys.length ? `${kioskKeys.length} ${kioskKeys.length === 1 ? "kiosko" : "kioscos"}` : "todos los kioscos",
       categoryKeys.length ? categoryKeys.join(", ") : "todas las categorías",
     ];
+    if (audienceKeys.length) bits.push(audienceKeys.join(" y "));
     if (product) bits.push(product.code);
     if (colorValue) bits.push(`color ${colorValue}`);
     return `Mostrando ${bits.join(" · ")}. Agrupado por ${dimensionLabel(groupKey).toLowerCase()}${
@@ -261,6 +306,19 @@ function KioskStockQueryModal({ isOpen, toggle, kiosks, products }) {
             searchPlaceholder="Buscar categoría…"
             width={260}
             panelWidth={340}
+          />
+          <ExcelStyleFilter
+            label="Dama / Caballero"
+            title="Filtrar por público"
+            items={AUDIENCE_ITEMS}
+            value={audienceKeys}
+            onChange={setAudienceKeys}
+            allText="Todos"
+            noun="públicos"
+            counts={audienceCounts}
+            searchPlaceholder="Buscar…"
+            width={190}
+            panelWidth={290}
           />
           <div className="ksq-product">
             <div className="esf-label">Producto</div>
