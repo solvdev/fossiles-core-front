@@ -212,7 +212,7 @@ TIMEZONES.forEach((tz) => {
       ]) {
         fireEvent.change(screen.getByLabelText("Mes"), { target: { value: month } });
         await consultar();
-        expect(lastCall()).toEqual({ from, to });
+        expect(lastCall()).toEqual({ from, to, compare: true });
         expect(lastCall()).not.toHaveProperty("kioskIds");
       }
     });
@@ -225,7 +225,7 @@ test("Mes arranca en el mes actual de Guatemala y Consultar manda primer/último
   const currentMonth = getTodayYmdGuatemala().slice(0, 7);
   expect(screen.getByLabelText("Mes")).toHaveValue(currentMonth);
   await consultar();
-  expect(lastCall()).toEqual(monthToInclusiveRange(currentMonth));
+  expect(lastCall()).toEqual({ ...monthToInclusiveRange(currentMonth), compare: true });
 });
 
 test("al pasar de Mes a Rango copia el mes; al volver a Mes ignora el rango editado", async () => {
@@ -237,16 +237,16 @@ test("al pasar de Mes a Rango copia el mes; al volver a Mes ignora el rango edit
   expect(screen.getByLabelText("Desde")).toHaveValue("2026-01-01");
   expect(screen.getByLabelText("Hasta")).toHaveValue("2026-01-31");
   await consultar();
-  expect(lastCall()).toEqual({ from: "2026-01-01", to: "2026-01-31" });
+  expect(lastCall()).toEqual({ from: "2026-01-01", to: "2026-01-31", compare: true });
 
   fireEvent.change(screen.getByLabelText("Desde"), { target: { value: "2026-03-05" } });
   fireEvent.change(screen.getByLabelText("Hasta"), { target: { value: "2026-03-12" } });
   await consultar();
-  expect(lastCall()).toEqual({ from: "2026-03-05", to: "2026-03-12" });
+  expect(lastCall()).toEqual({ from: "2026-03-05", to: "2026-03-12", compare: true });
 
   fireEvent.click(screen.getByRole("button", { name: "Mes" }));
   await consultar();
-  expect(lastCall()).toEqual({ from: "2026-01-01", to: "2026-01-31" });
+  expect(lastCall()).toEqual({ from: "2026-01-01", to: "2026-01-31", compare: true });
 });
 
 test("el combo solo ofrece kioscos de GET /locations (sin bodegas, online ni POS de prueba)", async () => {
@@ -379,8 +379,8 @@ test("tarjetas y Total general usan totals del API aunque la suma de filas difie
   await consultar();
 
   expect(tileValue("Total con IVA")).toBe("Q 20.01");
-  expect(tileValue("Total sin IVA")).toBe("Q 17.86");
-  expect(tileValue("Unidades")).toBe("1.125");
+  expect(screen.getByText("Q 17.86 sin IVA")).toBeInTheDocument();
+  expect(tileValue("Piezas de producto")).toBe("1.125");
 
   const totalRow = screen.getByText("Total general").closest("tr");
   expect(within(totalRow).getByText("1.125")).toBeInTheDocument();
