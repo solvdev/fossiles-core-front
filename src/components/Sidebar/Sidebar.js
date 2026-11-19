@@ -24,7 +24,7 @@ import soluLogo from "assets/img/solu-logo.png";
 import soluBrand from "assets/img/2.png";
 import { logout, getUserData } from "services/authService";
 import { useAuth } from "contexts/AuthContext";
-import { isSidebarRouteVisible, routeGrantsAnyPermission } from "utils/routePermissionAccess";
+import { isSidebarRouteVisible } from "utils/routePermissionAccess";
 
 var ps;
 
@@ -34,7 +34,7 @@ function Sidebar(props) {
   const sidebar = React.useRef();
   const navigate = useNavigate();
   const location = useLocation();
-  const { hasPermission, loading: permissionsLoading, user: authUser } = useAuth();
+  const { hasPermission, roles, loading: permissionsLoading, user: authUser } = useAuth();
   
   // Obtener datos del usuario
   const userData = getUserData();
@@ -97,13 +97,12 @@ function Sidebar(props) {
       }
 
       if (prop.collapse) {
-        const accessibleViews = prop.views.filter((view) =>
-          routeGrantsAnyPermission(view.permissions, hasPermission)
+        return (prop.views || []).some((view) =>
+          isSidebarRouteVisible(view, hasPermission, roles)
         );
-        return accessibleViews.length > 0;
       }
 
-      return routeGrantsAnyPermission(prop.permissions, hasPermission);
+      return isSidebarRouteVisible(prop, hasPermission, roles);
     });
   };
 
@@ -128,7 +127,7 @@ function Sidebar(props) {
           accessibleViews = prop.views.filter(view => view.showInSidebar !== false);
         } else {
           accessibleViews = prop.views.filter((view) =>
-            isSidebarRouteVisible(view, hasPermission)
+            isSidebarRouteVisible(view, hasPermission, roles)
           );
         }
         

@@ -3,6 +3,7 @@ import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from 'contexts/AuthContext';
 import AccessDenied from './AccessDenied';
 import { resolveDefaultLandingRoute } from 'utils/defaultLandingRoute';
+import { roleNamesIncludeAny } from 'utils/routePermissionAccess';
 
 /**
  * Higher Order Component para proteger rutas basándose en permisos
@@ -20,8 +21,9 @@ const ProtectedRoute = ({
   requireAll = false,
   redirectTo = '/auth/login',
   showAccessDenied = true,
+  roleNameIncludes = null,
 }) => {
-  const { hasPermission, hasAnyPermission, hasAllPermissions, loading, initialized, user, permissions, refreshUserData, hasRole } = useAuth();
+  const { hasPermission, hasAnyPermission, hasAllPermissions, loading, initialized, user, permissions, roles, refreshUserData, hasRole } = useAuth();
   const location = useLocation();
   const [retryCount, setRetryCount] = React.useState(0);
   const [isRetrying, setIsRetrying] = React.useState(false);
@@ -74,19 +76,26 @@ const ProtectedRoute = ({
     );
   }
 
-  // Si no hay permiso requerido, permitir acceso
-  if (!permission) {
+  const restrictsByRoleName = Array.isArray(roleNameIncludes) && roleNameIncludes.length > 0;
+
+  // Si no hay permiso ni restricción de rol, permitir acceso
+  if (!permission && !restrictsByRoleName) {
     return children;
   }
 
   // Verificar permisos
-  let hasAccess = false;
-  if (Array.isArray(permission)) {
-    hasAccess = requireAll 
-      ? hasAllPermissions(permission)
-      : hasAnyPermission(permission);
-  } else {
-    hasAccess = hasPermission(permission);
+  let hasAccess = !permission;
+  if (permission) {
+    if (Array.isArray(permission)) {
+      hasAccess = requireAll
+        ? hasAllPermissions(permission)
+        : hasAnyPermission(permission);
+    } else {
+      hasAccess = hasPermission(permission);
+    }
+  }
+  if (hasAccess && restrictsByRoleName && !roleNamesIncludeAny(roles, roleNameIncludes)) {
+    hasAccess = false;
   }
 
   // Si no tiene acceso, redirigir al inicio permitido o mostrar AccessDenied
