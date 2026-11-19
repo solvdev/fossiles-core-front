@@ -25,6 +25,7 @@ import { getLocations } from "services/locationService";
 import KioskInventoryCountReport from "./KioskInventoryCountReport";
 import KioskOpeningInventoryTab from "./KioskOpeningInventoryTab";
 import KioskShipmentsTab from "./KioskShipmentsTab";
+import KioskStockQueryModal from "./KioskStockQueryModal";
 import { getProducts } from "services/productService";
 import { getColors } from "services/colorService";
 import {
@@ -152,6 +153,7 @@ function KioskInventory() {
   const [lookupColorId, setLookupColorId] = useState("");
   const [lookupRows, setLookupRows] = useState([]);
   const [lookupLoading, setLookupLoading] = useState(false);
+  const [stockQueryOpen, setStockQueryOpen] = useState(false);
 
   // Enlace directo desde Contabilidad > Calendario > Liquidación: abre el conteo físico de ese kiosco.
   useEffect(() => {
@@ -1083,7 +1085,13 @@ function KioskInventory() {
         <Col md="12">
           <Card>
             <CardHeader>
-              <CardTitle tag="h4">Inventario de Kioskos (módulo dedicado)</CardTitle>
+              <div className="d-flex flex-wrap justify-content-between align-items-center" style={{ gap: 12 }}>
+                <CardTitle tag="h4" className="mb-0">Inventario de Kioskos (módulo dedicado)</CardTitle>
+                <Button color="primary" onClick={() => setStockQueryOpen(true)} disabled={loadingCatalogs}>
+                  <i className="nc-icon nc-chart-bar-32 mr-2" />
+                  Consultar stock
+                </Button>
+              </div>
               <Nav tabs className="mt-2">
                 <NavItem>
                   <NavLink
@@ -2120,6 +2128,14 @@ function KioskInventory() {
           </Card>
         </Col>
       </Row>
+      {stockQueryOpen ? (
+        <KioskStockQueryModal
+          isOpen={stockQueryOpen}
+          toggle={() => setStockQueryOpen(false)}
+          kiosks={kiosks}
+          products={products}
+        />
+      ) : null}
     </div>
   );
 }
