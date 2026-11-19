@@ -37,7 +37,8 @@ export const NO_DATA = "Sin dato";
 /** Por qué se puede ver (y cruzar) el stock. */
 export const STOCK_DIMENSIONS = [
   { key: "kiosk", label: "Kiosko" },
-  { key: "category", label: "Categoría" },
+  { key: "kioskCategory", label: "Categoría de kiosco" },
+  { key: "category", label: "Categoría de producto" },
   { key: "product", label: "Producto" },
   { key: "color", label: "Color" },
   { key: "hardware", label: "Herraje / variante" },
@@ -46,13 +47,14 @@ export const STOCK_DIMENSIONS = [
 
 /** Cómo se agrupan los kioscos dentro del filtro. */
 export const KIOSK_GROUP_OPTIONS = [
+  { key: "salesCategory", label: "Categoría A/B/C" },
   { key: "departamento", label: "Departamento" },
   { key: "zona", label: "Zona" },
-  { key: "categoria", label: "Categoría" },
 ];
 
 const GETTERS = {
   kiosk: (r) => r.kiosk,
+  kioskCategory: (r) => r.kioskCategory,
   category: (r) => r.category,
   product: (r) => r.product,
   color: (r) => r.color,
@@ -61,6 +63,12 @@ const GETTERS = {
 };
 
 export const dimensionLabel = (key) => STOCK_DIMENSIONS.find((d) => d.key === key)?.label || key;
+
+/** Categoría de ventas del kiosco (A, B o C), configurada en Costos por kiosco > Sitios. */
+export const kioskCategoryLabel = (v) => {
+  const t = String(v || "").trim().toUpperCase();
+  return t ? `Categoría ${t}` : "Sin categoría";
+};
 
 const cleanGroup = (v) => {
   const t = String(v || "").trim();
@@ -83,6 +91,7 @@ export function buildStockRecords({ apiRows, kiosks, products, categories }) {
     const product = productById.get(Number(r.productId));
     const categoryId = product?.categoryId != null ? Number(product.categoryId) : null;
     const category = categoryId != null ? categoryById.get(categoryId) || `Cat. ${categoryId}` : NO_CATEGORY;
+    // En Entrecueros la columna es «variante» (Dama/Niño), no herraje.
     const entreCueros = isEntreCuerosLocation(kiosk.id);
     const hardwareRaw = kioskDimensionDisplayLabel(r.hardwareCondition, { entreCueros });
     const hardware = !hardwareRaw || hardwareRaw === "—" ? "—" : hardwareRaw;
@@ -92,7 +101,7 @@ export function buildStockRecords({ apiRows, kiosks, products, categories }) {
       kioskCode: kiosk.code || "",
       departamento: cleanGroup(kiosk.departamento),
       zona: cleanGroup(kiosk.zona),
-      categoriaKiosko: cleanGroup(kiosk.categoria),
+      kioskCategory: kioskCategoryLabel(kiosk.salesCategory),
       category,
       productId: Number(r.productId),
       productCode: r.productCode || "",
@@ -117,12 +126,14 @@ export function buildStockRecords({ apiRows, kiosks, products, categories }) {
 
 /** Opciones del filtro de kioscos: una por kiosco, con su grupo (departamento, zona o categoría). */
 export function buildKioskFilterItems(kiosks, groupKey) {
-  const field = groupKey === "categoria" ? "categoria" : groupKey === "zona" ? "zona" : "departamento";
   return (kiosks || [])
     .map((k) => ({
       key: String(k.id),
       label: k.name || k.code || String(k.id),
-      group: cleanGroup(k[field]),
+      group:
+        groupKey === "salesCategory"
+          ? kioskCategoryLabel(k.salesCategory)
+          : cleanGroup(k[groupKey === "zona" ? "zona" : "departamento"]),
     }))
     .sort((a, b) => natural(a.label, b.label));
 }
@@ -267,8 +278,8 @@ export function buildStockQueryWorkbook({ records, pivot, groupKey, crossKey, fi
       { label: "Kiosco", width: 30, get: (r) => r.kiosk, style: () => textStyle },
       { label: "Departamento", width: 18, get: (r) => r.departamento, style: () => textStyle },
       { label: "Zona", width: 16, get: (r) => r.zona, style: () => textStyle },
-      { label: "Categoría de kiosco", width: 20, get: (r) => r.categoriaKiosko, style: () => textStyle },
-      { label: "Categoría", width: 18, get: (r) => r.category, style: () => textStyle },
+      { label: "Categoría de kiosco", width: 20, get: (r) => r.kioskCategory, style: () => textStyle },
+      { label: "Categoría de producto", width: 20, get: (r) => r.category, style: () => textStyle },
       { label: "Código", width: 14, get: (r) => r.productCode, style: () => textStyle },
       { label: "Producto", width: 36, get: (r) => r.productName, style: () => textStyle },
       { label: "Color", width: 18, get: (r) => r.color, style: () => textStyle },
