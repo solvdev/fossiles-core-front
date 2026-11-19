@@ -29,6 +29,8 @@ import {
   normalizeCinchoAudience,
 } from "utils/productCinchoHelper";
 import { ProductBrandBadge, ProductBrandFilterChip } from "components/catalog/ProductBrandBadge";
+import StockListControls from "components/accounting/StockListControls";
+import { buildColorTotals, colorLabelOf, hasStockQty } from "utils/stockViewHelper";
 import "views/kiosks/KioskLedgerLab.css";
 import "./KioskMovementsAccounting.css";
 
@@ -173,6 +175,8 @@ export default function KioskMovementsAccounting() {
   const [movements, setMovements] = useState([]);
   const [selectedStockId, setSelectedStockId] = useState(null);
   const [variantFilter, setVariantFilter] = useState("");
+  const [onlyWithStock, setOnlyWithStock] = useState(true);
+  const [colorFilter, setColorFilter] = useState("");
   const [loadingStocks, setLoadingStocks] = useState(false);
   const [loadingMovements, setLoadingMovements] = useState(false);
   const [savingTypeId, setSavingTypeId] = useState(null);
@@ -288,6 +292,7 @@ export default function KioskMovementsAccounting() {
   const handleClear = () => {
     setFilters(INITIAL_FILTERS);
     setVariantFilter("");
+    setColorFilter("");
     setStocks([]);
     setMovements([]);
     setSelectedStockId(null);
@@ -322,10 +327,37 @@ export default function KioskMovementsAccounting() {
     return hay.includes("ENTRECUERO");
   }, [filters.locationId, locations]);
 
-  const visibleStocks = useMemo(() => {
+  // 1) variante/marca (Entrecueros) → 2) existencia → totales por color → 3) color elegido
+  const variantStocks = useMemo(() => {
     if (!entreCueros || !variantFilter) return stocks;
     return stocks.filter((s) => stockMatchesVariantFilter(s, variantFilter));
   }, [stocks, entreCueros, variantFilter]);
+
+  const withStockCount = useMemo(
+    () => variantStocks.filter((s) => hasStockQty(s.cantidad)).length,
+    [variantStocks]
+  );
+
+  const scopedStocks = useMemo(
+    () => (onlyWithStock ? variantStocks.filter((s) => hasStockQty(s.cantidad)) : variantStocks),
+    [variantStocks, onlyWithStock]
+  );
+
+  const colorTotals = useMemo(
+    () => buildColorTotals(scopedStocks, (s) => s.color, (s) => s.cantidad),
+    [scopedStocks]
+  );
+
+  const visibleStocks = useMemo(() => {
+    if (!colorFilter) return scopedStocks;
+    return scopedStocks.filter((s) => colorLabelOf(s.color) === colorFilter);
+  }, [scopedStocks, colorFilter]);
+
+  useEffect(() => {
+    if (colorFilter && !colorTotals.colors.some((c) => c.color === colorFilter)) {
+      setColorFilter("");
+    }
+  }, [colorFilter, colorTotals]);
 
   const variantFilterOptions = useMemo(() => {
     const presentBrands = new Set();
@@ -451,6 +483,7 @@ export default function KioskMovementsAccounting() {
                   setFilter("locationId", v || "");
                   setSelectedStockId(null);
                   setVariantFilter("");
+                  setColorFilter("");
                   setStocks([]);
                   setMovements([]);
                 }}
@@ -583,11 +616,23 @@ export default function KioskMovementsAccounting() {
                 Inventario{" "}
                 <span className="kll-count">
                   {visibleStocks.length}
-                  {variantFilter && visibleStocks.length !== stocks.length ? ` de ${stocks.length}` : ""}
+                  {visibleStocks.length !== stocks.length ? ` de ${stocks.length}` : ""}
                 </span>
               </div>
               {loadingStocks && <Spinner size="sm" color="primary" />}
             </div>
+
+            {stocks.length > 0 && (
+              <StockListControls
+                onlyWithStock={onlyWithStock}
+                onToggleOnlyWithStock={setOnlyWithStock}
+                withStockCount={withStockCount}
+                allCount={variantStocks.length}
+                colorTotals={colorTotals}
+                colorFilter={colorFilter}
+                onColorFilterChange={setColorFilter}
+              />
+            )}
 
             {selectedStock && (
               <div className="kll-para-panel kma-selected">
@@ -685,8 +730,10 @@ export default function KioskMovementsAccounting() {
                   icon="nc-tag"
                   title={filters.locationId ? "Sin filas" : "Elige un kiosko"}
                   text={filters.locationId
-                    ? variantFilter
-                      ? "Ninguna fila coincide con esa marca o variante."
+                    ? stocks.length > 0
+                      ? onlyWithStock
+                        ? "Ninguna fila con existencia coincide. Pulsa «Todo» para ver también las que están en cero."
+                        : "Ninguna fila coincide con esa marca, variante o color."
                       : "Pulsa Consultar para cargar el inventario."
                     : "Selecciona un kiosko para ver su inventario."}
                 />
@@ -780,17 +827,21 @@ export default function KioskMovementsAccounting() {
                             </span>
                           )}
                         </td>
-                        <td className="num"><b>{m.cantidad ?? "—"}</b></td>
+                        <td className="num">
+                          {/* Un solo número: la cantidad con signo (verde entra / rojo sale). */}
+                          {stockDelta != null && stockDelta !== 0 ? (
+                            <span className={`kll-delta kma-qty ${stockDelta > 0 ? "up" : "down"}`}>
+                              {stockDelta > 0 ? `+${stockDelta}` : `−${Math.abs(stockDelta)}`}
+                            </span>
+                          ) : (
+                            <b>{m.cantidad ?? "—"}</b>
+                          )}
+                        </td>
                         <td>
                           <span className="kll-flow">
                             {m.stockAntes ?? "—"}
                             <span className="arrow">→</span>
                             <b>{m.stockDespues ?? "—"}</b>
-                            {stockDelta != null && (
-                              <span className={`kll-delta ${stockDelta > 0 ? "up" : stockDelta < 0 ? "down" : "flat"}`}>
-                                {stockDelta > 0 ? `+${stockDelta}` : stockDelta}
-                              </span>
-                            )}
                           </span>
                         </td>
                         <td>
