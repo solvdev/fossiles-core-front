@@ -53,6 +53,7 @@ import { getLocations } from "services/locationService";
 import { PRODUCT_BRAND_OPTIONS as BRAND_OPTIONS } from "utils/productBrandHelper";
 
 // Tallas disponibles para cinchos (16-60)
+const MIN_QTY_REASON_LENGTH = 10;
 const AVAILABLE_SIZES = Array.from({ length: 45 }, (_, i) => (i + 16).toString());
 
 const STATUS_LABELS = {
@@ -132,6 +133,9 @@ function ProductionOrderForm({ orderId, isOpen, toggle, onSuccess, initialValues
   const [errors, setErrors] = useState({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  // El back rechazó bajar una cantidad por debajo de lo asignado/recibido: se pide un motivo y se reintenta.
+  const [needsQtyReason, setNeedsQtyReason] = useState(false);
+  const [qtyReason, setQtyReason] = useState("");
 
   // Formulario para agregar items
   const [itemForm, setItemForm] = useState(createEmptyItemForm);
@@ -423,7 +427,14 @@ function ProductionOrderForm({ orderId, isOpen, toggle, onSuccess, initialValues
     setErrors({});
     setItemErrors({});
     setError("");
+    setNeedsQtyReason(false);
+    setQtyReason("");
   };
+
+  useEffect(() => {
+    setNeedsQtyReason(false);
+    setQtyReason("");
+  }, [orderId, isOpen]);
 
   const loadPackingMaterials = async () => {
     try {
@@ -712,11 +723,18 @@ function ProductionOrderForm({ orderId, isOpen, toggle, onSuccess, initialValues
       return;
     }
 
+    const reasonText = needsQtyReason ? qtyReason.trim() : "";
+    if (needsQtyReason && reasonText.length < MIN_QTY_REASON_LENGTH) {
+      showError(`Escriba el motivo del ajuste (mínimo ${MIN_QTY_REASON_LENGTH} caracteres)`);
+      return;
+    }
+
     try {
       setLoading(true);
       setError("");
 
       const submitData = {
+        quantityChangeReason: orderId && reasonText ? reasonText : undefined,
         code: formData.code && formData.code.trim() ? formData.code.trim() : null,
         orderType: formData.orderType,
         kioskOrder: isKioskDestinationOrder,
@@ -792,6 +810,9 @@ function ProductionOrderForm({ orderId, isOpen, toggle, onSuccess, initialValues
       onSuccess();
     } catch (err) {
       const errorMessage = err.message || "Error al guardar la orden de producción";
+      if (orderId && /No se puede bajar la cantidad/i.test(errorMessage)) {
+        setNeedsQtyReason(true);
+      }
       setError(errorMessage);
       showError(errorMessage);
     } finally {
@@ -860,6 +881,24 @@ function ProductionOrderForm({ orderId, isOpen, toggle, onSuccess, initialValues
           {error && (
             <Alert color="danger" style={{ whiteSpace: "pre-line" }}>
               {error}
+            </Alert>
+          )}
+          {needsQtyReason && (
+            <Alert color="warning">
+              <strong>Ajuste de cantidad con motivo</strong>
+              <p className="mb-2 small">
+                Si necesita bajar la cantidad por debajo de lo ya asignado a tareas o recibido en
+                bodega (por ejemplo, la mercadería no llegó completa), escriba el motivo y vuelva a
+                guardar. Quedará registrado en las observaciones de la orden.
+              </p>
+              <Input
+                type="textarea"
+                rows={2}
+                maxLength={300}
+                value={qtyReason}
+                onChange={(e) => setQtyReason(e.target.value)}
+                placeholder="Motivo del ajuste (mínimo 10 caracteres)"
+              />
             </Alert>
           )}
           {cinchoMaterialsInfo &&

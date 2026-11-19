@@ -38,6 +38,8 @@ export const MOVEMENT_TYPES = {
   SHIPMENT: { label: "Envío", dir: "OUT" },
   SHIPMENT_REVERSAL: { label: "Anulación de envío", dir: "IN" },
   RESERVE_RELEASE: { label: "Entrega desde la reserva", dir: "OUT" },
+  // Línea que arma el servidor al juntar el kardex archivado: la limpieza dejó la bodega en 0.
+  CORTE_INVENTARIO: { label: "Corte de inventario", dir: "ADJUST" },
 };
 
 const humanize = (type) => {

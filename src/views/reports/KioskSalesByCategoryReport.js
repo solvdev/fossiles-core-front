@@ -17,6 +17,16 @@ import Select from "react-select";
 import { Bar } from "react-chartjs-2";
 import { getKioskSalesByCategory } from "services/kioskSalesByCategoryService";
 import { getLocations } from "services/locationService";
+import KioskTopProductsModal, { DeltaChip } from "./KioskTopProductsModal";
+import {
+  buildInsights,
+  deltaTone,
+  formatDelta,
+  pctChange,
+  previousByCategory,
+  previousBySubgroup,
+  splitPackaging,
+} from "./kioskSalesInsights";
 import { getTodayYmdGuatemala } from "utils/dateTimeHelper";
 import { showError } from "utils/notificationHelper";
 import { formatCurrency, POS_MODE_ENTRECUEROS } from "views/kiosks/pos/posUtils";
@@ -336,6 +346,14 @@ function CategorySalesChart({ groups }) {
   );
 }
 
+function TileDelta({ pct, before }) {
+  return (
+    <span className="rpt-tile-delta">
+      <span className={`ksc-delta ksc-delta--${deltaTone(pct)}`}>{formatDelta(pct)}</span> vs. {before}
+    </span>
+  );
+}
+
 function KioskSalesByCategoryReport() {
   const defaultMonth = currentMonthValue();
   const defaultRange = monthToInclusiveRange(defaultMonth);
@@ -346,6 +364,9 @@ function KioskSalesByCategoryReport() {
   const [kiosks, setKiosks] = useState([]);
   const [selectedKiosks, setSelectedKiosks] = useState([]);
   const [report, setReport] = useState(null);
+  const [compare, setCompare] = useState(true);
+  const [lastQuery, setLastQuery] = useState(null);
+  const [topTarget, setTopTarget] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -387,8 +408,11 @@ function KioskSalesByCategoryReport() {
       if (selectedKiosks.length) {
         params.kioskIds = selectedKiosks.map((opt) => opt.value).join(",");
       }
+      if (compare) params.compare = true;
       const data = await getKioskSalesByCategory(params);
       setReport(data);
+      // El modal de top usa exactamente la consulta que originó la tabla, no los filtros que cambien después.
+      setLastQuery({ from: data?.from || from, to: data?.to || to, kioskIds: params.kioskIds, compare });
     } catch (err) {
       setReport(null);
       const msg = err.message || "No se pudo generar el reporte de ventas de kioscos";
@@ -407,6 +431,7 @@ function KioskSalesByCategoryReport() {
     setFromDate(range.from);
     setToDate(range.to);
     setSelectedKiosks([]);
+    setCompare(true);
   };
 
   const exportExcel = () => {
@@ -435,13 +460,80 @@ function KioskSalesByCategoryReport() {
     XLSX.writeFile(wb, `ventas_kioscos_${from || "desde"}_${to || "hasta"}.xlsx`);
   };
 
-  const rows = report?.rows || [];
+  // El empaque (bolsas y cajas) se cobra pero no es producto vendido: va aparte de las categorías.
+  const split = useMemo(() => splitPackaging(report?.rows), [report]);
+  const rows = split.productRows;
+  const packaging = split.packaging;
   const totals = report?.totals;
   const groups = useMemo(() => groupRowsByCategory(rows), [rows]);
   const grandTotal = totals?.totalAmount;
-  const averagePrice = toNumber(totals?.units) > 0 ? toNumber(totals?.totalAmount) / toNumber(totals?.units) : 0;
+  const packagingAmount = toNumber(totals?.packagingAmount) || packaging.totalAmount;
+  const packagingUnits = toNumber(totals?.packagingUnits) || packaging.units;
+  const productAmount = toNumber(totals?.totalAmount) - packagingAmount;
+  const averagePrice = toNumber(totals?.units) > 0 ? productAmount / toNumber(totals?.units) : 0;
+
+  const previous = report?.previous || null;
+  const hasCompare = Boolean(previous);
+  const prevByCategory = useMemo(() => previousByCategory(previous), [previous]);
+  const prevBySubgroup = useMemo(() => previousBySubgroup(previous), [previous]);
+  const prevTotals = previous?.totals;
+  const prevProductAmount = toNumber(prevTotals?.totalAmount) - toNumber(prevTotals?.packagingAmount);
+  const prevAverage =
+    toNumber(prevTotals?.units) > 0 ? prevProductAmount / toNumber(prevTotals?.units) : 0;
+  const insights = useMemo(() => buildInsights(groups, hasCompare ? prevByCategory : null), [
+    groups,
+    hasCompare,
+    prevByCategory,
+  ]);
+  const deltaOf = (current, before) => (before == null ? null : pctChange(current, before));
+  const prevPackaging = toNumber(prevTotals?.packagingUnits);
+  const openTop = (group) =>
+    setTopTarget({ categoryId: group.categoryId, label: group.label });
   const hasUnclassified = rows.some((row) => row?.subgroupCode === SIN_CLASIFICAR_CODE);
   const hasUncategorized = rows.some((row) => row?.categoryId == null);
+
+  const colCount = hasCompare ? 9 : 7;
+
+  /** Celdas de datos de una fila (todo menos el nombre): piezas, ventas, % del total, promedio y «Ver top». */
+  const dataCells = ({ units, totalAmount, totalAmountNoIva, before, color, group, noAverage }) => {
+    const unitsNum = toNumber(units);
+    const average = unitsNum > 0 && !noAverage ? toNumber(totalAmount) / unitsNum : null;
+    const prevUnits = hasCompare ? (before ? before.units : 0) : null;
+    const prevAmount = hasCompare ? (before ? before.totalAmount : 0) : null;
+    return (
+      <>
+        <td className="rpt-num">{formatUnits(units)}</td>
+        {hasCompare && (
+          <td className="rpt-num">
+            <DeltaChip current={units} previous={prevUnits} />
+          </td>
+        )}
+        <td className="rpt-num">{formatCurrency(totalAmount)}</td>
+        {hasCompare && (
+          <td className="rpt-num">
+            <DeltaChip current={totalAmount} previous={prevAmount} />
+          </td>
+        )}
+        <td className="rpt-num">{formatCurrency(totalAmountNoIva)}</td>
+        <ShareCell value={totalAmount} total={grandTotal} color={color} />
+        <td className="rpt-num">{average == null ? "—" : formatCurrency(average)}</td>
+        <td className="text-right">
+          {group && (
+            <Button
+              color="primary"
+              outline
+              size="sm"
+              className="ksc-top-btn"
+              onClick={() => openTop(group)}
+              aria-label={`Ver los productos más vendidos de ${group.label}`}
+            >
+              Ver top
+            </Button>
+          )}
+        </td>
+      </>
+    );
+  };
 
   const filterSummary = useMemo(() => {
     const period =
@@ -561,6 +653,18 @@ function KioskSalesByCategoryReport() {
                     styles={selectStyles}
                   />
                 </div>
+                <div className="d-flex align-items-end">
+                  <Label check className="d-flex align-items-center mb-2" style={{ gap: 8, cursor: "pointer" }}>
+                    <Input
+                      type="checkbox"
+                      checked={compare}
+                      onChange={(e) => setCompare(e.target.checked)}
+                      style={{ position: "static", margin: 0, width: 18, height: 18 }}
+                      aria-label="Comparar con el periodo anterior"
+                    />
+                    <span>Comparar con el periodo anterior</span>
+                  </Label>
+                </div>
                 <div className="d-flex align-items-end" style={{ gap: 12 }}>
                   <Button color="primary" onClick={loadReport} disabled={loading}>
                     {loading ? (
@@ -601,27 +705,61 @@ function KioskSalesByCategoryReport() {
                         Total con IVA
                       </span>
                       <span className="rpt-tile-value">{formatCurrency(totals?.totalAmount)}</span>
-                    </div>
-                    <div className="rpt-tile is-static" style={{ borderLeftColor: "#1f2937" }}>
-                      <span className="rpt-tile-label" style={{ color: "#1f2937" }}>
-                        Total sin IVA
-                      </span>
-                      <span className="rpt-tile-value">{formatCurrency(totals?.totalAmountNoIva)}</span>
+                      <span className="rpt-tile-hint">{formatCurrency(totals?.totalAmountNoIva)} sin IVA</span>
+                      {hasCompare && (
+                        <TileDelta
+                          pct={deltaOf(totals?.totalAmount, prevTotals?.totalAmount)}
+                          before={formatCurrency(prevTotals?.totalAmount)}
+                        />
+                      )}
                     </div>
                     <div className="rpt-tile is-static" style={{ borderLeftColor: "#c77d0a" }}>
-                      <span className="rpt-tile-label" style={{ color: "#c77d0a" }}>
-                        Unidades
+                      <span className="rpt-tile-label" style={{ color: "#a35f00" }}>
+                        Piezas de producto
                       </span>
                       <span className="rpt-tile-value">{formatUnits(totals?.units)}</span>
+                      <span className="rpt-tile-hint">sin bolsas ni cajas de empaque</span>
+                      {hasCompare && (
+                        <TileDelta
+                          pct={deltaOf(totals?.units, prevTotals?.units)}
+                          before={formatUnits(prevTotals?.units)}
+                        />
+                      )}
                     </div>
                     <div className="rpt-tile is-static" style={{ borderLeftColor: "#4f6bd8" }}>
-                      <span className="rpt-tile-label" style={{ color: "#4f6bd8" }}>
+                      <span className="rpt-tile-label" style={{ color: "#3b54b5" }}>
                         Precio promedio
                       </span>
                       <span className="rpt-tile-value">{formatCurrency(averagePrice)}</span>
-                      <span className="rpt-tile-hint">por unidad, con IVA · {groups.length} categorías</span>
+                      <span className="rpt-tile-hint">por pieza, con IVA · {groups.length} categorías</span>
+                      {hasCompare && (
+                        <TileDelta pct={deltaOf(averagePrice, prevAverage)} before={formatCurrency(prevAverage)} />
+                      )}
+                    </div>
+                    <div className="rpt-tile is-static ksc-tile-packaging" style={{ borderLeftColor: "#9ca3af" }}>
+                      <span className="rpt-tile-label" style={{ color: "#4f5f6a" }}>
+                        Empaque (aparte)
+                      </span>
+                      <span className="rpt-tile-value">{formatUnits(packagingUnits)}</span>
+                      <span className="rpt-tile-hint">
+                        bolsas y cajas · {formatCurrency(packagingAmount)} cobrados
+                      </span>
                     </div>
                   </div>
+
+                  {insights.length > 0 && (
+                    <div className="ksc-insights" data-testid="kiosk-sales-insights">
+                      <h6>Qué dicen los datos</h6>
+                      <div className="ksc-insights-grid">
+                        {insights.map((insight) => (
+                          <div key={insight.kind} className={`ksc-insight ksc-insight--${insight.kind}`}>
+                            <span>{insight.title}</span>
+                            {insight.text}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
 
                   {rows.length > 0 && <CategorySalesChart groups={groups} />}
 
@@ -631,20 +769,27 @@ function KioskSalesByCategoryReport() {
                         <tr>
                           <th>Categoría</th>
                           <th className="rpt-num">Unidades</th>
+                          {hasCompare && <th className="rpt-num">vs. anterior</th>}
                           <th className="rpt-num">Total (con IVA) Q</th>
+                          {hasCompare && <th className="rpt-num">vs. anterior</th>}
                           <th className="rpt-num">Total sin IVA Q</th>
                           <th className="rpt-num ksc-share-col">% del total</th>
+                          <th className="rpt-num">Prom. / pieza</th>
+                          <th>
+                            <span className="sr-only">Acciones</span>
+                          </th>
                         </tr>
                       </thead>
                       <tbody>
                         {!rows.length ? (
                           <tr>
-                            <td colSpan="5" className="text-center text-muted">
+                            <td colSpan={colCount} className="text-center text-muted">
                               No hay datos para mostrar
                             </td>
                           </tr>
                         ) : (
                           groups.flatMap((group) => {
+                            const before = prevByCategory.get(group.key);
                             if (!group.split) {
                               return group.rows.map((row, index) => (
                                 <tr key={`${group.key}-${index}`} data-row-type="category">
@@ -656,10 +801,14 @@ function KioskSalesByCategoryReport() {
                                     />
                                     {categoryLabel(row)}
                                   </td>
-                                  <td className="rpt-num">{formatUnits(row.units)}</td>
-                                  <td className="rpt-num">{formatCurrency(row.totalAmount)}</td>
-                                  <td className="rpt-num">{formatCurrency(row.totalAmountNoIva)}</td>
-                                  <ShareCell value={row.totalAmount} total={grandTotal} color={CATEGORY_BAR_COLOR} />
+                                  {dataCells({
+                                    units: row.units,
+                                    totalAmount: row.totalAmount,
+                                    totalAmountNoIva: row.totalAmountNoIva,
+                                    before,
+                                    color: CATEGORY_BAR_COLOR,
+                                    group,
+                                  })}
                                 </tr>
                               ));
                             }
@@ -670,10 +819,14 @@ function KioskSalesByCategoryReport() {
                                 data-row-type="category-subtotal"
                               >
                                 <td className="rpt-name">{group.label}</td>
-                                <td className="rpt-num">{formatUnits(group.units)}</td>
-                                <td className="rpt-num">{formatCurrency(group.totalAmount)}</td>
-                                <td className="rpt-num">{formatCurrency(group.totalAmountNoIva)}</td>
-                                <ShareCell value={group.totalAmount} total={grandTotal} color="#1f2937" />
+                                {dataCells({
+                                  units: group.units,
+                                  totalAmount: group.totalAmount,
+                                  totalAmountNoIva: group.totalAmountNoIva,
+                                  before,
+                                  color: "#1f2937",
+                                  group,
+                                })}
                               </tr>,
                               ...group.rows.map((row, index) => (
                                 <tr
@@ -690,18 +843,36 @@ function KioskSalesByCategoryReport() {
                                     />
                                     {subgroupLabelOf(row) || "Sin subgrupo"}
                                   </td>
-                                  <td className="rpt-num">{formatUnits(row.units)}</td>
-                                  <td className="rpt-num">{formatCurrency(row.totalAmount)}</td>
-                                  <td className="rpt-num">{formatCurrency(row.totalAmountNoIva)}</td>
-                                  <ShareCell
-                                    value={row.totalAmount}
-                                    total={grandTotal}
-                                    color={subgroupColor(subgroupKey(row), index)}
-                                  />
+                                  {dataCells({
+                                    units: row.units,
+                                    totalAmount: row.totalAmount,
+                                    totalAmountNoIva: row.totalAmountNoIva,
+                                    before: prevBySubgroup.get(`${group.key}|${row.subgroupCode}`),
+                                    color: subgroupColor(subgroupKey(row), index),
+                                  })}
                                 </tr>
                               )),
                             ];
                           })
+                        )}
+                        {packaging.present && (
+                          <tr className="ksc-row-packaging" data-row-type="packaging">
+                            <td className="rpt-name">
+                              <span className="ksc-swatch" style={{ background: "#c4ced4" }} aria-hidden="true" />
+                              Empaque
+                              <span className="ksc-note-inline">bolsas y cajas · no cuenta como producto</span>
+                            </td>
+                            {dataCells({
+                              units: packaging.units,
+                              totalAmount: packaging.totalAmount,
+                              totalAmountNoIva: packaging.totalAmountNoIva,
+                              before: hasCompare
+                                ? { units: prevPackaging, totalAmount: toNumber(prevTotals?.packagingAmount) }
+                                : undefined,
+                              color: "#c4ced4",
+                              noAverage: true,
+                            })}
+                          </tr>
                         )}
                       </tbody>
                       {totals && (
@@ -709,14 +880,27 @@ function KioskSalesByCategoryReport() {
                           <tr>
                             <td>Total general</td>
                             <td className="rpt-num">{formatUnits(totals.units)}</td>
+                            {hasCompare && (
+                              <td className="rpt-num">
+                                <DeltaChip current={totals.units} previous={prevTotals?.units} />
+                              </td>
+                            )}
                             <td className="rpt-num">{formatCurrency(totals.totalAmount)}</td>
+                            {hasCompare && (
+                              <td className="rpt-num">
+                                <DeltaChip current={totals.totalAmount} previous={prevTotals?.totalAmount} />
+                              </td>
+                            )}
                             <td className="rpt-num">{formatCurrency(totals.totalAmountNoIva)}</td>
                             <td className="rpt-num ksc-share">{rows.length ? "100%" : "—"}</td>
+                            <td className="rpt-num">{averagePrice > 0 ? formatCurrency(averagePrice) : "—"}</td>
+                            <td />
                           </tr>
                         </tfoot>
                       )}
                     </Table>
                   </div>
+
 
                   {(hasUnclassified || hasUncategorized) && (
                     <div className="ksc-notes" role="note">
@@ -744,6 +928,7 @@ function KioskSalesByCategoryReport() {
           </Card>
         </Col>
       </Row>
+      <KioskTopProductsModal target={topTarget} query={lastQuery} onClose={() => setTopTarget(null)} />
     </div>
   );
 }
