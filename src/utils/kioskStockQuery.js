@@ -12,6 +12,7 @@ import {
   totalStyle,
 } from "./reportExcelKit";
 import { isEntreCuerosLocation, kioskDimensionDisplayLabel } from "./kioskStockDimensionHelper";
+import { PRODUCT_AUDIENCE_OPTIONS, getProductAudienceLabel } from "./productAudienceHelper";
 
 /**
  * Consulta de stock en kioscos: pasa las existencias de todos los kioscos a registros planos
@@ -39,6 +40,7 @@ export const STOCK_DIMENSIONS = [
   { key: "kiosk", label: "Kiosko" },
   { key: "kioskCategory", label: "Categoría de kiosco" },
   { key: "category", label: "Categoría de producto" },
+  { key: "audience", label: "Dama / Caballero" },
   { key: "product", label: "Producto" },
   { key: "color", label: "Color" },
   { key: "hardware", label: "Herraje / variante" },
@@ -56,6 +58,7 @@ const GETTERS = {
   kiosk: (r) => r.kiosk,
   kioskCategory: (r) => r.kioskCategory,
   category: (r) => r.category,
+  audience: (r) => r.audience,
   product: (r) => r.product,
   color: (r) => r.color,
   hardware: (r) => r.hardware,
@@ -103,6 +106,7 @@ export function buildStockRecords({ apiRows, kiosks, products, categories }) {
       zona: cleanGroup(kiosk.zona),
       kioskCategory: kioskCategoryLabel(kiosk.salesCategory),
       category,
+      audience: getProductAudienceLabel(product?.audienceCategory),
       productId: Number(r.productId),
       productCode: r.productCode || "",
       productName: r.productName || "",
@@ -144,13 +148,21 @@ export function buildCategoryFilterItems(records, categories) {
   return [...names].sort(natural).map((name) => ({ key: name, label: name }));
 }
 
-export function filterRecords(records, { kioskIds = [], categories = [], productCode = "", color = "" } = {}) {
+/** Público del producto: Dama, Caballero o Unisex (campo audienceCategory del catálogo). */
+export const AUDIENCE_ITEMS = PRODUCT_AUDIENCE_OPTIONS.map((o) => ({ key: o.label, label: o.label }));
+
+export function filterRecords(
+  records,
+  { kioskIds = [], categories = [], audiences = [], productCode = "", color = "" } = {}
+) {
   const kioskSet = kioskIds.length ? new Set(kioskIds.map(String)) : null;
   const catSet = categories.length ? new Set(categories) : null;
+  const audSet = audiences.length ? new Set(audiences) : null;
   return records.filter(
     (r) =>
       (!kioskSet || kioskSet.has(String(r.locationId))) &&
       (!catSet || catSet.has(r.category)) &&
+      (!audSet || audSet.has(r.audience)) &&
       (!productCode || r.productCode === productCode) &&
       (!color || r.color === color)
   );
@@ -215,10 +227,17 @@ export function summarizeRecords(records) {
   return { units, kiosks: kiosks.size, products: products.size, variants: variants.size };
 }
 
-export function stockQueryFiltersLabel({ kioskLabels = [], categories = [], productLabel = "", color = "" }) {
+export function stockQueryFiltersLabel({
+  kioskLabels = [],
+  categories = [],
+  audiences = [],
+  productLabel = "",
+  color = "",
+}) {
   const parts = [];
   parts.push(kioskLabels.length ? `Kioscos: ${kioskLabels.join(", ")}` : "Kioscos: todos");
   parts.push(categories.length ? `Categorías: ${categories.join(", ")}` : "Categorías: todas");
+  if (audiences.length) parts.push(`Público: ${audiences.join(", ")}`);
   if (productLabel) parts.push(`Producto: ${productLabel}`);
   if (color) parts.push(`Color: ${color}`);
   return parts.join("  ·  ");
@@ -280,6 +299,7 @@ export function buildStockQueryWorkbook({ records, pivot, groupKey, crossKey, fi
       { label: "Zona", width: 16, get: (r) => r.zona, style: () => textStyle },
       { label: "Categoría de kiosco", width: 20, get: (r) => r.kioskCategory, style: () => textStyle },
       { label: "Categoría de producto", width: 20, get: (r) => r.category, style: () => textStyle },
+      { label: "Dama / Caballero", width: 16, get: (r) => r.audience, style: () => centerStyle },
       { label: "Código", width: 14, get: (r) => r.productCode, style: () => textStyle },
       { label: "Producto", width: 36, get: (r) => r.productName, style: () => textStyle },
       { label: "Color", width: 18, get: (r) => r.color, style: () => textStyle },
