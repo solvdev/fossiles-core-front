@@ -26,10 +26,12 @@ import {
   buildKioskFilterItems,
   buildPivot,
   buildStockRecords,
+  crossLabelOf,
   dimensionLabel,
   exportStockQueryExcel,
   filterRecords,
   natural,
+  normalizeCrossKeys,
   stockQueryFiltersLabel,
   sumBy,
   summarizeRecords,
@@ -59,7 +61,7 @@ function KioskStockQueryModal({ isOpen, toggle, kiosks, products }) {
   const [productId, setProductId] = useState("");
   const [color, setColor] = useState("");
   const [groupKey, setGroupKey] = useState("kiosk");
-  const [crossKey, setCrossKey] = useState("none");
+  const [crossKeys, setCrossKeys] = useState([]);
   const [order, setOrder] = useState("desc");
   const [kioskGroup, setKioskGroup] = useState("salesCategory");
   const requestId = useRef(0);
@@ -188,7 +190,9 @@ function KioskStockQueryModal({ isOpen, toggle, kiosks, products }) {
     return sumBy(base, (r) => r.audience);
   }, [records, kioskKeys, categoryKeys, productCode, colorValue]);
 
-  const effectiveCross = crossKey === groupKey ? "none" : crossKey;
+  const effectiveCross = useMemo(() => normalizeCrossKeys(crossKeys, groupKey), [crossKeys, groupKey]);
+  const toggleCross = (key) =>
+    setCrossKeys((prev) => (prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]));
   const pivot = useMemo(
     () => buildPivot(filtered, groupKey, effectiveCross, order),
     [filtered, groupKey, effectiveCross, order]
@@ -215,7 +219,7 @@ function KioskStockQueryModal({ isOpen, toggle, kiosks, products }) {
         records: filtered,
         pivot,
         groupKey,
-        crossKey: effectiveCross,
+        crossKeys: effectiveCross,
         filtersLabel: filtersLabel(),
         productFiltersLabel: filtersLabel(false),
         download,
@@ -249,7 +253,7 @@ function KioskStockQueryModal({ isOpen, toggle, kiosks, products }) {
     if (product) bits.push(product.code);
     if (colorValue) bits.push(`color ${colorValue}`);
     return `Mostrando ${bits.join(" · ")}. Agrupado por ${dimensionLabel(groupKey).toLowerCase()}${
-      effectiveCross !== "none" ? ` y cruzado con ${dimensionLabel(effectiveCross).toLowerCase()}` : ""
+      effectiveCross.length ? ` y cruzado con ${crossLabelOf(effectiveCross).toLowerCase()}` : ""
     }.`;
   })();
 
@@ -398,7 +402,7 @@ function KioskStockQueryModal({ isOpen, toggle, kiosks, products }) {
                   className={groupKey === d.key ? "on" : ""}
                   onClick={() => {
                     setGroupKey(d.key);
-                    if (crossKey === d.key) setCrossKey("none");
+                    setCrossKeys((prev) => prev.filter((k) => k !== d.key));
                   }}
                 >
                   {d.label}
@@ -411,9 +415,9 @@ function KioskStockQueryModal({ isOpen, toggle, kiosks, products }) {
             <div className="ksq-seg">
               <button
                 type="button"
-                aria-pressed={effectiveCross === "none"}
-                className={effectiveCross === "none" ? "on" : ""}
-                onClick={() => setCrossKey("none")}
+                aria-pressed={effectiveCross.length === 0}
+                className={effectiveCross.length === 0 ? "on" : ""}
+                onClick={() => setCrossKeys([])}
               >
                 Nada
               </button>
@@ -421,14 +425,15 @@ function KioskStockQueryModal({ isOpen, toggle, kiosks, products }) {
                 <button
                   key={d.key}
                   type="button"
-                  aria-pressed={effectiveCross === d.key}
-                  className={effectiveCross === d.key ? "on" : ""}
-                  onClick={() => setCrossKey(d.key)}
+                  aria-pressed={effectiveCross.includes(d.key)}
+                  className={effectiveCross.includes(d.key) ? "on" : ""}
+                  onClick={() => toggleCross(d.key)}
                 >
                   {d.label}
                 </button>
               ))}
             </div>
+            <span className="ksq-hint">Puedes marcar varias</span>
           </div>
           <button
             type="button"

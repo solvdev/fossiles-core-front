@@ -182,9 +182,23 @@ export const sumBy = (records, getKey) => {
  * Suma por fila (groupKey) y, si se pide, por columna (crossKey).
  * order: "desc" (mayor stock primero) o "asc" (A–Z, tallas en orden numérico).
  */
-export function buildPivot(records, groupKey, crossKey, order = "desc") {
+export const CROSS_SEPARATOR = " · ";
+
+/** Dimensiones de las columnas, siempre en el orden de STOCK_DIMENSIONS (sin la que va en filas). */
+export const normalizeCrossKeys = (crossKeys, groupKey) =>
+  STOCK_DIMENSIONS.map((d) => d.key).filter((k) => k !== groupKey && (crossKeys || []).includes(k));
+
+export const crossLabelOf = (crossKeys) => (crossKeys || []).map(dimensionLabel).join(CROSS_SEPARATOR);
+
+export function buildPivot(records, groupKey, crossKeysInput, order = "desc") {
   const gk = GETTERS[groupKey];
-  const ck = crossKey && crossKey !== "none" ? GETTERS[crossKey] : null;
+  const crossKeys = normalizeCrossKeys(
+    Array.isArray(crossKeysInput) ? crossKeysInput : crossKeysInput && crossKeysInput !== "none" ? [crossKeysInput] : [],
+    groupKey
+  );
+  const ck = crossKeys.length
+    ? (r) => crossKeys.map((k) => GETTERS[k](r)).join(CROSS_SEPARATOR)
+    : null;
   const matrix = {};
   const rowTotals = {};
   const colTotals = {};
@@ -310,12 +324,12 @@ const uniqueSheetName = (name, used) => {
   return candidate;
 };
 
-export function buildStockQueryWorkbook({ records, pivot, groupKey, crossKey, filtersLabel, productFiltersLabel = "", parts = null }) {
+export function buildStockQueryWorkbook({ records, pivot, groupKey, crossKeys = [], filtersLabel, productFiltersLabel = "", parts = null }) {
   const subtitle = [`Stock en kioscos al día de hoy`, filtersLabel, `Generado ${formatNowGt()}`]
     .filter(Boolean)
     .join("  ·  ");
   const fmt = "#,##0";
-  const crossLabel = crossKey && crossKey !== "none" ? dimensionLabel(crossKey) : "";
+  const crossLabel = crossLabelOf(normalizeCrossKeys(crossKeys, groupKey));
 
   const headers = [dimensionLabel(groupKey), ...pivot.colKeys, "Total", "% del total"];
   const rows = pivot.rowKeys.map((a) => [
@@ -349,7 +363,7 @@ export function buildStockQueryWorkbook({ records, pivot, groupKey, crossKey, fi
       "Un guion o celda vacía significa que no hay existencia de esa combinación.",
       "Hoja «Detalle»: una fila por kiosco, producto, color, herraje y talla, con filtros en el encabezado.",
     ],
-    widths: [38, ...pivot.colKeys.map(() => 14), 14, 14],
+    widths: [38, ...pivot.colKeys.map((c) => Math.min(30, Math.max(14, String(c).length + 3))), 14, 14],
   });
 
   const detailRows = [...records].sort(
