@@ -1,5 +1,16 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Alert, Button, Modal, ModalBody, ModalHeader, Spinner } from "reactstrap";
+import {
+  Alert,
+  Button,
+  DropdownItem,
+  DropdownMenu,
+  DropdownToggle,
+  Modal,
+  ModalBody,
+  ModalHeader,
+  Spinner,
+  UncontrolledDropdown,
+} from "reactstrap";
 import { ProductSelector } from "components/catalog/FilterableCatalogSelectors";
 import ExcelStyleFilter from "components/inventory/ExcelStyleFilter";
 import { getKioscoStockReport } from "services/kioscoInventoryService";
@@ -8,6 +19,7 @@ import { getProductCategories } from "services/productCategoryService";
 import { getProductAudienceLabel } from "utils/productAudienceHelper";
 import {
   AUDIENCE_ITEMS,
+  EXCEL_DOWNLOADS,
   KIOSK_GROUP_OPTIONS,
   STOCK_DIMENSIONS,
   buildCategoryFilterItems,
@@ -183,16 +195,17 @@ function KioskStockQueryModal({ isOpen, toggle, kiosks, products }) {
   );
   const kpi = useMemo(() => summarizeRecords(filtered), [filtered]);
 
-  const filtersLabel = () =>
+  const filtersLabel = (withKiosks = true) =>
     stockQueryFiltersLabel({
       kioskLabels: kioskItems.filter((i) => kioskKeys.includes(i.key)).map((i) => i.label),
       categories: categoryKeys,
       audiences: audienceKeys,
       productLabel: product ? `${product.code} · ${product.name}` : "",
       color: colorValue,
+      withKiosks,
     });
 
-  const exportExcel = () => {
+  const exportExcel = (download) => {
     if (!filtered.length) {
       showError("No hay existencias para exportar con esos filtros.");
       return;
@@ -204,6 +217,8 @@ function KioskStockQueryModal({ isOpen, toggle, kiosks, products }) {
         groupKey,
         crossKey: effectiveCross,
         filtersLabel: filtersLabel(),
+        productFiltersLabel: filtersLabel(false),
+        download,
       });
     } catch (err) {
       showError(err.message || "No se pudo generar el Excel.");
@@ -251,10 +266,20 @@ function KioskStockQueryModal({ isOpen, toggle, kiosks, products }) {
       </ModalHeader>
       <ModalBody className="ksq-body">
         <div className="ksq-actions">
-          <Button color="success" size="sm" onClick={exportExcel} disabled={loading || !filtered.length}>
-            <i className="nc-icon nc-cloud-download-93 mr-1" />
-            Descargar Excel
-          </Button>
+          <UncontrolledDropdown>
+            <DropdownToggle color="success" size="sm" caret disabled={loading || !filtered.length}>
+              <i className="nc-icon nc-cloud-download-93 mr-1" />
+              Descargar Excel
+            </DropdownToggle>
+            <DropdownMenu right className="ksq-dl-menu">
+              {EXCEL_DOWNLOADS.map((d) => (
+                <DropdownItem key={d.key} onClick={() => exportExcel(d.key)} className="ksq-dl-item">
+                  <div className="ksq-dl-label">{d.label}</div>
+                  <div className="ksq-dl-hint">{d.hint}</div>
+                </DropdownItem>
+              ))}
+            </DropdownMenu>
+          </UncontrolledDropdown>
           <Button color="secondary" outline size="sm" onClick={load} disabled={loading}>
             <i className="nc-icon nc-refresh-69 mr-1" />
             Actualizar
