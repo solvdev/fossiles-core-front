@@ -136,11 +136,11 @@ test("modo Mes envía primer y último día de 2026-02 y 2026-11", async () => {
 
   fireEvent.change(screen.getByLabelText("Mes"), { target: { value: "2026-02" } });
   await consultar();
-  expect(lastCall()).toEqual({ from: "2026-02-01", to: "2026-02-28" });
+  expect(lastCall()).toEqual({ from: "2026-02-01", to: "2026-02-28", compare: true });
 
   fireEvent.change(screen.getByLabelText("Mes"), { target: { value: "2026-11" } });
   await consultar();
-  expect(lastCall()).toEqual({ from: "2026-11-01", to: "2026-11-30" });
+  expect(lastCall()).toEqual({ from: "2026-11-01", to: "2026-11-30", compare: true });
 });
 
 test("modo Rango envía las fechas tal como se escribieron", async () => {
@@ -152,7 +152,7 @@ test("modo Rango envía las fechas tal como se escribieron", async () => {
   fireEvent.change(screen.getByLabelText("Hasta"), { target: { value: "2026-03-12" } });
   await consultar();
 
-  expect(lastCall()).toEqual({ from: "2026-03-05", to: "2026-03-12" });
+  expect(lastCall()).toEqual({ from: "2026-03-05", to: "2026-03-12", compare: true });
 });
 
 test("Todos los kioscos omite kioskIds; kioscos elegidos van en lista separada por comas", async () => {
@@ -161,7 +161,7 @@ test("Todos los kioscos omite kioskIds; kioscos elegidos van en lista separada p
 
   fireEvent.change(screen.getByLabelText("Mes"), { target: { value: "2026-02" } });
   await consultar();
-  expect(lastCall()).toEqual({ from: "2026-02-01", to: "2026-02-28" });
+  expect(lastCall()).toEqual({ from: "2026-02-01", to: "2026-02-28", compare: true });
   expect(lastCall()).not.toHaveProperty("kioskIds");
 
   await selectKiosk("Kiosco Centro (K1)");
@@ -300,7 +300,7 @@ test("Limpiar filtros restaura mes actual y todos los kioscos", async () => {
 
   await consultar();
   expect(lastCall()).not.toHaveProperty("kioskIds");
-  expect(lastCall()).toEqual(monthToInclusiveRange(initialMonth));
+  expect(lastCall()).toEqual({ ...monthToInclusiveRange(initialMonth), compare: true });
 });
 
 test("agrupa filas por categoryId: cabecera de subtotal y filas indentadas con subgroupLabel", async () => {
@@ -483,7 +483,7 @@ test("Limpiar filtros restablece mes, rango de fechas y kioscos", async () => {
   expect(screen.getByRole("button", { name: "Mes" })).toHaveAttribute("aria-pressed", "true");
 
   await consultar();
-  expect(lastCall()).toEqual(monthToInclusiveRange(initialMonth));
+  expect(lastCall()).toEqual({ ...monthToInclusiveRange(initialMonth), compare: true });
   expect(lastCall()).not.toHaveProperty("kioskIds");
 });
 

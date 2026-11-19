@@ -100,3 +100,278 @@
     font-size: 1.4rem;
   }
 }
+
+/* ---- Comparación con el periodo anterior ---- */
+.ksc-delta {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.ksc-delta--up {
+  background: #e6f4ec;
+  color: #0a6b43;
+}
+
+.ksc-delta--down {
+  background: #fdeceb;
+  color: #a3281c;
+}
+
+.ksc-delta--flat,
+.ksc-delta--none {
+  background: #eef1f3;
+  color: #4f5f6a;
+}
+
+.ksc-delta--new {
+  background: #e8eefc;
+  color: #2c4aa8;
+}
+
+.rpt-tile-delta {
+  display: block;
+  margin-top: 4px;
+  font-size: 0.8rem;
+  color: #4f5f6a;
+}
+
+.ksc-tile-packaging {
+  border-style: dashed !important;
+  background: #f6f7f8 !important;
+}
+
+/* ---- Qué dicen los datos ---- */
+.ksc-insights {
+  margin-bottom: 16px;
+  padding: 14px 16px;
+  border: 1px solid #e6ecf1;
+  border-radius: 12px;
+  background: #fff;
+}
+
+.ksc-insights h6 {
+  margin: 0 0 10px;
+  font-weight: 700;
+}
+
+.ksc-insights-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 10px;
+}
+
+.ksc-insight {
+  padding: 10px 12px;
+  border-radius: 10px;
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+
+.ksc-insight span {
+  display: block;
+  margin-bottom: 2px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.ksc-insight--concentration {
+  background: #eef6f6;
+}
+
+.ksc-insight--concentration span {
+  color: #0b6e71;
+}
+
+.ksc-insight--rise {
+  background: #e8f5ee;
+}
+
+.ksc-insight--rise span {
+  color: #0a6b43;
+}
+
+.ksc-insight--fall {
+  background: #fdeceb;
+}
+
+.ksc-insight--fall span {
+  color: #a3281c;
+}
+
+/* ---- Tabla: acciones y empaque ---- */
+.rpt-table--sales tbody tr.ksc-row-packaging td {
+  background: #f6f7f8;
+  color: #4f5f6a;
+}
+
+.ksc-note-inline {
+  margin-left: 8px;
+  font-size: 0.78rem;
+  color: #4f5f6a;
+  white-space: nowrap;
+}
+
+.ksc-top-btn {
+  min-height: 36px;
+  white-space: nowrap;
+}
+
+
+/* ---- Modal de top de productos ---- */
+.ksc-top-modal .modal-title {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ksc-top-eyebrow {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #0b6e71;
+}
+
+.ksc-top-title {
+  font-size: 1.4rem;
+  font-weight: 700;
+}
+
+.ksc-top-sub {
+  font-size: 0.85rem;
+  font-weight: 400;
+  color: #4f5f6a;
+}
+
+.ksc-top-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.ksc-top-tiles > div {
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: #f3f8f8;
+}
+
+.ksc-top-tiles > div.is-accent {
+  background: #e8f4f4;
+}
+
+.ksc-top-tiles span {
+  display: block;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #4f5f6a;
+}
+
+.ksc-top-tiles strong {
+  display: block;
+  font-size: 1.2rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.ksc-top-tiles .is-accent strong {
+  font-size: 0.95rem;
+  line-height: 1.35;
+}
+
+.ksc-top-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 20px;
+  margin-bottom: 12px;
+}
+
+.ksc-top-sort {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.85rem;
+  color: #4f5f6a;
+}
+
+.ksc-top-table td {
+  vertical-align: middle;
+}
+
+.ksc-top-table tbody tr.ksc-cut td {
+  border-bottom: 2px dashed #0b6e71;
+}
+
+.ksc-rank {
+  font-weight: 700;
+  color: #4f5f6a;
+  width: 36px;
+}
+
+.ksc-rank--top {
+  color: #0b6e71;
+}
+
+.ksc-prod-name {
+  font-weight: 600;
+}
+
+.ksc-prod-code {
+  font-weight: 400;
+  font-size: 0.8rem;
+  color: #4f5f6a;
+}
+
+.ksc-prod-colors {
+  margin-top: 2px;
+  font-size: 0.8rem;
+  color: #4f5f6a;
+}
+
+.ksc-top-units {
+  display: block;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.ksc-top-bar {
+  display: block;
+  height: 6px;
+  min-width: 90px;
+  margin-top: 4px;
+  border-radius: 3px;
+  background: #e9eef2;
+  overflow: hidden;
+}
+
+.ksc-top-bar > span {
+  display: block;
+  height: 100%;
+  border-radius: 3px;
+  background: #0b6e71;
+}
+
+.ksc-cum {
+  min-width: 110px;
+  font-variant-numeric: tabular-nums;
+}
+
+.ksc-top-note {
+  margin: 10px 0 0;
+  font-size: 0.8rem;
+  line-height: 1.45;
+  color: #4f5f6a;
+}
+
+.ksc-top-count {
+  margin-right: auto;
+  font-size: 0.82rem;
+  color: #4f5f6a;
+}
