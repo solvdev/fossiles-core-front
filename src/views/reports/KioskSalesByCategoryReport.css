@@ -1,0 +1,102 @@
+/* Ventas de kioscos por categoría: columna de participación, colores por subgrupo y notas. */
+
+.ksc-swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  margin-right: 8px;
+  vertical-align: baseline;
+  flex: none;
+}
+
+/* % del total: número y barrita fina debajo */
+.ksc-share-col {
+  width: 130px;
+}
+
+.ksc-share {
+  min-width: 110px;
+}
+
+.ksc-share-text {
+  display: block;
+  line-height: 1.2;
+}
+
+.ksc-share-bar {
+  display: block;
+  height: 4px;
+  margin-top: 4px;
+  border-radius: 2px;
+  background: #e9eef2;
+  overflow: hidden;
+}
+
+.ksc-share-bar > span {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+}
+
+/* Fila de categoría con subgrupos: más peso visual, subgrupos más suaves */
+.rpt-table--sales tbody tr.rpt-row-subgroup td {
+  color: #4a4642;
+}
+
+.rpt-table--sales tbody tr.rpt-row-subgroup td:first-child {
+  position: relative;
+}
+
+.rpt-table--sales tbody tr.rpt-row-subgroup td:first-child::before {
+  content: "";
+  position: absolute;
+  left: 14px;
+  top: 0;
+  bottom: 50%;
+  width: 8px;
+  border-left: 1px solid #c9d3dc;
+  border-bottom: 1px solid #c9d3dc;
+  border-bottom-left-radius: 4px;
+}
+
+.rpt-table--sales tfoot td {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Notas al pie de la tabla */
+.ksc-notes {
+  margin-top: 14px;
+  padding: 10px 14px;
+  border: 1px solid #e6ecf1;
+  border-left: 4px solid #9ca3af;
+  border-radius: 8px;
+  background: #f7f9fb;
+  font-size: 0.82rem;
+  color: #4a4642;
+}
+
+.ksc-notes p {
+  margin: 0;
+  line-height: 1.45;
+}
+
+.ksc-notes p + p {
+  margin-top: 6px;
+}
+
+@media (max-width: 991px) {
+  .rpt-tiles.rpt-tiles--4 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 575px) {
+  .rpt-tiles.rpt-tiles--4 {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .rpt-tile-value {
+    font-size: 1.4rem;
+  }
+}
