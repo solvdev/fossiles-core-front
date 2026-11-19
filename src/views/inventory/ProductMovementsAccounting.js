@@ -24,6 +24,8 @@ import {
   productMovementTypeTone,
   sortedNonZeroSizeEntries,
 } from "utils/productMovementHelper";
+import StockListControls from "components/accounting/StockListControls";
+import { buildColorTotals, colorLabelOf, hasStockQty } from "utils/stockViewHelper";
 import "views/kiosks/KioskLedgerLab.css";
 import "views/accounting/KioskMovementsAccounting.css";
 
@@ -86,6 +88,8 @@ export default function ProductMovementsAccounting() {
   const [stocks, setStocks] = useState([]);
   const [movements, setMovements] = useState([]);
   const [selectedStockId, setSelectedStockId] = useState(null);
+  const [onlyWithStock, setOnlyWithStock] = useState(true);
+  const [colorFilter, setColorFilter] = useState("");
   const [loadingStocks, setLoadingStocks] = useState(false);
   const [loadingMovements, setLoadingMovements] = useState(false);
   const [printingInventory, setPrintingInventory] = useState(false);
@@ -228,6 +232,7 @@ export default function ProductMovementsAccounting() {
 
   const handleClear = () => {
     setFilters(INITIAL_FILTERS);
+    setColorFilter("");
     setStocks([]);
     setMovements([]);
     setSelectedStockId(null);
@@ -291,10 +296,46 @@ export default function ProductMovementsAccounting() {
     }
   };
 
-  const selectedStock = useMemo(
-    () => stocks.find((s) => String(s.id) === String(selectedStockId)) || null,
-    [stocks, selectedStockId]
+  // 1) existencia → totales por color → 2) color elegido
+  const withStockCount = useMemo(
+    () => stocks.filter((s) => hasStockQty(s.quantity)).length,
+    [stocks]
   );
+
+  const scopedStocks = useMemo(
+    () => (onlyWithStock ? stocks.filter((s) => hasStockQty(s.quantity)) : stocks),
+    [stocks, onlyWithStock]
+  );
+
+  const colorTotals = useMemo(
+    () => buildColorTotals(scopedStocks, (s) => s.colorName, (s) => s.quantity),
+    [scopedStocks]
+  );
+
+  const visibleStocks = useMemo(() => {
+    if (!colorFilter) return scopedStocks;
+    return scopedStocks.filter((s) => colorLabelOf(s.colorName) === colorFilter);
+  }, [scopedStocks, colorFilter]);
+
+  useEffect(() => {
+    if (colorFilter && !colorTotals.colors.some((c) => c.color === colorFilter)) {
+      setColorFilter("");
+    }
+  }, [colorFilter, colorTotals]);
+
+  const selectedStock = useMemo(
+    () => visibleStocks.find((s) => String(s.id) === String(selectedStockId)) || null,
+    [visibleStocks, selectedStockId]
+  );
+
+  useEffect(() => {
+    if (!selectedStockId) return;
+    const stillVisible = visibleStocks.some((s) => String(s.id) === String(selectedStockId));
+    if (!stillVisible) {
+      setSelectedStockId(null);
+      loadMovements({ stockId: null });
+    }
+  }, [visibleStocks, selectedStockId, loadMovements]);
 
   const busy = loadingStocks || loadingMovements;
   const exporting = printingInventory || exportingExcel;
@@ -397,6 +438,7 @@ export default function ProductMovementsAccounting() {
                 value={String(filters.locationId)}
                 onChange={(v) => {
                   setFilter("locationId", v || "");
+                  setColorFilter("");
                   setSelectedStockId(null);
                   setStocks([]);
                   setMovements([]);
@@ -503,13 +545,29 @@ export default function ProductMovementsAccounting() {
           <div className="kll-card">
             <div className="kll-card-head">
               <div className="kll-card-title">
-                Inventario <span className="kll-count">{stocks.length}</span>
+                Inventario{" "}
+                <span className="kll-count">
+                  {visibleStocks.length}
+                  {visibleStocks.length !== stocks.length ? ` de ${stocks.length}` : ""}
+                </span>
                 {selectedLocation && (
                   <span className="kll-sub">{selectedLocation.name || selectedLocation.code}</span>
                 )}
               </div>
               {loadingStocks && <Spinner size="sm" color="primary" />}
             </div>
+
+            {stocks.length > 0 && (
+              <StockListControls
+                onlyWithStock={onlyWithStock}
+                onToggleOnlyWithStock={setOnlyWithStock}
+                withStockCount={withStockCount}
+                allCount={stocks.length}
+                colorTotals={colorTotals}
+                colorFilter={colorFilter}
+                onColorFilterChange={setColorFilter}
+              />
+            )}
 
             {selectedStock && (
               <div className="kll-para-panel kma-selected">
@@ -555,7 +613,7 @@ export default function ProductMovementsAccounting() {
                   </tr>
                 </thead>
                 <tbody>
-                  {stocks.map((s) => {
+                  {visibleStocks.map((s) => {
                     const qty = Number(s.quantity);
                     const sizeEntries = sortedNonZeroSizeEntries(s.sizes);
                     return (
@@ -594,12 +652,16 @@ export default function ProductMovementsAccounting() {
                   })}
                 </tbody>
               </table>
-              {!loadingStocks && stocks.length === 0 && (
+              {!loadingStocks && visibleStocks.length === 0 && (
                 <EmptyState
                   icon="nc-tag"
                   title={filters.locationId ? "Sin filas" : "Elige una bodega"}
                   text={filters.locationId
-                    ? "Pulsa Consultar para cargar el inventario."
+                    ? stocks.length > 0
+                      ? onlyWithStock
+                        ? "Ninguna fila con existencia coincide. Pulsa «Todo» para ver también las que están en cero."
+                        : "Ninguna fila coincide con ese color."
+                      : "Pulsa Consultar para cargar el inventario."
                     : "Selecciona Bodega PT o Devoluciones para ver su inventario."}
                 />
               )}
@@ -670,17 +732,21 @@ export default function ProductMovementsAccounting() {
                             {productMovementTypeLabel(type)}
                           </span>
                         </td>
-                        <td className="num"><b>{m.quantity ?? "—"}</b></td>
+                        <td className="num">
+                          {/* Un solo número: la cantidad con signo (verde entra / rojo sale). */}
+                          {stockDelta != null && stockDelta !== 0 ? (
+                            <span className={`kll-delta kma-qty ${stockDelta > 0 ? "up" : "down"}`}>
+                              {stockDelta > 0 ? `+${stockDelta}` : `−${Math.abs(stockDelta)}`}
+                            </span>
+                          ) : (
+                            <b>{m.quantity ?? "—"}</b>
+                          )}
+                        </td>
                         <td>
                           <span className="kll-flow">
                             {m.quantityBefore ?? "—"}
                             <span className="arrow">→</span>
                             <b>{m.quantityAfter ?? "—"}</b>
-                            {stockDelta != null && (
-                              <span className={`kll-delta ${stockDelta > 0 ? "up" : stockDelta < 0 ? "down" : "flat"}`}>
-                                {stockDelta > 0 ? `+${stockDelta}` : stockDelta}
-                              </span>
-                            )}
                           </span>
                         </td>
                         <td>
