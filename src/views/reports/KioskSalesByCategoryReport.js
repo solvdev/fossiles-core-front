@@ -22,6 +22,7 @@ import { showError } from "utils/notificationHelper";
 import { formatCurrency, POS_MODE_ENTRECUEROS } from "views/kiosks/pos/posUtils";
 import * as XLSX from "xlsx";
 import "./reportsDesign.css";
+import "./KioskSalesByCategoryReport.css";
 
 const FILTER_MONTH = "month";
 const FILTER_RANGE = "range";
@@ -67,6 +68,11 @@ const SUBGROUP_COLORS = {
 };
 
 const FALLBACK_COLORS = ["#51cbce", "#fbc658", "#ef8157", "#6bd098", "#9c27b0", "#344675"];
+
+const SIN_CLASIFICAR_CODE = "SIN_CLASIFICAR";
+const CATEGORY_BAR_COLOR = "#0b6e71";
+const SIN_CLASIFICAR_HINT =
+  "Productos de esta categoría a los que aún les falta el público (dama / caballero) o el tipo de cincho (casual / reversible) en el catálogo.";
 
 const selectStyles = {
   control: (base, state) => ({
@@ -124,6 +130,35 @@ export const subgroupLabelOf = (row) => {
 };
 
 export const hasSubgroup = (row) => Boolean(subgroupLabelOf(row));
+
+/** Parte (0–100) que ocupa un monto dentro del total; null si el total no es positivo. */
+export const shareOfTotal = (value, total) => {
+  const t = toNumber(total);
+  if (t <= 0) return null;
+  return (toNumber(value) / t) * 100;
+};
+
+export const formatShare = (share) => {
+  if (share == null) return "—";
+  const rounded = Math.round(share * 10) / 10;
+  return `${String(rounded).replace(/\.0$/, "")}%`;
+};
+
+const subgroupColor = (code, fallbackIndex = 0) =>
+  SUBGROUP_COLORS[code] || FALLBACK_COLORS[fallbackIndex % FALLBACK_COLORS.length];
+
+function ShareCell({ value, total, color }) {
+  const share = shareOfTotal(value, total);
+  const width = share == null ? 0 : Math.min(100, Math.max(share > 0 ? 2 : 0, share));
+  return (
+    <td className="rpt-num ksc-share">
+      <span className="ksc-share-text">{formatShare(share)}</span>
+      <span className="ksc-share-bar" aria-hidden="true">
+        <span style={{ width: `${width}%`, background: color }} />
+      </span>
+    </td>
+  );
+}
 
 const categoryKey = (row) => (row?.categoryId == null ? "null" : String(row.categoryId));
 
@@ -403,6 +438,10 @@ function KioskSalesByCategoryReport() {
   const rows = report?.rows || [];
   const totals = report?.totals;
   const groups = useMemo(() => groupRowsByCategory(rows), [rows]);
+  const grandTotal = totals?.totalAmount;
+  const averagePrice = toNumber(totals?.units) > 0 ? toNumber(totals?.totalAmount) / toNumber(totals?.units) : 0;
+  const hasUnclassified = rows.some((row) => row?.subgroupCode === SIN_CLASIFICAR_CODE);
+  const hasUncategorized = rows.some((row) => row?.categoryId == null);
 
   const filterSummary = useMemo(() => {
     const period =
@@ -556,7 +595,7 @@ function KioskSalesByCategoryReport() {
 
               {report && (
                 <div style={loading ? { opacity: 0.55 } : undefined}>
-                  <div className="rpt-tiles rpt-tiles--3">
+                  <div className="rpt-tiles rpt-tiles--4">
                     <div className="rpt-tile is-static" style={{ borderLeftColor: "#0b6e71" }}>
                       <span className="rpt-tile-label" style={{ color: "#0b6e71" }}>
                         Total con IVA
@@ -575,6 +614,13 @@ function KioskSalesByCategoryReport() {
                       </span>
                       <span className="rpt-tile-value">{formatUnits(totals?.units)}</span>
                     </div>
+                    <div className="rpt-tile is-static" style={{ borderLeftColor: "#4f6bd8" }}>
+                      <span className="rpt-tile-label" style={{ color: "#4f6bd8" }}>
+                        Precio promedio
+                      </span>
+                      <span className="rpt-tile-value">{formatCurrency(averagePrice)}</span>
+                      <span className="rpt-tile-hint">por unidad, con IVA · {groups.length} categorías</span>
+                    </div>
                   </div>
 
                   {rows.length > 0 && <CategorySalesChart groups={groups} />}
@@ -587,12 +633,13 @@ function KioskSalesByCategoryReport() {
                           <th className="rpt-num">Unidades</th>
                           <th className="rpt-num">Total (con IVA) Q</th>
                           <th className="rpt-num">Total sin IVA Q</th>
+                          <th className="rpt-num ksc-share-col">% del total</th>
                         </tr>
                       </thead>
                       <tbody>
                         {!rows.length ? (
                           <tr>
-                            <td colSpan="4" className="text-center text-muted">
+                            <td colSpan="5" className="text-center text-muted">
                               No hay datos para mostrar
                             </td>
                           </tr>
@@ -601,10 +648,18 @@ function KioskSalesByCategoryReport() {
                             if (!group.split) {
                               return group.rows.map((row, index) => (
                                 <tr key={`${group.key}-${index}`} data-row-type="category">
-                                  <td className="rpt-name">{categoryLabel(row)}</td>
+                                  <td className="rpt-name">
+                                    <span
+                                      className="ksc-swatch"
+                                      style={{ background: CATEGORY_BAR_COLOR }}
+                                      aria-hidden="true"
+                                    />
+                                    {categoryLabel(row)}
+                                  </td>
                                   <td className="rpt-num">{formatUnits(row.units)}</td>
                                   <td className="rpt-num">{formatCurrency(row.totalAmount)}</td>
                                   <td className="rpt-num">{formatCurrency(row.totalAmountNoIva)}</td>
+                                  <ShareCell value={row.totalAmount} total={grandTotal} color={CATEGORY_BAR_COLOR} />
                                 </tr>
                               ));
                             }
@@ -618,6 +673,7 @@ function KioskSalesByCategoryReport() {
                                 <td className="rpt-num">{formatUnits(group.units)}</td>
                                 <td className="rpt-num">{formatCurrency(group.totalAmount)}</td>
                                 <td className="rpt-num">{formatCurrency(group.totalAmountNoIva)}</td>
+                                <ShareCell value={group.totalAmount} total={grandTotal} color="#1f2937" />
                               </tr>,
                               ...group.rows.map((row, index) => (
                                 <tr
@@ -626,10 +682,22 @@ function KioskSalesByCategoryReport() {
                                   data-row-type="subgroup"
                                   data-subgroup-code={row.subgroupCode || ""}
                                 >
-                                  <td>{subgroupLabelOf(row) || "Sin subgrupo"}</td>
+                                  <td title={row.subgroupCode === SIN_CLASIFICAR_CODE ? SIN_CLASIFICAR_HINT : undefined}>
+                                    <span
+                                      className="ksc-swatch"
+                                      style={{ background: subgroupColor(subgroupKey(row), index) }}
+                                      aria-hidden="true"
+                                    />
+                                    {subgroupLabelOf(row) || "Sin subgrupo"}
+                                  </td>
                                   <td className="rpt-num">{formatUnits(row.units)}</td>
                                   <td className="rpt-num">{formatCurrency(row.totalAmount)}</td>
                                   <td className="rpt-num">{formatCurrency(row.totalAmountNoIva)}</td>
+                                  <ShareCell
+                                    value={row.totalAmount}
+                                    total={grandTotal}
+                                    color={subgroupColor(subgroupKey(row), index)}
+                                  />
                                 </tr>
                               )),
                             ];
@@ -643,11 +711,33 @@ function KioskSalesByCategoryReport() {
                             <td className="rpt-num">{formatUnits(totals.units)}</td>
                             <td className="rpt-num">{formatCurrency(totals.totalAmount)}</td>
                             <td className="rpt-num">{formatCurrency(totals.totalAmountNoIva)}</td>
+                            <td className="rpt-num ksc-share">{rows.length ? "100%" : "—"}</td>
                           </tr>
                         </tfoot>
                       )}
                     </Table>
                   </div>
+
+                  {(hasUnclassified || hasUncategorized) && (
+                    <div className="ksc-notes" role="note">
+                      {hasUnclassified && (
+                        <p>
+                          <span
+                            className="ksc-swatch"
+                            style={{ background: SUBGROUP_COLORS.SIN_CLASIFICAR }}
+                            aria-hidden="true"
+                          />
+                          <strong>Sin clasificar:</strong> {SIN_CLASIFICAR_HINT} Complétalo en Productos y el reporte
+                          los separa solo.
+                        </p>
+                      )}
+                      {hasUncategorized && (
+                        <p>
+                          <strong>Sin categoría:</strong> productos que no tienen categoría asignada en el catálogo.
+                        </p>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
             </CardBody>

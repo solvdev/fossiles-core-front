@@ -99,11 +99,13 @@ function Admin(props) {
         }
         const codes = routePermissionCodes(prop.permissions);
         const existing = routeByPath.get(prop.path);
+        const roleNameIncludes = Array.isArray(prop.roleNameIncludes) ? prop.roleNameIncludes : null;
         if (existing) {
           const merged = [...new Set([...(existing.permission || []), ...(codes || [])])];
           routeByPath.set(prop.path, {
             ...existing,
             permission: merged.length > 0 ? merged : null,
+            roleNameIncludes: existing.roleNameIncludes || roleNameIncludes,
           });
           return;
         }
@@ -111,6 +113,7 @@ function Admin(props) {
           path: prop.path,
           component: prop.component,
           permission: codes,
+          roleNameIncludes,
         });
       });
     };
@@ -121,7 +124,7 @@ function Admin(props) {
       <Route
         path={route.path}
         element={
-          <ProtectedRoute permission={route.permission}>
+          <ProtectedRoute permission={route.permission} roleNameIncludes={route.roleNameIncludes}>
             {route.component}
           </ProtectedRoute>
         }
