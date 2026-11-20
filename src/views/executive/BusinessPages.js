@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   fDate, fK, fN, fQ, monthName, pct, productName,
 } from "views/executive/executiveModel";
@@ -262,7 +262,7 @@ export function SalesPage({ m, kiosk, setKiosk }) {
                   ["Venta", fQ(selected.sales)],
                   ["Ventas", fN(selected.tickets)],
                   ["Ticket promedio", selected.tickets ? fQ(selected.sales / selected.tickets) : "—"],
-                  ["Meta del mes", goal && goal.goal > 0 ? `${pct(goal.mtdPct)} al día ${Math.floor(fin.daysElapsed + 0.5)}` : "Sin meta"],
+                  ["Meta (Finanzas)", goal && goal.goal > 0 ? `${pct(goal.rangePct)} · ${fin.rangeLabel}` : "Sin meta"],
                 ]
               : [
                   ["Venta", fK(sales.sales)],
@@ -341,107 +341,192 @@ const FIN_SORTS = [
   ["venta", "Venta"],
 ];
 
-export function FinancePage({ m }) {
+const ymd = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+
+/** Atajos de rango. Todos terminan como máximo ayer: el día de hoy se cuenta cuando cierra. */
+function rangeShortcuts(todayYmd) {
+  const [y, m, d] = todayYmd.split("-").map(Number);
+  const yesterday = new Date(y, m - 1, d - 1);
+  const monthStart = new Date(yesterday.getFullYear(), yesterday.getMonth(), 1);
+  const prevStart = new Date(monthStart.getFullYear(), monthStart.getMonth() - 1, 1);
+  const prevEnd = new Date(monthStart.getFullYear(), monthStart.getMonth(), 0);
+  const last30 = new Date(yesterday.getFullYear(), yesterday.getMonth(), yesterday.getDate() - 29);
+  const yearStart = new Date(yesterday.getFullYear(), 0, 1);
+  return [
+    ["mes", "Mes hasta ayer", ymd(monthStart), ymd(yesterday)],
+    ["anterior", "Mes anterior", ymd(prevStart), ymd(prevEnd)],
+    ["30", "Últimos 30 días", ymd(last30), ymd(yesterday)],
+    ["anio", "Año hasta ayer", ymd(yearStart), ymd(yesterday)],
+  ];
+}
+
+export function FinancePage({ m, todayYmd, onRange, loadingFinance }) {
   const { fin, recv, ads } = m;
   const [sort, setSort] = useState("util");
+  const [draft, setDraft] = useState({ from: fin.from, to: fin.to });
+  useEffect(() => setDraft({ from: fin.from, to: fin.to }), [fin.from, fin.to]);
+  const shortcuts = useMemo(() => rangeShortcuts(todayYmd), [todayYmd]);
+  const yesterdayYmd = shortcuts[0][3];
+  const active = shortcuts.find((sc) => sc[2] === fin.from && sc[3] === fin.to);
+
   const rows = useMemo(() => {
     const list = [...fin.rows];
     const profit = (r) => (r.pnl ? r.pnl.profit : -Infinity);
     if (sort === "util") list.sort((a, b) => profit(b) - profit(a));
-    if (sort === "meta") list.sort((a, b) => (b.projPct || 0) - (a.projPct || 0));
-    if (sort === "venta") list.sort((a, b) => (b.pnl ? b.pnl.sales : 0) - (a.pnl ? a.pnl.sales : 0));
+    if (sort === "meta") list.sort((a, b) => (fin.score(b) || 0) - (fin.score(a) || 0));
+    if (sort === "venta") list.sort((a, b) => b.sales - a.sales);
     return list;
-  }, [fin.rows, sort]);
+  }, [fin, sort]);
   const pnlMonth = fin.pnlMonth ? monthName(fin.pnlMonth) : "";
   const curMonth = monthName(fin.month);
-  const day = Math.floor(fin.daysElapsed + 0.5);
-  const adsWithRatio = ads.filter((a) => a.ratio != null);
-  const ratios = adsWithRatio.map((a) => a.ratio);
+  const ratios = ads.filter((a) => a.ratio != null).map((a) => a.ratio);
+  const apply = (from, to) => {
+    if (from && to) onRange(from, to > yesterdayYmd ? yesterdayYmd : to);
+  };
+
   return (
     <div className="x-stack">
-      <KpiGrid
-        items={[
-          { label: `Meta de ${curMonth}`, value: fK(fin.goalTotal), sub: `suma de ${fN(fin.rows.filter((r) => r.goal > 0).length)} kioscos` },
-          { label: `Vendido al día ${day}`, value: fK(fin.mtdTotal), delta: fin.goalTotal ? pct(fin.mtdTotal / fin.goalTotal) : "", sub: "de la meta" },
-          {
-            label: "Proyección al cierre",
-            value: fK(fin.projTotal),
-            delta: fin.goalTotal ? pct(fin.projTotal / fin.goalTotal) : "",
-            tone: fin.goalTotal && fin.projTotal / fin.goalTotal >= 0.9 ? "up" : "down",
-            sub: "de la meta",
-          },
-          fin.hasPnl ? { label: `Utilidad ${pnlMonth}`, value: fK(fin.profitTotal), tone: fin.profitTotal >= 0 ? "up" : "down", sub: "P&L de Finanzas por kiosco" } : null,
-          fin.hasPnl ? { label: "Kioscos con pérdida", value: fN(fin.losers.length), sub: `en ${pnlMonth}` } : null,
-          fin.yoy != null
-            ? {
-                label: `${curMonth} vs año pasado`,
-                value: `${fin.yoy >= 0 ? "▲" : "▼"} ${pct(Math.abs(fin.yoy), 1)}`,
-                tone: fin.yoy >= 0 ? "up" : "down",
-                sub: `días 1–${fin.sameDaysUntil}: ${fK(fin.monthToDate)} contra ${fK(fin.lastYearSameDays)}`,
-              }
-            : null,
-          fin.season
-            ? {
-                label: `${monthName(fin.month === 12 ? 1 : fin.month + 1)} del año pasado`,
-                value: fK(fin.lastYearNextMonth),
-                delta: `${fN(fin.season, 1)}×`,
-                tone: "up",
-                sub: `lo de ${curMonth}: la temporada pesa`,
-              }
-            : null,
-        ]}
-      />
-
       <Card
-        title="Salud de cada kiosco"
-        hint={`${pnlMonth ? `${pnlMonth[0].toUpperCase()}${pnlMonth.slice(1)}: utilidad del P&L oficial de Finanzas. ` : ""}${curMonth[0].toUpperCase()}${curMonth.slice(1)}: hacia dónde va contra la meta.`}
+        title="Periodo de Finanzas"
+        hint="Las ventas de hoy no cuentan: el rango termina como máximo ayer, cuando el día ya cerró."
         actions={
           <>
-            <span className="muted" style={{ fontSize: 12.5 }}>Ordenar por</span>
-            <Chips options={FIN_SORTS} value={sort} onChange={setSort} />
+            {shortcuts.map(([id, label, from, to]) => (
+              <button key={id} type="button" className={`x-chip ${active && active[0] === id ? "on" : ""}`} onClick={() => apply(from, to)}>
+                {label}
+              </button>
+            ))}
           </>
         }
       >
-        {fin.pnlUnavailable ? <div className="x-note" style={{ marginTop: 10 }}>{fin.pnlUnavailable}</div> : null}
-        <GridTable
-          minWidth={880}
-          cols={[
-            { label: "Kiosco", width: "minmax(0, 1.3fr)", cls: "b ell" },
-            { label: `Venta ${pnlMonth.slice(0, 3)}`, width: "92px", align: "r" },
-            { label: "Fijos", width: "86px", align: "r" },
-            { label: "Utilidad", width: "96px", align: "r", cls: "b" },
-            { label: "Equilibrio", width: "96px", align: "r" },
-            { label: `${curMonth}: avance a la meta`, width: "minmax(0, 1fr)" },
-            { label: "Proyección", width: "92px", align: "r" },
-          ]}
-          rows={rows.map((r) => {
-            const wm = Math.min(100, (r.mtdPct || 0) * 100);
-            const wp = Math.max(0, Math.min(100 - wm, ((r.projPct || 0) - (r.mtdPct || 0)) * 100));
-            const pp = r.projPct;
-            return [
-              r.label,
-              r.pnl ? fK(r.pnl.sales) : "—",
-              r.pnl ? fK(r.pnl.fixedCosts) : "—",
-              r.pnl ? <span className={r.pnl.profit < 0 ? "down" : "up"}>{fK(r.pnl.profit)}</span> : "—",
-              r.pnl ? fK(r.pnl.breakEven) : "—",
-              r.goal > 0 ? <BarCell parts={[{ w: wm }, { w: wp, cls: "x-fill2" }]} value={`${pct(r.mtdPct)}`} /> : <span className="muted">Sin meta</span>,
-              pp == null ? "—" : <Pill tone={pp >= 0.9 ? "ok" : pp >= 0.7 ? "mid" : "bad"}>{pct(pp)}</Pill>,
-            ];
-          })}
-        />
-        {fin.goalTotal > 0 ? (
-          <Decide>
-            {fin.reach ? `${fN(fin.reach)} kioscos llegan a la meta de ${curMonth} al ritmo actual` : `Ningún kiosco llega a la meta de ${curMonth} al ritmo actual`}
-            {fin.best ? `; el mejor es ${fin.best.label} con ${pct(fin.best.projPct)}` : ""}.
-            {fin.goalVsLastMonth && fin.goalVsLastMonth > 1.3
-              ? ` La meta total es ${fN(fin.goalVsLastMonth, 1)} veces lo vendido en ${pnlMonth}: o la temporada sube mucho la venta o hay que ajustar metas y comisiones.`
-              : ""}
-          </Decide>
-        ) : null}
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 12, alignItems: "flex-end", marginTop: 12 }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            <label htmlFor="xfin-from" className="x-kpi-label" style={{ margin: 0 }}>Desde</label>
+            <input
+              id="xfin-from"
+              className="x-input"
+              style={{ width: 160 }}
+              type="date"
+              max={yesterdayYmd}
+              value={draft.from || ""}
+              onChange={(e) => setDraft((d) => ({ ...d, from: e.target.value }))}
+            />
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            <label htmlFor="xfin-to" className="x-kpi-label" style={{ margin: 0 }}>Hasta</label>
+            <input
+              id="xfin-to"
+              className="x-input"
+              style={{ width: 160 }}
+              type="date"
+              max={yesterdayYmd}
+              value={draft.to || ""}
+              onChange={(e) => setDraft((d) => ({ ...d, to: e.target.value }))}
+            />
+          </div>
+          <button
+            type="button"
+            className="x-chip on"
+            disabled={loadingFinance || !draft.from || !draft.to || draft.from > draft.to || (draft.from === fin.from && draft.to === fin.to)}
+            onClick={() => apply(draft.from, draft.to)}
+          >
+            {loadingFinance ? "Calculando…" : "Aplicar"}
+          </button>
+          <span className="x-badge">
+            {fin.rangeLabel} · {fN(fin.days)} días cerrados{fin.cappedToYesterday ? " (se cortó en ayer)" : ""}
+          </span>
+        </div>
       </Card>
 
+      <div style={{ opacity: loadingFinance ? 0.6 : 1, transition: "opacity .2s" }} className="x-stack">
+        <KpiGrid
+          items={[
+            { label: "Venta de kioscos", value: fK(fin.sales), sub: fin.rangeLabel },
+            fin.goalTotal > 0
+              ? { label: "Meta del periodo", value: fK(fin.goalTotal), delta: pct(fin.salesWithGoal / fin.goalTotal), sub: "vendido de la meta (prorrateada por días)" }
+              : null,
+            fin.projectionFactor && fin.projectionFactor !== 1 && fin.monthGoalTotal > 0
+              ? {
+                  label: `Proyección al cierre de ${curMonth}`,
+                  value: fK(fin.projTotal),
+                  delta: pct(fin.projTotal / fin.monthGoalTotal),
+                  tone: fin.projTotal / fin.monthGoalTotal >= 0.9 ? "up" : "down",
+                  sub: `de la meta del mes (${fK(fin.monthGoalTotal)}), con días cerrados`,
+                }
+              : null,
+            fin.yoy != null
+              ? {
+                  label: "Vs año pasado",
+                  value: `${fin.yoy >= 0 ? "▲" : "▼"} ${pct(Math.abs(fin.yoy), 1)}`,
+                  tone: fin.yoy >= 0 ? "up" : "down",
+                  sub: `mismas fechas: ${fK(fin.sales)} contra ${fK(fin.lastYearSameRange)}`,
+                }
+              : null,
+            fin.hasPnl ? { label: `Utilidad ${pnlMonth}`, value: fK(fin.profitTotal), tone: fin.profitTotal >= 0 ? "up" : "down", sub: `P&L de Finanzas · ${fN(fin.losers.length)} kioscos con pérdida` } : null,
+            fin.season
+              ? {
+                  label: `${monthName(fin.month === 12 ? 1 : fin.month + 1)} del año pasado`,
+                  value: fK(fin.lastYearNextMonth),
+                  delta: `${fN(fin.season, 1)}×`,
+                  tone: "up",
+                  sub: `lo de ${curMonth}: la temporada pesa`,
+                }
+              : null,
+          ]}
+        />
+
+        <Card
+          title="Salud de cada kiosco"
+          hint={`Venta y meta del periodo elegido.${fin.projectionFactor && fin.projectionFactor !== 1 ? ` Proyección = lo vendido llevado a los ${fin.daysInMonth} días de ${curMonth}.` : ""}${pnlMonth ? ` Utilidad y equilibrio: P&L oficial de ${pnlMonth}.` : ""}`}
+          actions={
+            <>
+              <span className="muted" style={{ fontSize: 12.5 }}>Ordenar por</span>
+              <Chips options={FIN_SORTS} value={sort} onChange={setSort} />
+            </>
+          }
+        >
+          {fin.pnlUnavailable ? <div className="x-note" style={{ marginTop: 10 }}>{fin.pnlUnavailable}</div> : null}
+          <GridTable
+            minWidth={900}
+            cols={[
+              { label: "Kiosco", width: "minmax(0, 1.3fr)", cls: "b ell" },
+              { label: "Venta", width: "90px", align: "r", cls: "b" },
+              { label: "Meta", width: "86px", align: "r" },
+              { label: "Avance a la meta", width: "minmax(0, 1fr)" },
+              { label: fin.projectionFactor && fin.projectionFactor !== 1 ? "Proyección" : "% meta", width: "92px", align: "r" },
+              { label: `Utilidad ${pnlMonth.slice(0, 3)}`, width: "96px", align: "r" },
+              { label: "Equilibrio", width: "92px", align: "r" },
+            ]}
+            rows={rows.map((r) => {
+              const score = fin.score(r);
+              const wSales = Math.min(100, (r.rangePct || 0) * 100);
+              return [
+                r.label,
+                fK(r.sales),
+                r.goal > 0 ? fK(r.goal) : "—",
+                r.goal > 0 ? <BarCell parts={[{ w: wSales }]} value={pct(r.rangePct)} /> : <span className="muted">Sin meta</span>,
+                score == null ? "—" : <Pill tone={score >= 0.9 ? "ok" : score >= 0.7 ? "mid" : "bad"}>{pct(score)}</Pill>,
+                r.pnl ? <span className={r.pnl.profit < 0 ? "down" : "up"}>{fK(r.pnl.profit)}</span> : "—",
+                r.pnl ? fK(r.pnl.breakEven) : "—",
+              ];
+            })}
+          />
+          {fin.goalTotal > 0 ? (
+            <Decide>
+              {fin.reach
+                ? `${fN(fin.reach)} kioscos ${fin.projectionFactor && fin.projectionFactor !== 1 ? "llegan a la meta del mes al ritmo actual" : "alcanzaron la meta del periodo"}`
+                : `Ningún kiosco ${fin.projectionFactor && fin.projectionFactor !== 1 ? "llega a la meta del mes al ritmo actual" : "alcanzó la meta del periodo"}`}
+              {fin.best ? `; el mejor es ${fin.best.label} con ${pct(fin.score(fin.best))}` : ""}.
+              {fin.goalVsLastMonth && fin.goalVsLastMonth > 1.3
+                ? ` La meta de ${curMonth} es ${fN(fin.goalVsLastMonth, 1)} veces lo vendido en ${pnlMonth}: o la temporada sube mucho la venta o hay que ajustar metas y comisiones.`
+                : ""}
+            </Decide>
+          ) : null}
+        </Card>
+      </div>
+
       <div className="x-row">
-        <Card title="Cuánto nos deben los clientes" hint="Cuentas por cobrar de clientes mayoristas." style={{ flex: "1 1 420px" }}>
+        <Card title="Cuánto nos deben los clientes" hint="Cuentas por cobrar de clientes mayoristas (saldo de hoy)." style={{ flex: "1 1 420px" }}>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 22, marginTop: 12 }}>
             <div>
               <div className="x-kpi-label">Por cobrar</div>
@@ -449,7 +534,7 @@ export function FinancePage({ m }) {
               <div className="x-kpi-sub">{fN(recv.customers)} clientes</div>
             </div>
             <div>
-              <div className="x-kpi-label">Cobrado en el periodo</div>
+              <div className="x-kpi-label">Cobrado · {m.data.days} días</div>
               <div className="x-kpi-value">{fQ(recv.collectedInPeriod)}</div>
               <div className="x-kpi-sub">pagos registrados</div>
             </div>
@@ -506,9 +591,9 @@ export function FinancePage({ m }) {
 
       <Card className="soft" title="Cómo se calcula">
         <p className="x-hint">
-          Utilidad, costos fijos y equilibrio salen del P&amp;L de Finanzas por kiosco del mes cerrado (incluye costo de producto, comisiones, tarjeta,
-          impuestos y fijos). Proyección = lo vendido en el mes llevado al total de días. La venta del año pasado sale del histórico importado. Los
-          sitios marcados como fuera de reportes no aparecen en el P&amp;L.
+          Venta = ventas de kioscos cerradas (sin hoy ni ventas de prueba) en el periodo. Meta del periodo = meta de cada mes prorrateada por los días
+          elegidos. Utilidad, costos fijos y equilibrio salen del P&amp;L de Finanzas por kiosco del mes cerrado (incluye costo de producto, comisiones,
+          tarjeta, impuestos y fijos). La venta del año pasado sale del histórico importado. Los sitios fuera de reportes no aparecen en el P&amp;L.
         </p>
       </Card>
     </div>

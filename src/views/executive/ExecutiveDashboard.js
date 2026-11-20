@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { getExecutiveDashboard } from "services/executiveDashboardService";
+import { getExecutiveDashboard, getExecutiveFinance } from "services/executiveDashboardService";
+import { getTodayYmdGuatemala } from "utils/dateTimeHelper";
 import { buildModel, fDate } from "views/executive/executiveModel";
 import { Chips } from "views/executive/ExecutiveParts";
 import { OrdersPage, ProductionPage, SummaryPage } from "views/executive/OperationsPages";
@@ -9,32 +10,42 @@ import "views/executive/ExecutiveDashboard.css";
 
 const PAGES = [
   ["resumen", "Resumen", "Lo importante de hoy", "Resumen gerencial", "Producción, ventas y finanzas en una vista: qué va bien, qué no y qué decidir."],
-  ["produccion", "Producción", "Tiempos, ritmo y cuero", "Producción y tiempos", "Cuánto se produce, cuánto tarda, quién lo hace y cuándo se termina lo pendiente."],
-  ["ordenes", "Órdenes", "Avance en %", "Avance de órdenes", "Cómo va cada orden en porcentaje y cuánto falta."],
+  ["produccion", "Producción", "Horas, ritmo y cuero", "Producción y tiempos", "Cuánto se produce, cuántas horas faltan, quién lo hace y cuándo se termina lo pendiente."],
+  ["ordenes", "Órdenes", "Avance en % y horas", "Avance de órdenes", "Cómo va cada orden en porcentaje, cuánto falta y cuántas horas."],
   ["rentabilidad", "Rentabilidad", "Qué deja y qué sobra", "Rentabilidad", "Si se produce lo que se vende, qué producto deja más por hora y cuánto dinero está parado."],
   ["ventas", "Ventas kioscos", "Qué se vende", "Ventas de kioscos", "Qué se vende más, en qué kiosco y qué se está acabando."],
-  ["finanzas", "Finanzas", "Kioscos, cartera, publicidad", "Finanzas", "Qué kiosco deja dinero, cuánto nos deben y cuánto rinde la publicidad."],
+  ["finanzas", "Finanzas", "Por fechas, hasta ayer", "Finanzas", "Qué kiosco deja dinero, cómo va contra la meta, cuánto nos deben y cuánto rinde la publicidad."],
 ];
 const PERIODS = [
   [7, "7 días"],
   [30, "30 días"],
   [90, "90 días"],
 ];
+const isYmd = (v) => /^\d{4}-\d{2}-\d{2}$/.test(v || "");
 
 /**
  * Tablero gerencial (Dashboards > Gerencial), solo administradores. Una lectura al backend y seis páginas tipo
- * Power BI. La página y el periodo viven en la URL (?page=&days=) para poder compartir el enlace.
+ * Power BI. Página, periodo y rango de Finanzas viven en la URL (?page=&days=&finFrom=&finTo=) para compartir el enlace.
+ * Cambiar el rango de Finanzas solo vuelve a pedir Finanzas.
  */
 function ExecutiveDashboard() {
   const [params, setParams] = useSearchParams();
   const page = PAGES.some((p) => p[0] === params.get("page")) ? params.get("page") : "resumen";
   const days = PERIODS.some((p) => String(p[0]) === params.get("days")) ? Number(params.get("days")) : 30;
+  const finFrom = isYmd(params.get("finFrom")) ? params.get("finFrom") : null;
+  const finTo = isYmd(params.get("finTo")) ? params.get("finTo") : null;
+  const [today] = useState(getTodayYmdGuatemala);
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
+  const [loadingFinance, setLoadingFinance] = useState(false);
   const [marginMode, setMarginMode] = useState("real");
   const [kiosk, setKiosk] = useState(null);
   const abortRef = useRef(null);
+  const finAbortRef = useRef(null);
+  const finRangeRef = useRef({ finFrom, finTo });
+  finRangeRef.current = { finFrom, finTo };
+  const loadedRangeRef = useRef(null);
 
   const load = useCallback(
     async (refresh = false) => {
@@ -43,8 +54,10 @@ function ExecutiveDashboard() {
       abortRef.current = controller;
       setLoading(true);
       setError("");
+      const range = finRangeRef.current;
       try {
-        const res = await getExecutiveDashboard({ days, refresh, signal: controller.signal });
+        const res = await getExecutiveDashboard({ days, finFrom: range.finFrom, finTo: range.finTo, refresh, signal: controller.signal });
+        loadedRangeRef.current = `${range.finFrom || ""}|${range.finTo || ""}`;
         setData(res);
       } catch (e) {
         if (e.name !== "AbortError") setError(e.message || "No se pudo cargar el tablero.");
@@ -61,6 +74,28 @@ function ExecutiveDashboard() {
       if (abortRef.current) abortRef.current.abort();
     };
   }, [load]);
+
+  // Rango de Finanzas cambiado después de cargar: solo se vuelve a pedir esa parte.
+  useEffect(() => {
+    const key = `${finFrom || ""}|${finTo || ""}`;
+    if (!data || loadedRangeRef.current === key) return undefined;
+    if (finAbortRef.current) finAbortRef.current.abort();
+    const controller = new AbortController();
+    finAbortRef.current = controller;
+    setLoadingFinance(true);
+    getExecutiveFinance({ from: finFrom, to: finTo, signal: controller.signal })
+      .then((finance) => {
+        loadedRangeRef.current = key;
+        setData((prev) => (prev ? { ...prev, finance } : prev));
+      })
+      .catch((e) => {
+        if (e.name !== "AbortError") setError(e.message || "No se pudo cargar Finanzas.");
+      })
+      .finally(() => {
+        if (finAbortRef.current === controller) setLoadingFinance(false);
+      });
+    return () => controller.abort();
+  }, [finFrom, finTo, data]);
 
   const model = useMemo(() => (data ? buildModel(data, { marginMode }) : null), [data, marginMode]);
 
@@ -82,6 +117,7 @@ function ExecutiveDashboard() {
   };
 
   const current = PAGES.find((p) => p[0] === page);
+  const sales = data ? data.kioskSales : null;
 
   return (
     <div className="content">
@@ -92,14 +128,19 @@ function ExecutiveDashboard() {
             <p className="x-sub">{current[4]}</p>
           </div>
           <div className="x-filters">
-            <span className="muted" style={{ fontSize: 12.5 }}>Periodo</span>
-            <Chips options={PERIODS} value={days} onChange={(d) => setParam({ days: d })} />
+            {page !== "finanzas" ? (
+              <>
+                <span className="muted" style={{ fontSize: 12.5 }}>Periodo</span>
+                <Chips options={PERIODS} value={days} onChange={(d) => setParam({ days: d })} />
+              </>
+            ) : null}
             <button type="button" className="x-chip" onClick={() => load(true)} disabled={loading}>
               {loading ? "Actualizando…" : "Actualizar"}
             </button>
-            {data ? (
-              <span className="x-badge">
-                {fDate(data.from)} – {fDate(data.to)} · datos de las {String(data.generatedAt || "").slice(11, 16)}
+            {data && page !== "finanzas" ? (
+              <span className="x-badge" title="Las ventas se cuentan con el día cerrado (hasta ayer); la producción, hasta ahora.">
+                Producción {fDate(data.from)} – {fDate(data.to)} · ventas hasta {fDate(sales && sales.to)} · datos de las{" "}
+                {String(data.generatedAt || "").slice(11, 16)}
               </span>
             ) : null}
           </div>
@@ -123,7 +164,14 @@ function ExecutiveDashboard() {
             {page === "ordenes" ? <OrdersPage m={model} /> : null}
             {page === "rentabilidad" ? <ProfitabilityPage m={model} marginMode={marginMode} setMarginMode={setMarginMode} /> : null}
             {page === "ventas" ? <SalesPage m={model} kiosk={kiosk} setKiosk={setKiosk} /> : null}
-            {page === "finanzas" ? <FinancePage m={model} /> : null}
+            {page === "finanzas" ? (
+              <FinancePage
+                m={model}
+                todayYmd={today}
+                loadingFinance={loadingFinance}
+                onRange={(from, to) => setParam({ finFrom: from, finTo: to })}
+              />
+            ) : null}
           </div>
         ) : null}
       </div>
