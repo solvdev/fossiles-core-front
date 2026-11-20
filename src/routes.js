@@ -94,6 +94,7 @@ import MaterialConsumptionHistory from "views/purchases/MaterialConsumptionHisto
 
 // Distribución
 import PrepareShipments from "views/distribution/PrepareShipments.js";
+import ShipmentsSearch from "views/distribution/ShipmentsSearch.js";
 import KioskReplenishment from "views/distribution/KioskReplenishment.js";
 import AuthorizeShipments from "views/distribution/AuthorizeShipments.js";
 import ShipmentsInTransit from "views/distribution/ShipmentsInTransit.js";
@@ -1056,6 +1057,19 @@ const routes = [
           view: "DISTRIBUCION.DISTRIBUCIONES.VER",
           create: "DISTRIBUCION.DISTRIBUCIONES.CREAR",
           edit: "DISTRIBUCION.DISTRIBUCIONES.EDITAR",
+        },
+      },
+      {
+        // Consulta de todos los envíos por procedencia (imprimir / Excel). Mismo permiso que Preparar Envíos;
+        // el backend limita a una encargada a sus kioscos.
+        path: "/shipments-search",
+        name: "Envíos",
+        mini: "EN",
+        component: <ShipmentsSearch />,
+        layout: "/admin",
+        module: "DISTRIBUCION",
+        permissions: {
+          view: "DISTRIBUCION.PREPARAR_ENVIOS.VER",
         },
       },
       {

@@ -1,0 +1,780 @@
+<title>Consulta de envíos</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Montserrat:wght@600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@500&display=swap">
+<style>
+/* Layout: herramienta de consulta. Barra de filtros arriba, listado a lo ancho, detalle en panel lateral, vista previa de impresión en capa. */
+:root {
+  --bg: #f4f6fa;
+  --surface: #ffffff;
+  --surface-2: #f8fafc;
+  --line: #e2e8f0;
+  --line-strong: #cbd5e1;
+  --fg: #1e293b;
+  --muted: #64748b;
+  --accent: #1e3a8a;
+  --accent-soft: #e0e7ff;
+  --accent-fg: #ffffff;
+  --link: #1d4ed8;
+  --ok: #15803d;      --ok-soft: #dcfce7;
+  --warn: #b45309;    --warn-soft: #fef3c7;
+  --bad: #b91c1c;     --bad-soft: #fee2e2;
+  --p-direct: #92400e;   --p-direct-bg: #fef3c7;
+  --p-dist: #1e40af;     --p-dist-bg: #dbeafe;
+  --p-repo: #0f766e;     --p-repo-bg: #ccfbf1;
+  --p-op: #6d28d9;       --p-op-bg: #ede9fe;
+  --p-part: #4338ca;     --p-part-bg: #e0e7ff;
+  --p-envi: #334155;     --p-envi-bg: #e2e8f0;
+  --p-envp: #166534;     --p-envp-bg: #dcfce7;
+  --p-pend: #c2410c;     --p-pend-bg: #ffedd5;
+  --p-hist: #57534e;     --p-hist-bg: #f5f5f4;
+  --paper: #ffffff; --paper-fg: #111827;
+  --shadow: 0 10px 30px rgba(15, 23, 42, 0.12);
+  --f-display: "Montserrat", "Helvetica Neue", Arial, sans-serif;
+  --f-body: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --f-mono: "IBM Plex Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #0b1220; --surface: #111a2e; --surface-2: #0f172a; --line: #1f2a44; --line-strong: #334155;
+  --fg: #e2e8f0; --muted: #94a3b8; --accent: #93c5fd; --accent-soft: #1e293b; --accent-fg: #0b1220; --link: #93c5fd;
+  --ok: #4ade80; --ok-soft: #052e16; --warn: #fbbf24; --warn-soft: #3b2a07; --bad: #f87171; --bad-soft: #3f1010;
+  --p-direct: #fcd34d; --p-direct-bg: #3a2a06; --p-dist: #93c5fd; --p-dist-bg: #10264d; --p-repo: #5eead4; --p-repo-bg: #06302c;
+  --p-op: #c4b5fd; --p-op-bg: #2a1a52; --p-part: #a5b4fc; --p-part-bg: #1e1b4b; --p-envi: #cbd5e1; --p-envi-bg: #1e293b;
+  --p-envp: #86efac; --p-envp-bg: #052e16; --p-pend: #fdba74; --p-pend-bg: #3b1a06; --p-hist: #d6d3d1; --p-hist-bg: #292524;
+  --paper: #f8fafc; --paper-fg: #111827; --shadow: 0 10px 30px rgba(0,0,0,0.5); color-scheme: dark; } }
+:root[data-theme="dark"] {
+  --bg: #0b1220; --surface: #111a2e; --surface-2: #0f172a; --line: #1f2a44; --line-strong: #334155;
+  --fg: #e2e8f0; --muted: #94a3b8; --accent: #93c5fd; --accent-soft: #1e293b; --accent-fg: #0b1220; --link: #93c5fd;
+  --ok: #4ade80; --ok-soft: #052e16; --warn: #fbbf24; --warn-soft: #3b2a07; --bad: #f87171; --bad-soft: #3f1010;
+  --p-direct: #fcd34d; --p-direct-bg: #3a2a06; --p-dist: #93c5fd; --p-dist-bg: #10264d; --p-repo: #5eead4; --p-repo-bg: #06302c;
+  --p-op: #c4b5fd; --p-op-bg: #2a1a52; --p-part: #a5b4fc; --p-part-bg: #1e1b4b; --p-envi: #cbd5e1; --p-envi-bg: #1e293b;
+  --p-envp: #86efac; --p-envp-bg: #052e16; --p-pend: #fdba74; --p-pend-bg: #3b1a06; --p-hist: #d6d3d1; --p-hist-bg: #292524;
+  --paper: #f8fafc; --paper-fg: #111827; --shadow: 0 10px 30px rgba(0,0,0,0.5); color-scheme: dark; }
+
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--fg); font-family: var(--f-body); font-size: 14px; line-height: 1.45; }
+.wrap { max-width: 1320px; margin: 0 auto; padding-block: 16px 48px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); display: grid; gap: 14px; }
+h1, h2, h3 { font-family: var(--f-display); margin: 0; text-wrap: balance; }
+h1 { font-size: 1.35rem; }
+h2 { font-size: 1rem; }
+.mono { font-family: var(--f-mono); font-size: 0.86em; }
+.muted { color: var(--muted); }
+.small { font-size: 0.8rem; }
+button, input, select { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--link); outline-offset: 2px; }
+
+/* Barra del prototipo */
+.proto { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 8px 12px; border: 1px dashed var(--line-strong); border-radius: 10px; background: var(--surface-2); }
+.proto b { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin-right: 4px; }
+.proto button { border: 1px solid var(--line-strong); background: var(--surface); border-radius: 999px; padding: 3px 12px; cursor: pointer; font-size: 0.82rem; }
+.proto button.on { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
+.proto .sep { flex: 1; }
+
+/* Encabezado de la vista */
+.head { display: flex; flex-wrap: wrap; gap: 12px; align-items: end; justify-content: space-between; }
+.head p { margin: 4px 0 0; max-width: 70ch; }
+.crumbs { font-size: 0.78rem; color: var(--muted); }
+.actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.btn { border: 1px solid var(--line-strong); background: var(--surface); padding: 7px 14px; border-radius: 8px; cursor: pointer; font-weight: 600; font-size: 0.85rem; display: inline-flex; gap: 6px; align-items: center; }
+.btn:hover:not(:disabled) { border-color: var(--link); color: var(--link); }
+.btn.primary { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
+.btn.primary:hover:not(:disabled) { filter: brightness(1.1); color: var(--accent-fg); }
+.btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.btn.ghost { border-color: transparent; background: transparent; }
+
+/* Filtros */
+.filters { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; display: grid; gap: 12px; }
+.frow { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px 14px; }
+.field { display: grid; gap: 4px; min-width: 0; }
+.field label, .flabel { font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em; color: var(--muted); }
+.field input, .field select { width: 100%; border: 1px solid var(--line-strong); border-radius: 8px; padding: 7px 9px; background: var(--surface); min-width: 0; }
+.daterow { display: flex; gap: 6px; flex-wrap: wrap; }
+.daterow select { flex: 0 0 auto; width: auto; }
+.daterow input { flex: 1 1 120px; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { border: 1px solid var(--line-strong); background: var(--surface); border-radius: 999px; padding: 3px 11px; font-size: 0.8rem; font-weight: 600; cursor: pointer; display: inline-flex; gap: 6px; align-items: center; }
+.chip .n { font-size: 0.7rem; padding: 0 6px; border-radius: 999px; background: var(--surface-2); color: var(--muted); font-variant-numeric: tabular-nums; }
+.chip.on { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); }
+.chip.on .n { background: rgba(255,255,255,0.25); color: inherit; }
+.more { border-top: 1px dashed var(--line); padding-top: 12px; display: grid; gap: 12px; }
+.toggle-more { justify-self: start; }
+.checks { display: flex; flex-wrap: wrap; gap: 14px; }
+.checks label { display: inline-flex; gap: 6px; align-items: center; font-size: 0.86rem; cursor: pointer; }
+.kiosk-pick { position: relative; }
+.kiosk-menu { position: absolute; z-index: 5; top: calc(100% + 4px); left: 0; width: min(340px, 90vw); max-height: 300px; overflow: auto; background: var(--surface); border: 1px solid var(--line-strong); border-radius: 10px; box-shadow: var(--shadow); padding: 8px; }
+.kiosk-menu h4 { margin: 8px 4px 4px; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); display: flex; justify-content: space-between; }
+.kiosk-menu h4 button { border: 0; background: none; color: var(--link); cursor: pointer; font-size: 0.72rem; font-weight: 700; }
+.kiosk-menu label { display: flex; gap: 8px; padding: 4px; border-radius: 6px; cursor: pointer; }
+.kiosk-menu label:hover { background: var(--surface-2); }
+
+/* Filtros activos */
+.active { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.tag { background: var(--accent-soft); color: var(--fg); border-radius: 6px; padding: 2px 4px 2px 9px; font-size: 0.78rem; display: inline-flex; gap: 4px; align-items: center; }
+.tag button { border: 0; background: none; cursor: pointer; color: var(--muted); padding: 0 4px; font-size: 0.95rem; line-height: 1; }
+.link { border: 0; background: none; color: var(--link); cursor: pointer; font-weight: 600; font-size: 0.82rem; padding: 2px 4px; }
+.share { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 0.78rem; }
+.share code { font-family: var(--f-mono); background: var(--surface-2); border: 1px solid var(--line); border-radius: 6px; padding: 3px 8px; overflow-wrap: anywhere; min-width: 0; flex: 1 1 300px; }
+
+/* Resumen + tabla */
+.result-bar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; }
+.cap { font-size: 0.8rem; color: var(--warn); background: var(--warn-soft); border-radius: 6px; padding: 3px 9px; }
+.sel-bar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; background: var(--accent); color: var(--accent-fg); border-radius: 10px; padding: 8px 12px; }
+.sel-bar .btn { background: transparent; color: var(--accent-fg); border-color: rgba(255,255,255,0.4); }
+.sel-bar .btn:hover { color: var(--accent-fg); border-color: var(--accent-fg); }
+.tablebox { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
+th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.07em; color: var(--muted); background: var(--surface-2); white-space: nowrap; position: sticky; top: 0; }
+th.sort { cursor: pointer; }
+td.num, th.num { text-align: right; }
+tbody tr { cursor: pointer; }
+tbody tr:hover { background: var(--surface-2); }
+tbody tr.open { background: var(--accent-soft); }
+.env-num { font-family: var(--f-mono); font-weight: 600; white-space: nowrap; }
+.sub { display: block; font-size: 0.76rem; color: var(--muted); margin-top: 2px; }
+.pill { display: inline-flex; align-items: center; gap: 4px; border-radius: 999px; padding: 1px 9px; font-size: 0.74rem; font-weight: 600; white-space: nowrap; }
+.st-DRAFT { background: var(--surface-2); color: var(--muted); border: 1px solid var(--line-strong); }
+.st-CONFIRMED { background: var(--accent-soft); color: var(--link); }
+.st-SENT { background: var(--warn-soft); color: var(--warn); }
+.st-DELIVERED { background: var(--ok-soft); color: var(--ok); }
+.st-CANCELLED { background: var(--bad-soft); color: var(--bad); text-decoration: line-through; }
+.pr { border-radius: 6px; padding: 1px 7px; font-size: 0.74rem; font-weight: 700; white-space: nowrap; }
+.pr-DIRECTO { background: var(--p-direct-bg); color: var(--p-direct); }
+.pr-DIST { background: var(--p-dist-bg); color: var(--p-dist); }
+.pr-REPO { background: var(--p-repo-bg); color: var(--p-repo); }
+.pr-OP { background: var(--p-op-bg); color: var(--p-op); }
+.pr-PARCIAL { background: var(--p-part-bg); color: var(--p-part); }
+.pr-ENVI { background: var(--p-envi-bg); color: var(--p-envi); }
+.pr-ENVP { background: var(--p-envp-bg); color: var(--p-envp); }
+.pr-PEND { background: var(--p-pend-bg); color: var(--p-pend); }
+.pr-HIST { background: var(--p-hist-bg); color: var(--p-hist); }
+.flag { font-size: 0.72rem; font-weight: 700; border-radius: 4px; padding: 0 5px; white-space: nowrap; }
+.flag.bad { background: var(--bad-soft); color: var(--bad); }
+.flag.warn { background: var(--warn-soft); color: var(--warn); }
+.src { font-size: 0.78rem; white-space: nowrap; }
+.src.mix { color: var(--warn); font-weight: 600; }
+.pager { display: flex; gap: 8px; align-items: center; justify-content: flex-end; padding: 10px; font-size: 0.82rem; flex-wrap: wrap; }
+
+/* Estado vacío */
+.empty { text-align: center; padding: 42px 16px; display: grid; gap: 10px; justify-items: center; }
+.empty .icon { width: 54px; height: 54px; border-radius: 14px; background: var(--surface-2); border: 1px solid var(--line); display: grid; place-items: center; }
+.empty p { max-width: 52ch; margin: 0; }
+.empty ul { text-align: left; margin: 0; padding-left: 18px; color: var(--muted); font-size: 0.86rem; }
+
+/* Panel lateral */
+.drawer-bg { position: fixed; inset: 0; background: rgba(15, 23, 42, 0.35); z-index: 20; }
+.drawer { position: fixed; z-index: 21; top: 0; right: 0; bottom: 0; width: min(560px, 100%); background: var(--surface); box-shadow: var(--shadow); display: flex; flex-direction: column; padding-top: env(safe-area-inset-top, 0px); padding-right: env(safe-area-inset-right, 0px); padding-bottom: env(safe-area-inset-bottom, 0px); }
+.drawer header { padding: 16px 18px 12px; border-bottom: 1px solid var(--line); display: grid; gap: 8px; }
+.drawer .dtop { display: flex; justify-content: space-between; gap: 10px; align-items: start; }
+.drawer .body { overflow: auto; padding: 14px 18px 18px; display: grid; gap: 16px; }
+.drawer .foot { border-top: 1px solid var(--line); padding: 10px 18px; display: flex; gap: 8px; flex-wrap: wrap; }
+.kv { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 14px; }
+.kv div { min-width: 0; }
+.kv dt { font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.07em; color: var(--muted); }
+.kv dd { margin: 0; font-weight: 500; overflow-wrap: anywhere; }
+.timeline { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.tl { border-top: 3px solid var(--line-strong); padding-top: 6px; font-size: 0.8rem; }
+.tl.done { border-color: var(--ok); }
+.tl b { display: block; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+.box { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; display: grid; gap: 6px; background: var(--surface-2); }
+.box h3 { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); font-family: var(--f-body); }
+.lines td, .lines th { padding: 6px 8px; font-size: 0.84rem; }
+.lines tbody tr { cursor: default; }
+.diffneg { color: var(--bad); font-weight: 700; }
+
+/* Vista previa de impresión */
+.print-bg { position: fixed; inset: 0; z-index: 30; background: rgba(15, 23, 42, 0.6); overflow: auto; padding: max(16px, env(safe-area-inset-top, 0px)) max(16px, env(safe-area-inset-right, 0px)) 32px max(16px, env(safe-area-inset-left, 0px)); }
+.print-tools { position: sticky; top: 0; z-index: 2; max-width: 860px; margin: 0 auto 14px; background: var(--surface); border-radius: 10px; padding: 10px 14px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; box-shadow: var(--shadow); }
+.print-tools .grow { flex: 1; min-width: 160px; }
+.sheet { max-width: 860px; margin: 0 auto 18px; background: var(--paper); color: var(--paper-fg); border-radius: 4px; padding: 28px 32px; box-shadow: var(--shadow); font-size: 12px; }
+.sheet h2 { font-size: 15px; color: var(--paper-fg); }
+.sheet table { font-size: 11.5px; }
+.sheet th { background: #f1f5f9; color: #334155; position: static; }
+.sheet td, .sheet th { border-bottom: 1px solid #e2e8f0; padding: 5px 6px; }
+.sheet .shead { display: flex; justify-content: space-between; gap: 16px; border-bottom: 2px solid #111827; padding-bottom: 8px; margin-bottom: 10px; flex-wrap: wrap; }
+.sheet .meta { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px 14px; margin-bottom: 12px; }
+.sheet .meta b { display: block; font-size: 9.5px; text-transform: uppercase; letter-spacing: 0.06em; color: #64748b; }
+.sheet .sign { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; margin-top: 34px; }
+.sheet .sign div { border-top: 1px solid #111827; padding-top: 4px; text-align: center; color: #475569; }
+.sheet .pageno { text-align: right; color: #94a3b8; font-size: 10px; margin-top: 12px; }
+.sheet .badge-print { border: 1px solid #111827; border-radius: 4px; padding: 1px 6px; font-weight: 700; font-size: 10px; }
+
+.sel-bar .grow { flex: 1; }
+.toast { position: fixed; z-index: 40; left: 50%; bottom: max(20px, env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); background: var(--fg); color: var(--bg); padding: 8px 14px; border-radius: 8px; font-size: 0.85rem; max-width: 90vw; box-shadow: var(--shadow); }
+.role-note { font-size: 0.8rem; background: var(--warn-soft); color: var(--warn); border-radius: 8px; padding: 6px 10px; }
+@media (max-width: 720px) {
+  .kv { grid-template-columns: 1fr; }
+  .sheet { padding: 18px; }
+  .sheet .meta { grid-template-columns: 1fr 1fr; }
+  .hide-sm { display: none; }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .drawer { animation: slidein 0.18s ease-out; }
+  @keyframes slidein { from { transform: translateX(24px); opacity: 0.6; } to { transform: none; opacity: 1; } }
+}
+</style>
+
+<div class="wrap">
+  <div class="proto" aria-label="Navegación del prototipo">
+    <b>Prototipo</b>
+    <button type="button" data-go="list" class="on">Listado con filtros</button>
+    <button type="button" data-go="detail">Detalle del envío</button>
+    <button type="button" data-go="print">Selección + impresión</button>
+    <button type="button" data-go="empty">Estado vacío</button>
+    <span class="sep"></span>
+    <label class="small">Ver como
+      <select id="role">
+        <option value="admin">Bodega / Administración</option>
+        <option value="enc">Encargada (MIRAF2, RETALHU)</option>
+      </select>
+    </label>
+  </div>
+
+  <div class="head">
+    <div>
+      <div class="crumbs">Producción › Envíos</div>
+      <h1>Envíos</h1>
+      <p class="muted small">Todos los envíos del sistema por procedencia: directos a kiosco, de distribución, por orden de producción, ENVP y ENVI. Datos de ejemplo.</p>
+    </div>
+    <div class="actions">
+      <button class="btn" type="button" data-toast="En la app descarga el listado filtrado: hoja Resumen + hoja Detalle.">Excel del listado</button>
+    </div>
+  </div>
+
+  <div id="roleNote" class="role-note" hidden>Vista de encargada: solo aparecen los envíos de tus kioscos (MIRAF2 y RETALHU). El filtro de kiosco solo ofrece esos dos.</div>
+
+  <form class="filters" id="filters" autocomplete="off">
+    <div class="frow">
+      <div class="field" style="grid-column: span 2; min-width: 0;">
+        <label for="dateField">Fecha</label>
+        <div class="daterow">
+          <select id="dateField" aria-label="Qué fecha">
+            <option value="created">de creación</option>
+            <option value="sent">de envío</option>
+            <option value="received">de recepción</option>
+            <option value="doc">del documento</option>
+          </select>
+          <input type="date" id="from" aria-label="Desde">
+          <input type="date" id="to" aria-label="Hasta">
+        </div>
+        <div class="chips" id="dateQuick"></div>
+      </div>
+      <div class="field kiosk-pick">
+        <label for="kioskBtn">Kiosco destino</label>
+        <input id="kioskBtn" readonly placeholder="Todos los kioscos" style="cursor:pointer">
+        <div class="kiosk-menu" id="kioskMenu" hidden></div>
+      </div>
+      <div class="field">
+        <label for="product">Producto, código, color o talla</label>
+        <input id="product" placeholder="Ej. B-56 tostado, 34">
+      </div>
+      <div class="field">
+        <label for="number">Número de envío</label>
+        <input id="number" placeholder="Ej. 00065 o MIRAF2-ENV">
+      </div>
+    </div>
+
+    <div class="field">
+      <span class="flabel">Procedencia</span>
+      <div class="chips" id="procChips"></div>
+    </div>
+    <div class="field">
+      <span class="flabel">Estado</span>
+      <div class="chips" id="statusChips"></div>
+    </div>
+
+    <button class="link toggle-more" type="button" id="toggleMore">Más filtros ▾</button>
+    <div class="more" id="more" hidden>
+      <div class="frow">
+        <div class="field"><label for="dist">Distribución</label><input id="dist" placeholder="DIST-20261021-060"></div>
+        <div class="field"><label for="opCode">Código de OP</label><input id="opCode" placeholder="OPK-29"></div>
+        <div class="field"><label for="opType">Tipo de OP</label>
+          <select id="opType"><option value="">Cualquiera</option><option>OPK</option><option>OPCK</option><option>OPC</option><option>OPV</option><option>OPL</option><option>OPI</option></select></div>
+        <div class="field"><label for="source">Origen de descarga</label>
+          <select id="source"><option value="">Cualquiera</option><option value="DEV">Devoluciones</option><option value="PT">Bodega PT</option><option value="MIX">Mixto (faltante autorizado)</option></select></div>
+        <div class="field"><label for="person">Creado, enviado o recibido por</label><input id="person" placeholder="Nombre de usuario"></div>
+        <div class="field"><label for="notes">Texto en notas</label><input id="notes" placeholder="Ej. urgente"></div>
+        <div class="field"><label for="order">Orden</label>
+          <select id="order"><option value="date-desc">Más recientes primero</option><option value="date-asc">Más antiguos primero</option><option value="kiosk">Kiosco (A-Z)</option><option value="units">Más unidades</option></select></div>
+      </div>
+      <div class="checks">
+        <label><input type="checkbox" id="fDiff"> Con diferencia en la recepción</label>
+        <label><input type="checkbox" id="fPend"> Con faltante o pendiente de producción</label>
+      </div>
+    </div>
+
+    <div class="active" id="activeTags"></div>
+    <div class="share">
+      <span class="muted">Enlace con estos filtros:</span>
+      <code id="shareUrl"></code>
+      <button class="btn" type="button" id="copyUrl">Copiar enlace</button>
+    </div>
+  </form>
+
+  <div class="result-bar">
+    <div><strong id="count"></strong> <span class="muted small" id="countSub"></span></div>
+    <span class="cap" id="cap" hidden></span>
+  </div>
+
+  <div class="sel-bar" id="selBar" hidden>
+    <strong id="selCount"></strong>
+    <span class="grow"></span>
+    <button class="btn" type="button" id="btnPrintSel">Imprimir PDF</button>
+    <button class="btn" type="button" data-toast="En la app descarga los envíos marcados: Resumen + Detalle (uno solo = una hoja).">Excel</button>
+    <button class="btn" type="button" id="btnClearSel">Quitar selección</button>
+  </div>
+
+  <div class="tablebox" id="tablebox"></div>
+</div>
+
+<div id="drawerRoot"></div>
+<div id="printRoot"></div>
+<div class="toast" id="toast" role="status" hidden></div>
+
+<script>
+(function () {
+  "use strict";
+  const KIOSKS = [
+    { code: "MIRAF2", name: "Miraflores II", region: "Centro" },
+    { code: "METRON", name: "Metronorte", region: "Centro" },
+    { code: "NARANJO", name: "Naranjo Mall", region: "Centro" },
+    { code: "INT_ESCUINT", name: "Interplaza Escuintla", region: "Sur" },
+    { code: "RETALHU", name: "Retalhuleu", region: "Sur" },
+    { code: "CELAJES", name: "Celajes Xela", region: "Occidente" },
+    { code: "ETRC", name: "Entrecueros", region: "Occidente" },
+  ];
+  const REGION_SUP = { Centro: "Supervisora Centro", Sur: "Supervisora Sur", Occidente: "Supervisora Occidente" };
+  const PROC = {
+    DIRECTO: "Directo a kiosco",
+    DIST: "Distribución manual",
+    REPO: "Reposición",
+    OP: "Orden de producción",
+    PARCIAL: "Liberación parcial",
+    ENVP: "ENVP (producción)",
+    ENVI: "ENVI interno",
+    PEND: "Pendiente de producción",
+    HIST: "Histórico",
+  };
+  const STATUS = { DRAFT: "Borrador", CONFIRMED: "Confirmado", SENT: "En tránsito", DELIVERED: "Recibido", CANCELLED: "Anulado" };
+  const SRC = { DEV: "Devoluciones", PT: "Bodega PT", MIX: "Mixto" };
+
+  const L = (code, name, color, size, qty, rec) => ({ code, name, color, size: size || "", qty, rec: rec === undefined ? null : rec });
+  const S = [
+    { id: 1, num: "INT_ESCUINT-ENV-00065", proc: "DIST", dist: "DIST-20261021-060", kiosk: "INT_ESCUINT", status: "DELIVERED", created: "2026-10-21", sent: "2026-10-22", received: "2026-10-23", doc: "2026-10-22", by: "Bodega · Marta", sentBy: "Bodega · Marta", recBy: "Encargada Escuintla", source: "PT", lines: [L("B-56", "Bolso B-56", "TOSTADO", "", 3, 3), L("B-7", "Bolso B-7", "NEGRO", "", 2, 2)], notes: "Reposición semanal" },
+    { id: 2, num: "MIRAF2-ENV-00132", proc: "DIRECTO", kiosk: "MIRAF2", status: "DELIVERED", created: "2026-11-12", sent: "2026-11-12", received: "2026-11-13", doc: "2026-11-12", by: "Bodega · Luis", sentBy: "Bodega · Luis", recBy: "Encargada Miraflores", source: "DEV", lines: [L("TT-4", "Tote TT-4", "CAFE", "", 2, 2), L("B-56", "Bolso B-56", "TOSTADO", "", 1, 1)], notes: "Pedido urgente de la encargada" },
+    { id: 3, num: "RETALHU-ENV-00107", proc: "DIRECTO", kiosk: "RETALHU", status: "DELIVERED", created: "2026-11-14", sent: "2026-11-14", received: "2026-11-16", doc: "2026-11-14", by: "Bodega · Luis", sentBy: "Bodega · Luis", recBy: "Encargada Retalhuleu", source: "MIX", auth: "Bodega · Luis", lines: [L("CIN-34", "Cincho clásico", "CAFE", "34", 4, 3), L("CIN-34", "Cincho clásico", "CAFE", "36", 2, 2)], notes: "Faltante tomado de Bodega PT (1 pza.)" },
+    { id: 4, num: "MIRAF2-ENV-00135", proc: "REPO", dist: "DIST-20261110-074", kiosk: "MIRAF2", status: "SENT", created: "2026-11-10", sent: "2026-11-18", received: null, doc: "2026-11-18", by: "Bodega · Marta", sentBy: "Bodega · Marta", source: "PT", lines: [L("B-7", "Bolso B-7", "NEGRO", "", 3), L("RODERICK", "Mochila Roderick", "AZUL", "", 1)], notes: "Reposición automática — venta de 60 días" },
+    { id: 5, num: "MIRAF2-ENV-00136", proc: "PEND", dist: "DIST-20261110-074", kiosk: "MIRAF2", status: "DRAFT", created: "2026-11-10", sent: null, received: null, doc: null, by: "Bodega · Marta", source: null, lines: [L("B-56", "Bolso B-56", "TOSTADO", "", 2)], notes: "Faltante de la reposición: espera producción" },
+    { id: 6, num: "CELAJES-ENV-00088", proc: "OP", op: { code: "OPK-29", type: "OPK" }, dist: "DIST-20261102-071", kiosk: "CELAJES", status: "DELIVERED", created: "2026-11-02", sent: "2026-11-03", received: "2026-11-05", doc: "2026-11-03", by: "Producción · Ana", sentBy: "Bodega · Marta", recBy: "Encargada Xela", source: "PT", lines: [L("B-7", "Bolso B-7", "CAFE", "", 6, 5)], notes: "" },
+    { id: 7, num: "NARANJO-ENV-00041", proc: "OP", op: { code: "OPCK-14", type: "OPCK" }, kiosk: "NARANJO", status: "DELIVERED", created: "2026-10-28", sent: "2026-10-29", received: "2026-10-29", doc: "2026-10-29", by: "Producción · Ana", sentBy: "Bodega · Luis", recBy: "Encargada Naranjo", source: "PT", lines: [L("B-56", "Bolso B-56", "NEGRO", "", 1, 1)], notes: "Cliente especial del kiosco" },
+    { id: 8, num: "ETRC-ENV-00052", proc: "OP", op: { code: "OPC-138", type: "OPC" }, kiosk: "ETRC", status: "DELIVERED", created: "2026-11-06", sent: "2026-11-06", received: "2026-11-07", doc: "2026-11-06", by: "Producción · Ana", sentBy: "Bodega · Luis", recBy: "Encargada Entrecueros", source: null, lines: [L("CIN-NINO", "Cincho Niño", "NEGRO", "28", 10, 10), L("CIN-DAMA", "Cincho Dama", "CAFE", "32", 6, 6)], notes: "Cinchos a Entrecueros: no pasan por bodega" },
+    { id: 9, num: "ENVP-00120", proc: "ENVP", op: { code: "OPV-68", type: "OPV" }, kiosk: null, dest: "Cliente en línea · Zona 10", status: "SENT", created: "2026-11-17", sent: "2026-11-17", received: null, doc: "2026-11-17", by: "Ventas · Rosa", sentBy: "Bodega · Marta", source: "PT", lines: [L("TT-4", "Tote TT-4", "NEGRO", "", 1)], notes: "Venta en línea por cobrar" },
+    { id: 10, num: "ENVP-00118", proc: "PARCIAL", op: { code: "OPL-12", type: "OPL" }, partial: "Parcial 2", kiosk: null, dest: "Luis Felipe", status: "DELIVERED", created: "2026-11-09", sent: "2026-11-09", received: "2026-11-11", doc: "2026-11-09", by: "Producción · Ana", sentBy: "Bodega · Luis", recBy: "Luis Felipe", source: "PT", lines: [L("B-90", "Bolso B-90", "MIEL", "", 12, 12)], notes: "Caja 3 de 5" },
+    { id: 11, num: "ENVI-00045", proc: "ENVI", kiosk: null, dest: "Colaborador · Planilla", status: "DELIVERED", created: "2026-11-15", sent: "2026-11-15", received: "2026-11-15", doc: "2026-11-15", by: "Contabilidad · Sofía", sentBy: "Bodega · Luis", recBy: "Colaborador", source: "DEV", lines: [L("B-56", "Bolso B-56", "TOSTADO", "", 1, 1)], notes: "Descuento de colaborador" },
+    { id: 12, num: "INT_ESCUINT-ENV-00071", proc: "DIRECTO", kiosk: "INT_ESCUINT", status: "CONFIRMED", created: "2026-11-19", sent: null, received: null, doc: "2026-11-19", by: "Bodega · Luis", source: null, lines: [L("B-7", "Bolso B-7", "NEGRO", "", 2), L("TT-4", "Tote TT-4", "CAFE", "", 1)], notes: "" },
+    { id: 13, num: "METRON-ENV-00203", proc: "DIST", dist: "DIST-20261116-077", kiosk: "METRON", status: "DELIVERED", created: "2026-11-16", sent: "2026-11-17", received: "2026-11-18", doc: "2026-11-17", by: "Bodega · Marta", sentBy: "Bodega · Marta", recBy: "Encargada Metronorte", source: "MIX", auth: "Bodega · Marta", lines: [L("B-56", "Bolso B-56", "TOSTADO", "", 4, 4), L("RODERICK", "Mochila Roderick", "AZUL", "", 2, 1)], notes: "Faltante tomado de Devoluciones (1 pza.)" },
+    { id: 14, num: "RETALHU-ENV-00098", proc: "DIST", dist: "DIST-20261021-060", kiosk: "RETALHU", status: "DELIVERED", created: "2026-10-21", sent: "2026-10-22", received: "2026-10-24", doc: "2026-10-22", by: "Bodega · Marta", sentBy: "Bodega · Marta", recBy: "Encargada Retalhuleu", source: "PT", lines: [L("B-56", "Bolso B-56", "TOSTADO", "", 2, 2)], notes: "" },
+    { id: 15, num: "NARANJO-ENV-00039", proc: "DIRECTO", kiosk: "NARANJO", status: "CANCELLED", created: "2026-10-27", sent: null, received: null, doc: "2026-10-27", by: "Bodega · Luis", source: null, lines: [L("B-7", "Bolso B-7", "CAFE", "", 1)], notes: "Duplicado, se anuló" },
+    { id: 16, num: "MIRAF2-ENV-00087", proc: "HIST", kiosk: "MIRAF2", status: "DELIVERED", created: "2026-09-02", sent: "2026-09-02", received: "2026-09-04", doc: "2026-09-02", by: "Migración", sentBy: "Migración", recBy: "Encargada Miraflores", source: null, lines: [], notes: "ENVIO HISTORICO (antes de Preparar envíos)" },
+    { id: 17, num: "CELAJES-ENV-00091", proc: "DIRECTO", kiosk: "CELAJES", status: "SENT", created: "2026-11-18", sent: "2026-11-19", received: null, doc: "2026-11-18", by: "Bodega · Luis", sentBy: "Bodega · Luis", source: "DEV", lines: [L("B-90", "Bolso B-90", "MIEL", "", 2), L("TT-4", "Tote TT-4", "CAFE", "", 2)], notes: "" },
+    { id: 18, num: "ENVI-00047", proc: "ENVI", op: { code: "OPI-22", type: "OPI" }, kiosk: null, dest: "Colaborador · Defectos", status: "CONFIRMED", created: "2026-11-19", sent: null, received: null, doc: "2026-11-19", by: "Contabilidad · Sofía", source: null, lines: [L("B-7", "Bolso B-7", "NEGRO", "", 1)], notes: "Pieza con defecto" },
+  ];
+  const kioskOf = (code) => KIOSKS.find((k) => k.code === code);
+  const units = (s) => s.lines.reduce((a, l) => a + l.qty, 0);
+  const hasDiff = (s) => s.lines.some((l) => l.rec != null && l.rec !== l.qty);
+  const dateOf = (s, f) => ({ created: s.created, sent: s.sent, received: s.received, doc: s.doc })[f];
+  const fmtDate = (d) => {
+    if (!d) return "—";
+    const [y, m, dd] = d.split("-");
+    return `${dd}/${m}/${y.slice(2)}`;
+  };
+  const esc = (t) => String(t == null ? "" : t).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+
+  const initial = () => ({
+    dateField: "created", from: "2026-10-01", to: "2026-11-20", kiosks: [], product: "", number: "",
+    procs: [], statuses: [], dist: "", opCode: "", opType: "", source: "", person: "", notes: "",
+    order: "date-desc", fDiff: false, fPend: false,
+  });
+  let F = initial();
+  let role = "admin";
+  let selected = new Set();
+  let openId = null;
+  let page = 1;
+  const PAGE = 12;
+
+  const visibleBase = () => (role === "enc" ? S.filter((s) => s.kiosk === "MIRAF2" || s.kiosk === "RETALHU") : S);
+
+  function matches(s, skip) {
+    const d = dateOf(s, F.dateField);
+    if (F.from && (!d || d < F.from)) return false;
+    if (F.to && (!d || d > F.to)) return false;
+    if (F.kiosks.length && !F.kiosks.includes(s.kiosk)) return false;
+    if (skip !== "proc" && F.procs.length && !F.procs.includes(s.proc)) return false;
+    if (skip !== "status" && F.statuses.length && !F.statuses.includes(s.status)) return false;
+    if (F.number && !s.num.toLowerCase().includes(F.number.toLowerCase())) return false;
+    if (F.dist && !(s.dist || "").toLowerCase().includes(F.dist.toLowerCase())) return false;
+    if (F.opCode && !(s.op?.code || "").toLowerCase().includes(F.opCode.toLowerCase())) return false;
+    if (F.opType && s.op?.type !== F.opType) return false;
+    if (F.source && s.source !== F.source) return false;
+    if (F.person) {
+      const q = F.person.toLowerCase();
+      if (![s.by, s.sentBy, s.recBy].some((p) => (p || "").toLowerCase().includes(q))) return false;
+    }
+    if (F.notes && !(s.notes || "").toLowerCase().includes(F.notes.toLowerCase())) return false;
+    if (F.fDiff && !hasDiff(s)) return false;
+    if (F.fPend && s.proc !== "PEND") return false;
+    if (F.product) {
+      const terms = F.product.toLowerCase().split(/[\s,]+/).filter(Boolean);
+      const ok = s.lines.some((l) => terms.every((t) => `${l.code} ${l.name} ${l.color} ${l.size}`.toLowerCase().includes(t)));
+      if (!ok) return false;
+    }
+    return true;
+  }
+
+  function filtered() {
+    const rows = visibleBase().filter((s) => matches(s));
+    const by = {
+      "date-desc": (a, b) => (dateOf(b, F.dateField) || "").localeCompare(dateOf(a, F.dateField) || "") || b.id - a.id,
+      "date-asc": (a, b) => (dateOf(a, F.dateField) || "9").localeCompare(dateOf(b, F.dateField) || "9"),
+      kiosk: (a, b) => (a.kiosk || "~").localeCompare(b.kiosk || "~"),
+      units: (a, b) => units(b) - units(a),
+    }[F.order];
+    return rows.sort(by);
+  }
+
+  function procCell(s) {
+    let sub = "";
+    if (s.proc === "DIST" || s.proc === "REPO" || s.proc === "PEND") sub = s.dist;
+    if (s.op) sub = `${s.op.code}${s.dist ? " · " + s.dist : ""}`;
+    if (s.partial) sub = `${s.op.code} · ${s.partial}`;
+    if (s.proc === "DIRECTO") sub = "sin distribución";
+    return `<span class="pr pr-${s.proc}">${esc(PROC[s.proc])}</span>${sub ? `<span class="sub mono">${esc(sub)}</span>` : ""}`;
+  }
+  function destCell(s) {
+    if (s.kiosk) {
+      const k = kioskOf(s.kiosk);
+      return `${esc(k.name)}<span class="sub">${esc(k.code)} · ${esc(k.region)}</span>`;
+    }
+    return `${esc(s.dest || "—")}<span class="sub">sin kiosco</span>`;
+  }
+  function srcCell(s) {
+    if (!s.source) return `<span class="muted small">${s.proc === "OP" && s.kiosk === "ETRC" ? "no pasa por bodega" : "—"}</span>`;
+    if (s.source === "MIX") return `<span class="src mix" title="Faltante autorizado por ${esc(s.auth)}">Mixto</span>`;
+    return `<span class="src">${SRC[s.source]}</span>`;
+  }
+
+  function renderChips() {
+    const base = visibleBase();
+    const procCount = (p) => base.filter((s) => s.proc === p && matches(s, "proc")).length;
+    document.getElementById("procChips").innerHTML = Object.keys(PROC).map((p) =>
+      `<button type="button" class="chip ${F.procs.includes(p) ? "on" : ""}" data-proc="${p}">${PROC[p]}<span class="n">${procCount(p)}</span></button>`).join("");
+    const stCount = (st) => base.filter((s) => s.status === st && matches(s, "status")).length;
+    document.getElementById("statusChips").innerHTML = Object.keys(STATUS).map((st) =>
+      `<button type="button" class="chip ${F.statuses.includes(st) ? "on" : ""}" data-status="${st}">${STATUS[st]}<span class="n">${stCount(st)}</span></button>`).join("");
+    const quick = [["Hoy", 0], ["7 días", 7], ["30 días", 30], ["90 días", 90]];
+    document.getElementById("dateQuick").innerHTML = quick.map(([l, d]) => `<button type="button" class="chip" data-days="${d}">${l}</button>`).join("");
+  }
+
+  function renderKioskMenu() {
+    const list = role === "enc" ? KIOSKS.filter((k) => k.code === "MIRAF2" || k.code === "RETALHU") : KIOSKS;
+    const regions = [...new Set(list.map((k) => k.region))];
+    document.getElementById("kioskMenu").innerHTML = regions.map((r) => `
+      <h4>${r} · ${REGION_SUP[r]} <button type="button" data-region="${r}">Toda la región</button></h4>
+      ${list.filter((k) => k.region === r).map((k) => `<label><input type="checkbox" data-kiosk="${k.code}" ${F.kiosks.includes(k.code) ? "checked" : ""}> ${esc(k.name)} <span class="muted mono">${k.code}</span></label>`).join("")}
+    `).join("");
+    document.getElementById("kioskBtn").value = F.kiosks.length ? F.kiosks.map((c) => kioskOf(c).name).join(", ") : "";
+  }
+
+  function activeTags() {
+    const t = [];
+    const fieldName = { created: "creación", sent: "envío", received: "recepción", doc: "documento" }[F.dateField];
+    if (F.from || F.to) t.push(["date", `Fecha de ${fieldName}: ${fmtDate(F.from)} – ${fmtDate(F.to)}`]);
+    F.kiosks.forEach((k) => t.push(["kiosk:" + k, `Kiosco: ${kioskOf(k).name}`]));
+    F.procs.forEach((p) => t.push(["proc:" + p, PROC[p]]));
+    F.statuses.forEach((s) => t.push(["status:" + s, STATUS[s]]));
+    [["product", "Producto"], ["number", "Envío"], ["dist", "Distribución"], ["opCode", "OP"], ["opType", "Tipo OP"], ["person", "Persona"], ["notes", "Notas"]]
+      .forEach(([k, l]) => F[k] && t.push([k, `${l}: ${F[k]}`]));
+    if (F.source) t.push(["source", `Origen: ${SRC[F.source]}`]);
+    if (F.fDiff) t.push(["fDiff", "Con diferencia en recepción"]);
+    if (F.fPend) t.push(["fPend", "Con faltante / pendiente"]);
+    const el = document.getElementById("activeTags");
+    el.innerHTML = t.length
+      ? `<span class="flabel">Filtros activos</span>${t.map(([k, l]) => `<span class="tag">${esc(l)}<button type="button" aria-label="Quitar filtro" data-untag="${k}">×</button></span>`).join("")}<button class="link" type="button" id="clearAll">Limpiar</button>`
+      : `<span class="muted small">Sin filtros: se muestran los últimos 90 días.</span>`;
+  }
+
+  function shareUrl() {
+    const p = [];
+    p.push(`fecha=${F.dateField}`);
+    if (F.from) p.push(`desde=${F.from}`);
+    if (F.to) p.push(`hasta=${F.to}`);
+    if (F.kiosks.length) p.push(`kiosco=${F.kiosks.join(",")}`);
+    if (F.procs.length) p.push(`procedencia=${F.procs.join(",")}`);
+    if (F.statuses.length) p.push(`estado=${F.statuses.join(",")}`);
+    [["product", "producto"], ["number", "envio"], ["dist", "distribucion"], ["opCode", "op"], ["opType", "tipoOp"], ["source", "origen"], ["person", "persona"], ["notes", "notas"]]
+      .forEach(([k, q]) => F[k] && p.push(`${q}=${encodeURIComponent(F[k])}`));
+    if (F.fDiff) p.push("diferencia=1");
+    if (F.fPend) p.push("pendiente=1");
+    if (F.order !== "date-desc") p.push(`orden=${F.order}`);
+    return `/admin/envios?${p.join("&")}`;
+  }
+
+  function renderTable() {
+    const rows = filtered();
+    const total = rows.length;
+    const pages = Math.max(1, Math.ceil(total / PAGE));
+    if (page > pages) page = pages;
+    const pageRows = rows.slice((page - 1) * PAGE, page * PAGE);
+    document.getElementById("count").textContent = `${total} envío${total === 1 ? "" : "s"}`;
+    document.getElementById("countSub").textContent = total ? `· ${rows.reduce((a, s) => a + units(s), 0)} unidades` : "";
+    const cap = document.getElementById("cap");
+    cap.hidden = !(F.from === "" && F.to === "");
+    cap.textContent = "Sin rango de fechas: solo los últimos 90 días. Elige fechas para buscar más atrás.";
+    const box = document.getElementById("tablebox");
+    if (!total) {
+      box.innerHTML = `<div class="empty">
+        <div class="icon" aria-hidden="true"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 7l9-4 9 4-9 4-9-4z"/><path d="M3 7v10l9 4 9-4V7"/><path d="M12 11v10"/></svg></div>
+        <h2>Ningún envío coincide con estos filtros</h2>
+        <p class="muted">Prueba a quitar alguno. Lo que más reduce la búsqueda suele ser:</p>
+        <ul>${F.procs.length ? "<li>la procedencia elegida</li>" : ""}${F.product ? `<li>el producto «${esc(F.product)}» (busca por código, color o talla por separado)</li>` : ""}<li>el rango de fechas: está usando la fecha de <b>${{ created: "creación", sent: "envío", received: "recepción", doc: "documento" }[F.dateField]}</b>; un envío sin enviar no tiene fecha de envío</li></ul>
+        <button class="btn primary" type="button" id="emptyClear">Limpiar filtros</button>
+      </div>`;
+      return;
+    }
+    const allOnPage = pageRows.every((s) => selected.has(s.id));
+    box.innerHTML = `<table>
+      <thead><tr>
+        <th><input type="checkbox" id="selAll" aria-label="Marcar todos los de esta página" ${allOnPage ? "checked" : ""}></th>
+        <th>Envío</th><th>Procedencia</th><th>Destino</th><th>Estado</th>
+        <th>Fecha ${{ created: "creación", sent: "envío", received: "recepción", doc: "documento" }[F.dateField]}</th>
+        <th class="num">Unid.</th><th class="hide-sm">Origen descarga</th><th class="hide-sm">Productos</th>
+      </tr></thead>
+      <tbody>${pageRows.map((s) => {
+        const prods = s.lines.length ? s.lines.slice(0, 2).map((l) => `${l.code} ${l.color}${l.size ? " " + l.size : ""}`).join(", ") + (s.lines.length > 2 ? ` +${s.lines.length - 2}` : "") : "Sin productos (histórico)";
+        return `<tr data-row="${s.id}" class="${openId === s.id ? "open" : ""}">
+          <td><input type="checkbox" data-sel="${s.id}" aria-label="Marcar ${s.num}" ${selected.has(s.id) ? "checked" : ""}></td>
+          <td><span class="env-num">${esc(s.num)}</span><span class="sub">por ${esc(s.by)}</span></td>
+          <td>${procCell(s)}</td>
+          <td>${destCell(s)}</td>
+          <td><span class="pill st-${s.status}">${STATUS[s.status]}</span>${hasDiff(s) ? ` <span class="flag bad">Diferencia</span>` : ""}</td>
+          <td>${fmtDate(dateOf(s, F.dateField))}</td>
+          <td class="num">${units(s) || "—"}</td>
+          <td class="hide-sm">${srcCell(s)}</td>
+          <td class="hide-sm small">${esc(prods)}</td>
+        </tr>`;
+      }).join("")}</tbody>
+    </table>
+    <div class="pager"><span class="muted">Página ${page} de ${pages} · ${PAGE} por página</span>
+      <button class="btn" type="button" data-page="-1" ${page === 1 ? "disabled" : ""}>Anterior</button>
+      <button class="btn" type="button" data-page="1" ${page === pages ? "disabled" : ""}>Siguiente</button></div>`;
+  }
+
+  function renderSel() {
+    const bar = document.getElementById("selBar");
+    bar.hidden = selected.size === 0;
+    document.getElementById("selCount").textContent = `${selected.size} envío${selected.size === 1 ? "" : "s"} marcado${selected.size === 1 ? "" : "s"}`;
+  }
+
+  function renderDrawer() {
+    const root = document.getElementById("drawerRoot");
+    const s = S.find((x) => x.id === openId);
+    if (!s) { root.innerHTML = ""; return; }
+    const k = s.kiosk ? kioskOf(s.kiosk) : null;
+    const step = (label, date, who, done) => `<div class="tl ${done ? "done" : ""}"><b>${label}</b>${fmtDate(date)}<span class="sub">${esc(who || "")}</span></div>`;
+    const srcText = !s.source ? "No movió bodega (o aún no sale)"
+      : s.source === "MIX" ? `Mixto: ${s.proc === "DIRECTO" ? "Devoluciones y el faltante de Bodega PT" : "Bodega PT y el faltante de Devoluciones"}, autorizado por ${s.auth}`
+      : SRC[s.source];
+    root.innerHTML = `<div class="drawer-bg" data-close="1"></div>
+      <aside class="drawer" role="dialog" aria-label="Detalle del envío ${esc(s.num)}">
+        <header>
+          <div class="dtop">
+            <div><div class="env-num" style="font-size:1.05rem">${esc(s.num)}</div>
+              <div class="sub">${k ? `${esc(k.name)} · ${k.code}` : esc(s.dest)}</div></div>
+            <button class="btn ghost" type="button" data-close="1" aria-label="Cerrar">✕</button>
+          </div>
+          <div class="chips"><span class="pr pr-${s.proc}">${PROC[s.proc]}</span><span class="pill st-${s.status}">${STATUS[s.status]}</span>${hasDiff(s) ? `<span class="flag bad">Diferencia en recepción</span>` : ""}${s.proc === "PEND" ? `<span class="flag warn">Espera producción</span>` : ""}</div>
+        </header>
+        <div class="body">
+          <div class="timeline">
+            ${step("Creado", s.created, s.by, true)}
+            ${step("Enviado", s.sent, s.sentBy, !!s.sent)}
+            ${step("Recibido", s.received, s.recBy, !!s.received)}
+          </div>
+          <dl class="kv">
+            <div><dt>Distribución</dt><dd class="mono">${esc(s.dist || (s.proc === "DIRECTO" ? "Ninguna (envío directo)" : "—"))}</dd></div>
+            <div><dt>Orden de producción</dt><dd class="mono">${esc(s.op ? `${s.op.code} (${s.op.type})` : "—")}${s.partial ? " · " + esc(s.partial) : ""}</dd></div>
+            <div><dt>Fecha del documento</dt><dd>${fmtDate(s.doc)}</dd></div>
+            <div><dt>Región</dt><dd>${k ? `${k.region} · ${REGION_SUP[k.region]}` : "—"}</dd></div>
+          </dl>
+          <div class="box"><h3>Origen de descarga</h3><div>${esc(srcText)}</div>
+            ${s.source === "MIX" ? `<div class="small muted">El kardex dice: «${s.proc === "DIRECTO" ? "Envío directo a kiosco · " : ""}Salida a envío en tránsito hacia ${esc(k ? k.name : "")} · faltante tomado de ${s.proc === "DIRECTO" ? "Bodega PT" : "Devoluciones"} (autorizado por ${esc(s.auth)})».</div>` : ""}
+          </div>
+          <div>
+            <h2 style="margin-bottom:6px">Productos</h2>
+            ${s.lines.length ? `<div style="overflow-x:auto"><table class="lines"><thead><tr><th>Código</th><th>Producto</th><th>Color</th><th>Talla</th><th class="num">Enviado</th><th class="num">Recibido</th><th class="num">Dif.</th></tr></thead>
+            <tbody>${s.lines.map((l) => { const d = l.rec == null ? null : l.rec - l.qty; return `<tr><td class="mono">${esc(l.code)}</td><td>${esc(l.name)}</td><td>${esc(l.color)}</td><td>${esc(l.size || "—")}</td><td class="num">${l.qty}</td><td class="num">${l.rec == null ? "—" : l.rec}</td><td class="num ${d ? "diffneg" : ""}">${d == null ? "—" : d === 0 ? "0" : d}</td></tr>`; }).join("")}</tbody></table></div>`
+            : `<p class="muted">Envío histórico: se registró antes de Preparar envíos y no tiene líneas de producto.</p>`}
+          </div>
+          ${s.notes ? `<div class="box"><h3>Notas</h3><div>${esc(s.notes)}</div></div>` : ""}
+        </div>
+        <div class="foot">
+          <button class="btn primary" type="button" data-printone="${s.id}">Imprimir PDF</button>
+          <button class="btn" type="button" data-toast="En la app descarga este envío en una hoja de Excel.">Excel</button>
+          <button class="btn ghost" type="button" data-toast="En la app abre Preparar envíos con este envío seleccionado.">Abrir en Preparar envíos ↗</button>
+        </div>
+      </aside>`;
+  }
+
+  function sheetFor(s, i, n) {
+    const k = s.kiosk ? kioskOf(s.kiosk) : null;
+    return `<div class="sheet">
+      <div class="shead"><div><h2>ENVÍO ${esc(s.num)}</h2><div>${esc(PROC[s.proc])}${s.dist ? " · " + esc(s.dist) : ""}${s.op ? " · " + esc(s.op.code) : ""}</div></div>
+        <div style="text-align:right"><b>Fossiles</b><div>${STATUS[s.status]}</div>${s.proc === "DIRECTO" ? `<span class="badge-print">ENVÍO DIRECTO A KIOSCO</span>` : ""}</div></div>
+      <div class="meta">
+        <div><b>Destino</b>${k ? `${esc(k.name)} (${k.code})` : esc(s.dest)}</div>
+        <div><b>Fecha documento</b>${fmtDate(s.doc)}</div>
+        <div><b>Origen de descarga</b>${s.source ? SRC[s.source] : "—"}</div>
+        <div><b>Creado por</b>${esc(s.by)}</div>
+        <div><b>Enviado</b>${fmtDate(s.sent)} ${esc(s.sentBy || "")}</div>
+        <div><b>Recibido</b>${fmtDate(s.received)} ${esc(s.recBy || "")}</div>
+      </div>
+      <table><thead><tr><th>#</th><th>Código</th><th>Producto</th><th>Color</th><th>Talla</th><th style="text-align:right">Cant.</th><th style="text-align:right">Recibido</th></tr></thead>
+      <tbody>${s.lines.length ? s.lines.map((l, j) => `<tr><td>${j + 1}</td><td>${esc(l.code)}</td><td>${esc(l.name)}</td><td>${esc(l.color)}</td><td>${esc(l.size || "")}</td><td style="text-align:right">${l.qty}</td><td style="text-align:right">${l.rec == null ? "" : l.rec}</td></tr>`).join("") : `<tr><td colspan="7">Sin líneas (histórico)</td></tr>`}
+      <tr><td colspan="5" style="text-align:right"><b>Total</b></td><td style="text-align:right"><b>${units(s)}</b></td><td></td></tr></tbody></table>
+      ${s.notes ? `<p><b>Observaciones:</b> ${esc(s.notes)}</p>` : ""}
+      <div class="sign"><div>Entrega (bodega)</div><div>Recibe (kiosco)</div></div>
+      <div class="pageno">Hoja ${i} de ${n}</div>
+    </div>`;
+  }
+
+  function openPrint(ids) {
+    const list = ids.map((id) => S.find((s) => s.id === id)).filter(Boolean);
+    const n = list.length + (list.length > 1 ? 1 : 0);
+    const summary = list.length > 1 ? `<div class="sheet">
+      <div class="shead"><div><h2>RESUMEN DE ENVÍOS</h2><div>${list.length} envíos · ${list.reduce((a, s) => a + units(s), 0)} unidades</div></div><div style="text-align:right"><b>Fossiles</b><div>Impreso 20/11/26</div></div></div>
+      <table><thead><tr><th>Envío</th><th>Procedencia</th><th>Destino</th><th>Estado</th><th>Fecha doc.</th><th style="text-align:right">Unid.</th></tr></thead>
+      <tbody>${list.map((s) => `<tr><td>${esc(s.num)}</td><td>${esc(PROC[s.proc])}</td><td>${s.kiosk ? esc(kioskOf(s.kiosk).name) : esc(s.dest)}</td><td>${STATUS[s.status]}</td><td>${fmtDate(s.doc)}</td><td style="text-align:right">${units(s)}</td></tr>`).join("")}</tbody></table>
+      <div class="pageno">Hoja 1 de ${n}</div></div>` : "";
+    const offset = list.length > 1 ? 1 : 0;
+    document.getElementById("printRoot").innerHTML = `<div class="print-bg" role="dialog" aria-label="Vista previa de impresión">
+      <div class="print-tools"><strong class="grow">Vista previa · ${list.length} envío${list.length === 1 ? "" : "s"} · ${n} hoja${n === 1 ? "" : "s"}</strong>
+        <span class="small muted">${list.length > 1 ? "Una hoja por envío + hoja de resumen" : "Una hoja"}</span>
+        <button class="btn primary" type="button" data-toast="En la app abre la ventana de impresión con estas hojas.">Imprimir PDF</button>
+        <button class="btn" type="button" data-toast="1 envío = 1 hoja; varios = Resumen + Detalle.">Excel</button>
+        <button class="btn" type="button" data-closeprint="1">Cerrar</button></div>
+      ${summary}${list.map((s, i) => sheetFor(s, i + 1 + offset, n)).join("")}
+    </div>`;
+  }
+
+  function renderAll() {
+    document.getElementById("roleNote").hidden = role !== "enc";
+    renderChips(); renderKioskMenu(); activeTags(); renderTable(); renderSel(); renderDrawer();
+    document.getElementById("shareUrl").textContent = shareUrl();
+    syncInputs();
+  }
+  function syncInputs() {
+    ["dateField", "from", "to", "product", "number", "dist", "opCode", "opType", "source", "person", "notes", "order"].forEach((id) => {
+      const el = document.getElementById(id);
+      if (el && document.activeElement !== el) el.value = F[id];
+    });
+    document.getElementById("fDiff").checked = F.fDiff;
+    document.getElementById("fPend").checked = F.fPend;
+  }
+
+  // Eventos
+  const form = document.getElementById("filters");
+  form.addEventListener("submit", (e) => e.preventDefault());
+  form.addEventListener("input", (e) => {
+    const id = e.target.id;
+    if (id in F && e.target.type !== "checkbox") { F[id] = e.target.value; page = 1; renderAll(); }
+    if (id === "fDiff" || id === "fPend") { F[id] = e.target.checked; page = 1; renderAll(); }
+  });
+  form.addEventListener("click", (e) => {
+    const t = e.target.closest("button, input");
+    if (!t) return;
+    if (t.dataset.proc) { const p = t.dataset.proc; F.procs = F.procs.includes(p) ? F.procs.filter((x) => x !== p) : [...F.procs, p]; page = 1; renderAll(); }
+    if (t.dataset.status) { const s = t.dataset.status; F.statuses = F.statuses.includes(s) ? F.statuses.filter((x) => x !== s) : [...F.statuses, s]; page = 1; renderAll(); }
+    if (t.dataset.days !== undefined) {
+      const to = new Date("2026-11-20T12:00:00"); const from = new Date(to); from.setDate(to.getDate() - Number(t.dataset.days));
+      F.from = from.toISOString().slice(0, 10); F.to = to.toISOString().slice(0, 10); page = 1; renderAll();
+    }
+    if (t.id === "kioskBtn") { const m = document.getElementById("kioskMenu"); m.hidden = !m.hidden; }
+    if (t.dataset.kiosk) { const k = t.dataset.kiosk; F.kiosks = t.checked ? [...F.kiosks, k] : F.kiosks.filter((x) => x !== k); page = 1; renderChips(); activeTags(); renderTable(); renderSel(); document.getElementById("shareUrl").textContent = shareUrl(); document.getElementById("kioskBtn").value = F.kiosks.map((c) => kioskOf(c).name).join(", "); }
+    if (t.dataset.region) { const r = t.dataset.region; const codes = KIOSKS.filter((k) => k.region === r && (role !== "enc" || ["MIRAF2", "RETALHU"].includes(k.code))).map((k) => k.code); F.kiosks = [...new Set([...F.kiosks, ...codes])]; page = 1; renderAll(); document.getElementById("kioskMenu").hidden = false; }
+    if (t.id === "toggleMore") { const m = document.getElementById("more"); m.hidden = !m.hidden; t.textContent = m.hidden ? "Más filtros ▾" : "Menos filtros ▴"; }
+    if (t.dataset.untag) {
+      const k = t.dataset.untag;
+      if (k === "date") { F.from = ""; F.to = ""; }
+      else if (k.startsWith("kiosk:")) F.kiosks = F.kiosks.filter((x) => x !== k.slice(6));
+      else if (k.startsWith("proc:")) F.procs = F.procs.filter((x) => x !== k.slice(5));
+      else if (k.startsWith("status:")) F.statuses = F.statuses.filter((x) => x !== k.slice(7));
+      else if (k === "fDiff" || k === "fPend") F[k] = false;
+      else F[k] = "";
+      page = 1; renderAll();
+    }
+    if (t.id === "clearAll") { F = { ...initial(), from: "", to: "" }; page = 1; renderAll(); }
+    if (t.id === "copyUrl") {
+      const text = "https://app.fossiles.gt" + shareUrl();
+      const done = () => { t.textContent = "Copiado"; setTimeout(() => (t.textContent = "Copiar enlace"), 1500); };
+      try { navigator.clipboard.writeText(text).then(done, () => selectShare()); } catch (err) { selectShare(); }
+    }
+  });
+  function selectShare() { const r = document.createRange(); r.selectNodeContents(document.getElementById("shareUrl")); const s = window.getSelection(); s.removeAllRanges(); s.addRange(r); }
+  document.addEventListener("click", (e) => {
+    const m = document.getElementById("kioskMenu");
+    if (!m.hidden && !e.target.closest(".kiosk-pick")) m.hidden = true;
+  });
+
+  document.getElementById("tablebox").addEventListener("click", (e) => {
+    const sel = e.target.closest("[data-sel]");
+    if (sel) { const id = Number(sel.dataset.sel); sel.checked ? selected.add(id) : selected.delete(id); renderSel(); renderTable(); return; }
+    if (e.target.id === "selAll") { const rows = filtered().slice((page - 1) * PAGE, page * PAGE); rows.forEach((s) => (e.target.checked ? selected.add(s.id) : selected.delete(s.id))); renderSel(); renderTable(); return; }
+    const pg = e.target.closest("[data-page]");
+    if (pg) { page += Number(pg.dataset.page); renderTable(); return; }
+    if (e.target.id === "emptyClear") { F = { ...initial(), from: "", to: "" }; page = 1; renderAll(); return; }
+    const row = e.target.closest("[data-row]");
+    if (row) { openId = Number(row.dataset.row); renderTable(); renderDrawer(); }
+  });
+  document.getElementById("drawerRoot").addEventListener("click", (e) => {
+    if (e.target.closest("[data-close]")) { openId = null; renderDrawer(); renderTable(); }
+    const p = e.target.closest("[data-printone]");
+    if (p) openPrint([Number(p.dataset.printone)]);
+  });
+  document.getElementById("printRoot").addEventListener("click", (e) => {
+    if (e.target.closest("[data-closeprint]") || e.target.classList.contains("print-bg")) document.getElementById("printRoot").innerHTML = "";
+  });
+  document.getElementById("btnPrintSel").addEventListener("click", () => openPrint([...selected]));
+  document.getElementById("btnClearSel").addEventListener("click", () => { selected.clear(); renderSel(); renderTable(); });
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape") return;
+    if (document.getElementById("printRoot").innerHTML) document.getElementById("printRoot").innerHTML = "";
+    else if (openId) { openId = null; renderDrawer(); renderTable(); }
+  });
+  document.getElementById("role").addEventListener("change", (e) => {
+    role = e.target.value; F.kiosks = F.kiosks.filter((k) => role !== "enc" || ["MIRAF2", "RETALHU"].includes(k)); selected.clear(); openId = null; page = 1; renderAll();
+  });
+
+  // Navegación del prototipo: lleva a cada pantalla con datos de ejemplo.
+  document.querySelector(".proto").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-go]");
+    if (!b) return;
+    document.querySelectorAll(".proto [data-go]").forEach((x) => x.classList.toggle("on", x === b));
+    document.getElementById("printRoot").innerHTML = "";
+    openId = null; selected.clear(); F = initial(); page = 1;
+    if (b.dataset.go === "detail") { openId = 3; }
+    if (b.dataset.go === "print") { F.kiosks = ["MIRAF2", "RETALHU"]; selected = new Set([2, 3, 4]); renderAll(); openPrint([2, 3, 4]); return; }
+    if (b.dataset.go === "empty") { F.kiosks = ["CELAJES"]; F.procs = ["DIST"]; F.product = "roderick"; }
+    renderAll();
+  });
+
+  let toastTimer = null;
+  document.addEventListener("click", (e) => {
+    const b = e.target.closest("[data-toast]");
+    if (!b) return;
+    const t = document.getElementById("toast");
+    t.textContent = b.dataset.toast; t.hidden = false;
+    clearTimeout(toastTimer); toastTimer = setTimeout(() => (t.hidden = true), 2600);
+  });
+
+  renderAll();
+})();
+</script>

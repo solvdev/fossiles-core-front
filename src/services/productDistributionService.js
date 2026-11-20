@@ -617,6 +617,44 @@ export const getShipmentsPendingReceipt = async (kioskLocationId) => {
  * Todos los envíos de un kiosko (cualquier estado) con fecha de envío (o de creación) entre `from` y `to`
  * (YYYY-MM-DD, ambos incluidos). Alimenta la pestaña «Envíos» de Kioscos. El back topa en 500 envíos.
  */
+/**
+ * Consulta «Envíos»: búsqueda paginada de todos los envíos. {@code filters} usa los nombres del API
+ * (dateField, from, to, kioskIds, provenances, statuses, shipmentNumber, distributionNumber, productionOrderCode,
+ * productionOrderType, product, dispatchOrigin, receiptDifference, pendingProduction, person, notes, order, page,
+ * size); los vacíos no se mandan y las listas van separadas por coma.
+ */
+export const searchShipments = async (filters = {}) => {
+  const params = new URLSearchParams();
+  Object.entries(filters).forEach(([key, value]) => {
+    if (value == null || value === '' || value === false) return;
+    if (Array.isArray(value)) {
+      if (value.length) params.set(key, value.join(','));
+      return;
+    }
+    params.set(key, String(value));
+  });
+  const response = await fetch(`${API_URL}/product-distributions/shipments/search?${params.toString()}`, {
+    headers: { 'Content-Type': 'application/json', ...getAuthHeader() }
+  });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ message: 'Error al buscar envíos' }));
+    throw new Error(err.message || 'Error al buscar envíos');
+  }
+  return response.json();
+};
+
+/** Kioscos y supervisoras que el usuario puede usar en el filtro de «Envíos» (una encargada: solo los suyos). */
+export const getShipmentSearchOptions = async () => {
+  const response = await fetch(`${API_URL}/product-distributions/shipments/search/options`, {
+    headers: { 'Content-Type': 'application/json', ...getAuthHeader() }
+  });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ message: 'Error al cargar los kioscos' }));
+    throw new Error(err.message || 'Error al cargar los kioscos');
+  }
+  return response.json();
+};
+
 export const getShipmentsByKiosk = async (kioskLocationId, from, to) => {
   const params = new URLSearchParams({ kioskLocationId: String(kioskLocationId) });
   if (from) params.set('from', from);
