@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import {
-  addDays, fDate, fK, fN, fQ, monthName, pct,
+  addDays, fDate, fK, fN, fQ, monthName, ORDER_STAGES, pct,
 } from "views/executive/executiveModel";
 import {
   BarCell, Card, Chips, Decide, GridTable, KpiGrid, Track, WeekColumns,
@@ -51,7 +51,7 @@ function AlertItem({ alert, open, onToggle, onGo }) {
 export function SummaryPage({ m, go }) {
   const { prod, sales, fin, recv, orders, data } = m;
   const [openId, setOpenId] = useState(m.alerts[0]?.id || null);
-  const bigOrders = orders.rows.slice(0, 4);
+  const bigOrders = [...orders.rows].sort((a, b) => b.hoursLeft - a.hoursLeft).slice(0, 4);
   const topK = sales.kiosks.filter((k) => k.tickets > 0);
   const ends = [...topK.slice(0, 3).map((k) => ({ ...k, up: true })), ...topK.slice(-3).reverse().map((k) => ({ ...k, up: false }))];
   return (
@@ -66,11 +66,15 @@ export function SummaryPage({ m, go }) {
             sub: "vs periodo anterior",
           },
           { label: `Piezas producidas · ${data.days} días`, value: fN(prod.pieces), sub: `${fN(prod.tasks)} tareas · ${fN(prod.hours)} h` },
-          { label: "Pendiente por producir", value: fN(prod.backlogPending), sub: "piezas en órdenes abiertas (sin cinchos)" },
+          {
+            label: "Horas que faltan",
+            value: `${fN(prod.backlogHoursLeft, 1)} h`,
+            sub: `${fN(prod.backlogPending)} piezas por terminar en ${fN(orders.open)} órdenes`,
+          },
           {
             label: "Al ritmo actual termina en",
             value: prod.weeksToFinish == null ? "—" : `${fN(prod.weeksToFinish, 1)} sem`,
-            sub: prod.finishDate ? `≈ ${fDate(prod.finishDate)}` : "",
+            sub: `${prod.finishDate ? `≈ ${fDate(prod.finishDate)} · ` : ""}${fN(prod.avgWeekStdHours)} h por semana`,
           },
           {
             label: "Órdenes atrasadas",
@@ -79,19 +83,21 @@ export function SummaryPage({ m, go }) {
             tone: "down",
             sub: `de ${fN(orders.open)} abiertas`,
           },
-          fin.goalTotal > 0
+          fin.goalPct != null
             ? {
-                label: `${monthName(fin.month)} vs meta`,
-                value: pct(fin.projTotal / fin.goalTotal),
-                tone: "",
-                sub: `proyección ${fK(fin.projTotal)} de ${fK(fin.goalTotal)}`,
+                label: fin.projectionFactor ? `${monthName(fin.month)} vs meta` : "Avance a la meta",
+                value: pct(fin.goalPct),
+                sub: fin.projectionFactor
+                  ? `proyección ${fK(fin.projTotal)} de ${fK(fin.monthGoalTotal)} (hasta ayer)`
+                  : `${fK(fin.salesWithGoal)} de ${fK(fin.goalTotal)} · ${fin.rangeLabel}`,
               }
             : null,
           fin.yoy != null
             ? {
-                label: `${monthName(fin.month)} vs año pasado`,
+                label: "Vs año pasado",
                 value: `${fin.yoy >= 0 ? "▲" : "▼"} ${pct(Math.abs(fin.yoy), 1)}`,
-                sub: `días 1–${fin.sameDaysUntil}, todos los kioscos`,
+                tone: fin.yoy >= 0 ? "up" : "down",
+                sub: `${fin.rangeLabel}, todos los kioscos`,
               }
             : null,
           { label: "Por cobrar a clientes", value: fK(recv.balance), sub: `${fN(recv.customers)} clientes · cobrado ${fK(recv.collectedInPeriod)}` },
@@ -147,17 +153,17 @@ export function SummaryPage({ m, go }) {
             ])}
           />
         </Card>
-        <Card title="Órdenes grandes" hint="Azul = terminado, claro = en proceso.">
+        <Card title="Órdenes grandes" hint="Mismas etapas que «Avance por orden» del dashboard de producción.">
+          <StageLegend />
           {bigOrders.map((o) => (
             <div key={o.id} style={{ padding: "8px 0", borderBottom: "1px solid #EEF1F5" }}>
               <div style={{ display: "flex", justifyContent: "space-between", gap: 8, fontSize: 13 }}>
                 <b>{o.code}</b>
-                <span className="num">{pct(o.progress)}</span>
+                <span className="num">{pct(o.progress)} · faltan {fN(o.hoursLeft, 1)} h</span>
               </div>
-              <Track className="" parts={[{ w: o.pd }, { w: o.pw, cls: "x-fill2" }]} />
+              <Track parts={o.parts} />
               <div className="x-hint">
-                {fN(Math.min(o.done, o.ordered))} de {fN(o.ordered)} terminadas
-                {o.inProgress ? ` · ${fN(o.inProgress)} en proceso` : ""} · {o.customer}
+                {fN(o.done)} de {fN(o.units)} terminadas · faltan {fN(o.missing)} · {o.customer}
               </div>
             </div>
           ))}
@@ -173,10 +179,14 @@ export function ProductionPage({ m }) {
   const { prod, leather, data } = m;
   const [target, setTarget] = useState(8);
   const [cost, setCost] = useState("");
+  const [rhythm, setRhythm] = useState("hours");
   const costNum = Number(cost);
   const hasCost = cost !== "" && costNum > 0;
-  const need = prod.backlogPending / target;
-  const ratio = prod.avgWeekPieces > 0 ? need / prod.avgWeekPieces : null;
+  const byHours = prod.avgWeekStdHours > 0;
+  const need = (byHours ? prod.backlogHoursLeft : prod.backlogPending) / target;
+  const rate = byHours ? prod.avgWeekStdHours : prod.avgWeekPieces;
+  const unit = byHours ? "horas" : "piezas";
+  const ratio = rate > 0 ? need / rate : null;
   return (
     <div className="x-stack">
       <KpiGrid
@@ -187,24 +197,30 @@ export function ProductionPage({ m }) {
           { label: `Producido · ${data.days} días`, value: fN(prod.pieces), sub: `piezas · ${fN(prod.pieces / prod.workDays)} por día hábil` },
           { label: "Horas por pieza", value: `${fN(prod.hoursPerPiece, 1)} h`, sub: `${fN(prod.hours)} h registradas` },
           { label: "Tareas a tiempo", value: pct(prod.onTime), delta: `${fN(prod.delayedTasks)} atrasadas`, tone: "down", sub: `de ${fN(prod.tasks)} terminadas` },
-          { label: "Pendiente", value: fN(prod.backlogPending), sub: prod.weeksToFinish == null ? "piezas" : `piezas · ${fN(prod.weeksToFinish, 1)} semanas al ritmo actual` },
+          { label: "Horas que faltan", value: `${fN(prod.backlogHoursLeft, 1)} h`, sub: `${fN(prod.backlogPending)} piezas por terminar` },
+          { label: "Ritmo", value: `${fN(prod.avgWeekStdHours)} h/sem`, sub: `horas estándar terminadas · ${fN(prod.avgWeekPieces)} piezas/sem` },
         ]}
       />
 
       <div className="x-row">
         <Card
           title="Ritmo de producción"
-          hint={`Piezas terminadas por semana. Promedio reciente: ${fN(prod.avgWeekPieces)} por semana.`}
+          hint={
+            rhythm === "hours"
+              ? `Horas estándar terminadas por semana (piezas × horas por pieza del producto). Promedio reciente: ${fN(prod.avgWeekStdHours)} h.`
+              : `Piezas terminadas por semana. Promedio reciente: ${fN(prod.avgWeekPieces)} por semana.`
+          }
           style={{ flex: "3 1 440px" }}
+          actions={<Chips options={[["hours", "Horas"], ["pieces", "Piezas"]]} value={rhythm} onChange={setRhythm} />}
         >
-          <WeekColumns weeks={prod.weeks} />
+          <WeekColumns weeks={rhythm === "hours" ? prod.weeksStdHours : prod.weeks} />
         </Card>
-        <Card title="¿Cuándo termino lo que queda?" hint="Piezas pendientes en órdenes abiertas, sin las de cinchos por talla." style={{ flex: "2 1 340px" }}>
+        <Card title="¿Cuándo termino lo que queda?" hint="Órdenes activas, igual que «Horas que faltan» de Avance por orden." style={{ flex: "2 1 340px" }}>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 18, marginTop: 12 }}>
             <div>
               <div className="x-kpi-label">Faltan</div>
-              <div className="x-kpi-value">{fN(prod.backlogPending)}</div>
-              <div className="x-kpi-sub">piezas</div>
+              <div className="x-kpi-value">{fN(prod.backlogHoursLeft, 1)} h</div>
+              <div className="x-kpi-sub">{fN(prod.backlogPending)} piezas</div>
             </div>
             <div>
               <div className="x-kpi-label">Al ritmo actual</div>
@@ -218,8 +234,8 @@ export function ProductionPage({ m }) {
           </div>
           <Decide>
             Para terminar en <b>{target} semanas</b> (≈ {fDate(addDays(data.to, target * 7))}) se necesitan{" "}
-            <b>{fN(need)} piezas por semana</b>
-            {ratio == null ? "." : ratio <= 1 ? ", menos que el ritmo actual. Alcanza." : `, ${fN(ratio, 1)} veces el ritmo actual. Faltan ${fN(need - prod.avgWeekPieces)} por semana: más personal, horas extra o maquila.`}
+            <b>{fN(need)} {unit} por semana</b>
+            {ratio == null ? "." : ratio <= 1 ? ", menos que el ritmo actual. Alcanza." : `, ${fN(ratio, 1)} veces el ritmo actual. Faltan ${fN(need - rate)} ${unit} por semana: más personal, horas extra o maquila.`}
           </Decide>
         </Card>
       </div>
@@ -342,34 +358,43 @@ const ORDER_FILTERS = [
   ["sin", "Sin empezar"],
   ["proceso", "En proceso"],
   ["casi", "Casi listas (80 %+)"],
+  ["atrasadas", "Atrasadas"],
 ];
 
 export function OrdersPage({ m }) {
   const { orders } = m;
   const [filter, setFilter] = useState("todas");
-  const backlog = m.prod;
+  const b = orders.backlog;
   const rows = orders.rows.filter((o) => {
-    if (filter === "sin") return o.done === 0 && o.inProgress === 0;
-    if (filter === "proceso") return (o.done > 0 || o.inProgress > 0) && o.progress < 0.8;
+    if (filter === "sin") return o.done === 0 && o.inProgress === 0 && o.warehouse === 0;
+    if (filter === "proceso") return (o.done > 0 || o.inProgress > 0 || o.warehouse > 0) && o.progress < 0.8;
     if (filter === "casi") return o.progress >= 0.8;
+    if (filter === "atrasadas") return o.late;
     return true;
   });
-  const notStarted = orders.notStarted.slice(0, 3);
+  const notStarted = [...orders.notStarted].sort((x, y) => y.units - x.units).slice(0, 3);
   return (
     <div className="x-stack">
       <KpiGrid
         items={[
-          { label: "Órdenes abiertas", value: fN(orders.open), sub: `${fN(orders.pending)} pendientes · ${fN(orders.inProgress)} en proceso` },
-          { label: "Atrasadas", value: fN(orders.overdue), delta: orders.open ? pct(orders.overdue / orders.open) : "", tone: "down", sub: "pasaron su fecha de entrega" },
           {
-            label: "Avance general",
-            value: backlog.backlogOrdered ? pct(backlog.backlogDone / backlog.backlogOrdered) : "—",
-            sub: `${fN(backlog.backlogDone)} de ${fN(backlog.backlogOrdered)} piezas (sin cinchos)`,
+            label: "Órdenes activas",
+            value: fN(orders.open),
+            sub: `${fN(orders.pending)} pendientes · ${fN(orders.inProgress)} en proceso${orders.inQa ? ` · ${fN(orders.inQa)} en QA` : ""}`,
           },
-          { label: "En proceso ahora", value: fN(backlog.backlogInProgress), sub: "piezas en mesas" },
+          { label: "Atrasadas", value: fN(orders.overdue), delta: orders.open ? pct(orders.overdue / orders.open) : "", tone: "down", sub: "pasaron su fecha de entrega" },
+          { label: "Avance general", value: b.units ? pct(b.done / b.units) : "—", sub: `${fN(b.done)} de ${fN(b.units)} piezas terminadas` },
+          { label: "Horas que faltan", value: `${fN(orders.hoursLeft, 1)} h`, sub: `${fN(orders.lateHoursLeft, 1)} h son de órdenes atrasadas` },
+          { label: "En mesa ahora", value: fN(b.inProgress), sub: `piezas · ${fN(orders.workingNow)} órdenes trabajando` },
         ]}
       />
-      <Card title="Órdenes abiertas por tipo" hint={`${fN(orders.open)} órdenes pendientes o en proceso.`}>
+      <Card title="Avance total en piezas" hint="Igual que «Avance por orden» del dashboard de producción: cada pieza pedida cae en una sola etapa.">
+        <div style={{ marginTop: 12 }}>
+          <Track className="tall" parts={orders.totalParts} />
+        </div>
+        <StageLegend stages={b} />
+      </Card>
+      <Card title="Órdenes activas por tipo" hint={`${fN(orders.open)} órdenes pendientes, en proceso o en QA.`}>
         <div style={{ marginTop: 14 }}>
           <Track className="tall" parts={orders.types.map((t) => ({ w: t.w, color: t.color }))} />
         </div>
@@ -384,40 +409,53 @@ export function OrdersPage({ m }) {
       </Card>
       <Card
         title="Avance por orden"
-        hint="Porcentaje de piezas terminadas sobre lo pedido; las de cinchos se ven en su propia pantalla de producción."
+        hint="Piezas terminadas sobre lo pedido (lo recibido en bodega cuenta como terminado). Ordenadas por lo que falta."
         actions={<Chips options={ORDER_FILTERS} value={filter} onChange={setFilter} />}
       >
+        <StageLegend />
         <GridTable
-          minWidth={680}
+          minWidth={780}
           cols={[
             { label: "Orden", width: "90px", cls: "b" },
             { label: "Cliente / destino", width: "minmax(0, 1.2fr)", cls: "ell muted" },
-            { label: "Entrega", width: "84px" },
+            { label: "Entrega", width: "80px" },
             { label: "Avance", width: "minmax(0, 1.4fr)" },
             { label: "Terminadas", width: "110px", align: "r" },
-            { label: "Faltan", width: "70px", align: "r", cls: "b" },
+            { label: "Faltan", width: "64px", align: "r", cls: "b" },
+            { label: "Horas", width: "74px", align: "r", cls: "b" },
           ]}
           rows={rows.map((o) => [
             o.code,
             <span title={o.customer}>{o.customer}</span>,
-            o.deliveryDate ? (
-              <span className={o.deliveryDate < m.data.to ? "down" : ""}>{fDate(o.deliveryDate, false)}</span>
-            ) : (
-              "—"
-            ),
-            <BarCell parts={[{ w: o.pd }, { w: o.pw, cls: "x-fill2" }]} value={pct(o.progress)} />,
-            `${fN(Math.min(o.done, o.ordered))} de ${fN(o.ordered)}`,
-            fN(o.pending),
+            o.deliveryDate ? <span className={o.late ? "down" : ""}>{fDate(o.deliveryDate, false)}</span> : "—",
+            <BarCell parts={o.parts} value={pct(o.progress)} />,
+            `${fN(o.done)} de ${fN(o.units)}`,
+            fN(o.missing),
+            `${fN(o.hoursLeft, 1)} h`,
           ])}
           empty="No hay órdenes con este filtro."
         />
         {notStarted.length ? (
           <Decide>
-            {notStarted.map((o) => o.code).join(", ")} ({fN(notStarted.reduce((a, o) => a + o.ordered, 0))} piezas) no han empezado. Si tienen fecha cercana,
-            darles prioridad en «Armar el día».
+            {notStarted.map((o) => o.code).join(", ")} ({fN(notStarted.reduce((a, o) => a + o.units, 0))} piezas,{" "}
+            {fN(notStarted.reduce((a, o) => a + o.hoursLeft, 0), 1)} h) no han empezado. Si tienen fecha cercana, darles prioridad en «Armar el día».
           </Decide>
         ) : null}
       </Card>
+    </div>
+  );
+}
+
+/** Leyenda de etapas, igual que Avance por orden (con cantidades si se pasan). */
+function StageLegend({ stages }) {
+  return (
+    <div className="x-legend" style={{ marginTop: 8 }}>
+      {ORDER_STAGES.map((st) => (
+        <span key={st.key}>
+          <span className="x-sw" style={{ background: st.color }} />
+          {stages ? <b className="num">{fN(stages[st.key] || 0)}</b> : null} {stages ? st.short : st.label}
+        </span>
+      ))}
     </div>
   );
 }

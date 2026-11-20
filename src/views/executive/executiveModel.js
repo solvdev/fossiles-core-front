@@ -2,6 +2,7 @@
  * Cálculos y textos del tablero gerencial a partir de la respuesta de GET /executive-dashboard.
  * Todo lo que aparece como cifra o alerta sale de los datos; aquí no hay números fijos.
  */
+import { STAGES } from "utils/orderProgressReport";
 
 const MONTHS = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
 const MONTHS_LONG = [
@@ -80,7 +81,9 @@ export function productionModel(data) {
   const p = data.production;
   const hoursPerPiece = p.pieces ? p.hours / p.pieces : 0;
   const onTime = p.tasks ? 1 - p.delayedTasks / p.tasks : 0;
-  const weeksToFinish = p.avgWeekPieces > 0 ? p.backlogPending / p.avgWeekPieces : null;
+  // Ritmo en horas estándar (mismas horas por pieza que «Horas que faltan»); si no hay, por piezas.
+  const weeksToFinish =
+    p.avgWeekStdHours > 0 ? p.backlogHoursLeft / p.avgWeekStdHours : p.avgWeekPieces > 0 ? p.backlogPending / p.avgWeekPieces : null;
   const finishDate = weeksToFinish != null ? addDays(data.to, weeksToFinish * 7) : null;
   const totalDeskPieces = p.desks.reduce((a, d) => a + d.pieces, 0) || 1;
   const maxDesk = Math.max(1, ...p.desks.map((d) => d.pieces));
@@ -124,17 +127,30 @@ export function productionModel(data) {
 
 /* ---------------------------------------------------------------- Órdenes */
 
+/** Etapas y colores iguales a «Avance por orden» del Dashboard de Producción. */
+export const ORDER_STAGES = STAGES;
+
+const stageParts = (s) => {
+  const units = Number(s?.units || 0);
+  return STAGES.map((st) => ({ w: units ? (Number(s?.[st.key] || 0) / units) * 100 : 0, color: st.color }));
+};
+
 export function orderRow(o) {
-  const done = Math.min(o.done, o.ordered);
-  const pd = o.ordered ? (done / o.ordered) * 100 : 0;
-  const pw = o.ordered ? Math.min(100 - pd, (o.inProgress / o.ordered) * 100) : 0;
+  const s = o.stages || {};
+  const units = Number(s.units || 0);
+  const done = Math.min(Number(s.done || 0), units);
   return {
     ...o,
     customer: o.customer || "—",
-    pd,
-    pw,
-    progress: o.ordered ? done / o.ordered : 0,
-    pending: Math.max(0, o.ordered - done),
+    units,
+    done,
+    warehouse: Number(s.warehouse || 0),
+    inProgress: Number(s.inProgress || 0),
+    toStart: Number(s.pending || 0),
+    noTask: Number(s.noTask || 0),
+    progress: units ? done / units : 0,
+    missing: Math.max(0, units - done),
+    parts: stageParts(s),
   };
 }
 
@@ -148,8 +164,9 @@ export function ordersModel(data) {
     w: (t.count / totalTypes) * 100,
   }));
   const rows = o.orders.map(orderRow);
-  const notStarted = rows.filter((r) => r.done === 0 && r.inProgress === 0);
-  return { ...o, types, rows, notStarted };
+  const notStarted = rows.filter((r) => r.done === 0 && r.inProgress === 0 && r.warehouse === 0);
+  const b = data.production.backlog || {};
+  return { ...o, types, rows, notStarted, totalParts: stageParts(b), backlog: b };
 }
 
 /* ---------------------------------------------------------------- Ventas */
@@ -183,47 +200,55 @@ export function salesModel(data) {
 
 export function financeModel(data) {
   const f = data.finance;
+  const factor = f.projectionFactor;
   const pnlByLocation = new Map((f.pnl || []).filter((r) => r.locationId != null).map((r) => [r.locationId, r]));
   const rows = f.goals
-    .filter((g) => g.goal > 0 || pnlByLocation.has(g.locationId))
+    .filter((g) => g.goal > 0 || g.monthGoal > 0 || g.sales > 0 || pnlByLocation.has(g.locationId))
     .map((g) => {
-      const proj = f.daysElapsed > 0 ? (g.monthToDate / f.daysElapsed) * f.daysInMonth : 0;
-      const pnl = pnlByLocation.get(g.locationId) || null;
+      const proj = factor ? g.sales * factor : null;
       return {
         ...g,
         label: kioskName(g.name),
         proj,
-        projPct: g.goal > 0 ? proj / g.goal : null,
-        mtdPct: g.goal > 0 ? g.monthToDate / g.goal : null,
-        pnl,
+        // Con proyección: contra la meta del mes. Sin ella: lo vendido contra la meta prorrateada del rango.
+        projPct: proj != null && g.monthGoal > 0 ? proj / g.monthGoal : null,
+        rangePct: g.goal > 0 ? g.sales / g.goal : null,
+        pnl: pnlByLocation.get(g.locationId) || null,
       };
     });
   const withGoal = rows.filter((r) => r.goal > 0);
   const goalTotal = withGoal.reduce((a, r) => a + r.goal, 0);
-  const mtdTotal = withGoal.reduce((a, r) => a + r.monthToDate, 0);
-  const projTotal = withGoal.reduce((a, r) => a + r.proj, 0);
+  const monthGoalTotal = rows.reduce((a, r) => a + (r.monthGoal || 0), 0);
+  const salesWithGoal = withGoal.reduce((a, r) => a + r.sales, 0);
+  const projTotal = factor ? rows.filter((r) => r.monthGoal > 0).reduce((a, r) => a + r.proj, 0) : null;
   const pnl = f.pnl || [];
   const losers = pnl.filter((r) => r.profit < 0).sort((a, b) => a.profit - b.profit);
   const profitTotal = pnl.reduce((a, r) => a + r.profit, 0);
-  const reach = withGoal.filter((r) => r.projPct >= 1).length;
-  const best = [...withGoal].sort((a, b) => (b.projPct || 0) - (a.projPct || 0))[0] || null;
-  const yoy = f.lastYearSameDays > 0 ? f.monthToDate / f.lastYearSameDays - 1 : null;
+  const score = (r) => (factor ? r.projPct : r.rangePct);
+  const reach = withGoal.filter((r) => (score(r) || 0) >= 1).length;
+  const best = [...withGoal].sort((a, b) => (score(b) || 0) - (score(a) || 0))[0] || null;
+  const yoy = f.lastYearSameRange > 0 ? f.sales / f.lastYearSameRange - 1 : null;
   const season = f.lastYearMonth > 0 && f.lastYearNextMonth > 0 ? f.lastYearNextMonth / f.lastYearMonth : null;
   const lastPnlSales = pnl.reduce((a, r) => a + r.sales, 0);
   return {
     ...f,
     rows,
     goalTotal,
-    mtdTotal,
+    monthGoalTotal,
+    salesWithGoal,
     projTotal,
+    // Avance a la meta: proyectado al cierre si el rango es del mes; si no, lo vendido contra la meta del rango.
+    goalPct: factor && monthGoalTotal > 0 ? projTotal / monthGoalTotal : goalTotal > 0 ? salesWithGoal / goalTotal : null,
+    score,
     losers,
     profitTotal,
     reach,
     best,
     yoy,
     season,
-    goalVsLastMonth: lastPnlSales > 0 ? goalTotal / lastPnlSales : null,
+    goalVsLastMonth: lastPnlSales > 0 && monthGoalTotal > 0 ? monthGoalTotal / lastPnlSales : null,
     hasPnl: pnl.length > 0,
+    rangeLabel: `${fDate(f.from)} – ${fDate(f.to)}`,
   };
 }
 
@@ -339,22 +364,27 @@ export function buildAlerts(m) {
   const { prod, orders, sales, fin, rent, leather, recv, ads, data } = m;
   const out = [];
 
-  const big = orders.rows.filter((o) => o.pending > 0).sort((a, b) => b.pending - a.pending)[0];
-  if (big && prod.avgWeekPieces > 0 && big.pending >= prod.avgWeekPieces * 2) {
-    const weeks = big.pending / prod.avgWeekPieces;
+  // Orden más grande por horas que faltan; el ritmo es en horas estándar por semana (o piezas si no hay horas).
+  const big = [...orders.rows].filter((o) => o.missing > 0).sort((a, b) => b.hoursLeft - a.hoursLeft || b.missing - a.missing)[0];
+  const byHours = prod.avgWeekStdHours > 0;
+  const rate = byHours ? prod.avgWeekStdHours : prod.avgWeekPieces;
+  const need = big ? (byHours ? big.hoursLeft : big.missing) : 0;
+  if (big && rate > 0 && need >= rate * 2) {
+    const weeks = need / rate;
+    const unit = byHours ? "h" : "piezas";
     out.push({
       id: "big-order",
       tag: "Producción",
       tone: "prod",
-      title: `${big.code}${big.customer && big.customer !== "—" ? ` (${big.customer})` : ""}: faltan ${fN(big.pending)} piezas (${pct(big.pending / big.ordered)})`,
-      detail: `Al ritmo de ${fN(prod.avgWeekPieces)} piezas por semana, con toda la planta en esa orden, termina en ${fN(weeks, 1)} semanas (≈ ${fDate(addDays(data.to, weeks * 7))}).`,
+      title: `${big.code}${big.customer && big.customer !== "—" ? ` (${big.customer})` : ""}: faltan ${fN(big.missing)} piezas · ${fN(big.hoursLeft, 1)} h (${pct(big.missing / big.units)})`,
+      detail: `Al ritmo de ${fN(rate)} ${unit} por semana, con toda la planta en esa orden, termina en ${fN(weeks, 1)} semanas (≈ ${fDate(addDays(data.to, weeks * 7))}).`,
       action: "Decidir maquila, horas extra o bajar la cantidad.",
       dTitle: "Cuándo termina según cuánta planta se le dedica",
-      head: ["Planta dedicada", "Piezas/semana", "Semanas", "Termina ≈"],
+      head: ["Planta dedicada", byHours ? "Horas/semana" : "Piezas/semana", "Semanas", "Termina ≈"],
       rows: [1, 0.75, 0.5].map((f) =>
-        row(pct(f), fN(prod.avgWeekPieces * f), fN(big.pending / (prod.avgWeekPieces * f), 1), fDate(addDays(data.to, (big.pending / (prod.avgWeekPieces * f)) * 7)), f < 1)
+        row(pct(f), fN(rate * f), fN(need / (rate * f), 1), fDate(addDays(data.to, (need / (rate * f)) * 7)), f < 1)
       ),
-      note: `Pedidas ${fN(big.ordered)} · terminadas ${fN(Math.min(big.done, big.ordered))} · en proceso ${fN(big.inProgress)}. Las demás órdenes usan la misma planta.`,
+      note: `Pedidas ${fN(big.units)} · terminadas ${fN(big.done)} · en bodega/QA ${fN(big.warehouse)} · en mesa ${fN(big.inProgress)} · por iniciar ${fN(big.toStart)} · sin tarea ${fN(big.noTask)}. Las demás órdenes usan la misma planta.`,
       page: "ordenes",
       goLabel: "Ver avance de órdenes",
     });
@@ -407,7 +437,7 @@ export function buildAlerts(m) {
       id: "low-stock",
       tag: "Inventario",
       tone: "inv",
-      title: `${low.slice(0, 2).map((t) => `${t.code} ${t.label}`).join(" y ")} se están acabando en kioscos`,
+      title: `${low.slice(0, 2).map((t) => `${t.code} ${t.label}`).join(" y ")} ${low.length === 1 ? "se está acabando" : "se están acabando"} en kioscos`,
       detail: low.slice(0, 3).map((t) => `${t.code}: ${t.kiosksLow} kioscos con 1–2 u, ${fN(t.warehouseStock)} en bodega`).join(" · "),
       action: low.map((t) => `${t.code}: ${t.action.toLowerCase()}`).slice(0, 3).join(" · "),
       dTitle: "Más vendidos con kioscos en riesgo",
@@ -471,8 +501,8 @@ export function buildAlerts(m) {
     });
   }
 
-  const dayOfMonth = Math.floor(fin.daysElapsed + 0.5);
-  const dead = fin.rows.filter((r) => r.goal > 0 && dayOfMonth >= 10 && r.mtdPct < 0.1).sort((a, b) => a.mtdPct - b.mtdPct);
+  // Kioscos casi sin venta en el rango de Finanzas (días cerrados), contra su meta prorrateada.
+  const dead = fin.days >= 10 ? fin.rows.filter((r) => r.goal > 0 && r.rangePct < 0.1).sort((a, b) => a.rangePct - b.rangePct) : [];
   if (dead.length) {
     const k = dead[0];
     const s = sales.kiosks.find((x) => x.locationId === k.locationId);
@@ -480,12 +510,12 @@ export function buildAlerts(m) {
       id: "dead-kiosk",
       tag: "Ventas",
       tone: "ven",
-      title: `${k.label} lleva ${fQ(k.monthToDate)} en ${monthName(fin.month)}`,
-      detail: `Su meta es ${fQ(k.goal)} (${pct(k.mtdPct)} al día ${dayOfMonth}).${s ? ` En ${data.days} días hizo ${fN(s.tickets)} ventas.` : ""}`,
+      title: `${k.label} lleva ${fQ(k.sales)} del ${fDate(fin.from, false)} al ${fDate(fin.to, false)}`,
+      detail: `Su meta para esos días es ${fQ(k.goal)} (${pct(k.rangePct)}).${s ? ` En ${data.days} días hizo ${fN(s.tickets)} ventas.` : ""}`,
       action: "Confirmar si estuvo cerrado o si hay ventas sin registrar.",
       dTitle: "Kioscos con menos del 10 % de su meta",
-      head: ["Kiosco", "Vendido", "Meta", "Avance"],
-      rows: dead.slice(0, 5).map((r) => row(r.label, fQ(r.monthToDate), fQ(r.goal), pct(r.mtdPct), true)),
+      head: ["Kiosco", "Vendido", "Meta del rango", "Avance"],
+      rows: dead.slice(0, 5).map((r) => row(r.label, fQ(r.sales), fQ(r.goal), pct(r.rangePct), true)),
       note: "Un cambio tan brusco suele ser cierre, falta de personal o ventas sin registrar.",
       page: "ventas",
       goLabel: "Ver este kiosco",
