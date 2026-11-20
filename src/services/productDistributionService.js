@@ -408,14 +408,31 @@ export const deleteShipment = async (id) => {
 
 // ========== TRANSIT & RECEIPT ==========
 
-export const sendShipment = async (shipmentId) => {
-  const response = await fetch(`${API_URL}/product-distributions/shipments/${shipmentId}/send`, {
+/**
+ * takeShortageFromFallback: el usuario autorizó tomar el faltante de la otra cubeta (envío directo: de Bodega PT;
+ * envío de distribución: de Devoluciones). Sin él, el envío sale solo de su bodega principal.
+ */
+export const sendShipment = async (shipmentId, { takeShortageFromFallback = false } = {}) => {
+  const query = takeShortageFromFallback ? '?takeShortageFromFallback=true' : '';
+  const response = await fetch(`${API_URL}/product-distributions/shipments/${shipmentId}/send${query}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json', ...getAuthHeader() }
   });
   if (!response.ok) {
     const err = await response.json().catch(() => ({ message: 'Error al enviar' }));
     throw new Error(err.message || 'Error al enviar');
+  }
+  return response.json();
+};
+
+/** Desglose Devoluciones / Bodega PT por línea antes de enviar y si el faltante se puede tomar de la otra cubeta. */
+export const checkShipmentDispatchStock = async (shipmentId) => {
+  const response = await fetch(`${API_URL}/product-distributions/shipments/${shipmentId}/dispatch-stock-check`, {
+    headers: { 'Content-Type': 'application/json', ...getAuthHeader() }
+  });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ message: 'Error al revisar el stock del envío' }));
+    throw new Error(err.message || 'Error al revisar el stock del envío');
   }
   return response.json();
 };
@@ -617,6 +634,44 @@ export const getShipmentsPendingReceipt = async (kioskLocationId) => {
  * Todos los envíos de un kiosko (cualquier estado) con fecha de envío (o de creación) entre `from` y `to`
  * (YYYY-MM-DD, ambos incluidos). Alimenta la pestaña «Envíos» de Kioscos. El back topa en 500 envíos.
  */
+/**
+ * Consulta «Envíos»: búsqueda paginada de todos los envíos. {@code filters} usa los nombres del API
+ * (dateField, from, to, kioskIds, provenances, statuses, shipmentNumber, distributionNumber, productionOrderCode,
+ * productionOrderType, product, dispatchOrigin, receiptDifference, pendingProduction, person, notes, order, page,
+ * size); los vacíos no se mandan y las listas van separadas por coma.
+ */
+export const searchShipments = async (filters = {}) => {
+  const params = new URLSearchParams();
+  Object.entries(filters).forEach(([key, value]) => {
+    if (value == null || value === '' || value === false) return;
+    if (Array.isArray(value)) {
+      if (value.length) params.set(key, value.join(','));
+      return;
+    }
+    params.set(key, String(value));
+  });
+  const response = await fetch(`${API_URL}/product-distributions/shipments/search?${params.toString()}`, {
+    headers: { 'Content-Type': 'application/json', ...getAuthHeader() }
+  });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ message: 'Error al buscar envíos' }));
+    throw new Error(err.message || 'Error al buscar envíos');
+  }
+  return response.json();
+};
+
+/** Kioscos y supervisoras que el usuario puede usar en el filtro de «Envíos» (una encargada: solo los suyos). */
+export const getShipmentSearchOptions = async () => {
+  const response = await fetch(`${API_URL}/product-distributions/shipments/search/options`, {
+    headers: { 'Content-Type': 'application/json', ...getAuthHeader() }
+  });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ message: 'Error al cargar los kioscos' }));
+    throw new Error(err.message || 'Error al cargar los kioscos');
+  }
+  return response.json();
+};
+
 export const getShipmentsByKiosk = async (kioskLocationId, from, to) => {
   const params = new URLSearchParams({ kioskLocationId: String(kioskLocationId) });
   if (from) params.set('from', from);
@@ -751,9 +806,11 @@ export const validateDispatchStock = async (products) => {
 };
 
 // internal: envío interno (OPI), que solo puede salir de Devoluciones (no cuenta Bodega PT).
-export const previewDispatchStock = async ({ productId, colorId, size, internal = false }) => {
+// direct: envío directo a kiosco; availableTotal = Devoluciones y fallbackAvailableTotal = Devoluciones + Bodega PT.
+export const previewDispatchStock = async ({ productId, colorId, size, internal = false, direct = false }) => {
   const params = new URLSearchParams({ productId: String(productId) });
   if (internal) params.set('internal', 'true');
+  if (direct) params.set('direct', 'true');
   if (colorId != null && colorId !== '') params.set('colorId', String(colorId));
   if (size != null && String(size).trim() !== '') params.set('size', String(size).trim());
   const response = await fetch(`${API_URL}/product-distributions/dispatch-stock-preview?${params}`, {

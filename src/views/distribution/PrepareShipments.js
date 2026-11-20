@@ -25,6 +25,7 @@ import {
   getDistributions,
   getShipmentsByDistribution,
   sendShipment,
+  checkShipmentDispatchStock,
   revertSentShipment,
   cancelShipment,
   updateShipmentPackingItems,
@@ -87,6 +88,7 @@ import {
 } from "utils/partialReleaseHelper";
 import PrepareShipmentsCustomerBlock from "components/distribution/PrepareShipmentsCustomerBlock";
 import CreateStandaloneKioskShipmentModal from "components/distribution/CreateStandaloneKioskShipmentModal";
+import ShipmentDispatchStockModal, { DirectKioskShipmentBadge } from "components/distribution/ShipmentDispatchStockModal";
 import EditShipmentProductsModal from "components/distribution/EditShipmentProductsModal";
 import { FilterableSelect } from "components/distribution/FilterableSelect";
 import ShipmentPrintObservationsModal from "components/distribution/ShipmentPrintObservationsModal";
@@ -721,6 +723,9 @@ function PrepareShipments() {
   const [loadingDistributions, setLoadingDistributions] = useState(false);
   const [loadingShipments, setLoadingShipments] = useState(false);
   const [sendingShipmentId, setSendingShipmentId] = useState(null);
+  // Desglose Devoluciones / Bodega PT cuando la bodega principal del envío no alcanza.
+  const [dispatchCheck, setDispatchCheck] = useState(null);
+  const [sendingWithFallback, setSendingWithFallback] = useState(false);
   const [revertingShipmentId, setRevertingShipmentId] = useState(null);
   const [repairingReceiptShipmentId, setRepairingReceiptShipmentId] = useState(null);
   const [cancellingShipmentId, setCancellingShipmentId] = useState(null);
@@ -1982,7 +1987,11 @@ function PrepareShipments() {
           : opkFlow
             ? `Orden OPK${selectedProductionOrder?.customerName ? ` — ${selectedProductionOrder.customerName}` : ""}`
             : standaloneKioskFlow
-              ? `Envío directo kiosko${selectedStandaloneKioskShipment?.locationName ? ` — ${selectedStandaloneKioskShipment.locationName}` : ""}`
+              ? `${
+                  selectedStandaloneKioskShipment?.directKioskShipment === false
+                    ? `Envío a kiosko${selectedStandaloneKioskShipment?.distributionNumber ? ` · ${selectedStandaloneKioskShipment.distributionNumber}` : ""}`
+                    : "Envío directo a kiosco"
+                }${selectedStandaloneKioskShipment?.locationName ? ` — ${selectedStandaloneKioskShipment.locationName}` : ""}`
             : isEntreCuerosCustomerOpv(selectedProductionOrder)
               ? `Orden OPV${selectedProductionOrder?.customerName ? ` — ${selectedProductionOrder.customerName}` : ""}`
               : selectedDistribution?.description || "",
@@ -2319,7 +2328,9 @@ function PrepareShipments() {
     () =>
       (standaloneKioskList || []).map((shipment) => ({
         value: String(shipment.id),
-        label: `${shipment.shipmentNumber || `#${shipment.id}`} — ${shipment.locationName || "Kiosko"} (${tStatus(shipment.status)})`,
+        label: `${shipment.shipmentNumber || `#${shipment.id}`} — ${shipment.locationName || "Kiosko"} (${tStatus(shipment.status)})${
+          shipment.directKioskShipment ? " · Envío directo a kiosco" : shipment.distributionNumber ? ` · ${shipment.distributionNumber}` : ""
+        }`,
         searchText: `${shipment.shipmentNumber || ""} ${shipment.locationName || ""} ${shipment.locationCode || ""} ${shipment.status || ""}`,
       })),
     [standaloneKioskList]
@@ -3528,6 +3539,19 @@ function PrepareShipments() {
         throw new Error("No se encontró el envío seleccionado");
       }
 
+      // Directo a kiosco sale de Devoluciones y uno de distribución de Bodega PT. Si no alcanza, se muestra el
+      // desglose y solo con la casilla marcada se toma el faltante de la otra cubeta.
+      let check = null;
+      try {
+        check = await checkShipmentDispatchStock(shipmentId);
+      } catch (checkErr) {
+        check = null;
+      }
+      if (check?.hasShortage && check?.fallbackAvailable) {
+        setDispatchCheck(check);
+        return;
+      }
+
       await sendShipment(shipmentId);
       showSuccess("Envio marcado como enviado correctamente");
       await reloadCurrentShipments();
@@ -3537,6 +3561,28 @@ function PrepareShipments() {
       showError(message);
     } finally {
       setSendingShipmentId(null);
+    }
+  };
+
+  const handleConfirmSendWithFallback = async () => {
+    if (!dispatchCheck?.shipmentId) return;
+    try {
+      setSendingWithFallback(true);
+      setError("");
+      await sendShipment(dispatchCheck.shipmentId, { takeShortageFromFallback: true });
+      showSuccess(
+        `Envío ${dispatchCheck.shipmentNumber || dispatchCheck.shipmentId} enviado; el faltante salió de ${
+          dispatchCheck.fallbackWarehouseLabel || "la otra bodega"
+        }.`
+      );
+      setDispatchCheck(null);
+      await reloadCurrentShipments();
+    } catch (err) {
+      const message = err.message || "No se pudo marcar el envio como enviado";
+      setError(message);
+      showError(message);
+    } finally {
+      setSendingWithFallback(false);
     }
   };
 
@@ -3874,11 +3920,22 @@ function PrepareShipments() {
 
               {standaloneKioskFlow && (
                 <Alert color="info">
-                  <strong>Envío a kiosko sin OP:</strong> vive dentro de su distribución
-                  {selectedStandaloneKioskShipment?.distributionNumber
-                    ? ` (${selectedStandaloneKioskShipment.distributionNumber})`
-                    : ""}
-                  . Si quedó solo confirmado, use <strong>Enviar</strong>. Los empaques <strong>SUM-</strong> se agregan
+                  {selectedStandaloneKioskShipment?.directKioskShipment ? (
+                    <>
+                      <strong>Envío directo a kiosco:</strong> no pertenece a ninguna distribución y sale de{" "}
+                      <strong>Devoluciones</strong>. Si Devoluciones no alcanza, al Enviar se muestra el desglose y se
+                      puede autorizar tomar el faltante de Bodega PT.
+                    </>
+                  ) : (
+                    <>
+                      <strong>Envío a kiosko sin OP:</strong> vive dentro de su distribución
+                      {selectedStandaloneKioskShipment?.distributionNumber
+                        ? ` (${selectedStandaloneKioskShipment.distributionNumber})`
+                        : ""}{" "}
+                      y sale de <strong>Bodega PT</strong>.
+                    </>
+                  )}{" "}
+                  Si quedó solo confirmado, use <strong>Enviar</strong>. Los empaques <strong>SUM-</strong> se agregan
                   con el botón <strong>Empaques</strong> en la tabla. Recepción en <strong>POS → Recibir distribución</strong>.
                   Para reponer un kiosco use una distribución manual o la Reposición de kioscos.
                 </Alert>
@@ -4442,6 +4499,7 @@ function PrepareShipments() {
                           {shipment.partialReleaseLabel ? (
                             <Badge color="info" className="ml-1">{shipment.partialReleaseLabel}</Badge>
                           ) : null}
+                          <DirectKioskShipmentBadge shipment={shipment} />
                         </td>
                         {productionOrderPrintFlow && (
                           <td>
@@ -4859,6 +4917,14 @@ function PrepareShipments() {
             showError(err?.message || "No se pudieron guardar las observaciones");
           }
         }}
+      />
+
+      <ShipmentDispatchStockModal
+        isOpen={Boolean(dispatchCheck)}
+        check={dispatchCheck}
+        sending={sendingWithFallback}
+        onCancel={() => setDispatchCheck(null)}
+        onConfirm={handleConfirmSendWithFallback}
       />
 
       <CreateStandaloneKioskShipmentModal

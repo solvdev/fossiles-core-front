@@ -78,13 +78,11 @@ function CreateStandaloneKioskShipmentModal({
   const [packingUnitPriceInput, setPackingUnitPriceInput] = useState("");
   const [shipmentPacking, setShipmentPacking] = useState({});
   const [shipmentPackingPrice, setShipmentPackingPrice] = useState({});
-  const [withoutDistribution, setWithoutDistribution] = useState(false);
 
   const resetForm = useCallback(() => {
     setLocationId("");
     setNotes("");
     setDocumentDate(getDefaultShipmentDocumentDate());
-    setWithoutDistribution(false);
     setLines([emptyLine()]);
     setPackingSearch("");
     setSelectedPackingMaterialId("");
@@ -186,15 +184,22 @@ function CreateStandaloneKioskShipmentModal({
       return { ...line, stockHint: "Empaque kiosco — se carga al recibir el envío", stockLoading: false };
     }
     try {
+      // Envío directo: sale de Devoluciones; Bodega PT solo si se autoriza al enviar. En modo líneas (reposición)
+      // el envío vive en una distribución y sale de Bodega PT.
       const preview = await previewDispatchStock({
         productId: pid,
         colorId: line.colorId || null,
         size: line.size || "",
+        direct: !linesOnly,
       });
       const breakdown = (preview?.breakdown || [])
         .map((b) => `${b.locationName || b.locationCode}: ${Number(b.quantity || 0)}`)
         .join(" · ");
-      const hint = `Disp. ${Number(preview?.availableTotal || 0)} (${breakdown || "PT/Devoluciones"})`;
+      const hint = linesOnly
+        ? `Disp. ${Number(preview?.availableTotal || 0)} (${breakdown || "PT/Devoluciones"})`
+        : `Devoluciones ${Number(preview?.availableTotal || 0)} · con Bodega PT ${Number(
+            preview?.fallbackAvailableTotal ?? preview?.availableTotal ?? 0
+          )} (${breakdown || "PT/Devoluciones"})`;
       return { ...line, stockHint: hint, stockLoading: false };
     } catch (err) {
       return { ...line, stockHint: err.message || "Sin stock", stockLoading: false };
@@ -362,11 +367,11 @@ function CreateStandaloneKioskShipmentModal({
         documentDate: documentDate || undefined,
         products: productsPayload.length > 0 ? productsPayload : undefined,
         packingItems: packingItems.length > 0 ? packingItems : undefined,
-        withoutDistribution: withoutDistribution || undefined,
+        withoutDistribution: true,
         confirmOnly: true,
       });
       showSuccess(
-        `Envío ${created.shipmentNumber || created.id} generado (confirmado). Use Enviar cuando deba salir de bodega.`
+        `Envío directo ${created.shipmentNumber || created.id} generado (confirmado, sin distribución). Use Enviar cuando deba salir de Devoluciones.`
       );
       toggle();
       if (onCreated) await onCreated(created);
@@ -380,7 +385,7 @@ function CreateStandaloneKioskShipmentModal({
   return (
     <Modal isOpen={isOpen} toggle={toggle} size="xl" className={linesOnly ? "kr-modal dist-contrast" : undefined}>
       <ModalHeader toggle={toggle}>
-        {linesOnly ? "Revisar y agregar productos del kiosco" : "Envío directo a kiosko (sin OP)"}
+        {linesOnly ? "Revisar y agregar productos del kiosco" : "Envío directo a kiosco (sin OP ni distribución)"}
       </ModalHeader>
       <ModalBody>
         {linesOnly ? (
@@ -390,8 +395,10 @@ function CreateStandaloneKioskShipmentModal({
           </Alert>
         ) : (
         <Alert color="info" className="py-2">
-          Paso 1: <strong>Generar envío</strong> crea el documento confirmado (sin validar stock).
-          Paso 2: en la tabla use <strong>Enviar</strong> cuando deba salir de Bodega PT hacia el kiosko.
+          Paso 1: <strong>Generar envío</strong> crea el documento confirmado (sin validar stock), sin distribución.
+          Paso 2: en la tabla use <strong>Enviar</strong> cuando deba salir hacia el kiosko. El envío directo sale de{" "}
+          <strong>Devoluciones</strong>; si no alcanza, al enviar se muestra el desglose y se puede autorizar tomar el
+          faltante de <strong>Bodega PT</strong>. Para que salga de Bodega PT use una distribución.
           Los empaques <strong>SUM-</strong> se incluyen en el documento impreso y cargan inventario del kiosko al confirmar la recepción.
           También puede registrar entradas manuales de productos SUM- en Inventario kiosco.
         </Alert>
@@ -430,23 +437,6 @@ function CreateStandaloneKioskShipmentModal({
               />
             </FormGroup>
           </Col>
-          <Col md="12">
-            <FormGroup check className="mb-2">
-              <Label check>
-                <Input
-                  type="checkbox"
-                  checked={withoutDistribution}
-                  onChange={(e) => setWithoutDistribution(e.target.checked)}
-                />
-                <span className="form-check-sign" />
-                Sin distribución (excepción)
-              </Label>
-              <div className="text-muted small">
-                Por defecto el envío se guarda en una distribución manual. Marque esto solo si este envío no debe
-                pertenecer a ninguna distribución.
-              </div>
-            </FormGroup>
-          </Col>
           </>
           ) : null}
         </Row>
@@ -465,7 +455,7 @@ function CreateStandaloneKioskShipmentModal({
               <th>Talla</th>
               <th>{entreCuerosDest ? "Variante" : "Herraje"}</th>
               <th style={{ width: 90 }}>Cant.</th>
-              <th>Stock PT/Dev.</th>
+              <th>{linesOnly ? "Stock PT/Dev." : "Stock Dev. / PT"}</th>
               <th style={{ width: 44 }} />
             </tr>
           </thead>

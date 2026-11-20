@@ -39,6 +39,7 @@ import {
   shipmentPackingTotalQty,
 } from "utils/shipmentPackingHelper";
 import { isEntreCuerosLocation, kioskDimensionDisplayLabel } from "utils/kioskStockDimensionHelper";
+import { DirectKioskShipmentBadge } from "components/distribution/ShipmentDispatchStockModal";
 import "views/kiosks/KioskSales.css";
 
 const shipmentMatchesSearch = (shipment, query) => {
@@ -262,6 +263,7 @@ export function ShipmentReceiptList({
               <div className="d-flex flex-wrap justify-content-between align-items-start mb-2">
                 <div>
                   <strong>{shipment.shipmentNumber || shipment.id}</strong>
+                  <DirectKioskShipmentBadge shipment={shipment} />
                   {showLocation && (
                     <div className="text-muted small">
                       {shipment.locationName || "-"}
@@ -387,6 +389,7 @@ function SelectedShipmentCard({
           <h6 className="mb-0">
             Recepción · {shipment.shipmentNumber}
             {showLocation && shipment.locationName ? ` (${shipment.locationName})` : ""}
+            <DirectKioskShipmentBadge shipment={shipment} className="ml-2" />
           </h6>
         </CardHeader>
         <CardBody>
