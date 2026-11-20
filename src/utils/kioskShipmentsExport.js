@@ -8,8 +8,10 @@ import { getPublicFrontBaseUrl, buildPtDispatchDistributionUrl } from "./ptDispa
 import { PRINT_FONT_FAMILY, PRINT_PAPER_HEIGHT_MM, PRINT_PAPER_WIDTH_MM } from "./prepareShipmentsOrderHelper";
 
 /**
- * Pestaña «Envíos» de Kioscos: etiquetas de estado, filtros y exportación a PDF (ventana de impresión)
- * y Excel de los envíos de un kiosko. Todo lo que no toca el navegador es función pura.
+ * Pestaña «Envíos» de Kioscos y consulta «Envíos» de Distribución: etiquetas de estado, filtros y exportación a
+ * PDF (ventana de impresión) y Excel. Con multiKiosk (consulta de varios kioscos) los Excel agregan la columna
+ * Destino, provenanceOf agrega Procedencia y el PDF puede llevar hoja de resumen (withSummary).
+ * Todo lo que no toca el navegador es función pura.
  */
 
 // ---------------------------------------------------------------------------
@@ -127,6 +129,10 @@ export const safeFileName = (text) =>
 
 export const buildExportFileName = (shipments, kioskName, range, ext) => {
   const kiosk = safeFileName(kioskName) || "Kiosko";
+  if ((shipments || []).length === 1 && !kioskName) {
+    const one = shipments[0];
+    return `Envio_${safeFileName(one.shipmentNumber || one.id)}_${safeFileName(one.locationName) || "envio"}.${ext}`;
+  }
   if ((shipments || []).length === 1) {
     return `Envio_${safeFileName(shipments[0].shipmentNumber || shipments[0].id)}_${kiosk}.${ext}`;
   }
@@ -246,7 +252,38 @@ const PRINT_STYLES = `
   .empty { text-align: center; color: #666; font-style: italic; }
   .total-row td { background: #fff; }
   .footer-meta { margin-top: 2px; }
+  .summary-title { font-size: 14px; margin: 0 0 1mm 0; }
+  .summary-sub { margin: 0 0 2mm 0; }
+  .summary { table-layout: auto; }
+  .summary th, .summary td { border: 0.25mm solid #111; padding: 3px 4px; line-height: 1.1; text-align: left; }
 `;
+
+/** Hoja de resumen del PDF cuando se imprimen varios envíos (una fila por envío). */
+const summaryDocHtml = (list, { title = "", provenanceOf = null, printedBy = "" } = {}) => {
+  const totalPieces = list.reduce((a, s) => a + shipmentPieces(s), 0);
+  const rows = list
+    .map(
+      (s) => `<tr>
+        <td>${escapeHtml(s.shipmentNumber || s.id)}</td>
+        <td>${escapeHtml(s.locationName || "—")}</td>
+        ${provenanceOf ? `<td>${escapeHtml(provenanceOf(s) || "—")}</td>` : ""}
+        <td>${escapeHtml(shipmentStatusMeta(s.status).label)}</td>
+        <td>${escapeHtml(formatDateGt(shipmentDate(s)))}</td>
+        <td class="numeric">${shipmentPieces(s)}</td>
+      </tr>`
+    )
+    .join("");
+  return `<section class="doc">
+    <p class="summary-title">${escapeHtml(title || "RESUMEN DE ENVÍOS")}</p>
+    <p class="summary-sub">${list.length} envíos · ${totalPieces} piezas · Generado por ${escapeHtml(printedBy)} · ${escapeHtml(formatNowGt())}</p>
+    <table class="summary">
+      <thead><tr><th>Envío</th><th>Destino</th>${provenanceOf ? "<th>Procedencia</th>" : ""}<th>Estado</th><th>Fecha</th><th>Piezas</th></tr></thead>
+      <tbody>${rows}
+        <tr class="total-row"><td colspan="${provenanceOf ? 5 : 4}"><strong>Total</strong></td><td class="numeric"><strong>${totalPieces}</strong></td></tr>
+      </tbody>
+    </table>
+  </section>`;
+};
 
 const shipmentDocHtml = (shipment, { qrDataUrl = "", printedBy = "" } = {}) => {
   const rows = buildPrintRows(shipment);
@@ -347,22 +384,28 @@ const distributionQr = async (shipment, cache) => {
   return dataUrl;
 };
 
-export const buildKioskShipmentsPrintHtml = async (shipments, { kioskName = "" } = {}) => {
+export const buildKioskShipmentsPrintHtml = async (
+  shipments,
+  { kioskName = "", withSummary = false, title = "", provenanceOf = null } = {}
+) => {
   const list = (shipments || []).filter(Boolean);
   const printedBy = currentUserName();
   const cache = new Map();
   const docs = [];
+  if (withSummary && list.length > 1) {
+    docs.push(summaryDocHtml(list, { title, provenanceOf, printedBy }));
+  }
   for (const s of list) {
     // eslint-disable-next-line no-await-in-loop
     const qrDataUrl = await distributionQr(s, cache);
     docs.push(shipmentDocHtml(s, { qrDataUrl, printedBy }));
   }
-  const title = list.length === 1 ? `Envio ${list[0].shipmentNumber || ""}` : `Envios ${kioskName}`;
+  const docTitle = list.length === 1 ? `Envio ${list[0].shipmentNumber || ""}` : title || `Envios ${kioskName}`;
   return `<!DOCTYPE html>
 <html lang="es">
 <head>
   <meta charset="utf-8" />
-  <title>${escapeHtml(title)}</title>
+  <title>${escapeHtml(docTitle)}</title>
   <style>${PRINT_STYLES}</style>
 </head>
 <body>${docs.join("")}</body>
@@ -534,10 +577,13 @@ const buildSingleShipmentSheet = (shipment, kioskName) => {
   return ws;
 };
 
-const buildSummarySheet = (shipments, kioskName, range) => {
-  const header = ["Envío", "Fecha", "Estado", "Origen", "Creado por", "Líneas", "Piezas enviadas", "Piezas recibidas", "Fecha recepción", "Observaciones"];
+const buildSummarySheet = (shipments, kioskName, range, { title = "", multiKiosk = false, provenanceOf = null } = {}) => {
+  const extraHeader = [...(multiKiosk ? ["Destino"] : []), ...(provenanceOf ? ["Procedencia"] : [])];
+  const extra = (s) => [...(multiKiosk ? [s.locationName || "—"] : []), ...(provenanceOf ? [provenanceOf(s) || ""] : [])];
+  const header = ["Envío", ...extraHeader, "Fecha", "Estado", "Origen", "Creado por", "Líneas", "Piezas enviadas", "Piezas recibidas", "Fecha recepción", "Observaciones"];
   const body = shipments.map((s) => [
     s.shipmentNumber || s.id,
+    ...extra(s),
     formatDateGt(shipmentDate(s)),
     shipmentStatusMeta(s.status).label,
     shipmentOriginLabel(s),
@@ -549,13 +595,13 @@ const buildSummarySheet = (shipments, kioskName, range) => {
     String(s.notes || "").trim(),
   ]);
   const total = [
-    `TOTAL · ${shipments.length}`, "", "", "", "",
+    `TOTAL · ${shipments.length}`, ...extraHeader.map(() => ""), "", "", "", "",
     shipments.reduce((a, s) => a + shipmentLines(s).length, 0),
     shipments.reduce((a, s) => a + shipmentPieces(s), 0),
     "", "", "",
   ];
   const info = [
-    [`ENVÍOS A ${String(kioskName || "KIOSKO").toUpperCase()}`],
+    [title || `ENVÍOS A ${String(kioskName || "KIOSKO").toUpperCase()}`],
     [`Período: ${rangeText(range)} · Generado: ${formatNowGt()}`],
     [""],
   ];
@@ -566,22 +612,24 @@ const buildSummarySheet = (shipments, kioskName, range) => {
     noBorderRows: [1],
     headerRows: [info.length],
     totalRows: [aoa.length - 1],
-    numCols: [5, 6, 7],
+    numCols: [5, 6, 7].map((c) => c + extraHeader.length),
   });
-  ws["!cols"] = [{ wch: 18 }, { wch: 12 }, { wch: 16 }, { wch: 22 }, { wch: 20 }, { wch: 8 }, { wch: 15 }, { wch: 16 }, { wch: 15 }, { wch: 40 }];
+  ws["!cols"] = [{ wch: 18 }, ...extraHeader.map(() => ({ wch: 22 })), { wch: 12 }, { wch: 16 }, { wch: 22 }, { wch: 20 }, { wch: 8 }, { wch: 15 }, { wch: 16 }, { wch: 15 }, { wch: 40 }];
   ws["!autofilter"] = { ref: XLSX.utils.encode_range({ s: { r: info.length, c: 0 }, e: { r: aoa.length - 2, c: header.length - 1 } }) };
   return ws;
 };
 
 /** Hoja plana (una fila por línea de envío) pensada para filtrar o armar tablas dinámicas. */
-const buildDetailSheet = (shipments) => {
+const buildDetailSheet = (shipments, { multiKiosk = false } = {}) => {
   const hasReceipt = shipments.some(shipmentHasReceipt);
-  const header = ["Envío", "Fecha", "Estado", "Código", "Producto", "Color", "Talla", "Tipo", "Enviado", ...(hasReceipt ? ["Recibido", "Diferencia"] : [])];
+  const shift = multiKiosk ? 1 : 0;
+  const header = ["Envío", ...(multiKiosk ? ["Destino"] : []), "Fecha", "Estado", "Código", "Producto", "Color", "Talla", "Tipo", "Enviado", ...(hasReceipt ? ["Recibido", "Diferencia"] : [])];
   const body = [];
   shipments.forEach((s) => {
     shipmentLines(s).forEach((l) => {
       body.push([
         s.shipmentNumber || s.id,
+        ...(multiKiosk ? [s.locationName || "—"] : []),
         formatDateGt(shipmentDate(s)),
         shipmentStatusMeta(s.status).label,
         l.productCode || "",
@@ -603,9 +651,9 @@ const buildDetailSheet = (shipments) => {
   });
   const aoa = [header, ...body];
   const ws = XLSX.utils.aoa_to_sheet(aoa);
-  const numCols = hasReceipt ? [8, 9, 10] : [8];
+  const numCols = (hasReceipt ? [8, 9, 10] : [8]).map((c) => c + shift);
   styleAoa(ws, aoa, { headerRows: [0], numCols });
-  ws["!cols"] = [{ wch: 18 }, { wch: 12 }, { wch: 16 }, { wch: 16 }, { wch: 40 }, { wch: 16 }, { wch: 8 }, { wch: 18 }, { wch: 10 }, ...(hasReceipt ? [{ wch: 10 }, { wch: 11 }] : [])];
+  ws["!cols"] = [{ wch: 18 }, ...(multiKiosk ? [{ wch: 22 }] : []), { wch: 12 }, { wch: 16 }, { wch: 16 }, { wch: 40 }, { wch: 16 }, { wch: 8 }, { wch: 18 }, { wch: 10 }, ...(hasReceipt ? [{ wch: 10 }, { wch: 11 }] : [])];
   ws["!autofilter"] = { ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: Math.max(aoa.length - 1, 0), c: header.length - 1 } }) };
   ws["!freeze"] = { xSplit: 0, ySplit: 1 };
   return ws;
@@ -615,7 +663,10 @@ const buildDetailSheet = (shipments) => {
  * Un envío → una hoja con el documento. Varios → «Resumen» (una fila por envío) y «Detalle»
  * (una fila por línea, lista para filtrar).
  */
-export const exportKioskShipmentsExcel = (shipments, { kioskName = "", range = null } = {}) => {
+export const exportKioskShipmentsExcel = (
+  shipments,
+  { kioskName = "", range = null, title = "", multiKiosk = false, provenanceOf = null, fileLabel = "" } = {}
+) => {
   const list = (shipments || []).filter(Boolean);
   if (!list.length) throw new Error("No hay envíos para exportar.");
   const wb = XLSX.utils.book_new();
@@ -627,10 +678,14 @@ export const exportKioskShipmentsExcel = (shipments, { kioskName = "", range = n
       uniqueSheetName(list[0].shipmentNumber || "Envio", used)
     );
   } else {
-    XLSX.utils.book_append_sheet(wb, buildSummarySheet(list, kioskName, range), uniqueSheetName("Resumen", used));
-    XLSX.utils.book_append_sheet(wb, buildDetailSheet(list), uniqueSheetName("Detalle", used));
+    XLSX.utils.book_append_sheet(
+      wb,
+      buildSummarySheet(list, kioskName, range, { title, multiKiosk, provenanceOf }),
+      uniqueSheetName("Resumen", used)
+    );
+    XLSX.utils.book_append_sheet(wb, buildDetailSheet(list, { multiKiosk }), uniqueSheetName("Detalle", used));
   }
-  const fileName = buildExportFileName(list, kioskName, range, "xlsx");
+  const fileName = buildExportFileName(list, multiKiosk && list.length > 1 ? fileLabel || "Consulta" : multiKiosk ? "" : kioskName, range, "xlsx");
   XLSX.writeFile(wb, fileName);
   return fileName;
 };
