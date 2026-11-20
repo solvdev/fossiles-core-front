@@ -13,6 +13,7 @@ import { Navigate } from "react-router-dom";
 // Dashboards
 import ProductionDashboard from "views/production/ProductionDashboard.js";
 import SalesDashboard from "views/sales/SalesDashboard.js";
+import ExecutiveDashboard from "views/executive/ExecutiveDashboard.js";
 
 // Seguridad & Usuarios
 import UsersList from "views/admin/UsersList.js";
@@ -193,6 +194,18 @@ const routes = [
     state: "dashboardsCollapse",
     module: "DASHBOARDS",
     views: [
+      {
+        // Solo administración: el backend deja pasar roles ADMIN, acceso total o este permiso.
+        path: "/dashboard-gerencial",
+        name: "Gerencial",
+        mini: "DG",
+        component: <ExecutiveDashboard />,
+        layout: "/admin",
+        module: "DASHBOARDS",
+        permissions: {
+          view: "DASHBOARDS.GERENCIAL.VER",
+        },
+      },
       {
         path: "/dashboard-production",
         name: "Producción",
