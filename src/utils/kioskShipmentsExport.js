@@ -82,7 +82,13 @@ export const lineVariantLabel = (line) => {
 
 /** Texto de la ruta de origen: distribución u orden de producción. */
 export const shipmentOriginLabel = (shipment) =>
-  [shipment?.distributionNumber, shipment?.productionOrderCode].filter(Boolean).join(" · ");
+  [
+    shipment?.directKioskShipment ? "Envío directo a kiosco" : null,
+    shipment?.distributionNumber,
+    shipment?.productionOrderCode,
+  ]
+    .filter(Boolean)
+    .join(" · ");
 
 /** Texto sobre el que busca el cuadro «Buscar» (número, origen, productos, colores, notas). */
 export const shipmentSearchText = (shipment) =>
