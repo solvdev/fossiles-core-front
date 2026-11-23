@@ -11,7 +11,7 @@ import { formatDay, formatMoney } from "./onlineLedgerHelper";
 const when = (at) => (at ? `${formatDay(at)}${String(at).length >= 16 ? ` ${String(at).slice(11, 16)}` : ""}` : "");
 
 const EVENT_LABEL = {
-  OPEN: "Abrió", CLOSE: "Cerró", REOPEN: "Reabrió", DELETE: "Borró", LOCK: "Bloqueó", UNLOCK: "Desbloqueó", EDIT: "Cambió",
+  OPEN: "Abrió", CLOSE: "Cerró", REOPEN: "Reabrió", DELETE: "Borró", LOCK: "Bloqueó", UNLOCK: "Desbloqueó", EDIT: "Cambió", LIQUIDATE: "Liquidó",
 };
 
 const fmtVal = (v) => {

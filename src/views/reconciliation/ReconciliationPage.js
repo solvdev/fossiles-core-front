@@ -14,6 +14,7 @@ import ReconDashboardTab from "components/reconciliation/ReconDashboardTab";
 import ReconDifferencesTab from "components/reconciliation/ReconDifferencesTab";
 import ReconFilters from "components/reconciliation/ReconFilters";
 import ReconInboxTab from "components/reconciliation/ReconInboxTab";
+import ReconLedgerLinkModal from "components/reconciliation/ReconLedgerLinkModal";
 import ReconSimpleView from "components/reconciliation/ReconSimpleView";
 import {
   GenerateCasesModal, ImportGuidesModal, ImportReceiptsModal, ManualReceiptModal, QuickPaymentsModal,
@@ -125,6 +126,10 @@ const ReconciliationPage = () => {
             <small className="text-muted">Lo cobrado debe ser igual a lo recibido, al centavo. Sin tolerancias.</small>
           </div>
           <div className="d-flex align-items-center" style={{ gap: 8 }}>
+            <Button color="success" size="sm" disabled={!(perms.close && perms.import && perms.reconcile)} onClick={() => setModal("ledger")}
+              title="Compara un periodo revisado en el libro contable con la conciliación, la iguala al libro, liquida y cierra">
+              Liquidar periodo del libro
+            </Button>
             <Button color="primary" size="sm" outline={view === "simple"} disabled={!perms.import} onClick={() => setModal("quick")}>
               {view === "simple" ? "Registrar varios por ENVL" : "Registrar pagos"}
             </Button>
@@ -183,6 +188,7 @@ const ReconciliationPage = () => {
         <ReconCaseDrawer id={openId} perms={perms} onClose={() => setOpenId(null)} onChanged={reload} onPrev={() => step(-1)} onNext={() => step(1)} />
       )}
 
+      {modal === "ledger" && <ReconLedgerLinkModal isOpen toggle={() => setModal(null)} onDone={reload} />}
       {modal === "generate" && <GenerateCasesModal isOpen toggle={() => setModal(null)} defaultFrom={filters.from} defaultTo={filters.to} onDone={reload} />}
       {modal === "import" && <ImportReceiptsModal isOpen toggle={() => setModal(null)} onDone={reload} />}
       {modal === "quick" && <QuickPaymentsModal isOpen toggle={() => setModal(null)} onDone={reload} />}

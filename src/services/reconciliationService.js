@@ -134,3 +134,14 @@ export const importGuides = (file, dryRun) => {
   form.append("dryRun", String(dryRun));
   return upload("/guides/import", form, "No se pudo importar el archivo de guías");
 };
+
+// ───────── liquidar un periodo de revisión del libro contable ─────────
+
+/** Periodos de revisión del libro de ventas en línea, con su avance y los lotes ya liquidados con cada uno. */
+export const getLedgerLinkPeriods = () => get("/ledger-link/periods", "No se pudieron cargar los periodos de revisión del libro");
+/** Compara el periodo del libro contra la conciliación sin cambiar nada. */
+export const getLedgerLinkPreview = (periodId, assumeEqual = false) =>
+  get(`/ledger-link/periods/${periodId}/preview?assumeEqual=${assumeEqual ? "true" : "false"}`, "No se pudo comparar el periodo con el libro");
+/** Iguala la conciliación al libro, liquida y (si se pide) cierra la revisión: { saleIds, closePeriod, assumeEqual }. Todo o nada. */
+export const applyLedgerLink = (periodId, data, idempotencyKey) =>
+  post(`/ledger-link/periods/${periodId}/apply`, data, "No se pudo liquidar el periodo", { "Idempotency-Key": idempotencyKey });
