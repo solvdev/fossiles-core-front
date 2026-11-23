@@ -790,12 +790,6 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
   const differenceAmount = Number(displayPreview?.differenceAmount || 0);
   const hasPriceDifference = differenceAmount > 0.009;
   const hasNegativeDifference = differenceAmount < -0.009;
-  // Precio de hoy mayor y sin cobro: solo quien edita precios puede registrarlo así (el back lo valida igual).
-  const blocksUnchargedIncrease =
-    exchangeMode === "SALE"
-    && !canEditPrices
-    && !hasPriceDifference
-    && Number(displayPreview?.catalogDifferenceAmount || 0) > 0.009;
 
   const buildCompleteRequest = (payment = {}) => {
     const source = displayPreview || preview;
@@ -1515,10 +1509,8 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
                       {formatCurrency(displayPreview.returnedAmount)} y lo que se entrega vale{" "}
                       {formatCurrency(displayPreview.catalogGivenAmount)} a precio de catálogo (diferencia{" "}
                       {formatCurrency(displayPreview.catalogDifferenceAmount)}). Con &quot;Sin diferencia&quot; no se
-                      cobra ni se factura.{" "}
-                      {blocksUnchargedIncrease
-                        ? "No se puede registrar el cambio así: cobra la diferencia con factura."
-                        : "Si el cliente va a pagar la diferencia, cóbrala aquí con factura."}
+                      cobra ni se factura; la supervisora autoriza el movimiento.{" "}
+                      Si el cliente va a pagar la diferencia, cóbrala aquí con factura.
                       <div className="mt-2">
                         <Button
                           color="warning"
@@ -1627,7 +1619,7 @@ function ExchangeSlipWizard({ isOpen, onClose, kioskLocationId, kioskCode, kiosk
             <Button
               color="success"
               onClick={() => void handleSubmitAuthorizationRequest()}
-              disabled={saving || blocksUnchargedIncrease}
+              disabled={saving}
             >
               {saving ? "Enviando..." : "Enviar solicitud de cambio"}
             </Button>
