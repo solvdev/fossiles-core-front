@@ -227,6 +227,7 @@ function InvoiceEstablishmentReport() {
   const [colFilters, setColFilters] = useState({});
   const [sort, setSort] = useState({ key: "", dir: 1 });
   const [visibleCount, setVisibleCount] = useState(PAGE_STEP);
+  const [showChips, setShowChips] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -425,7 +426,7 @@ function InvoiceEstablishmentReport() {
                   </Label>
                   <Input id="ief-to" type="date" value={toDate} min={fromDate || undefined} onChange={(e) => setToDate(e.target.value)} />
                 </div>
-                <div className="ief-establishments">
+                <div className="ief-establishments pr-root">
                   <PosExcelFilter
                     label="Establecimientos"
                     options={establishmentOptions}
@@ -476,6 +477,16 @@ function InvoiceEstablishmentReport() {
               </div>
 
               {byEstablishment.length > 1 && (
+                <button
+                  type="button"
+                  className="ief-chips-toggle"
+                  onClick={() => setShowChips((v) => !v)}
+                  aria-expanded={showChips}
+                >
+                  {showChips ? "▾" : "▸"} Resumen por establecimiento ({byEstablishment.length})
+                </button>
+              )}
+              {showChips && byEstablishment.length > 1 && (
                 <div className="ief-chips" aria-label="Resumen por establecimiento">
                   {byEstablishment.map((item) => {
                     const active = colFilters.establishment?.size === 1 && colFilters.establishment.has(item.label);
