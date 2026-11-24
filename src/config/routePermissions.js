@@ -90,6 +90,7 @@ export const routePermissions = {
   '/admin/cost-reports': 'REPORT_COST_VIEW',
   '/admin/kiosk-performance': 'REPORT_KIOSK_PERFORMANCE_VIEW',
   '/admin/kiosk-sales-by-category': 'REPORTES.VENTAS.VER',
+  '/admin/invoice-establishment-report': 'REPORTES.VENTAS.VER',
 
   // CONFIGURACIÓN GENERAL
   '/admin/taxes': 'CONFIG_TAX_READ',
