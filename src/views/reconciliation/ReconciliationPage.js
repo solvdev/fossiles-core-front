@@ -188,7 +188,7 @@ const ReconciliationPage = () => {
         <ReconCaseDrawer id={openId} perms={perms} onClose={() => setOpenId(null)} onChanged={reload} onPrev={() => step(-1)} onNext={() => step(1)} />
       )}
 
-      {modal === "ledger" && <ReconLedgerLinkModal isOpen toggle={() => setModal(null)} onDone={reload} />}
+      {modal === "ledger" && <ReconLedgerLinkModal isOpen toggle={() => setModal(null)} onDone={reload} onOpenCase={(id) => { setModal(null); setOpenId(id); }} />}
       {modal === "generate" && <GenerateCasesModal isOpen toggle={() => setModal(null)} defaultFrom={filters.from} defaultTo={filters.to} onDone={reload} />}
       {modal === "import" && <ImportReceiptsModal isOpen toggle={() => setModal(null)} onDone={reload} />}
       {modal === "quick" && <QuickPaymentsModal isOpen toggle={() => setModal(null)} onDone={reload} />}

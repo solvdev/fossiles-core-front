@@ -3,7 +3,7 @@ import {
   Alert, Badge, Button, Input, Modal, ModalBody, ModalFooter, ModalHeader, Spinner, Table,
 } from "reactstrap";
 import {
-  applyLedgerLink, downloadBatch, getLedgerLinkPeriods, getLedgerLinkPreview,
+  applyLedgerLink, downloadBatch, getLedgerLinkPeriods, getLedgerLinkPreview, resolveLedgerLink,
 } from "services/reconciliationService";
 import { createClientRequestId } from "services/customerAccountService";
 import { formatQ } from "utils/reconciliationHelper";
@@ -26,15 +26,44 @@ const STATE_META = {
   NO_DESPACHADA: { label: "No despachada", color: "secondary", help: "Aún no se concilia" },
 };
 
+// Arreglos que el servidor ofrece por venta para quitar el bloqueo sin salir de aquí.
+const ACTION_META = {
+  VOID_AND_EXCLUDE: {
+    label: "El pago fue un error: anularlo y excluir",
+    color: "danger",
+    title: "Anular el pago y excluir la venta",
+    help: "Se anula el pago aplicado a esta venta devuelta o anulada (si se capturó a mano, también el fondo) y la venta sale de la conciliación. "
+      + "Si el fondo vino de un archivo importado, queda sin aplicar para asignarlo a la venta correcta.",
+  },
+  MARK_REFUND: {
+    label: "El dinero sí entró: reembolso pendiente",
+    color: "warning",
+    title: "Dejarla como reembolso pendiente",
+    help: "El pago se conserva y la venta queda fuera de esta liquidación como reembolso pendiente. Ya no impide cerrar la revisión; "
+      + "sigue a la vista en la conciliación hasta que se reembolse o se aplique a otra venta.",
+  },
+  MARK_VOIDED: {
+    label: "Marcar Anulado en el libro",
+    color: "secondary",
+    title: "Marcar la venta Anulado en el libro",
+    help: "La guía o la autorización dice «ANULADO». Se cambia el estado de la venta a Anulado en el libro contable (la venta en Ventas Online no se toca). "
+      + "Si no tiene pagos, al volver a comparar se excluye; si tiene, se ofrecerá anular el pago o dejarlo como reembolso.",
+  },
+};
+
 const FILTERS = [
   { id: "attention", label: "Con novedad" },
+  { id: "fixable", label: "Se arreglan aquí" },
   { id: "ready", label: "Listas" },
   { id: "notready", label: "No cuadran / sin revisar" },
   { id: "all", label: "Todas" },
 ];
 
+const hasActions = (r) => (r.actions || []).length > 0;
+
 const matches = (r, f) => {
   if (f === "all") return true;
+  if (f === "fixable") return hasActions(r);
   if (f === "ready") return r.selectable;
   if (f === "notready") return r.state === "NO_LISTA" || r.state === "SIN_REVISAR";
   return r.diffs.length > 0 || !["LISTA", "YA_LIQUIDADA", "NO_ENTRA", "NO_DESPACHADA"].includes(r.state);
@@ -53,7 +82,36 @@ const DiffList = ({ diffs }) => (diffs.length === 0 ? <span className="text-mute
   </ul>
 ));
 
-const ReconLedgerLinkModal = ({ isOpen, toggle, onDone }) => {
+/** Confirmación de un arreglo: explica qué pasa y pide el motivo (queda en el historial del caso y en la bitácora del libro). */
+const ResolveDialog = ({ fix, busy, onCancel, onConfirm }) => {
+  const [reason, setReason] = useState("");
+  if (!fix) return null;
+  const meta = ACTION_META[fix.action];
+  const ok = reason.trim().length >= 10;
+  return (
+    <Modal isOpen toggle={busy ? undefined : onCancel} centered>
+      <ModalHeader toggle={busy ? undefined : onCancel}>{meta.title}</ModalHeader>
+      <ModalBody>
+        <p className="mb-2"><b>{fix.row.shipmentNumber || `#${fix.row.saleNumber}`}</b> · {fix.row.customer || "—"} · cobrado {formatQ(fix.row.reconExpected)}
+          {fix.row.reconReceived != null ? ` · recibido ${formatQ(fix.row.reconReceived)}` : ""}</p>
+        <p className="text-muted" style={{ fontSize: 13 }}>{meta.help}</p>
+        <label htmlFor="ledger-fix-reason" className="font-weight-bold mb-1" style={{ fontSize: 13 }}>Motivo</label>
+        <Input id="ledger-fix-reason" type="textarea" rows={3} maxLength={300} value={reason} disabled={busy} autoFocus
+          placeholder="Ej.: el pago se aplicó por error al revisar; la venta se devolvió y el cliente no pagó"
+          onChange={(e) => setReason(e.target.value)} />
+        {!ok && <small className="text-muted">Mínimo 10 caracteres.</small>}
+      </ModalBody>
+      <ModalFooter>
+        <Button color="link" disabled={busy} onClick={onCancel}>Cancelar</Button>
+        <Button color={meta.color === "secondary" ? "primary" : meta.color} disabled={!ok || busy} onClick={() => onConfirm(reason.trim())}>
+          {busy ? <Spinner size="sm" /> : "Aplicar"}
+        </Button>
+      </ModalFooter>
+    </Modal>
+  );
+};
+
+const ReconLedgerLinkModal = ({ isOpen, toggle, onDone, onOpenCase }) => {
   const [periods, setPeriods] = useState([]);
   const [periodId, setPeriodId] = useState("");
   const [preview, setPreview] = useState(null);
@@ -66,6 +124,8 @@ const ReconLedgerLinkModal = ({ isOpen, toggle, onDone }) => {
   const [confirmKey, setConfirmKey] = useState(null);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState(null);
+  const [fix, setFix] = useState(null);
+  const [fixing, setFixing] = useState(false);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -136,6 +196,22 @@ const ReconLedgerLinkModal = ({ isOpen, toggle, onDone }) => {
     }
   };
 
+  const resolve = async (reason) => {
+    setFixing(true);
+    try {
+      const r = await resolveLedgerLink(periodId, { saleId: fix.row.saleId, action: fix.action, reason });
+      showSuccess(r.message);
+      setFix(null);
+      if (onDone) onDone();
+      await load(periodId, assumeEqual);
+    } catch (e) {
+      showError(e.message);
+    } finally {
+      setFixing(false);
+    }
+  };
+
+  const fixableCount = rows.filter(hasActions).length;
   const s = preview ? preview.summary : null;
   const settledNow = result && result.applied;
 
@@ -145,7 +221,8 @@ const ReconLedgerLinkModal = ({ isOpen, toggle, onDone }) => {
       <ModalBody>
         <p className="text-muted mb-2" style={{ fontSize: 13 }}>
           El libro es lo que Contabilidad dejó revisado. Elija el periodo, vea en qué difiere la conciliación y, si todo está bien, un solo botón
-          la iguala al libro, liquida, descarga el Excel y cierra la revisión. Si alguna venta no queda lista, no se cambia nada.
+          la iguala al libro, liquida, descarga el Excel y cierra la revisión. Lo que no cuadra dice por qué y, cuando se puede, trae el botón
+          para arreglarlo aquí mismo; lo demás se abre en el caso.
         </p>
         <div className="d-flex align-items-center flex-wrap mb-3" style={{ gap: 10 }}>
           <label className="mb-0 font-weight-bold" htmlFor="ledger-link-period">Periodo de revisión</label>
@@ -175,6 +252,11 @@ const ReconLedgerLinkModal = ({ isOpen, toggle, onDone }) => {
               <span className={s.notReady ? "text-danger" : ""}><b>{s.notReady}</b> no cuadran</span>
               <span className={s.unreviewed ? "text-warning" : ""}><b>{s.unreviewed}</b> sin revisar</span>
               <span className="text-muted"><b>{s.alreadySettled}</b> ya liquidadas · <b>{s.notApplicable}</b> no aplican</span>
+              {fixableCount > 0 && (
+                <Button color="link" size="sm" className="p-0" style={{ fontSize: 13 }} onClick={() => setFilter("fixable")}>
+                  <b>{fixableCount}</b> se pueden arreglar aquí
+                </Button>
+              )}
             </div>
             <div className="d-flex align-items-center flex-wrap mb-2" style={{ gap: 8 }}>
               {FILTERS.map((f) => (
@@ -217,6 +299,22 @@ const ReconLedgerLinkModal = ({ isOpen, toggle, onDone }) => {
                         <td style={{ whiteSpace: "normal" }}>
                           <Badge color={meta.color} title={meta.help}>{meta.label}</Badge>
                           <div style={{ fontSize: 11.5 }} className="text-muted">{r.reason}</div>
+                          {(hasActions(r) || (r.caseId && r.state === "NO_LISTA" && onOpenCase)) && (
+                            <div className="d-flex flex-wrap mt-1" style={{ gap: 4 }}>
+                              {(r.actions || []).map((a) => (ACTION_META[a] ? (
+                                <Button key={a} size="sm" color={ACTION_META[a].color} outline disabled={busy || fixing}
+                                  style={{ fontSize: 11, padding: "1px 6px" }} onClick={() => setFix({ row: r, action: a })}>
+                                  {ACTION_META[a].label}
+                                </Button>
+                              ) : null))}
+                              {r.caseId && r.state === "NO_LISTA" && onOpenCase && (
+                                <Button size="sm" color="link" className="p-0" style={{ fontSize: 11 }} disabled={busy || fixing}
+                                  onClick={() => onOpenCase(r.caseId)}>
+                                  Abrir caso
+                                </Button>
+                              )}
+                            </div>
+                          )}
                         </td>
                         <td className="text-right">{formatQ(r.ledgerTotal)}<br /><small className="text-muted">{formatQ(r.reconExpected)}</small></td>
                         <td className="text-right">{r.ledgerDeposit != null ? formatQ(r.ledgerDeposit) : <span className="text-muted">—</span>}<br />
@@ -283,6 +381,7 @@ const ReconLedgerLinkModal = ({ isOpen, toggle, onDone }) => {
           )}
         </div>
       </ModalFooter>
+      <ResolveDialog key={fix ? `${fix.row.saleId}-${fix.action}` : "none"} fix={fix} busy={fixing} onCancel={() => setFix(null)} onConfirm={resolve} />
     </Modal>
   );
 };
