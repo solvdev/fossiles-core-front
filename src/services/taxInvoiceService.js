@@ -220,3 +220,32 @@ export const downloadTaxInvoiceCertifiedXml = async (id, suggestedFilename) => {
   window.URL.revokeObjectURL(url);
   return filename;
 };
+
+/** Establecimientos FEL configurados (código, nombre y etiqueta "1 - CUEROGLAM"). */
+export const getFelEstablishments = async () => {
+  const response = await fetch(`${API_URL}/tax-invoices/establishments`, {
+    headers: headers(),
+  });
+  return parseJson(response, "No se pudieron cargar los establecimientos.");
+};
+
+/**
+ * Reporte de facturas por establecimiento (una fila por documento emitido o anulado, sin detalle).
+ * establishmentCodes vacío = todos.
+ */
+export const getEstablishmentInvoiceReport = async ({
+  fromDate,
+  toDate,
+  establishmentCodes = [],
+} = {}) => {
+  const query = new URLSearchParams();
+  if (fromDate) query.append("fromDate", fromDate);
+  if (toDate) query.append("toDate", toDate);
+  (establishmentCodes || []).forEach((code) => query.append("establishmentCodes", String(code)));
+  const raw = query.toString();
+  const response = await fetch(
+    `${API_URL}/tax-invoices/establishment-report${raw ? `?${raw}` : ""}`,
+    { headers: headers() }
+  );
+  return parseJson(response, "No se pudo generar el reporte de facturas.");
+};

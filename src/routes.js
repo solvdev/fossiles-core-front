@@ -136,6 +136,7 @@ import SalesReports from "views/reports/SalesReports.js";
 import CostReports from "views/reports/CostReports.js";
 import KioskPerformance from "views/reports/KioskPerformance.js";
 import KioskSalesByCategoryReport from "views/reports/KioskSalesByCategoryReport.js";
+import InvoiceEstablishmentReport from "views/reports/InvoiceEstablishmentReport.js";
 import { KIOSK_SALES_BY_CATEGORY_ROLE_NAME_TOKENS } from "config/kioskSalesByCategoryAccess";
 import PurchaseReports from "views/reports/PurchaseReports.js";
 import PhaseGeneralReports from "views/reports/PhaseGeneralReports.js";
@@ -1607,6 +1608,17 @@ const routes = [
           view: "REPORTES.VENTAS.VER",
         },
         roleNameIncludes: KIOSK_SALES_BY_CATEGORY_ROLE_NAME_TOKENS,
+      },
+      {
+        path: "/invoice-establishment-report",
+        name: "Facturas por establecimiento",
+        mini: "FE",
+        component: <InvoiceEstablishmentReport />,
+        layout: "/admin",
+        module: "REPORTES",
+        permissions: {
+          view: "REPORTES.VENTAS.VER",
+        },
       },
       {
         path: "/purchase-reports",
