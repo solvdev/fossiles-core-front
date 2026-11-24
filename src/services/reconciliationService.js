@@ -145,3 +145,7 @@ export const getLedgerLinkPreview = (periodId, assumeEqual = false) =>
 /** Iguala la conciliación al libro, liquida y (si se pide) cierra la revisión: { saleIds, closePeriod, assumeEqual }. Todo o nada. */
 export const applyLedgerLink = (periodId, data, idempotencyKey) =>
   post(`/ledger-link/periods/${periodId}/apply`, data, "No se pudo liquidar el periodo", { "Idempotency-Key": idempotencyKey });
+
+// Arregla el bloqueo de una venta desde la pantalla de liquidar: { saleId, action, reason }.
+export const resolveLedgerLink = (periodId, data) =>
+  post(`/ledger-link/periods/${periodId}/resolve`, data, "No se pudo aplicar el arreglo");
