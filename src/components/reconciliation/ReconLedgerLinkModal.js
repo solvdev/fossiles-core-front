@@ -18,7 +18,7 @@ import { showError, showSuccess, showWarning } from "utils/notificationHelper";
 const STATE_META = {
   LISTA: { label: "Cuadra", color: "success", help: "Cuadra tal cual" },
   LISTA_CON_CAMBIOS: { label: "Cuadra al igualar", color: "info", help: "Cuadra después de igualarla al libro" },
-  EXCLUIR: { label: "Se excluye", color: "secondary", help: "El libro la tiene devuelta o anulada" },
+  EXCLUIR: { label: "Se rebaja a Q0", color: "secondary", help: "Devuelta o anulada: su pago se anula y sale en el Excel del lote con lo que era y Q0" },
   NO_LISTA: { label: "No cuadra", color: "danger", help: "Aun con el libro no cuadra" },
   SIN_REVISAR: { label: "Sin revisar", color: "warning", help: "No está marcada «Revisado» en el libro" },
   YA_LIQUIDADA: { label: "Ya liquidada", color: "secondary", help: "Ya está en un lote" },
