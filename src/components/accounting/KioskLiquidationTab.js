@@ -171,19 +171,24 @@ export default function KioskLiquidationTab({ weekStart, supervisorId, today, re
     }
   };
 
-  /** Mismo formato del libro de contabilidad: el año completo o solo la semana que se está viendo. */
+  /**
+   * Mismo formato del libro de contabilidad: el año completo o solo la semana que se está viendo. Incluye las
+   * visitas del calendario de la semana aunque todavía no tengan liquidación registrada.
+   */
   const exportExcel = async (scope) => {
     const year = Number(weekStart.slice(0, 4));
+    const weekEnd = addDays(weekStart, 6);
+    const inScope = (row) =>
+      scope !== "week" || (key(row.liquidationDate) >= weekStart && key(row.liquidationDate) <= weekEnd);
     try {
-      if (scope === "week") {
-        downloadLiquidationExcel({ year, groups, fileSuffix: `semana-${weekStart}` });
-        return;
-      }
       const result = await getLiquidationYear(year);
       downloadLiquidationExcel({
         year,
-        groups: result.groups.filter((g) => !supervisorId || g.supervisorUserId === supervisorId),
+        groups: result.groups
+          .filter((g) => !supervisorId || g.supervisorUserId === supervisorId)
+          .map((g) => ({ ...g, rows: g.rows.filter(inScope) })),
         nonWorkingDays: result.nonWorkingDays,
+        fileSuffix: scope === "week" ? `semana-${weekStart}` : String(year),
       });
     } catch (error) {
       showError(error.message || "No se pudo generar el Excel.");
@@ -261,8 +266,8 @@ export default function KioskLiquidationTab({ weekStart, supervisorId, today, re
               Descargar Excel
             </DropdownToggle>
             <DropdownMenu end>
-              <DropdownItem onClick={() => exportExcel("year")}>Todo {weekStart.slice(0, 4)}</DropdownItem>
               <DropdownItem onClick={() => exportExcel("week")}>Solo esta semana</DropdownItem>
+              <DropdownItem onClick={() => exportExcel("year")}>Todo {weekStart.slice(0, 4)}</DropdownItem>
             </DropdownMenu>
           </UncontrolledDropdown>
         </div>
