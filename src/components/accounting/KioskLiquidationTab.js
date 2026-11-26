@@ -1,13 +1,26 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { Button, Input, Modal, ModalBody, ModalFooter, ModalHeader, Spinner } from "reactstrap";
+import {
+  Button,
+  DropdownItem,
+  DropdownMenu,
+  DropdownToggle,
+  Input,
+  Modal,
+  ModalBody,
+  ModalFooter,
+  ModalHeader,
+  Spinner,
+  UncontrolledDropdown,
+} from "reactstrap";
 import {
   fixLiquidationManually,
   generateLiquidationWeek,
   getLiquidationWeek,
+  getLiquidationYear,
   updateLiquidation,
 } from "services/kioskCountCalendarService";
 import { addDays, formatDmy, key, weekdayShort, weekRange } from "utils/kioskCountDateHelper";
-import { downloadLiquidationWeekExcel } from "utils/kioskLiquidationExport";
+import { downloadLiquidationExcel } from "utils/kioskLiquidationExport";
 import { countLink, countState } from "utils/kioskLiquidationState";
 import { showError, showSuccess } from "utils/notificationHelper";
 
@@ -158,16 +171,19 @@ export default function KioskLiquidationTab({ weekStart, supervisorId, today, re
     }
   };
 
-  const exportExcel = () => {
-    if (!total) {
-      showError("No hay liquidaciones en esta semana.");
-      return;
-    }
+  /** Mismo formato del libro de contabilidad: el año completo o solo la semana que se está viendo. */
+  const exportExcel = async (scope) => {
+    const year = Number(weekStart.slice(0, 4));
     try {
-      downloadLiquidationWeekExcel({
-        weekLabel: `Semana del ${weekRange(weekStart)}`,
-        weekStart,
-        groups,
+      if (scope === "week") {
+        downloadLiquidationExcel({ year, groups, fileSuffix: `semana-${weekStart}` });
+        return;
+      }
+      const result = await getLiquidationYear(year);
+      downloadLiquidationExcel({
+        year,
+        groups: result.groups.filter((g) => !supervisorId || g.supervisorUserId === supervisorId),
+        nonWorkingDays: result.nonWorkingDays,
       });
     } catch (error) {
       showError(error.message || "No se pudo generar el Excel.");
@@ -240,9 +256,15 @@ export default function KioskLiquidationTab({ weekStart, supervisorId, today, re
               {busy ? <Spinner size="sm" /> : "Llenar la semana"}
             </Button>
           )}
-          <Button color="secondary" outline size="sm" onClick={exportExcel}>
-            Descargar Excel
-          </Button>
+          <UncontrolledDropdown>
+            <DropdownToggle caret color="secondary" outline size="sm">
+              Descargar Excel
+            </DropdownToggle>
+            <DropdownMenu end>
+              <DropdownItem onClick={() => exportExcel("year")}>Todo {weekStart.slice(0, 4)}</DropdownItem>
+              <DropdownItem onClick={() => exportExcel("week")}>Solo esta semana</DropdownItem>
+            </DropdownMenu>
+          </UncontrolledDropdown>
         </div>
       </div>
 

@@ -19,11 +19,14 @@ import {
   discardCountDraft,
   generateCountWeek,
   getCountCalendar,
+  getLiquidationYear,
   removeCountBlockedDay,
   updateCountVisit,
 } from "services/kioskCountCalendarService";
 import { getTodayYmdGuatemala } from "utils/dateTimeHelper";
 import { downloadKioskCountCalendarExcel } from "utils/kioskCountCalendarExport";
+import { downloadLiquidationExcel } from "utils/kioskLiquidationExport";
+import { countLink, visitState } from "utils/kioskLiquidationState";
 import {
   MONTH_NAMES,
   addDays,
@@ -213,7 +216,7 @@ export default function KioskCountCalendar() {
   }, [allVisits, data]);
 
   const stats = useMemo(() => {
-    const done = weekVisits.filter((v) => v.status === "DONE" || v.countedOn).length;
+    const done = weekVisits.filter((v) => visitState(v).done).length;
     const kioskIds = new Set(weekVisits.map((v) => v.locationId));
     const regularInMonth = new Set(
       allVisits
@@ -300,8 +303,24 @@ export default function KioskCountCalendar() {
     }
   };
 
+  /** Excel con el formato del libro de contabilidad: todo el año, una hoja por supervisora. */
+  const exportLiquidations = async () => {
+    const year = Number(month.slice(0, 4));
+    try {
+      const result = await getLiquidationYear(year);
+      downloadLiquidationExcel({
+        year,
+        groups: result.groups.filter((g) => !supervisorId || g.supervisorUserId === supervisorId),
+        nonWorkingDays: result.nonWorkingDays,
+      });
+    } catch (error) {
+      showError(error.message || "No se pudo generar el Excel.");
+    }
+  };
+
   const chip = (visit) => {
-    const done = visit.status === "DONE" || Boolean(visit.countedOn);
+    const state = visitState(visit);
+    const { done } = state;
     const draggable = editing && canGenerate;
     const isDraft = visit.status === "DRAFT";
     return (
@@ -327,7 +346,8 @@ export default function KioskCountCalendar() {
             </span>
           )}
           {visit.manual && visit.kind !== "REVISIT" && <span title="Movida a mano">📌</span>}
-          {done && <span title="Conteo hecho">✓</span>}
+          {done && <span title={`Conteo: ${state.label}`}>✓</span>}
+          {visit.countStatus === "DRAFT" && !done && <span title="Conteo en curso">⏳</span>}
           {!supervisorId && supervisors.length > 1 && (
             <span className={`kcc-sup kcc-sup-${supervisorColor[visit.supervisorUserId] % 4}`} title={visit.supervisorName}>
               {initials(visit.supervisorName)}
@@ -509,6 +529,9 @@ export default function KioskCountCalendar() {
                 Descargar Excel
               </DropdownToggle>
               <DropdownMenu end>
+                <DropdownItem onClick={exportLiquidations}>Liquidaciones por semana {month.slice(0, 4)}</DropdownItem>
+                <DropdownItem divider />
+                <DropdownItem header>Ruta de visitas</DropdownItem>
                 <DropdownItem onClick={() => exportExcel("week")}>Esta semana</DropdownItem>
                 <DropdownItem onClick={() => exportExcel("month")}>Todo {monthTitle(month)}</DropdownItem>
               </DropdownMenu>
@@ -723,7 +746,8 @@ export default function KioskCountCalendar() {
                       {[...weekVisits]
                         .sort((a, b) => key(a.visitDate).localeCompare(key(b.visitDate)) || a.supervisorUserId - b.supervisorUserId)
                         .map((v) => {
-                          const done = v.status === "DONE" || Boolean(v.countedOn);
+                          const state = visitState(v);
+                          const { done } = state;
                           return (
                             <tr key={v.id} onClick={() => setSelected(v)} className={done ? "is-done" : ""}>
                               <td className="kcc-datecell">
@@ -749,15 +773,13 @@ export default function KioskCountCalendar() {
                                 {v.gapDays == null ? "—" : `${v.gapDays} días (${formatShort(v.lastCountDate)})`}
                               </td>
                               <td>
-                                <span className={`kcc-status ${done ? "ok" : v.status === "DRAFT" ? "kcc-st-warn" : ""}`}>
-                                  {v.status === "DRAFT"
-                                    ? "Borrador"
-                                    : done
-                                      ? v.countedOn
-                                        ? `Contado ${formatShort(v.countedOn)}`
-                                        : "Hecha"
-                                      : "Pendiente"}
-                                </span>
+                                <span className={`kcc-status ${state.tone}`}>{state.label}</span>
+                                {v.countedOn && <small className="kcc-sub">al {formatShort(v.countedOn)}</small>}
+                                {countLink(v) && (
+                                  <a className="kcc-sub kcc-link-a" href={countLink(v)} onClick={(e) => e.stopPropagation()}>
+                                    Abrir conteo
+                                  </a>
+                                )}
                               </td>
                             </tr>
                           );
@@ -1060,10 +1082,21 @@ function VisitModal({ visit, month, canEdit, editMode, kiosks, busy, onClose, on
             <dt>Último conteo</dt>
             <dd>{gapText(visit)}</dd>
           </div>
-          {visit.countedOn && (
+          {(visit.countStatus || visit.status === "DONE") && (
             <div>
-              <dt>Conteo registrado</dt>
-              <dd>{formatLong(visit.countedOn)}</dd>
+              <dt>Conteo de esta visita</dt>
+              <dd>
+                {visitState(visit).label}
+                {visit.countedOn && ` · inventario al ${formatLong(visit.countedOn)}`}
+                {countLink(visit) && (
+                  <>
+                    {" · "}
+                    <a href={countLink(visit)} className="kcc-link-a">
+                      Abrir conteo
+                    </a>
+                  </>
+                )}
+              </dd>
             </div>
           )}
         </dl>
