@@ -3,9 +3,7 @@ import {
   Alert,
   Badge,
   Button,
-  FormGroup,
   Input,
-  Label,
   Modal,
   ModalBody,
   ModalFooter,
@@ -13,11 +11,13 @@ import {
   Spinner,
   Table,
 } from "reactstrap";
-
-const fmt = (value) => {
-  const n = Number(value || 0);
-  return Number.isInteger(n) ? String(n) : n.toFixed(2);
-};
+import {
+  SHIPMENT_SOURCE,
+  bulkShipmentSource,
+  defaultShipmentSource,
+  formatShipmentQty as fmt,
+  shipmentSourceOptions,
+} from "utils/shipmentSourceHelper";
 
 /** Etiqueta de envío directo a kiosco (sale de Devoluciones, sin distribución). */
 export function DirectKioskShipmentBadge({ shipment, className = "ml-1" }) {
@@ -30,14 +30,15 @@ export function DirectKioskShipmentBadge({ shipment, className = "ml-1" }) {
 }
 
 /**
- * Desglose de stock antes de enviar cuando la bodega principal no alcanza. El faltante solo se toma de la otra
- * cubeta si el usuario marca la casilla: envío directo → de Bodega PT; envío de distribución → de Devoluciones.
+ * Desglose de stock antes de enviar cuando la bodega principal no alcanza. El usuario elige por línea de dónde
+ * sale: la principal, todo de la otra cubeta, o la principal y el faltante de la otra (envío directo: la principal
+ * es Devoluciones; envío de distribución: Bodega PT).
  */
 function ShipmentDispatchStockModal({ isOpen, check, sending, onCancel, onConfirm }) {
-  const [takeFallback, setTakeFallback] = useState(false);
+  const [chosen, setChosen] = useState({});
 
   useEffect(() => {
-    if (isOpen) setTakeFallback(false);
+    if (isOpen) setChosen({});
   }, [isOpen, check?.shipmentId]);
 
   if (!check) return null;
@@ -45,6 +46,28 @@ function ShipmentDispatchStockModal({ isOpen, check, sending, onCancel, onConfir
   const fallback = check.fallbackWarehouseLabel;
   const canFallback = Boolean(check.fallbackAvailable && check.canSendWithFallback);
   const lines = Array.isArray(check.lines) ? check.lines : [];
+  const pending = lines.filter((line) => Number(line.requiredQuantity || 0) > 0);
+
+  const sourceOf = (line) => chosen[line.detailId] ?? defaultShipmentSource(line);
+  const complete = pending.length > 0 && pending.every((line) => sourceOf(line));
+  const allFromFallback = pending.every((line) => bulkShipmentSource(line, true));
+
+  const applyToAll = (wholeFallback) =>
+    setChosen(
+      pending.reduce((acc, line) => {
+        const source = bulkShipmentSource(line, wholeFallback);
+        if (source) acc[line.detailId] = source;
+        return acc;
+      }, {})
+    );
+
+  const confirm = () =>
+    onConfirm({
+      takeShortageFromFallback: pending.some((line) => sourceOf(line) === SHIPMENT_SOURCE.BOTH),
+      fromFallbackDetailIds: pending
+        .filter((line) => sourceOf(line) === SHIPMENT_SOURCE.FALLBACK)
+        .map((line) => line.detailId),
+    });
 
   return (
     <Modal isOpen={isOpen} toggle={sending ? undefined : onCancel} size="lg">
@@ -61,8 +84,20 @@ function ShipmentDispatchStockModal({ isOpen, check, sending, onCancel, onConfir
           {check.directKioskShipment
             ? "Un envío directo a kiosco sale solo de Devoluciones."
             : "Un envío de distribución sale solo de Bodega PT."}{" "}
-          Así queda lo que hay para cada línea:
+          Elija de qué bodega sale cada línea:
         </p>
+        {fallback && canFallback ? (
+          <div className="mb-2">
+            <Button color="warning" outline size="sm" className="mr-2" disabled={sending} onClick={() => applyToAll(false)}>
+              Solo el faltante de {fallback}
+            </Button>
+            {allFromFallback ? (
+              <Button color="warning" outline size="sm" disabled={sending} onClick={() => applyToAll(true)}>
+                Todo de {fallback}
+              </Button>
+            ) : null}
+          </div>
+        ) : null}
         <Table size="sm" bordered responsive className="mb-3">
           <thead>
             <tr>
@@ -72,6 +107,7 @@ function ShipmentDispatchStockModal({ isOpen, check, sending, onCancel, onConfir
               <th className="text-right">Devoluciones</th>
               <th className="text-right">Bodega PT</th>
               <th className="text-right">Faltante en {primary}</th>
+              <th style={{ minWidth: 220 }}>Sale de</th>
             </tr>
           </thead>
           <tbody>
@@ -97,6 +133,29 @@ function ShipmentDispatchStockModal({ isOpen, check, sending, onCancel, onConfir
                       <div className="small text-danger">sin cubrir: {fmt(line.shortageAfterFallback)}</div>
                     ) : null}
                   </td>
+                  <td>
+                    {Number(line.requiredQuantity || 0) > 0 ? (
+                      <Input
+                        type="select"
+                        bsSize="sm"
+                        aria-label={`Bodega de salida de ${line.productCode || line.productName || "producto"}`}
+                        value={sourceOf(line)}
+                        disabled={sending}
+                        onChange={(e) => setChosen((prev) => ({ ...prev, [line.detailId]: e.target.value }))}
+                      >
+                        {!defaultShipmentSource(line) && (
+                          <option value="">{stillShort ? "Sin stock suficiente" : "Elija…"}</option>
+                        )}
+                        {shipmentSourceOptions(line, primary, fallback).map((option) => (
+                          <option key={option.value} value={option.value} disabled={!option.enabled}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </Input>
+                    ) : (
+                      <span className="text-muted">—</span>
+                    )}
+                  </td>
                 </tr>
               );
             })}
@@ -104,22 +163,9 @@ function ShipmentDispatchStockModal({ isOpen, check, sending, onCancel, onConfir
         </Table>
 
         {fallback && canFallback ? (
-          <FormGroup check className="p-2 border rounded" style={{ background: "#fff8e1" }}>
-            <Label check>
-              <Input
-                type="checkbox"
-                checked={takeFallback}
-                disabled={sending}
-                onChange={(e) => setTakeFallback(e.target.checked)}
-              />
-              <span className="form-check-sign" />
-              <strong>Tomar el faltante de {fallback}</strong>
-            </Label>
-            <div className="small text-muted mt-1">
-              Sale primero todo lo que hay en {primary} y el resto de {fallback}. El kardex lo deja escrito con tu
-              usuario como autorización.
-            </div>
-          </FormGroup>
+          <div className="small text-muted">
+            Lo que salga de {fallback} queda escrito en el kardex con tu usuario como autorización.
+          </div>
         ) : (
           <Alert color="danger" className="mb-0">
             {fallback
@@ -132,12 +178,8 @@ function ShipmentDispatchStockModal({ isOpen, check, sending, onCancel, onConfir
         <Button color="secondary" outline onClick={onCancel} disabled={sending}>
           Cancelar
         </Button>
-        <Button
-          color="primary"
-          onClick={() => onConfirm(true)}
-          disabled={sending || !canFallback || !takeFallback}
-        >
-          {sending ? <Spinner size="sm" /> : `Enviar tomando de ${fallback || "la otra bodega"}`}
+        <Button color="primary" onClick={confirm} disabled={sending || !canFallback || !complete}>
+          {sending ? <Spinner size="sm" /> : "Enviar"}
         </Button>
       </ModalFooter>
     </Modal>

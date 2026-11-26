@@ -3540,7 +3540,7 @@ function PrepareShipments() {
       }
 
       // Directo a kiosco sale de Devoluciones y uno de distribución de Bodega PT. Si no alcanza, se muestra el
-      // desglose y solo con la casilla marcada se toma el faltante de la otra cubeta.
+      // desglose y el usuario elige por línea si algo sale de la otra cubeta.
       let check = null;
       try {
         check = await checkShipmentDispatchStock(shipmentId);
@@ -3564,16 +3564,14 @@ function PrepareShipments() {
     }
   };
 
-  const handleConfirmSendWithFallback = async () => {
+  const handleConfirmSendWithFallback = async (sources) => {
     if (!dispatchCheck?.shipmentId) return;
     try {
       setSendingWithFallback(true);
       setError("");
-      await sendShipment(dispatchCheck.shipmentId, { takeShortageFromFallback: true });
+      await sendShipment(dispatchCheck.shipmentId, sources);
       showSuccess(
-        `Envío ${dispatchCheck.shipmentNumber || dispatchCheck.shipmentId} enviado; el faltante salió de ${
-          dispatchCheck.fallbackWarehouseLabel || "la otra bodega"
-        }.`
+        `Envío ${dispatchCheck.shipmentNumber || dispatchCheck.shipmentId} enviado desde las bodegas elegidas.`
       );
       setDispatchCheck(null);
       await reloadCurrentShipments();

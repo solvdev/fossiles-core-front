@@ -410,13 +410,18 @@ export const deleteShipment = async (id) => {
 
 /**
  * takeShortageFromFallback: el usuario autorizó tomar el faltante de la otra cubeta (envío directo: de Bodega PT;
- * envío de distribución: de Devoluciones). Sin él, el envío sale solo de su bodega principal.
+ * envío de distribución: de Devoluciones). fromFallbackDetailIds: líneas que salen completas de esa otra cubeta.
+ * Sin ninguno, el envío sale solo de su bodega principal.
  */
-export const sendShipment = async (shipmentId, { takeShortageFromFallback = false } = {}) => {
+export const sendShipment = async (
+  shipmentId,
+  { takeShortageFromFallback = false, fromFallbackDetailIds = [] } = {}
+) => {
   const query = takeShortageFromFallback ? '?takeShortageFromFallback=true' : '';
   const response = await fetch(`${API_URL}/product-distributions/shipments/${shipmentId}/send${query}`, {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json', ...getAuthHeader() }
+    headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
+    body: fromFallbackDetailIds.length ? JSON.stringify({ fromFallbackDetailIds }) : undefined
   });
   if (!response.ok) {
     const err = await response.json().catch(() => ({ message: 'Error al enviar' }));
