@@ -28,6 +28,7 @@ import classnames from "classnames";
 import ConfirmModal from "components/ConfirmModal/ConfirmModal";
 import TablePagination, { usePagination } from "components/TablePagination/TablePagination";
 import CreateStandaloneInternalShipmentModal from "components/distribution/CreateStandaloneInternalShipmentModal";
+import EnviSourceModal from "components/distribution/EnviSourceModal";
 import InternalShipmentRequestDetailModal from "components/distribution/InternalShipmentRequestDetailModal";
 import PrintSlipBookletModal from "components/distribution/PrintSlipBookletModal";
 import {
@@ -46,6 +47,7 @@ import {
 } from "services/internalShipmentRequestService";
 import { printInternalEnviShipment } from "utils/enviInternalPrintHelper";
 import { formatDateTimeGt } from "utils/dateTimeHelper";
+import { hasStockByWarehouse } from "utils/enviSourceHelper";
 import {
   canGenerateOpiForApprovedEnvi,
   canGenerateOpiForExistingEnvi,
@@ -106,6 +108,8 @@ function AuthorizeShipments() {
   const [detailRequestId, setDetailRequestId] = useState(null);
   // Acción que espera confirmación en ConfirmModal: título, mensaje y la función que la ejecuta.
   const [confirm, setConfirm] = useState(null);
+  // Solicitud esperando que se elija de qué bodega sale; resolve avisa si quedó autorizada.
+  const [sourcePick, setSourcePick] = useState(null);
   const [stockFilter, setStockFilter] = useState("");
 
   const loadExistingEnvi = useCallback(async () => {
@@ -174,12 +178,12 @@ function AuthorizeShipments() {
   // La paginación va sobre lo que deja ver el filtro de stock.
   const requestsPagination = usePagination(visibleRequests, 20);
 
-  const approveRequest = async (request) => {
+  const approveRequest = async (request, lines) => {
     if (!canApprove || !request?.id) return;
     try {
       setActionId(request.id);
       setError("");
-      const updated = await approveInternalShipmentRequest(request.id);
+      const updated = await approveInternalShipmentRequest(request.id, lines);
       showSuccess(`Envío autorizado. ENVI: ${updated?.shipmentNumber || "—"}`);
       await Promise.all([loadRequests(), loadExistingEnvi()]);
       setDetailRequestId(null);
@@ -306,6 +310,9 @@ function AuthorizeShipments() {
   /** Devuelve true si el envío quedó autorizado (false si se canceló o falló). */
   const handleApprove = async (request) => {
     if (!canApprove || !request?.id) return false;
+    if (hasStockByWarehouse(request)) {
+      return new Promise((resolve) => setSourcePick({ request, resolve }));
+    }
     const ok = window.confirm(
       `¿Autorizar el envío de la solicitud #${request.id} de ${request.recipientName}? `
         + "Se generará el número ENVI y se despachará el producto."
@@ -316,6 +323,20 @@ function AuthorizeShipments() {
       return true;
     } catch {
       return false; // El error ya se notificó en approveRequest.
+    }
+  };
+
+  const closeSourcePick = (done) => {
+    sourcePick?.resolve(done);
+    setSourcePick(null);
+  };
+
+  const confirmSourcePick = async (lines) => {
+    try {
+      await approveRequest(sourcePick.request, lines);
+      closeSourcePick(true);
+    } catch {
+      closeSourcePick(false); // El error ya se notificó en approveRequest.
     }
   };
 
@@ -367,7 +388,7 @@ function AuthorizeShipments() {
               </CardTitle>
               <p className="text-muted mb-0 small mt-1">
                 {isAccountingView
-                  ? "Distribución crea solicitudes. Con stock se autoriza el envío (ENVI); sin stock se autoriza la producción del faltante y se espera su ingreso a Devoluciones."
+                  ? "Distribución crea solicitudes. Con stock se autoriza el envío (ENVI) eligiendo de qué bodega sale; sin stock se autoriza la producción del faltante y se espera su ingreso."
                   : "Consulte el estado de sus solicitudes pendientes de autorización por Contabilidad."}
               </p>
             </Col>
@@ -747,6 +768,15 @@ function AuthorizeShipments() {
         }}
         actionId={actionId}
       />
+
+      {sourcePick && (
+        <EnviSourceModal
+          request={sourcePick.request}
+          busy={actionId === sourcePick.request.id}
+          onConfirm={(lines) => void confirmSourcePick(lines)}
+          onCancel={() => closeSourcePick(false)}
+        />
+      )}
 
       <ConfirmModal
         isOpen={Boolean(confirm)}

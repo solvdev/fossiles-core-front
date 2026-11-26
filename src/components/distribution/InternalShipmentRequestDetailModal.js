@@ -35,15 +35,15 @@ const BANNER_TONES = {
 const BANNER_TEXT = {
   DISPONIBLE: {
     title: "Hay stock para despachar",
-    body: "Todas las líneas alcanzan en Devoluciones. Puede autorizar el envío y se generará el ENVI.",
+    body: "Todas las líneas alcanzan entre Devoluciones y Bodega PT. Al autorizar elige de qué bodega sale y se genera el ENVI.",
   },
   SIN_STOCK: {
     title: "Sin stock suficiente",
-    body: "Hay líneas que no alcanzan. Autorice la producción: se genera una OPI solo por el faltante y el envío se habilita cuando el producto entre a Devoluciones.",
+    body: "Hay líneas que no alcanzan. Autorice la producción: se genera una OPI solo por el faltante y el envío se habilita cuando el producto ingrese a bodega.",
   },
   EN_PRODUCCION: {
-    title: "Producción autorizada, esperando ingreso a Devoluciones",
-    body: "El envío se podrá autorizar cuando el producto terminado de la OPI ingrese a Devoluciones.",
+    title: "Producción autorizada, esperando ingreso a bodega",
+    body: "El envío se podrá autorizar cuando el producto terminado de la OPI ingrese a bodega.",
   },
 };
 
@@ -247,7 +247,14 @@ function InternalShipmentRequestDetailModal({
                     <td>{line.size || "—"}</td>
                     <td className="text-right">{line.quantity ?? 0}</td>
                     {showStock && (
-                      <td className="text-right">{formatQty(line.availableQuantity)}</td>
+                      <td className="text-right">
+                        {formatQty(line.availableQuantity)}
+                        {line.returnsAvailable != null && (
+                          <div className="small text-muted">
+                            Dev. {formatQty(line.returnsAvailable)} · PT {formatQty(line.ptAvailable)}
+                          </div>
+                        )}
+                      </td>
                     )}
                     {showStock && (
                       <td
