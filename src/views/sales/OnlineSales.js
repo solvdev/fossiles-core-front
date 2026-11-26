@@ -622,6 +622,7 @@ function OnlineSales() {
   const [resolveSale, setResolveSale] = useState(null);
   const [resolveItems, setResolveItems] = useState([]);
   const [resolveActions, setResolveActions] = useState({});
+  const [resolveWarehouses, setResolveWarehouses] = useState({});
   const [resolveLoading, setResolveLoading] = useState(false);
   const [resolveError, setResolveError] = useState("");
   const [resolveSubmitting, setResolveSubmitting] = useState(false);
@@ -1066,6 +1067,7 @@ function OnlineSales() {
     setResolveSale(sale);
     setResolveItems([]);
     setResolveActions({});
+    setResolveWarehouses({});
     setResolveError("");
     setResolveLoading(true);
     try {
@@ -1097,24 +1099,34 @@ function OnlineSales() {
     setResolveActions((prev) => ({ ...prev, [key]: action }));
   };
 
+  const resolveKey = (it, idx) => (it.saleItemId != null ? String(it.saleItemId) : `idx-${idx}`);
+  const resolveActionOf = (it, idx) => resolveActions[resolveKey(it, idx)] || "PRODUCE";
+  const resolvePiece = (it) => `${it.productId}|${it.colorId}|${String(it.size || "").trim().toUpperCase()}`;
+  const resolveWarehouseOf = (it) => resolveWarehouses[resolvePiece(it)] || "BODEGA_PT";
+
+  // Unidades que el sistema no tiene para las líneas de la misma pieza marcadas como «Bodega».
+  const resolveMissing = (it) => {
+    const wanted = resolveItems.reduce((sum, other, idx) =>
+      resolvePiece(other) === resolvePiece(it) && resolveActionOf(other, idx) === "DISPATCH"
+        ? sum + Number(other.quantity || 0)
+        : sum, 0);
+    return Math.max(0, wanted - Math.max(0, Number(it.stockTotal || 0)));
+  };
+
   const submitResolveMixed = async () => {
     if (!resolveSale) return;
     const payload = resolveItems
       .filter((it) => it.saleItemId != null)
-      .map((it) => ({
-        saleItemId: it.saleItemId,
-        action: resolveActions[String(it.saleItemId)] || "PRODUCE",
-      }));
+      .map((it) => {
+        const action = resolveActions[String(it.saleItemId)] || "PRODUCE";
+        return {
+          saleItemId: it.saleItemId,
+          action,
+          warehouse: action === "DISPATCH" && resolveMissing(it) > 0 ? resolveWarehouseOf(it) : null,
+        };
+      });
     if (payload.length === 0) {
       setResolveError("La venta no tiene items detallados para resolver.");
-      return;
-    }
-    const dispatchOverflow = resolveItems.find((it) => {
-      const action = resolveActions[String(it.saleItemId)];
-      return action === "DISPATCH" && Number(it.stockTotal || 0) < Number(it.quantity || 0);
-    });
-    if (dispatchOverflow) {
-      setResolveError(`Stock insuficiente para ${dispatchOverflow.productCode}. Cambia su accion a Producir.`);
       return;
     }
     setResolveSubmitting(true);
@@ -4058,21 +4070,19 @@ function OnlineSales() {
                             )}
                           </td>
                           <td>
+                            {(sale.items || []).length > 0 && (
+                              <button type="button" className="ol-btn sm" style={{ float: "right", marginLeft: 8 }}
+                                onClick={() => openResolveMixedModal(sale)} disabled={resolveLoading}
+                                title="Elegir por producto si sale de bodega o se manda a producción">
+                                Revisar
+                              </button>
+                            )}
                             {saleIsPartial(sale) ? (
                               <div>
                                 <Badge color="warning">Mixto</Badge>
                                 <div className="text-muted" style={{ fontSize: 11, marginBottom: 4 }}>
                                   Algunos items en stock, otros a OP
                                 </div>
-                                <Button
-                                  color="warning"
-                                  size="sm"
-                                  outline
-                                  onClick={(e) => { e.stopPropagation(); openResolveMixedModal(sale); }}
-                                  disabled={resolveLoading}
-                                >
-                                  Resolver
-                                </Button>
                               </div>
                             ) : saleHasBodegaStock(sale) ? (
                               <div>
@@ -5094,48 +5104,41 @@ function OnlineSales() {
       {/* ═══ MODAL RESOLVER VENTA MIXTA ═══ */}
       <Modal isOpen={!!resolveSale} toggle={closeResolveMixedModal} size="lg">
         <ModalHeader toggle={closeResolveMixedModal}>
-          Resolver venta {resolveSale ? `#${resolveSale.saleNumber}` : ""}
+          Revisar venta {resolveSale ? `#${resolveSale.saleNumber}` : ""}
+          {resolveSale?.customerName ? ` · ${resolveSale.customerName}` : ""}
         </ModalHeader>
         <ModalBody>
           {resolveLoading ? (
             <div className="text-center py-3">
-              <Spinner size="sm" /> <span className="ml-2">Cargando detalle de items...</span>
+              <Spinner size="sm" /> <span className="ml-2">Cargando productos...</span>
             </div>
           ) : (
             <>
-              <Alert color="info" className="mb-3" style={{ fontSize: 12 }}>
-                Se mantiene el <strong>mismo numero de venta y cliente</strong>. Por item,&nbsp;<strong>Producir</strong> forma
-                lineas solo en una OP (el resto de la venta no se mueve).
-                Las lineas en <strong>Despachar</strong> quedan en esta venta; “Listo para despacho” requiere <strong>cerrar todas</strong> las lineas:
-                stock PT/Devoluciones donde corresponda y recepciones completas en PT para lo producido.
-              </Alert>
+              <div className="text-muted mb-3" style={{ fontSize: 12 }}>
+                Elija por cada producto si <strong>sale de bodega</strong> o se <strong>manda a producción</strong>.
+                Si todo sale de bodega, la venta queda lista para despacho.
+              </div>
 
               {resolveError && <Alert color="danger" className="mb-3">{resolveError}</Alert>}
 
               {resolveItems.length === 0 ? (
-                <Alert color="warning">La venta no tiene items detallados para resolver.</Alert>
+                <Alert color="warning">La venta no tiene productos detallados.</Alert>
               ) : (
-                <Table size="sm" bordered responsive>
+                <Table size="sm" bordered responsive style={{ fontSize: 12 }}>
                   <thead className="thead-light">
                     <tr>
                       <th>Producto</th>
                       <th className="text-right">Pide</th>
                       <th className="text-right">Devoluciones</th>
                       <th className="text-right">Bodega PT</th>
-                      <th className="text-right">Total</th>
-                      <th>Cuero (si OP)</th>
-                      <th>Accion</th>
+                      <th style={{ width: 230 }}>¿De dónde sale?</th>
                     </tr>
                   </thead>
                   <tbody>
                     {resolveItems.map((it, idx) => {
-                      const key = it.saleItemId != null ? String(it.saleItemId) : `idx-${idx}`;
-                      const action = resolveActions[key] || "PRODUCE";
-                      const stockDev = Number(it.stockDevoluciones || 0);
-                      const stockPt = Number(it.stockBodegaPt || 0);
-                      const stockTotal = Number(it.stockTotal || (stockDev + stockPt));
-                      const needed = Number(it.quantity || 0);
-                      const dispatchOk = stockTotal >= needed;
+                      const key = resolveKey(it, idx);
+                      const action = resolveActionOf(it, idx);
+                      const missing = action === "DISPATCH" ? resolveMissing(it) : 0;
                       return (
                         <tr key={key}>
                           <td>
@@ -5143,45 +5146,18 @@ function OnlineSales() {
                             {it.colorName && <span className="text-muted"> · {it.colorName}</span>}
                             {it.size && <span className="text-muted"> · Talla {it.size}</span>}
                           </td>
-                          <td className="text-right"><strong>{needed}</strong></td>
-                          <td className="text-right">
-                            {stockDev > 0 ? <Badge color="success">{stockDev}</Badge> : <span className="text-muted">0</span>}
-                          </td>
-                          <td className="text-right">
-                            {stockPt > 0 ? <Badge color="info">{stockPt}</Badge> : <span className="text-muted">0</span>}
-                          </td>
-                          <td className="text-right">
-                            <strong style={{ color: dispatchOk ? "#28a745" : "#dc3545" }}>{stockTotal}</strong>
-                          </td>
-                          <td style={{ fontSize: 10, maxWidth: 220 }}>
-                            {action === "PRODUCE" && Array.isArray(it.leatherExplanation) && it.leatherExplanation.length > 0 ? (
-                              <ul className="pl-3 mb-0 text-muted">
-                                {it.leatherExplanation.map((ln, li) => (
-                                  <li key={li}>{ln}</li>
-                                ))}
-                              </ul>
-                            ) : action === "PRODUCE" && it.leatherStatus && it.leatherStatus !== "N/A" ? (
-                              <span className="text-muted">
-                                {it.leatherStatus === "TALLER" && "Cuero en taller suficiente"}
-                                {it.leatherStatus === "KIOSKO" && "Cubrible desde kiosko al procesar"}
-                                {it.leatherStatus === "BLOQUEADO" && "Sin cuero suficiente"}
-                                {it.leatherStatus === "SIN_CONFIG" && "Sin mapeo producto/color → cuero"}
-                              </span>
-                            ) : (
-                              <span className="text-muted">—</span>
-                            )}
-                          </td>
+                          <td className="text-right"><strong>{Number(it.quantity || 0)}</strong></td>
+                          <td className="text-right">{Number(it.stockDevoluciones || 0)}</td>
+                          <td className="text-right">{Number(it.stockBodegaPt || 0)}</td>
                           <td>
                             <div style={{ display: "flex", gap: 6 }}>
                               <Button
                                 color={action === "DISPATCH" ? "success" : "secondary"}
                                 outline={action !== "DISPATCH"}
                                 size="sm"
-                                disabled={!dispatchOk}
-                                title={dispatchOk ? "Despachar desde inventario" : "Sin stock suficiente"}
                                 onClick={() => setResolveAction(key, "DISPATCH")}
                               >
-                                Despachar
+                                Bodega
                               </Button>
                               <Button
                                 color={action === "PRODUCE" ? "primary" : "secondary"}
@@ -5189,9 +5165,26 @@ function OnlineSales() {
                                 size="sm"
                                 onClick={() => setResolveAction(key, "PRODUCE")}
                               >
-                                Producir
+                                Producción
                               </Button>
                             </div>
+                            {missing > 0 && (
+                              <div style={{ color: "#e65100", marginTop: 4 }}>
+                                El sistema no tiene {missing}. ¿En qué bodega está?
+                                <Input
+                                  type="select"
+                                  bsSize="sm"
+                                  value={resolveWarehouseOf(it)}
+                                  onChange={(e) => {
+                                    const value = e.target.value;
+                                    setResolveWarehouses((prev) => ({ ...prev, [resolvePiece(it)]: value }));
+                                  }}
+                                >
+                                  <option value="BODEGA_PT">Bodega PT</option>
+                                  <option value="DEVOLUCIONES">Devoluciones</option>
+                                </Input>
+                              </div>
+                            )}
                           </td>
                         </tr>
                       );
@@ -5200,10 +5193,17 @@ function OnlineSales() {
                 </Table>
               )}
 
+              {resolveItems.some((it, idx) => resolveActionOf(it, idx) === "DISPATCH" && resolveMissing(it) > 0) && (
+                <Alert color="warning" style={{ fontSize: 12 }}>
+                  Confirme que la pieza está físicamente en bodega. Se registrará un <strong>ajuste de entrada</strong> en
+                  el kardex por lo que falta, y después la salida de esta venta.
+                </Alert>
+              )}
+
               {resolveItems.length > 0 && (
                 <div className="text-muted" style={{ fontSize: 11 }}>
-                  Resumen: {resolveItems.filter((it) => (resolveActions[String(it.saleItemId)] || "PRODUCE") === "DISPATCH").length} para despacho ·
-                  {" "}{resolveItems.filter((it) => (resolveActions[String(it.saleItemId)] || "PRODUCE") === "PRODUCE").length} a OP
+                  Resumen: {resolveItems.filter((it, idx) => resolveActionOf(it, idx) === "DISPATCH").length} de bodega ·
+                  {" "}{resolveItems.filter((it, idx) => resolveActionOf(it, idx) === "PRODUCE").length} a producción
                 </div>
               )}
             </>
@@ -5218,7 +5218,7 @@ function OnlineSales() {
             onClick={submitResolveMixed}
             disabled={resolveSubmitting || resolveLoading || resolveItems.length === 0}
           >
-            {resolveSubmitting ? (<><Spinner size="sm" /> Ejecutando...</>) : "Ejecutar"}
+            {resolveSubmitting ? (<><Spinner size="sm" /> Guardando...</>) : "Confirmar"}
           </Button>
         </ModalFooter>
       </Modal>
