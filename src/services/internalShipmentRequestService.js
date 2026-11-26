@@ -76,10 +76,12 @@ export const generateOpiForInternalShipment = async (shipmentId) => {
   return parseJson(response, "No se pudo generar la OPI.");
 };
 
-export const approveInternalShipmentRequest = async (id) => {
+/** `lines`: bodega elegida por producto/color/talla; sin ellas sale de Devoluciones. */
+export const approveInternalShipmentRequest = async (id, lines) => {
   const response = await fetch(`${API_URL}/internal-shipment-requests/${id}/approve`, {
     method: "POST",
     headers: headers(),
+    ...(lines?.length ? { body: JSON.stringify({ lines }) } : {}),
   });
   return parseJson(response, "No se pudo aprobar la solicitud.");
 };
