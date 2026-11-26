@@ -59,6 +59,14 @@ import { isLuisFelipeVendorFlow } from "utils/luisFelipeVendorHelper";
 import { extractDestinationFromShipmentNotes } from "utils/opcShipmentHelper";
 import { extractShipmentUserObservation } from "utils/shipmentNotesObservationHelper";
 import {
+  SHIPMENT_LINES_PER_PAGE_DEFAULT,
+  SHIPMENT_LINES_PER_PAGE_OPTIONS,
+  SHIPMENT_LINES_PER_PAGE_STORAGE_KEY,
+  chunkShipmentLinesForPrint,
+  resolveLinesPerPageSetting,
+  shipmentRowsFitOnePage,
+} from "utils/shipmentPrintPaging";
+import {
   PRINT_FONT_FAMILY,
   PRINT_PAPER_HEIGHT_MM,
   PRINT_PAPER_WIDTH_MM,
@@ -244,9 +252,6 @@ const hydrateShipmentsFromApi = async (printable) => {
 const PROCESSED_SHIPMENT_STATUSES = new Set(["SENT", "DELIVERED", "COMPLETED", "RECEIVED", "CANCELLED"]);
 /** Ocultar solo entregados/cancelados; SENT sigue visible para reimprimir. */
 const HIDDEN_FROM_PREPARE_LIST_STATUSES = new Set(["DELIVERED", "COMPLETED", "RECEIVED", "CANCELLED"]);
-const MAX_PRODUCT_ROWS_PER_SHIPMENT = 10;
-/** OPV cliente Entre Cueros: más líneas por hoja sin partir en bloques de 10. */
-const MAX_ENTRECUEROS_ROWS_PER_SHIPMENT = 20;
 
 const normalizeShipmentStatus = (status) => String(status || "").trim().toUpperCase();
 const isShipmentAlreadyProcessed = (status) => PROCESSED_SHIPMENT_STATUSES.has(normalizeShipmentStatus(status));
@@ -274,14 +279,19 @@ const syntheticShipmentOrderId = (id) => {
   const m = String(id || "").match(/^(?:opv|opi)-(\d+)$/i);
   return m ? m[1] : null;
 };
-const chunkArray = (items, chunkSize) => {
-  const source = Array.isArray(items) ? items : [];
-  if (source.length === 0) return [[]];
-  const chunks = [];
-  for (let idx = 0; idx < source.length; idx += chunkSize) {
-    chunks.push(source.slice(idx, idx + chunkSize));
+const readStoredLinesPerPage = () => {
+  try {
+    const raw = window.localStorage.getItem(SHIPMENT_LINES_PER_PAGE_STORAGE_KEY);
+    if (!raw) return { mode: SHIPMENT_LINES_PER_PAGE_DEFAULT, custom: "" };
+    const parsed = JSON.parse(raw);
+    const known = SHIPMENT_LINES_PER_PAGE_OPTIONS.some((o) => o.value === parsed?.mode);
+    return {
+      mode: known ? parsed.mode : SHIPMENT_LINES_PER_PAGE_DEFAULT,
+      custom: String(parsed?.custom || ""),
+    };
+  } catch (_e) {
+    return { mode: SHIPMENT_LINES_PER_PAGE_DEFAULT, custom: "" };
   }
-  return chunks;
 };
 
 /** Solo auto-selecciona al imprimir si hay un único envío (evita imprimir todos los parciales a la vez). */
@@ -719,6 +729,7 @@ function PrepareShipments() {
   const [shipments, setShipments] = useState([]);
   const [selectedRows, setSelectedRows] = useState({});
   const [copiesByShipment, setCopiesByShipment] = useState({});
+  const [linesPerPage, setLinesPerPage] = useState(readStoredLinesPerPage);
   const [search, setSearch] = useState("");
   const [loadingDistributions, setLoadingDistributions] = useState(false);
   const [loadingShipments, setLoadingShipments] = useState(false);
@@ -2444,6 +2455,19 @@ function PrepareShipments() {
 
   const resolveShipmentPrintDate = () => formatDateGt(new Date());
 
+  const updateLinesPerPage = (patch) => {
+    setLinesPerPage((prev) => {
+      const next = { ...prev, ...patch };
+      try {
+        window.localStorage.setItem(SHIPMENT_LINES_PER_PAGE_STORAGE_KEY, JSON.stringify(next));
+      } catch (_e) {
+        // sin almacenamiento: la opción vale solo en esta pantalla
+      }
+      return next;
+    });
+  };
+  const linesPerPageApplies = !(luisFelipePrintFlow || opiInternalFlow || standaloneInternalFlow);
+
   const resolveCreatedByName = (shipment) => {
     if (shipment?.partialReleaseCreatedByName) return shipment.partialReleaseCreatedByName;
     if (luisFelipePrintFlow && selectedProductionOrder?.sellerName) {
@@ -2512,13 +2536,21 @@ function PrepareShipments() {
         }
         return;
       }
-      const maxRowsPerPage = isEntreCuerosCustomerOpv(selectedProductionOrder)
-        ? MAX_ENTRECUEROS_ROWS_PER_SHIPMENT
-        : MAX_PRODUCT_ROWS_PER_SHIPMENT;
-      const productChunks = chunkArray(printProducts, maxRowsPerPage);
+      const linesSetting = resolveLinesPerPageSetting(linesPerPage.mode, linesPerPage.custom);
+      const productChunks = chunkShipmentLinesForPrint(printProducts, linesSetting);
       const packingItems = resolveShipmentPackingItems(shipment);
       const hasPacking = packingItems.length > 0;
-      const shouldSeparatePackingPart = productChunks.length > 1 && hasPacking;
+      const packingAsRows = packingItems.map((item) => {
+        const material = packingMaterials.find((m) => Number(m.id) === Number(item.materialId));
+        return { productCode: material?.sku, productName: material?.name || "Empaque" };
+      });
+      // En «Llenar la hoja», si los productos caben pero el empaque ya no, el empaque va en su propia hoja.
+      const packingOverflows =
+        linesSetting === "auto"
+        && productChunks.length === 1
+        && !shipmentRowsFitOnePage([...productChunks[0], ...packingAsRows]);
+      const shouldSeparatePackingPart =
+        hasPacking && linesSetting !== "all" && (productChunks.length > 1 || packingOverflows);
       const totalParts = shouldSeparatePackingPart ? productChunks.length + 1 : productChunks.length;
 
       for (let partIdx = 0; partIdx < totalParts; partIdx += 1) {
@@ -3812,6 +3844,35 @@ function PrepareShipments() {
                     <i className="nc-icon nc-shop mr-1" />
                     Envío directo a kiosko
                   </Button>
+                  {linesPerPageApplies && (
+                    <span className="d-inline-flex align-items-center mt-2 mr-2" title="Cuántas líneas de producto lleva cada hoja impresa">
+                      <small className="text-muted mr-1">Líneas por hoja</small>
+                      <Input
+                        type="select"
+                        bsSize="sm"
+                        value={linesPerPage.mode}
+                        onChange={(e) => updateLinesPerPage({ mode: e.target.value })}
+                        style={{ width: "auto" }}
+                      >
+                        {SHIPMENT_LINES_PER_PAGE_OPTIONS.map((opt) => (
+                          <option key={opt.value} value={opt.value}>{opt.label}</option>
+                        ))}
+                      </Input>
+                      {linesPerPage.mode === "custom" && (
+                        <Input
+                          type="number"
+                          bsSize="sm"
+                          min={1}
+                          max={200}
+                          placeholder="Ej. 35"
+                          value={linesPerPage.custom}
+                          onChange={(e) => updateLinesPerPage({ custom: e.target.value })}
+                          className="ml-1"
+                          style={{ width: 80 }}
+                        />
+                      )}
+                    </span>
+                  )}
                   <Button
                     color="primary"
                     size="sm"
