@@ -1,0 +1,55 @@
+/* Contabilidad › Estado de cuenta de proveedores. Usa las variables de SupplierPayments.css (.spy). */
+
+.sst-filters { display: flex; flex-wrap: wrap; gap: 12px 16px; align-items: flex-end; padding: 16px 20px; border-bottom: 1px solid var(--spy-line); }
+.sst-field { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.sst-field label { font-size: 0.7rem; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: var(--spy-muted); margin: 0; }
+.sst-field input, .sst-field select {
+  min-height: 42px; border: 1px solid #cfcfca; border-radius: 8px; padding: 0 10px; background: #fff; color: var(--spy-ink);
+}
+.sst-field input.sst-code { width: 120px; font-family: ui-monospace, Consolas, monospace; font-weight: 600; text-transform: uppercase; }
+.sst-check { display: flex; align-items: center; gap: 8px; min-height: 42px; font-weight: 500; cursor: pointer; margin: 0; }
+.sst-check input { width: 18px; height: 18px; accent-color: var(--spy-brand); }
+.sst-spacer { flex: 1; }
+
+.sst-aging { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1px; background: var(--spy-line); border-bottom: 1px solid var(--spy-line); }
+.sst-aging button { background: #fff; border: 0; padding: 12px 18px; text-align: left; cursor: pointer; color: var(--spy-ink); }
+.sst-aging button.on { background: #e6f2f2; box-shadow: inset 0 -3px 0 var(--spy-brand); }
+.sst-aging .k { font-size: 0.7rem; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: var(--spy-muted); display: flex; gap: 6px; align-items: center; }
+.sst-aging .v { font-size: 1.05rem; font-weight: 700; margin-top: 4px; font-variant-numeric: tabular-nums; }
+.sst-aging .n { font-size: 0.78rem; color: var(--spy-muted); }
+
+.sst-bar { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; justify-content: space-between; padding: 10px 20px; border-bottom: 1px solid var(--spy-line); }
+.sst-search { min-height: 38px; min-width: 260px; border: 1px solid #cfcfca; border-radius: 8px; padding: 0 12px; }
+
+.sst-sheet-wrap { padding: 20px; overflow-x: auto; }
+.sst-sheet { background: #fffefa; border: 1px solid var(--spy-line); border-radius: 4px; padding: 22px 26px 26px; min-width: 880px; }
+.sst-sheet-head { display: grid; grid-template-columns: 1fr auto 1fr; gap: 12px; padding-bottom: 8px; }
+.sst-sheet-head .c { text-align: center; }
+.sst-sheet-head .r { text-align: right; }
+.sst-co { font-weight: 700; letter-spacing: 0.04em; }
+.sst-title { font-size: 1.02rem; font-weight: 600; margin-top: 2px; }
+.sst-meta { font-size: 0.78rem; color: var(--spy-muted); line-height: 1.6; }
+.sst-range { margin: 4px 0 12px; }
+
+table.sst-rep { width: 100%; border-collapse: collapse; font-size: 0.86rem; }
+.sst-rep th { font-size: 0.68rem; font-weight: 600; letter-spacing: 0.07em; text-transform: uppercase; color: var(--spy-muted);
+  text-align: left; padding: 6px 8px; border-top: 1.5px solid var(--spy-ink); border-bottom: 1.5px solid var(--spy-ink); white-space: nowrap; }
+.sst-rep td { padding: 4px 8px; vertical-align: top; }
+.sst-num { text-align: right !important; font-variant-numeric: tabular-nums; white-space: nowrap; font-family: ui-monospace, Consolas, monospace; }
+.sst-rep th.sst-num { font-family: inherit; }
+.sst-rep tbody.sst-group > tr:first-child td { padding-top: 14px; }
+.sst-rep tbody.sst-group.active { background: #eef7f7; box-shadow: inset 3px 0 0 var(--spy-brand); }
+.sst-code { font-family: ui-monospace, Consolas, monospace; font-weight: 700; color: var(--spy-brand); margin-right: 10px; }
+.sst-name { font-weight: 700; }
+.sst-payee { display: block; font-size: 0.78rem; color: var(--spy-muted); margin-top: 2px; }
+.sst-phone { color: var(--spy-muted); font-size: 0.8rem; text-align: right; white-space: nowrap; }
+.sst-sub { display: block; font-size: 0.74rem; color: var(--spy-muted); font-family: inherit; }
+.sst-rep tr.sst-subtotal td { border-top: 1px dashed var(--spy-muted); font-weight: 700; padding-top: 4px; padding-bottom: 8px; }
+.sst-rep tr.sst-total td { border-top: 1.5px solid var(--spy-ink); font-weight: 700; padding-top: 8px; }
+.sst-favor { color: #1f7a3d; }
+.sst-pill { display: inline-block; font-size: 0.7rem; font-weight: 600; padding: 1px 8px; border-radius: 10px; margin-left: 6px; white-space: nowrap; font-family: Montserrat, sans-serif; }
+.sst-pill.late { color: #b42318; background: #fdecea; }
+.sst-pill.ok { color: #1f7a3d; background: #e5f4ea; }
+.sst-pill.old { color: #8a4b05; background: #fbf0dc; }
+.sst-help { padding: 14px 20px; border-bottom: 1px solid var(--spy-line); background: #faf9f6; display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 8px 20px; font-size: 0.84rem; }
+.sst-help span { display: flex; gap: 8px; align-items: center; }

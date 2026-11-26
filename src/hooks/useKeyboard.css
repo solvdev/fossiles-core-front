@@ -1,0 +1,9 @@
+/* Etiqueta de tecla para los atajos (Proveedores, Estado de cuenta, Recepciones). */
+.kbd-hint {
+  display: inline-block; min-width: 1.6em; padding: 1px 6px; border: 1px solid #cfcfca; border-bottom-width: 2px;
+  border-radius: 5px; background: #fff; color: #403d39; font: 600 0.72rem/1.4 ui-monospace, Consolas, monospace;
+  text-align: center; vertical-align: middle;
+}
+.kbd-bar { display: flex; flex-wrap: wrap; gap: 6px 16px; align-items: center; color: #66615b; font-size: 0.8rem; }
+.kbd-bar span { display: inline-flex; gap: 6px; align-items: center; }
+.kbd-row-active > td { background: #e6f2f2 !important; box-shadow: inset 3px 0 0 #0f7478; }
