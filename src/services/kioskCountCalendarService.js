@@ -69,6 +69,9 @@ export const getLiquidationWeek = (week, supervisorUserId) => {
   return apiRequest(`/liquidations${suffix}`);
 };
 
+/** Todas las liquidaciones del año (para el Excel «Liquidaciones por semana»). */
+export const getLiquidationYear = (year) => apiRequest(`/liquidations/year?year=${encodeURIComponent(year)}`);
+
 /** Llena los días libres de la semana con los conteos que aún no tienen fecha de liquidación. */
 export const generateLiquidationWeek = ({ weekStart, supervisorUserIds }) =>
   apiRequest("/liquidations/generate", { method: "POST", body: { weekStart, supervisorUserIds } });

@@ -1,7 +1,7 @@
 import * as XLSX from "xlsx-js-style";
+import { visitState } from "utils/kioskLiquidationState";
 
 const DAY_NAMES = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"];
-const STATUS_LABEL = { PLANNED: "Pendiente", DONE: "Hecha", CANCELLED: "Cancelada" };
 
 const REGION_FILL = {
   METROPOLITANA: "DBEAFE",
@@ -73,7 +73,7 @@ export function downloadKioskCountCalendarExcel({ periodLabel, fileSuffix, visit
 
   const routeRows = sorted.map((v) => {
     const fill = { fill: { fgColor: { rgb: REGION_FILL[v.region] || "F1F5F9" } } };
-    const done = v.status === "DONE" || Boolean(v.countedOn);
+    const state = visitState(v);
     return [
       text(dmy(v.visitDate), { alignment: { horizontal: "center", vertical: "center" } }),
       text(DAY_NAMES[parseYmd(v.visitDate).getDay()]),
@@ -83,7 +83,7 @@ export function downloadKioskCountCalendarExcel({ periodLabel, fileSuffix, visit
       text(v.supervisorName),
       text(v.lastCountDate ? dmy(v.lastCountDate) : "", { alignment: { horizontal: "center", vertical: "center" } }),
       text(v.gapDays == null ? "" : v.gapDays, { alignment: { horizontal: "center", vertical: "center" } }),
-      text(done ? (v.countedOn ? `Contado ${dmy(v.countedOn)}` : "Hecha") : STATUS_LABEL[v.status] || v.status),
+      text(v.countedOn ? `${state.label} (al ${dmy(v.countedOn)})` : state.label),
       text(v.note || ""),
     ];
   });
