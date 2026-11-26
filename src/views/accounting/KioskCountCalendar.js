@@ -20,11 +20,11 @@ import {
   generateCountWeek,
   getCountCalendar,
   getLiquidationYear,
+  getVisitSheet,
   removeCountBlockedDay,
   updateCountVisit,
 } from "services/kioskCountCalendarService";
 import { getTodayYmdGuatemala } from "utils/dateTimeHelper";
-import { downloadKioskCountCalendarExcel } from "utils/kioskCountCalendarExport";
 import { downloadLiquidationExcel } from "utils/kioskLiquidationExport";
 import { countLink, visitState } from "utils/kioskLiquidationState";
 import {
@@ -279,24 +279,26 @@ export default function KioskCountCalendar() {
     }
   };
 
-  const exportExcel = (scope) => {
-    const supervisor = supervisors.find((s) => s.userId === supervisorId);
+  /** Calendario de visitas con el formato del Excel de contabilidad: un bloque por semana. */
+  const exportExcel = async (scope) => {
     const base =
       scope === "week"
         ? weekVisits
         : visits.filter((v) => key(v.visitDate).slice(0, 7) === month);
     // Solo el calendario aprobado se entrega: un borrador todavía puede cambiar.
-    const list = base.filter((v) => v.status !== "DRAFT");
-    if (!list.length) {
+    const wanted = new Set(base.filter((v) => v.status !== "DRAFT").map((v) => v.id));
+    if (!wanted.size) {
       showError(base.length ? "Es un borrador: apruébalo para poder descargarlo." : "No hay visitas para descargar.");
       return;
     }
     try {
-      downloadKioskCountCalendarExcel({
-        periodLabel: scope === "week" ? `Semana del ${weekRange(weekStart)} ${weekStart.slice(0, 4)}` : monthTitle(month),
+      const result = await getVisitSheet(month);
+      downloadLiquidationExcel({
+        year: result.year,
+        groups: result.groups.map((g) => ({ ...g, rows: g.rows.filter((r) => wanted.has(r.id)) })),
+        nonWorkingDays: result.nonWorkingDays,
+        fileName: "calendario-conteos",
         fileSuffix: scope === "week" ? weekStart : month,
-        visits: list,
-        supervisorLabel: supervisor?.name,
       });
     } catch (error) {
       showError(error.message || "No se pudo generar el Excel.");
@@ -529,11 +531,11 @@ export default function KioskCountCalendar() {
                 Descargar Excel
               </DropdownToggle>
               <DropdownMenu end>
-                <DropdownItem onClick={exportLiquidations}>Liquidaciones por semana {month.slice(0, 4)}</DropdownItem>
-                <DropdownItem divider />
-                <DropdownItem header>Ruta de visitas</DropdownItem>
+                <DropdownItem header>Calendario de visitas</DropdownItem>
                 <DropdownItem onClick={() => exportExcel("week")}>Esta semana</DropdownItem>
                 <DropdownItem onClick={() => exportExcel("month")}>Todo {monthTitle(month)}</DropdownItem>
+                <DropdownItem divider />
+                <DropdownItem onClick={exportLiquidations}>Liquidaciones de todo {month.slice(0, 4)}</DropdownItem>
               </DropdownMenu>
             </UncontrolledDropdown>
             {canGenerate && (

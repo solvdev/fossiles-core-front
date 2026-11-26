@@ -167,7 +167,8 @@ function buildSheet({ year, supervisorName, rows, nonWorkingDays }) {
         merge(r, 1, r, COLUMNS - 1);
       } else {
         const { row } = item;
-        put(r, 1, textCell(row.locationName.toUpperCase(), at(1)));
+        const revisit = row.source === "REVISIT" ? " (REVISITA)" : "";
+        put(r, 1, textCell(`${row.locationName.toUpperCase()}${revisit}`, at(1)));
         put(r, 2, dateCell(row.periodFrom, at(2)));
         put(r, 3, dateCell(row.periodTo, at(3)));
         put(r, 4, textCell(accountantText(row), { ...at(4), bold: true }));
@@ -175,7 +176,7 @@ function buildSheet({ year, supervisorName, rows, nonWorkingDays }) {
         put(r, 6, row.liquidationDays > 1 ? textCell(severalDays(row), { ...at(6), align: "right" }) : dateCell(row.liquidationDate, at(6)));
         put(r, 7, textCell(greenText(row), { ...at(7), bold: true, align: "center" }));
       }
-      heights[r] = 18;
+      heights[r] = 20;
       r += 1;
     });
 
@@ -210,9 +211,9 @@ export function buildLiquidationWorkbook({ year, groups, nonWorkingDays }) {
 }
 
 /** Descarga el libro; con {@code fileSuffix} se nombra el archivo (año o semana). */
-export function downloadLiquidationExcel({ year, groups, nonWorkingDays, fileSuffix }) {
+export function downloadLiquidationExcel({ year, groups, nonWorkingDays, fileSuffix, fileName = "liquidaciones-kioscos" }) {
   if (!groups.some((g) => g.rows.length)) {
     throw new Error("No hay liquidaciones para descargar.");
   }
-  XLSX.writeFile(buildLiquidationWorkbook({ year, groups, nonWorkingDays }), `liquidaciones-kioscos-${fileSuffix || year}.xlsx`);
+  XLSX.writeFile(buildLiquidationWorkbook({ year, groups, nonWorkingDays }), `${fileName}-${fileSuffix || year}.xlsx`);
 }

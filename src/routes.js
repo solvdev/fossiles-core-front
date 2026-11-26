@@ -95,6 +95,7 @@ import MaterialConsumptionHistory from "views/purchases/MaterialConsumptionHisto
 // Distribución
 import PrepareShipments from "views/distribution/PrepareShipments.js";
 import ShipmentsSearch from "views/distribution/ShipmentsSearch.js";
+import DirectSaleShipments from "views/distribution/DirectSaleShipments.js";
 import KioskReplenishment from "views/distribution/KioskReplenishment.js";
 import AuthorizeShipments from "views/distribution/AuthorizeShipments.js";
 import ShipmentsInTransit from "views/distribution/ShipmentsInTransit.js";
@@ -1067,6 +1068,18 @@ const routes = [
         name: "Envíos",
         mini: "EN",
         component: <ShipmentsSearch />,
+        layout: "/admin",
+        module: "DISTRIBUCION",
+        permissions: {
+          view: "DISTRIBUCION.PREPARAR_ENVIOS.VER",
+        },
+      },
+      {
+        // Envío directo a clientes de Luis Felipe desde stock (sin OP): descarga bodega y carga CxC al enviar.
+        path: "/direct-sale-shipments",
+        name: "Envío directo LF",
+        mini: "ED",
+        component: <DirectSaleShipments />,
         layout: "/admin",
         module: "DISTRIBUCION",
         permissions: {
