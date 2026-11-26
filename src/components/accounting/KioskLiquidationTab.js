@@ -38,6 +38,9 @@ function DateCell({ value }) {
 }
 
 function GreenCell({ row }) {
+  if (row.countNotes?.trim()) {
+    return <span title="Notas de la revisión del conteo físico">{row.countNotes}</span>;
+  }
   if (row.areasToFix == null) return <span className="kcc-muted">{row.greenNote || "Sin revisar"}</span>;
   if (row.areasToFix === 0) return <span className="kcc-pill ok">Sin áreas por corregir</span>;
   return (
@@ -530,6 +533,12 @@ function LiquidationModal({ row, reviewers, canEdit, busy, onClose, onSave }) {
                   </dd>
                 </div>
               )}
+              {row.countNotes && (
+                <div>
+                  <dt>Áreas para corregir</dt>
+                  <dd>{row.countNotes}</dd>
+                </div>
+              )}
               {row.countObservations && (
                 <div>
                   <dt>Observaciones del conteo</dt>
@@ -568,7 +577,10 @@ function LiquidationModal({ row, reviewers, canEdit, busy, onClose, onSave }) {
         <label className="kcc-field">
           Facturas verdes: áreas por corregir
           <Input type="number" min="0" max="99" value={areas} disabled={!canEdit} onChange={(e) => setAreas(e.target.value)} placeholder="Vacío = sin revisar" />
-          <small>0 si no hay nada que corregir. {row.greenNote ? `En el Excel decía: «${row.greenNote}».` : ""}</small>
+          <small>
+            {row.countNotes?.trim() ? "Se muestran las notas del conteo físico; este número no las reemplaza. " : ""}
+            0 si no hay nada que corregir. {row.greenNote ? `En el Excel decía: «${row.greenNote}».` : ""}
+          </small>
         </label>
         <div className="kcc-two">
           <label className="kcc-field">
