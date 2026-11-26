@@ -88,7 +88,7 @@ export default function SupplierPayables() {
     const text = query.trim().toLowerCase();
     return (data?.rows || []).filter((r) => {
       if (filter && r.status !== filter) return false;
-      return !text || [r.supplierName, r.code].some((v) => String(v || "").toLowerCase().includes(text));
+      return !text || [r.supplierName, r.code, r.supplierCode, r.invoiceNumber].some((v) => String(v || "").toLowerCase().includes(text));
     });
   }, [data, filter, query]);
 
@@ -337,6 +337,9 @@ export default function SupplierPayables() {
                 <input ref={fileRef} type="file" accept=".xlsx" hidden onChange={handleFile} />
               </>
             )}
+            <Link to="/admin/accounting/supplier-statement" className="spy-btn" style={{ display: "inline-flex", alignItems: "center", textDecoration: "none" }}>
+              Estado de cuenta
+            </Link>
             <Link to="/admin/accounting/supplier-payments" className="spy-btn" style={{ display: "inline-flex", alignItems: "center", textDecoration: "none" }}>
               Ver pagos hechos
             </Link>
@@ -404,8 +407,9 @@ export default function SupplierPayables() {
                     <td>
                       <div className="spy-name">{r.code}</div>
                       <div className="spy-sub">{KIND_LABEL[r.kind]}{r.concept ? ` · ${r.concept}` : ""}</div>
+                      {r.kind === "ORDEN" && r.invoiceNumber && <div className="spy-sub">Factura {r.invoiceNumber}</div>}
                     </td>
-                    <td>{r.supplierName}</td>
+                    <td>{r.supplierCode && <span className="spy-sub" style={{ fontFamily: "ui-monospace, Consolas, monospace", fontWeight: 600, color: "var(--spy-brand)", marginRight: 6 }}>{r.supplierCode}</span>}{r.supplierName}</td>
                     <td className="spy-sub" style={{ fontSize: "0.88rem" }}>{fmtDate(r.receivedDate)}</td>
                     <td>{fmtDate(r.dueDate)}<div className="spy-sub">{dueText(r.daysToDue)}</div></td>
                     <td className="spy-num" style={{ fontWeight: 400 }}>{fmtMoney(r.total)}</td>

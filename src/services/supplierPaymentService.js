@@ -116,3 +116,14 @@ export const importPayablesTemplate = async (file, { apply = false } = {}) => {
   }
   return response.json();
 };
+
+// ------------------------------------------------------------------ Estado de cuenta de proveedores
+
+/** { from, to, cutoff, kind: ALL|ORDERS|DOCUMENTS|OPENING|RENTS, onlyBalance, includeNoCode } */
+export const getSupplierStatement = (params = {}) => {
+  const query = new URLSearchParams();
+  Object.entries(params).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && value !== "") query.append(key, String(value));
+  });
+  return request(`/statement?${query.toString()}`, {}, "No se pudo generar el estado de cuenta.");
+};

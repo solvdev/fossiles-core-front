@@ -28,6 +28,7 @@ import { formatDateGt, formatDateTimeGt, formatNowGt } from "utils/dateTimeHelpe
 import { groupPurchaseMaterials } from "utils/materialReceiptItems";
 import * as XLSX from "xlsx";
 import { escapeHtml } from "utils/productionOrderPrintHtml";
+import { enterMovesNext, Kbd } from "hooks/useKeyboard";
 
 function MaterialReceipts() {
   const [receipts, setReceipts] = useState([]);
@@ -43,6 +44,9 @@ function MaterialReceipts() {
     purchaseOrderId: "",
     receiptDate: new Date().toISOString().split("T")[0],
     observations: "",
+    invoiceSeries: "",
+    invoiceNumber: "",
+    invoiceDate: "",
     items: [], // Items con cantidades y precios recibidos
   });
   const [selectedOrder, setSelectedOrder] = useState(null);
@@ -276,6 +280,9 @@ function MaterialReceipts() {
         purchaseOrderId: receipt.purchaseOrderId.toString(),
         receiptDate: receipt.receiptDate || new Date().toISOString().split("T")[0],
         observations: receipt.observations || "",
+        invoiceSeries: receipt.invoiceSeries || "",
+        invoiceNumber: receipt.invoiceNumber || "",
+        invoiceDate: receipt.invoiceDate || "",
         items: allItems,
       });
       
@@ -579,6 +586,9 @@ function MaterialReceipts() {
         purchaseOrderId: parseInt(formData.purchaseOrderId),
         receiptDate: formData.receiptDate, // Fecha general (fallback)
         observations: observations,
+        invoiceSeries: formData.invoiceSeries.trim(),
+        invoiceNumber: formData.invoiceNumber.trim(),
+        invoiceDate: formData.invoiceDate || null,
         items: formData.items
           .filter((item) => isEditing || item.isReceived === true)
           .map((item) => {
@@ -611,6 +621,9 @@ function MaterialReceipts() {
         purchaseOrderId: "",
         receiptDate: new Date().toISOString().split("T")[0],
         observations: "",
+        invoiceSeries: "",
+        invoiceNumber: "",
+        invoiceDate: "",
         items: [],
       });
       setSelectedOrder(null);
@@ -666,6 +679,7 @@ function MaterialReceipts() {
                 <tr>
                   <th>ID</th>
                   <th>Orden de Compra</th>
+                  <th>Factura</th>
                   <th>Proveedor</th>
                   <th>Fecha Orden</th>
                   <th>Fecha Recepción</th>
@@ -683,6 +697,19 @@ function MaterialReceipts() {
                       <td>{receipt.id}</td>
                       <td>
                         <strong>{receipt.purchaseOrderCode}</strong>
+                      </td>
+                      <td>
+                        {receipt.invoiceNumber ? (
+                          <>
+                            {receipt.invoiceSeries ? `${receipt.invoiceSeries}-` : ""}
+                            {receipt.invoiceNumber}
+                            {receipt.invoiceDate && (
+                              <div className="small text-muted">{formatDateGt(receipt.invoiceDate)}</div>
+                            )}
+                          </>
+                        ) : (
+                          <span className="text-muted">—</span>
+                        )}
                       </td>
                       <td>
                         {receipt.items && receipt.items.length > 0 ? (() => {
@@ -778,6 +805,9 @@ function MaterialReceipts() {
           purchaseOrderId: "",
           receiptDate: new Date().toISOString().split("T")[0],
           observations: "",
+          invoiceSeries: "",
+          invoiceNumber: "",
+          invoiceDate: "",
           items: [],
         });
       }} size="xl">
@@ -791,12 +821,15 @@ function MaterialReceipts() {
             purchaseOrderId: "",
             receiptDate: new Date().toISOString().split("T")[0],
             observations: "",
+            invoiceSeries: "",
+            invoiceNumber: "",
+            invoiceDate: "",
             items: [],
           });
         }}>
           {isEditing ? "Editar Recepción de Materiales" : "Nueva Recepción de Materiales"}
         </ModalHeader>
-        <form onSubmit={handleSubmit}>
+        <form onSubmit={handleSubmit} onKeyDown={enterMovesNext}>
           <ModalBody>
             {error && <Alert color="danger">{error}</Alert>}
 
@@ -1307,6 +1340,53 @@ function MaterialReceipts() {
               </div>
             )}
 
+            <Row>
+              <Col md="3">
+                <FormGroup>
+                  <Label for="rc-inv-series">Serie de la factura</Label>
+                  <Input
+                    id="rc-inv-series"
+                    type="text"
+                    maxLength={20}
+                    value={formData.invoiceSeries}
+                    onChange={(e) => setFormData({ ...formData, invoiceSeries: e.target.value })}
+                    disabled={loading}
+                    autoComplete="off"
+                  />
+                </FormGroup>
+              </Col>
+              <Col md="5">
+                <FormGroup>
+                  <Label for="rc-inv-number">Número de factura del proveedor</Label>
+                  <Input
+                    id="rc-inv-number"
+                    type="text"
+                    maxLength={40}
+                    value={formData.invoiceNumber}
+                    onChange={(e) => setFormData({ ...formData, invoiceNumber: e.target.value })}
+                    disabled={loading}
+                    autoComplete="off"
+                  />
+                </FormGroup>
+              </Col>
+              <Col md="4">
+                <FormGroup>
+                  <Label for="rc-inv-date">Fecha de la factura</Label>
+                  <Input
+                    id="rc-inv-date"
+                    type="date"
+                    value={formData.invoiceDate}
+                    onChange={(e) => setFormData({ ...formData, invoiceDate: e.target.value })}
+                    disabled={loading || !formData.invoiceNumber.trim()}
+                  />
+                </FormGroup>
+              </Col>
+            </Row>
+            <small className="text-muted d-block mb-3" style={{ marginTop: -8 }}>
+              Con la factura, en cuentas por pagar el vencimiento se cuenta desde su fecha más los días de crédito del
+              proveedor. Si no se pone fecha, se usa la de recepción.
+            </small>
+
             <FormGroup>
               <Label>Fecha de Recepción</Label>
               <Input
@@ -1336,13 +1416,20 @@ function MaterialReceipts() {
               </small>
             </FormGroup>
           </ModalBody>
-          <ModalFooter>
-            <Button color="secondary" onClick={() => setShowForm(false)} disabled={loading}>
-              Cancelar
-            </Button>
-            <Button color="primary" type="submit" disabled={loading}>
-              {loading ? "Guardando..." : (isEditing ? "Actualizar Recepción" : "Registrar Recepción")}
-            </Button>
+          <ModalFooter className="d-flex justify-content-between">
+            <span className="kbd-bar">
+              <span><Kbd>Enter</Kbd> siguiente campo</span>
+              <span><Kbd>Shift</Kbd>+<Kbd>Enter</Kbd> anterior</span>
+              <span><Kbd>Ctrl</Kbd>+<Kbd>Enter</Kbd> guardar</span>
+            </span>
+            <span>
+              <Button color="secondary" onClick={() => setShowForm(false)} disabled={loading} className="mr-2">
+                Cancelar
+              </Button>
+              <Button color="primary" type="submit" disabled={loading}>
+                {loading ? "Guardando..." : (isEditing ? "Actualizar Recepción" : "Registrar Recepción")}
+              </Button>
+            </span>
           </ModalFooter>
         </form>
       </Modal>

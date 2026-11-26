@@ -123,6 +123,7 @@ import AccountingInvoiceDetail from "views/accounting/AccountingInvoiceDetail.js
 import KioskMovementsAccounting from "views/accounting/KioskMovementsAccounting.js";
 import KioskCountCalendar from "views/accounting/KioskCountCalendar.js";
 import SupplierPayables from "views/accounting/SupplierPayables.js";
+import SupplierStatement from "views/accounting/SupplierStatement.js";
 import SupplierPaymentsList from "views/accounting/SupplierPaymentsList.js";
 import PaymentSettings from "views/accounting/PaymentSettings.js";
 import KioskRents from "views/accounting/KioskRents.js";
@@ -1450,6 +1451,18 @@ const routes = [
         name: "Cuentas por pagar",
         mini: "CP",
         component: <SupplierPayables />,
+        layout: "/admin",
+        module: "CONTABILIDAD",
+        permissions: {
+          view: "CONTABILIDAD.PAGOS_PROVEEDORES.VER",
+          edit: "CONTABILIDAD.PAGOS_PROVEEDORES.PAGAR",
+        },
+      },
+      {
+        path: "/accounting/supplier-statement",
+        name: "Estado de cuenta proveedores",
+        mini: "EC",
+        component: <SupplierStatement />,
         layout: "/admin",
         module: "CONTABILIDAD",
         permissions: {

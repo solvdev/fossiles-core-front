@@ -50,6 +50,9 @@ function accountantText(row) {
 }
 
 function greenText(row) {
+  // Manda lo que contabilidad anotó al revisar el conteo físico.
+  const notes = String(row.countNotes || "").replace(/\s+/g, " ").trim();
+  if (notes) return notes.toUpperCase();
   if (row.areasToFix == null) return String(row.greenNote || "").toUpperCase();
   if (row.areasToFix === 0) return "NO TIENE AREAS PARA CORREGIR";
   const amount = NUMBER_WORDS[row.areasToFix] || String(row.areasToFix);
@@ -176,7 +179,9 @@ function buildSheet({ year, supervisorName, rows, nonWorkingDays }) {
         put(r, 6, row.liquidationDays > 1 ? textCell(severalDays(row), { ...at(6), align: "right" }) : dateCell(row.liquidationDate, at(6)));
         put(r, 7, textCell(greenText(row), { ...at(7), bold: true, align: "center" }));
       }
-      heights[r] = 20;
+      // Las notas largas del conteo ocupan varias líneas: la fila crece para que no se corten.
+      const lines = item.holiday ? 1 : Math.ceil(greenText(item.row).length / 32);
+      heights[r] = Math.max(20, 15 * lines + 4);
       r += 1;
     });
 
