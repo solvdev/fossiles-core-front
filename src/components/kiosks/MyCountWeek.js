@@ -19,7 +19,8 @@ const visitDay = (visit) => key(visit.actualDate || visit.visitDate);
 /**
  * «Tu calendario de la semana»: a qué kiosco le toca ir a la supervisora, qué día y por qué período, con la opción de
  * crear el conteo desde ahí y de cambiar la fecha en que llegó (dentro de la semana y con justificación). Cada
- * supervisora ve las suyas; administración puede ver las de cualquiera. Para los demás no aparece.
+ * supervisora ve las suyas; administración puede ver (y cambiar la fecha de) las de cualquiera. Para los demás no
+ * aparece.
  */
 export default function MyCountWeek({ onOpenCount }) {
   const [week, setWeek] = useState(null);
@@ -177,7 +178,7 @@ export default function MyCountWeek({ onOpenCount }) {
                       Crear conteo
                     </Button>
                   )}
-                  {!data.readOnly && (
+                  {data.canChangeDate && (
                     <button type="button" className="mcw-link" onClick={() => setChanging(visit)}>
                       Cambiar fecha
                     </button>
@@ -236,7 +237,7 @@ function ChangeDateModal({ visit, weekStart, busy, onClose, onSave }) {
       <ModalHeader toggle={onClose}>Cambiar fecha · {visit.locationName}</ModalHeader>
       <ModalBody>
         <label className="mcw-field">
-          Fecha en que llegaste o vas a llegar
+          Fecha real de la visita (cuando se llegó o se va a llegar)
           <Input type="date" value={date} min={monday} max={addDays(monday, 6)} onChange={(e) => setDate(e.target.value)} />
           <small>Solo un día de la misma semana ({weekRange(monday)}). Programada: {formatDmy(visit.visitDate)}.</small>
         </label>
