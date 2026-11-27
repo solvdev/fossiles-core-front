@@ -281,9 +281,11 @@ const GridRow = React.memo(function GridRow({
   // Solo se edita dentro de una revisión abierta (el servidor también lo exige).
   const canEdit = canEditSheet && !locked && Boolean(row.periodOpen);
   const tone = rowTone(row);
+  // La casilla de la fila es una celda más del teclado: columna -1.
+  const pickCls = canLock ? `${selC1 <= -1 && selC2 >= -1 ? " in-sel" : ""}${ac === -1 ? " is-active" : ""}` : "";
   return (
     <tr className={`t-${carrierKey(row)}${tone ? ` s-${tone}` : ""}${locked ? " is-locked" : ""}${checked ? " is-selected" : ""}`}>
-      <td className="stick c0 rowno" data-rowhead={r}>
+      <td className={`stick c0 rowno${pickCls}`} data-rowhead={r}>
         <span className="ol-rowtools">
           {canLock && (
             <input type="checkbox" tabIndex={-1} checked={checked} onChange={(e) => onCheck(row.id, e.target.checked)} aria-label={`Marcar línea ${n}`} />
@@ -398,17 +400,21 @@ export default function LedgerGrid({
 
   const maxR = rows.length - 1;
   const maxC = columns.length - 1;
+  // Con permiso para marcar filas, el teclado llega también a la casilla (columna -1).
+  const minC = canLock ? -1 : 0;
 
   // Si cambian las filas o columnas, la celda activa queda dentro de la hoja.
   useEffect(() => {
-    setActive((a) => ({ r: Math.max(0, Math.min(a.r, maxR)), c: Math.max(0, Math.min(a.c, maxC)) }));
-    setAnchor((a) => ({ r: Math.max(0, Math.min(a.r, maxR)), c: Math.max(0, Math.min(a.c, maxC)) }));
-  }, [maxR, maxC]);
+    setActive((a) => ({ r: Math.max(0, Math.min(a.r, maxR)), c: Math.max(minC, Math.min(a.c, maxC)) }));
+    setAnchor((a) => ({ r: Math.max(0, Math.min(a.r, maxR)), c: Math.max(minC, Math.min(a.c, maxC)) }));
+  }, [maxR, maxC, minC]);
 
   const range = useMemo(() => ({
     r1: Math.min(active.r, anchor.r), r2: Math.max(active.r, anchor.r),
     c1: Math.min(active.c, anchor.c), c2: Math.max(active.c, anchor.c),
   }), [active, anchor]);
+  // Primera columna de datos del rango (la de la casilla no tiene datos que copiar ni editar).
+  const dataC1 = Math.max(0, range.c1);
 
   const focusGrid = useCallback(() => wrapRef.current?.focus({ preventScroll: true }), []);
 
@@ -416,16 +422,18 @@ export default function LedgerGrid({
   useEffect(() => {
     const wrap = wrapRef.current;
     if (!wrap || !wrap.contains(document.activeElement)) return;
-    const td = wrap.querySelector(`td[data-r="${active.r}"][data-c="${active.c}"]`);
+    const td = wrap.querySelector(active.c < 0
+      ? `td[data-rowhead="${active.r}"]`
+      : `td[data-r="${active.r}"][data-c="${active.c}"]`);
     if (td) td.scrollIntoView({ block: "nearest", inline: "nearest" });
   }, [active]);
 
   const move = useCallback((r, c, extend) => {
     const nr = Math.max(0, Math.min(r, maxR));
-    const nc = Math.max(0, Math.min(c, maxC));
+    const nc = Math.max(minC, Math.min(c, maxC));
     setActive({ r: nr, c: nc });
     if (!extend) setAnchor({ r: nr, c: nc });
-  }, [maxR, maxC]);
+  }, [maxR, maxC, minC]);
 
   // ── edición ──
   const cellEditable = useCallback((r, c) => {
@@ -485,10 +493,10 @@ export default function LedgerGrid({
   const rangeCells = useCallback((fn) => {
     const cells = [];
     for (let r = range.r1; r <= range.r2; r += 1) {
-      for (let c = range.c1; c <= range.c2; c += 1) cells.push(fn(r, c));
+      for (let c = dataC1; c <= range.c2; c += 1) cells.push(fn(r, c));
     }
     return cells;
-  }, [range]);
+  }, [range, dataC1]);
 
   const onEditDone = useCallback((draft, where) => {
     const ed = editing;
@@ -521,16 +529,16 @@ export default function LedgerGrid({
   useEffect(() => {
     const inGrid = () => wrapRef.current && wrapRef.current === document.activeElement;
     const onCopy = (e, cut) => {
-      if (!inGrid() || editing) return;
+      if (!inGrid() || editing || range.c2 < 0) return;
       const lines = [];
       for (let r = range.r1; r <= range.r2; r += 1) {
         const cells = [];
-        for (let c = range.c1; c <= range.c2; c += 1) cells.push(copyText(columns[c], rows[r]));
+        for (let c = dataC1; c <= range.c2; c += 1) cells.push(copyText(columns[c], rows[r]));
         lines.push(cells.join("\t"));
       }
       e.clipboardData.setData("text/plain", lines.join("\r\n"));
       e.preventDefault();
-      const n = (range.r2 - range.r1 + 1) * (range.c2 - range.c1 + 1);
+      const n = (range.r2 - range.r1 + 1) * (range.c2 - dataC1 + 1);
       if (cut) {
         const changes = collect(rangeCells((r, c) => ({ r, c, raw: "" })));
         if (changes.length) onChanges(changes);
@@ -551,15 +559,15 @@ export default function LedgerGrid({
       } else {
         lines.forEach((vals, i) => vals.forEach((v, j) => {
           const r = range.r1 + i;
-          const c = range.c1 + j;
+          const c = dataC1 + j;
           if (r <= maxR && c <= maxC) cells.push({ r, c, raw: v.replace(/^"([\s\S]*)"$/, "$1").replace(/""/g, '"') });
         }));
       }
       const changes = collect(cells);
       if (changes.length) onChanges(changes, { label: "pegar" });
       if (!single) {
-        setAnchor({ r: range.r1, c: range.c1 });
-        setActive({ r: Math.min(maxR, range.r1 + lines.length - 1), c: Math.min(maxC, range.c1 + Math.max(...lines.map((l) => l.length)) - 1) });
+        setAnchor({ r: range.r1, c: dataC1 });
+        setActive({ r: Math.min(maxR, range.r1 + lines.length - 1), c: Math.min(maxC, dataC1 + Math.max(...lines.map((l) => l.length)) - 1) });
       }
     };
     const copy = (e) => onCopy(e, false);
@@ -592,11 +600,12 @@ export default function LedgerGrid({
       return;
     }
     if (ctrl && e.shiftKey && (k === "L" || k === "l")) { done(); onFilter(null, null); onMessage("Filtros de columna quitados."); return; }
+    if (c < 0 && !ctrl && !e.altKey && !e.shiftKey && (k === " " || k === "Enter")) { done(); toggleChecked(); return; }
     switch (k) {
       case "ArrowDown": done(); move(ctrl ? maxR : r + 1, c, e.shiftKey); return;
       case "ArrowUp": done(); move(ctrl ? 0 : r - 1, c, e.shiftKey); return;
       case "ArrowRight": done(); move(r, ctrl ? maxC : c + 1, e.shiftKey); return;
-      case "ArrowLeft": done(); move(r, ctrl ? 0 : c - 1, e.shiftKey); return;
+      case "ArrowLeft": done(); move(r, ctrl ? Math.min(c, 0) : c - 1, e.shiftKey); return;
       case "Home": done(); move(ctrl ? 0 : r, 0, e.shiftKey); return;
       case "End": done(); move(ctrl ? maxR : r, maxC, e.shiftKey); return;
       case "PageDown": if (e.altKey) return; done(); move(r + pageRows(), c, e.shiftKey); return;
@@ -645,6 +654,14 @@ export default function LedgerGrid({
     }
   };
 
+  /** Marca o desmarca las filas del rango, según cómo quede la fila activa. */
+  const toggleChecked = () => {
+    const current = rows[active.r];
+    if (!current) return;
+    const on = !checkedIds.has(current.id);
+    for (let r = range.r1; r <= range.r2; r += 1) if (rows[r]) onCheck(rows[r].id, on);
+  };
+
   const toggleBool = () => {
     const col = columns[active.c];
     const row = rows[active.r];
@@ -661,7 +678,7 @@ export default function LedgerGrid({
     if (top < 0) return;
     const cells = [];
     for (let r = top + 1; r <= range.r2; r += 1) {
-      for (let c = range.c1; c <= range.c2; c += 1) {
+      for (let c = dataC1; c <= range.c2; c += 1) {
         const col = columns[c];
         const v = col.get(rows[top]);
         cells.push({ r, c, raw: "", parsed: { value: col.type === "bool" ? Boolean(v) : v === null || v === undefined ? "" : String(v) } });
@@ -679,6 +696,12 @@ export default function LedgerGrid({
   const onMouseDown = (e) => {
     if (e.button !== 0) return;
     const head = e.target.closest("td[data-rowhead]");
+    if (head && e.target.matches('input[type="checkbox"]')) {
+      e.preventDefault(); // el clic igual marca la casilla; el foco se queda en la hoja
+      move(Number(head.dataset.rowhead), -1, false);
+      focusGrid();
+      return;
+    }
     if (head && !e.target.closest("input, button")) {
       e.preventDefault();
       const r = Number(head.dataset.rowhead);
@@ -758,7 +781,8 @@ export default function LedgerGrid({
   return (
     <>
       <div className="ol-fx" aria-live="polite">
-        <span className="ref">{activeCol ? `${activeCol.label} · No. ${activeRow ? lineNumber.get(activeRow.id) : ""}` : ""}</span>
+        <span className="ref">{activeCol ? `${activeCol.label} · No. ${activeRow ? lineNumber.get(activeRow.id) : ""}`
+          : activeRow && active.c < 0 ? `Marcar · No. ${lineNumber.get(activeRow.id)} (Espacio)` : ""}</span>
         <span className="fx">fx</span>
         <span className="val" title={formula}>{formula}</span>
         {formulaOrig !== null && <span className="orig">En la venta: <b>{formulaOrig || "(vacío)"}</b> · Supr para volver a ese dato</span>}
@@ -805,7 +829,7 @@ export default function LedgerGrid({
               return (
                 <GridRow key={row.id} row={row} n={lineNumber.get(row.id)} r={r} columns={columns} widths={widths}
                   canEdit={canEdit} states={cellStates[row.id]}
-                  selC1={inRows ? range.c1 : -1} selC2={inRows ? range.c2 : -2} ac={r === active.r ? active.c : -1}
+                  selC1={inRows ? range.c1 : 0} selC2={inRows ? range.c2 : -2} ac={r === active.r ? active.c : -2}
                   editing={isEditRow ? editing : null} onEditDone={isEditRow ? onEditDone : null}
                   canLock={canLock} canUnlock={canUnlock} checked={checkedIds.has(row.id)} onCheck={onCheck}
                   onToggleLock={onToggleLock} lockTitle={lockTitle} rowTone={rowTone} carrierKey={carrierKey} />
