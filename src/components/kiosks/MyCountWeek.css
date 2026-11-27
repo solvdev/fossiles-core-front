@@ -2,7 +2,8 @@
 .mcw-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; }
 .mcw-head h6 { margin: 0; color: #1e3a8a; }
 .mcw-head small { color: #64748b; }
-.mcw-nav { display: inline-flex; align-items: center; gap: 6px; }
+.mcw-nav { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.mcw-nav select { width: auto; }
 .mcw-nav button { border: 1px solid #dbe3ef; background: #fff; border-radius: 8px; min-width: 32px; height: 32px; cursor: pointer; }
 .mcw-nav .mcw-today { padding: 0 10px; font-size: 0.8rem; }
 .mcw-empty { margin: 10px 0 0; color: #64748b; }
