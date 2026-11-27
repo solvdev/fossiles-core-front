@@ -18,11 +18,13 @@ const visitDay = (visit) => key(visit.actualDate || visit.visitDate);
 
 /**
  * «Tu calendario de la semana»: a qué kiosco le toca ir a la supervisora, qué día y por qué período, con la opción de
- * crear el conteo desde ahí y de cambiar la fecha en que llegó (dentro de la semana y con justificación). Solo muestra
- * las visitas de quien está conectada; para quien no es supervisora no aparece.
+ * crear el conteo desde ahí y de cambiar la fecha en que llegó (dentro de la semana y con justificación). Cada
+ * supervisora ve las suyas; administración puede ver las de cualquiera. Para los demás no aparece.
  */
 export default function MyCountWeek({ onOpenCount }) {
   const [week, setWeek] = useState(null);
+  const [supervisorId, setSupervisorId] = useState(null);
+  const [failed, setFailed] = useState(false);
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -32,18 +34,32 @@ export default function MyCountWeek({ onOpenCount }) {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      setData(await getMyCountWeek(week));
+      setData(await getMyCountWeek(week, supervisorId));
+      setFailed(false);
     } catch {
       setData(null);
+      setFailed(true);
     } finally {
       setLoading(false);
     }
-  }, [week]);
+  }, [week, supervisorId]);
 
   useEffect(() => {
     load();
   }, [load]);
 
+  if (failed) {
+    return (
+      <section className="mcw">
+        <p className="mcw-empty">
+          No se pudo cargar el calendario de la semana.{" "}
+          <button type="button" className="mcw-link" onClick={load}>
+            Reintentar
+          </button>
+        </p>
+      </section>
+    );
+  }
   if (!data?.supervisor) return null;
 
   const start = key(data.weekStart);
@@ -87,11 +103,26 @@ export default function MyCountWeek({ onOpenCount }) {
     <section className="mcw">
       <header className="mcw-head">
         <div>
-          <h6>Tu calendario de la semana</h6>
+          <h6>{data.readOnly ? "Calendario de la semana" : "Tu calendario de la semana"}</h6>
           <small>{weekRange(start)}</small>
         </div>
         <div className="mcw-nav">
           {loading && <Spinner size="sm" />}
+          {data.readOnly && (
+            <Input
+              type="select"
+              bsSize="sm"
+              aria-label="Supervisora"
+              value={data.supervisorUserId}
+              onChange={(e) => setSupervisorId(Number(e.target.value))}
+            >
+              {data.supervisors.map((s) => (
+                <option key={s.userId} value={s.userId}>
+                  {s.name}
+                </option>
+              ))}
+            </Input>
+          )}
           <button type="button" aria-label="Semana anterior" onClick={() => setWeek(addDays(start, -7))}>
             ‹
           </button>
@@ -105,7 +136,7 @@ export default function MyCountWeek({ onOpenCount }) {
       </header>
 
       {data.visits.length === 0 ? (
-        <p className="mcw-empty">No tienes visitas programadas esta semana.</p>
+        <p className="mcw-empty">No hay visitas aprobadas en esta semana.</p>
       ) : (
         <ul className="mcw-list">
           {data.visits.map((visit) => {
@@ -146,9 +177,11 @@ export default function MyCountWeek({ onOpenCount }) {
                       Crear conteo
                     </Button>
                   )}
-                  <button type="button" className="mcw-link" onClick={() => setChanging(visit)}>
-                    Cambiar fecha
-                  </button>
+                  {!data.readOnly && (
+                    <button type="button" className="mcw-link" onClick={() => setChanging(visit)}>
+                      Cambiar fecha
+                    </button>
+                  )}
                 </div>
               </li>
             );
