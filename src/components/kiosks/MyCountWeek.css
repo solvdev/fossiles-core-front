@@ -1,0 +1,29 @@
+.mcw { border: 1px solid #dbe3ef; border-radius: 12px; background: #fff; padding: 14px 16px; margin-bottom: 18px; }
+.mcw-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; }
+.mcw-head h6 { margin: 0; color: #1e3a8a; }
+.mcw-head small { color: #64748b; }
+.mcw-nav { display: inline-flex; align-items: center; gap: 6px; }
+.mcw-nav button { border: 1px solid #dbe3ef; background: #fff; border-radius: 8px; min-width: 32px; height: 32px; cursor: pointer; }
+.mcw-nav .mcw-today { padding: 0 10px; font-size: 0.8rem; }
+.mcw-empty { margin: 10px 0 0; color: #64748b; }
+.mcw-list { list-style: none; margin: 10px 0 0; padding: 0; }
+.mcw-item { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 10px 0; border-top: 1px solid #eef2f7; }
+.mcw-day { width: 52px; text-align: center; border-radius: 10px; background: #f1f5f9; padding: 4px 0; line-height: 1.15; }
+.mcw-day span { display: block; font-size: 0.7rem; text-transform: uppercase; color: #64748b; }
+.mcw-day strong { font-size: 1.15rem; }
+.mcw-day small { display: block; font-size: 0.65rem; font-weight: 700; }
+.mcw-item.is-today .mcw-day { background: #1e3a8a; color: #fff; }
+.mcw-item.is-today .mcw-day span { color: #dbeafe; }
+.mcw-info { flex: 1 1 220px; min-width: 0; display: flex; flex-direction: column; }
+.mcw-info span { font-size: 0.82rem; color: #475569; }
+.mcw-info .mcw-changed { color: #92400e; }
+.mcw-state { font-size: 0.75rem; font-weight: 700; border-radius: 999px; padding: 3px 10px; background: #f1f5f9; color: #475569; }
+.mcw-state.ok { background: #dcfce7; color: #166534; }
+.mcw-state.warn { background: #fef3c7; color: #92400e; }
+.mcw-state.info { background: #dbeafe; color: #1e40af; }
+.mcw-state.late { background: #fee2e2; color: #991b1b; }
+.mcw-actions { display: inline-flex; align-items: center; gap: 10px; margin-left: auto; }
+.mcw-actions .btn { margin: 0; }
+.mcw-link { background: none; border: 0; padding: 0; color: #2563eb; font-size: 0.8rem; font-weight: 600; cursor: pointer; }
+.mcw-field { display: block; margin-bottom: 12px; }
+.mcw-field small { display: block; color: #64748b; }

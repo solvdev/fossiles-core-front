@@ -312,3 +312,25 @@
   background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--c) 8%, #fff), color-mix(in srgb, var(--c) 8%, #fff) 7px, color-mix(in srgb, var(--c) 16%, #fff) 7px, color-mix(in srgb, var(--c) 16%, #fff) 14px);
 }
 .kcc-draft-tag { font-weight: 700; color: #92400e; background: #fef3c7; border: 1px dashed #d97706; border-radius: 999px; padding: 0 7px; font-size: 0.68rem; }
+
+/* Historial de conteos: la hoja se ve igual que el Excel. */
+.kch-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 12px; }
+.kch-step { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.kch-step select { width: auto; }
+.kch-step label { display: inline-flex; align-items: center; gap: 6px; margin: 0; }
+.kch-download { margin-left: auto; }
+.kch-sheet { background: #fff; color: #000; border: 1px solid var(--kcc-line); border-radius: 12px; padding: 16px; overflow-x: auto; font-family: Calibri, Carlito, Arial, sans-serif; }
+.kch-block { min-width: 960px; margin-bottom: 28px; }
+.kch-block:last-child { margin-bottom: 0; }
+.kch-head { display: flex; justify-content: space-between; align-items: stretch; }
+.kch-title { color: #1f4e78; font-size: 1.2rem; padding-left: 34px; }
+.kch-period { min-width: 270px; text-align: center; font-weight: 700; padding: 3px 12px; }
+.kch-sup { margin: 2px 0; }
+.kch-sup strong { margin-left: 24px; }
+.kch-block table { width: 100%; border-collapse: collapse; border: 2px solid #000; font-size: 0.86rem; }
+.kch-block th { background: #9bc2e6; border: 1px solid #000; border-bottom: 3px double #000; text-align: center; padding: 6px 4px; }
+.kch-block td { border: 1px solid #000; padding: 1px 5px; color: #000; }
+.kch-block td.num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.kch-block td.c { text-align: center; }
+.kch-block td.b { font-weight: 700; }
+.kch-block td small { float: right; font-size: 0.72rem; font-weight: 700; margin-left: 8px; }
