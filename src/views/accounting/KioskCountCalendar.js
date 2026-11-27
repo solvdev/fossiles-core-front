@@ -766,6 +766,9 @@ export default function KioskCountCalendar() {
                                   {formatDmy(v.visitDate)}
                                 </span>
                                 {v.dayTotal > 1 && <small>día {v.daySeq} de {v.dayTotal}</small>}
+                                {v.actualDate && (
+                                  <small title={v.changeReason}>Cambió al {formatShort(v.actualDate)}: {v.changeReason}</small>
+                                )}
                               </td>
                               <td>
                                 {v.locationName}
@@ -1088,6 +1091,14 @@ function VisitModal({ visit, month, canEdit, editMode, kiosks, busy, onClose, on
               {visit.dayTotal > 1 && ` · día ${visit.daySeq} de ${visit.dayTotal}`}
             </dd>
           </div>
+          {visit.actualDate && (
+            <div>
+              <dt>Cambio de fecha</dt>
+              <dd>
+                {formatLong(visit.actualDate)} · {visit.changeReason}
+              </dd>
+            </div>
+          )}
           <div>
             <dt>Último conteo</dt>
             <dd>{gapText(visit)}</dd>

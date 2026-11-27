@@ -23,6 +23,7 @@ import { ColorSelector, ProductSelector } from "components/catalog/FilterableCat
 import { FilterableSelect } from "components/distribution/FilterableSelect";
 import { getLocations } from "services/locationService";
 import KioskInventoryCountReport from "./KioskInventoryCountReport";
+import MyCountWeek from "components/kiosks/MyCountWeek";
 import KioskOpeningInventoryTab from "./KioskOpeningInventoryTab";
 import KioskShipmentsTab from "./KioskShipmentsTab";
 import KioskStockQueryModal from "./KioskStockQueryModal";
@@ -154,6 +155,8 @@ function KioskInventory() {
   const [lookupRows, setLookupRows] = useState([]);
   const [lookupLoading, setLookupLoading] = useState(false);
   const [stockQueryOpen, setStockQueryOpen] = useState(false);
+  // Conteo abierto desde «Tu calendario de la semana».
+  const [calendarCount, setCalendarCount] = useState(null);
 
   // Enlace directo desde Contabilidad > Calendario > Liquidación: abre el conteo físico de ese kiosco.
   useEffect(() => {
@@ -1158,6 +1161,16 @@ function KioskInventory() {
             <CardBody>
               {error && <Alert color="danger">{error}</Alert>}
 
+              {activeTab === "CONTEO" && (
+                <MyCountWeek
+                  onOpenCount={(locationId, countId) => {
+                    setSelectedLocation(String(locationId));
+                    onFormChange("locationId", String(locationId));
+                    setCalendarCount({ locationId: String(locationId), countId, at: Date.now() });
+                  }}
+                />
+              )}
+
               {activeTab !== "DONDE_ESTA" && (
               <Row className="mb-3 align-items-end">
                 <Col md="5" sm="8">
@@ -1972,7 +1985,14 @@ function KioskInventory() {
               )}
 
               {activeTab === "CONTEO" && (
-                <KioskInventoryCountReport locationId={selectedLocation} initialCountId={deepCount} />
+                <KioskInventoryCountReport
+                  key={calendarCount?.locationId === selectedLocation ? calendarCount.at : "conteo"}
+                  locationId={selectedLocation}
+                  // Tras abrir uno desde el calendario, el enlace directo ya no aplica.
+                  initialCountId={
+                    !calendarCount ? deepCount : calendarCount.locationId === selectedLocation ? calendarCount.countId : null
+                  }
+                />
               )}
 
               {activeTab === "INVENTARIO_INICIAL" && (

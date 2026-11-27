@@ -75,6 +75,13 @@ export const getLiquidationYear = (year) => apiRequest(`/liquidations/year?year=
 /** Visitas del calendario de un mes con las columnas del Excel de contabilidad. */
 export const getVisitSheet = (month) => apiRequest(`/visits/sheet?month=${encodeURIComponent(month)}`);
 
+/** «Tu calendario de la semana»: las visitas de quien está conectada. */
+export const getMyCountWeek = (week) => apiRequest(week ? `/my-week?week=${encodeURIComponent(week)}` : "/my-week");
+
+/** Cambia la fecha en que la supervisora llega a una visita suya (misma semana, con justificación). */
+export const changeMyVisitDate = (id, date, reason) =>
+  apiRequest(`/my-week/visits/${id}/date`, { method: "POST", body: { date, reason } });
+
 /** Conteos físicos cerrados (historial). */
 export const getCountHistory = () => apiRequest("/history");
 
