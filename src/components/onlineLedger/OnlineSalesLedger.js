@@ -241,6 +241,7 @@ const SHORTCUTS = [
   ["Ctrl+Enter", "Escribir lo mismo en todo el rango"],
   ["Ctrl+;", "Fecha de hoy"],
   ["Espacio", "Marcar o desmarcar «Revisado»"],
+  ["← desde la primera columna, luego Espacio o Enter", "Marcar la casilla de la fila (con rango, todas las filas)"],
   ["Ctrl+Z · Ctrl+Y", "Deshacer · rehacer"],
   ["Filtros", ""],
   ["Alt+↓", "Filtro y orden de la columna activa (▾)"],
