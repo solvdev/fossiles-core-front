@@ -76,7 +76,13 @@ export const getLiquidationYear = (year) => apiRequest(`/liquidations/year?year=
 export const getVisitSheet = (month) => apiRequest(`/visits/sheet?month=${encodeURIComponent(month)}`);
 
 /** «Tu calendario de la semana»: las visitas de quien está conectada. */
-export const getMyCountWeek = (week) => apiRequest(week ? `/my-week?week=${encodeURIComponent(week)}` : "/my-week");
+export const getMyCountWeek = (week, supervisorUserId) => {
+  const params = new URLSearchParams();
+  if (week) params.append("week", week);
+  if (supervisorUserId) params.append("supervisorUserId", String(supervisorUserId));
+  const suffix = params.toString() ? `?${params.toString()}` : "";
+  return apiRequest(`/my-week${suffix}`);
+};
 
 /** Cambia la fecha en que la supervisora llega a una visita suya (misma semana, con justificación). */
 export const changeMyVisitDate = (id, date, reason) =>
