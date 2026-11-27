@@ -75,6 +75,9 @@ export const getLiquidationYear = (year) => apiRequest(`/liquidations/year?year=
 /** Visitas del calendario de un mes con las columnas del Excel de contabilidad. */
 export const getVisitSheet = (month) => apiRequest(`/visits/sheet?month=${encodeURIComponent(month)}`);
 
+/** Conteos físicos cerrados (historial). */
+export const getCountHistory = () => apiRequest("/history");
+
 /** Llena los días libres de la semana con los conteos que aún no tienen fecha de liquidación. */
 export const generateLiquidationWeek = ({ weekStart, supervisorUserIds }) =>
   apiRequest("/liquidations/generate", { method: "POST", body: { weekStart, supervisorUserIds } });

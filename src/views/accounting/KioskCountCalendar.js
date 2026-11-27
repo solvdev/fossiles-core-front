@@ -45,6 +45,7 @@ import {
 import { showError, showSuccess } from "utils/notificationHelper";
 import KioskCountImportModal from "components/accounting/KioskCountImportModal";
 import KioskLiquidationTab from "components/accounting/KioskLiquidationTab";
+import KioskCountHistoryTab from "components/accounting/KioskCountHistoryTab";
 import "./KioskCountCalendar.css";
 
 const REGION_ORDER = ["METROPOLITANA", "CENTRAL", "OCCIDENTE", "SUR", "ORIENTE", "NORTE"];
@@ -462,35 +463,40 @@ export default function KioskCountCalendar() {
           <button type="button" role="tab" aria-selected={section === "liquidation"} className={section === "liquidation" ? "on" : ""} onClick={() => setSection("liquidation")}>
             Liquidación semanal
           </button>
+          <button type="button" role="tab" aria-selected={section === "history"} className={section === "history" ? "on" : ""} onClick={() => setSection("history")}>
+            Historial de conteos
+          </button>
         </div>
 
         <div className="kcc-toolbar">
-          <div className="kcc-month">
-            <button type="button" className="kcc-icon-btn" onClick={() => goToWeek(addDays(weekStart, -7))} aria-label="Semana anterior">
-              ‹
-            </button>
-            <div className="kcc-week-title">
-              <strong>Semana {weekRangeShort(weekStart)}</strong>
-              <small>
-                {monthTitle(month)} ·{" "}
-                {loading
-                  ? "…"
-                  : weekStatus === "all"
-                    ? "Generada"
-                    : weekStatus === "draft"
-                      ? "Borrador por aprobar"
-                      : weekStatus === "some"
-                        ? "Generada en parte"
-                        : "Sin generar"}
-              </small>
+          {section !== "history" && (
+            <div className="kcc-month">
+              <button type="button" className="kcc-icon-btn" onClick={() => goToWeek(addDays(weekStart, -7))} aria-label="Semana anterior">
+                ‹
+              </button>
+              <div className="kcc-week-title">
+                <strong>Semana {weekRangeShort(weekStart)}</strong>
+                <small>
+                  {monthTitle(month)} ·{" "}
+                  {loading
+                    ? "…"
+                    : weekStatus === "all"
+                      ? "Generada"
+                      : weekStatus === "draft"
+                        ? "Borrador por aprobar"
+                        : weekStatus === "some"
+                          ? "Generada en parte"
+                          : "Sin generar"}
+                </small>
+              </div>
+              <button type="button" className="kcc-icon-btn" onClick={() => goToWeek(addDays(weekStart, 7))} aria-label="Semana siguiente">
+                ›
+              </button>
+              <button type="button" className="kcc-link" onClick={() => goToWeek(mondayOf(today))}>
+                Esta semana
+              </button>
             </div>
-            <button type="button" className="kcc-icon-btn" onClick={() => goToWeek(addDays(weekStart, 7))} aria-label="Semana siguiente">
-              ›
-            </button>
-            <button type="button" className="kcc-link" onClick={() => goToWeek(mondayOf(today))}>
-              Esta semana
-            </button>
-          </div>
+          )}
 
           <div className="kcc-seg" role="group" aria-label="Supervisora">
             <button type="button" className={!supervisorId ? "on" : ""} onClick={() => setSupervisorId(null)}>
@@ -581,7 +587,9 @@ export default function KioskCountCalendar() {
           </div>
         )}
 
-        {section === "liquidation" ? (
+        {section === "history" ? (
+          <KioskCountHistoryTab supervisorId={supervisorId} refreshKey={refreshKey} />
+        ) : section === "liquidation" ? (
           <KioskLiquidationTab
             weekStart={weekStart}
             supervisorId={supervisorId}
